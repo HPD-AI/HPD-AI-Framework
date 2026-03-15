@@ -41,6 +41,9 @@
 		/** Callback when pane receives focus */
 		onPaneFocus?: (paneId: string) => void;
 
+		/** Callback when pane(s) are resized */
+		onPaneResize?: (updates: Array<{ panelId: string; newSize: number }>) => void;
+
 		/** Custom snippet for complete control */
 		child?: Snippet<[{ props: Record<string, any>; layoutState: SplitPanelRootState }]>;
 
@@ -64,6 +67,7 @@
 		onLayoutChange,
 		onPaneClose,
 		onPaneFocus,
+		onPaneResize,
 		class: className,
 		child,
 		children,
@@ -94,7 +98,8 @@
 		containerHeight: getContainerHeight,
 		onLayoutChange,
 		onPaneClose,
-		onPaneFocus
+		onPaneFocus,
+		onPaneResize
 	});
 
 	// Expose state for external binding

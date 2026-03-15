@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HPD.Agent.Adapters;
+using HPD.Agent.Adapters.AspNetCore.Verification;
 
 namespace HPD.Agent.Adapters.Tests.Unit;
 
@@ -59,53 +60,64 @@ public class AttributeTests
         usage.ValidOn.Should().HaveFlag(AttributeTargets.Method);
     }
 
-    // ── HpdWebhookSignatureAttribute ──────────────────────────────────
+    // ── HpdPreDispatchAttribute ───────────────────────────────────────
 
     [Fact]
-    public void HpdWebhookSignatureAttribute_StoresFormat()
+    public void HpdPreDispatchAttribute_CanBeInstantiated()
     {
-        var attr = new HpdWebhookSignatureAttribute(HmacFormat.V0TimestampBody);
+        var act = () => new HpdPreDispatchAttribute();
 
-        attr.Format.Should().Be(HmacFormat.V0TimestampBody);
+        act.Should().NotThrow();
     }
 
     [Fact]
-    public void HpdWebhookSignatureAttribute_DefaultSignatureHeader_IsEmpty()
+    public void HpdPreDispatchAttribute_TargetsMethod()
     {
-        var attr = new HpdWebhookSignatureAttribute(HmacFormat.V0TimestampBody);
+        var usage = (AttributeUsageAttribute)typeof(HpdPreDispatchAttribute)
+            .GetCustomAttributes(typeof(AttributeUsageAttribute), false)
+            .Single();
 
-        attr.SignatureHeader.Should().BeEmpty();
+        usage.ValidOn.Should().HaveFlag(AttributeTargets.Method);
     }
 
     [Fact]
-    public void HpdWebhookSignatureAttribute_DefaultTimestampHeader_IsEmpty()
+    public void HpdPreDispatchAttribute_AllowMultiple_IsFalse()
     {
-        var attr = new HpdWebhookSignatureAttribute(HmacFormat.V0TimestampBody);
+        var usage = (AttributeUsageAttribute)typeof(HpdPreDispatchAttribute)
+            .GetCustomAttributes(typeof(AttributeUsageAttribute), false)
+            .Single();
 
-        attr.TimestampHeader.Should().BeEmpty();
+        usage.AllowMultiple.Should().BeFalse();
+    }
+
+    // ── HpdBodyExtractorAttribute ─────────────────────────────────────
+
+    [Fact]
+    public void HpdBodyExtractorAttribute_CanBeInstantiated()
+    {
+        var act = () => new HpdBodyExtractorAttribute();
+
+        act.Should().NotThrow();
     }
 
     [Fact]
-    public void HpdWebhookSignatureAttribute_DefaultWindowSeconds_Is300()
+    public void HpdBodyExtractorAttribute_TargetsMethod()
     {
-        var attr = new HpdWebhookSignatureAttribute(HmacFormat.V0TimestampBody);
+        var usage = (AttributeUsageAttribute)typeof(HpdBodyExtractorAttribute)
+            .GetCustomAttributes(typeof(AttributeUsageAttribute), false)
+            .Single();
 
-        attr.WindowSeconds.Should().Be(300);
+        usage.ValidOn.Should().HaveFlag(AttributeTargets.Method);
     }
 
     [Fact]
-    public void HpdWebhookSignatureAttribute_NamedPropertiesOverrideDefaults()
+    public void HpdBodyExtractorAttribute_AllowMultiple_IsFalse()
     {
-        var attr = new HpdWebhookSignatureAttribute(HmacFormat.V0TimestampBody)
-        {
-            SignatureHeader = "X-Sig",
-            TimestampHeader = "X-TS",
-            WindowSeconds   = 120,
-        };
+        var usage = (AttributeUsageAttribute)typeof(HpdBodyExtractorAttribute)
+            .GetCustomAttributes(typeof(AttributeUsageAttribute), false)
+            .Single();
 
-        attr.SignatureHeader.Should().Be("X-Sig");
-        attr.TimestampHeader.Should().Be("X-TS");
-        attr.WindowSeconds.Should().Be(120);
+        usage.AllowMultiple.Should().BeFalse();
     }
 
     // ── HpdStreamingAttribute ─────────────────────────────────────────

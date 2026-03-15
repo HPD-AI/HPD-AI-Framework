@@ -11,11 +11,10 @@ namespace HPD.Agent.Adapters.SourceGenerator.Generators;
 ///
 /// The generated HandleWebhookAsync method:
 ///   1. Reads body once
-///   2. Verifies HMAC signature (if [HpdWebhookSignature] present)
-///   3. Detects content-type (JSON envelope vs form-urlencoded interactive payload)
-///   4. Deserialises the outer type discriminator
-///   5. Dispatches to the [HpdWebhookHandler] method matching the event type
-///   6. Maps known adapter exceptions to HTTP status codes
+///   2. Calls [HpdPreDispatch] hook if declared (adapter owns verification / challenge bypass)
+///   3. Calls [HpdBodyExtractor] hook if declared, else uses default JSON "type" extraction
+///   4. Dispatches to the [HpdWebhookHandler] method matching the event type
+///   5. Maps known adapter exceptions to HTTP status codes
 /// </summary>
 internal static class DispatchGenerator
 {
@@ -44,7 +43,6 @@ internal static class DispatchGenerator
         sb.AppendLine("using Microsoft.AspNetCore.Http.Extensions;");
         sb.AppendLine("using HPD.Agent.Adapters;");
         sb.AppendLine("using HPD.Agent.Adapters.Contracts;");
-        sb.AppendLine("using HPD.Agent.Adapters.AspNetCore.Verification;");
         sb.AppendLine("using System.Text.Json;");
         sb.AppendLine("using System.Text.Json.Serialization.Metadata;");
         sb.AppendLine();
@@ -59,7 +57,7 @@ internal static class DispatchGenerator
         sb.AppendLine();
 
         // ── Read body once ────────────────────────────────────────────────────
-        sb.AppendLine("        // Read body once — reused for both signature verification and deserialization");
+        sb.AppendLine("        // Read body once — reused for both pre-dispatch hook and deserialization");
         sb.AppendLine("        byte[] bodyBytes;");
         sb.AppendLine("        using (var ms = new System.IO.MemoryStream())");
         sb.AppendLine("        {");
@@ -68,33 +66,30 @@ internal static class DispatchGenerator
         sb.AppendLine("        }");
         sb.AppendLine();
 
-        // ── Signature verification ────────────────────────────────────────────
-        if (adapter.Signature is { } sig)
+        // ── Pre-dispatch hook ─────────────────────────────────────────────────
+        if (adapter.HasPreDispatch)
         {
-            sb.AppendLine("        // url_verification challenge must respond without signature (Slack sends none)");
-            sb.AppendLine("        var _quickType = ExtractEventType(bodyBytes);");
-            sb.AppendLine("        if (_quickType != \"url_verification\")");
-            sb.AppendLine("        {");
-            sb.AppendLine("            // Verify webhook signature");
-            sb.AppendLine($"            if (!WebhookSignatureVerifier.Verify(");
-            sb.AppendLine($"                HmacFormat.{sig.Format},");
-            sb.AppendLine($"                bodyBytes,");
-            sb.AppendLine($"                ctx.Request.Headers,");
-            sb.AppendLine($"                _config.SigningSecret,");
-            sb.AppendLine($"                \"{sig.SignatureHeader}\",");
-            sb.AppendLine($"                \"{sig.TimestampHeader}\",");
-            sb.AppendLine($"                {sig.WindowSeconds}))");
-            sb.AppendLine("            {");
-            sb.AppendLine("                return Results.Unauthorized();");
-            sb.AppendLine("            }");
-            sb.AppendLine("        }");
+            sb.AppendLine("        var preResult = await PreDispatchAsync(ctx, bodyBytes);");
+            sb.AppendLine("        if (preResult is not null) return preResult;");
             sb.AppendLine();
         }
+
+        // ── Body extraction ───────────────────────────────────────────────────
+        if (adapter.HasBodyExtractor)
+        {
+            sb.AppendLine("        var (eventType, dispatchBytes) = ExtractDispatch(ctx, bodyBytes);");
+        }
+        else
+        {
+            sb.AppendLine("        var eventType = ExtractEventType(bodyBytes);");
+            sb.AppendLine("        var dispatchBytes = bodyBytes;");
+        }
+        sb.AppendLine();
 
         // ── Exception wrapper + dispatch ──────────────────────────────────────
         sb.AppendLine("        try");
         sb.AppendLine("        {");
-        sb.AppendLine("            return await DispatchAsync(ctx, bodyBytes, ct);");
+        sb.AppendLine("            return await DispatchByTypeAsync(ctx, dispatchBytes, eventType, ct);");
         sb.AppendLine("        }");
         sb.AppendLine("        catch (AdapterAuthenticationException)  { return Results.Unauthorized(); }");
         sb.AppendLine("        catch (AdapterRateLimitException)       { return Results.StatusCode(429); }");
@@ -103,65 +98,32 @@ internal static class DispatchGenerator
         sb.AppendLine("    }");
         sb.AppendLine();
 
-        // ── Inner dispatch ────────────────────────────────────────────────────
-        sb.AppendLine("    private async Task<IResult> DispatchAsync(");
-        sb.AppendLine("        HttpContext ctx, byte[] bodyBytes, CancellationToken ct)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        var contentType = ctx.Request.ContentType ?? string.Empty;");
-        sb.AppendLine();
-        sb.AppendLine("        // Form-urlencoded interactive payloads (block_actions, view_submission, etc.)");
-        sb.AppendLine("        if (contentType.Contains(\"application/x-www-form-urlencoded\", System.StringComparison.OrdinalIgnoreCase))");
-        sb.AppendLine("        {");
-        sb.AppendLine("            var form = System.Text.Encoding.UTF8.GetString(bodyBytes);");
-        sb.AppendLine("            var payloadJson = System.Web.HttpUtility.ParseQueryString(form)[\"payload\"];");
-        sb.AppendLine("            if (payloadJson != null)");
-        sb.AppendLine("            {");
-        sb.AppendLine("                var interactiveType = ExtractType(System.Text.Encoding.UTF8.GetBytes(payloadJson));");
-        sb.AppendLine("                return await DispatchByTypeAsync(ctx, System.Text.Encoding.UTF8.GetBytes(payloadJson), interactiveType, ct);");
-        sb.AppendLine("            }");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-        sb.AppendLine("        // JSON envelope — extract event type");
-        sb.AppendLine("        var eventType = ExtractEventType(bodyBytes);");
-        sb.AppendLine("        return await DispatchByTypeAsync(ctx, bodyBytes, eventType, ct);");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-
-        // ── Type extraction helpers ───────────────────────────────────────────
-        sb.AppendLine("    private static string? ExtractType(byte[] bodyBytes)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        try");
-        sb.AppendLine("        {");
-        sb.AppendLine("            using var doc = JsonDocument.Parse(bodyBytes);");
-        sb.AppendLine("            if (doc.RootElement.TryGetProperty(\"type\", out var t)) return t.GetString();");
-        sb.AppendLine("        }");
-        sb.AppendLine("        catch { }");
-        sb.AppendLine("        return null;");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-        sb.AppendLine("    private static string? ExtractEventType(byte[] bodyBytes)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        try");
-        sb.AppendLine("        {");
-        sb.AppendLine("            using var doc = JsonDocument.Parse(bodyBytes);");
-        sb.AppendLine("            var root = doc.RootElement;");
-        sb.AppendLine("            // For event_callback envelopes, use the inner event.type");
-        sb.AppendLine("            if (root.TryGetProperty(\"type\", out var outerType))");
-        sb.AppendLine("            {");
-        sb.AppendLine("                var outer = outerType.GetString();");
-        sb.AppendLine("                if (outer == \"event_callback\" &&");
-        sb.AppendLine("                    root.TryGetProperty(\"event\", out var evt) &&");
-        sb.AppendLine("                    evt.TryGetProperty(\"type\", out var innerType))");
-        sb.AppendLine("                {");
-        sb.AppendLine("                    return innerType.GetString();");
-        sb.AppendLine("                }");
-        sb.AppendLine("                return outer;");
-        sb.AppendLine("            }");
-        sb.AppendLine("        }");
-        sb.AppendLine("        catch { }");
-        sb.AppendLine("        return null;");
-        sb.AppendLine("    }");
-        sb.AppendLine();
+        // ── Default ExtractEventType helper (only when no body extractor) ─────
+        if (!adapter.HasBodyExtractor)
+        {
+            sb.AppendLine("    private static string? ExtractEventType(byte[] bodyBytes)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        try");
+            sb.AppendLine("        {");
+            sb.AppendLine("            using var doc = JsonDocument.Parse(bodyBytes);");
+            sb.AppendLine("            var root = doc.RootElement;");
+            sb.AppendLine("            if (root.TryGetProperty(\"type\", out var outerType))");
+            sb.AppendLine("            {");
+            sb.AppendLine("                var outer = outerType.GetString();");
+            sb.AppendLine("                if (outer == \"event_callback\" &&");
+            sb.AppendLine("                    root.TryGetProperty(\"event\", out var evt) &&");
+            sb.AppendLine("                    evt.TryGetProperty(\"type\", out var innerType))");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    return innerType.GetString();");
+            sb.AppendLine("                }");
+            sb.AppendLine("                return outer;");
+            sb.AppendLine("            }");
+            sb.AppendLine("        }");
+            sb.AppendLine("        catch { }");
+            sb.AppendLine("        return null;");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+        }
 
         // ── Switch dispatch ───────────────────────────────────────────────────
         sb.AppendLine("    private async Task<IResult> DispatchByTypeAsync(");

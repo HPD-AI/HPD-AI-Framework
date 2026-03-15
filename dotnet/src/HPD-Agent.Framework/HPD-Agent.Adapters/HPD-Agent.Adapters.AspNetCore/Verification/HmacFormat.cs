@@ -1,7 +1,7 @@
-namespace HPD.Agent.Adapters;
+namespace HPD.Agent.Adapters.AspNetCore.Verification;
 
 /// <summary>
-/// HMAC signing formats supported by <see cref="HPD.Agent.Adapters.Verification.WebhookSignatureVerifier"/>.
+/// HMAC signing formats supported by <see cref="WebhookSignatureVerifier"/>.
 /// </summary>
 public enum HmacFormat
 {

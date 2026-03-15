@@ -334,8 +334,7 @@ export class LayoutHistory {
 		// Update container size if changed
 		this.layoutState.updateContainerSize(snapshot.containerWidth, snapshot.containerHeight);
 
-		// Invalidate caches and recompute (after structural change)
-		// NOTE: afterStructuralChange is private, so we need to add a public method to SplitPanelState
-		// or make this method accessible. For now, rely on updateContainerSize to trigger recompute.
+		// Invalidate path and dimension caches after restoring the tree
+		this.layoutState.invalidatePathCache();
 	}
 }

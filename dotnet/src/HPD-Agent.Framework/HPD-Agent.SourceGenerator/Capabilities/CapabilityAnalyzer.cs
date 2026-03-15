@@ -72,6 +72,20 @@ internal static class MultiAgentDiagnostics
         isEnabledByDefault: true,
         description: "While not required, providing a description for [MultiAgent] methods helps the LLM understand when to invoke the workflow. " +
                     "Use [MultiAgent(\"description\")] or [AIDescription(\"description\")] to add one.");
+
+    /// <summary>
+    /// HPDAG0204: [MultiAgent] method has parameters.
+    /// The source generator always calls the method with no arguments — parameters are not supported.
+    /// </summary>
+    public static readonly DiagnosticDescriptor HasParameters = new(
+        id: "HPDAG0204",
+        title: "MultiAgent method must not have parameters",
+        messageFormat: "[MultiAgent] method '{0}' has parameters, which are not supported. The source generator calls this method with no arguments. Remove all parameters — input is provided via the workflow's input string.",
+        category: "HPDAgent.SourceGenerator",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "The source generator wraps [MultiAgent] methods as AIFunctions and always invokes them with no arguments. " +
+                    "Input to the workflow is passed via the AgentWorkflowInstance.ExecuteStreamingAsync/RunAsync input parameter, not method parameters.");
 }
 
 /// <summary>
@@ -578,6 +592,16 @@ internal static class CapabilityAnalyzer
                 method.ReturnType.GetLocation(),
                 method.Identifier.ValueText,
                 returnType.ToDisplayString()));
+            return null;
+        }
+
+        // Validate no parameters — generator always calls method with no args
+        if (method.ParameterList.Parameters.Count > 0)
+        {
+            diagnostics.Add(Diagnostic.Create(
+                MultiAgentDiagnostics.HasParameters,
+                method.ParameterList.GetLocation(),
+                method.Identifier.ValueText));
             return null;
         }
 

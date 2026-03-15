@@ -1,5 +1,5 @@
 /**
- * SplitPanelSplitState - Bits UI Style Component Wrapper for Split (BranchNode)
+ * SplitPanelSplitState - Component Wrapper for Split (BranchNode)
  *
  * Provides component-level state management for split containers that arrange
  * children along an axis (horizontal/vertical). Represents BranchNode in the layout tree.
@@ -280,14 +280,9 @@ export class SplitPanelSplitState {
 		
 		// Check if all children have element references
 		const allMounted = children.every(c => c.element !== null);
-		
-		// Debug: log mount state
-		console.log('[DOM Order] Split:', this.splitId, 'allMounted:', allMounted, 
-			'children:', children.map(c => ({ id: c.id, type: c.type, hasElement: c.element !== null })));
-		
+
 		if (!allMounted) {
 			// Can't sort by DOM order yet, return as-is
-			console.log('[DOM Order] Falling back to registration order (not all mounted)');
 			return children;
 		}
 
@@ -303,7 +298,6 @@ export class SplitPanelSplitState {
 			return 0;
 		});
 
-		console.log('[DOM Order] Sorted result:', children.map(c => c.id));
 		return children;
 	}
 

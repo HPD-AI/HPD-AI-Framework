@@ -191,7 +191,7 @@ describe.skip('SplitPanelState Property-Based Tests', () => {
 					state.addPanel('p3', [], { size: 100 });
 
 					// Get flex ratios before resize
-					const root = state.root as { type: 'branch'; flexes: Float32Array };
+					const root = state.root as { type: 'branch'; flexes: number[] };
 					const ratiosBefore = Array.from(root.flexes).map((f, i, arr) => {
 						const total = arr.reduce((a, b) => a + b, 0);
 						return total > 0 ? f / total : 0;

@@ -22,15 +22,18 @@ internal static class SkillCodeGenerator
             .OrderBy(p => p)
             .ToList();
 
-        if (!allReferencedToolkits.Any())
-            return string.Empty;
-
         var sb = new StringBuilder();
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// Gets the list of Toolkits referenced by skills in this class");
         sb.AppendLine("        /// Used by AgentBuilder for auto-registration");
         sb.AppendLine("        /// </summary>");
         sb.AppendLine("        public static string[] GetReferencedToolkits()");
+
+        if (!allReferencedToolkits.Any())
+        {
+            sb.AppendLine("            => Array.Empty<string>();");
+            return sb.ToString();
+        }
         sb.AppendLine("        {");
         sb.AppendLine("            return new string[]");
         sb.AppendLine("            {");
@@ -78,15 +81,18 @@ internal static class SkillCodeGenerator
             }
         }
 
-        if (!toolFunctions.Any())
-            return string.Empty;
-
         var sb = new StringBuilder();
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// Gets the specific functions referenced by skills (for selective registration)");
         sb.AppendLine("        /// Used by AgentBuilder to register only needed functions from each Toolkit");
         sb.AppendLine("        /// </summary>");
         sb.AppendLine("        public static Dictionary<string, string[]> GetReferencedFunctions()");
+
+        if (!toolFunctions.Any())
+        {
+            sb.AppendLine("            => new Dictionary<string, string[]>();");
+            return sb.ToString();
+        }
         sb.AppendLine("        {");
         sb.AppendLine("            return new Dictionary<string, string[]>");
         sb.AppendLine("            {");
@@ -331,15 +337,19 @@ internal static class SkillCodeGenerator
         if (!Toolkit.IsCollapsed)
             return string.Empty;
 
-        // Must have at least one capability (function or skill) to collapse
-        if (!Toolkit.FunctionCapabilities.Any() && !Toolkit.SkillCapabilities.Any())
+        // Must have at least one capability of any type to collapse
+        if (!Toolkit.FunctionCapabilities.Any() && !Toolkit.SkillCapabilities.Any()
+            && !Toolkit.SubAgentCapabilities.Any() && !Toolkit.MultiAgentCapabilities.Any()
+            && !Toolkit.MCPServerCapabilities.Any() && !Toolkit.OpenApiCapabilities.Any())
             return string.Empty;
 
         var sb = new StringBuilder();
 
-        // Combine functions, skills, MCP servers, and OpenAPI sources
+        // Combine all capability types
         var allCapabilities = Toolkit.FunctionCapabilities.Select(f => f.FunctionName)
             .Concat(Toolkit.SkillCapabilities.Select(s => s.Name))
+            .Concat(Toolkit.SubAgentCapabilities.Select(s => s.Name))
+            .Concat(Toolkit.MultiAgentCapabilities.Select(m => m.Name))
             .Concat(Toolkit.MCPServerCapabilities.Select(m => m.Name))
             .Concat(Toolkit.OpenApiCapabilities.Select(o => o.Prefix ?? o.Name))
             .ToList();
@@ -654,9 +664,11 @@ internal static class SkillCodeGenerator
             : Toolkit.Description;
         sb.AppendLine($"                Description = \"{description}\",");
 
-        // Include functions, skills, MCP servers, and OpenAPI sources
+        // Include all capability types
         var allFunctionNames = Toolkit.FunctionCapabilities.Select(f => f.FunctionName)
             .Concat(Toolkit.SkillCapabilities.Select(s => s.Name))
+            .Concat(Toolkit.SubAgentCapabilities.Select(s => s.Name))
+            .Concat(Toolkit.MultiAgentCapabilities.Select(m => m.Name))
             .Concat(Toolkit.MCPServerCapabilities.Select(m => m.Name))
             .Concat(Toolkit.OpenApiCapabilities.Select(o => o.Prefix ?? o.Name))
             .ToList();

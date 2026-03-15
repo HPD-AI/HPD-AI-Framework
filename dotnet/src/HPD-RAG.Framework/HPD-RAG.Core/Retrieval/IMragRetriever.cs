@@ -1,3 +1,5 @@
+using HPD.RAG.Core.Filters;
+
 namespace HPD.RAG.Core.Retrieval;
 
 /// <summary>
@@ -8,5 +10,5 @@ namespace HPD.RAG.Core.Retrieval;
 /// </summary>
 public interface IMragRetriever
 {
-    Task<string> RetrieveAsync(string query, CancellationToken ct = default);
+    Task<string> RetrieveAsync(string query, MragFilterNode? filter = null, CancellationToken ct = default);
 }

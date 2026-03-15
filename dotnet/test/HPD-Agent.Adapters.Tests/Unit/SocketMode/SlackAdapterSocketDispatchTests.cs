@@ -36,7 +36,7 @@ public class SlackAdapterSocketDispatchTests
             });
     }
 
-    private static SlackAdapter BuildAdapter()
+    private static HPD.Agent.Adapters.Slack.SlackAdapter BuildAdapter()
     {
         var services = new ServiceCollection();
 
@@ -65,7 +65,7 @@ public class SlackAdapterSocketDispatchTests
             },
             registerDefaultSecretResolver: true);
 
-        return services.BuildServiceProvider().GetRequiredService<SlackAdapter>();
+        return services.BuildServiceProvider().GetRequiredService<HPD.Agent.Adapters.Slack.SlackAdapter>();
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────

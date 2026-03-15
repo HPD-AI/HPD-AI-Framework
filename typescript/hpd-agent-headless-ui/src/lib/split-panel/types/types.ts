@@ -69,6 +69,14 @@ export interface LeafNode {
 
 	/** Unit for initial size: 'percent' or 'pixels' */
 	initialSizeUnit?: 'percent' | 'pixels';
+
+	/**
+	 * False until the user has dragged a handle for the first time.
+	 * When false and initialSizeUnit === 'pixels', recomputeFromFlexes will
+	 * convert the pixel initialSize to a proper flex ratio on first layout pass
+	 * (deferred because container size is unknown at normalizeFlexes time).
+	 */
+	initialFlexSet?: boolean;
 }
 
 /**
@@ -99,7 +107,12 @@ export interface BranchNode {
 	 * - Container resize recomputation
 	 * - Serialization/persistence
 	 */
-	flexes: Float32Array;
+	/**
+	 * NOTE: plain number[] (not Float32Array) so Svelte 5's proxy tracks index writes
+	 * reactively. Float32Array index mutations are invisible to Svelte proxies,
+	 * requiring a manual layoutVersion counter. number[] eliminates that workaround.
+	 */
+	flexes: number[];
 }
 
 /**

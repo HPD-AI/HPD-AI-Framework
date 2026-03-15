@@ -1,3 +1,4 @@
+using HPD.RAG.Core.Filters;
 using HPDAgent.Graph.Abstractions.Channels;
 using HPDAgent.Graph.Abstractions.Context;
 using HPDAgent.Graph.Abstractions.State;
@@ -40,6 +41,15 @@ public sealed class MragPipelineContext : GraphContext
     /// </summary>
     public string? CorpusVersion { get; init; }
 
+    /// <summary>
+    /// Optional filter to scope retrieval results — translated to native vector store syntax
+    /// by the handler's <see cref="IMragFilterTranslator"/> implementation.
+    /// Null means no filter (retrieve broadly across all records).
+    /// Use <see cref="MragFilter"/> to construct: MragFilter.Tag("folder", "/knowledge"),
+    /// MragFilter.And(...), etc.
+    /// </summary>
+    public MragFilterNode? Filter { get; init; }
+
     public MragPipelineContext(
         string executionId,
         HPDAgent.Graph.Abstractions.Graph.Graph graph,
@@ -48,6 +58,7 @@ public sealed class MragPipelineContext : GraphContext
         string? collectionName = null,
         IReadOnlyDictionary<string, string>? runTags = null,
         string? corpusVersion = null,
+        MragFilterNode? filter = null,
         IGraphChannelSet? channels = null,
         IManagedContext? managed = null)
         : base(executionId, graph, services, channels, managed)
@@ -56,6 +67,7 @@ public sealed class MragPipelineContext : GraphContext
         CollectionName = collectionName;
         RunTags = runTags;
         CorpusVersion = corpusVersion;
+        Filter = filter;
     }
 
     /// <inheritdoc/>
@@ -69,6 +81,7 @@ public sealed class MragPipelineContext : GraphContext
             CollectionName,
             RunTags,
             CorpusVersion,
+            Filter,
             CloneChannelsInternal(),
             Managed)
         {

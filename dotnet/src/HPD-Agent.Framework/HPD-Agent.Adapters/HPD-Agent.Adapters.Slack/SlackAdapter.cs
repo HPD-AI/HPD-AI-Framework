@@ -1,8 +1,10 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Web;
 using HPD.Agent;
 using HPD.Agent.Adapters.Cards;
+using HPD.Agent.Adapters.AspNetCore.Verification;
 using HPD.Agent.Adapters.Session;
 using HPD.Agent.Adapters.Slack.Payloads;
 using HPD.Agent.Adapters.Slack.SocketMode;
@@ -118,10 +120,6 @@ internal sealed class DebounceTimer(int debounceMs) : IDisposable
 /// </summary>
 [HpdSocketTransport(typeof(SlackSocketModeService), ConfigProperty = nameof(SlackAdapterConfig.AppToken))]
 [HpdAdapter("slack")]
-[HpdWebhookSignature(HmacFormat.V0TimestampBody,
-    SignatureHeader = "X-Slack-Signature",
-    TimestampHeader = "X-Slack-Request-Timestamp",
-    WindowSeconds   = 300)]
 [HpdStreaming(StreamingStrategy.PostAndEdit, DebounceMs = 500)]
 public partial class SlackAdapter(
     IOptions<SlackAdapterConfig> options,
@@ -133,6 +131,89 @@ public partial class SlackAdapter(
     SlackUserCache userCache)
 {
     private readonly SlackAdapterConfig _config = options.Value;
+
+    // ── Pre-dispatch: signature verification ───────────────────────────────────
+
+    [HpdPreDispatch]
+    private async Task<IResult?> PreDispatchAsync(HttpContext ctx, byte[] bodyBytes)
+    {
+        // url_verification challenge must respond without signature check (Slack sends none)
+        var quickType = ExtractJsonType(bodyBytes);
+        if (quickType == "url_verification")
+            return null; // let it fall through to the handler
+
+        if (!WebhookSignatureVerifier.Verify(
+            HmacFormat.V0TimestampBody,
+            bodyBytes,
+            ctx.Request.Headers,
+            _config.SigningSecret,
+            "X-Slack-Signature",
+            "X-Slack-Request-Timestamp",
+            300))
+        {
+            return Results.Unauthorized();
+        }
+
+        return null; // verified — continue
+    }
+
+    // ── Body extractor: form-urlencoded interactive payloads ───────────────────
+
+    [HpdBodyExtractor]
+    private (string? eventType, byte[] dispatchBytes) ExtractDispatch(
+        HttpContext ctx, byte[] bodyBytes)
+    {
+        // Slack sends interactive payloads (block_actions, view_submission, etc.) as form-urlencoded
+        var contentType = ctx.Request.ContentType ?? "";
+        if (contentType.Contains("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase))
+        {
+            var form = Encoding.UTF8.GetString(bodyBytes);
+            var payloadJson = HttpUtility.ParseQueryString(form)["payload"];
+            if (payloadJson is not null)
+            {
+                var payloadBytes = Encoding.UTF8.GetBytes(payloadJson);
+                return (ExtractJsonType(payloadBytes), payloadBytes);
+            }
+        }
+
+        // JSON events: outer type or inner event.type for event_callback
+        return (ExtractEventType(bodyBytes), bodyBytes);
+    }
+
+    // ── Type extraction helpers ────────────────────────────────────────────────
+
+    private static string? ExtractJsonType(byte[] bodyBytes)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(bodyBytes);
+            if (doc.RootElement.TryGetProperty("type", out var t)) return t.GetString();
+        }
+        catch { }
+        return null;
+    }
+
+    private static string? ExtractEventType(byte[] bodyBytes)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(bodyBytes);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("type", out var outerType))
+            {
+                var outer = outerType.GetString();
+                if (outer == "event_callback" &&
+                    root.TryGetProperty("event", out var evt) &&
+                    evt.TryGetProperty("type", out var innerType))
+                {
+                    return innerType.GetString();
+                }
+                return outer;
+            }
+        }
+        catch { }
+        return null;
+    }
 
     // ── Adapter events (user code subscribes to these) ─────────────────────────
 

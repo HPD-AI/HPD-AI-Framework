@@ -38,6 +38,11 @@
 			"types": "./dist/index.d.ts",
 			"svelte": "./dist/index.js",
 			"default": "./dist/index.js"
+		},
+		"./split-panel": {
+			"types": "./dist/split-panel/index.d.ts",
+			"svelte": "./dist/split-panel/index.js",
+			"default": "./dist/split-panel/index.js"
 		}
 	},
 	"peerDependencies": {

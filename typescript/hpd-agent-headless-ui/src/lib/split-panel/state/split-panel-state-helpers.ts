@@ -142,7 +142,7 @@ export function removePanelRecursive(
 			type: 'branch',
 			axis: node.axis,
 			children: newChildren,
-			flexes: new Float32Array(newFlexes)
+			flexes: newFlexes
 		},
 		found: true
 	};

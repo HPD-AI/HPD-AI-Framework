@@ -1,8 +1,7 @@
 /**
- * SplitPanelPaneState - Bits UI Style Component Wrapper for Panes
+ * SplitPanelPaneState
  *
  * Provides component-level state management for individual panes in the split panel layout.
- * Follows Bits UI patterns with Context access, BoxedValues, and reactive props.
  *
  * Features:
  * - Context-based access to root state
@@ -187,8 +186,6 @@ export class SplitPanelPaneState {
 			// Register this pane with root state
 			this.#rootCleanupFn = this.root._registerPane(
 				id,
-				0, // Initial size (will be computed by layout)
-				this.#collapsed,
 				this.split,
 				config
 			);
@@ -254,8 +251,6 @@ export class SplitPanelPaneState {
 	 * Check if this pane is currently collapsed.
 	 */
 	readonly isCollapsed = $derived.by(() => {
-		// Read layoutVersion to trigger re-computation when layout changes
-		const _version = this.root.layoutVersion;
 		const id = this.opts.id.current;
 		const state = id ? this.root.getPaneState(id) : null;
 		return state?.isCollapsed ?? false;
@@ -265,16 +260,12 @@ export class SplitPanelPaneState {
 	 * Get current pane size in pixels.
 	 */
 	readonly size = $derived.by(() => {
-		// Read layoutVersion to trigger re-computation when layout changes
-		// This is necessary because Svelte 5 may not detect deep mutations
-		const _version = this.root.layoutVersion;
-		
 		const opts = this.opts as any;
 		const paneId = opts.id?.current ?? '';
 		const state = this.root.getPaneState(paneId);
 		const size = state?.size ?? 0;
 		if (this.root.opts.debug) {
-			console.log('[Pane]', paneId, 'computed size:', size, 'version:', _version, 'state:', state);
+			console.log('[Pane]', paneId, 'computed size:', size, 'state:', state);
 		}
 		return size;
 	});
@@ -303,8 +294,9 @@ export class SplitPanelPaneState {
 		const size = this.size;
 		const isCollapsed = this.isCollapsed;
 		
-		// Check if layout has been computed (layoutVersion > 0 means we've had at least one size update)
-		const layoutComputed = this.root.layoutVersion > 0;
+		// Check if layout has been computed: container has received at least one non-zero size
+		const cs = this.root.layoutState.containerSize;
+		const layoutComputed = cs.width > 0 || cs.height > 0;
 
 		let sizeStyle: Record<string, string | number>;
 		

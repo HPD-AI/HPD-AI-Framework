@@ -74,7 +74,7 @@ export class SplitPanelState {
 		type: 'branch',
 		axis: 'row', // Default to horizontal layout (matches most UI patterns)
 		children: [],
-		flexes: new Float32Array([])
+		flexes: []
 	});
 
 	/**
@@ -375,7 +375,9 @@ export class SplitPanelState {
 				maxSize: config.maxSize,
 				snapPoints: config.snapPoints,
 				snapThreshold: config.snapThreshold,
-				autoCollapseThreshold: config.autoCollapseThreshold
+				autoCollapseThreshold: config.autoCollapseThreshold,
+				initialSize: config.initialSize,
+				initialSizeUnit: config.initialSizeUnit
 			};
 
 			// Initialize Spring animation for this panel
@@ -384,22 +386,11 @@ export class SplitPanelState {
 			// Add to parent (Svelte tracks mutation automatically)
 			parent.children = [...parent.children, newLeaf];
 
-			// Resize flexes array to match new children count
-			const newFlexes = new Float32Array(parent.children.length);
-
-			// Copy existing flexes
-			for (let i = 0; i < parent.flexes.length; i++) {
-				newFlexes[i] = parent.flexes[i];
-			}
-
-			// Initialize the new child's flex to 1.0 (will be normalized below)
-			newFlexes[newFlexes.length - 1] = 1.0;
-
-			parent.flexes = newFlexes;
+			// Extend flexes array to match new children count
+			// Spread existing values then append 1.0 for the new child (normalized below)
+			parent.flexes = [...parent.flexes, 1.0];
 
 			this.normalizeFlexes(parent);
-
-			console.log(`[addPanel] After normalize, flexes:`, Array.from(parent.flexes));
 
 			// Refresh caches after structural change (children count changed)
 			this.afterStructuralChange();
@@ -446,7 +437,7 @@ export class SplitPanelState {
 				type: 'branch',
 				axis: 'column',
 				children: [],
-				flexes: new Float32Array([])
+				flexes: []
 			};
 
 			// Clean up Spring animation for this panel
@@ -483,8 +474,6 @@ export class SplitPanelState {
 		const index = path[path.length - 1];
 		const node = parent.children[index] as LeafNode;
 
-		console.log('[TogglePanel] BEFORE:', panelId, 'size:', node.size, 'flex:', parent.flexes[index], 'cachedFlex:', node.cachedFlex);
-
 		if (node.size === 0) {
 			// Expand: restore cached size and flex
 			node.size = node.cachedSize ?? 300;
@@ -494,7 +483,6 @@ export class SplitPanelState {
 			parent.flexes[index] = node.cachedFlex ?? 1.0;
 			node.cachedFlex = undefined;
 			// Don't normalize - preserve the exact flex ratios
-			console.log('[TogglePanel] EXPANDING:', panelId, 'restored size:', node.size, 'restored flex:', parent.flexes[index]);
 		} else {
 			// Collapse: cache current size and flex, then set to 0
 			node.cachedSize = node.size;
@@ -504,15 +492,10 @@ export class SplitPanelState {
 			// Disable flex participation
 			parent.flexes[index] = 0;
 			// Don't normalize - the 0 flex will naturally be excluded from distribution
-			console.log('[TogglePanel] COLLAPSING:', panelId, 'cached size:', node.cachedSize, 'cached flex:', node.cachedFlex);
 		}
-
-		console.log('[TogglePanel] AFTER flexes:', JSON.stringify(parent.flexes));
 
 		// Recompute layout with new flexes
 		this.recomputeFromFlexes(this.root, this.#containerSize);
-
-		console.log('[TogglePanel] AFTER recompute flexes:', JSON.stringify(parent.flexes));
 
 		// Dispatch event
 		this.layoutChangeEvent.dispatch(window, {
@@ -628,10 +611,17 @@ export class SplitPanelState {
 				type: 'branch',
 				axis: node.axis,
 				children: newChildren,
-				flexes: new Float32Array(newFlexes)
+				flexes: newFlexes
 			},
 			found: true
 		};
+	}
+
+	/**
+	 * Invalidate all path and dimension caches (called after undo/redo restores a snapshot).
+	 */
+	invalidatePathCache(): void {
+		this.afterStructuralChange();
 	}
 
 	private afterStructuralChange(): void {
@@ -750,9 +740,34 @@ export class SplitPanelState {
 					}
 				}
 			} else {
-				// No percentage sizes, use equal distribution for active children
-				for (let i = 0; i < branch.children.length; i++) {
-					branch.flexes[i] = activeIndices.includes(i) ? 1.0 : 0;
+				// Check if any active leaf has pixel-based initialSize
+				let hasPixelSizes = false;
+				for (const idx of activeIndices) {
+					const child = branch.children[idx];
+					if (child.type === 'leaf' && child.initialSize !== undefined && child.initialSizeUnit === 'pixels') {
+						hasPixelSizes = true;
+						break;
+					}
+				}
+
+				if (hasPixelSizes) {
+					// Pixel-sized panes: defer flex-to-pixel conversion to recomputeFromFlexes
+					// (container size is unknown here). Give equal flex as placeholder and mark
+					// initialFlexSet=false so recomputeFromFlexes can fix it on first layout pass.
+					for (let i = 0; i < branch.children.length; i++) {
+						branch.flexes[i] = activeIndices.includes(i) ? 1.0 : 0;
+					}
+					for (const idx of activeIndices) {
+						const child = branch.children[idx];
+						if (child.type === 'leaf' && child.initialSize !== undefined && child.initialSizeUnit === 'pixels') {
+							child.initialFlexSet = false;
+						}
+					}
+				} else {
+					// No percentage or pixel sizes, use equal distribution for active children
+					for (let i = 0; i < branch.children.length; i++) {
+						branch.flexes[i] = activeIndices.includes(i) ? 1.0 : 0;
+					}
 				}
 			}
 			return;
@@ -924,12 +939,72 @@ export class SplitPanelState {
 			}
 		}
 
+		// Deferred pixel-to-flex conversion: runs on first layout pass when container size
+		// is known. Any active leaf with initialFlexSet===false and initialSizeUnit==='pixels'
+		// gets its flex recomputed from its pixel initialSize relative to availableMain.
+		if (availableMain > 0) {
+			let anyDeferred = false;
+			for (const idx of active) {
+				const child = node.children[idx];
+				if (
+					child.type === 'leaf' &&
+					child.initialFlexSet === false &&
+					child.initialSize !== undefined &&
+					child.initialSizeUnit === 'pixels'
+				) {
+					anyDeferred = true;
+					break;
+				}
+			}
+
+			if (anyDeferred) {
+				// Compute flex for pixel-pinned panes first
+				let pixelFlexSum = 0;
+				let pixelCount = 0;
+				const pixelIndices = new Set<number>();
+
+				for (const idx of active) {
+					const child = node.children[idx];
+					if (
+						child.type === 'leaf' &&
+						child.initialFlexSet === false &&
+						child.initialSize !== undefined &&
+						child.initialSizeUnit === 'pixels'
+					) {
+						// flex proportional to pixel value; will renormalize below
+						node.flexes[idx] = child.initialSize;
+						pixelFlexSum += child.initialSize;
+						pixelCount++;
+						pixelIndices.add(idx);
+						child.initialFlexSet = true;
+					}
+				}
+
+				// Unsized panes share the remaining space equally.
+				// Use average of pixel-sized panes as their weight so the proportions hold.
+				const unsizedIndices = active.filter(i => !pixelIndices.has(i));
+				const avgPixelFlex = pixelCount > 0 ? pixelFlexSum / pixelCount : availableMain / active.length;
+				for (const idx of unsizedIndices) {
+					node.flexes[idx] = avgPixelFlex;
+				}
+
+				// Renormalize so sum of active flexes === active.length (invariant)
+				const rawSum = active.reduce((s, i) => s + node.flexes[i], 0);
+				if (rawSum > SplitPanelState.FLEX_EPS) {
+					const scale = active.length / rawSum;
+					for (const idx of active) {
+						node.flexes[idx] *= scale;
+					}
+				}
+			}
+		}
+
 		// Calculate sum of active flexes for proportional distribution
 		let totalFlex = 0;
 		for (const idx of active) {
 			totalFlex += node.flexes[idx];
 		}
-		
+
 		// Fallback if all flexes are 0 (shouldn't happen but be safe)
 		if (totalFlex <= SplitPanelState.FLEX_EPS) {
 			totalFlex = active.length;
@@ -979,7 +1054,7 @@ export class SplitPanelState {
 	/**
 	 * Update flexes after a size change.
 	 */
-	private updateFlexes(branch: BranchNode, changedIndex: number): void {
+	private updateFlexes(branch: BranchNode): void {
 		const active = this.getActiveChildIndices(branch);
 		if (active.length === 0) return;
 
@@ -1025,8 +1100,6 @@ export class SplitPanelState {
 	 * @param delta - Pixels to move in positive direction (right/down)
 	 */
 	resizeDivider(parentPath: number[], dividerIndex: number, delta: number): Result<void> {
-		console.log('[ResizeDivider] parentPath:', parentPath, 'dividerIndex:', dividerIndex, 'delta:', delta);
-		
 		// Encode resize key for batching
 		const key = this.encodeResizeKey(parentPath, dividerIndex);
 
@@ -1158,9 +1231,6 @@ export class SplitPanelState {
 			return affectedPanels; // Parent must be branch
 		}
 
-		console.log('[ApplyDividerResize] dividerIndex:', dividerIndex, 'delta:', delta, 'children:', parent.children.length);
-		console.log('[ApplyDividerResize] flexes:', JSON.stringify(parent.flexes));
-
 		// dividerIndex is the PHYSICAL divider index:
 		// - dividerIndex 0 is between children[0] and children[1]
 		// - dividerIndex 1 is between children[1] and children[2]
@@ -1173,7 +1243,6 @@ export class SplitPanelState {
 
 		// Validate physical divider index bounds
 		if (dividerIndex < 0 || dividerIndex >= parent.children.length - 1) {
-			console.log('[ApplyDividerResize] EARLY RETURN: divider out of bounds');
 			return affectedPanels; // Divider out of bounds
 		}
 
@@ -1197,8 +1266,6 @@ export class SplitPanelState {
 			}
 		}
 
-		console.log('[ApplyDividerResize] leftIdx:', leftIdx, 'rightIdx:', rightIdx);
-
 		// Handle collapsed panes - allow handle to expand them
 		// If no active child on left side, use the immediate left neighbor (collapsed pane)
 		if (leftIdx === -1) {
@@ -1214,7 +1281,6 @@ export class SplitPanelState {
 
 		// If both sides are collapsed, we still can't resize (nothing to take from)
 		if (leftIsCollapsed && rightIsCollapsed) {
-			console.log('[ApplyDividerResize] EARLY RETURN: both sides collapsed');
 			return affectedPanels;
 		}
 
@@ -1226,9 +1292,6 @@ export class SplitPanelState {
 		// Pass parentAxis to sizeAlongAxis so leaves use correct cached dimension
 		const leftSize = this.sizeAlongAxis(leftChild, parentAxis, parentAxis);
 		const rightSize = this.sizeAlongAxis(rightChild, parentAxis, parentAxis);
-		
-		console.log('[ApplyDividerResize] leftChild:', leftChild.type === 'leaf' ? leftChild.id : 'branch', 
-			'leftSize:', leftSize, 'rightChild:', rightChild.type === 'leaf' ? rightChild.id : 'branch', 'rightSize:', rightSize);
 
 		// Proposed allocation: zero-sum game
 		let newLeftSize = leftSize + delta;
@@ -1348,18 +1411,10 @@ export class SplitPanelState {
 			}
 		}
 
-		console.log('[ApplyDividerResize] Before auto-collapse check:',
-			'leftChild:', leftChild.type === 'leaf' ? leftChild.id : 'branch',
-			'leftSize:', leftSize, '→', newLeftSize,
-			'rightChild:', rightChild.type === 'leaf' ? rightChild.id : 'branch',
-			'rightSize:', rightSize, '→', newRightSize);
-
 		// Auto-collapse if below threshold
 		const leftCollapseThreshold =
 			leftChild.type === 'leaf' ? (leftChild.autoCollapseThreshold ?? 50) : 0;
 		if (newLeftSize < leftCollapseThreshold && newLeftSize > 0) {
-			console.log('[AutoCollapse] LEFT triggering:', leftChild.type === 'leaf' ? leftChild.id : 'branch', 
-				'newSize:', newLeftSize, 'threshold:', leftCollapseThreshold);
 			// Cache size and flex before collapsing
 			if (leftChild.type === 'leaf') {
 				leftChild.cachedSize = leftSize;
@@ -1372,8 +1427,6 @@ export class SplitPanelState {
 		const rightCollapseThreshold =
 			rightChild.type === 'leaf' ? (rightChild.autoCollapseThreshold ?? 50) : 0;
 		if (newRightSize < rightCollapseThreshold && newRightSize > 0) {
-			console.log('[AutoCollapse] RIGHT triggering:', rightChild.type === 'leaf' ? rightChild.id : 'branch',
-				'newSize:', newRightSize, 'threshold:', rightCollapseThreshold);
 			// Cache size and flex before collapsing
 			if (rightChild.type === 'leaf') {
 				rightChild.cachedSize = rightSize;
@@ -1423,7 +1476,7 @@ export class SplitPanelState {
 			// Don't normalize - preserve flex ratios
 		} else {
 			// Update flex proportionally
-			this.updateFlexes(parent, index);
+			this.updateFlexes(parent);
 		}
 
 		// Trigger Spring animation
@@ -1466,13 +1519,10 @@ export class SplitPanelState {
 		const activeCount = active.length;
 		if (activeCount === 0) return;
 
-		// Compute current px allocations for all active children (using hot-path to get fresh sizes)
-		const allocs: number[] = [];
+		// Sum current px allocations of all active children
 		let currentTotal = 0;
 		for (const activeIdx of active) {
-			const size = this.sizeAlongAxis(parent.children[activeIdx], parent.axis, parent.axis);
-			allocs.push(size);
-			currentTotal += size;
+			currentTotal += this.sizeAlongAxis(parent.children[activeIdx], parent.axis, parent.axis);
 		}
 
 		if (currentTotal === 0) return;
@@ -1781,7 +1831,7 @@ export class SplitPanelState {
 			type: 'branch',
 			axis: data.axis,
 			children: data.children.map((c: SerializedNode) => this.deserializeNode(c)),
-			flexes: new Float32Array(data.flexes)
+			flexes: [...data.flexes]
 		};
 	}
 }

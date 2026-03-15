@@ -49,7 +49,7 @@ export interface SplitPanelHandleStateOpts
 
 			/**
 			 * Double-click to reset adjacent panes to equal sizes.
-			 * Common IDE pattern for quick layout reset.
+			 * Common pattern for quick layout reset.
 			 * @default true
 			 */
 			resetOnDoubleClick?: boolean;
@@ -126,9 +126,6 @@ export class SplitPanelHandleState {
 		this.opts = opts;
 		this.root = root;
 		this.parentSplit = parentSplit;
-
-		// Debug: log which split this handle is associated with
-		console.log('[Handle] Created with parentSplit:', parentSplit?.splitId, 'axis:', parentSplit?.internalAxis);
 
 		// Auto-register with parent split to get divider index
 		this.#autoComputedDividerIndex = parentSplit?._registerHandle() ?? 0;
@@ -209,28 +206,26 @@ export class SplitPanelHandleState {
 		return this.axis === 'row' ? 'horizontal' : 'vertical';
 	});
 
-	readonly props = $derived.by(
-		() =>
-			({
-				role: 'separator',
-				'aria-label': `Resize ${this.axis === 'row' ? 'horizontally' : 'vertically'}`,
-				'aria-orientation': this.orientation,
-				'aria-valuenow': 50, // TODO: Calculate actual position percentage
-				'aria-disabled': this.isDisabled ? 'true' : undefined,
-				tabindex: this.isDisabled ? -1 : 0,
-				[splitPanelAttrs.handle]: '',
-				'data-orientation': this.orientation,
-				'data-state': this.#isDragging ? 'dragging' : 'idle',
-				'data-disabled': this.isDisabled ? '' : undefined,
-				// Debug attributes - remove in production
-				'data-debug-parent-path': this.parentPath.join(','),
-				'data-debug-divider-index': this.dividerIndex,
-				'data-debug-axis': this.axis,
-				style: `cursor: ${this.cursor};`,
-				onpointerdown: this.onpointerdown,
-				onkeydown: this.onkeydown
-			}) as const
-	);
+	readonly props = $derived.by(() => ({
+		role: 'separator',
+		'aria-label': `Resize ${this.axis === 'row' ? 'horizontally' : 'vertically'}`,
+		'aria-orientation': this.orientation,
+		'aria-valuenow': 50, // TODO: Calculate actual position percentage
+		'aria-disabled': this.isDisabled ? 'true' : undefined,
+		tabindex: this.isDisabled ? -1 : 0,
+		[splitPanelAttrs.handle]: '',
+		'data-orientation': this.orientation,
+		'data-state': this.#isDragging ? 'dragging' : 'idle',
+		'data-disabled': this.isDisabled ? '' : undefined,
+		...(this.root.opts.debug ? {
+			'data-debug-parent-path': this.parentPath.join(','),
+			'data-debug-divider-index': this.dividerIndex,
+			'data-debug-axis': this.axis,
+		} : {}),
+		style: `cursor: ${this.cursor};`,
+		onpointerdown: this.onpointerdown,
+		onkeydown: this.onkeydown
+	}));
 
 	/**
 	 * Snippet props exposed to consumers.
@@ -286,8 +281,6 @@ export class SplitPanelHandleState {
 					this.#isDragging = true;
 					// Notify root that dragging started (for user-select: none)
 					this.root._startDragging();
-					// Debug: log which path/divider this handle is using
-					console.log('[Handle] Drag started - parentPath:', this.parentPath, 'dividerIndex:', this.dividerIndex, 'axis:', this.axis);
 				}
 
 				// Calculate delta based on axis
@@ -371,8 +364,8 @@ export class SplitPanelHandleState {
 	 * Gets the parent node and sets equal flex values for children adjacent to this divider.
 	 */
 	#resetAdjacentPanes = () => {
-		const parentPath = this.opts.parentPath?.current ?? [];
-		const dividerIndex = this.opts.dividerIndex?.current ?? 0;
+		const parentPath = this.parentPath;
+		const dividerIndex = this.dividerIndex;
 
 		// Access the internal layoutState to get the tree structure
 		const layoutState = this.root.layoutState as any;
@@ -400,7 +393,10 @@ export class SplitPanelHandleState {
 			parent.flexes[rightIndex] = 0.5;
 
 			// Trigger layout recompute
-			layoutState.recomputeLayout();
+			this.root.layoutState.updateContainerSize(
+				this.root.opts.containerWidth(),
+				this.root.opts.containerHeight()
+			);
 		} catch (error) {
 			console.error('Failed to reset adjacent panes:', error);
 		}
@@ -411,8 +407,8 @@ export class SplitPanelHandleState {
 	 * Finds the first leaf node adjacent to this divider and toggles its collapsed state.
 	 */
 	#toggleNearestCollapsiblePane = () => {
-		const parentPath = this.opts.parentPath?.current ?? [];
-		const dividerIndex = this.opts.dividerIndex?.current ?? 0;
+		const parentPath = this.parentPath;
+		const dividerIndex = this.dividerIndex;
 
 		// Access the internal layoutState
 		const layoutState = this.root.layoutState as any;
@@ -476,25 +472,21 @@ export class SplitPanelHandleState {
 		let delta = 0;
 
 		// Determine delta based on axis and key
+		// 'row' axis = children horizontal = handle is vertical bar = drag left/right
+		// 'column' axis = children vertical = handle is horizontal bar = drag up/down
 		if (this.axis === 'row') {
-			// Horizontal divider: Up/Down arrows
-			if (e.key === 'ArrowUp') delta = -step;
-			else if (e.key === 'ArrowDown') delta = step;
-		} else {
-			// Vertical divider: Left/Right arrows
 			if (e.key === 'ArrowLeft') delta = -step;
 			else if (e.key === 'ArrowRight') delta = step;
+		} else {
+			if (e.key === 'ArrowUp') delta = -step;
+			else if (e.key === 'ArrowDown') delta = step;
 		}
 
 		if (delta !== 0) {
 			e.preventDefault();
 			e.stopPropagation();
 
-			// Perform resize via root state
-			const parentPath = this.opts.parentPath?.current ?? [];
-			const dividerIndex = this.opts.dividerIndex?.current ?? 0;
-
-			this.root.layoutState.resizeDivider(parentPath, dividerIndex, delta);
+			this.root.layoutState.resizeDivider(this.parentPath, this.dividerIndex, delta);
 		}
 	};
 }

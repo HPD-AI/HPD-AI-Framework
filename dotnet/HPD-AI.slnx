@@ -32,6 +32,7 @@
     <Project Path="src/shared/HPD-Graph/HPD-Graph.Core/HPD-Graph.Core.csproj" />
     <Project Path="src/shared/HPD-Graph/HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj" />
     <Project Path="src/shared/HPD.OpenApi.Core/HPD.OpenApi.Core.csproj" />
+    <Project Path="src/shared/HPD-VCS/HPD-VCS.csproj" />
     <Project Path="src/shared/Helium/src/Helium.Primitives/Helium.Primitives.csproj" />
     <Project Path="src/shared/Helium/src/Helium.Native/Helium.Native.csproj" />
     <Project Path="src/shared/Helium/src/Helium.Algebra/Helium.Algebra.csproj" />

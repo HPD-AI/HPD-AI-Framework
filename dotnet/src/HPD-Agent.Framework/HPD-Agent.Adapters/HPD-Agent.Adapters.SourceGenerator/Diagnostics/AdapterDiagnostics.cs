@@ -77,4 +77,22 @@ internal static class AdapterDiagnostics
         category:           Category,
         defaultSeverity:    DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    /// <summary>HPDA009: [HpdPreDispatch] method has wrong signature.</summary>
+    public static readonly DiagnosticDescriptor PreDispatchWrongSignature = new(
+        id:                 "HPDA009",
+        title:              "[HpdPreDispatch] method has wrong signature",
+        messageFormat:      "Method '{0}' decorated with [HpdPreDispatch] must be 'private/internal async Task<IResult?>(HttpContext ctx, byte[] bodyBytes)'",
+        category:           Category,
+        defaultSeverity:    DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>HPDA010: [HpdBodyExtractor] method has wrong signature.</summary>
+    public static readonly DiagnosticDescriptor BodyExtractorWrongSignature = new(
+        id:                 "HPDA010",
+        title:              "[HpdBodyExtractor] method has wrong signature",
+        messageFormat:      "Method '{0}' decorated with [HpdBodyExtractor] must be 'private/internal (string? eventType, byte[] dispatchBytes)(HttpContext ctx, byte[] bodyBytes)'",
+        category:           Category,
+        defaultSeverity:    DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }

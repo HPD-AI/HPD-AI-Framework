@@ -15,18 +15,13 @@ internal sealed record AdapterInfo(
     string Name,
     string ClassName,
     string Namespace,
-    SignatureInfo? Signature,
     StreamingInfo? Streaming,
     IReadOnlyList<HandlerInfo> Handlers,
     bool HasPermissionHandler,
     string? SocketTransportTypeFqn,   // null if no [HpdSocketTransport]
-    string? SocketConfigProperty);    // e.g. "AppToken"
-
-internal sealed record SignatureInfo(
-    string Format,
-    string SignatureHeader,
-    string TimestampHeader,
-    int WindowSeconds);
+    string? SocketConfigProperty,     // e.g. "AppToken"
+    bool HasPreDispatch,
+    bool HasBodyExtractor);
 
 internal sealed record StreamingInfo(
     string Strategy,
@@ -48,12 +43,13 @@ public sealed class AdapterSourceGenerator : IIncrementalGenerator
 {
     private const string HpdAdapterAttribute           = "HPD.Agent.Adapters.HpdAdapterAttribute";
     private const string HpdWebhookHandlerAttribute    = "HPD.Agent.Adapters.HpdWebhookHandlerAttribute";
-    private const string HpdWebhookSignatureAttribute  = "HPD.Agent.Adapters.HpdWebhookSignatureAttribute";
     private const string HpdStreamingAttribute         = "HPD.Agent.Adapters.HpdStreamingAttribute";
     private const string HpdPermissionHandlerAttribute = "HPD.Agent.Adapters.HpdPermissionHandlerAttribute";
     private const string WebhookPayloadAttribute       = "HPD.Agent.Adapters.WebhookPayloadAttribute";
     private const string HpdSocketTransportAttribute   = "HPD.Agent.Adapters.HpdSocketTransportAttribute";
     private const string AdapterWebSocketServiceFqn    = "HPD.Agent.Adapters.AdapterWebSocketService";
+    private const string HpdPreDispatchAttribute       = "HPD.Agent.Adapters.HpdPreDispatchAttribute";
+    private const string HpdBodyExtractorAttribute     = "HPD.Agent.Adapters.HpdBodyExtractorAttribute";
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -156,24 +152,6 @@ public sealed class AdapterSourceGenerator : IIncrementalGenerator
 
         var adapterName = adapterAttr.ConstructorArguments.FirstOrDefault().Value as string ?? symbol.Name.ToLower();
 
-        // Read [HpdWebhookSignature]
-        SignatureInfo? signature = null;
-        var sigAttr = symbol.GetAttributes()
-            .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == HpdWebhookSignatureAttribute);
-        if (sigAttr is not null)
-        {
-            // The ConstructorArgument is an enum value — get the member name, not the numeric value.
-            var formatArg    = sigAttr.ConstructorArguments.FirstOrDefault();
-            var formatMember = formatArg.Type?.GetMembers()
-                .OfType<IFieldSymbol>()
-                .FirstOrDefault(f => Equals(f.ConstantValue, formatArg.Value));
-            var format    = formatMember?.Name ?? "V0TimestampBody";
-            var sigHeader = sigAttr.NamedArguments.FirstOrDefault(n => n.Key == "SignatureHeader").Value.Value as string ?? "";
-            var tsHeader  = sigAttr.NamedArguments.FirstOrDefault(n => n.Key == "TimestampHeader").Value.Value as string ?? "";
-            var window    = (int)(sigAttr.NamedArguments.FirstOrDefault(n => n.Key == "WindowSeconds").Value.Value ?? 300);
-            signature     = new SignatureInfo(format, sigHeader, tsHeader, window);
-        }
-
         // Read [HpdStreaming] — HPD-A003: must not appear more than once
         var streamingAttrs = symbol.GetAttributes()
             .Where(a => a.AttributeClass?.ToDisplayString() == HpdStreamingAttribute)
@@ -196,8 +174,10 @@ public sealed class AdapterSourceGenerator : IIncrementalGenerator
         }
 
         // Read [HpdWebhookHandler] methods — HPD-A002: must be private or internal
-        var handlers          = new List<HandlerInfo>();
+        var handlers           = new List<HandlerInfo>();
         var permissionHandlers = 0;
+        var hasPreDispatch     = false;
+        var hasBodyExtractor   = false;
 
         foreach (var member in symbol.GetMembers().OfType<IMethodSymbol>())
         {
@@ -205,6 +185,36 @@ public sealed class AdapterSourceGenerator : IIncrementalGenerator
             var hasPermAttr = member.GetAttributes()
                 .Any(a => a.AttributeClass?.ToDisplayString() == HpdPermissionHandlerAttribute);
             if (hasPermAttr) permissionHandlers++;
+
+            // Detect [HpdPreDispatch] — HPDA009: must have exactly 2 parameters
+            if (member.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == HpdPreDispatchAttribute))
+            {
+                if (member.Parameters.Length != 2)
+                {
+                    var loc = member.Locations.FirstOrDefault() ?? node.GetLocation();
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        AdapterDiagnostics.PreDispatchWrongSignature, loc, member.Name));
+                }
+                else
+                {
+                    hasPreDispatch = true;
+                }
+            }
+
+            // Detect [HpdBodyExtractor] — HPDA010: must have exactly 2 parameters
+            if (member.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == HpdBodyExtractorAttribute))
+            {
+                if (member.Parameters.Length != 2)
+                {
+                    var loc = member.Locations.FirstOrDefault() ?? node.GetLocation();
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        AdapterDiagnostics.BodyExtractorWrongSignature, loc, member.Name));
+                }
+                else
+                {
+                    hasBodyExtractor = true;
+                }
+            }
 
             var handlerAttrs = member.GetAttributes()
                 .Where(a => a.AttributeClass?.ToDisplayString() == HpdWebhookHandlerAttribute)
@@ -283,11 +293,12 @@ public sealed class AdapterSourceGenerator : IIncrementalGenerator
             Name:                   adapterName,
             ClassName:              symbol.Name,
             Namespace:              symbol.ContainingNamespace.ToDisplayString(),
-            Signature:              signature,
             Streaming:              streaming,
             Handlers:               handlers,
             HasPermissionHandler:   permissionHandlers >= 1,
             SocketTransportTypeFqn: socketTransportTypeFqn,
-            SocketConfigProperty:   socketConfigProperty);
+            SocketConfigProperty:   socketConfigProperty,
+            HasPreDispatch:         hasPreDispatch,
+            HasBodyExtractor:       hasBodyExtractor);
     }
 }

@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using HPD.Events.Core;
 using HPD.RAG.Core.Context;
 using HPD.RAG.Core.Events;
+using HPD.RAG.Core.Filters;
 using HPD.RAG.Core.Retrieval;
 using HPD.RAG.Pipeline.Internal;
 using HPDAgent.Graph.Abstractions.Context;
@@ -49,8 +50,8 @@ public sealed class MragRetrievalPipeline : IMragRetriever
     /// the formatted context string produced by the terminal FormatContextHandler node.
     /// Uses the pipeline's built-in service provider.
     /// </summary>
-    public Task<string> RetrieveAsync(string query, CancellationToken ct = default)
-        => RetrieveAsync(query, _pipelineServices, ct);
+    public Task<string> RetrieveAsync(string query, MragFilterNode? filter = null, CancellationToken ct = default)
+        => RetrieveAsync(query, filter, _pipelineServices, ct);
 
     // ------------------------------------------------------------------ //
     // RetrieveAsync (application-provider overload)                       //
@@ -60,15 +61,17 @@ public sealed class MragRetrievalPipeline : IMragRetriever
     /// Executes the retrieval pipeline and returns the formatted context string.
     /// </summary>
     /// <param name="query">Natural-language query to retrieve context for.</param>
+    /// <param name="filter">Optional filter to scope retrieval (folder, tags, etc.).</param>
     /// <param name="services">Application <see cref="IServiceProvider"/> with handler registrations.</param>
     /// <param name="ct">Cancellation token.</param>
     public async Task<string> RetrieveAsync(
         string query,
+        MragFilterNode? filter,
         IServiceProvider services,
         CancellationToken ct = default)
     {
         var eventCoordinator = new EventCoordinator();
-        var context = BuildContext(query, services, eventCoordinator);
+        var context = BuildContext(query, filter, services, eventCoordinator);
 
         var orchestrator = new GraphOrchestrator<MragPipelineContext>(
             services,
@@ -119,7 +122,7 @@ public sealed class MragRetrievalPipeline : IMragRetriever
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var eventCoordinator = new EventCoordinator();
-        var context = BuildContext(query, services, eventCoordinator);
+        var context = BuildContext(query, null, services, eventCoordinator);
 
         var orchestrator = new GraphOrchestrator<MragPipelineContext>(
             services,
@@ -160,13 +163,14 @@ public sealed class MragRetrievalPipeline : IMragRetriever
     // Helpers                                                              //
     // ------------------------------------------------------------------ //
 
-    private MragPipelineContext BuildContext(string query, IServiceProvider services, EventCoordinator ec)
+    private MragPipelineContext BuildContext(string query, MragFilterNode? filter, IServiceProvider services, EventCoordinator ec)
     {
         var ctx = new MragPipelineContext(
             executionId: Guid.NewGuid().ToString("N"),
             graph: _graph,
             services: services,
-            pipelineName: PipelineName)
+            pipelineName: PipelineName,
+            filter: filter)
         {
             EventCoordinator = ec
         };

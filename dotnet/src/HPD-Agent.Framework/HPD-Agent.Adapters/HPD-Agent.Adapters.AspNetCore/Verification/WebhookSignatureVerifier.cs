@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using HPD.Agent.Adapters;
 using Microsoft.AspNetCore.Http;
 
 namespace HPD.Agent.Adapters.AspNetCore.Verification;

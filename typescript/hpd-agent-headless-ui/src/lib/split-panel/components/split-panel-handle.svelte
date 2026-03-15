@@ -35,7 +35,7 @@
 
 		/**
 		 * Double-click to reset adjacent panes to equal sizes.
-		 * Common IDE pattern for quick layout reset.
+		 * Common pattern for quick layout reset.
 		 * @default true
 		 */
 		resetOnDoubleClick?: boolean;

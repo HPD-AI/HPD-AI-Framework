@@ -17,15 +17,49 @@ public class DispatchGeneratorTests
         public partial class SlackAdapter { }
         """;
 
-    private static readonly string AdapterWithSignature = """
+    private static readonly string AdapterWithPreDispatch = """
         using HPD.Agent.Adapters;
+        using System.Threading.Tasks;
+        using Microsoft.AspNetCore.Http;
         namespace Test;
         [HpdAdapter("slack")]
-        [HpdWebhookSignature(HmacFormat.V0TimestampBody,
-            SignatureHeader = "X-Slack-Signature",
-            TimestampHeader = "X-Slack-Request-Timestamp",
-            WindowSeconds = 300)]
-        public partial class SlackAdapter { }
+        public partial class SlackAdapter
+        {
+            [HpdPreDispatch]
+            private async Task<IResult?> PreDispatchAsync(HttpContext ctx, byte[] bodyBytes)
+                => null;
+        }
+        """;
+
+    private static readonly string AdapterWithBodyExtractor = """
+        using HPD.Agent.Adapters;
+        using Microsoft.AspNetCore.Http;
+        namespace Test;
+        [HpdAdapter("slack")]
+        public partial class SlackAdapter
+        {
+            [HpdBodyExtractor]
+            private (string? eventType, byte[] dispatchBytes) ExtractDispatch(HttpContext ctx, byte[] bodyBytes)
+                => (null, bodyBytes);
+        }
+        """;
+
+    private static readonly string AdapterWithBothHooks = """
+        using HPD.Agent.Adapters;
+        using System.Threading.Tasks;
+        using Microsoft.AspNetCore.Http;
+        namespace Test;
+        [HpdAdapter("slack")]
+        public partial class SlackAdapter
+        {
+            [HpdPreDispatch]
+            private async Task<IResult?> PreDispatchAsync(HttpContext ctx, byte[] bodyBytes)
+                => null;
+
+            [HpdBodyExtractor]
+            private (string? eventType, byte[] dispatchBytes) ExtractDispatch(HttpContext ctx, byte[] bodyBytes)
+                => (null, bodyBytes);
+        }
         """;
 
     private static readonly string AdapterWithOneHandler = """
@@ -103,47 +137,99 @@ public class DispatchGeneratorTests
         dispatch.Should().Contain("CopyToAsync");
     }
 
-    // ── Signature verification ────────────────────────────────────────
+    // ── Pre-dispatch hook ─────────────────────────────────────────────
 
     [Fact]
-    public void Dispatch_WithSignature_IncludesVerifierCall()
+    public void Dispatch_WithPreDispatch_EmitsHookCall()
     {
-        var dispatch = GetDispatch(AdapterWithSignature);
+        var dispatch = GetDispatch(AdapterWithPreDispatch);
 
-        dispatch.Should().Contain("WebhookSignatureVerifier.Verify(");
+        dispatch.Should().Contain("await PreDispatchAsync(ctx, bodyBytes)");
     }
 
     [Fact]
-    public void Dispatch_WithSignature_ReturnsUnauthorizedOnFail()
+    public void Dispatch_WithPreDispatch_ShortCircuitsOnNonNull()
     {
-        var dispatch = GetDispatch(AdapterWithSignature);
+        var dispatch = GetDispatch(AdapterWithPreDispatch);
 
-        dispatch.Should().Contain("Results.Unauthorized()");
+        dispatch.Should().Contain("if (preResult is not null) return preResult;");
     }
 
     [Fact]
-    public void Dispatch_WithSignature_PassesCorrectHeaderNames()
-    {
-        var dispatch = GetDispatch(AdapterWithSignature);
-
-        dispatch.Should().Contain("\"X-Slack-Signature\"");
-        dispatch.Should().Contain("\"X-Slack-Request-Timestamp\"");
-    }
-
-    [Fact]
-    public void Dispatch_WithSignature_PassesWindowSeconds()
-    {
-        var dispatch = GetDispatch(AdapterWithSignature);
-
-        dispatch.Should().Contain("300");
-    }
-
-    [Fact]
-    public void Dispatch_WithoutSignature_OmitsVerifierCall()
+    public void Dispatch_WithoutPreDispatch_OmitsHookCall()
     {
         var dispatch = GetDispatch(MinimalAdapter);
 
-        dispatch.Should().NotContain("WebhookSignatureVerifier.Verify(");
+        dispatch.Should().NotContain("PreDispatchAsync");
+    }
+
+    // ── Body extractor hook ───────────────────────────────────────────
+
+    [Fact]
+    public void Dispatch_WithBodyExtractor_EmitsHookCall()
+    {
+        var dispatch = GetDispatch(AdapterWithBodyExtractor);
+
+        dispatch.Should().Contain("ExtractDispatch(ctx, bodyBytes)");
+    }
+
+    [Fact]
+    public void Dispatch_WithBodyExtractor_OmitsDefaultExtractEventType()
+    {
+        var dispatch = GetDispatch(AdapterWithBodyExtractor);
+
+        dispatch.Should().NotContain("ExtractEventType(");
+    }
+
+    [Fact]
+    public void Dispatch_WithoutBodyExtractor_EmitsDefaultExtractEventType()
+    {
+        var dispatch = GetDispatch(MinimalAdapter);
+
+        dispatch.Should().Contain("ExtractEventType(");
+    }
+
+    [Fact]
+    public void Dispatch_WithoutBodyExtractor_DefaultExtractorHandlesEventCallbackEnvelope()
+    {
+        var dispatch = GetDispatch(MinimalAdapter);
+
+        dispatch.Should().Contain("event_callback");
+    }
+
+    [Fact]
+    public void Dispatch_WithBothHooks_EmitsBothCalls()
+    {
+        var dispatch = GetDispatch(AdapterWithBothHooks);
+
+        dispatch.Should().Contain("await PreDispatchAsync(ctx, bodyBytes)");
+        dispatch.Should().Contain("ExtractDispatch(ctx, bodyBytes)");
+    }
+
+    // ── No Slack-specific hardcoding ──────────────────────────────────
+
+    [Fact]
+    public void Dispatch_DoesNotContainHardcodedUrlVerification()
+    {
+        var dispatch = GetDispatch(MinimalAdapter);
+
+        dispatch.Should().NotContain("url_verification");
+    }
+
+    [Fact]
+    public void Dispatch_DoesNotContainHardcodedFormUrlencoded()
+    {
+        var dispatch = GetDispatch(MinimalAdapter);
+
+        dispatch.Should().NotContain("application/x-www-form-urlencoded");
+    }
+
+    [Fact]
+    public void Dispatch_DoesNotContainWebhookSignatureVerifier()
+    {
+        var dispatch = GetDispatch(MinimalAdapter);
+
+        dispatch.Should().NotContain("WebhookSignatureVerifier");
     }
 
     // ── Exception mapping ─────────────────────────────────────────────
@@ -238,51 +324,6 @@ public class DispatchGeneratorTests
         dispatch.Should().Contain("\"app_mention\"");
         // Both cases route to the same method
         dispatch.Should().Contain("HandleBoth(");
-    }
-
-    // ── Content-type detection ────────────────────────────────────────
-
-    [Fact]
-    public void Dispatch_DetectsFormUrlencodedContentType()
-    {
-        var dispatch = GetDispatch(MinimalAdapter);
-
-        dispatch.Should().Contain("application/x-www-form-urlencoded");
-    }
-
-    [Fact]
-    public void Dispatch_FormUrlencoded_ExtractsPayloadParam()
-    {
-        var dispatch = GetDispatch(MinimalAdapter);
-
-        dispatch.Should().Contain("\"payload\"");
-    }
-
-    // ── Event type extraction ─────────────────────────────────────────
-
-    [Fact]
-    public void Dispatch_GeneratesExtractTypeHelper()
-    {
-        var dispatch = GetDispatch(MinimalAdapter);
-
-        dispatch.Should().Contain("ExtractType(");
-    }
-
-    [Fact]
-    public void Dispatch_GeneratesExtractEventTypeHelper()
-    {
-        var dispatch = GetDispatch(MinimalAdapter);
-
-        dispatch.Should().Contain("ExtractEventType(");
-    }
-
-    [Fact]
-    public void Dispatch_ExtractEventType_HandlesEventCallbackEnvelope()
-    {
-        // The generated ExtractEventType specifically unwraps event_callback envelopes
-        var dispatch = GetDispatch(MinimalAdapter);
-
-        dispatch.Should().Contain("event_callback");
     }
 
     // ── Partial class structure ───────────────────────────────────────

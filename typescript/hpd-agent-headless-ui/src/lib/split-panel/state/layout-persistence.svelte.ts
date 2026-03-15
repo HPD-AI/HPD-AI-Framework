@@ -38,7 +38,7 @@ export interface StorageState {
  *
  * declare module '$lib/storage/types' {
  *   interface StorageSchema {
- *     'shellos.layout.v3': SerializedLayout;
+ *     this.storageKey: SerializedLayout;
  *   }
  * }
  * ```
@@ -68,7 +68,8 @@ export class LayoutPersistence {
 		private layoutState: SplitPanelState,
 		private storage: StorageState,
 		private containerWidth: () => number,
-		private containerHeight: () => number
+		private containerHeight: () => number,
+		private storageKey: string = this.storageKey
 	) {
 		// Create debounced save function with HPD utility (1000ms)
 		// Uses 1000ms (not 300ms like LayoutHistory) because persistence is I/O-heavy
@@ -87,7 +88,7 @@ export class LayoutPersistence {
 	 */
 	load(): boolean {
 		try {
-			const stored = this.storage.get<SerializedLayout>('shellos.layout.v3');
+			const stored = this.storage.get<SerializedLayout>(this.storageKey);
 			if (!stored) {
 				return false;
 			}
@@ -121,7 +122,7 @@ export class LayoutPersistence {
 	save(): void {
 		try {
 			const serialized = this.layoutState.serialize(this.containerWidth(), this.containerHeight());
-			this.storage.set('shellos.layout.v3', serialized);
+			this.storage.set(this.storageKey, serialized);
 		} catch (error) {
 			console.error('Failed to save layout to storage:', error);
 		}

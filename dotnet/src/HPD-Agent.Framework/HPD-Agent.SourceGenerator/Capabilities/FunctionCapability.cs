@@ -143,8 +143,9 @@ internal class FunctionCapability : BaseCapability
         }
         schemaProviderCode += " }";
 
-        // Check if the return type is void
-        bool isVoidReturn = ReturnType == "void" || ReturnType == "System.Void";
+        // Check if the return type is void (includes non-generic Task — await Task yields void)
+        bool isVoidReturn = ReturnType == "void" || ReturnType == "System.Void"
+            || ReturnType == "Task" || ReturnType == "System.Threading.Tasks.Task";
 
         string invocationLogic;
         if (relevantParams.Any())

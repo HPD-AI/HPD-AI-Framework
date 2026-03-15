@@ -73,7 +73,7 @@ public class SlackAdapterRegistrationTests
     public void AddSlackAdapter_RegistersSlackAdapter()
     {
         using var sp = BuildProvider();
-        sp.GetService<SlackAdapter>().Should().NotBeNull();
+        sp.GetService<HPD.Agent.Adapters.Slack.SlackAdapter>().Should().NotBeNull();
     }
 
     // ── 2. PlatformSessionMapper ──────────────────────────────────────────────

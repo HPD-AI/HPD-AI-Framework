@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-VCS</PackageId>
+    <Description>Version control system for HPD Agent artifacts: transactions, commits, merges, content-addressable storage, and artifact registry.</Description>
+    <PackageTags>vcs;version-control;artifacts;content-addressable</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DiffPlex" Version="1.8.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.5" />
+    <PackageReference Include="System.IO.Abstractions" Version="22.0.14" />
+    <PackageReference Include="System.IO.Abstractions.TestingHelpers" Version="22.0.14" />
+  </ItemGroup>
+
+</Project>

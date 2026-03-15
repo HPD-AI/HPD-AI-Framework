@@ -67,7 +67,7 @@ public sealed class TypedPipelineTests
             .BuildRetrievalAsync();
 
         // Act
-        var result = await pipeline.RetrieveAsync("test query", services);
+        var result = await pipeline.RetrieveAsync("test query", null, services);
 
         // Assert
         Assert.Equal(expectedContext, result);

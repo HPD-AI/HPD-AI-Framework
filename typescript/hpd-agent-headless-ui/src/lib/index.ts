@@ -5,19 +5,19 @@
  */
 
 // Agent state and utilities (includes Message type)
-export * from './agent/index.ts';
+export * from './agent/index.js';
 
 // Workspace (V3 - Unified session/branch/streaming factory)
-export { createWorkspace } from './workspace/index.ts';
-export type { Workspace, CreateWorkspaceOptions, SendOptions } from './workspace/index.ts';
+export { createWorkspace } from './workspace/index.js';
+export type { Workspace, CreateWorkspaceOptions, SendOptions } from './workspace/index.js';
 
 // RunConfig headless components
-export * as RunConfig from './run-config/index.ts';
-export { RunConfigState } from './run-config/index.ts';
+export * as RunConfig from './run-config/index.js';
+export { RunConfigState } from './run-config/index.js';
 
 // FileAttachment headless component
-export * as FileAttachment from './file-attachment/index.ts';
-export { FileAttachmentState } from './file-attachment/index.ts';
+export * as FileAttachment from './file-attachment/index.js';
+export { FileAttachmentState } from './file-attachment/index.js';
 
 // Re-exports from hpd-agent-client — users only need to import from this package
 export type {
@@ -63,24 +63,24 @@ export {
 } from '@hpd/hpd-agent-client';
 
 // BranchSwitcher component (V3 - Sibling navigation UI)
-export * as BranchSwitcher from './branch-switcher/index.ts';
+export * as BranchSwitcher from './branch-switcher/index.js';
 export {
 	BranchSwitcherRootState,
 	BranchSwitcherPrevState,
 	BranchSwitcherNextState,
 	BranchSwitcherPositionState,
 	branchSwitcherAttrs,
-} from './branch-switcher/index.ts';
+} from './branch-switcher/index.js';
 
 // SessionList component (V3 - Session management UI)
-export * as SessionList from './session-list/index.ts';
+export * as SessionList from './session-list/index.js';
 export {
 	SessionListRootState,
 	SessionListItemState,
 	SessionListEmptyState,
 	SessionListCreateButtonState,
 	sessionListAttrs,
-} from './session-list/index.ts';
+} from './session-list/index.js';
 export type {
 	SessionListRootProps,
 	SessionListItemProps,
@@ -88,14 +88,14 @@ export type {
 	SessionListCreateButtonProps,
 	SessionListRootSnippetProps,
 	SessionListItemSnippetProps,
-} from './session-list/index.ts';
+} from './session-list/index.js';
 
 // Message component (explicit exports to avoid conflicts)
-export { Message, MessageState, createMessageState } from './message/index.ts';
-export type { MessageProps, MessageHTMLProps, MessageSnippetProps } from './message/index.ts';
+export { Message, MessageState, createMessageState } from './message/index.js';
+export type { MessageProps, MessageHTMLProps, MessageSnippetProps } from './message/index.js';
 
 // MessageActions component (edit + retry buttons)
-export * as MessageActions from './message-actions/index.ts';
+export * as MessageActions from './message-actions/index.js';
 export {
 	MessageActionsRootState,
 	MessageActionsEditButtonState,
@@ -105,7 +105,7 @@ export {
 	MessageActionsNextState,
 	MessageActionsPositionState,
 	messageActionsAttrs,
-} from './message-actions/index.ts';
+} from './message-actions/index.js';
 export type {
 	MessageActionsRootProps,
 	MessageActionsEditButtonProps,
@@ -122,17 +122,17 @@ export type {
 	MessageActionsCopyButtonSnippetProps,
 	MessageActionsPositionSnippetProps,
 	MessageActionStatus,
-} from './message-actions/index.ts';
+} from './message-actions/index.js';
 
 // MessageEdit component (inline message editing)
-export * as MessageEdit from './message-edit/index.ts';
+export * as MessageEdit from './message-edit/index.js';
 export {
 	MessageEditRootState,
 	MessageEditTextareaState,
 	MessageEditSaveButtonState,
 	MessageEditCancelButtonState,
 	messageEditAttrs,
-} from './message-edit/index.ts';
+} from './message-edit/index.js';
 export type {
 	MessageEditRootProps,
 	MessageEditRootHTMLProps,
@@ -143,59 +143,59 @@ export type {
 	MessageEditSaveButtonSnippetProps,
 	MessageEditCancelButtonProps,
 	MessageEditCancelButtonSnippetProps,
-} from './message-edit/index.ts';
+} from './message-edit/index.js';
 
 // MessageList component
-export * as MessageList from './message-list/index.ts';
-export { MessageListState } from './message-list/index.ts';
-export type { MessageListProps, MessageListSnippetProps } from './message-list/index.ts';
+export * as MessageList from './message-list/index.js';
+export { MessageListState } from './message-list/index.js';
+export type { MessageListProps, MessageListSnippetProps } from './message-list/index.js';
 
 // Input component
-export * as Input from './input/index.ts';
+export * as Input from './input/index.js';
 
 // ChatInput component (compositional input with accessories)
-export * as ChatInput from './chat-input/index.ts';
-export { ChatInputRootState } from './chat-input/index.ts';
+export * as ChatInput from './chat-input/index.js';
+export { ChatInputRootState } from './chat-input/index.js';
 export type {ChatInputRootProps, ChatInputInputProps, ChatInputLeadingProps, ChatInputTrailingProps,
 	ChatInputTopProps, ChatInputBottomProps
-} from './chat-input/index.ts';
+} from './chat-input/index.js';
 
 // ToolExecution component
-export { ToolExecution } from './tool-execution/index.ts';
+export { ToolExecution } from './tool-execution/index.js';
 
 // PermissionDialog component
-export * as PermissionDialog from './permission-dialog/index.ts';
+export * as PermissionDialog from './permission-dialog/index.js';
 
 // Audio components (Phase 3A)
-export * as AudioPlaybackGate from './audio-playback-gate/index.ts';
-export * as AudioPlayer from './audio-player/index.ts';
-export * as Transcription from './transcription/index.ts';
-export * as VoiceActivityIndicator from './voice-activity-indicator/index.ts';
+export * as AudioPlaybackGate from './audio-playback-gate/index.js';
+export * as AudioPlayer from './audio-player/index.js';
+export * as Transcription from './transcription/index.js';
+export * as VoiceActivityIndicator from './voice-activity-indicator/index.js';
 
 // Audio components (Phase 3B)
-export * as InterruptionIndicator from './interruption-indicator/index.ts';
-export * as TurnIndicator from './turn-indicator/index.ts';
-export * as AudioVisualizer from './audio-visualizer/index.ts';
+export * as InterruptionIndicator from './interruption-indicator/index.js';
+export * as TurnIndicator from './turn-indicator/index.js';
+export * as AudioVisualizer from './audio-visualizer/index.js';
 
 // Testing utilities (mock workspace)
-export { createMockWorkspace } from './testing/mock-agent.svelte.ts';
-export type { MockWorkspaceOptions } from './testing/mock-agent.svelte.ts';
+export { createMockWorkspace } from './testing/mock-agent.svelte.js';
+export type { MockWorkspaceOptions } from './testing/mock-agent.svelte.js';
 
 // ========================================
 // Storage System
 // ========================================
-export * from './storage/index.ts';
+export * from './storage/index.js';
 
 // ========================================
 // SplitPanel Component
 // ========================================
-export * as SplitPanel from './split-panel/index.ts';
+export * as SplitPanel from './split-panel/index.js';
 
 // ========================================
 // Artifact Component
 // ========================================
-export * as Artifact from './artifact/index.ts';
-export { ArtifactProviderState, ArtifactRootState, ArtifactPanelState } from './artifact/index.ts';
+export * as Artifact from './artifact/index.js';
+export { ArtifactProviderState, ArtifactRootState, ArtifactPanelState } from './artifact/index.js';
 export type {
 	ArtifactProviderProps,
 	ArtifactRootProps,
@@ -207,7 +207,7 @@ export type {
 	ArtifactCloseProps,
 	ArtifactPanelSnippetProps,
 	ArtifactRootSnippetProps
-} from './artifact/index.ts';
+} from './artifact/index.js';
 
 // ========================================
 // Utilities (for extending the library)
@@ -223,17 +223,17 @@ export {
 	getDataOpenClosed,
 	getDataChecked,
 	getAriaChecked
-} from './internal/attrs.ts';
-export type { CreateHPDAttrsReturn } from './internal/attrs.ts';
+} from './internal/attrs.js';
+export type { CreateHPDAttrsReturn } from './internal/attrs.js';
 
 // Keyboard constants
-export { kbd } from './internal/kbd.ts';
-export type { KbdKey } from './internal/kbd.ts';
+export { kbd } from './internal/kbd.js';
+export type { KbdKey } from './internal/kbd.js';
 
 // Common utilities
-export { noop } from './internal/noop.ts';
-export { createId } from './internal/create-id.ts';
-export { debounce } from './internal/debounce.ts';
+export { noop } from './internal/noop.js';
+export { createId } from './internal/create-id.js';
+export { debounce } from './internal/debounce.js';
 
 // Type utilities
 export type {
@@ -244,10 +244,10 @@ export type {
 	HPDMouseEvent,
 	WithRefOpts,
 	RefAttachment
-} from './internal/types.ts';
+} from './internal/types.js';
 
 // Focus management
-export { RovingFocusGroup } from './internal/roving-focus-group.ts';
+export { RovingFocusGroup } from './internal/roving-focus-group.js';
 export {
 	focus,
 	focusFirst,
@@ -256,28 +256,28 @@ export {
 	getTabbableEdges,
 	findVisible,
 	handleCalendarInitialFocus
-} from './internal/focus.ts';
-export type { FocusableTarget } from './internal/focus.ts';
+} from './internal/focus.js';
+export type { FocusableTarget } from './internal/focus.js';
 
-export { getTabbableFrom, getTabbableFromFocusable, isTabbable, isFocusable, tabbable, focusable } from './internal/tabbable.ts';
+export { getTabbableFrom, getTabbableFromFocusable, isTabbable, isFocusable, tabbable, focusable } from './internal/tabbable.js';
 
 // Resize observer
-export { HPDResizeObserver } from './internal/svelte-resize-observer.svelte.ts';
+export { HPDResizeObserver } from './internal/svelte-resize-observer.svelte.js';
 
 // Animation utilities
-export { PresenceManager } from './internal/presence-manager.svelte.ts';
-export { AnimationsComplete } from './internal/animations-complete.ts';
+export { PresenceManager } from './internal/presence-manager.svelte.js';
+export { AnimationsComplete } from './internal/animations-complete.js';
 
 // DOM utilities
-export { getFirstNonCommentChild, isClickTrulyOutside } from './internal/dom.ts';
+export { getFirstNonCommentChild, isClickTrulyOutside } from './internal/dom.js';
 
 // Event utilities
-export { CustomEventDispatcher } from './internal/events.ts';
-export type { EventCallback } from './internal/events.ts';
+export { CustomEventDispatcher } from './internal/events.js';
+export type { EventCallback } from './internal/events.js';
 
 // Locale and direction
-export { getElemDirection } from './internal/locale.ts';
-export type { Direction } from './internal/locale.ts';
+export { getElemDirection } from './internal/locale.js';
+export type { Direction } from './internal/locale.js';
 
 // Directional keys
 export {
@@ -288,8 +288,8 @@ export {
 	LAST_KEYS,
 	FIRST_LAST_KEYS,
 	SELECTION_KEYS
-} from './internal/get-directional-keys.ts';
-export type { Orientation } from './internal/get-directional-keys.ts';
+} from './internal/get-directional-keys.js';
+export type { Orientation } from './internal/get-directional-keys.js';
 
 // Type checking utilities
 export {
@@ -306,4 +306,4 @@ export {
 	isNotNull,
 	isSelectableInput,
 	isElementHidden
-} from './internal/is.ts';
+} from './internal/is.js';

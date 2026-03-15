@@ -5,7 +5,7 @@ namespace HPD.Agent.Adapters.Tests.SourceGen;
 
 /// <summary>
 /// Tests for the <see cref="HPD.Agent.Adapters.SourceGenerator.AdapterSourceGenerator"/> pipeline —
-/// how it resolves <c>AdapterInfo</c>, <c>SignatureInfo</c>, <c>StreamingInfo</c>,
+/// how it resolves <c>AdapterInfo</c>, <c>StreamingInfo</c>,
 /// <c>HandlerInfo</c>, and <c>WebhookPayloadInfo</c> from symbol metadata.
 /// These tests inspect generated output to verify the pipeline extracted the right values.
 /// </summary>
@@ -57,45 +57,53 @@ public class PipelineTests
         names.Should().Contain("SlackAdapterDispatch.g.cs");
     }
 
-    // ── SignatureInfo extraction ───────────────────────────────────────
+    // ── HasPreDispatch / HasBodyExtractor detection ───────────────────
 
     [Fact]
-    public void Pipeline_SignatureInfo_ExtractsFormatAndAllNamedArgs()
+    public void Pipeline_HasPreDispatch_EmitsHookCallInDispatch()
     {
         var source = """
             using HPD.Agent.Adapters;
+            using System.Threading.Tasks;
+            using Microsoft.AspNetCore.Http;
             namespace Test;
             [HpdAdapter("slack")]
-            [HpdWebhookSignature(HmacFormat.V0TimestampBody,
-                SignatureHeader = "X-My-Sig",
-                TimestampHeader = "X-My-TS",
-                WindowSeconds   = 120)]
-            public partial class SlackAdapter { }
+            public partial class SlackAdapter
+            {
+                [HpdPreDispatch]
+                private async Task<IResult?> PreDispatchAsync(HttpContext ctx, byte[] bodyBytes)
+                    => null;
+            }
             """;
 
         var result   = SourceGenHelper.RunGenerator(source, out _);
         var dispatch = SourceGenHelper.GetGeneratedFile(result, "SlackAdapterDispatch.g.cs");
 
-        dispatch!.Should().Contain("\"X-My-Sig\"");
-        dispatch.Should().Contain("\"X-My-TS\"");
-        dispatch.Should().Contain("120");
+        dispatch!.Should().Contain("await PreDispatchAsync(ctx, bodyBytes)");
+        dispatch.Should().Contain("if (preResult is not null) return preResult;");
     }
 
     [Fact]
-    public void Pipeline_SignatureInfo_DefaultWindowIs300()
+    public void Pipeline_HasBodyExtractor_EmitsHookCallInDispatch()
     {
         var source = """
             using HPD.Agent.Adapters;
+            using Microsoft.AspNetCore.Http;
             namespace Test;
             [HpdAdapter("slack")]
-            [HpdWebhookSignature(HmacFormat.V0TimestampBody)]
-            public partial class SlackAdapter { }
+            public partial class SlackAdapter
+            {
+                [HpdBodyExtractor]
+                private (string? eventType, byte[] dispatchBytes) ExtractDispatch(HttpContext ctx, byte[] bodyBytes)
+                    => (null, bodyBytes);
+            }
             """;
 
         var result   = SourceGenHelper.RunGenerator(source, out _);
         var dispatch = SourceGenHelper.GetGeneratedFile(result, "SlackAdapterDispatch.g.cs");
 
-        dispatch!.Should().Contain("300");
+        dispatch!.Should().Contain("ExtractDispatch(ctx, bodyBytes)");
+        dispatch.Should().NotContain("ExtractEventType(");
     }
 
     // ── StreamingInfo extraction ──────────────────────────────────────
