@@ -38,6 +38,38 @@
     <Project Path="src/shared/Helium/src/Helium.Algebra/Helium.Algebra.csproj" />
     <Project Path="src/shared/Helium/src/Helium.Algorithms/Helium.Algorithms.csproj" />
   </Folder>
+  <Folder Name="/Rhodium/">
+    <Project Path="src/shared/Rhodium/src/Rhodium.Analytics/Rhodium.Analytics.csproj" />
+    <Project Path="src/shared/Rhodium/src/Rhodium.Connectivity/Rhodium.Connectivity.csproj" />
+    <Project Path="src/shared/Rhodium/src/Rhodium.Control/Rhodium.Control.csproj" />
+    <Project Path="src/shared/Rhodium/src/Rhodium.Data/Rhodium.Data.csproj" />
+    <Project Path="src/shared/Rhodium/src/Rhodium.Events/Rhodium.Events.csproj" />
+    <Project Path="src/shared/Rhodium/src/Rhodium.HFT/Rhodium.HFT.csproj" />
+    <Project Path="src/shared/Rhodium/src/Rhodium.Indicators/Rhodium.Indicators.csproj" />
+    <Project Path="src/shared/Rhodium/src/Rhodium.Kernel/Rhodium.Kernel.csproj" />
+    <Project Path="src/shared/Rhodium/src/Rhodium.Options/Rhodium.Options.csproj" />
+    <Project Path="src/shared/Rhodium/src/Rhodium.Platform/Rhodium.Platform.csproj" />
+    <Project Path="src/shared/Rhodium/src/Rhodium.Primitives/Rhodium.Primitives.csproj" />
+    <Project Path="src/shared/Rhodium/src/Rhodium.Quant/Rhodium.Quant.csproj" />
+    <Project Path="src/shared/Rhodium/src/Rhodium.Risk/Rhodium.Risk.csproj" />
+    <Project Path="src/shared/Rhodium/src/Rhodium.Tensor/Rhodium.Tensor.csproj" />
+  </Folder>
+  <Folder Name="/Rhodium.Tests/">
+    <Project Path="src/shared/Rhodium/test/Rhodium.Analytics.Tests/Rhodium.Analytics.Tests.csproj" />
+    <Project Path="src/shared/Rhodium/test/Rhodium.Connectivity.Tests/Rhodium.Connectivity.Tests.csproj" />
+    <Project Path="src/shared/Rhodium/test/Rhodium.Control.Tests/Rhodium.Control.Tests.csproj" />
+    <Project Path="src/shared/Rhodium/test/Rhodium.Data.Tests/Rhodium.Data.Tests.csproj" />
+    <Project Path="src/shared/Rhodium/test/Rhodium.Events.Tests/Rhodium.Events.Tests.csproj" />
+    <Project Path="src/shared/Rhodium/test/Rhodium.HFT.Tests/Rhodium.HFT.Tests.csproj" />
+    <Project Path="src/shared/Rhodium/test/Rhodium.Indicators.Tests/Rhodium.Indicators.Tests.csproj" />
+    <Project Path="src/shared/Rhodium/test/Rhodium.Kernel.Tests/Rhodium.Kernel.Tests.csproj" />
+    <Project Path="src/shared/Rhodium/test/Rhodium.Options.Tests/Rhodium.Options.Tests.csproj" />
+    <Project Path="src/shared/Rhodium/test/Rhodium.Platform.Tests/Rhodium.Platform.Tests.csproj" />
+    <Project Path="src/shared/Rhodium/test/Rhodium.Primitives.Tests/Rhodium.Primitives.Tests.csproj" />
+    <Project Path="src/shared/Rhodium/test/Rhodium.Quant.Tests/Rhodium.Quant.Tests.csproj" />
+    <Project Path="src/shared/Rhodium/test/Rhodium.Risk.Tests/Rhodium.Risk.Tests.csproj" />
+    <Project Path="src/shared/Rhodium/test/Rhodium.Tensor.Tests/Rhodium.Tensor.Tests.csproj" />
+  </Folder>
   <Folder Name="/HPD-Agent.Adapters/">
     <Project Path="src/HPD-Agent.Framework/HPD-Agent.Adapters/HPD-Agent.Adapters.SourceGenerator/HPD-Agent.Adapters.SourceGenerator.csproj" />
     <Project Path="src/HPD-Agent.Framework/HPD-Agent.Adapters/HPD-Agent.Adapters.Abstractions/HPD-Agent.Adapters.Abstractions.csproj" />
