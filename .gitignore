@@ -33,3 +33,4 @@ HPD-Agent.Providers/HPD-Agent.Providers.AppleIntelligence/native/apple/ios/
 HPD-Agent.Providers/HPD-Agent.Providers.AppleIntelligence/native/apple/maccatalyst/
 HPD-Agent.Providers/HPD-Agent.Providers.AppleIntelligence/native/apple/HPDIntelligence/.build/
 test/AgentConsoleTest/sessions/console-2026-02-01-061343-04b541bf/session.json
+.claude
