@@ -1,5 +1,6 @@
 using Microsoft.Extensions.AI;
 using System.Text.Json;
+using HPD.Agent;
 
 /// <summary>
 /// Wraps external tools (MCP, Client) with Toolkit Collapsing metadata at runtime.
