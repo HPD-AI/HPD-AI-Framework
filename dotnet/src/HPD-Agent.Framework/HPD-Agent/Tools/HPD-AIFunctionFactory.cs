@@ -3,7 +3,10 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
 using System.Reflection;
 
-/// A modern, unified AIFunctionFactory that prioritizes delegate-based invocation 
+namespace HPD.Agent;
+
+/// <summary>
+/// A modern, unified AIFunctionFactory that prioritizes delegate-based invocation
 /// for performance and AOT-compatibility.
 /// </summary>
 public class HPDAIFunctionFactory
