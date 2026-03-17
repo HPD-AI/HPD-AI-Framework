@@ -63,10 +63,13 @@ public class RemoteProviderOperations(HttpClient http) : IProviderOperations
 
     public async Task<AuthFlowResult> CompleteLoginAsync(string providerId, int methodIndex, string input, CancellationToken ct)
     {
-        var response = await http.PostAsJsonAsync(
-            $"/api/providers/{providerId}/login/complete?method={methodIndex}",
+        var content = JsonContent.Create(
             new LoginCompleteDto(input),
-            HpdosJsonOptions.Http,
+            mediaType: null,
+            options: HpdosJsonOptions.Http);
+        var response = await http.PostAsync(
+            $"/api/providers/{providerId}/login/complete?method={methodIndex}",
+            content,
             ct);
 
         if (!response.IsSuccessStatusCode)
@@ -98,10 +101,13 @@ public class RemoteProviderOperations(HttpClient http) : IProviderOperations
 
     public async Task<bool> SetActiveEntryAsync(string providerId, string entryId)
     {
-        var response = await http.PutAsJsonAsync(
-            $"/api/providers/{providerId}/active",
+        var content = JsonContent.Create(
             new SetActiveRequestDto(entryId),
-            HpdosJsonOptions.Http);
+            mediaType: null,
+            options: HpdosJsonOptions.Http);
+        var response = await http.PutAsync(
+            $"/api/providers/{providerId}/active",
+            content);
         return response.IsSuccessStatusCode;
     }
 }

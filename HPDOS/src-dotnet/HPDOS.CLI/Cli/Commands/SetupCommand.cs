@@ -1,5 +1,6 @@
 using Spectre.Console;
 using System.Runtime.InteropServices;
+using System.IO;
 
 namespace HPDOS.Shell.Cli.Commands;
 
@@ -110,8 +111,7 @@ public static class SetupCommand
             {
                 // Can write without sudo
                 File.Copy(binaryPath, targetPath, overwrite: true);
-                File.SetAttributes(targetPath,
-                    File.GetAttributes(targetPath) | FileAttributes.UserExecute);
+                File.SetUnixFileMode(targetPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             }
 
             AnsiConsole.MarkupLine("[green]Installed successfully[/]");
