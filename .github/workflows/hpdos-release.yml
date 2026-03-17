@@ -27,13 +27,15 @@ jobs:
           - os: ubuntu-latest
             rid: linux-x64
             name: linux-x64
-          - os: ubuntu-latest-arm
-            rid: linux-arm64
-            name: linux-arm64
+          # Linux ARM64 build disabled due to billing limitations on native ARM runners
+          # TODO: Enable when account supports native ubuntu-latest-arm runner
+          # - os: ubuntu-latest-arm
+          #   rid: linux-arm64
+          #   name: linux-arm64
           - os: windows-latest
             rid: win-x64
             name: windows-x64
-          - os: windows-latest-arm64
+          - os: windows-latest
             rid: win-arm64
             name: windows-arm64
 
