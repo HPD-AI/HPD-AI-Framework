@@ -21,19 +21,19 @@ jobs:
           - os: macos-latest
             rid: osx-x64
             name: darwin-x64
-          - os: macos-latest
+          - os: macos-latest-xlarge
             rid: osx-arm64
             name: darwin-arm64
           - os: ubuntu-latest
             rid: linux-x64
             name: linux-x64
-          - os: ubuntu-latest
+          - os: ubuntu-latest-arm
             rid: linux-arm64
             name: linux-arm64
           - os: windows-latest
             rid: win-x64
             name: windows-x64
-          - os: windows-latest
+          - os: windows-latest-arm64
             rid: win-arm64
             name: windows-arm64
 
