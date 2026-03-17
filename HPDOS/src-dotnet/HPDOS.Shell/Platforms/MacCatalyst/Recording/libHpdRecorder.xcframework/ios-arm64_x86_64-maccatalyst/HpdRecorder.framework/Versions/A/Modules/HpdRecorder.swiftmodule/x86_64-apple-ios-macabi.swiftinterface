@@ -1,0 +1,28 @@
+// swift-interface-format-version: 1.0
+// swift-compiler-version: Apple Swift version 6.2.3 effective-5.10 (swiftlang-6.2.3.3.21 clang-1700.6.3.2)
+// swift-module-flags: -target x86_64-apple-ios18.0-macabi -enable-objc-interop -enable-library-evolution -swift-version 5 -enforce-exclusivity=checked -Onone -enable-experimental-feature DebugDescriptionMacro -enable-bare-slash-regex -module-name HpdRecorder
+// swift-module-flags-ignorable: -no-verify-emitted-module-interface -formal-cxx-interoperability-mode=off -interface-compiler-version 6.2.3
+import AVFoundation
+import CoreGraphics
+import CoreMedia
+import Foundation
+import ScreenCaptureKit
+import Swift
+import _Concurrency
+import _StringProcessing
+import _SwiftConcurrencyShims
+public typealias HpdSourceCallback = @convention(c) (_ sourceId: Swift.UInt32, _ displayName: Swift.UnsafePointer<Swift.CChar>, _ kind: Swift.Int32, _ width: Swift.Int32, _ height: Swift.Int32) -> Swift.Void
+public typealias HpdListCompleteCallback = @convention(c) (_ error: Swift.UnsafePointer<Swift.CChar>?) -> Swift.Void
+public typealias HpdStopCallback = @convention(c) (_ videoPath: Swift.UnsafePointer<Swift.CChar>, _ durationMs: Swift.Int64, _ width: Swift.Int32, _ height: Swift.Int32, _ frameRate: Swift.Int32, _ error: Swift.UnsafePointer<Swift.CChar>?) -> Swift.Void
+#if compiler(>=5.3) && $NonescapableTypes
+@_cdecl("hpd_list_sources")
+public func hpdListSources(onSource: @convention(c) (_ sourceId: Swift.UInt32, _ displayName: Swift.UnsafePointer<Swift.CChar>, _ kind: Swift.Int32, _ width: Swift.Int32, _ height: Swift.Int32) -> Swift.Void, onComplete: @convention(c) (_ error: Swift.UnsafePointer<Swift.CChar>?) -> Swift.Void)
+#endif
+#if compiler(>=5.3) && $NonescapableTypes
+@_cdecl("hpd_start_capture")
+public func hpdStartCapture(sourceId: Swift.UInt32, isWindow: Swift.Bool, frameRate: Swift.Int32, outputPath: Swift.UnsafePointer<Swift.CChar>, captureMic: Swift.Bool, captureSystemAudio: Swift.Bool, micGain: Swift.Float, systemAudioGain: Swift.Float, onStop: @convention(c) (_ videoPath: Swift.UnsafePointer<Swift.CChar>, _ durationMs: Swift.Int64, _ width: Swift.Int32, _ height: Swift.Int32, _ frameRate: Swift.Int32, _ error: Swift.UnsafePointer<Swift.CChar>?) -> Swift.Void) -> Swift.UInt32
+#endif
+@_cdecl("hpd_get_cursor")
+public func hpdGetCursor(displayWidth: Swift.Int32, displayHeight: Swift.Int32, outCx: Swift.UnsafeMutablePointer<Swift.Double>, outCy: Swift.UnsafeMutablePointer<Swift.Double>)
+@_cdecl("hpd_stop_capture")
+public func hpdStopCapture(sessionId: Swift.UInt32)

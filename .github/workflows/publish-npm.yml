@@ -28,7 +28,7 @@ jobs:
 
       - name: Determine version
         id: version
-        working-directory: typescript/hpd-agent-client
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-client
         run: |
           if [ "${{ github.event_name }}" == "release" ]; then
             VERSION="${{ github.event.release.tag_name }}"
@@ -54,23 +54,23 @@ jobs:
           echo "Publishing version: $VERSION with tag: $NPM_TAG"
 
       - name: Update package.json version
-        working-directory: typescript/hpd-agent-client
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-client
         run: npm version ${{ steps.version.outputs.version }} --no-git-tag-version
 
       - name: Install dependencies
-        working-directory: typescript/hpd-agent-client
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-client
         run: bun install --frozen-lockfile
 
       - name: Run tests
-        working-directory: typescript/hpd-agent-client
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-client
         run: bun run test
 
       - name: Build
-        working-directory: typescript/hpd-agent-client
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-client
         run: bun run build
 
       - name: Publish to npm
-        working-directory: typescript/hpd-agent-client
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-client
         run: npm publish --tag ${{ steps.version.outputs.npm_tag }} --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -103,7 +103,7 @@ jobs:
 
       - name: Determine version
         id: version
-        working-directory: typescript/hpd-agent-headless-ui
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-headless-ui
         run: |
           if [ "${{ github.event_name }}" == "release" ]; then
             VERSION="${{ github.event.release.tag_name }}"
@@ -128,27 +128,27 @@ jobs:
           echo "Publishing version: $VERSION with tag: $NPM_TAG"
 
       - name: Update package.json version
-        working-directory: typescript/hpd-agent-headless-ui
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-headless-ui
         run: npm version ${{ steps.version.outputs.version }} --no-git-tag-version
 
       - name: Build client (required by headless-ui)
-        working-directory: typescript/hpd-agent-client
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-client
         run: bun install --frozen-lockfile && bun run build
 
       - name: Install dependencies
-        working-directory: typescript/hpd-agent-headless-ui
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-headless-ui
         run: bun install --frozen-lockfile
 
       - name: Run tests
-        working-directory: typescript/hpd-agent-headless-ui
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-headless-ui
         run: bun run test:unit -- --run
 
       - name: Build
-        working-directory: typescript/hpd-agent-headless-ui
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-headless-ui
         run: bun run build
 
       - name: Publish to npm
-        working-directory: typescript/hpd-agent-headless-ui
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-headless-ui
         run: npm publish --tag ${{ steps.version.outputs.npm_tag }} --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

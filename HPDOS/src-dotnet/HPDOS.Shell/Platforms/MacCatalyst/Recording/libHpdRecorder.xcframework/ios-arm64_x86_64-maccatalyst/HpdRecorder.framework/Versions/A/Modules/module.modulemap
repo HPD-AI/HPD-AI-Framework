@@ -1,0 +1,4 @@
+framework module HpdRecorder {
+  header "HpdRecorder-Swift.h"
+  requires objc
+}

@@ -1,0 +1,19 @@
+jobs_dir: jobs
+n_attempts: 1
+
+orchestrator:
+  type: local
+  n_concurrent_trials: 1
+
+environment:
+  type: docker
+  dockerfile: harbor-agent/Dockerfile   # path relative to repo root
+  force_build: true
+  delete: true
+
+agents:
+  - import_path: hpdos_harbor.agent:HPDOSAgent
+    model_name: anthropic/claude-sonnet-4-6
+
+datasets:
+  - name: terminal-bench@2.0

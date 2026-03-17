@@ -74,7 +74,7 @@ await foreach (var evt in agent.RunAsync("Hello!"))
 
 ### Documentation
 
-Full docs at [hpd-ai.github.io](https://hpd-ai.github.io/HPD-Agent-Framework/) — or browse [documentation/](documentation/).
+Full docs at [hpd-ai.github.io](https://hpd-ai.github.io/HPD-Agent-Framework/) — or browse [documentation/](HPD-AI-Framework/documentation/).
 
 ---
 
@@ -97,9 +97,9 @@ Fully modular RAG framework — every node in every pipeline is swappable or rem
 Fully modular machine learning framework — data ingestion, feature engineering, model training, and evaluation all composable and extensible. Universal data abstraction with pluggable learners and transforms.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="dotnet/src/HPD-ML.Framework/architecture-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="dotnet/src/HPD-ML.Framework/architecture.svg">
-  <img alt="HPD-ML Architecture" src="dotnet/src/HPD-ML.Framework/architecture.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/dotnet/src/HPD-ML.Framework/architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="HPD-AI-Framework/dotnet/src/HPD-ML.Framework/architecture.svg">
+  <img alt="HPD-ML Architecture" src="HPD-AI-Framework/dotnet/src/HPD-ML.Framework/architecture.svg">
 </picture>
 
 > **Coming soon.** HPD-ML is under active development.
@@ -111,9 +111,9 @@ Fully modular machine learning framework — data ingestion, feature engineering
 Hosted-auth-service experience as an embedded .NET library. Wraps ASP.NET Core Identity and exposes a ready-made REST API — JWT + Cookie dual-auth, session management, 2FA, passkeys, OAuth, admin API, and event-driven audit logging. No separate service to run. No per-user pricing. No data leaving your infrastructure.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="dotnet/src/HPD-Auth.Framework/architecture-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="dotnet/src/HPD-Auth.Framework/architecture.svg">
-  <img alt="HPD-Auth Architecture" src="dotnet/src/HPD-Auth.Framework/architecture.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/dotnet/src/HPD-Auth.Framework/architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="HPD-AI-Framework/dotnet/src/HPD-Auth.Framework/architecture.svg">
+  <img alt="HPD-Auth Architecture" src="HPD-AI-Framework/dotnet/src/HPD-Auth.Framework/architecture.svg">
 </picture>
 
 > **Coming soon.** HPD-Auth is under active development.

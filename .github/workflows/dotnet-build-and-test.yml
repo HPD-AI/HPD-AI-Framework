@@ -81,15 +81,15 @@ jobs:
           10.0.x
 
     - name: Restore dependencies
-      run: dotnet restore dotnet/HPD-Agent.no-maui.slnf
+      run: dotnet restore HPD-AI-Framework/dotnet/HPD-Agent.no-maui.slnf
 
     - name: Build
-      run: dotnet build dotnet/HPD-Agent.no-maui.slnf -c ${{ matrix.configuration }} --no-restore
+      run: dotnet build HPD-AI-Framework/dotnet/HPD-Agent.no-maui.slnf -c ${{ matrix.configuration }} --no-restore
 
     - name: Run tests (with coverage)
       if: matrix.collect-coverage
       run: |
-        dotnet test dotnet/HPD-Agent.no-maui.slnf \
+        dotnet test HPD-AI-Framework/dotnet/HPD-Agent.no-maui.slnf \
           -f ${{ matrix.targetFramework }} \
           -c ${{ matrix.configuration }} \
           --no-build \
@@ -102,7 +102,7 @@ jobs:
       if: ${{ !matrix.collect-coverage }}
       shell: bash
       run: |
-        dotnet test dotnet/HPD-Agent.no-maui.slnf \
+        dotnet test HPD-AI-Framework/dotnet/HPD-Agent.no-maui.slnf \
           -f ${{ matrix.targetFramework }} \
           -c ${{ matrix.configuration }} \
           --no-build \
@@ -207,7 +207,7 @@ jobs:
           10.0.x
 
     - name: Pack NuGet packages
-      run: dotnet pack dotnet/HPD-Agent.no-maui.slnf -c Release --output ./artifacts
+      run: dotnet pack HPD-AI-Framework/dotnet/HPD-Agent.no-maui.slnf -c Release --output ./artifacts
 
     - name: Verify package contents
       run: |

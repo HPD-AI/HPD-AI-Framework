@@ -1,0 +1,443 @@
+{
+  "ABIRoot": {
+    "kind": "Root",
+    "name": "HpdRecorder",
+    "printedName": "HpdRecorder",
+    "children": [
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "HpdRecorder"
+      },
+      {
+        "kind": "Import",
+        "name": "ScreenCaptureKit",
+        "printedName": "ScreenCaptureKit",
+        "declKind": "Import",
+        "moduleName": "HpdRecorder"
+      },
+      {
+        "kind": "Import",
+        "name": "AVFoundation",
+        "printedName": "AVFoundation",
+        "declKind": "Import",
+        "moduleName": "HpdRecorder"
+      },
+      {
+        "kind": "Import",
+        "name": "CoreMedia",
+        "printedName": "CoreMedia",
+        "declKind": "Import",
+        "moduleName": "HpdRecorder"
+      },
+      {
+        "kind": "Import",
+        "name": "CoreGraphics",
+        "printedName": "CoreGraphics",
+        "declKind": "Import",
+        "moduleName": "HpdRecorder"
+      },
+      {
+        "kind": "Function",
+        "name": "hpdListSources",
+        "printedName": "hpdListSources(onSource:onComplete:)",
+        "children": [
+          {
+            "kind": "TypeNominal",
+            "name": "Void",
+            "printedName": "()"
+          },
+          {
+            "kind": "TypeFunc",
+            "name": "Function",
+            "printedName": "(Swift.UInt32, Swift.UnsafePointer<Swift.Int8>, Swift.Int32, Swift.Int32, Swift.Int32) -> ()",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Tuple",
+                "printedName": "(Swift.UInt32, Swift.UnsafePointer<Swift.Int8>, Swift.Int32, Swift.Int32, Swift.Int32)",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "UInt32",
+                    "printedName": "Swift.UInt32",
+                    "usr": "s:s6UInt32V"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "UnsafePointer",
+                    "printedName": "Swift.UnsafePointer<Swift.Int8>",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "Int8",
+                        "printedName": "Swift.Int8",
+                        "usr": "s:s4Int8V"
+                      }
+                    ],
+                    "usr": "s:SP"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Int32",
+                    "printedName": "Swift.Int32",
+                    "usr": "s:s5Int32V"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Int32",
+                    "printedName": "Swift.Int32",
+                    "usr": "s:s5Int32V"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Int32",
+                    "printedName": "Swift.Int32",
+                    "usr": "s:s5Int32V"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "TypeFunc",
+            "name": "Function",
+            "printedName": "(Swift.UnsafePointer<Swift.Int8>?) -> ()",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Optional",
+                "printedName": "Swift.UnsafePointer<Swift.Int8>?",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "UnsafePointer",
+                    "printedName": "Swift.UnsafePointer<Swift.Int8>",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "Int8",
+                        "printedName": "Swift.Int8",
+                        "usr": "s:s4Int8V"
+                      }
+                    ],
+                    "usr": "s:SP"
+                  }
+                ],
+                "usr": "s:Sq"
+              }
+            ]
+          }
+        ],
+        "declKind": "Func",
+        "usr": "c:(cm)hpdListSourcesOnSource:onComplete:",
+        "mangledName": "$s11HpdRecorder14hpdListSources8onSource0F8Completeyys6UInt32V_SPys4Int8VGs5Int32VA2KtXC_yAISgXCtF",
+        "moduleName": "HpdRecorder",
+        "declAttributes": [
+          "AccessControl",
+          "CDecl",
+          "RawDocComment"
+        ],
+        "funcSelfKind": "NonMutating"
+      },
+      {
+        "kind": "Function",
+        "name": "hpdStartCapture",
+        "printedName": "hpdStartCapture(sourceId:isWindow:frameRate:outputPath:captureMic:captureSystemAudio:micGain:systemAudioGain:onStop:)",
+        "children": [
+          {
+            "kind": "TypeNominal",
+            "name": "UInt32",
+            "printedName": "Swift.UInt32",
+            "usr": "s:s6UInt32V"
+          },
+          {
+            "kind": "TypeNominal",
+            "name": "UInt32",
+            "printedName": "Swift.UInt32",
+            "usr": "s:s6UInt32V"
+          },
+          {
+            "kind": "TypeNominal",
+            "name": "Bool",
+            "printedName": "Swift.Bool",
+            "usr": "s:Sb"
+          },
+          {
+            "kind": "TypeNominal",
+            "name": "Int32",
+            "printedName": "Swift.Int32",
+            "usr": "s:s5Int32V"
+          },
+          {
+            "kind": "TypeNominal",
+            "name": "UnsafePointer",
+            "printedName": "Swift.UnsafePointer<Swift.Int8>",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Int8",
+                "printedName": "Swift.Int8",
+                "usr": "s:s4Int8V"
+              }
+            ],
+            "usr": "s:SP"
+          },
+          {
+            "kind": "TypeNominal",
+            "name": "Bool",
+            "printedName": "Swift.Bool",
+            "usr": "s:Sb"
+          },
+          {
+            "kind": "TypeNominal",
+            "name": "Bool",
+            "printedName": "Swift.Bool",
+            "usr": "s:Sb"
+          },
+          {
+            "kind": "TypeNominal",
+            "name": "Float",
+            "printedName": "Swift.Float",
+            "usr": "s:Sf"
+          },
+          {
+            "kind": "TypeNominal",
+            "name": "Float",
+            "printedName": "Swift.Float",
+            "usr": "s:Sf"
+          },
+          {
+            "kind": "TypeFunc",
+            "name": "Function",
+            "printedName": "(Swift.UnsafePointer<Swift.Int8>, Swift.Int64, Swift.Int32, Swift.Int32, Swift.Int32, Swift.UnsafePointer<Swift.Int8>?) -> ()",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Tuple",
+                "printedName": "(Swift.UnsafePointer<Swift.Int8>, Swift.Int64, Swift.Int32, Swift.Int32, Swift.Int32, Swift.UnsafePointer<Swift.Int8>?)",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "UnsafePointer",
+                    "printedName": "Swift.UnsafePointer<Swift.Int8>",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "Int8",
+                        "printedName": "Swift.Int8",
+                        "usr": "s:s4Int8V"
+                      }
+                    ],
+                    "usr": "s:SP"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Int64",
+                    "printedName": "Swift.Int64",
+                    "usr": "s:s5Int64V"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Int32",
+                    "printedName": "Swift.Int32",
+                    "usr": "s:s5Int32V"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Int32",
+                    "printedName": "Swift.Int32",
+                    "usr": "s:s5Int32V"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Int32",
+                    "printedName": "Swift.Int32",
+                    "usr": "s:s5Int32V"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Optional",
+                    "printedName": "Swift.UnsafePointer<Swift.Int8>?",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "UnsafePointer",
+                        "printedName": "Swift.UnsafePointer<Swift.Int8>",
+                        "children": [
+                          {
+                            "kind": "TypeNominal",
+                            "name": "Int8",
+                            "printedName": "Swift.Int8",
+                            "usr": "s:s4Int8V"
+                          }
+                        ],
+                        "usr": "s:SP"
+                      }
+                    ],
+                    "usr": "s:Sq"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "declKind": "Func",
+        "usr": "c:(cm)hpdStartCaptureWithSourceId:isWindow:frameRate:outputPath:captureMic:captureSystemAudio:micGain:systemAudioGain:onStop:",
+        "mangledName": "$s11HpdRecorder15hpdStartCapture8sourceId8isWindow9frameRate10outputPath10captureMic0N11SystemAudio7micGain06systemqS06onStops6UInt32VAM_Sbs5Int32VSPys4Int8VGS2bS2fyAR_s5Int64VA3oRSgtXCtF",
+        "moduleName": "HpdRecorder",
+        "declAttributes": [
+          "AccessControl",
+          "CDecl",
+          "RawDocComment"
+        ],
+        "funcSelfKind": "NonMutating"
+      },
+      {
+        "kind": "Function",
+        "name": "hpdGetCursor",
+        "printedName": "hpdGetCursor(displayWidth:displayHeight:outCx:outCy:)",
+        "children": [
+          {
+            "kind": "TypeNominal",
+            "name": "Void",
+            "printedName": "()"
+          },
+          {
+            "kind": "TypeNominal",
+            "name": "Int32",
+            "printedName": "Swift.Int32",
+            "usr": "s:s5Int32V"
+          },
+          {
+            "kind": "TypeNominal",
+            "name": "Int32",
+            "printedName": "Swift.Int32",
+            "usr": "s:s5Int32V"
+          },
+          {
+            "kind": "TypeNominal",
+            "name": "UnsafeMutablePointer",
+            "printedName": "Swift.UnsafeMutablePointer<Swift.Double>",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Double",
+                "printedName": "Swift.Double",
+                "usr": "s:Sd"
+              }
+            ],
+            "usr": "s:Sp"
+          },
+          {
+            "kind": "TypeNominal",
+            "name": "UnsafeMutablePointer",
+            "printedName": "Swift.UnsafeMutablePointer<Swift.Double>",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Double",
+                "printedName": "Swift.Double",
+                "usr": "s:Sd"
+              }
+            ],
+            "usr": "s:Sp"
+          }
+        ],
+        "declKind": "Func",
+        "usr": "c:(cm)hpdGetCursorWithDisplayWidth:displayHeight:outCx:outCy:",
+        "mangledName": "$s11HpdRecorder12hpdGetCursor12displayWidth0F6Height5outCx0I2Cyys5Int32V_AHSpySdGAItF",
+        "moduleName": "HpdRecorder",
+        "declAttributes": [
+          "AccessControl",
+          "CDecl",
+          "RawDocComment"
+        ],
+        "funcSelfKind": "NonMutating"
+      },
+      {
+        "kind": "Function",
+        "name": "hpdStopCapture",
+        "printedName": "hpdStopCapture(sessionId:)",
+        "children": [
+          {
+            "kind": "TypeNominal",
+            "name": "Void",
+            "printedName": "()"
+          },
+          {
+            "kind": "TypeNominal",
+            "name": "UInt32",
+            "printedName": "Swift.UInt32",
+            "usr": "s:s6UInt32V"
+          }
+        ],
+        "declKind": "Func",
+        "usr": "c:(cm)hpdStopCaptureWithSessionId:",
+        "mangledName": "$s11HpdRecorder14hpdStopCapture9sessionIdys6UInt32V_tF",
+        "moduleName": "HpdRecorder",
+        "declAttributes": [
+          "AccessControl",
+          "CDecl",
+          "RawDocComment"
+        ],
+        "funcSelfKind": "NonMutating"
+      }
+    ],
+    "json_format_version": 8
+  },
+  "ConstValues": [
+    {
+      "filePath": "\/Users\/einsteinessibu\/Documents\/HPDOS\/src-dotnet\/HPDOS.Shell\/Platforms\/MacCatalyst\/Recording\/HpdRecorderSrc\/HpdRecorder.swift",
+      "kind": "Dictionary",
+      "offset": 1706,
+      "length": 3,
+      "value": "[]"
+    },
+    {
+      "filePath": "\/Users\/einsteinessibu\/Documents\/HPDOS\/src-dotnet\/HPDOS.Shell\/Platforms\/MacCatalyst\/Recording\/HpdRecorderSrc\/HpdRecorder.swift",
+      "kind": "IntegerLiteral",
+      "offset": 1775,
+      "length": 1,
+      "value": "1"
+    },
+    {
+      "filePath": "\/Users\/einsteinessibu\/Documents\/HPDOS\/src-dotnet\/HPDOS.Shell\/Platforms\/MacCatalyst\/Recording\/HpdRecorderSrc\/HpdRecorder.swift",
+      "kind": "IntegerLiteral",
+      "offset": 9023,
+      "length": 1,
+      "value": "0"
+    },
+    {
+      "filePath": "\/Users\/einsteinessibu\/Documents\/HPDOS\/src-dotnet\/HPDOS.Shell\/Platforms\/MacCatalyst\/Recording\/HpdRecorderSrc\/HpdRecorder.swift",
+      "kind": "IntegerLiteral",
+      "offset": 9055,
+      "length": 1,
+      "value": "0"
+    },
+    {
+      "filePath": "\/Users\/einsteinessibu\/Documents\/HPDOS\/src-dotnet\/HPDOS.Shell\/Platforms\/MacCatalyst\/Recording\/HpdRecorderSrc\/HpdRecorder.swift",
+      "kind": "StringLiteral",
+      "offset": 9142,
+      "length": 26,
+      "value": "\"com.hpd.recorder.capture\""
+    }
+  ]
+}

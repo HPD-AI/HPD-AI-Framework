@@ -32,7 +32,7 @@ jobs:
         with:
           filters: |
             ts:
-              - 'typescript/**'
+              - 'HPD-AI-Framework/typescript/**'
               - '.github/workflows/typescript-build-and-test.yml'
 
   # ============================================
@@ -50,19 +50,19 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
-        working-directory: typescript/hpd-agent-client
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-client
         run: bun install --frozen-lockfile
 
       - name: Type check
-        working-directory: typescript/hpd-agent-client
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-client
         run: bun run tsc --noEmit
 
       - name: Run tests
-        working-directory: typescript/hpd-agent-client
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-client
         run: bun run test
 
       - name: Build
-        working-directory: typescript/hpd-agent-client
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-client
         run: bun run build
 
   # ============================================
@@ -81,23 +81,23 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Build client (required by headless-ui)
-        working-directory: typescript/hpd-agent-client
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-client
         run: bun install --frozen-lockfile && bun run build
 
       - name: Install dependencies
-        working-directory: typescript/hpd-agent-headless-ui
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-headless-ui
         run: bun install --frozen-lockfile
 
       - name: Type check
-        working-directory: typescript/hpd-agent-headless-ui
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-headless-ui
         run: bun run check
 
       - name: Run server tests
-        working-directory: typescript/hpd-agent-headless-ui
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-headless-ui
         run: bun run vitest run --project server
 
       - name: Build
-        working-directory: typescript/hpd-agent-headless-ui
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-headless-ui
         run: bun run build
 
   # ============================================
@@ -116,19 +116,19 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Build client (required by headless-ui)
-        working-directory: typescript/hpd-agent-client
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-client
         run: bun install --frozen-lockfile && bun run build
 
       - name: Install dependencies
-        working-directory: typescript/hpd-agent-headless-ui
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-headless-ui
         run: bun install --frozen-lockfile
 
       - name: Install Playwright browsers
-        working-directory: typescript/hpd-agent-headless-ui
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-headless-ui
         run: bunx playwright install chromium --with-deps
 
       - name: Run browser tests
-        working-directory: typescript/hpd-agent-headless-ui
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-headless-ui
         run: bun run vitest run --project client
 
   # ============================================
@@ -146,7 +146,7 @@ jobs:
           echo "⊘ Skipped - No TypeScript changes  "
           echo "=================================="
           echo ""
-          echo "No files under typescript/ were modified."
+          echo "No files under HPD-AI-Framework/typescript/ were modified."
 
       - name: Check for failures
         if: needs.paths-filter.outputs.ts-changed == 'true' && contains(join(needs.*.result, ','), 'failure')
