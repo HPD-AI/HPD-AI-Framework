@@ -2,14 +2,15 @@
 
 ## Overview
 
-This release encompasses **31 commits** and represents a major evolution of the HPD-Agent Framework, introducing substantial new capabilities, architectural improvements, and framework restructuring. The primary themes include:
+This release encompasses **32 commits** and represents a major evolution of the HPD-Agent Framework, introducing substantial new capabilities, architectural improvements, and framework restructuring. The primary themes include:
 
 - **Agent Lifecycle Management Refactor**: Separation of agent and session management concerns
 - **Evaluation & Analytics Framework**: Comprehensive evaluation scoring and result tracking
 - **RAG (Retrieval-Augmented Generation) System**: Modular retrieval and ingestion pipeline
 - **ML Framework Integration**: New HPD-ML machine learning module stack
 - **Middleware & Toolkit Scoping**: Advanced middleware composition and toolkit-scoped execution
-- **Slack Socket Mode**: Real-time WebSocket support for Slack adapters
+- **Slack Socket Mode**: Real-time WebSocket support for Slack bots
+- **Adapter → Bot Terminology**: Alignment with modern bot/chatbot nomenclature
 - **Project Restructuring**: Monorepo reorganization with HPD-AI-Framework and HPD-OS separations
 
 **Note**: This release contains several breaking changes, particularly around namespace reorganization, architecture refactoring, and API changes. See detailed sections below.
@@ -633,7 +634,57 @@ public class StateTransitions { /* State management */ }
 
 ---
 
-### 8. HPDOS & Repository Reorganization (Commit: 936a66a)
+### 8. Adapter → Bot Refactoring (Commit: 689a714)
+
+**Status**: NAMING & TERMINOLOGY ALIGNMENT
+
+#### What Was Changed
+
+Renamed the adapter framework to "bots" to align with modern bot/chatbot terminology across the framework:
+
+**Project Renames**:
+- `HPD-Agent.Adapters` → `HPD-Agent.Bots`
+- `HPD-Agent.Adapters.Abstractions` → `HPD-Agent.Bots.Abstractions`
+- `HPD-Agent.Adapters.AspNetCore` → `HPD-Agent.Bots.AspNetCore`
+- `HPD-Agent.Adapters.Slack` → `HPD-Agent.Bots.Slack`
+- `HPD-Agent.Adapters.SourceGenerator` → `HPD-Agent.Bots.SourceGenerator`
+- `HPD-Agent.Adapters.Tests` → `HPD-Agent.Bots.Tests`
+
+**Namespace Changes**:
+- `HPD.Agent.Adapters` → `HPD.Agent.Bots`
+- All internal namespaces updated accordingly
+
+**File Renames** (Slack implementation):
+- `SlackAdapter.cs` → `SlackBot.cs`
+- `SlackAdapterConfig.cs` → `SlackBotConfig.cs`
+- `SlackAdapterServiceCollectionExtensions.cs` → `SlackBotServiceCollectionExtensions.cs`
+
+**Migration Path**:
+```csharp
+// Old
+using HPD.Agent.Adapters.Slack;
+builder.Services.AddSlackAdapter(config);
+
+// New
+using HPD.Agent.Bots.Slack;
+builder.Services.AddSlackBot(config);
+```
+
+#### Breaking Changes
+
+1. **Namespace imports** - All `using HPD.Agent.Adapters.*` statements must change to `using HPD.Agent.Bots.*`
+2. **Project references** - All `.csproj` files referencing `HPD-Agent.Adapters` projects must update paths
+3. **Extension method calls** - `AddSlackAdapter()` → `AddSlackBot()`, etc.
+
+#### Impact
+
+- **Scope**: Framework-wide terminology change affecting all bot/adapter code
+- **Compatibility**: Not backward compatible; migration required
+- **Benefit**: Clearer semantic meaning aligned with "bot" nomenclature in AI/LLM space
+
+---
+
+### 9. HPDOS & Repository Reorganization (Commit: 936a66a)
 
 **Status**: MAJOR STRUCTURAL CHANGE
 
@@ -874,6 +925,8 @@ result.Should().BeLessThanOrEqualTo(10);
 | `AgentSessionManager` | Removed, split into `AgentManager` + `SessionManager` | CRITICAL | Refactor to use separate managers |
 | Project Structure | Files moved to `HPD-AI-Framework/` subdirectory | CRITICAL | Update all project references |
 | Shared Packages | Moved to `dotnet/src/shared/` | CRITICAL | Update project file imports |
+| Adapter → Bot Namespace | `HPD.Agent.Adapters` → `HPD.Agent.Bots` | HIGH | Update all usings and project references |
+| Adapter → Bot Projects | `HPD-Agent.Adapters.*` → `HPD-Agent.Bots.*` | HIGH | Update .csproj references and imports |
 | Test Projects | Renamed `HPD.*.Tests` → `HPD-*.Tests` | HIGH | Update solution and CI/CD references |
 | Roslyn Generator Interface | `ISourceGenerator` → `IIncrementalGenerator` | CRITICAL | Rewrite all custom generators |
 | MCP Client API | `McpClientFactory` → `McpClient.CreateAsync()` | HIGH | Update MCP initialization code |
@@ -891,12 +944,13 @@ result.Should().BeLessThanOrEqualTo(10);
 | Evaluation Framework | HPD-Agent Core | New | Performance measurement, agent quality tracking |
 | RAG Framework | HPD-RAG.Framework | New | LLM grounding, retrieval, embeddings ecosystem |
 | ML Framework | HPD-ML Framework | New | ML algorithms, data handling, model training |
-| Slack Socket Mode | HPD-Agent.Adapters.Slack | New | Real-time WebSocket support for Slack |
+| Slack Socket Mode | HPD-Agent.Bots.Slack | New | Real-time WebSocket support for Slack |
 | Toolkit-Scoped Middleware | HPD-Agent Core | New | Per-toolkit middleware pipelines |
 | Branch Sibling Navigation | HPD-Agent Core | New | Conversation UX improvements |
 | Headless UI Overhaul | hpd-agent-headless-ui | Enhanced | Better component reactivity, state management |
 | Graph Optimization | HPD-Graph | Enhanced | Performance: XxHash64, fast-path execution |
 | Rhodium Trading Framework | Rhodium | New | Quantitative analysis and backtesting |
+| Adapter → Bot Terminology | HPD-Agent.Bots | Refactor | Aligned naming with bot/chatbot terminology |
 
 ---
 
