@@ -747,67 +747,32 @@ public abstract class HybridWebViewAgentProxy
 
     public void RespondToPermission(string permissionResponseJson)
     {
-        var request = JsonSerializer.Deserialize<PermissionResponseRequest>(permissionResponseJson);
-        if (request == null)
+        var evt = JsonSerializer.Deserialize<PermissionResponseEvent>(permissionResponseJson);
+        if (evt == null)
             throw new ArgumentException("Invalid permission response JSON", nameof(permissionResponseJson));
 
         // Get the running agent - must be actively streaming to respond
-        var agent = AgentManager.GetAgent(request.AgentId ?? "default");
+        var agent = AgentManager.GetAgent("default");
         if (agent == null)
             throw new InvalidOperationException("No running agent found for this session");
 
-        // Convert string choice to PermissionChoice enum
-        var choice = request.Choice?.ToLower() switch
-        {
-            "allow_always" => PermissionChoice.AlwaysAllow,
-            "deny_always" => PermissionChoice.AlwaysDeny,
-            _ => PermissionChoice.Ask
-        };
-
-        // Send response to waiting permission middleware
-        agent.SendMiddlewareResponse(
-            request.PermissionId,
-            new PermissionResponseEvent(
-                request.PermissionId,
-                "PermissionMiddleware",
-                request.Approved,
-                request.Reason,
-                choice));
+        // Send response directly to waiting permission middleware
+        agent.SendMiddlewareResponse(evt.PermissionId, evt);
     }
 
     public void RespondToClientTool(string clientToolResponseJson)
     {
-        var request = JsonSerializer.Deserialize<ClientToolResponseRequest>(clientToolResponseJson);
-        if (request == null)
+        var evt = JsonSerializer.Deserialize<ClientToolInvokeResponseEvent>(clientToolResponseJson);
+        if (evt == null)
             throw new ArgumentException("Invalid client tool response JSON", nameof(clientToolResponseJson));
 
         // Get the running agent - must be actively streaming to respond
-        var agent = AgentManager.GetAgent(request.AgentId ?? "default");
+        var agent = AgentManager.GetAgent("default");
         if (agent == null)
             throw new InvalidOperationException("No running agent found for this session");
 
-        // Convert content to IToolResultContent list
-        var content = request.Content?.Select<ClientToolContentDto, IToolResultContent>(c => c.Type switch
-        {
-            "text" => new HPD.Agent.ClientTools.TextContent(c.Text ?? ""),
-            "binary" or "data" => new BinaryContent(
-                c.MediaType ?? "application/octet-stream",
-                Convert.ToBase64String(c.Data ?? Array.Empty<byte>()),
-                null,  // url
-                null,  // id
-                null), // filename
-            _ => new HPD.Agent.ClientTools.TextContent(c.Text ?? "")
-        }).ToList() ?? new List<IToolResultContent>();
-
-        // Send response to waiting ClientToolMiddleware
-        agent.SendMiddlewareResponse(
-            request.RequestId,
-            new ClientToolInvokeResponseEvent(
-                RequestId: request.RequestId,
-                Content: content,
-                Success: request.Success,
-                ErrorMessage: request.ErrorMessage,
-                Augmentation: null));
+        // Send response directly to waiting ClientToolMiddleware
+        agent.SendMiddlewareResponse(evt.RequestId, evt);
     }
 
     // ============================================================

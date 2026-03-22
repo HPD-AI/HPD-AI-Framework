@@ -40,8 +40,7 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(List<StreamMessage>))]
 [JsonSerializable(typeof(StreamRunConfigDto))]
 [JsonSerializable(typeof(ChatRunConfigDto))]
-[JsonSerializable(typeof(PermissionResponseRequest))]
-[JsonSerializable(typeof(ClientToolResponseRequest))]
+// Note: PermissionResponseEvent and ClientToolInvokeResponseEvent are used directly (from AgentEventJsonContext)
 [JsonSerializable(typeof(ClientToolContentDto))]
 [JsonSerializable(typeof(ClientToolContentDto[]))]
 [JsonSerializable(typeof(List<ClientToolContentDto>))]

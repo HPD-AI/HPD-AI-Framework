@@ -21,8 +21,10 @@ namespace HPDOS.Shell.Cli.TUI;
 public abstract class UIComponent
 {
     public abstract IRenderable Render();
-    
-    public void Display() => AnsiConsole.Write(Render());
+
+    public void Display() => SpectreConsoleSession.CreateDefault().Write(Render());
+
+    public void Display(IConsoleSession session) => session.Write(Render());
 }
 
 // ============================================================================
@@ -113,6 +115,9 @@ public static class HpdosJsonOptions
 [JsonSerializable(typeof(SetActiveRequestDto))]
 [JsonSerializable(typeof(StoredEntryInfo))]
 [JsonSerializable(typeof(List<StoredEntryInfo>))]
+// Bidirectional event responses
+[JsonSerializable(typeof(PermissionResponseEvent))]
+[JsonSerializable(typeof(PermissionChoice))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 public partial class HpdosCliJsonContext : JsonSerializerContext { }
 

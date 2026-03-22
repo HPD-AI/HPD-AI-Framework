@@ -19,6 +19,7 @@ public static class ProviderSetupFlow
     /// </summary>
     public static async Task RunAsync(
         IProviderOperations ops,
+        IConsoleSession session,
         CancellationToken ct,
         ProviderOptionsStore? optionsStore = null)
     {
@@ -27,10 +28,10 @@ public static class ProviderSetupFlow
             while (!ct.IsCancellationRequested)
             {
                 var summaries = await ops.GetSummaryAsync();
-                DrawProviderTable(summaries);
+                DrawProviderTable(session, summaries);
 
                 // Pick a provider to act on (or Done).
-                var picked = await PickProviderAsync(summaries, ct);
+                var picked = await PickProviderAsync(session, summaries, ct);
                 if (picked == null || ct.IsCancellationRequested)
                     return;
 
@@ -40,7 +41,7 @@ public static class ProviderSetupFlow
                 // Not connected → go straight to connect (skip redundant action picker).
                 if (!isConnected)
                 {
-                    await ConnectProviderAsync(ops, preselectedId: picked, ct);
+                    await ConnectProviderAsync(ops, session, preselectedId: picked, ct: ct);
                     continue;
                 }
 
@@ -50,7 +51,7 @@ public static class ProviderSetupFlow
                 var storedCount = summary.StoredEntries?.Count ?? 1;
                 var hasConfigurableOptions = ProviderConfigFlow.HasOptions(picked);
                 var action = await PickProviderActionAsync(
-                    summary.DisplayName, hasMultipleMethods, storedCount, hasConfigurableOptions, ct);
+                    session, summary.DisplayName, hasMultipleMethods, storedCount, hasConfigurableOptions, ct);
                 if (action == "back" || ct.IsCancellationRequested)
                     continue;
 
@@ -58,19 +59,19 @@ public static class ProviderSetupFlow
                 {
                     case "configure":
                         var store = optionsStore ?? await ProviderOptionsStore.LoadAsync();
-                        await ProviderConfigFlow.RunAsync(picked, summary.DisplayName, store, ct);
+                        await ProviderConfigFlow.RunAsync(session, picked, summary.DisplayName, store, ct);
                         break;
                     case "add":
-                        await SwitchAuthMethodAsync(ops, picked, ct);
+                        await SwitchAuthMethodAsync(ops, session, picked, ct);
                         break;
                     case "set_active":
-                        await SetActiveEntryAsync(ops, summary, ct);
+                        await SetActiveEntryAsync(ops, session, summary, ct);
                         break;
                     case "remove_entry":
-                        await RemoveEntryAsync(ops, summary, ct);
+                        await RemoveEntryAsync(ops, session, summary, ct);
                         break;
                     case "disconnect":
-                        await DisconnectProviderAsync(ops, ct, preselectedId: picked);
+                        await DisconnectProviderAsync(ops, session, ct, preselectedId: picked);
                         break;
                 }
             }
@@ -81,7 +82,7 @@ public static class ProviderSetupFlow
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Error: {Markup.Escape(ex.Message)}[/]");
+            session.MarkupLine($"[red]Error: {Markup.Escape(ex.Message)}[/]");
         }
     }
 
@@ -97,6 +98,7 @@ public static class ProviderSetupFlow
     /// <param name="ct">Cancellation token.</param>
     public static async Task ConnectProviderAsync(
         IProviderOperations ops,
+        IConsoleSession session,
         string? preselectedId,
         CancellationToken ct,
         bool allowReconnect = false)
@@ -111,7 +113,7 @@ public static class ProviderSetupFlow
 
             if (candidates.Count == 0)
             {
-                AnsiConsole.MarkupLine("[yellow]All providers are already connected.[/]");
+                session.MarkupLine("[yellow]All providers are already connected.[/]");
                 return;
             }
 
@@ -126,7 +128,7 @@ public static class ProviderSetupFlow
 
                 if (match is null)
                 {
-                    AnsiConsole.MarkupLine(
+                    session.MarkupLine(
                         $"[yellow]Provider [bold]{Markup.Escape(preselectedId)}[/] not found.[/]");
                     return;
                 }
@@ -145,7 +147,7 @@ public static class ProviderSetupFlow
                     .AddChoices(pickerMap.Keys);
 
                 string picked;
-                try { picked = await prompt.ShowAsync(AnsiConsole.Console, ct); }
+                try { picked = await prompt.ShowAsync(session.Console, ct); }
                 catch (OperationCanceledException) { return; }
 
                 var chosen = pickerMap[picked];
@@ -172,7 +174,7 @@ public static class ProviderSetupFlow
                     .AddChoices(methodLabels.Select(m => m.Label));
 
                 string pickedLabel;
-                try { pickedLabel = await methodPrompt.ShowAsync(AnsiConsole.Console, ct); }
+                try { pickedLabel = await methodPrompt.ShowAsync(session.Console, ct); }
                 catch (OperationCanceledException) { return; }
 
                 methodIndex = methodLabels.First(m => m.Label == pickedLabel).Index;
@@ -183,30 +185,30 @@ public static class ProviderSetupFlow
             }
 
             // 5. Kick off the flow and dispatch on the result type.
-            AnsiConsole.WriteLine();
+            session.WriteLine();
             var result = await ops.StartLoginAsync(providerId, methodIndex, ct);
-            await HandleFlowResultAsync(ops, providerId, methodIndex, displayName, result, ct);
+            await HandleFlowResultAsync(ops, session, providerId, methodIndex, displayName, result, ct);
         }
         catch (OperationCanceledException)
         {
-            AnsiConsole.MarkupLine("[dim]Cancelled.[/]");
+            session.MarkupLine("[dim]Cancelled.[/]");
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Error: {Markup.Escape(ex.Message)}[/]");
+            session.MarkupLine($"[red]Error: {Markup.Escape(ex.Message)}[/]");
         }
     }
 
     /// <summary>Switches the auth method for an already-connected provider.</summary>
-    private static Task SwitchAuthMethodAsync(IProviderOperations ops, string providerId, CancellationToken ct)
-        => ConnectProviderAsync(ops, preselectedId: providerId, ct, allowReconnect: true);
+    private static Task SwitchAuthMethodAsync(IProviderOperations ops, IConsoleSession session, string providerId, CancellationToken ct)
+        => ConnectProviderAsync(ops, session, preselectedId: providerId, ct, allowReconnect: true);
 
     // ── Disconnect flow ───────────────────────────────────────────────────────
 
     /// <summary>
     /// Guides the user through disconnecting an already-connected provider.
     /// </summary>
-    public static async Task DisconnectProviderAsync(IProviderOperations ops, CancellationToken ct, string? preselectedId = null)
+    public static async Task DisconnectProviderAsync(IProviderOperations ops, IConsoleSession session, CancellationToken ct, string? preselectedId = null)
     {
         try
         {
@@ -217,7 +219,7 @@ public static class ProviderSetupFlow
 
             if (connected.Count == 0)
             {
-                AnsiConsole.MarkupLine("[yellow]No connected providers to disconnect.[/]");
+                session.MarkupLine("[yellow]No connected providers to disconnect.[/]");
                 return;
             }
 
@@ -229,7 +231,7 @@ public static class ProviderSetupFlow
                     s => s.ProviderId.Equals(preselectedId, StringComparison.OrdinalIgnoreCase));
                 if (match is null)
                 {
-                    AnsiConsole.MarkupLine("[yellow]Provider is not connected.[/]");
+                    session.MarkupLine("[yellow]Provider is not connected.[/]");
                     return;
                 }
                 chosen = match;
@@ -244,7 +246,7 @@ public static class ProviderSetupFlow
                     .AddChoices(pickerMap.Keys);
 
                 string pickedName;
-                try { pickedName = await prompt.ShowAsync(AnsiConsole.Console, ct); }
+                try { pickedName = await prompt.ShowAsync(session.Console, ct); }
                 catch (OperationCanceledException) { return; }
                 chosen = pickerMap[pickedName];
             }
@@ -253,40 +255,40 @@ public static class ProviderSetupFlow
             var confirmPrompt = new ConfirmationPrompt(
                 $"Disconnect [bold]{Markup.Escape(chosen.DisplayName)}[/]?")
             { DefaultValue = false };
-            try { confirmed = await confirmPrompt.ShowAsync(AnsiConsole.Console, ct); }
+            try { confirmed = await confirmPrompt.ShowAsync(session.Console, ct); }
             catch (OperationCanceledException)
             {
-                AnsiConsole.MarkupLine("[dim]Cancelled.[/]");
+                session.MarkupLine("[dim]Cancelled.[/]");
                 return;
             }
 
             if (!confirmed)
             {
-                AnsiConsole.MarkupLine("[dim]Cancelled.[/]");
+                session.MarkupLine("[dim]Cancelled.[/]");
                 return;
             }
 
             var ok = await ops.LogoutAsync(chosen.ProviderId);
             if (ok)
-                AnsiConsole.MarkupLine($"[green]✓ {Markup.Escape(chosen.DisplayName)} disconnected.[/]");
+                session.MarkupLine($"[green]✓ {Markup.Escape(chosen.DisplayName)} disconnected.[/]");
             else
-                AnsiConsole.MarkupLine($"[red]Failed to disconnect {Markup.Escape(chosen.DisplayName)}.[/]");
+                session.MarkupLine($"[red]Failed to disconnect {Markup.Escape(chosen.DisplayName)}.[/]");
         }
         catch (OperationCanceledException)
         {
-            AnsiConsole.MarkupLine("[dim]Cancelled.[/]");
+            session.MarkupLine("[dim]Cancelled.[/]");
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Error: {Markup.Escape(ex.Message)}[/]");
+            session.MarkupLine($"[red]Error: {Markup.Escape(ex.Message)}[/]");
         }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private static void DrawProviderTable(List<AuthSummary> summaries)
+    private static void DrawProviderTable(IConsoleSession session, List<AuthSummary> summaries)
     {
-        AnsiConsole.WriteLine();
+        session.WriteLine();
 
         var table = new Table()
             .BorderColor(Color.Grey)
@@ -314,14 +316,14 @@ public static class ProviderSetupFlow
             table.AddRow(Markup.Escape(s.DisplayName), status, source, count, expires);
         }
 
-        AnsiConsole.Write(table);
-        AnsiConsole.WriteLine();
+        session.Write(table);
+        session.WriteLine();
     }
 
     /// <summary>
     /// Shows all providers as a flat list. Returns the selected ProviderId, or null for "Done".
     /// </summary>
-    private static async Task<string?> PickProviderAsync(List<AuthSummary> summaries, CancellationToken ct)
+    private static async Task<string?> PickProviderAsync(IConsoleSession session, List<AuthSummary> summaries, CancellationToken ct)
     {
         const string DoneKey = "__done__";
 
@@ -345,7 +347,7 @@ public static class ProviderSetupFlow
             })
             .AddChoices(summaries.Select(s => s.ProviderId).Append(DoneKey));
 
-        var picked = await prompt.ShowAsync(AnsiConsole.Console, ct);
+        var picked = await prompt.ShowAsync(session.Console, ct);
         return picked == DoneKey ? null : picked;
     }
 
@@ -354,6 +356,7 @@ public static class ProviderSetupFlow
     /// Returns "add", "set_active", "remove_entry", "disconnect", or "back".
     /// </summary>
     private static async Task<string> PickProviderActionAsync(
+        IConsoleSession session,
         string displayName, bool hasMultipleMethods, int storedCount,
         bool hasConfigurableOptions, CancellationToken ct)
     {
@@ -381,11 +384,11 @@ public static class ProviderSetupFlow
             })
             .AddChoices(choices);
 
-        return await prompt.ShowAsync(AnsiConsole.Console, ct);
+        return await prompt.ShowAsync(session.Console, ct);
     }
 
     /// <summary>Shows a picker of all stored entries and sets the selected one as active.</summary>
-    private static async Task SetActiveEntryAsync(IProviderOperations ops, AuthSummary summary, CancellationToken ct)
+    private static async Task SetActiveEntryAsync(IProviderOperations ops, IConsoleSession session, AuthSummary summary, CancellationToken ct)
     {
         var entries = summary.StoredEntries;
         if (entries is null || entries.Count == 0) return;
@@ -404,23 +407,23 @@ public static class ProviderSetupFlow
             .AddChoices(entries.Select(e => e.Id));
 
         string picked;
-        try { picked = await prompt.ShowAsync(AnsiConsole.Console, ct); }
+        try { picked = await prompt.ShowAsync(session.Console, ct); }
         catch (OperationCanceledException) { return; }
 
         var ok = await ops.SetActiveEntryAsync(summary.ProviderId, picked);
         if (ok)
         {
             var label = entries.FirstOrDefault(e => e.Id == picked)?.MethodLabel ?? picked;
-            AnsiConsole.MarkupLine($"[green]✓ Now using: {Markup.Escape(label)}[/]");
+            session.MarkupLine($"[green]✓ Now using: {Markup.Escape(label)}[/]");
         }
         else
         {
-            AnsiConsole.MarkupLine("[red]Failed to switch active connection.[/]");
+            session.MarkupLine("[red]Failed to switch active connection.[/]");
         }
     }
 
     /// <summary>Shows a picker of stored entries and removes the selected one.</summary>
-    private static async Task RemoveEntryAsync(IProviderOperations ops, AuthSummary summary, CancellationToken ct)
+    private static async Task RemoveEntryAsync(IProviderOperations ops, IConsoleSession session, AuthSummary summary, CancellationToken ct)
     {
         var entries = summary.StoredEntries;
         if (entries is null || entries.Count == 0) return;
@@ -439,7 +442,7 @@ public static class ProviderSetupFlow
             .AddChoices(entries.Select(e => e.Id));
 
         string picked;
-        try { picked = await prompt.ShowAsync(AnsiConsole.Console, ct); }
+        try { picked = await prompt.ShowAsync(session.Console, ct); }
         catch (OperationCanceledException) { return; }
 
         var label = entries.FirstOrDefault(e => e.Id == picked)?.MethodLabel ?? picked;
@@ -449,16 +452,16 @@ public static class ProviderSetupFlow
         { DefaultValue = false };
 
         bool confirmed;
-        try { confirmed = await confirmPrompt.ShowAsync(AnsiConsole.Console, ct); }
+        try { confirmed = await confirmPrompt.ShowAsync(session.Console, ct); }
         catch (OperationCanceledException) { return; }
 
         if (!confirmed) return;
 
         var ok = await ops.LogoutEntryAsync(summary.ProviderId, picked);
         if (ok)
-            AnsiConsole.MarkupLine($"[green]✓ Removed: {Markup.Escape(label)}[/]");
+            session.MarkupLine($"[green]✓ Removed: {Markup.Escape(label)}[/]");
         else
-            AnsiConsole.MarkupLine("[red]Failed to remove connection.[/]");
+            session.MarkupLine("[red]Failed to remove connection.[/]");
     }
 
     private static string FormatMethodLabel(AuthMethodInfo method, int index)
@@ -478,6 +481,7 @@ public static class ProviderSetupFlow
     /// </summary>
     private static async Task HandleFlowResultAsync(
         IProviderOperations ops,
+        IConsoleSession session,
         string providerId,
         int methodIndex,
         string displayName,
@@ -488,31 +492,32 @@ public static class ProviderSetupFlow
         {
             // ── Already done (e.g. OAuthBrowser completed, WellKnown env var found) ──
             case AuthFlowResult.Success:
-                AnsiConsole.MarkupLine($"[green]✓ {Markup.Escape(displayName)} connected.[/]");
+                session.MarkupLine($"[green]✓ {Markup.Escape(displayName)} connected.[/]");
                 break;
 
             // ── Flow needs a secret value from the user (ApiKey, etc.) ──────────
             case AuthFlowResult.NeedsUserInput needsInput:
-                await HandleNeedsUserInputAsync(ops, providerId, methodIndex, displayName, needsInput, ct);
+                await HandleNeedsUserInputAsync(ops, session, providerId, methodIndex, displayName, needsInput, ct);
                 break;
 
             // ── Device code / manual-code flow ───────────────────────────────────
             case AuthFlowResult.PendingUserAction pending:
-                await HandlePendingActionAsync(displayName, pending, ct);
+                await HandlePendingActionAsync(session, displayName, pending, ct);
                 break;
 
             case AuthFlowResult.Failed failed:
-                AnsiConsole.MarkupLine($"[red]✗ {Markup.Escape(failed.Error)}[/]");
+                session.MarkupLine($"[red]✗ {Markup.Escape(failed.Error)}[/]");
                 break;
 
             case AuthFlowResult.Cancelled:
-                AnsiConsole.MarkupLine("[dim]Cancelled.[/]");
+                session.MarkupLine("[dim]Cancelled.[/]");
                 break;
         }
     }
 
     private static async Task HandleNeedsUserInputAsync(
         IProviderOperations ops,
+        IConsoleSession session,
         string providerId,
         int methodIndex,
         string displayName,
@@ -529,10 +534,10 @@ public static class ProviderSetupFlow
         };
 
         string input;
-        try { input = await keyPrompt.ShowAsync(AnsiConsole.Console, ct); }
+        try { input = await keyPrompt.ShowAsync(session.Console, ct); }
         catch (OperationCanceledException)
         {
-            AnsiConsole.MarkupLine("[dim]Cancelled.[/]");
+            session.MarkupLine("[dim]Cancelled.[/]");
             return;
         }
 
@@ -541,22 +546,23 @@ public static class ProviderSetupFlow
         switch (completeResult)
         {
             case AuthFlowResult.Success:
-                AnsiConsole.MarkupLine($"[green]✓ {Markup.Escape(displayName)} connected.[/]");
+                session.MarkupLine($"[green]✓ {Markup.Escape(displayName)} connected.[/]");
                 break;
             case AuthFlowResult.Failed f:
-                AnsiConsole.MarkupLine($"[red]✗ {Markup.Escape(f.Error)}[/]");
+                session.MarkupLine($"[red]✗ {Markup.Escape(f.Error)}[/]");
                 break;
             case AuthFlowResult.Cancelled:
-                AnsiConsole.MarkupLine("[dim]Cancelled.[/]");
+                session.MarkupLine("[dim]Cancelled.[/]");
                 break;
             default:
                 // Unexpected nested state — treat as a failure.
-                AnsiConsole.MarkupLine("[red]✗ Unexpected response while completing login.[/]");
+                session.MarkupLine("[red]✗ Unexpected response while completing login.[/]");
                 break;
         }
     }
 
     private static async Task HandlePendingActionAsync(
+        IConsoleSession session,
         string displayName,
         AuthFlowResult.PendingUserAction pending,
         CancellationToken ct)
@@ -586,7 +592,7 @@ public static class ProviderSetupFlow
         var spinnerFrames = Spinner.Known.Dots.Frames;
         int frameIndex = 0;
 
-        await AnsiConsole.Live(BuildPanel(spinnerFrames[0]))
+        await session.Console.Live(BuildPanel(spinnerFrames[0]))
             .AutoClear(true)
             .StartAsync(async ctx =>
             {
@@ -618,16 +624,16 @@ public static class ProviderSetupFlow
         switch (finalResult)
         {
             case AuthFlowResult.Success:
-                AnsiConsole.MarkupLine($"[green]✓ {Markup.Escape(displayName)} connected.[/]");
+                session.MarkupLine($"[green]✓ {Markup.Escape(displayName)} connected.[/]");
                 break;
             case AuthFlowResult.Failed f:
-                AnsiConsole.MarkupLine($"[red]✗ {Markup.Escape(f.Error)}[/]");
+                session.MarkupLine($"[red]✗ {Markup.Escape(f.Error)}[/]");
                 break;
             case AuthFlowResult.Cancelled:
-                AnsiConsole.MarkupLine("[dim]Cancelled.[/]");
+                session.MarkupLine("[dim]Cancelled.[/]");
                 break;
             default:
-                AnsiConsole.MarkupLine("[red]✗ Unexpected result from authorisation flow.[/]");
+                session.MarkupLine("[red]✗ Unexpected result from authorisation flow.[/]");
                 break;
         }
     }

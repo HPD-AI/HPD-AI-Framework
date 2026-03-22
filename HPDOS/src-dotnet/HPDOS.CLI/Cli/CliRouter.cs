@@ -1,4 +1,5 @@
 using HPDOS.Shell.Cli.Commands;
+using HPDOS.Shell.Cli.TUI;
 using HPDOS.Shell.Shell;
 using Spectre.Console;
 
@@ -25,22 +26,24 @@ public static class CliRouter
 
     static int PrintHelp()
     {
-        AnsiConsole.MarkupLine("[bold]hpdos[/] — HPDOS shell\n");
-        AnsiConsole.MarkupLine("  [cyan]hpdos[/]                Start a TUI agent chat session");
-        AnsiConsole.MarkupLine("  [cyan]hpdos gui[/]            Open in system browser");
-        AnsiConsole.MarkupLine("  [cyan]hpdos providers[/]      Connect or disconnect AI providers");
-        AnsiConsole.MarkupLine("  [cyan]hpdos serve[/]          Run as a public server (auth required)");
-        AnsiConsole.MarkupLine("  [cyan]hpdos serve --port N[/] Bind on a specific port (default 5000)");
-        AnsiConsole.MarkupLine("  [cyan]hpdos setup[/]          Register hpdos to your PATH");
-        AnsiConsole.MarkupLine("  [cyan]hpdos version[/]        Print version");
-        AnsiConsole.MarkupLine("  [cyan]hpdos help[/]           Show this help\n");
+        var session = SpectreConsoleSession.CreateDefault();
+        session.MarkupLine("[bold]hpdos[/] — HPDOS shell\n");
+        session.MarkupLine("  [cyan]hpdos[/]                Start a TUI agent chat session");
+        session.MarkupLine("  [cyan]hpdos gui[/]            Open in system browser");
+        session.MarkupLine("  [cyan]hpdos providers[/]      Connect or disconnect AI providers");
+        session.MarkupLine("  [cyan]hpdos serve[/]          Run as a public server (auth required)");
+        session.MarkupLine("  [cyan]hpdos serve --port N[/] Bind on a specific port (default 5000)");
+        session.MarkupLine("  [cyan]hpdos setup[/]          Register hpdos to your PATH");
+        session.MarkupLine("  [cyan]hpdos version[/]        Print version");
+        session.MarkupLine("  [cyan]hpdos help[/]           Show this help\n");
         return 0;
     }
 
     static int UnknownCommand(string cmd)
     {
-        AnsiConsole.MarkupLine($"[red]Unknown command:[/] {cmd}");
-        AnsiConsole.MarkupLine("Run [cyan]hpdos help[/] for usage.");
+        var session = SpectreConsoleSession.CreateDefault();
+        session.MarkupLine($"[red]Unknown command:[/] {Markup.Escape(cmd)}");
+        session.MarkupLine("Run [cyan]hpdos help[/] for usage.");
         return 1;
     }
 }

@@ -76,6 +76,46 @@ For complete patterns and best practices, see:
 - [**Bidirectional Events**](../Events/05.6%20Bidirectional%20Events.md) - Handling user prompts and clarifications
 - [**Streaming & Cancellation**](../Events/05.5%20Streaming%20%26%20Cancellation.md) - Ctrl+C handling and graceful shutdown
 
+## Alternative Transport: Kestrel Instead of stdin/stdout
+
+The console app above reads from `Console.ReadLine()` and writes to `Console.Write()`. But Kestrel is built into the .NET SDK — you don't need a separate server or a frontend to use it. You can take the same console project and swap the transport: instead of stdin/stdout, the agent listens over HTTP using `HPD-Agent.AspNetCore`.
+
+This is still a console application. The only difference is how input and output flow:
+
+| Transport | Input | Output | Access |
+|---|---|---|---|
+| stdin/stdout | `Console.ReadLine()` | `Console.Write()` | Same machine, same terminal |
+| Kestrel (HTTP) | `POST .../stream` body | SSE or WebSocket event stream | Any HTTP client, over the network |
+
+### Minimal Kestrel console app
+
+Same project type — just add the package and replace the REPL loop with a Kestrel host:
+
+```bash
+dotnet add package HPD-Agent.AspNetCore
+```
+
+```csharp
+using HPD.Agent.AspNetCore;
+
+var builder = WebApplication.CreateSlimBuilder(args);
+
+builder.Services.AddHPDAgent(options =>
+{
+    options.ConfigureAgent = agent => agent
+        .WithProvider("anthropic", "claude-sonnet-4-5")
+        .WithInstructions("You are a helpful assistant.");
+});
+
+var app = builder.Build();
+app.MapHPDAgentApi();  // sessions, branches, SSE, WebSocket, assets — all wired up
+app.Run();
+```
+
+`MapHPDAgentApi()` registers the full REST + streaming API automatically. No frontend required — call it directly with curl or any HTTP client from day one, and add a frontend later if you need one.
+
+For everything `MapHPDAgentApi()` exposes, see [**Building Web Apps**](08%20Building%20Web%20Apps.md).
+
 ## See Also
 
 - [**Event Handling**](05%20Event%20Handling.md) - Understanding the event stream

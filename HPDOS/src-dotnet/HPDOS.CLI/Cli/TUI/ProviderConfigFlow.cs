@@ -15,6 +15,7 @@ public static class ProviderConfigFlow
     public static bool HasOptions(string providerId) => GetDefinitions(providerId).Count > 0;
 
     public static async Task RunAsync(
+        IConsoleSession session,
         string providerId,
         string displayName,
         ProviderOptionsStore store,
@@ -23,7 +24,7 @@ public static class ProviderConfigFlow
         var defs = GetDefinitions(providerId);
         if (defs.Count == 0)
         {
-            AnsiConsole.MarkupLine($"[dim]No configurable options for {Markup.Escape(displayName)}.[/]");
+            session.MarkupLine($"[dim]No configurable options for {Markup.Escape(displayName)}.[/]");
             return;
         }
 
@@ -77,7 +78,7 @@ public static class ProviderConfigFlow
                 {
                     var rowKey = rowKeys[selected];
                     if (rowKey == "__done__") goto done;
-                    if (rowKey == "__reset__") { await ResetAsync(store, providerId, lastHeight); lastHeight = 0; break; }
+                    if (rowKey == "__reset__") { await ResetAsync(session, store, providerId, lastHeight); lastHeight = 0; break; }
                     var def = defs.First(d => d.Key == rowKey);
                     // Bool and Enum: cycle in-place. Text/Int/Float: ignore Space (Enter opens prompt).
                     if (def.Type == OptionType.Bool)
@@ -104,7 +105,7 @@ public static class ProviderConfigFlow
                 {
                     var rowKey = rowKeys[selected];
                     if (rowKey == "__done__") goto done;
-                    if (rowKey == "__reset__") { await ResetAsync(store, providerId, lastHeight); lastHeight = 0; break; }
+                    if (rowKey == "__reset__") { await ResetAsync(session, store, providerId, lastHeight); lastHeight = 0; break; }
 
                     // Erase panel before showing sub-prompt.
                     EraseLines(lastHeight);
@@ -115,7 +116,7 @@ public static class ProviderConfigFlow
                     var existing = existingRaw is System.Text.Json.JsonElement el
                         ? ProviderOptionsStore.Coerce(new Dictionary<string, object> { ["v"] = el })["v"]
                         : existingRaw;
-                    await EditOptionAsync(store, providerId, def, existing, ct);
+                    await EditOptionAsync(session, store, providerId, def, existing, ct);
                     break;
                 }
 
@@ -137,11 +138,11 @@ public static class ProviderConfigFlow
         System.Console.Write($"\x1b[{count}A");
     }
 
-    private static async Task ResetAsync(ProviderOptionsStore store, string providerId, int lastHeight)
+    private static async Task ResetAsync(IConsoleSession session, ProviderOptionsStore store, string providerId, int lastHeight)
     {
         EraseLines(lastHeight);
         await store.ClearAsync(providerId);
-        AnsiConsole.MarkupLine("[green]✓ Options reset.[/]");
+        session.MarkupLine("[green]✓ Options reset.[/]");
     }
 
     // ── Panel display ─────────────────────────────────────────────────────────
@@ -224,40 +225,41 @@ public static class ProviderConfigFlow
     // ── Edit a single option ──────────────────────────────────────────────────
 
     private static async Task EditOptionAsync(
+        IConsoleSession session,
         ProviderOptionsStore store,
         string providerId,
         OptionDef def,
         object? current,
         CancellationToken ct)
     {
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine($"[bold]{Markup.Escape(def.Label)}[/]  [dim]{Markup.Escape(def.Description)}[/]");
+        session.WriteLine();
+        session.MarkupLine($"[bold]{Markup.Escape(def.Label)}[/]  [dim]{Markup.Escape(def.Description)}[/]");
         if (def.HintText is not null)
-            AnsiConsole.MarkupLine($"[dim]{Markup.Escape(def.HintText)}[/]");
-        AnsiConsole.WriteLine();
+            session.MarkupLine($"[dim]{Markup.Escape(def.HintText)}[/]");
+        session.WriteLine();
 
         try
         {
             switch (def.Type)
             {
                 case OptionType.Bool:
-                    await EditBoolAsync(store, providerId, def, current, ct);
+                    await EditBoolAsync(session, store, providerId, def, current, ct);
                     break;
 
                 case OptionType.Int:
-                    await EditIntAsync(store, providerId, def, current, ct);
+                    await EditIntAsync(session, store, providerId, def, current, ct);
                     break;
 
                 case OptionType.Float:
-                    await EditFloatAsync(store, providerId, def, current, ct);
+                    await EditFloatAsync(session, store, providerId, def, current, ct);
                     break;
 
                 case OptionType.String:
-                    await EditStringAsync(store, providerId, def, current, ct);
+                    await EditStringAsync(session, store, providerId, def, current, ct);
                     break;
 
                 case OptionType.Enum:
-                    await EditEnumAsync(store, providerId, def, current, ct);
+                    await EditEnumAsync(session, store, providerId, def, current, ct);
                     break;
             }
         }
@@ -265,7 +267,7 @@ public static class ProviderConfigFlow
     }
 
     private static async Task EditBoolAsync(
-        ProviderOptionsStore store, string providerId, OptionDef def, object? current, CancellationToken ct)
+        IConsoleSession session, ProviderOptionsStore store, string providerId, OptionDef def, object? current, CancellationToken ct)
     {
         var currentBool = current is bool b ? b : current is long l ? l != 0 : false;
         var choices = new List<string> { "on", "off", "default (clear)" };
@@ -273,17 +275,17 @@ public static class ProviderConfigFlow
             .Title($"[dim]Current:[/] {(current is null ? "default" : currentBool ? "on" : "off")}")
             .AddChoices(choices);
 
-        var picked = await prompt.ShowAsync(AnsiConsole.Console, ct);
+        var picked = await prompt.ShowAsync(session.Console, ct);
         if (picked == "default (clear)")
             await store.SetOptionAsync(providerId, def.Key, null);
         else
             await store.SetOptionAsync(providerId, def.Key, picked == "on");
 
-        AnsiConsole.MarkupLine("[green]✓ Saved.[/]");
+        session.MarkupLine("[green]✓ Saved.[/]");
     }
 
     private static async Task EditIntAsync(
-        ProviderOptionsStore store, string providerId, OptionDef def, object? current, CancellationToken ct)
+        IConsoleSession session, ProviderOptionsStore store, string providerId, OptionDef def, object? current, CancellationToken ct)
     {
         var currentStr = current is null ? "" : Convert.ToInt64(current).ToString();
         var hint = def.Range is not null ? $" [dim]({def.Range})[/]" : "";
@@ -291,21 +293,21 @@ public static class ProviderConfigFlow
             .AllowEmpty()
             .DefaultValue(currentStr);
 
-        var input = await prompt.ShowAsync(AnsiConsole.Console, ct);
+        var input = await prompt.ShowAsync(session.Console, ct);
         if (string.IsNullOrWhiteSpace(input))
             await store.SetOptionAsync(providerId, def.Key, null);
         else if (long.TryParse(input.Trim(), out var v))
             await store.SetOptionAsync(providerId, def.Key, v);
         else
         {
-            AnsiConsole.MarkupLine("[red]Invalid number.[/]");
+            session.MarkupLine("[red]Invalid number.[/]");
             return;
         }
-        AnsiConsole.MarkupLine("[green]✓ Saved.[/]");
+        session.MarkupLine("[green]✓ Saved.[/]");
     }
 
     private static async Task EditFloatAsync(
-        ProviderOptionsStore store, string providerId, OptionDef def, object? current, CancellationToken ct)
+        IConsoleSession session, ProviderOptionsStore store, string providerId, OptionDef def, object? current, CancellationToken ct)
     {
         var currentStr = current is null ? "" : Convert.ToDouble(current).ToString("G");
         var hint = def.Range is not null ? $" [dim]({def.Range})[/]" : "";
@@ -313,38 +315,38 @@ public static class ProviderConfigFlow
             .AllowEmpty()
             .DefaultValue(currentStr);
 
-        var input = await prompt.ShowAsync(AnsiConsole.Console, ct);
+        var input = await prompt.ShowAsync(session.Console, ct);
         if (string.IsNullOrWhiteSpace(input))
             await store.SetOptionAsync(providerId, def.Key, null);
         else if (double.TryParse(input.Trim(), out var v))
             await store.SetOptionAsync(providerId, def.Key, v);
         else
         {
-            AnsiConsole.MarkupLine("[red]Invalid number.[/]");
+            session.MarkupLine("[red]Invalid number.[/]");
             return;
         }
-        AnsiConsole.MarkupLine("[green]✓ Saved.[/]");
+        session.MarkupLine("[green]✓ Saved.[/]");
     }
 
     private static async Task EditStringAsync(
-        ProviderOptionsStore store, string providerId, OptionDef def, object? current, CancellationToken ct)
+        IConsoleSession session, ProviderOptionsStore store, string providerId, OptionDef def, object? current, CancellationToken ct)
     {
         var currentStr = current?.ToString() ?? "";
         var prompt = new TextPrompt<string>("Enter value [dim](empty = clear/default):[/]")
             .AllowEmpty()
             .DefaultValue(currentStr);
 
-        var input = await prompt.ShowAsync(AnsiConsole.Console, ct);
+        var input = await prompt.ShowAsync(session.Console, ct);
         if (string.IsNullOrWhiteSpace(input))
             await store.SetOptionAsync(providerId, def.Key, null);
         else
             await store.SetOptionAsync(providerId, def.Key, input.Trim());
 
-        AnsiConsole.MarkupLine("[green]✓ Saved.[/]");
+        session.MarkupLine("[green]✓ Saved.[/]");
     }
 
     private static async Task EditEnumAsync(
-        ProviderOptionsStore store, string providerId, OptionDef def, object? current, CancellationToken ct)
+        IConsoleSession session, ProviderOptionsStore store, string providerId, OptionDef def, object? current, CancellationToken ct)
     {
         var currentStr = current?.ToString() ?? "";
         var choices = def.EnumValues!.Append("(clear / default)").ToList();
@@ -353,13 +355,13 @@ public static class ProviderConfigFlow
             .WrapAround(true)
             .AddChoices(choices);
 
-        var picked = await prompt.ShowAsync(AnsiConsole.Console, ct);
+        var picked = await prompt.ShowAsync(session.Console, ct);
         if (picked == "(clear / default)")
             await store.SetOptionAsync(providerId, def.Key, null);
         else
             await store.SetOptionAsync(providerId, def.Key, picked);
 
-        AnsiConsole.MarkupLine("[green]✓ Saved.[/]");
+        session.MarkupLine("[green]✓ Saved.[/]");
     }
 
     // ── Option definitions per provider ───────────────────────────────────────

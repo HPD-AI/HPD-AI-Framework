@@ -21,12 +21,16 @@ namespace HPDOS.Shell.Cli.TUI;
 /// </summary>
 public class AgentUIRenderer
 {
+    private readonly IConsoleSession _session;
     private readonly UIStateManager _stateManager;
     private readonly ConcurrentDictionary<string, ToolMessage> _toolComponents = new();
     private readonly ConcurrentDictionary<string, string?> _callIdToToolkit = new();
     private readonly ConcurrentDictionary<string, string?> _callIdToRenderedLine = new();
     private readonly object _lock = new();
     private bool _isFirstOutput = true;
+    private bool _assistantThreadStarted;
+    private string? _pendingAssistantHeader;
+    private bool _showMarkerOnNextAssistantTextBlock;
 
     // Thinking spinner — runs between turn start and first output, and during tool execution
     private CancellationTokenSource? _spinnerCts;
@@ -79,8 +83,9 @@ public class AgentUIRenderer
         set => _useStreamingMarkdown = value;
     }
 
-    public AgentUIRenderer()
+    public AgentUIRenderer(IConsoleSession session)
     {
+        _session = session;
         _stateManager = new UIStateManager();
         BuiltInCommands.RegisterAll(_commandRegistry);
     }
@@ -116,7 +121,7 @@ public class AgentUIRenderer
             Version = version,
             Model = model
         };
-        header.Display();
+        header.Display(_session);
     }
     
     /// <summary>
@@ -128,7 +133,7 @@ public class AgentUIRenderer
         {
             Commands = _commandRegistry.GetVisibleCommands()
         };
-        helpPanel.Display();
+        helpPanel.Display(_session);
     }
     
     /// <summary>
@@ -144,7 +149,7 @@ public class AgentUIRenderer
             TotalTime = _stateManager.State.Stats.TotalTime,
             ToolCalls = _stateManager.State.Stats.ToolCalls
         };
-        stats.Display();
+        stats.Display(_session);
     }
     
     /// <summary>
@@ -153,8 +158,8 @@ public class AgentUIRenderer
     public void ShowUserMessage(string content)
     {
         _stateManager.AddUserMessage(content);
-        AnsiConsole.WriteLine();
-        new UserMessage { Content = content }.Display();
+        _session.WriteLine();
+        new UserMessage { Content = content }.Display(_session);
     }
     
     /// <summary>
@@ -224,7 +229,7 @@ public class AgentUIRenderer
                     break;
 
                 case ReasoningMessageEndEvent:
-                    AnsiConsole.WriteLine();
+                    _session.WriteLine();
                     break;
 
                 // Plan Mode events
@@ -255,8 +260,8 @@ public class AgentUIRenderer
                 {
                     // Route through AnsiConsole so output serialises with other Spectre writes.
                     // ControlCode carries raw ANSI positioning; Markup carries the styled text.
-                    AnsiConsole.Write(new ControlCode("\r\x1b[2K"));
-                    AnsiConsole.Markup($"[dim]{frames[i % frames.Length]} {Markup.Escape(message)}[/]");
+                    _session.Write(new ControlCode("\r\x1b[2K"));
+                    _session.Markup($"[dim]{frames[i % frames.Length]} {Markup.Escape(message)}[/]");
                     i++;
                     await Task.Delay(80, ct);
                 }
@@ -265,7 +270,7 @@ public class AgentUIRenderer
             finally
             {
                 // Erase the spinner line via AnsiConsole to stay in the same output pipeline.
-                AnsiConsole.Write(new ControlCode("\r\x1b[2K"));
+                _session.Write(new ControlCode("\r\x1b[2K"));
             }
         }, ct);
     }
@@ -283,10 +288,12 @@ public class AgentUIRenderer
     private void RenderTurnStart(MessageTurnStartedEvent evt)
     {
         _isFirstOutput = true;
+        _assistantThreadStarted = false;
+        _showMarkerOnNextAssistantTextBlock = false;
         _toolComponents.Clear();
         _lineCollector.Clear();
 
-        AnsiConsole.WriteLine();
+        _session.WriteLine();
 
         // Build header: "AgentName - provider:model" or just "AgentName" if no model info
         var headerText = evt.AgentName;
@@ -295,11 +302,7 @@ public class AgentUIRenderer
             headerText = $"{evt.AgentName} [dim]-[/] [cyan]{_currentProvider}[/]:[white]{_currentModel}[/]";
         }
 
-        AnsiConsole.Write(
-            new Rule($"[bold green]{headerText}[/]")
-                .LeftJustified()
-                .RuleStyle("green")
-        );
+        _pendingAssistantHeader = headerText;
 
         StartSpinner("Thinking...");
     }
@@ -313,36 +316,36 @@ public class AgentUIRenderer
         {
             var remaining = _lineCollector.Finalize();
             foreach (var line in remaining)
-                AnsiConsole.Write(line);
+                WriteAssistantTextRenderable(line);
         }
     }
 
     private void RenderError(MessageTurnErrorEvent evt)
     {
         StopSpinner();
-        AnsiConsole.WriteLine();
+        _session.WriteLine();
 
         // Show model-specific error with helpful suggestion
         if (evt.IsModelNotFound)
         {
-            AnsiConsole.MarkupLine("[red bold]Model not found[/]");
-            AnsiConsole.MarkupLine($"[dim]{Markup.Escape(evt.Message)}[/]");
-            AnsiConsole.MarkupLine("[yellow]Tip:[/] Use [cyan]/models[/] to see available models, or check your model ID.");
+            _session.MarkupLine("[red bold]Model not found[/]");
+            _session.MarkupLine($"[dim]{Markup.Escape(evt.Message)}[/]");
+            _session.MarkupLine("[yellow]Tip:[/] Use [cyan]/models[/] to see available models, or check your model ID.");
         }
         else if (evt.Category != null)
         {
             // Show category-specific error
-            AnsiConsole.MarkupLine($"[red bold][{evt.Category}][/]");
-            new ErrorMessage { Message = evt.Message }.Display();
+            _session.MarkupLine($"[red bold][{evt.Category}][/] ");
+            new ErrorMessage { Message = evt.Message }.Display(_session);
 
             if (evt.IsRetryable)
             {
-                AnsiConsole.MarkupLine("[dim]This error may be temporary. Try again.[/]");
+                _session.MarkupLine("[dim]This error may be temporary. Try again.[/]");
             }
         }
         else
         {
-            new ErrorMessage { Message = evt.Message }.Display();
+            new ErrorMessage { Message = evt.Message }.Display(_session);
         }
     }
     
@@ -367,12 +370,12 @@ public class AgentUIRenderer
             {
                 _lineCollector.CommitCompleteLines();
                 foreach (var line in _lineCollector.GetQueuedLines())
-                    AnsiConsole.Write(line);
+                    WriteAssistantTextRenderable(line);
             }
         }
         else
         {
-            AnsiConsole.Markup(Markup.Escape(text));
+            WriteAssistantTextRenderable(new Markup(Markup.Escape(text)));
         }
     }
     
@@ -407,8 +410,9 @@ public class AgentUIRenderer
         }
 
         // Default: show full tool call info for non-CodingToolkit tools
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine($"[yellow]⚙ Calling:[/] [bold]{Markup.Escape(evt.Name)}[/]");
+        _session.WriteLine();
+        WriteAssistantThreadRenderable(new Markup($"[yellow]⚙ Calling:[/] [bold]{Markup.Escape(evt.Name)}[/]"));
+        _showMarkerOnNextAssistantTextBlock = true;
         StartSpinner("Waiting for result...");
     }
 
@@ -431,7 +435,7 @@ public class AgentUIRenderer
         if (!_useStreamingMarkdown) return;
 
         foreach (var line in _lineCollector.Finalize())
-            AnsiConsole.Write(line);
+            WriteAssistantTextRenderable(line);
 
         _lineCollector.Clear();
     }
@@ -556,6 +560,7 @@ public class AgentUIRenderer
         if (IsCodingToolkitTool(tool.Name, toolkitName))
         {
             RenderCodingToolkitResult(tool, evt.Result, isError, evt.CallId);
+            _showMarkerOnNextAssistantTextBlock = true;
             _toolComponents.TryRemove(evt.CallId, out _);
             _callIdToToolkit.TryRemove(evt.CallId, out _);
             _callIdToRenderedLine.TryRemove(evt.CallId, out _);
@@ -563,11 +568,13 @@ public class AgentUIRenderer
         }
 
         // Default: show full result for non-CodingToolkit tools
-        AnsiConsole.Write(tool.Render());
+        WriteAssistantThreadRenderable(tool.Render());
         if (!isError)
         {
             RenderResultByType(evt.Result);
         }
+
+        _showMarkerOnNextAssistantTextBlock = true;
 
         _toolComponents.TryRemove(evt.CallId, out _);
         _callIdToToolkit.TryRemove(evt.CallId, out _);
@@ -584,12 +591,12 @@ public class AgentUIRenderer
             ? displayLine.Replace("[dim]⚙", "[red]⚙")
             : displayLine.Replace("[dim]⚙", "[green]⚙");
 
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine(coloredLine);
+        _session.WriteLine();
+        WriteAssistantThreadRenderable(new Markup(coloredLine));
 
         if (isError)
         {
-            AnsiConsole.MarkupLine($"[red dim]  {Markup.Escape(TruncateResult(result, 100))}[/]");
+            WriteAssistantThreadRenderable(new Markup($"[red dim]  {Markup.Escape(TruncateResult(result, 100))}[/]"));
             return;
         }
 
@@ -671,20 +678,20 @@ public class AgentUIRenderer
                         MaxLines = 50
                     };
                     
-                    AnsiConsole.Write(diffRenderer.Render());
-                    AnsiConsole.WriteLine();
+                    WriteAssistantThreadRenderable(diffRenderer.Render());
+                    _session.WriteLine();
                 }
             }
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[dim]Note: Could not parse diff: {Markup.Escape(ex.Message)}[/]");
+            WriteAssistantThreadRenderable(new Markup($"[dim]Note: Could not parse diff: {Markup.Escape(ex.Message)}[/]"));
         }
     }
     
     private async Task RenderPermissionRequest(PermissionRequestEvent evt)
     {
-        AnsiConsole.WriteLine();
+        _session.WriteLine();
         var panel = new Panel(
             new Markup($"[yellow]Permission requested:[/]\n\n" +
                       $"[bold]{Markup.Escape(evt.FunctionName)}[/]\n" +
@@ -694,10 +701,10 @@ public class AgentUIRenderer
         .Border(BoxBorder.Double)
         .BorderColor(Color.Yellow).CapToTerminal();
 
-        AnsiConsole.Write(panel);
+        _session.Write(panel);
 
         // Prompt user for permission decision
-        var choice = AnsiConsole.Prompt(
+        var choice = _session.Prompt(
             new SelectionPrompt<string>()
                 .Title("[yellow]Grant permission?[/]")
                 .AddChoices("Allow once", "Allow always", "Deny once", "Deny always"));
@@ -714,25 +721,34 @@ public class AgentUIRenderer
         // Send response to the API endpoint to unblock the agent middleware
         if (_httpClient != null && _sessionId != null && _branchId != null)
         {
-            var body = new PermissionResponseRequest(
-                _sessionId,
+            var permissionChoice = choiceStr?.ToLower() switch
+            {
+                "allow_always" => PermissionChoice.AlwaysAllow,
+                "deny_always" => PermissionChoice.AlwaysDeny,
+                _ => PermissionChoice.Ask
+            };
+
+            var responseEvent = new PermissionResponseEvent(
                 evt.PermissionId,
+                "CLI",
                 approved,
                 approved ? null : "User denied permission",
-                choiceStr);
+                permissionChoice);
+
             try
             {
                 await _httpClient.PostAsJsonAsync(
                     $"/sessions/{_sessionId}/branches/{_branchId}/permissions/respond",
-                    body);
+                    responseEvent,
+                    HpdosJsonOptions.Http);
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[red dim]Permission response failed: {Markup.Escape(ex.Message)}[/]");
+                _session.MarkupLine($"[red dim]Permission response failed: {Markup.Escape(ex.Message)}[/]");
             }
         }
 
-        AnsiConsole.MarkupLine(approved
+        _session.MarkupLine(approved
             ? "[green]✓ Permission granted[/]"
             : "[red]✗ Permission denied[/]");
     }
@@ -754,17 +770,15 @@ public class AgentUIRenderer
                         var userText = ExtractText(msg);
                         if (!string.IsNullOrWhiteSpace(userText))
                         {
-                            AnsiConsole.WriteLine();
-                            new UserMessage { Content = userText }.Display();
+                            _session.WriteLine();
+                            new UserMessage { Content = userText }.Display(_session);
                         }
                         break;
 
                     case "assistant":
-                        AnsiConsole.WriteLine();
-                        AnsiConsole.Write(
-                            new Rule("[bold green]Agent[/]")
-                                .LeftJustified()
-                                .RuleStyle("green"));
+                        _session.WriteLine();
+                        _assistantThreadStarted = false;
+                        _pendingAssistantHeader = "Agent";
 
                         _lineCollector.Clear();
                         var text = msg.GetText();
@@ -773,9 +787,9 @@ public class AgentUIRenderer
                             _lineCollector.Push(text);
                             var flushed = _lineCollector.Finalize();
                             foreach (var line in flushed)
-                                AnsiConsole.Write(line);
+                                WriteAssistantThreadRenderable(line);
                             _lineCollector.Clear();
-                            AnsiConsole.WriteLine();
+                            _session.WriteLine();
                         }
                         foreach (var call in msg.GetToolCalls())
                         {
@@ -786,8 +800,8 @@ public class AgentUIRenderer
                                     : "{}");
                             // All history is completed — colour gear green
                             var doneLine = callLine.Replace("[dim]⚙", "[green]⚙");
-                            AnsiConsole.WriteLine();
-                            AnsiConsole.MarkupLine(doneLine);
+                            _session.WriteLine();
+                            WriteAssistantThreadRenderable(new Markup(doneLine));
                         }
                         break;
                 }
@@ -822,21 +836,21 @@ public class AgentUIRenderer
         };
 
         // Show reduction summary
-        AnsiConsole.MarkupLine($"[{color}]{icon} History Reduction ({evt.Status}):[/]");
+        _session.MarkupLine($"[{color}]{icon} History Reduction ({evt.Status}):[/]");
 
         if (evt.OriginalMessageCount.HasValue && evt.ReducedMessageCount.HasValue)
         {
-            AnsiConsole.MarkupLine($"[dim]  {evt.OriginalMessageCount} → {evt.ReducedMessageCount} messages[/]");
+            _session.MarkupLine($"[dim]  {evt.OriginalMessageCount} → {evt.ReducedMessageCount} messages[/]");
         }
 
         if (evt.MessagesRemoved.HasValue)
         {
-            AnsiConsole.MarkupLine($"[dim]  Removed: {evt.MessagesRemoved} messages[/]");
+            _session.MarkupLine($"[dim]  Removed: {evt.MessagesRemoved} messages[/]");
         }
 
         if (evt.CacheAge.HasValue)
         {
-            AnsiConsole.MarkupLine($"[dim]  Cache age: {evt.CacheAge.Value.TotalMinutes:F1}m[/]");
+            _session.MarkupLine($"[dim]  Cache age: {evt.CacheAge.Value.TotalMinutes:F1}m[/]");
         }
 
         // Show summary content if available (for Summarizing strategy)
@@ -855,11 +869,11 @@ public class AgentUIRenderer
                 Width = Console.WindowWidth
             };
 
-            AnsiConsole.Write(panel);
+            _session.Write(panel);
         }
 
-        AnsiConsole.MarkupLine($"[dim]  Duration: {evt.Duration.TotalMilliseconds:F0}ms[/]");
-        AnsiConsole.WriteLine();
+        _session.MarkupLine($"[dim]  Duration: {evt.Duration.TotalMilliseconds:F0}ms[/]");
+        _session.WriteLine();
     }
 
     private void RenderPlanUpdate(PlanUpdatedEvent evt)
@@ -867,7 +881,7 @@ public class AgentUIRenderer
         // Cast Plan to AgentPlanData
         if (evt.Plan is not HPD.Agent.Planning.AgentPlanData plan)
         {
-            AnsiConsole.MarkupLine("[red]⚠ Invalid plan data in PlanUpdatedEvent[/]");
+            _session.MarkupLine("[red]⚠ Invalid plan data in PlanUpdatedEvent[/]");
             return;
         }
 
@@ -892,8 +906,8 @@ public class AgentUIRenderer
         };
 
         // Display plan update header
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine($"[{color}]{icon} Plan {evt.UpdateType}:[/] [dim]{Markup.Escape(evt.Explanation ?? "")}[/]");
+        _session.WriteLine();
+        _session.MarkupLine($"[{color}]{icon} Plan {evt.UpdateType}:[/] [dim]{Markup.Escape(evt.Explanation ?? "")}[/]");
 
         // Display plan details in a panel
         var panel = new Panel(BuildPlanDisplay(plan, evt.UpdateType))
@@ -904,8 +918,8 @@ public class AgentUIRenderer
             Width = Console.WindowWidth
         };
 
-        AnsiConsole.Write(panel);
-        AnsiConsole.WriteLine();
+        _session.Write(panel);
+        _session.WriteLine();
     }
 
     private IRenderable BuildPlanDisplay(HPD.Agent.Planning.AgentPlanData plan, PlanUpdateType updateType)
@@ -980,4 +994,46 @@ public class AgentUIRenderer
 
         return table;
     }
+
+    private void EnsureAssistantThreadStarted()
+    {
+        if (_assistantThreadStarted)
+            return;
+
+        if (!string.IsNullOrWhiteSpace(_pendingAssistantHeader))
+            WriteAssistantThreadRenderableCore(new Markup($"[bold green]{_pendingAssistantHeader}[/]"), showMarker: true);
+
+        _pendingAssistantHeader = null;
+        _assistantThreadStarted = true;
+    }
+
+    private void WriteAssistantThreadRenderable(IRenderable renderable)
+    {
+        EnsureAssistantThreadStarted();
+
+        WriteAssistantThreadRenderableCore(renderable, showMarker: false);
+    }
+
+    private void WriteAssistantTextRenderable(IRenderable renderable)
+    {
+        EnsureAssistantThreadStarted();
+
+        var showMarker = _showMarkerOnNextAssistantTextBlock;
+        _showMarkerOnNextAssistantTextBlock = false;
+
+        WriteAssistantThreadRenderableCore(renderable, showMarker);
+    }
+
+    private void WriteAssistantThreadRenderableCore(IRenderable renderable, bool showMarker)
+    {
+        var marker = showMarker ? "[green]⏺[/]" : " ";
+
+        var grid = new Grid();
+        grid.AddColumn(new GridColumn().NoWrap().Width(2));
+        grid.AddColumn();
+        grid.AddRow(new Markup(marker), renderable);
+
+        _session.Write(grid);
+    }
+
 }

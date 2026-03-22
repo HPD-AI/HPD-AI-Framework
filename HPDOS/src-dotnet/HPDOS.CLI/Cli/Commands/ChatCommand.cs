@@ -27,6 +27,7 @@ public static class ChatCommand
     public static async Task<int> RunAsync(string[] args)
     {
         string baseUrl;
+        var session = SpectreConsoleSession.CreateDefault();
 
         bool ownedKestrel = false;
 
@@ -49,7 +50,7 @@ public static class ChatCommand
 
             if (ShellConfig.Port == 0)
             {
-                AnsiConsole.MarkupLine("[red]Failed to start server.[/]");
+                session.MarkupLine("[red]Failed to start server.[/]");
                 return 1;
             }
 
@@ -60,10 +61,10 @@ public static class ChatCommand
         using var cts = CtrlCTokenSource.Create();
 
         // Create or resume a session
-        var session = await EnsureSessionAsync(http);
-        if (session == null) return 1;
+        var currentSession = await EnsureSessionAsync(http, session);
+        if (currentSession == null) return 1;
 
-        var sessionId = session.Id;
+        var sessionId = currentSession.Id;
         var branchId = "main";
         var agentId  = "default";
 
@@ -71,9 +72,9 @@ public static class ChatCommand
         string? providerKey = null;
         string? modelId = null;
 
-        if (session.Metadata?.TryGetValue("providerKey", out var pk) == true)
+        if (currentSession.Metadata?.TryGetValue("providerKey", out var pk) == true)
             providerKey = pk?.ToString();
-        if (session.Metadata?.TryGetValue("modelId", out var mk) == true)
+        if (currentSession.Metadata?.TryGetValue("modelId", out var mk) == true)
             modelId = mk?.ToString();
 
         if (providerKey == null || modelId == null)
@@ -103,12 +104,12 @@ public static class ChatCommand
             var hasAny = summaries?.Any(s => s.IsAuthenticated) ?? false;
             if (!hasAny)
             {
-                AnsiConsole.Write(new Panel(
+                session.Write(new Panel(
                     "No AI provider connected. Connect one to start chatting.\n" +
                     "[dim]OpenRouter has free models — no credit card needed.[/]")
                     .Header("[cyan] Setup required [/]")
                     .BorderColor(Color.Cyan1).CapToTerminal());
-                AnsiConsole.WriteLine();
+                session.WriteLine();
 
                 // Re-use existing provider setup flow — same as /providers inside chat.
                 IProviderOperations ops;
@@ -118,13 +119,13 @@ public static class ChatCommand
                     ops = new RemoteProviderOperations(http);
 
                 using var setupCts = CtrlCTokenSource.Create();
-                await ProviderSetupFlow.ConnectProviderAsync(ops, preselectedId: null, setupCts.Token);
-                AnsiConsole.WriteLine();
+                await ProviderSetupFlow.ConnectProviderAsync(ops, session, preselectedId: null, setupCts.Token);
+                session.WriteLine();
             }
         }
 
         // Set up TUI
-        var renderer = new AgentUIRenderer();
+        var renderer = new AgentUIRenderer(session);
         renderer.SetStreamContext(http, sessionId, branchId);
         if (providerKey != null && modelId != null)
             renderer.SetModelInfo(providerKey, modelId);
@@ -146,12 +147,12 @@ public static class ChatCommand
         var providerOptionsStore = await ProviderOptionsStore.LoadAsync();
         contextData["ProviderOptionsStore"] = providerOptionsStore;
 
-        var processor = new CommandProcessor(renderer.CommandRegistry, renderer, contextData);
-        var input = new CommandAwareInput(processor);
+        var processor = new CommandProcessor(renderer.CommandRegistry, renderer, session, contextData);
+        var input = new CommandAwareInput(processor, session);
 
-        ShowHeader(sessionId);
+        ShowHeader(session, sessionId);
 
-        bool titleSet = session.Metadata?.ContainsKey("title") == true;
+        bool titleSet = currentSession.Metadata?.ContainsKey("title") == true;
         string? prefillText = null;
 
         while (true)
@@ -188,7 +189,7 @@ public static class ChatCommand
             if (contextData.TryGetValue("ShouldCreateNewSession", out _))
             {
                 contextData.Remove("ShouldCreateNewSession");
-                var newSession = await CreateSessionAsync(http);
+                var newSession = await CreateSessionAsync(http, session);
                 if (newSession != null)
                 {
                     sessionId = newSession.Id;
@@ -200,7 +201,7 @@ public static class ChatCommand
                     contextData["AgentId"]  = agentId;
                     titleSet = false;
                     Console.Clear();
-                    ShowHeader(sessionId);
+                    ShowHeader(session, sessionId);
                 }
             }
 
@@ -252,7 +253,7 @@ public static class ChatCommand
                 ? src : null;
 
             // Send message and stream response
-            var modelNotFound = await StreamMessageAsync(http, renderer, sessionId, branchId, line, activeProvider, activeModel, activeAgent, providerAdditional, sessionRunConfig);
+            var modelNotFound = await StreamMessageAsync(session, http, renderer, sessionId, branchId, line, activeProvider, activeModel, activeAgent, providerAdditional, sessionRunConfig);
             if (modelNotFound)
             {
                 // Revert to the previous model so the user isn't stuck with a broken model
@@ -262,7 +263,7 @@ public static class ChatCommand
                 if (modelId != null)     contextData["ModelId"]     = modelId;
                 if (providerKey != null && modelId != null)
                     renderer.SetModelInfo(providerKey, modelId);
-                AnsiConsole.MarkupLine($"[yellow]Reverted to:[/] [cyan]{Markup.Escape(providerKey ?? "default")}[/] / [cyan]{Markup.Escape(modelId ?? "default")}[/]");
+                session.MarkupLine($"[yellow]Reverted to:[/] [cyan]{Markup.Escape(providerKey ?? "default")}[/] / [cyan]{Markup.Escape(modelId ?? "default")}[/]");
             }
 
             // Auto-derive session title from first user message.
@@ -312,6 +313,7 @@ public static class ChatCommand
     }
 
     private static async Task<bool> StreamMessageAsync(
+        IConsoleSession session,
         HttpClient http,
         AgentUIRenderer renderer,
         string sessionId,
@@ -329,15 +331,15 @@ public static class ChatCommand
         // This runs on its own task — no background thread competing with ReadKey.
         var escapeWatcher = Task.Run(async () =>
         {
-            AnsiConsole.MarkupLine("[dim]Press [yellow]Escape[/] to cancel[/]");
+            session.MarkupLine("[dim]Press [yellow]Escape[/] to cancel[/]");
             try
             {
                 while (!cts.Token.IsCancellationRequested)
                 {
-                    var key = await AnsiConsole.Console.Input.ReadKeyAsync(intercept: true, cts.Token);
+                    var key = await session.Input.ReadKeyAsync(intercept: true, cts.Token);
                     if (key?.Key == ConsoleKey.Escape)
                     {
-                        AnsiConsole.MarkupLine("\n[yellow]⊘ Cancelled by user[/]");
+                        session.MarkupLine("\n[yellow]⊘ Cancelled by user[/]");
                         await cts.CancelAsync();
                         return;
                     }
@@ -405,7 +407,7 @@ public static class ChatCommand
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Stream failed:[/] {Markup.Escape(ex.Message)}");
+            session.MarkupLine($"[red]Stream failed:[/] {Markup.Escape(ex.Message)}");
             await cts.CancelAsync();
             await escapeWatcher;
             return false;
@@ -414,7 +416,7 @@ public static class ChatCommand
         if (!response.IsSuccessStatusCode)
         {
             var err = await response.Content.ReadAsStringAsync();
-            AnsiConsole.MarkupLine($"[red]Server error {(int)response.StatusCode}:[/] {Markup.Escape(err)}");
+            session.MarkupLine($"[red]Server error {(int)response.StatusCode}:[/] {Markup.Escape(err)}");
             await cts.CancelAsync();
             await escapeWatcher;
             return false;
@@ -493,19 +495,19 @@ public static class ChatCommand
         return File.Exists(fontPath) ? FigletFont.Load(fontPath) : FigletFont.Default;
     }
 
-    private static void ShowHeader(string sessionId)
+    private static void ShowHeader(IConsoleSession session, string sessionId)
     {
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new FigletText(_headerFont, "HPD-OS").LeftJustified().Color(new Color(0, 255, 255)));
-        AnsiConsole.MarkupLine($"[dim]Session: {sessionId[..Math.Min(8, sessionId.Length)]}…  " +
+        session.WriteLine();
+        session.Write(new FigletText(_headerFont, "HPD-OS").LeftJustified().Color(new Color(0, 255, 255)));
+        session.MarkupLine($"[dim]Session: {sessionId[..Math.Min(8, sessionId.Length)]}…  " +
                                "Type [cyan]/help[/] for commands, [cyan]Ctrl+C[/] to exit[/]");
-        AnsiConsole.WriteLine();
+        session.WriteLine();
     }
 
-    private static async Task<SessionDto?> EnsureSessionAsync(HttpClient http)
+    private static async Task<SessionDto?> EnsureSessionAsync(HttpClient http, IConsoleSession session)
     {
         // Always start fresh — resume is available via /sessions
-        return await CreateSessionAsync(http);
+        return await CreateSessionAsync(http, session);
 
         // try
         // {
@@ -553,7 +555,7 @@ public static class ChatCommand
         return null;
     }
 
-    private static async Task<SessionDto?> CreateSessionAsync(HttpClient http)
+    private static async Task<SessionDto?> CreateSessionAsync(HttpClient http, IConsoleSession session)
     {
         try
         {
@@ -563,7 +565,7 @@ public static class ChatCommand
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Failed to create session:[/] {Markup.Escape(ex.Message)}");
+            session.MarkupLine($"[red]Failed to create session:[/] {Markup.Escape(ex.Message)}");
             return null;
         }
     }

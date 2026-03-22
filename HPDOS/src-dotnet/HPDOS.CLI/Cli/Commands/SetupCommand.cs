@@ -1,3 +1,4 @@
+using HPDOS.Shell.Cli.TUI;
 using Spectre.Console;
 using System.Runtime.InteropServices;
 using System.IO;
@@ -8,10 +9,12 @@ public static class SetupCommand
 {
     public static async Task<int> RunAsync(string[] args)
     {
+        var session = SpectreConsoleSession.CreateDefault();
+
         try
         {
-            AnsiConsole.MarkupLine("[bold]HPDOS CLI Setup[/]");
-            AnsiConsole.MarkupLine("This will register [cyan]hpdos[/] to your PATH.\n");
+            session.MarkupLine("[bold]HPDOS CLI Setup[/]");
+            session.MarkupLine("This will register [cyan]hpdos[/] to your PATH.\n");
 
             // Get current binary location
             var binaryPath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName
@@ -20,25 +23,25 @@ public static class SetupCommand
             // Determine OS and installation path
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                return SetupWindows(binaryPath);
+                return SetupWindows(session, binaryPath);
             }
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ||
                      RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
-                return await SetupUnix(binaryPath);
+                return await SetupUnix(session, binaryPath);
             }
 
-            AnsiConsole.MarkupLine("[red]Unsupported OS[/]");
+            session.MarkupLine("[red]Unsupported OS[/]");
             return 1;
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Setup failed:[/] {ex.Message}");
+            session.MarkupLine($"[red]Setup failed:[/] {Markup.Escape(ex.Message)}");
             return 1;
         }
     }
 
-    private static int SetupWindows(string binaryPath)
+    private static int SetupWindows(IConsoleSession session, string binaryPath)
     {
         try
         {
@@ -47,7 +50,7 @@ public static class SetupCommand
                 "HPDOS"
             );
 
-            AnsiConsole.MarkupLine($"Installing to: [cyan]{programFilesPath}[/]\n");
+            session.MarkupLine($"Installing to: [cyan]{Markup.Escape(programFilesPath)}[/]\n");
 
             // Create directory
             Directory.CreateDirectory(programFilesPath);
@@ -55,25 +58,25 @@ public static class SetupCommand
             // Copy binary
             var targetPath = Path.Combine(programFilesPath, "hpdos.exe");
             File.Copy(binaryPath, targetPath, overwrite: true);
-            AnsiConsole.MarkupLine("[green]Copied binary[/]");
+            session.MarkupLine("[green]Copied binary[/]");
 
             // Add to PATH via registry
-            AddToWindowsPath(programFilesPath);
-            AnsiConsole.MarkupLine("[green]Added to Windows PATH[/]");
+            AddToWindowsPath(session, programFilesPath);
+            session.MarkupLine("[green]Added to Windows PATH[/]");
 
-            AnsiConsole.MarkupLine("\n[green]Setup complete![/]");
-            AnsiConsole.MarkupLine("Please restart your terminal or run: [cyan]set PATH=%PATH%;{0}[/]", programFilesPath);
+            session.MarkupLine("\n[green]Setup complete![/]");
+            session.MarkupLine($"Please restart your terminal or run: [cyan]set PATH=%PATH%;{Markup.Escape(programFilesPath)}[/]");
 
             return 0;
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Windows setup failed:[/] {ex.Message}");
+            session.MarkupLine($"[red]Windows setup failed:[/] {Markup.Escape(ex.Message)}");
             return 1;
         }
     }
 
-    private static async Task<int> SetupUnix(string binaryPath)
+    private static async Task<int> SetupUnix(IConsoleSession session, string binaryPath)
     {
         try
         {
@@ -81,21 +84,21 @@ public static class SetupCommand
             const string binaryName = "hpdos";
             var targetPath = Path.Combine(installDir, binaryName);
 
-            AnsiConsole.MarkupLine($"Installing to: [cyan]{targetPath}[/]\n");
+            session.MarkupLine($"Installing to: [cyan]{Markup.Escape(targetPath)}[/]\n");
 
             // Check if we need sudo
             var needsSudo = !IsWritableDirectory(installDir);
 
             if (needsSudo)
             {
-                AnsiConsole.MarkupLine("[yellow]This requires sudo permission[/]");
-                AnsiConsole.MarkupLine("You will be prompted for your password.\n");
+                session.MarkupLine("[yellow]This requires sudo permission[/]");
+                session.MarkupLine("You will be prompted for your password.\n");
 
                 // Use sudo to copy
                 var result = await ExecuteCommandAsync("sudo", $"cp {binaryPath} {targetPath}");
                 if (result != 0)
                 {
-                    AnsiConsole.MarkupLine("[red]Failed to copy binary[/]");
+                    session.MarkupLine("[red]Failed to copy binary[/]");
                     return 1;
                 }
 
@@ -103,7 +106,7 @@ public static class SetupCommand
                 result = await ExecuteCommandAsync("sudo", $"chmod +x {targetPath}");
                 if (result != 0)
                 {
-                    AnsiConsole.MarkupLine("[red]Failed to make executable[/]");
+                    session.MarkupLine("[red]Failed to make executable[/]");
                     return 1;
                 }
             }
@@ -114,24 +117,24 @@ public static class SetupCommand
                 File.SetUnixFileMode(targetPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             }
 
-            AnsiConsole.MarkupLine("[green]Installed successfully[/]");
+            session.MarkupLine("[green]Installed successfully[/]");
 
             // Verify
             var testResult = await ExecuteCommandAsync("which", binaryName);
             if (testResult == 0)
             {
-                AnsiConsole.MarkupLine("\n[green]Setup complete![/]");
-                AnsiConsole.MarkupLine("Run [cyan]hpdos --help[/] to get started");
+                session.MarkupLine("\n[green]Setup complete![/]");
+                session.MarkupLine("Run [cyan]hpdos --help[/] to get started");
                 return 0;
             }
 
-            AnsiConsole.MarkupLine("\n[yellow]Binary installed but not yet in PATH[/]");
-            AnsiConsole.MarkupLine("Please open a new terminal or run: [cyan]source ~/.bashrc[/] (or ~/.zshrc)");
+            session.MarkupLine("\n[yellow]Binary installed but not yet in PATH[/]");
+            session.MarkupLine("Please open a new terminal or run: [cyan]source ~/.bashrc[/] (or ~/.zshrc)");
             return 0;
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Unix setup failed:[/] {ex.Message}");
+            session.MarkupLine($"[red]Unix setup failed:[/] {Markup.Escape(ex.Message)}");
             return 1;
         }
     }
@@ -170,7 +173,7 @@ public static class SetupCommand
         return process.ExitCode;
     }
 
-    private static void AddToWindowsPath(string pathToAdd)
+    private static void AddToWindowsPath(IConsoleSession session, string pathToAdd)
     {
         try
         {
@@ -189,8 +192,8 @@ public static class SetupCommand
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[yellow]Warning:[/] Could not update registry: {ex.Message}");
-            AnsiConsole.MarkupLine("You may need to manually add to PATH");
+            session.MarkupLine($"[yellow]Warning:[/] Could not update registry: {Markup.Escape(ex.Message)}");
+            session.MarkupLine("You may need to manually add to PATH");
         }
     }
 }

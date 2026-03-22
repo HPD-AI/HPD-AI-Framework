@@ -1,6 +1,6 @@
 # HPDOS Harbor Agent - Configuration Summary
 
-## Status: ✅ PRODUCTION READY
+## Status: PRODUCTION READY
 
 ### What Was Fixed
 

@@ -56,7 +56,7 @@ public static class BuiltInCommands
             try
             {
                 var result = await SessionBrowserCommand.RunAsync(
-                    http, ctx.UIRenderer,
+                    http, ctx.UIRenderer, ctx.Session,
                     activeSessionId: activeSessionId,
                     ct: ctx.CancellationToken);
                 if (result is null) return CommandResult.Ok();
@@ -116,7 +116,7 @@ public static class BuiltInCommands
 
             try
             {
-                await ProviderSetupFlow.RunAsync(ops, ctx.CancellationToken, optionsStore);
+                await ProviderSetupFlow.RunAsync(ops, ctx.Session, ctx.CancellationToken, optionsStore);
             }
             catch (Exception ex)
             {
@@ -143,7 +143,7 @@ public static class BuiltInCommands
             var currentProvider = ctx.Data.TryGetValue("ProviderKey", out var pk) ? pk?.ToString() : null;
             var currentModel    = ctx.Data.TryGetValue("ModelId",    out var mk) ? mk?.ToString() : null;
             if (currentProvider != null && currentModel != null)
-                AnsiConsole.MarkupLine($"[dim]Current:[/] [cyan]{Markup.Escape(currentProvider)}[/] / [cyan]{Markup.Escape(currentModel)}[/]");
+                ctx.Session.MarkupLine($"[dim]Current:[/] [cyan]{Markup.Escape(currentProvider)}[/] / [cyan]{Markup.Escape(currentModel)}[/]");
 
             // Fetch providers
             List<AuthSummary>? summaries = null;
@@ -161,7 +161,7 @@ public static class BuiltInCommands
 
             if (connected.Count == 0)
             {
-                AnsiConsole.MarkupLine("[yellow]No providers connected. Use [bold]/providers[/] to connect one.[/]");
+                ctx.Session.MarkupLine("[yellow]No providers connected. Use [bold]/providers[/] to connect one.[/]");
                 return CommandResult.Ok();
             }
 
@@ -171,7 +171,7 @@ public static class BuiltInCommands
             if (connected.Count == 1)
             {
                 selectedProviderId = connected[0].ProviderId;
-                AnsiConsole.MarkupLine($"[dim]Provider:[/] {Markup.Escape(connected[0].DisplayName)}");
+                ctx.Session.MarkupLine($"[dim]Provider:[/] {Markup.Escape(connected[0].DisplayName)}");
             }
             else
             {
@@ -179,13 +179,13 @@ public static class BuiltInCommands
                     .Title("Select [cyan]provider[/]:")
                     .UseConverter(id => summaries!.FirstOrDefault(s => s.ProviderId == id)?.DisplayName ?? id)
                     .AddChoices(connected.Select(s => s.ProviderId));
-                try { selectedProviderId = await providerPrompt.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+                try { selectedProviderId = await providerPrompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
                 catch (OperationCanceledException) { throw; }
             }
 
             // Fetch static model list
             List<ModelInfo>? models = null;
-            await AnsiConsole.Status()
+            await ctx.Session.Console.Status()
                 .Spinner(Spinner.Known.Dots)
                 .StartAsync("Fetching models\u2026", async _ =>
                 {
@@ -202,7 +202,8 @@ public static class BuiltInCommands
             if (models.Count == 0)
             {
                 // No known models — free-text entry
-                var manualId = AnsiConsole.Ask<string>("Enter model ID:");
+                var manualId = await new TextPrompt<string>("Enter model ID:")
+                    .ShowAsync(ctx.Session.Console, ctx.CancellationToken);
                 if (string.IsNullOrWhiteSpace(manualId)) return CommandResult.Ok();
                 await ApplyModelAsync(http, ctx, sessionId, selectedProviderId, manualId.Trim());
                 return CommandResult.Ok();
@@ -236,7 +237,7 @@ public static class BuiltInCommands
             prompt.AddChoiceGroup("Other", otherChoices);
 
             string selectedModelId;
-            try { selectedModelId = await prompt.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+            try { selectedModelId = await prompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
             catch (OperationCanceledException) { throw; }
 
             if (selectedModelId is "__search_all__" or "__search_free__")
@@ -248,7 +249,7 @@ public static class BuiltInCommands
                 var liveTitle = isFreeSearch ? "Fetching free models\u2026" : "Fetching all models\u2026";
 
                 List<ModelInfo>? liveModels = null;
-                await AnsiConsole.Status()
+                await ctx.Session.Console.Status()
                     .Spinner(Spinner.Known.Dots)
                     .StartAsync(liveTitle, async _ =>
                     {
@@ -275,14 +276,14 @@ public static class BuiltInCommands
                 if (liveFree.Count > 0) livePrompt.AddChoiceGroup("Free", liveFree.Select(m => m.Id));
                 livePrompt.AddChoiceGroup("Other", ["__custom__"]);
 
-                try { selectedModelId = await livePrompt.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+                try { selectedModelId = await livePrompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
                 catch (OperationCanceledException) { throw; }
             }
 
             if (selectedModelId == "__custom__")
             {
                 var customPrompt = new TextPrompt<string>("Enter model ID:");
-                try { selectedModelId = await customPrompt.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+                try { selectedModelId = await customPrompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
                 catch (OperationCanceledException) { throw; }
             }
 
@@ -326,7 +327,7 @@ public static class BuiltInCommands
         catch { /* non-fatal */ }
 
         ctx.UIRenderer?.SetModelInfo(providerKey, modelId);
-        AnsiConsole.MarkupLine($"[green]\u2713[/] Model set to [cyan]{Markup.Escape(providerKey)}[/] / [cyan]{Markup.Escape(modelId)}[/]");
+        ctx.Session.MarkupLine($"[green]\u2713[/] Model set to [cyan]{Markup.Escape(providerKey)}[/] / [cyan]{Markup.Escape(modelId)}[/]");
     }
 
     private static string FormatModel(ModelInfo? m, string fallbackId)
@@ -485,7 +486,7 @@ public static class BuiltInCommands
                                 System.Console.Write($"\x1b[{lastHeight}A");
                                 lastHeight = 0;
                             }
-                            var edited = await RunConfigEditAsync(row.Key, runConfig, ctx.CancellationToken);
+                            var edited = await RunConfigEditAsync(ctx, row.Key, runConfig, ctx.CancellationToken);
                             if (edited) ctx.Data["RunConfig"] = runConfig;
                         }
                         else
@@ -536,41 +537,41 @@ public static class BuiltInCommands
         }
     }
 
-    private static async Task<bool> RunConfigEditAsync(string key, SessionRunConfig cfg, CancellationToken ct)
+    private static async Task<bool> RunConfigEditAsync(CommandContext ctx, string key, SessionRunConfig cfg, CancellationToken ct)
     {
         switch (key)
         {
             case "temperature":
                 var temp = await new TextPrompt<string>($"[bold]Temperature[/] [dim](0.0–2.0, blank=clear):[/]")
-                    .AllowEmpty().ShowAsync(AnsiConsole.Console, ct);
+                    .AllowEmpty().ShowAsync(ctx.Session.Console, ct);
                 if (string.IsNullOrWhiteSpace(temp)) { cfg.Temperature = null; return true; }
                 if (double.TryParse(temp, out var td)) { cfg.Temperature = td; return true; }
                 return false;
 
             case "maxOutputTokens":
                 var maxTok = await new TextPrompt<string>($"[bold]Max output tokens[/] [dim](blank=clear):[/]")
-                    .AllowEmpty().ShowAsync(AnsiConsole.Console, ct);
+                    .AllowEmpty().ShowAsync(ctx.Session.Console, ct);
                 if (string.IsNullOrWhiteSpace(maxTok)) { cfg.MaxOutputTokens = null; return true; }
                 if (int.TryParse(maxTok, out var mtd)) { cfg.MaxOutputTokens = mtd; return true; }
                 return false;
 
             case "topP":
                 var topP = await new TextPrompt<string>($"[bold]Top-P[/] [dim](0.0–1.0, blank=clear):[/]")
-                    .AllowEmpty().ShowAsync(AnsiConsole.Console, ct);
+                    .AllowEmpty().ShowAsync(ctx.Session.Console, ct);
                 if (string.IsNullOrWhiteSpace(topP)) { cfg.TopP = null; return true; }
                 if (double.TryParse(topP, out var tpd)) { cfg.TopP = tpd; return true; }
                 return false;
 
             case "frequencyPenalty":
                 var freqP = await new TextPrompt<string>($"[bold]Frequency penalty[/] [dim](-2.0–2.0, blank=clear):[/]")
-                    .AllowEmpty().ShowAsync(AnsiConsole.Console, ct);
+                    .AllowEmpty().ShowAsync(ctx.Session.Console, ct);
                 if (string.IsNullOrWhiteSpace(freqP)) { cfg.FrequencyPenalty = null; return true; }
                 if (double.TryParse(freqP, out var fpd)) { cfg.FrequencyPenalty = fpd; return true; }
                 return false;
 
             case "presencePenalty":
                 var presP = await new TextPrompt<string>($"[bold]Presence penalty[/] [dim](-2.0–2.0, blank=clear):[/]")
-                    .AllowEmpty().ShowAsync(AnsiConsole.Console, ct);
+                    .AllowEmpty().ShowAsync(ctx.Session.Console, ct);
                 if (string.IsNullOrWhiteSpace(presP)) { cfg.PresencePenalty = null; return true; }
                 if (double.TryParse(presP, out var ppd)) { cfg.PresencePenalty = ppd; return true; }
                 return false;
@@ -579,13 +580,13 @@ public static class BuiltInCommands
                 var effort = await new SelectionPrompt<string>()
                     .Title("[bold]Reasoning effort:[/]")
                     .AddChoices("default", "none", "low", "medium", "high", "extra-high")
-                    .ShowAsync(AnsiConsole.Console, ct);
+                    .ShowAsync(ctx.Session.Console, ct);
                 cfg.ReasoningEffort = effort == "default" ? null : effort;
                 return true;
 
             case "additionalSystemInstructions":
                 var instr = await new TextPrompt<string>($"[bold]Additional system instructions[/] [dim](blank=clear):[/]")
-                    .AllowEmpty().ShowAsync(AnsiConsole.Console, ct);
+                    .AllowEmpty().ShowAsync(ctx.Session.Console, ct);
                 cfg.AdditionalSystemInstructions = string.IsNullOrWhiteSpace(instr) ? null : instr;
                 return true;
         }

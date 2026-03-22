@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Agent.AspNetCore;
+using HPD.Agent.Planning;
 using HPD.Agent.Secrets;
 using HPDOS.Apps.AppRecorder;
 using HPDOS.Core.Auth;
@@ -128,6 +129,8 @@ public static class KestrelHostBuilder
                 agentBuilder.WithToolkit<PingToolkit>();
                 agentBuilder.WithToolkit<CodingToolkit>();
                 agentBuilder.AddAppRecorderToolkits(sp);
+                agentBuilder.WithPermissions();
+                agentBuilder.WithPlanMode();
                 //agentBuilder.WithLogging();
             };
         });

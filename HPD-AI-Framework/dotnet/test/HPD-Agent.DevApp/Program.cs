@@ -1,5 +1,5 @@
-using HPD.Agent.Adapters.Slack;
-using HPD.Agent.Adapters.Slack.OAuth;
+using HPD.Agent.Bots.Slack;
+using HPD.Agent.Bots.Slack.OAuth;
 using HPD.Agent.AspNetCore;
 using HPD.Agent.Providers.Anthropic;
 

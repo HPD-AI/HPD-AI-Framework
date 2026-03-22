@@ -9,12 +9,14 @@ public class CommandProcessor
 {
     private readonly CommandRegistry _registry;
     private readonly AgentUIRenderer _renderer;
+    private readonly IConsoleSession _session;
     private readonly Dictionary<string, object> _contextData;
 
-    public CommandProcessor(CommandRegistry registry, AgentUIRenderer renderer, Dictionary<string, object>? contextData = null)
+    public CommandProcessor(CommandRegistry registry, AgentUIRenderer renderer, IConsoleSession session, Dictionary<string, object>? contextData = null)
     {
         _registry = registry;
         _renderer = renderer;
+        _session = session;
         _contextData = contextData ?? new Dictionary<string, object>();
     }
 
@@ -35,8 +37,8 @@ public class CommandProcessor
 
         if (command == null)
         {
-            AnsiConsole.MarkupLine($"[red]Unknown command:[/] [yellow]{Markup.Escape(commandName)}[/]");
-            AnsiConsole.MarkupLine("[dim]Type /help to see available commands[/]");
+            _session.MarkupLine($"[red]Unknown command:[/] [yellow]{Markup.Escape(commandName)}[/]");
+            _session.MarkupLine("[dim]Type /help to see available commands[/]");
             return CommandResult.Error($"Unknown command: {commandName}");
         }
 
@@ -45,6 +47,7 @@ public class CommandProcessor
             RawInput = input,
             CommandName = commandName,
             Arguments = arguments,
+            Session = _session,
             UIRenderer = _renderer,
             Data = _contextData,
             CancellationToken = ct
@@ -64,9 +67,9 @@ public class CommandProcessor
             if (!string.IsNullOrEmpty(result.Message))
             {
                 if (result.Success)
-                    AnsiConsole.MarkupLine($"[green]{Markup.Escape(result.Message)}[/]");
+                    _session.MarkupLine($"[green]{Markup.Escape(result.Message)}[/]");
                 else
-                    AnsiConsole.MarkupLine($"[red]{Markup.Escape(result.Message)}[/]");
+                    _session.MarkupLine($"[red]{Markup.Escape(result.Message)}[/]");
             }
 
             return result;
@@ -77,7 +80,7 @@ public class CommandProcessor
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Error executing command:[/] {Markup.Escape(ex.Message)}");
+            _session.MarkupLine($"[red]Error executing command:[/] {Markup.Escape(ex.Message)}");
             return CommandResult.Error($"Command execution failed: {ex.Message}");
         }
     }

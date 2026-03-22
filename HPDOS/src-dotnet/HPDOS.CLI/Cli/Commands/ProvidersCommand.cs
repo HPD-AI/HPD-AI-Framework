@@ -16,6 +16,7 @@ public static class ProvidersCommand
 {
     public static async Task<int> RunAsync(string[] args)
     {
+        var session = SpectreConsoleSession.CreateDefault();
         IProviderOperations ops;
 
         if (ShellConfig.RemoteServerUrl is { } remoteUrl)
@@ -31,7 +32,7 @@ public static class ProvidersCommand
 
             if (ShellConfig.Port == 0)
             {
-                AnsiConsole.MarkupLine("[red]Failed to start server.[/]");
+                session.MarkupLine("[red]Failed to start server.[/]");
                 return 1;
             }
 
@@ -42,7 +43,7 @@ public static class ProvidersCommand
         using var cts = CtrlCTokenSource.Create();
         try
         {
-            await ProviderSetupFlow.RunAsync(ops, cts.Token);
+            await ProviderSetupFlow.RunAsync(ops, session, cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -50,7 +51,7 @@ public static class ProvidersCommand
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
+            session.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
             return 1;
         }
         finally

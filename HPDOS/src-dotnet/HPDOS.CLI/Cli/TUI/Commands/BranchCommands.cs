@@ -29,7 +29,7 @@ public static class BranchCommands
 
             // Load all branches for this session upfront — used by most flows.
             BranchDto[]? branches = null;
-            await AnsiConsole.Status()
+            await ctx.Session.Console.Status()
                 .Spinner(Spinner.Known.Dots)
                 .SpinnerStyle(new Style(Theme.Text.Accent))
                 .StartAsync("Loading branches…", async _ =>
@@ -48,7 +48,7 @@ public static class BranchCommands
                 .AddChoices("Fork", "Switch", "New", "Delete", "Tree", "Cancel");
 
             string action;
-            try { action = await actionPrompt.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+            try { action = await actionPrompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
             catch (OperationCanceledException) { return CommandResult.Ok(); }
 
             switch (action)
@@ -57,7 +57,7 @@ public static class BranchCommands
                 case "Switch": return await RunSwitchAsync(ctx, sessionId, activeBranchId, branches);
                 case "New":    return await RunNewAsync(http, ctx, sessionId);
                 case "Delete": return await RunDeleteAsync(http, ctx, sessionId, activeBranchId, branches);
-                case "Tree":   return RunTree(branches, activeBranchId);
+                case "Tree":   return RunTree(ctx, branches, activeBranchId);
                 default:       return CommandResult.Ok();
             }
         }
@@ -71,7 +71,7 @@ public static class BranchCommands
     {
         // Fetch messages for the current branch.
         MessageDto[]? messages = null;
-        await AnsiConsole.Status()
+        await ctx.Session.Console.Status()
             .Spinner(Spinner.Known.Dots)
             .StartAsync("Loading messages…", async _ =>
             {
@@ -106,7 +106,7 @@ public static class BranchCommands
         pickPrompt.AddChoices(userMessages.Reverse());
 
         (MessageDto Message, int Index) chosen;
-        try { chosen = await pickPrompt.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+        try { chosen = await pickPrompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
         catch (OperationCanceledException) { return CommandResult.Ok(); }
 
         string? branchName = null;
@@ -114,7 +114,7 @@ public static class BranchCommands
         {
             branchName = await new TextPrompt<string>("Branch name [dim](optional, Enter to skip)[/]:")
                 .AllowEmpty()
-                .ShowAsync(AnsiConsole.Console, ctx.CancellationToken);
+                .ShowAsync(ctx.Session.Console, ctx.CancellationToken);
             if (string.IsNullOrWhiteSpace(branchName)) branchName = null;
         }
         catch (OperationCanceledException) { return CommandResult.Ok(); }
@@ -145,8 +145,8 @@ public static class BranchCommands
         ctx.Data["BranchId"] = activeId;
         ctx.Data["PrefillInput"] = chosen.Message.GetText();
 
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Rule(
+        ctx.Session.WriteLine();
+        ctx.Session.Write(new Rule(
             $"[{Theme.Markup(Theme.Text.Accent)}]Switched to branch: [bold]{Markup.Escape(activeName)}[/][/]")
             .LeftJustified().RuleStyle(new Style(Theme.Text.Accent)));
 
@@ -174,15 +174,15 @@ public static class BranchCommands
         prompt.AddChoices(original.Concat(forks));
 
         BranchDto chosen;
-        try { chosen = await prompt.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+        try { chosen = await prompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
         catch (OperationCanceledException) { return CommandResult.Ok(); }
 
         if (chosen.Id == activeBranchId) return CommandResult.Ok();
 
         ctx.Data["BranchId"] = chosen.Id;
 
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Rule(
+        ctx.Session.WriteLine();
+        ctx.Session.Write(new Rule(
             $"[{Theme.Markup(Theme.Text.Accent)}]Switched to branch: [bold]{Markup.Escape(chosen.Name)}[/][/]")
             .LeftJustified().RuleStyle(new Style(Theme.Text.Accent)));
 
@@ -198,7 +198,7 @@ public static class BranchCommands
         try
         {
             branchName = await new TextPrompt<string>("Branch name:")
-                .ShowAsync(AnsiConsole.Console, ctx.CancellationToken);
+                .ShowAsync(ctx.Session.Console, ctx.CancellationToken);
         }
         catch (OperationCanceledException) { return CommandResult.Ok(); }
 
@@ -228,8 +228,8 @@ public static class BranchCommands
 
         ctx.Data["BranchId"] = activeId;
 
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Rule(
+        ctx.Session.WriteLine();
+        ctx.Session.Write(new Rule(
             $"[{Theme.Markup(Theme.Text.Accent)}]Switched to branch: [bold]{Markup.Escape(activeName)}[/][/]")
             .LeftJustified().RuleStyle(new Style(Theme.Text.Accent)));
 
@@ -256,7 +256,7 @@ public static class BranchCommands
         prompt.AddChoices(deletable);
 
         BranchDto toDelete;
-        try { toDelete = await prompt.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+        try { toDelete = await prompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
         catch (OperationCanceledException) { return CommandResult.Ok(); }
 
         var childCount = toDelete.TotalForks;
@@ -268,7 +268,7 @@ public static class BranchCommands
         try
         {
             confirmed = await new ConfirmationPrompt(confirmMsg) { DefaultValue = false }
-                .ShowAsync(AnsiConsole.Console, ctx.CancellationToken);
+                .ShowAsync(ctx.Session.Console, ctx.CancellationToken);
         }
         catch (OperationCanceledException) { return CommandResult.Ok(); }
 
@@ -290,14 +290,14 @@ public static class BranchCommands
             var parentName = branches.FirstOrDefault(b => b.Id == parentId)?.Name ?? parentId;
             ctx.Data["BranchId"] = parentId;
 
-            AnsiConsole.WriteLine();
-            AnsiConsole.Write(new Rule(
+            ctx.Session.WriteLine();
+            ctx.Session.Write(new Rule(
                 $"[dim]Branch deleted. Switched to: [cyan]{Markup.Escape(parentName)}[/][/]")
                 .LeftJustified().RuleStyle(new Style(Theme.Text.Muted)));
         }
         else
         {
-            AnsiConsole.Write(new Rule(
+            ctx.Session.Write(new Rule(
                 $"[dim]Branch \"{Markup.Escape(toDelete.Name)}\" deleted.[/]")
                 .LeftJustified().RuleStyle(new Style(Theme.Text.Muted)));
         }
@@ -307,14 +307,14 @@ public static class BranchCommands
 
     // ── Tree ─────────────────────────────────────────────────────────────────
 
-    private static CommandResult RunTree(BranchDto[] branches, string activeBranchId)
+    private static CommandResult RunTree(CommandContext ctx, BranchDto[] branches, string activeBranchId)
     {
         if (branches.Length == 0)
             return CommandResult.Error("No branches found.");
 
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(BuildTree(branches, activeBranchId));
-        AnsiConsole.WriteLine();
+        ctx.Session.WriteLine();
+        ctx.Session.Write(BuildTree(branches, activeBranchId));
+        ctx.Session.WriteLine();
         return CommandResult.Ok();
     }
 

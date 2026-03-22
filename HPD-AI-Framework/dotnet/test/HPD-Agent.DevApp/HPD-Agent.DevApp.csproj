@@ -18,10 +18,10 @@
     <ProjectReference Include="..\..\src\HPD-Agent.Framework\HPD-Agent.Hosting\HPD-Agent.Hosting.csproj" />
     <!-- AddHPDAgent, MapHPDAgentApi -->
     <ProjectReference Include="..\..\src\HPD-Agent.Framework\HPD-Agent.AspNetCore\HPD-Agent.AspNetCore.csproj" />
-    <!-- Adapter abstractions -->
-    <ProjectReference Include="..\..\src\HPD-Agent.Framework\HPD-Agent.Adapters\HPD-Agent.Adapters.Abstractions\HPD-Agent.Adapters.Abstractions.csproj" />
-    <!-- Slack adapter: AddSlackAdapter, MapSlackWebhook -->
-    <ProjectReference Include="..\..\src\HPD-Agent.Framework\HPD-Agent.Adapters\HPD-Agent.Adapters.Slack\HPD-Agent.Adapters.Slack.csproj" />
+    <!-- Bot abstractions -->
+    <ProjectReference Include="..\..\src\HPD-Agent.Framework\HPD-Agent.Bots\HPD-Agent.Bots.Abstractions\HPD-Agent.Bots.Abstractions.csproj" />
+    <!-- Slack bot: AddSlackBot, MapSlackWebhook -->
+    <ProjectReference Include="..\..\src\HPD-Agent.Framework\HPD-Agent.Bots\HPD-Agent.Bots.Slack\HPD-Agent.Bots.Slack.csproj" />
     <!-- Providers — add/remove as needed -->
     <ProjectReference Include="..\..\src\HPD-Agent.Framework\HPD-Agent.Providers\HPD-Agent.Providers.Anthropic\HPD-Agent.Providers.Anthropic.csproj" />
     <ProjectReference Include="..\..\src\HPD-Agent.Framework\HPD-Agent.Providers\HPD-Agent.Providers.OpenAI\HPD-Agent.Providers.OpenAI.csproj" />

@@ -26,6 +26,7 @@ public class CommandContext
     public string RawInput { get; set; } = "";
     public string CommandName { get; set; } = "";
     public string Arguments { get; set; } = "";
+    public IConsoleSession Session { get; set; } = null!;
     public AgentUIRenderer? UIRenderer { get; set; }
     public Dictionary<string, object> Data { get; set; } = new();
     public CancellationToken CancellationToken { get; init; }

@@ -7,18 +7,20 @@ namespace HPDOS.Shell.Cli.TUI;
 
 /// <summary>
 /// Readline with slash command autocomplete and cursor navigation.
-/// Uses RenderHookScope (same pattern as Spectre's SelectionPrompt) with a
-/// self-contained cursor tracker — no dependency on internal LiveRenderable.
+/// Uses Spectre's render hook pipeline so prompt redraw coexists with other
+/// console writes while suggestions remain attached to the active input.
 /// Returns null on Ctrl+C.
 /// </summary>
 public class CommandAwareInput
 {
-    private readonly CommandProcessor _processor;
+    private const string PromptInputGap = "   ";
+
+    private readonly IConsoleSession _session;
     private readonly SuggestionManager _suggestions;
 
-    public CommandAwareInput(CommandProcessor processor)
+    public CommandAwareInput(CommandProcessor processor, IConsoleSession session)
     {
-        _processor = processor;
+        _session = session;
         _suggestions = processor.CreateSuggestionManager();
     }
 
@@ -35,367 +37,394 @@ public class CommandAwareInput
 
         var prevTreatCtrlC = Console.TreatControlCAsInput;
         Console.TreatControlCAsInput = true;
-
-        var hook = new SuggestionRenderHook(AnsiConsole.Console);
         string? result = null;
 
-        using (new RenderHookScope(AnsiConsole.Console, hook))
+        InputView BuildView() => new(
+            prompt,
+            input.ToString(),
+            cursorPos,
+            _suggestions.HasSuggestions ? _suggestions.Render() : null);
+
+        var hook = new InputRenderHook(_session, BuildView);
+
+        if (input.Length > 0 && input[0] == '/')
+            _suggestions.UpdateQuery(input.ToString());
+        else
+            _suggestions.Clear();
+
+        void UpdateSuggestions()
         {
-            AnsiConsole.Cursor.Hide();
-
-            // Visual width of the prompt — strip Spectre markup tags so we measure
-            // only printable characters (e.g. "[dim]experimental[/] > " → "experimental > ").
-            var promptVisualWidth = Markup.Remove(prompt).Length;
-
-            void Redraw()
-            {
-                var width = Math.Max(1, Console.WindowWidth);
-                var totalChars = promptVisualWidth + input.Length;
-
-                // How many terminal rows the prompt+input occupies (≥1).
-                var promptRows = Math.Max(1, (totalChars + width - 1) / width);
-
-                // Tell the hook the new prompt row count so it moves the cursor up
-                // the correct total distance (prompt rows + dropdown rows).
-                hook.SetPromptRows(promptRows);
-
-                // Build the full prompt+input string, padding each row to the full
-                // terminal width so stale content from previously longer input is erased.
-                var sb = new StringBuilder();
-                sb.Append('\r');
-                var inputStr = input.ToString();
-
-                // We emit one block of text; the terminal wraps it naturally.
-                // Pad out the last row so no stale chars from a previously longer input remain.
-                var paddingNeeded = promptRows * width - totalChars;
-                sb.Append(prompt);
-                sb.Append(Markup.Escape(inputStr));
-                if (paddingNeeded > 0)
-                    sb.Append(new string(' ', paddingNeeded));
-
-                AnsiConsole.Write(new Markup(sb.ToString()));
-
-                // Reposition cursor to the logical cursor position within the input.
-                var cursorAbsCol = promptVisualWidth + cursorPos;
-                var cursorRow = cursorAbsCol / width;       // 0-based row within prompt block
-                var cursorCol = cursorAbsCol % width;       // column on that row
-
-                // We're currently at the last row of the prompt block (promptRows-1).
-                // Move up to cursorRow if needed.
-                var rowsToMoveUp = (promptRows - 1) - cursorRow;
-                if (rowsToMoveUp > 0)
-                    Console.Write($"\x1b[{rowsToMoveUp}A");
-
-                Console.SetCursorPosition(cursorCol, Console.CursorTop);
-            }
-
-            void Refresh()
-            {
-                if (_suggestions.HasSuggestions)
-                    hook.SetContent(_suggestions.Render());
-                else
-                    hook.ClearContent();
-                Redraw();
-            }
-
-            void UpdateSuggestions()
-            {
-                var text = input.ToString();
-                if (text.StartsWith('/'))
-                    _suggestions.UpdateQuery(text);
-                else
-                    _suggestions.Clear();
-                Refresh();
-            }
-
-            void ApplyCompletion()
-            {
-                var completed = _suggestions.GetCompletedText();
-                if (completed == null) return;
-                input.Clear();
-                input.Append(completed);
-                input.Append(' ');
-                cursorPos = input.Length;
+            var text = input.ToString();
+            if (text.StartsWith('/'))
+                _suggestions.UpdateQuery(text);
+            else
                 _suggestions.Clear();
-                Refresh();
-            }
+        }
 
-            // Initial draw.
-            Redraw();
+        void Refresh()
+        {
+            hook.Refresh();
+        }
 
-            while (true)
+        void ApplyCompletion()
+        {
+            var completed = _suggestions.GetCompletedText();
+            if (completed == null) return;
+
+            input.Clear();
+            input.Append(completed);
+            input.Append(' ');
+            cursorPos = input.Length;
+            _suggestions.Clear();
+            Refresh();
+        }
+
+        try
+        {
+            using (new RenderHookScope(_session.Console, hook))
             {
-                var keyInfo = AnsiConsole.Console.Input
-                    .ReadKeyAsync(intercept: true, CancellationToken.None)
-                    .GetAwaiter().GetResult();
-                if (keyInfo is not { } key) continue;
+                _session.ShowCursor();
+                Refresh();
 
-                switch (key.Key)
+                while (true)
                 {
-                    case ConsoleKey.Enter:
-                        if (_suggestions.HasSuggestions)
-                        {
-                            var selected = _suggestions.GetSelected();
-                            if (selected != null)
+                    var keyInfo = _session.Input
+                        .ReadKeyAsync(intercept: true, CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                    if (keyInfo is not { } key) continue;
+
+                    switch (key.Key)
+                    {
+                        case ConsoleKey.Enter:
+                            if (_suggestions.HasSuggestions)
                             {
-                                var completed = _suggestions.GetCompletedText();
-                                var current = input.ToString().TrimEnd();
-                                if (completed != null && current.Equals(completed, StringComparison.OrdinalIgnoreCase))
+                                var selected = _suggestions.GetSelected();
+                                if (selected != null)
                                 {
-                                    result = current;
-                                    goto done;
+                                    var completed = _suggestions.GetCompletedText();
+                                    var current = input.ToString().TrimEnd();
+                                    if (completed != null && current.Equals(completed, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        result = current;
+                                        goto done;
+                                    }
+
+                                    if (selected.Command.AutoExecute)
+                                    {
+                                        result = "/" + selected.DisplayName;
+                                        goto done;
+                                    }
+
+                                    ApplyCompletion();
+                                    break;
                                 }
-                                if (selected.Command.AutoExecute)
-                                {
-                                    result = "/" + selected.DisplayName;
-                                    goto done;
-                                }
-                                ApplyCompletion();
-                                break;
                             }
-                        }
-                        result = input.ToString();
-                        goto done;
 
-                    case ConsoleKey.Backspace:
-                        if (cursorPos > 0) { input.Remove(cursorPos - 1, 1); cursorPos--; UpdateSuggestions(); }
-                        break;
+                            result = input.ToString();
+                            goto done;
 
-                    case ConsoleKey.Delete:
-                        if (cursorPos < input.Length) { input.Remove(cursorPos, 1); UpdateSuggestions(); }
-                        break;
-
-                    case ConsoleKey.LeftArrow:
-                        if (cursorPos > 0) { cursorPos--; Redraw(); }
-                        break;
-
-                    case ConsoleKey.RightArrow:
-                        if (cursorPos < input.Length) { cursorPos++; Redraw(); }
-                        break;
-
-                    case ConsoleKey.Home:
-                        cursorPos = 0; Redraw();
-                        break;
-
-                    case ConsoleKey.End:
-                        cursorPos = input.Length; Redraw();
-                        break;
-
-                    case ConsoleKey.UpArrow:
-                        if (_suggestions.HasSuggestions) { _suggestions.NavigateUp(); Refresh(); }
-                        break;
-
-                    case ConsoleKey.DownArrow:
-                        if (_suggestions.HasSuggestions) { _suggestions.NavigateDown(); Refresh(); }
-                        break;
-
-                    case ConsoleKey.Tab:
-                        if (_suggestions.HasSuggestions) ApplyCompletion();
-                        break;
-
-                    case ConsoleKey.Escape:
-                        if (_suggestions.HasSuggestions) { _suggestions.Clear(); Refresh(); }
-                        break;
-
-                    case ConsoleKey.C when key.Modifiers.HasFlag(ConsoleModifiers.Control):
-                        result = null;
-                        goto done;
-
-                    default:
-                        if (!char.IsControl(key.KeyChar))
-                        {
-                            input.Insert(cursorPos, key.KeyChar);
-                            cursorPos++;
-                            if (input.Length > 0 && input[0] == '/')
+                        case ConsoleKey.Backspace:
+                            if (cursorPos > 0)
+                            {
+                                input.Remove(cursorPos - 1, 1);
+                                cursorPos--;
                                 UpdateSuggestions();
-                            else if (_suggestions.HasSuggestions)
+                                Refresh();
+                            }
+                            break;
+
+                        case ConsoleKey.Delete:
+                            if (cursorPos < input.Length)
+                            {
+                                input.Remove(cursorPos, 1);
+                                UpdateSuggestions();
+                                Refresh();
+                            }
+                            break;
+
+                        case ConsoleKey.LeftArrow:
+                            if (cursorPos > 0)
+                            {
+                                cursorPos--;
+                                Refresh();
+                            }
+                            break;
+
+                        case ConsoleKey.RightArrow:
+                            if (cursorPos < input.Length)
+                            {
+                                cursorPos++;
+                                Refresh();
+                            }
+                            break;
+
+                        case ConsoleKey.Home:
+                            cursorPos = 0;
+                            Refresh();
+                            break;
+
+                        case ConsoleKey.End:
+                            cursorPos = input.Length;
+                            Refresh();
+                            break;
+
+                        case ConsoleKey.UpArrow:
+                            if (_suggestions.HasSuggestions)
+                            {
+                                _suggestions.NavigateUp();
+                                Refresh();
+                            }
+                            break;
+
+                        case ConsoleKey.DownArrow:
+                            if (_suggestions.HasSuggestions)
+                            {
+                                _suggestions.NavigateDown();
+                                Refresh();
+                            }
+                            break;
+
+                        case ConsoleKey.Tab:
+                            if (_suggestions.HasSuggestions)
+                                ApplyCompletion();
+                            break;
+
+                        case ConsoleKey.Escape:
+                            if (_suggestions.HasSuggestions)
                             {
                                 _suggestions.Clear();
                                 Refresh();
                             }
-                            else
-                                Redraw();
-                        }
-                        break;
+                            break;
+
+                        case ConsoleKey.C when key.Modifiers.HasFlag(ConsoleModifiers.Control):
+                            result = null;
+                            goto done;
+
+                        default:
+                            if (!char.IsControl(key.KeyChar))
+                            {
+                                input.Insert(cursorPos, key.KeyChar);
+                                cursorPos++;
+                                UpdateSuggestions();
+                                Refresh();
+                            }
+                            break;
+                    }
                 }
+
+                done:
+                ;
             }
 
-            done:
-            hook.ClearContent();
-            hook.Erase();
-            AnsiConsole.Cursor.Show();
+            hook.Clear();
+        }
+        finally
+        {
+            _session.ShowCursor();
+            Console.TreatControlCAsInput = prevTreatCtrlC;
         }
 
         Console.WriteLine();
-        Console.TreatControlCAsInput = prevTreatCtrlC;
         return result;
     }
 
-    /// <summary>
-    /// Render hook that repositions the cursor and appends the suggestion dropdown after every
-    /// console write. Owns the full bounding box: prompt rows (which may wrap) + dropdown rows.
-    ///
-    /// Bounding-box strategy (mirrors LiveRenderable._shape inflation):
-    ///   _lastHeight tracks total rows = prompt rows + dropdown rows, inflated (never shrinks
-    ///   until cleared). On each Process() call:
-    ///     1. Move cursor up by (_lastHeight - 1) to top of the previous bounding box.
-    ///     2. Emit prompt + input renderables (may span multiple terminal rows if wrapping).
-    ///     3a. If dropdown content: render it, padding to _lastWidth, emitting blank rows for
-    ///         height-shrink gaps. Inflate _lastHeight/_lastWidth.
-    ///     3b. If cleared: wipe stale dropdown rows, reset trackers to _promptRows.
-    /// </summary>
-    private sealed class SuggestionRenderHook : IRenderHook
+    private sealed record InputView(string Prompt, string Input, int CursorPos, IRenderable? Suggestions);
+
+    private sealed class InputRenderHook(IConsoleSession session, Func<InputView> builder) : IRenderHook
     {
-        private readonly IAnsiConsole _console;
-        private IRenderable? _content;
-        // Total bounding box rows = prompt rows + dropdown rows (inflated, never shrinks until cleared).
-        private int _lastHeight;
-        private int _lastWidth;
-        // How many terminal rows the current prompt+input occupies (set by Redraw before each write).
-        private int _promptRows = 1;
+        private readonly LiveInputRenderable _live = new();
         private readonly object _lock = new();
+        private bool _dirty = true;
 
-        public SuggestionRenderHook(IAnsiConsole console)
+        public void Refresh()
         {
-            _console = console;
+            _dirty = true;
+            session.Write(new ControlCode(string.Empty));
         }
 
-        public void SetContent(IRenderable content)
+        public void Clear()
         {
-            lock (_lock) _content = content;
-        }
-
-        public void ClearContent()
-        {
-            lock (_lock) _content = null;
-        }
-
-        /// <summary>
-        /// Called by Redraw() before each AnsiConsole.Write so the hook knows how many rows
-        /// the prompt+input block occupies this render cycle.
-        /// </summary>
-        public void SetPromptRows(int rows)
-        {
-            lock (_lock) _promptRows = Math.Max(1, rows);
-        }
-
-        /// <summary>
-        /// Erase the full bounding box and restore cursor to the top-left of the prompt.
-        /// Call before exiting RenderHookScope.
-        /// </summary>
-        public void Erase()
-        {
-            lock (_lock)
-            {
-                if (_lastHeight <= 0) return;
-                var linesToClear = _lastHeight - 1;
-                var sb = new StringBuilder();
-                sb.Append("\r\x1b[2K"); // erase current (top) line
-                for (var i = 0; i < linesToClear; i++)
-                    sb.Append("\x1b[1B\r\x1b[2K"); // cursor down + erase each subsequent row
-                if (linesToClear > 0)
-                    sb.Append($"\x1b[{linesToClear}A"); // return to top row
-                _console.Write(new ControlCode(sb.ToString()));
-                _lastHeight = 0;
-                _lastWidth = 0;
-            }
+            session.Write(_live.RestoreCursor());
         }
 
         public IEnumerable<IRenderable> Process(RenderOptions options, IEnumerable<IRenderable> renderables)
         {
             lock (_lock)
             {
-                // Step 1: reposition to the top of the previous total bounding box.
-                // _lastHeight covers prompt rows + dropdown rows; moving up (_lastHeight-1)
-                // lands at row 0 of the prompt block regardless of how much it wrapped.
-                if (_lastHeight > 1)
-                    yield return new ControlCode($"\x1b[{_lastHeight - 1}A");
-
-                // Step 2: emit prompt + input renderables.
-                // Redraw() already computed the correct padding/erase for the prompt block.
-                foreach (var r in renderables) yield return r;
-
-                // Step 3a: render dropdown, inflating bounding box.
-                if (_content != null)
+                if (!_live.HasRenderable || _dirty)
                 {
-                    var segments = _content.Render(options, options.ConsoleSize.Width).ToList();
-                    var lines = SplitIntoLines(segments);
-
-                    var newDropdownRows = Math.Max(1, lines.Count);
-                    var newWidth = lines.Count > 0 ? lines.Max(CellWidth) : 0;
-
-                    // Previous dropdown row count = _lastHeight - previous prompt rows.
-                    // We inflate only the dropdown portion, then add current prompt rows.
-                    var prevDropdownRows = Math.Max(0, _lastHeight - _promptRows);
-                    var boundDropdownRows = Math.Max(prevDropdownRows, newDropdownRows);
-                    var boundWidth = Math.Max(_lastWidth, newWidth);
-
-                    yield return new ControlCode("\n"); // move below last prompt row
-
-                    for (var row = 0; row < boundDropdownRows; row++)
-                    {
-                        if (row < lines.Count)
-                        {
-                            var lineWidth = CellWidth(lines[row]);
-                            foreach (var s in lines[row]) yield return new RenderedSegment(s);
-                            var pad = boundWidth - lineWidth;
-                            if (pad > 0) yield return new RenderedSegment(Segment.Padding(pad));
-                        }
-                        else
-                        {
-                            if (boundWidth > 0) yield return new RenderedSegment(Segment.Padding(boundWidth));
-                        }
-
-                        if (row < boundDropdownRows - 1) yield return new RenderedSegment(Segment.LineBreak);
-                    }
-
-                    _lastHeight = _promptRows + boundDropdownRows;
-                    _lastWidth  = boundWidth;
+                    _live.SetRenderable(new InputRenderable(builder()));
+                    _dirty = false;
                 }
-                else
-                {
-                    // Step 3b: no dropdown — wipe any stale dropdown rows.
-                    var prevDropdownRows = Math.Max(0, _lastHeight - _promptRows);
-                    if (prevDropdownRows > 0)
-                    {
-                        var sb = new StringBuilder();
-                        for (var i = 0; i < prevDropdownRows; i++)
-                            sb.Append("\n\r\x1b[2K");
-                        sb.Append($"\x1b[{prevDropdownRows}A");
-                        yield return new ControlCode(sb.ToString());
-                    }
-                    _lastHeight = _promptRows;
-                    _lastWidth  = 0;
-                }
+
+                yield return _live.PositionCursor(options);
+
+                foreach (var renderable in renderables)
+                    yield return renderable;
+
+                yield return _live;
             }
         }
-
-        // Split a flat segment list into lines on LineBreak segments.
-        private static List<List<Segment>> SplitIntoLines(List<Segment> segments)
-        {
-            var lines = new List<List<Segment>>();
-            var current = new List<Segment>();
-            foreach (var s in segments)
-            {
-                if (s.IsLineBreak) { lines.Add(current); current = []; }
-                else current.Add(s);
-            }
-            if (current.Count > 0) lines.Add(current);
-            return lines;
-        }
-
-        // Total cell width of a line (handles double-width chars via Segment.CellCount).
-        private static int CellWidth(List<Segment> line) => Segment.CellCount(line);
     }
 
-    /// <summary>Wraps a single Segment as an IRenderable for yielding from Process().</summary>
-    private sealed class RenderedSegment : Renderable
+    private sealed class InputRenderable : Renderable
     {
-        private readonly Segment _segment;
-        public RenderedSegment(Segment segment) => _segment = segment;
+        public InputView View { get; }
+
+        public InputRenderable(InputView view)
+        {
+            View = view;
+        }
+
+        protected override Measurement Measure(RenderOptions options, int maxWidth)
+        {
+            var lines = Segment.SplitLines(Render(options, maxWidth), maxWidth);
+            var width = lines.Count == 0 ? 0 : lines.Max(line => line.CellCount());
+            return new Measurement(width, width);
+        }
+
         protected override IEnumerable<Segment> Render(RenderOptions options, int maxWidth)
         {
-            yield return _segment;
+            foreach (var segment in RenderPrompt(View, options, maxWidth))
+                yield return segment;
+
+            if (View.Suggestions is null)
+                yield break;
+
+            yield return Segment.LineBreak;
+
+            foreach (var segment in View.Suggestions.Render(options, maxWidth))
+                yield return segment;
+        }
+
+        public static IEnumerable<Segment> RenderPrompt(InputView view, RenderOptions options, int maxWidth)
+        {
+            return ((IRenderable)new Markup(BuildPromptMarkup(view, view.Input))).Render(options, maxWidth);
+        }
+
+        public static IEnumerable<Segment> RenderPromptPrefix(InputView view, RenderOptions options, int maxWidth)
+        {
+            var safeCursorPos = Math.Clamp(view.CursorPos, 0, view.Input.Length);
+            return ((IRenderable)new Markup(BuildPromptMarkup(view, view.Input[..safeCursorPos]))).Render(options, maxWidth);
+        }
+
+        private static string BuildPromptMarkup(InputView view, string inputText)
+        {
+            return view.Prompt.TrimEnd() + PromptInputGap + Markup.Escape(inputText);
+        }
+    }
+
+    private sealed class LiveInputRenderable : Renderable
+    {
+        private IRenderable? _renderable;
+        private int _height;
+        private int _cursorLineIndex;
+
+        public bool HasRenderable => _renderable != null;
+
+        public void SetRenderable(IRenderable renderable)
+        {
+            _renderable = renderable;
+        }
+
+        public IRenderable PositionCursor(RenderOptions options)
+        {
+            if (_height <= 0)
+                return new ControlCode(string.Empty);
+
+            var ansi = new StringBuilder("\r");
+            if (_cursorLineIndex > 0)
+                ansi.Append($"\x1b[{_cursorLineIndex}A");
+            return new ControlCode(ansi.ToString());
+        }
+
+        public IRenderable RestoreCursor()
+        {
+            if (_height <= 0)
+                return new ControlCode(string.Empty);
+
+            var ansi = new StringBuilder("\r");
+
+            var linesToMoveDown = Math.Max(0, _height - 1 - _cursorLineIndex);
+            if (linesToMoveDown > 0)
+                ansi.Append($"\x1b[{linesToMoveDown}B");
+
+            ansi.Append("\r\x1b[2K");
+            for (var lineIndex = 1; lineIndex < _height; lineIndex++)
+                ansi.Append("\x1b[1A\r\x1b[2K");
+
+            _height = 0;
+            _cursorLineIndex = 0;
+            return new ControlCode(ansi.ToString());
+        }
+
+        protected override Measurement Measure(RenderOptions options, int maxWidth)
+        {
+            if (_renderable is null)
+                return new Measurement(0, 0);
+
+            var lines = Segment.SplitLines(_renderable.Render(options, maxWidth), maxWidth);
+            var width = lines.Count == 0 ? 0 : lines.Max(line => line.CellCount());
+            return new Measurement(width, width);
+        }
+
+        protected override IEnumerable<Segment> Render(RenderOptions options, int maxWidth)
+        {
+            if (_renderable is null)
+            {
+                _height = 0;
+                _cursorLineIndex = 0;
+                yield break;
+            }
+
+            var lines = Segment.SplitLines(_renderable.Render(options, maxWidth), maxWidth);
+            var currentHeight = lines.Count;
+            var rowsToRender = Math.Max(_height, currentHeight);
+
+            for (var lineIndex = 0; lineIndex < rowsToRender; lineIndex++)
+            {
+                if (lineIndex > 0)
+                    yield return Segment.LineBreak;
+
+                yield return Segment.Control("\r\x1b[2K");
+
+                if (lineIndex >= currentHeight)
+                    continue;
+
+                foreach (var segment in lines[lineIndex])
+                    yield return segment;
+            }
+
+            if (_renderable is InputRenderable inputRenderable)
+            {
+                var cursorControl = CreateRestoreCursorControl(inputRenderable.View, options, maxWidth, rowsToRender, out var cursorLineIndex);
+                _cursorLineIndex = cursorLineIndex;
+                if (cursorControl.Text.Length > 0)
+                    yield return cursorControl;
+            }
+            else
+            {
+                _cursorLineIndex = 0;
+            }
+
+            _height = currentHeight;
+        }
+
+        private static Segment CreateRestoreCursorControl(InputView view, RenderOptions options, int maxWidth, int renderedHeight, out int cursorLineIndex)
+        {
+            var prefixLines = Segment.SplitLines(InputRenderable.RenderPromptPrefix(view, options, maxWidth), maxWidth);
+            cursorLineIndex = Math.Max(0, prefixLines.Count - 1);
+            var cursorColumn = prefixLines[cursorLineIndex].CellCount();
+            var linesToMoveUp = Math.Max(0, renderedHeight - 1 - cursorLineIndex);
+
+            var ansi = new StringBuilder("\r");
+            if (linesToMoveUp > 0)
+                ansi.Append($"\x1b[{linesToMoveUp}A");
+            if (cursorColumn > 0)
+                ansi.Append($"\x1b[{cursorColumn}C");
+
+            return Segment.Control(ansi.ToString());
         }
     }
 }

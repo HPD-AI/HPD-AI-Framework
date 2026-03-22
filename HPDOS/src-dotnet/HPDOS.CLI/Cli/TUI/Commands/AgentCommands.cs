@@ -52,7 +52,7 @@ public static class AgentCommands
 
             // Load agent list upfront — needed by Switch, Edit, Delete.
             List<AgentSummaryDto>? agents = null;
-            await AnsiConsole.Status()
+            await ctx.Session.Console.Status()
                 .Spinner(Spinner.Known.Dots)
                 .SpinnerStyle(new Style(Theme.Text.Accent))
                 .StartAsync("Loading agents…", async _ =>
@@ -71,7 +71,7 @@ public static class AgentCommands
                 .AddChoices("Switch", "New", "Edit", "Delete", "Cancel");
 
             string action;
-            try { action = await actionPrompt.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+            try { action = await actionPrompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
             catch (OperationCanceledException) { return CommandResult.Ok(); }
 
             return action switch
@@ -92,7 +92,7 @@ public static class AgentCommands
     {
         if (agents.Count == 0)
         {
-            AnsiConsole.MarkupLine("[dim]No agents found.[/]");
+            ctx.Session.MarkupLine("[dim]No agents found.[/]");
             return CommandResult.Ok();
         }
 
@@ -108,13 +108,13 @@ public static class AgentCommands
         prompt.AddChoices(agents.OrderByDescending(a => a.UpdatedAt));
 
         AgentSummaryDto chosen;
-        try { chosen = await prompt.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+        try { chosen = await prompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
         catch (OperationCanceledException) { return CommandResult.Ok(); }
 
         ctx.Data["AgentId"] = chosen.Id;
 
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Rule(
+        ctx.Session.WriteLine();
+        ctx.Session.Write(new Rule(
             $"[{Theme.Markup(Theme.Text.Accent)}]Switched to agent: [bold]{Markup.Escape(chosen.Name)}[/][/]")
             .LeftJustified().RuleStyle(new Style(Theme.Text.Accent)));
 
@@ -131,7 +131,7 @@ public static class AgentCommands
         try
         {
             config.Name = await new TextPrompt<string>("Agent name:")
-                .ShowAsync(AnsiConsole.Console, ctx.CancellationToken);
+                .ShowAsync(ctx.Session.Console, ctx.CancellationToken);
         }
         catch (OperationCanceledException) { return CommandResult.Ok(); }
 
@@ -153,12 +153,12 @@ public static class AgentCommands
                 .UseConverter(id => summaries!.FirstOrDefault(s => s.ProviderId == id)?.DisplayName ?? id)
                 .AddChoices(connected.Select(s => s.ProviderId));
 
-            try { selectedProvider = await provPrompt.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+            try { selectedProvider = await provPrompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
             catch (OperationCanceledException) { return CommandResult.Ok(); }
         }
         else
         {
-            AnsiConsole.MarkupLine("[dim]No connected providers — skipping. Use /providers to connect one.[/]");
+            ctx.Session.MarkupLine("[dim]No connected providers — skipping. Use /providers to connect one.[/]");
         }
 
         // Model
@@ -166,7 +166,7 @@ public static class AgentCommands
         if (selectedProvider != null)
         {
             List<ModelInfo>? models = null;
-            await AnsiConsole.Status().Spinner(Spinner.Known.Dots)
+            await ctx.Session.Console.Status().Spinner(Spinner.Known.Dots)
                 .StartAsync("Fetching models…", async _ =>
                 {
                     try { models = await http.GetFromJsonAsync<List<ModelInfo>>(
@@ -189,20 +189,20 @@ public static class AgentCommands
                 if (rest.Count > 0)        modelPrompt.AddChoiceGroup("Models",      rest.Select(m => m.Id));
                 modelPrompt.AddChoiceGroup("Other", ["__custom__"]);
 
-                try { selectedModel = await modelPrompt.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+                try { selectedModel = await modelPrompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
                 catch (OperationCanceledException) { return CommandResult.Ok(); }
 
                 if (selectedModel == "__custom__")
                 {
                     try { selectedModel = await new TextPrompt<string>("Model ID:")
-                        .ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+                        .ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
                     catch (OperationCanceledException) { return CommandResult.Ok(); }
                 }
             }
             else
             {
                 try { selectedModel = await new TextPrompt<string>("Model ID:")
-                    .ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+                    .ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
                 catch (OperationCanceledException) { return CommandResult.Ok(); }
             }
         }
@@ -215,20 +215,20 @@ public static class AgentCommands
         {
             config.MaxAgenticIterations = await new TextPrompt<int>($"Max tool-call turns (default {config.MaxAgenticIterations}):")
                 .DefaultValue(config.MaxAgenticIterations)
-                .ShowAsync(AnsiConsole.Console, ctx.CancellationToken);
+                .ShowAsync(ctx.Session.Console, ctx.CancellationToken);
         }
         catch (OperationCanceledException) { return CommandResult.Ok(); }
 
         // System instructions
-        await ConfigureSystemInstructionsAsync(config, ctx.CancellationToken);
+        await ConfigureSystemInstructionsAsync(ctx, config, ctx.CancellationToken);
 
         // Behaviour gate
         bool configureBehaviour = false;
         try { configureBehaviour = await new ConfirmationPrompt("Configure behaviour (toolkits, middlewares)?")
-            { DefaultValue = false }.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+            { DefaultValue = false }.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
         catch (OperationCanceledException) { return CommandResult.Ok(); }
 
-        if (configureBehaviour) await ConfigureBehaviourAsync(config, ctx.CancellationToken);
+        if (configureBehaviour) await ConfigureBehaviourAsync(ctx, config, ctx.CancellationToken);
 
         // POST /agents
         StoredAgentDto? created = null;
@@ -244,8 +244,8 @@ public static class AgentCommands
         var newId = created?.Id ?? config.Name.ToLowerInvariant().Replace(' ', '-');
         ctx.Data["AgentId"] = newId;
 
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Rule(
+        ctx.Session.WriteLine();
+        ctx.Session.Write(new Rule(
             $"[{Theme.Markup(Theme.Text.Accent)}]Agent \"{Markup.Escape(config.Name)}\" created. Switched to: [bold]{Markup.Escape(config.Name)}[/][/]")
             .LeftJustified().RuleStyle(new Style(Theme.Text.Accent)));
 
@@ -270,12 +270,12 @@ public static class AgentCommands
                     ? $"[white]{Markup.Escape(a.Name)}[/] [dim cyan]← active[/]"
                     : $"[white]{Markup.Escape(a.Name)}[/]");
             pickPrompt.AddChoices(agents.OrderByDescending(a => a.UpdatedAt));
-            try { target = await pickPrompt.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+            try { target = await pickPrompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
             catch (OperationCanceledException) { return CommandResult.Ok(); }
         }
 
         StoredAgentDto? stored = null;
-        await AnsiConsole.Status().Spinner(Spinner.Known.Dots)
+        await ctx.Session.Console.Status().Spinner(Spinner.Known.Dots)
             .StartAsync("Loading agent…", async _ =>
             {
                 try { stored = await http.GetFromJsonAsync<StoredAgentDto>(
@@ -293,14 +293,14 @@ public static class AgentCommands
                         "Toolkits", "Behaviours", "Open full config in editor");
 
         string field;
-        try { field = await fieldPrompt.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+        try { field = await fieldPrompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
         catch (OperationCanceledException) { return CommandResult.Ok(); }
 
         switch (field)
         {
             case "Name":
                 try { config.Name = await new TextPrompt<string>("Name:").DefaultValue(config.Name)
-                    .ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+                    .ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
                 catch (OperationCanceledException) { return CommandResult.Ok(); }
                 break;
 
@@ -309,36 +309,36 @@ public static class AgentCommands
                 {
                     var prov = await new TextPrompt<string>("Provider key:")
                         .DefaultValue(config.Provider?.ProviderKey ?? "")
-                        .ShowAsync(AnsiConsole.Console, ctx.CancellationToken);
+                        .ShowAsync(ctx.Session.Console, ctx.CancellationToken);
                     var model = await new TextPrompt<string>("Model ID:")
                         .DefaultValue(config.Provider?.ModelName ?? "")
-                        .ShowAsync(AnsiConsole.Console, ctx.CancellationToken);
+                        .ShowAsync(ctx.Session.Console, ctx.CancellationToken);
                     config.Provider = new ProviderConfig { ProviderKey = prov, ModelName = model };
                 }
                 catch (OperationCanceledException) { return CommandResult.Ok(); }
                 break;
 
             case "System instructions":
-                await ConfigureSystemInstructionsAsync(config, ctx.CancellationToken);
+                await ConfigureSystemInstructionsAsync(ctx, config, ctx.CancellationToken);
                 break;
 
             case "Max iterations":
                 try { config.MaxAgenticIterations = await new TextPrompt<int>($"Max tool-call turns (default {config.MaxAgenticIterations}):")
                     .DefaultValue(config.MaxAgenticIterations)
-                    .ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+                    .ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
                 catch (OperationCanceledException) { return CommandResult.Ok(); }
                 break;
 
             case "Toolkits":
-                await ConfigureBehaviourAsync(config, ctx.CancellationToken, onlyToolkits: true);
+                await ConfigureBehaviourAsync(ctx, config, ctx.CancellationToken, onlyToolkits: true);
                 break;
 
             case "Behaviours":
-                await ConfigureBehaviourAsync(config, ctx.CancellationToken, onlyToolkits: false);
+                await ConfigureBehaviourAsync(ctx, config, ctx.CancellationToken, onlyToolkits: false);
                 break;
 
             case "Open full config in editor":
-                await OpenConfigInEditorAsync(config, ctx.CancellationToken);
+                await OpenConfigInEditorAsync(ctx, config, ctx.CancellationToken);
                 break;
         }
 
@@ -350,7 +350,7 @@ public static class AgentCommands
         }
         catch (Exception ex) { return CommandResult.Error($"Agent update failed: {ex.Message}"); }
 
-        AnsiConsole.MarkupLine($"[green]✓[/] Agent \"{Markup.Escape(config.Name)}\" updated.");
+        ctx.Session.MarkupLine($"[green]✓[/] Agent \"{Markup.Escape(config.Name)}\" updated.");
         return CommandResult.Ok();
     }
 
@@ -371,12 +371,12 @@ public static class AgentCommands
         prompt.AddChoices(deletable.OrderByDescending(a => a.UpdatedAt));
 
         AgentSummaryDto toDelete;
-        try { toDelete = await prompt.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+        try { toDelete = await prompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
         catch (OperationCanceledException) { return CommandResult.Ok(); }
 
         bool confirmed;
         try { confirmed = await new ConfirmationPrompt($"Delete agent \"{Markup.Escape(toDelete.Name)}\"?")
-            { DefaultValue = false }.ShowAsync(AnsiConsole.Console, ctx.CancellationToken); }
+            { DefaultValue = false }.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
         catch (OperationCanceledException) { return CommandResult.Ok(); }
 
         if (!confirmed) return CommandResult.Ok();
@@ -387,8 +387,8 @@ public static class AgentCommands
         if (toDelete.Id == currentAgentId)
             ctx.Data["AgentId"] = "default";
 
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Rule(
+        ctx.Session.WriteLine();
+        ctx.Session.Write(new Rule(
             $"[dim]Deleted \"{Markup.Escape(toDelete.Name)}\". " +
             (toDelete.Id == currentAgentId ? "Switched to: default" : "") + "[/]")
             .LeftJustified().RuleStyle(new Style(Theme.Text.Muted)));
@@ -398,12 +398,12 @@ public static class AgentCommands
 
     // ── Shared wizard helpers ─────────────────────────────────────────────────
 
-    private static async Task ConfigureSystemInstructionsAsync(AgentConfig config, CancellationToken ct)
+    private static async Task ConfigureSystemInstructionsAsync(CommandContext ctx, AgentConfig config, CancellationToken ct)
     {
         var choice = await new SelectionPrompt<string>()
             .Title("[bold]System instructions:[/]")
             .AddChoices("Keep current", "Open in editor")
-            .ShowAsync(AnsiConsole.Console, ct);
+            .ShowAsync(ctx.Session.Console, ct);
 
         if (choice != "Open in editor") return;
 
@@ -420,11 +420,11 @@ public static class AgentCommands
             proc?.WaitForExit();
             config.SystemInstructions = await File.ReadAllTextAsync(tmpFile, ct);
         }
-        catch (Exception ex) { AnsiConsole.MarkupLine($"[dim]Could not open editor: {Markup.Escape(ex.Message)}[/]"); }
+        catch (Exception ex) { ctx.Session.MarkupLine($"[dim]Could not open editor: {Markup.Escape(ex.Message)}[/]"); }
         finally { try { File.Delete(tmpFile); } catch { } }
     }
 
-    private static async Task ConfigureBehaviourAsync(AgentConfig config, CancellationToken ct, bool onlyToolkits = false)
+    private static async Task ConfigureBehaviourAsync(CommandContext ctx, AgentConfig config, CancellationToken ct, bool onlyToolkits = false)
     {
         var currentToolkits = config.Toolkits.Select(t => t.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -438,7 +438,7 @@ public static class AgentCommands
         }
 
         List<string> selectedToolkits;
-        try { selectedToolkits = await toolkitPrompt.ShowAsync(AnsiConsole.Console, ct); }
+        try { selectedToolkits = await toolkitPrompt.ShowAsync(ctx.Session.Console, ct); }
         catch (OperationCanceledException) { return; }
 
         config.Toolkits = selectedToolkits
@@ -460,7 +460,7 @@ public static class AgentCommands
         }
 
         List<string> selectedMiddlewares;
-        try { selectedMiddlewares = await middlewarePrompt.ShowAsync(AnsiConsole.Console, ct); }
+        try { selectedMiddlewares = await middlewarePrompt.ShowAsync(ctx.Session.Console, ct); }
         catch (OperationCanceledException) { return; }
 
         config.Middlewares = selectedMiddlewares
@@ -479,7 +479,7 @@ public static class AgentCommands
                     : "Summarise (LLM-generated summary)")
                 .AddChoices(HistoryReductionStrategy.MessageCounting, HistoryReductionStrategy.Summarizing);
 
-            try { config.HistoryReduction.Strategy = await strategyPrompt.ShowAsync(AnsiConsole.Console, ct); }
+            try { config.HistoryReduction.Strategy = await strategyPrompt.ShowAsync(ctx.Session.Console, ct); }
             catch (OperationCanceledException) { return; }
         }
 
@@ -487,14 +487,14 @@ public static class AgentCommands
         {
             var retries = await new TextPrompt<int>($"Max retries on provider error (default {config.ErrorHandling?.MaxRetries ?? 3}):")
                 .DefaultValue(config.ErrorHandling?.MaxRetries ?? 3)
-                .ShowAsync(AnsiConsole.Console, ct);
+                .ShowAsync(ctx.Session.Console, ct);
             config.ErrorHandling ??= new ErrorHandlingConfig();
             config.ErrorHandling.MaxRetries = retries;
         }
         catch (OperationCanceledException) { }
     }
 
-    private static async Task OpenConfigInEditorAsync(AgentConfig config, CancellationToken ct)
+    private static async Task OpenConfigInEditorAsync(CommandContext ctx, AgentConfig config, CancellationToken ct)
     {
         var json    = JsonSerializer.Serialize(config, HpdosJsonOptions.Http);
         var tmpFile = Path.Combine(Path.GetTempPath(), $"hpdos-agent-{Guid.NewGuid():N}.json");
@@ -525,7 +525,7 @@ public static class AgentCommands
                 config.Mcp                         = parsed.Mcp;
             }
         }
-        catch (Exception ex) { AnsiConsole.MarkupLine($"[dim]Editor error: {Markup.Escape(ex.Message)}[/]"); }
+        catch (Exception ex) { ctx.Session.MarkupLine($"[dim]Editor error: {Markup.Escape(ex.Message)}[/]"); }
         finally { try { File.Delete(tmpFile); } catch { } }
     }
 

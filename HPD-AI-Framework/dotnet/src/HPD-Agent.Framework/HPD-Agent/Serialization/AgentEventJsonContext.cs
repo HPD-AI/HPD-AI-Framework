@@ -152,4 +152,4 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(bool))]
 [JsonSerializable(typeof(object))]
 
-internal partial class AgentEventJsonContext : JsonSerializerContext { }
+public partial class AgentEventJsonContext : JsonSerializerContext { }

@@ -21,6 +21,7 @@ public static class SessionBrowserCommand
     public static async Task<SessionSwitchResult?> RunAsync(
         HttpClient http,
         AgentUIRenderer renderer,
+        IConsoleSession session,
         string? pinnedSessionId = null,
         string? activeSessionId = null,
         CancellationToken ct = default)
@@ -33,7 +34,7 @@ public static class SessionBrowserCommand
         if (pinnedSessionId != null)
         {
             // Load just the pinned session.
-            await AnsiConsole.Status()
+            await session.Console.Status()
                 .Spinner(Spinner.Known.Dots)
                 .SpinnerStyle(new Style(Theme.Text.Accent))
                 .StartAsync("Loading session…", async _ =>
@@ -48,7 +49,7 @@ public static class SessionBrowserCommand
 
             if (selected == null)
             {
-                AnsiConsole.MarkupLine("[dim]Session not found.[/]");
+                session.MarkupLine("[dim]Session not found.[/]");
                 return null;
             }
         }
@@ -56,7 +57,7 @@ public static class SessionBrowserCommand
         {
             // Full session list.
             SessionDto[]? sessions = null;
-            await AnsiConsole.Status()
+            await session.Console.Status()
                 .Spinner(Spinner.Known.Dots)
                 .SpinnerStyle(new Style(Theme.Text.Accent))
                 .StartAsync("Loading sessions…", async _ =>
@@ -74,7 +75,7 @@ public static class SessionBrowserCommand
             // Session picker loop — re-enters after rename/delete without returning.
             while (true)
             {
-                var pickerResult = await RunSessionPickerAsync(ordered, branchTasks, http, activeSessionId, ct);
+                var pickerResult = await RunSessionPickerAsync(session, ordered, branchTasks, http, activeSessionId, ct);
                 if (pickerResult == null) return null;
 
                 if (pickerResult.Value.ActionResult == SessionPickerAction.New)
@@ -95,7 +96,7 @@ public static class SessionBrowserCommand
                     {
                         newTitle = await new TextPrompt<string>($"New name [{Markup.Escape(currentTitle)}]:")
                             .DefaultValue(currentTitle)
-                            .ShowAsync(AnsiConsole.Console, ct);
+                            .ShowAsync(session.Console, ct);
                     }
                     catch (OperationCanceledException) { return null; }
 
@@ -113,7 +114,7 @@ public static class SessionBrowserCommand
                         }
                         catch (Exception ex)
                         {
-                            AnsiConsole.MarkupLine($"[red]Rename failed:[/] {Markup.Escape(ex.Message)}");
+                            session.MarkupLine($"[red]Rename failed:[/] {Markup.Escape(ex.Message)}");
                         }
                     }
                     continue; // back to picker
@@ -133,7 +134,7 @@ public static class SessionBrowserCommand
                     try
                     {
                         confirmed = await new ConfirmationPrompt(warning) { DefaultValue = false }
-                            .ShowAsync(AnsiConsole.Console, ct);
+                            .ShowAsync(session.Console, ct);
                     }
                     catch (OperationCanceledException) { return null; }
 
@@ -143,7 +144,7 @@ public static class SessionBrowserCommand
                         {
                             var resp = await http.DeleteAsync($"/sessions/{s.Id}", ct);
                             resp.EnsureSuccessStatusCode();
-                            AnsiConsole.Write(new Rule("[dim]Session deleted.[/]").LeftJustified().RuleStyle(new Style(Theme.Text.Muted)));
+                            session.Write(new Rule("[dim]Session deleted.[/]").LeftJustified().RuleStyle(new Style(Theme.Text.Muted)));
 
                             // If the deleted session was the active one, signal ChatCommand to create a new one.
                             if (s.Id == activeSessionId)
@@ -154,13 +155,13 @@ public static class SessionBrowserCommand
                             branchTasks.Remove(s.Id);
                             if (ordered.Length == 0)
                             {
-                                AnsiConsole.MarkupLine("[dim]No sessions remaining.[/]");
+                                session.MarkupLine("[dim]No sessions remaining.[/]");
                                 return null;
                             }
                         }
                         catch (Exception ex)
                         {
-                            AnsiConsole.MarkupLine($"[red]Delete failed:[/] {Markup.Escape(ex.Message)}");
+                            session.MarkupLine($"[red]Delete failed:[/] {Markup.Escape(ex.Message)}");
                         }
                     }
                     continue; // back to picker
@@ -179,7 +180,7 @@ public static class SessionBrowserCommand
 
         if (branches == null || branches.Length == 0)
         {
-            await AnsiConsole.Status()
+            await session.Console.Status()
                 .Spinner(Spinner.Known.Dots)
                 .SpinnerStyle(new Style(Theme.Text.Accent))
                 .StartAsync("Loading branches…", async _ =>
@@ -195,7 +196,7 @@ public static class SessionBrowserCommand
         BranchDto? activeBranch;
         if (branches.Length > 1)
         {
-            activeBranch = await PickBranchAsync(http, selected.Id, branches, ct);
+            activeBranch = await PickBranchAsync(session, http, selected.Id, branches, ct);
             if (activeBranch == null) return null;
         }
         else
@@ -207,8 +208,8 @@ public static class SessionBrowserCommand
 
         // ── Phase 2: Session header ──────────────────────────────────────────
 
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(
+        session.WriteLine();
+        session.Write(
             new Rule($"[{Theme.Markup(Theme.Text.Accent)}]Session [bold]{selected.Id[..8]}[/]…[/]  " +
                      $"[dim]{Markup.Escape(activeBranch?.Name ?? "main")}  ·  created {UIHelpers.RelativeTime(selected.CreatedAt)}[/]")
                 .LeftJustified()
@@ -219,7 +220,7 @@ public static class SessionBrowserCommand
         if (activeBranch != null && activeBranch.MessageCount > 0)
         {
             MessageDto[]? messages = null;
-            await AnsiConsole.Status()
+            await session.Console.Status()
                 .Spinner(Spinner.Known.Dots)
                 .SpinnerStyle(new Style(Theme.Text.Accent))
                 .StartAsync("Loading history…", async _ =>
@@ -229,7 +230,7 @@ public static class SessionBrowserCommand
                     if (!resp.IsSuccessStatusCode)
                     {
                         var body = await resp.Content.ReadAsStringAsync(ct);
-                        AnsiConsole.MarkupLine(
+                        session.MarkupLine(
                             $"[dim red]History unavailable ({(int)resp.StatusCode}): {Markup.Escape(body)}[/]");
                         return;
                     }
@@ -242,11 +243,11 @@ public static class SessionBrowserCommand
                 const int tailTurns = 3;
                 var tail = messages.TakeLast(tailTurns * 2).ToArray();
 
-                AnsiConsole.Write(
+                session.Write(
                     new Rule($"[dim]Last {tail.Length} messages in [cyan]{Markup.Escape(activeBranch.Name)}[/][/]")
                         .LeftJustified()
                         .RuleStyle(new Style(Theme.Text.Muted)));
-                AnsiConsole.WriteLine();
+                session.WriteLine();
 
                 renderer.RenderHistoryTail(tail);
             }
@@ -260,6 +261,7 @@ public static class SessionBrowserCommand
     private static readonly PickerEntry _newSessionEntry = new(null, "__new__");
 
     private static async Task<(SessionDto Session, SessionPickerAction ActionResult)?> RunSessionPickerAsync(
+        IConsoleSession session,
         SessionDto[] ordered,
         Dictionary<string, Task<BranchDto[]?>> branchTasks,
         HttpClient http,
@@ -292,7 +294,7 @@ public static class SessionBrowserCommand
         if (older.Length > 0)    prompt.AddChoiceGroup(Header("Older"),     older.Select(Item));
 
         PickerEntry pickedEntry;
-        try { pickedEntry = AnsiConsole.Prompt(prompt); }
+    try { pickedEntry = session.Prompt(prompt); }
         catch (OperationCanceledException) { return null; }
 
         if (pickedEntry == _newSessionEntry)
@@ -307,7 +309,7 @@ public static class SessionBrowserCommand
             .AddChoices("Open", "Rename", "Delete", "← Back");
 
         string action;
-        try { action = await actionPrompt.ShowAsync(AnsiConsole.Console, ct); }
+        try { action = await actionPrompt.ShowAsync(session.Console, ct); }
         catch (OperationCanceledException) { return null; }
 
         return action switch
@@ -324,6 +326,7 @@ public static class SessionBrowserCommand
     // ── Branch picker ────────────────────────────────────────────────────────
 
     private static async Task<BranchDto?> PickBranchAsync(
+        IConsoleSession session,
         HttpClient http,
         string sessionId,
         BranchDto[] branches,
@@ -347,7 +350,7 @@ public static class SessionBrowserCommand
             prompt.AddChoices(new BranchPickerEntry(null)); // delete sentinel
 
             BranchPickerEntry picked;
-            try { picked = await prompt.ShowAsync(AnsiConsole.Console, ct); }
+            try { picked = await prompt.ShowAsync(session.Console, ct); }
             catch (OperationCanceledException) { return null; }
 
             if (!picked.IsDelete)
@@ -364,13 +367,13 @@ public static class SessionBrowserCommand
             var deletable = branches.Where(b => !b.IsOriginal).OrderByDescending(b => b.LastActivity).ToArray();
             if (deletable.Length == 0)
             {
-                AnsiConsole.MarkupLine("[dim]No deletable branches (cannot delete the original branch).[/]");
+                session.MarkupLine("[dim]No deletable branches (cannot delete the original branch).[/]");
                 continue;
             }
             deletePrompt.AddChoices(deletable);
 
             BranchDto toDelete;
-            try { toDelete = await deletePrompt.ShowAsync(AnsiConsole.Console, ct); }
+            try { toDelete = await deletePrompt.ShowAsync(session.Console, ct); }
             catch (OperationCanceledException) { continue; }
 
             var childCount = toDelete.TotalForks;
@@ -382,7 +385,7 @@ public static class SessionBrowserCommand
             try
             {
                 confirmed = await new ConfirmationPrompt(confirmMsg) { DefaultValue = false }
-                    .ShowAsync(AnsiConsole.Console, ct);
+                    .ShowAsync(session.Console, ct);
             }
             catch (OperationCanceledException) { continue; }
 
@@ -395,7 +398,7 @@ public static class SessionBrowserCommand
                     : $"/sessions/{sessionId}/branches/{toDelete.Id}";
                 var resp = await http.DeleteAsync(url, ct);
                 resp.EnsureSuccessStatusCode();
-                AnsiConsole.Write(new Rule($"[dim]Branch \"{Markup.Escape(toDelete.Name)}\" deleted.[/]")
+                session.Write(new Rule($"[dim]Branch \"{Markup.Escape(toDelete.Name)}\" deleted.[/]")
                     .LeftJustified().RuleStyle(new Style(Theme.Text.Muted)));
                 branches = branches.Where(b => b.Id != toDelete.Id).ToArray();
                 mostRecentId = branches.Length > 0
@@ -404,7 +407,7 @@ public static class SessionBrowserCommand
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[red]Delete failed:[/] {Markup.Escape(ex.Message)}");
+                session.MarkupLine($"[red]Delete failed:[/] {Markup.Escape(ex.Message)}");
             }
         }
     }

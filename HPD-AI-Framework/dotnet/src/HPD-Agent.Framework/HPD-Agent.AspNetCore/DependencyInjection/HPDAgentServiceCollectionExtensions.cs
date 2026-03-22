@@ -69,8 +69,11 @@ internal class HPDAgentApiJsonOptionsSetup : IConfigureOptions<JsonOptions>
         // Web API-specific DTOs (from HPD-Agent.Hosting)
         options.SerializerOptions.TypeInfoResolverChain.Insert(1,
             HPDAgentApiJsonSerializerContext.Default);
-        // Core types including AgentConfig (from HPD-Agent core)
+        // Agent event types (PermissionResponseEvent, etc.)
         options.SerializerOptions.TypeInfoResolverChain.Insert(2,
+            HPD.Agent.Serialization.AgentEventJsonContext.Default);
+        // Core types including AgentConfig (from HPD-Agent core)
+        options.SerializerOptions.TypeInfoResolverChain.Insert(3,
             HPDJsonContext.Default);
     }
 }
