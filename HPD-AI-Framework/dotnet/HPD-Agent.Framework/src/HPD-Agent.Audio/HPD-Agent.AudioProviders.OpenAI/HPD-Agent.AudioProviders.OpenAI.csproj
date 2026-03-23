@@ -21,7 +21,7 @@
 
   <ItemGroup>
     <!-- Core Audio abstractions -->
-    <ProjectReference Include="..\HPD-Agent.Audio\HPD-Agent.Audio.csproj" />
+    <ProjectReference Include="../HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
   </ItemGroup>
 
   <ItemGroup>

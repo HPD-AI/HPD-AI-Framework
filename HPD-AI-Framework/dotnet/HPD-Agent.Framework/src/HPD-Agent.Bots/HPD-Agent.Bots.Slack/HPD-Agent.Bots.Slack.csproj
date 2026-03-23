@@ -36,10 +36,10 @@
   <!-- Pack source generator as analyzer in NuGet package -->
   <Target Name="IncludeBotAnalyzers" BeforeTargets="_GetPackageFiles">
     <ItemGroup>
-      <None Include="..\HPD-Agent.Bots.SourceGenerator\bin\$(Configuration)\netstandard2.0\HPD-Agent.Bots.SourceGenerator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+      <None Include="../HPD-Agent.Bots.SourceGenerator/bin/$(Configuration)/netstandard2.0/HPD-Agent.Bots.SourceGenerator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
       <!-- Include dependencies of the source generator -->
-      <None Include="..\HPD-Agent.Bots.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('..\HPD-Agent.Bots.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.dll')" />
-      <None Include="..\HPD-Agent.Bots.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('..\HPD-Agent.Bots.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.CSharp.dll')" />
+      <None Include="../HPD-Agent.Bots.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Agent.Bots.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll')" />
+      <None Include="../HPD-Agent.Bots.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Agent.Bots.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll')" />
     </ItemGroup>
   </Target>
 

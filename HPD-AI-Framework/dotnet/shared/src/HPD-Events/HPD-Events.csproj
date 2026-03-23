@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
-    <RootNamespace>HPDEvents</RootNamespace>
-    <AssemblyName>HPDEvents</AssemblyName>
+    <RootNamespace>HPD.Events</RootNamespace>
+    <AssemblyName>HPD.Events</AssemblyName>
     <IsPackable>true</IsPackable>
 
     <!-- Native AOT Configuration -->

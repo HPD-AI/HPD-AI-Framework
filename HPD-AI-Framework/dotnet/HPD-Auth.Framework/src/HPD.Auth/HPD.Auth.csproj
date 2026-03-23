@@ -11,10 +11,10 @@
     <ProjectReference Include="../HPD.Auth.Core/HPD.Auth.Core.csproj" />
     <ProjectReference Include="../HPD.Auth.Infrastructure/HPD.Auth.Infrastructure.csproj" />
     <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
-    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.*" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.3" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.3" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.*" />
-    <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.*" />
-    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.*" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.5" />
   </ItemGroup>
 </Project>

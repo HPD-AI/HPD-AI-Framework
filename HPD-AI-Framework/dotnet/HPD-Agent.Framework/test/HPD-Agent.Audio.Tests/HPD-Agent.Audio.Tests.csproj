@@ -11,7 +11,7 @@
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="8.0.0" />
     <PackageReference Include="FluentAssertions" Version="8.8.0" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
@@ -23,17 +23,17 @@
 
   <ItemGroup>
     <!-- Core Audio project -->
-    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Audio\HPD-Agent.Audio\HPD-Agent.Audio.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
 
     <!-- Audio providers for integration testing -->
-    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Audio\HPD-Agent.AudioProviders.OpenAI\HPD-Agent.AudioProviders.OpenAI.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Audio\HPD-Agent.AudioProviders.ElevenLabs\HPD-Agent.AudioProviders.ElevenLabs.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Audio/HPD-Agent.AudioProviders.OpenAI/HPD-Agent.AudioProviders.OpenAI.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Audio/HPD-Agent.AudioProviders.ElevenLabs/HPD-Agent.AudioProviders.ElevenLabs.csproj" />
 
     <!-- Main HPD-Agent project for integration -->
-    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent\HPD-Agent.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
 
     <!-- Silero VAD provider -->
-    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Audio\HPD-Agent.AudioProviders.Silero\HPD-Agent.AudioProviders.Silero.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Audio/HPD-Agent.AudioProviders.Silero/HPD-Agent.AudioProviders.Silero.csproj" />
   </ItemGroup>
 
 </Project>

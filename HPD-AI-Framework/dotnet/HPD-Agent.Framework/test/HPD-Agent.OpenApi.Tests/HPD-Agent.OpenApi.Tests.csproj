@@ -22,34 +22,34 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\shared\HPD.OpenApi.Core\HPD.OpenApi.Core.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.OpenApi\HPD-Agent.OpenApi.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent\HPD-Agent.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD.OpenApi.Core/HPD.OpenApi.Core.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="TestSpecs\petstore.json">
+    <None Update="TestSpecs/petstore.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="TestSpecs\weather.json">
+    <None Update="TestSpecs/weather.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="TestSpecs\petstore-relative-server.json">
+    <None Update="TestSpecs/petstore-relative-server.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="TestSpecs\multi-server.json">
+    <None Update="TestSpecs/multi-server.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="TestSpecs\array-params.json">
+    <None Update="TestSpecs/array-params.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="TestSpecs\server-variables.json">
+    <None Update="TestSpecs/server-variables.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="TestSpecs\ref-params.json">
+    <None Update="TestSpecs/ref-params.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="TestSpecs\allof-body.json">
+    <None Update="TestSpecs/allof-body.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

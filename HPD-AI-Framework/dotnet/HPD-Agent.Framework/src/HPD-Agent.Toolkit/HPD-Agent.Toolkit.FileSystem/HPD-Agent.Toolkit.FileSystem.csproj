@@ -19,11 +19,11 @@
   <ItemGroup>
     <!-- Core dependencies (match HPD-Agent versions) -->
     <PackageReference Include="CliWrap" Version="3.10.0" />
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.3.0" />
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.3.0" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.4.1" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
 
     <!-- File operations -->
-    <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.5" />
     <PackageReference Include="DiffPlex" Version="1.9.0" />
     <PackageReference Include="MAB.DotIgnore" Version="3.0.2" />
     <PackageReference Include="Ude.NetStandard" Version="1.2.0" />
@@ -34,8 +34,8 @@
 
   <ItemGroup>
     <!-- Reference to core HPD-Agent project -->
-    <ProjectReference Include="..\..\HPD-Agent\HPD-Agent.csproj" />
-    <ProjectReference Include="..\..\HPD-Agent.SourceGenerator\HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

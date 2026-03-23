@@ -18,17 +18,17 @@
 
   <ItemGroup>
     <!-- Core AI evaluation packages from Microsoft -->
-    <PackageReference Include="Microsoft.Extensions.AI.Evaluation" Version="10.3.0" />
-    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Quality" Version="10.3.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Evaluation" Version="10.4.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Quality" Version="10.4.0" />
     <PackageReference Include="Microsoft.Extensions.AI.Evaluation.NLP" Version="10.3.0-preview.1.26109.11" />
-    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Reporting" Version="10.3.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Reporting" Version="10.4.0" />
 
     <!-- SQLite for SqliteScoreStore -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.3" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\HPD-Agent\HPD-Agent.csproj" />
+    <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
   </ItemGroup>
 
   <ItemGroup>

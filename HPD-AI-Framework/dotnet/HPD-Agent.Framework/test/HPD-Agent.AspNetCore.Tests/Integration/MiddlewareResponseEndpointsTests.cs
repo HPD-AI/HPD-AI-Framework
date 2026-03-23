@@ -102,7 +102,6 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
         var sessionId = await CreateTestSession();
         var evt = new ClientToolInvokeResponseEvent(
             RequestId: "tool-req-123",
-            SourceName: "Test",
             Content: new[] { new TextContent("Tool execution succeeded") },
             Success: true);
 
@@ -127,7 +126,6 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
         };
         var evt = new ClientToolInvokeResponseEvent(
             RequestId: "tool-req-456",
-            SourceName: "Test",
             Content: contents,
             Success: true);
 
@@ -147,7 +145,6 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
         var sessionId = await CreateTestSession();
         var evt = new ClientToolInvokeResponseEvent(
             RequestId: "tool-req-789",
-            SourceName: "Test",
             Content: new[] { new TextContent("") },
             Success: false,
             ErrorMessage: "Tool execution failed: invalid parameters");

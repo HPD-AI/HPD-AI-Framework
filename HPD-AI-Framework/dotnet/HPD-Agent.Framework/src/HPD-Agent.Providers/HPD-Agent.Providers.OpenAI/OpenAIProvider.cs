@@ -88,7 +88,7 @@ internal class OpenAIProvider : IProviderFeatures
 
         // Create the OpenAI client and get the ResponsesClient
         var openAIClient = new global::OpenAI.OpenAIClient(new System.ClientModel.ApiKeyCredential(apiKey), options);
-        var responsesClient = openAIClient.GetResponsesClient(modelName);
+        var responsesClient = openAIClient.GetResponsesClient();
         client = responsesClient.AsIChatClient();
 
         // Apply client factory middleware if provided
@@ -299,7 +299,7 @@ internal class AzureOpenAIProvider : IProviderFeatures
             new AzureKeyCredential(apiKey)
         );
 
-        var responsesClient = azureClient.GetResponsesClient(modelName);
+        var responsesClient = azureClient.GetResponsesClient();
         IChatClient client = responsesClient.AsIChatClient();
 
         // Apply client factory middleware if provided

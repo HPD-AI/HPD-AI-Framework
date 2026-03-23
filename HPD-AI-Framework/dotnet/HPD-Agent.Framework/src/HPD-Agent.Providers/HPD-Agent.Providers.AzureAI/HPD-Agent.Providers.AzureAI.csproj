@@ -26,6 +26,6 @@
     <!-- Azure OpenAI for chat completions -->
     <PackageReference Include="Azure.AI.OpenAI" Version="2.8.0-beta.1" />
     <!-- Microsoft.Extensions.AI for IChatClient -->
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.3.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.4.1" />
   </ItemGroup>
 </Project>

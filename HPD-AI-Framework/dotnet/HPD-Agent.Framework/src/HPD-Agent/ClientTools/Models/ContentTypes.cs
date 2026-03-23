@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HPD.Agent.ClientTools;
 
@@ -9,6 +10,7 @@ namespace HPD.Agent.ClientTools;
 /// Base interface for tool result content.
 /// Supports text, binary (images, files), and structured data.
 /// </summary>
+[JsonConverter(typeof(ToolResultContentJsonConverter))]
 public interface IToolResultContent
 {
     /// <summary>
@@ -68,4 +70,52 @@ public record JsonContent(JsonElement Value) : IToolResultContent
 {
     /// <inheritdoc />
     public string Type => "json";
+}
+
+/// <summary>
+/// JSON converter for tool result content payloads.
+/// </summary>
+public sealed class ToolResultContentJsonConverter : JsonConverter<IToolResultContent>
+{
+    /// <inheritdoc />
+    public override IToolResultContent? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        using var document = JsonDocument.ParseValue(ref reader);
+        var root = document.RootElement;
+
+        if (!root.TryGetProperty("type", out var typeElement))
+        {
+            throw new JsonException("Tool result content must include a 'type' discriminator.");
+        }
+
+        var type = typeElement.GetString();
+        var json = root.GetRawText();
+
+        return type switch
+        {
+            "text" => JsonSerializer.Deserialize<TextContent>(json, options),
+            "binary" => JsonSerializer.Deserialize<BinaryContent>(json, options),
+            "json" => JsonSerializer.Deserialize<JsonContent>(json, options),
+            _ => throw new JsonException($"Unsupported tool result content type '{type}'.")
+        };
+    }
+
+    /// <inheritdoc />
+    public override void Write(Utf8JsonWriter writer, IToolResultContent value, JsonSerializerOptions options)
+    {
+        switch (value)
+        {
+            case TextContent text:
+                JsonSerializer.Serialize(writer, text, options);
+                return;
+            case BinaryContent binary:
+                JsonSerializer.Serialize(writer, binary, options);
+                return;
+            case JsonContent json:
+                JsonSerializer.Serialize(writer, json, options);
+                return;
+            default:
+                throw new JsonException($"Unsupported tool result content runtime type '{value.GetType().FullName}'.");
+        }
+    }
 }

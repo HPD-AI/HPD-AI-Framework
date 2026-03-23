@@ -14,13 +14,13 @@
 
   <ItemGroup>
     <!-- Core dependencies -->
-    <ProjectReference Include="..\HPD-Agent\HPD-Agent.csproj" />
-    <ProjectReference Include="..\..\..\src\shared\HPD-Graph\HPD-Graph.Core\HPD-Graph.Core.csproj" />
-    <ProjectReference Include="..\..\..\src\shared\HPD-Events\HPD-Events.csproj" />
+    <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-Graph/HPD-Graph.Core/HPD-Graph.Core.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.5" />
   </ItemGroup>
 
   <!-- Expose internals to test project -->

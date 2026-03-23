@@ -10,6 +10,6 @@
     <ProjectReference Include="../HPD.Auth.Infrastructure/HPD.Auth.Infrastructure.csproj" />
     <ProjectReference Include="../HPD.Auth/HPD.Auth.csproj" />
     <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
-    <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.3.9" />
   </ItemGroup>
 </Project>

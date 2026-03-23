@@ -1,6 +1,0 @@
-<Project>
-  <!-- Suppress XML doc warnings for test projects — they don't need public API documentation -->
-  <PropertyGroup>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
-  </PropertyGroup>
-</Project>

@@ -1,6 +1,8 @@
 // Copyright 2026 Einstein Essibu
 // SPDX-License-Identifier: AGPL-3.0-only
 
+using System.Text.Json.Serialization;
+
 namespace HPD.Agent.ClientTools;
 
 /// <summary>
@@ -30,6 +32,7 @@ public record ClientToolInvokeRequestEvent(
 /// <param name="Success">Whether the tool execution succeeded</param>
 /// <param name="ErrorMessage">Error message if Success is false</param>
 /// <param name="Augmentation">Optional state changes to apply before next iteration</param>
+[method: JsonConstructor]
 public record ClientToolInvokeResponseEvent(
     string RequestId,
     IReadOnlyList<IToolResultContent> Content,

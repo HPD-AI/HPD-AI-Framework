@@ -18,11 +18,11 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
-    <ProjectReference Include="../../../src/shared/HPD-Events/HPD-Events.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
 
     <!-- HTTP/SOCKS proxy for network filtering -->
     <PackageReference Include="Titanium.Web.Proxy" Version="3.2.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
   </ItemGroup>
 
   <ItemGroup>

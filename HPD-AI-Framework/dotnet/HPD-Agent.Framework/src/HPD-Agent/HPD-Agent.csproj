@@ -25,32 +25,32 @@
   <ItemGroup>
     <!-- Core AI Framework (Protocol-Agnostic) -->
     <!-- Microsoft.Agents.AI.Abstractions removed - core is now protocol-agnostic -->
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.3.0" />
-        <PackageReference Include="Microsoft.Extensions.AI" Version="10.3.0" />
-    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.3" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.3" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.3" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.3" />
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.3" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
+        <PackageReference Include="Microsoft.Extensions.AI" Version="10.4.1" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.5" />
     <!-- Used by ContentStoreToolkit for glob pattern matching on content names -->
-    <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.5" />
 
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\HPD-Agent.TextExtraction\HPD-Agent.TextExtraction.csproj" />
-    <ProjectReference Include="..\..\..\src\shared\HPD-Events\HPD-Events.csproj" />
+    <ProjectReference Include="../HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
   </ItemGroup>
 
   <!-- Pack source generator as analyzer in NuGet package -->
   <Target Name="IncludeAnalyzers" BeforeTargets="_GetPackageFiles">
     <ItemGroup>
-      <None Include="..\HPD-Agent.SourceGenerator\bin\$(Configuration)\netstandard2.0\HPD-Agent.SourceGenerator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+      <None Include="../HPD-Agent.SourceGenerator/bin/$(Configuration)/netstandard2.0/HPD-Agent.SourceGenerator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
       <!-- Include dependencies of the source generator -->
-      <None Include="..\HPD-Agent.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('..\HPD-Agent.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.dll')" />
-      <None Include="..\HPD-Agent.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('..\HPD-Agent.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.CSharp.dll')" />
+      <None Include="../HPD-Agent.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Agent.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll')" />
+      <None Include="../HPD-Agent.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Agent.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll')" />
     </ItemGroup>
   </Target>
 

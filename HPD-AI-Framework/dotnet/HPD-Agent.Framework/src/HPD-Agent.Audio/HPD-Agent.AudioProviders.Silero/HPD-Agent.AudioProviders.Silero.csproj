@@ -20,7 +20,7 @@
 
   <ItemGroup>
     <!-- Core Audio abstractions -->
-    <ProjectReference Include="..\HPD-Agent.Audio\HPD-Agent.Audio.csproj" />
+    <ProjectReference Include="../HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -30,7 +30,7 @@
 
   <!-- Embed the Silero VAD ONNX model as a resource -->
   <ItemGroup>
-    <EmbeddedResource Include="Resources\silero_vad.onnx" />
+    <EmbeddedResource Include="Resources/silero_vad.onnx" />
   </ItemGroup>
 
   <!-- Expose internals to test project -->
