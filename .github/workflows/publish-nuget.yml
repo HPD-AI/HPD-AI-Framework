@@ -112,10 +112,10 @@ jobs:
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj"
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj"
             # Events & Graph
-            "HPD-AI-Framework/dotnet/src/HPD.Events/HPD.Events.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD.Graph/HPD.Graph.Abstractions/HPD.Graph.Abstractions.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD.Graph/HPD.Graph.Core/HPD.Graph.Core.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD.Graph/HPD.Graph.SourceGenerator/HPD.Graph.SourceGenerator.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-Events/HPD-Events.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-Graph/HPD-Graph.Abstractions/HPD-Graph.Abstractions.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-Graph/HPD-Graph.Core/HPD-Graph.Core.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-Graph/HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj"
             # VCS (excluded — TFM mismatch with SDK 10, needs investigation)
             # "HPD-AI-Framework/dotnet/src/HPD.VCS/HPD.VCS.csproj"
           )
