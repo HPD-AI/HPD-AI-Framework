@@ -12,7 +12,7 @@
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
 
     <!-- Package metadata -->
-    <PackageId>HPD-Agent.Events</PackageId>
+    <PackageId>HPD-Events</PackageId>
     <Description>Universal event coordination system for the HPD ecosystem. Provides priority-based event streaming, hierarchical event bubbling, and cross-domain event composition with zero dependencies.</Description>
     <PackageTags>events;event-coordination;streaming;priority-channels;event-bubbling</PackageTags>
   </PropertyGroup>

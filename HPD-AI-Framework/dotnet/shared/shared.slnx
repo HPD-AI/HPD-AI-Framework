@@ -63,6 +63,5 @@
   </Folder>
   <Folder Name="/Tests/Integration/">
     <Project Path="test/HPD.Agent.SerializationTests/HPD.Agent.SerializationTests.csproj" />
-    <Project Path="test/HPD.MultiAgent.Tests/HPD.MultiAgent.Tests.csproj" />
   </Folder>
 </Solution>

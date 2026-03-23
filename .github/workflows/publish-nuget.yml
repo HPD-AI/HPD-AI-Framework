@@ -91,7 +91,7 @@ jobs:
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj"
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj"
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD.OpenApi.Core/HPD.OpenApi.Core.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD.OpenApi.Core/HPD.OpenApi.Core.csproj"
             # Toolkits
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Toolkit/HPD-Agent.Toolkit.FileSystem/HPD-Agent.Toolkit.FileSystem.csproj"
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Toolkit/HPD-Agent.Toolkit.WebSearch/HPD-Agent.Toolkit.WebSearch.csproj"

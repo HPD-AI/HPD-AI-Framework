@@ -15,7 +15,7 @@
     <IsPackable>true</IsPackable>
 
     <!-- Package metadata -->
-    <PackageId>HPD-Agent.Graph.Abstractions</PackageId>
+    <PackageId>HPD-Graph.Abstractions</PackageId>
     <Description>Core abstractions for HPD-Graph - a universal DAG execution engine. Domain-agnostic interfaces and types for building workflow orchestration systems.</Description>
     <PackageTags>graph;dag;workflow;orchestration;execution-engine;abstractions</PackageTags>
   </PropertyGroup>

@@ -2,12 +2,12 @@
 
   <PropertyGroup>
     <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
-    <RootNamespace>HPDAgent.Graph.Core</RootNamespace>
-    <AssemblyName>HPDAgent.Graph.Core</AssemblyName>
+    <RootNamespace>HPDGraph.Core</RootNamespace>
+    <AssemblyName>HPDGraph.Core</AssemblyName>
     <IsPackable>true</IsPackable>
 
     <!-- Package metadata -->
-    <PackageId>HPD-Agent.Graph.Core</PackageId>
+    <PackageId>HPD-Graph.Core</PackageId>
     <Description>Core implementation of HPD-Graph - a universal DAG execution engine with support for parallel execution, checkpointing, and content-addressable caching.</Description>
     <PackageTags>graph;dag;workflow;orchestration;execution-engine;orchestrator</PackageTags>
   </PropertyGroup>
