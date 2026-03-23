@@ -1,0 +1,11 @@
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <!-- HPD-Auth.Framework tests target net10.0 only -->
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <!-- Disable AOT for test projects — AOT breaks transitive project reference visibility -->
+    <IsAotCompatible>false</IsAotCompatible>
+    <PublishAot>false</PublishAot>
+  </PropertyGroup>
+</Project>

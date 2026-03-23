@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);SYSLIB5001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD.ML.BinaryClassification.Tests" />
+    <InternalsVisibleTo Include="HPD.ML.Regression" />
+    <InternalsVisibleTo Include="HPD.ML.Regression.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD.ML.Core/HPD.ML.Core.csproj" />
+    <ProjectReference Include="../../shared/Helium/src/Helium.Algorithms/Helium.Algorithms.csproj" />
+  </ItemGroup>
+
+</Project>
