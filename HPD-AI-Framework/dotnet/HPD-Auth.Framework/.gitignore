@@ -1,0 +1,41 @@
+# .NET build output
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.DotSettings.user
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+
+# Test results
+TestResults/
+coverage/
+*.trx
+*.coveragexml
+
+# Documentation build
+documentation/node_modules/
+documentation/.vitepress/dist/
+documentation/.vitepress/cache/
+
+# Environment / secrets
+.env
+.env.local
+appsettings.Development.json
+appsettings.Local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rider / JetBrains
+.idea/
+*.sln.iml
+
+# VS Code
+.vscode/

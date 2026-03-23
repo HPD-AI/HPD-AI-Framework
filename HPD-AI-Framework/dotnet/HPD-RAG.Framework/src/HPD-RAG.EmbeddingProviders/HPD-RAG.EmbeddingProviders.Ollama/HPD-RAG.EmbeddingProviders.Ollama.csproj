@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <IsPackable>true</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <PackageId>HPD-RAG.EmbeddingProviders.Ollama</PackageId>
+    <Description>Ollama embedding provider for HPD-RAG.</Description>
+    <PackageTags>rag;embedding;ollama;local</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\HPD-RAG.Core\HPD-RAG.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="OllamaSharp" Version="5.*" />
+  </ItemGroup>
+</Project>

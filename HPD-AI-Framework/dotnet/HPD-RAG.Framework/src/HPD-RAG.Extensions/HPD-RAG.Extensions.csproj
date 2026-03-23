@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <PackageId>HPD-RAG.Extensions</PackageId>
+    <Description>DI wiring extensions for HPD-RAG (AddHPDMrag()).</Description>
+    <PackageTags>rag;di;extensions;hpd</PackageTags>
+    <RootNamespace>HPD-RAG.Extensions</RootNamespace>
+    <AssemblyName>HPD-RAG.Extensions</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-RAG.Core\HPD-RAG.Core.csproj" />
+    <ProjectReference Include="..\HPD-RAG.Ingestion\HPD-RAG.Ingestion.csproj" />
+    <ProjectReference Include="..\HPD-RAG.Retrieval\HPD-RAG.Retrieval.csproj" />
+    <ProjectReference Include="..\HPD-RAG.Evaluation\HPD-RAG.Evaluation.csproj" />
+    <ProjectReference Include="..\HPD-RAG.Pipeline\HPD-RAG.Pipeline.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.3.0" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.3.0" />
+    <PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Abstractions" Version="10.*" />
+  </ItemGroup>
+</Project>

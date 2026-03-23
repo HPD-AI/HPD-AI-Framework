@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\HPD-Events\HPD-Events.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.IO.Hashing" Version="10.0.3" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <RootNamespace>HPDAgent.Graph.Abstractions</RootNamespace>
+    <AssemblyName>HPDAgent.Graph.Abstractions</AssemblyName>
+    <IsPackable>true</IsPackable>
+
+    <!-- Package metadata -->
+    <PackageId>HPD-Agent.Graph.Abstractions</PackageId>
+    <Description>Core abstractions for HPD-Graph - a universal DAG execution engine. Domain-agnostic interfaces and types for building workflow orchestration systems.</Description>
+    <PackageTags>graph;dag;workflow;orchestration;execution-engine;abstractions</PackageTags>
+  </PropertyGroup>
+
+</Project>

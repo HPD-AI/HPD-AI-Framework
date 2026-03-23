@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <IsPackable>true</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <PackageId>HPD-RAG.GraphStoreProviders.Neo4j</PackageId>
+    <Description>Neo4j graph store provider for HPD-RAG.</Description>
+    <PackageTags>rag;graph;neo4j;cypher</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\HPD-RAG.Core\HPD-RAG.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Neo4j.Driver" Version="6.0.0" />
+  </ItemGroup>
+</Project>

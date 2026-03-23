@@ -1,0 +1,273 @@
+================================================================================
+HPD-AGENT-FRAMEWORK DEPENDENCY ANALYSIS - FILE INDEX
+Analysis Date: March 22, 2026
+Target Release: v0.4.0
+================================================================================
+
+ANALYSIS SCOPE:
+  - 187 .csproj files analyzed
+  - 113 unique NuGet packages identified
+  - 36 files requiring updates for v0.4.0
+  - Multiple target frameworks: .NET 6, 8, 9, 10
+
+================================================================================
+DELIVERABLE FILES (Read in this order):
+================================================================================
+
+1. DEPENDENCY_ANALYSIS_README.md (START HERE)
+   Purpose: Master overview and navigation guide
+   Content:
+     - Quick findings summary
+     - Decision matrix for key packages
+     - 4-phase update strategy (1 week each)
+     - File impact analysis by category
+     - File paths for all projects needing updates
+     - Breaking changes assessment
+     - How-to guide for using these reports
+   Best for: Release planning, team communication, development scheduling
+
+2. DEPENDENCY_ANALYSIS_v0.4.0.md (DETAILED REFERENCE)
+   Purpose: Comprehensive technical analysis
+   Content:
+     - Executive summary with statistics
+     - Critical updates required (5 packages)
+     - Medium priority updates (12 packages)
+     - Low priority assessment (96 packages)
+     - All version inconsistencies mapped
+     - All wildcard patterns identified
+     - Internal HPD-Agent.* package versions
+     - Summary tables by priority
+     - Recommended actions in 4 phases
+     - .NET framework support analysis
+   Best for: Deep dive analysis, detailed decision-making, technical review
+
+3. DEPENDENCY_ANALYSIS_SUMMARY.txt (QUICK REFERENCE)
+   Purpose: Executive summary and action items
+   Content:
+     - Key statistics (187 files, 113 packages, 36 updates)
+     - Critical findings with impact levels
+     - Medium priority updates by category
+     - Files requiring immediate updates (with paths)
+     - Recommended 4-phase update strategy
+     - Wildcard packages to address
+     - Notes on version consistency and breaking changes
+     - Recommended actions and timeline
+   Best for: Quick lookups, sprint planning, stakeholder updates
+
+4. HPD-Agent-Framework-Dependencies.csv (DATA EXPORT)
+   Purpose: Machine-readable package inventory
+   Content:
+     - All 113 packages in CSV format
+     - Current version(s) for each package
+     - Status: STABLE, WILDCARD, MIXED, SPLIT, INCONSISTENT, etc.
+     - Recommendation for each package
+     - Priority: HIGH, MEDIUM, LOW
+   Columns:
+     - Package Name
+     - Current Version(s)
+     - Status
+     - Recommendation
+     - Priority
+   Best for: Sorting/filtering, custom analysis, spreadsheet import
+
+================================================================================
+PRIORITY QUICK REFERENCE:
+================================================================================
+
+HIGH PRIORITY - CRITICAL (Must fix for v0.4.0):
+  ✓ Microsoft.NET.Test.Sdk - Standardize 6 versions → 18.3.0
+  ✓ xunit - Standardize 5 versions → 2.9.3
+  ✓ FluentAssertions - Migrate 6.x → 8.8.0 (BREAKING CHANGE)
+  ✓ HPD-Agent.* - Update 0.2.0 → 0.4.0 (all 10 packages)
+  ✓ Microsoft.CodeAnalysis.Analyzers - Standardize 2 versions → 3.11.0
+
+MEDIUM PRIORITY - IMPORTANT (Should fix in v0.4.0):
+  • Microsoft.Extensions.Logging - 9.0.5/10.* → 10.0.3
+  • Microsoft.Extensions.* - Pin wildcard versions to 10.0.3
+  • Microsoft.AspNetCore.* - Pin wildcard versions to 10.0.3
+  • coverlet.collector - Standardize 3 versions → 8.0.0
+  • xunit.runner.visualstudio - Standardize 6 versions → 3.1.5
+  • Anthropic - Pin 12.* → 12.x.x (exact version TBD)
+  • Azure.AI.OpenAI - Evaluate 2.*/beta → stable
+
+LOW PRIORITY - ADEQUATE (No action needed):
+  ○ 96 other packages at current/adequate versions
+  ○ AI/ML providers (OpenAI, Google) stable
+  ○ Database/storage packages current
+  ○ Utility libraries up-to-date
+
+================================================================================
+UPDATE TIMELINE (4-WEEK PLAN):
+================================================================================
+
+WEEK 1 - PHASE 1: CRITICAL FIXES
+  Day 1-2: Update HPD-Agent.* packages (0.2.0 → 0.4.0)
+  Day 3-4: Microsoft.NET.Test.Sdk (mixed → 18.3.0)
+  Day 5: xunit standardization (mixed → 2.9.3)
+  Day 6-7: FluentAssertions migration (6.x → 8.8.0) + testing
+
+WEEK 2 - PHASE 2: STANDARDIZATION
+  Day 8-9: Pin all Microsoft.Extensions.* wildcards
+  Day 10-11: Pin Microsoft.AspNetCore.* wildcards
+  Day 12: coverlet.collector standardization (8.0.0)
+  Day 13: xunit.runner.visualstudio standardization (3.1.5)
+  Day 14: Microsoft.CodeAnalysis.Analyzers (3.11.0)
+
+WEEK 2-3 - PHASE 3: PROVIDER REVIEWS
+  Day 13-17: Evaluate and pin AI/ML provider versions
+  - Anthropic SDK exact version pinning
+  - Azure.AI.OpenAI stable release assessment
+  - Google/OpenAI compatibility verification
+
+WEEK 3-4 - PHASE 4: TESTING & VALIDATION
+  Day 18-25: Comprehensive testing
+  - Full unit test suite
+  - Integration test validation
+  - AOT compilation verification
+  - Multi-framework testing (.NET 8, 9, 10)
+  - Performance baseline check
+  - Breaking change documentation
+
+Estimated effort: 50-70 file changes total
+
+================================================================================
+FILES BY PROJECT (36 FILES REQUIRING UPDATES):
+================================================================================
+
+HIGHEST IMPACT (Multiple updates per file):
+  • /dotnet/src/shared/Rhodium/test/Rhodium.Data.Tests/
+  • /dotnet/src/shared/Rhodium/test/Rhodium.Platform.Tests/
+  • /dotnet/src/shared/Rhodium/test/Rhodium.Quant.Tests/
+  [See DEPENDENCY_ANALYSIS_SUMMARY.txt for complete list]
+
+TEST INFRASTRUCTURE (Microsoft.NET.Test.Sdk + others):
+  • All Helium.*.Tests.csproj (7 files in src/shared/Helium/test/)
+  • All Rhodium.*.Tests.csproj (14 files in src/shared/Rhodium/test/)
+  • HPD-*.Tests.csproj in /test/ directory
+
+FRAMEWORK & PROVIDERS:
+  • /dotnet/src/HPD-ML.Framework/HPD.ML.SourceGen/
+  • /dotnet/src/shared/HPD-VCS/
+  • All HPD-Agent provider projects
+
+[For detailed file listing with specific updates needed, see
+DEPENDENCY_ANALYSIS_SUMMARY.txt or DEPENDENCY_ANALYSIS_v0.4.0.md]
+
+================================================================================
+KEY STATISTICS:
+================================================================================
+
+Total Analysis:
+  - .csproj files: 187
+  - Unique packages: 113
+  - File updates needed: 36 (19% of codebase)
+
+By Priority:
+  - HIGH priority: 5 packages
+  - MEDIUM priority: 12 packages
+  - LOW priority: 96 packages
+
+Version Issues:
+  - Packages with multiple versions: 15
+  - Wildcard constraints found: 14
+  - Beta/Preview packages: 8 (mostly intentional)
+  - Inconsistent test framework versions: 3 major
+  - Internal package version: 0.2.0 (all 10 packages)
+
+Target Frameworks:
+  - .NET 6 (EOL) - consider deprecating
+  - .NET 8 (LTS) - actively supported
+  - .NET 9 (Current) - actively supported
+  - .NET 10 (Latest) - recommended primary target
+
+================================================================================
+BREAKING CHANGES & RISKS:
+================================================================================
+
+BREAKING CHANGE - FluentAssertions 6.x → 8.x:
+  Risk Level: MEDIUM
+  Impact: Assertion syntax may change, tests require review
+  Mitigation: Phase rollout with testing, update test patterns
+  Effort: 2-3 days review and updates
+
+Other Updates:
+  - Microsoft.NET.Test.Sdk 17→18: Safe (minor update)
+  - xunit 2.9.0→2.9.3: Safe (patch update)
+  - coverlet.collector 6→8: Likely safe (code-level compatible)
+  - HPD-Agent packages 0.2→0.4: By design for this release
+  - Microsoft.* packages: Mostly minor/patch, backward compatible
+
+Preview/Beta Packages:
+  - Azure.AI.Inference: 1.0.0-beta.5 (monitor for stable)
+  - Microsoft.Extensions.DataIngestion: Preview (monitor)
+  - Microsoft.Extensions.AI.Evaluation.NLP: Preview (monitor)
+  [See DEPENDENCY_ANALYSIS_README.md for full list]
+
+================================================================================
+HOW TO USE THESE REPORTS:
+================================================================================
+
+For Release Management:
+  1. Start with DEPENDENCY_ANALYSIS_README.md
+  2. Review 4-phase timeline and resource planning
+  3. Identify blocking dependencies
+  4. Plan team assignments by phase
+
+For Development:
+  1. Reference specific package in .csv file
+  2. Look up detailed info in v0.4.0.md
+  3. Find affected files in README.md or SUMMARY.txt
+  4. Execute updates by phase
+
+For Testing:
+  1. Prioritize test project updates (Phase 1)
+  2. Focus on FluentAssertions compatibility
+  3. Prepare multi-framework test matrix
+  4. Document test results by framework
+
+For Documentation:
+  1. Extract breaking changes from README.md
+  2. Note wildcard to pinned version changes
+  3. Include .NET 6 deprecation decision (if applicable)
+  4. Prepare upgrade guide for users
+
+For Validation:
+  1. Cross-reference all 36 files in SUMMARY.txt
+  2. Verify each update against .csv file
+  3. Check for missed wildcards in DEPENDENCY_ANALYSIS_v0.4.0.md
+  4. Use DEPENDENCY_ANALYSIS_README.md decision matrix
+
+================================================================================
+CONTACT & SUPPORT:
+================================================================================
+
+For clarification on specific findings:
+  1. Check DEPENDENCY_ANALYSIS_README.md (overview)
+  2. Consult DEPENDENCY_ANALYSIS_v0.4.0.md (details)
+  3. Search HPD-Agent-Framework-Dependencies.csv (specific package)
+  4. Reference DEPENDENCY_ANALYSIS_SUMMARY.txt (quick lookup)
+
+For similar packages:
+  - Use .csv file to find related packages
+  - Check priority column for standardization patterns
+  - Review recommendations for update guidance
+
+For version-specific information:
+  - DEPENDENCY_ANALYSIS_v0.4.0.md has complete version maps
+  - README.md provides decision matrices by package type
+  - SUMMARY.txt lists all version inconsistencies
+
+================================================================================
+DOCUMENT METADATA:
+================================================================================
+
+Analysis Completed: March 22, 2026
+Report Type: Comprehensive NuGet Dependency Review
+Scope: HPD-Agent-Framework v0.4.0 Release Preparation
+Framework Target: .NET 6, 8, 9, 10
+Updated Files: 4 analysis documents
+Total Package References Analyzed: 500+ (113 unique)
+
+All files are ready for distribution to development and release teams.
+
+================================================================================

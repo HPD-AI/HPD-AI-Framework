@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Core/">
+    <Project Path="src/HPD-RAG.Core/HPD-RAG.Core.csproj" />
+    <Project Path="src/HPD-RAG.Pipeline/HPD-RAG.Pipeline.csproj" />
+    <Project Path="src/HPD-RAG.Retrieval/HPD-RAG.Retrieval.csproj" />
+    <Project Path="src/HPD-RAG.Extensions/HPD-RAG.Extensions.csproj" />
+  </Folder>
+  <Folder Name="/EmbeddingProviders/">
+    <Project Path="src/HPD-RAG.EmbeddingProviders/HPD-RAG.EmbeddingProviders.OpenAI/HPD-RAG.EmbeddingProviders.OpenAI.csproj" />
+    <Project Path="src/HPD-RAG.EmbeddingProviders/HPD-RAG.EmbeddingProviders.AzureAI/HPD-RAG.EmbeddingProviders.AzureAI.csproj" />
+    <Project Path="src/HPD-RAG.EmbeddingProviders/HPD-RAG.EmbeddingProviders.HuggingFace/HPD-RAG.EmbeddingProviders.HuggingFace.csproj" />
+    <Project Path="src/HPD-RAG.EmbeddingProviders/HPD-RAG.EmbeddingProviders.Ollama/HPD-RAG.EmbeddingProviders.Ollama.csproj" />
+    <Project Path="src/HPD-RAG.EmbeddingProviders/HPD-RAG.EmbeddingProviders.Bedrock/HPD-RAG.EmbeddingProviders.Bedrock.csproj" />
+    <Project Path="src/HPD-RAG.EmbeddingProviders/HPD-RAG.EmbeddingProviders.OnnxRuntime/HPD-RAG.EmbeddingProviders.OnnxRuntime.csproj" />
+  </Folder>
+  <Folder Name="/VectorStores/">
+    <Project Path="src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.InMemory/HPD-RAG.VectorStores.InMemory.csproj" />
+    <Project Path="src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Sqlite/HPD-RAG.VectorStores.Sqlite.csproj" />
+    <Project Path="src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Postgres/HPD-RAG.VectorStores.Postgres.csproj" />
+    <Project Path="src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Redis/HPD-RAG.VectorStores.Redis.csproj" />
+    <Project Path="src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Mongo/HPD-RAG.VectorStores.Mongo.csproj" />
+    <Project Path="src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.CosmosMongo/HPD-RAG.VectorStores.CosmosMongo.csproj" />
+    <Project Path="src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.CosmosNoSql/HPD-RAG.VectorStores.CosmosNoSql.csproj" />
+    <Project Path="src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.AzureAISearch/HPD-RAG.VectorStores.AzureAISearch.csproj" />
+    <Project Path="src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.SqlServer/HPD-RAG.VectorStores.SqlServer.csproj" />
+    <Project Path="src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Pinecone/HPD-RAG.VectorStores.Pinecone.csproj" />
+    <Project Path="src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Weaviate/HPD-RAG.VectorStores.Weaviate.csproj" />
+    <Project Path="src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Qdrant/HPD-RAG.VectorStores.Qdrant.csproj" />
+    <Project Path="src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Milvus/HPD-RAG.VectorStores.Milvus.csproj" />
+  </Folder>
+  <Folder Name="/RerankerProviders/">
+    <Project Path="src/HPD-RAG.RerankerProviders/HPD-RAG.RerankerProviders.HuggingFace/HPD-RAG.RerankerProviders.HuggingFace.csproj" />
+    <Project Path="src/HPD-RAG.RerankerProviders/HPD-RAG.RerankerProviders.Cohere/HPD-RAG.RerankerProviders.Cohere.csproj" />
+    <Project Path="src/HPD-RAG.RerankerProviders/HPD-RAG.RerankerProviders.Jina/HPD-RAG.RerankerProviders.Jina.csproj" />
+    <Project Path="src/HPD-RAG.RerankerProviders/HPD-RAG.RerankerProviders.OnnxRuntime/HPD-RAG.RerankerProviders.OnnxRuntime.csproj" />
+  </Folder>
+  <Folder Name="/GraphStores/">
+    <Project Path="src/HPD-RAG.GraphStoreProviders/HPD-RAG.GraphStoreProviders.Neo4j/HPD-RAG.GraphStoreProviders.Neo4j.csproj" />
+    <Project Path="src/HPD-RAG.GraphStoreProviders/HPD-RAG.GraphStoreProviders.Memgraph/HPD-RAG.GraphStoreProviders.Memgraph.csproj" />
+  </Folder>
+  <Folder Name="/Specialized/">
+    <Project Path="src/HPD-RAG.Ingestion/HPD-RAG.Ingestion.csproj" />
+    <Project Path="src/HPD-RAG.Evaluation/HPD-RAG.Evaluation.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="test/HPD-RAG.Core.Tests/HPD-RAG.Core.Tests.csproj" />
+    <Project Path="test/HPD-RAG.Pipeline.Tests/HPD-RAG.Pipeline.Tests.csproj" />
+    <Project Path="test/HPD-RAG.Handlers.Tests/HPD-RAG.Handlers.Tests.csproj" />
+    <Project Path="test/HPD-RAG.Providers.Tests/HPD-RAG.Providers.Tests.csproj" />
+    <Project Path="test/HPD-RAG.VectorStores.Tests/HPD-RAG.VectorStores.Tests.csproj" />
+    <Project Path="test/HPD-RAG.IntegrationTests/HPD-RAG.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

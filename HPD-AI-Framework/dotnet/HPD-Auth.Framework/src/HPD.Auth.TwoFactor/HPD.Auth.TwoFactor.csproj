@@ -8,7 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="../HPD.Auth.Core/HPD.Auth.Core.csproj" />
     <ProjectReference Include="../HPD.Auth/HPD.Auth.csproj" />
-    <ProjectReference Include="../../../shared/HPD-Events/HPD-Events.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.*" />
   </ItemGroup>
 </Project>

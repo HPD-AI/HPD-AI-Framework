@@ -1,0 +1,44 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Exclude aot-tests directory from compilation -->
+    <Compile Remove="aot-tests\**\*.cs" />
+    <EmbeddedResource Remove="aot-tests\**\*" />
+    <None Remove="aot-tests\**\*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Core packages -->
+    <PackageReference Include="HPD-Agent.Framework" Version="0.2.0" />
+    <PackageReference Include="HPD-Agent.FFI" Version="0.2.0" />
+    <PackageReference Include="HPD-Agent.MCP" Version="0.2.0" />
+    <PackageReference Include="HPD-Agent.Memory" Version="0.2.0" />
+    <PackageReference Include="HPD-Agent.TextExtraction" Version="0.2.0" />
+
+    <!-- Toolkit packages -->
+    <PackageReference Include="HPD-Agent.Toolkit.FileSystem" Version="0.2.0" />
+    <PackageReference Include="HPD-Agent.Toolkit.WebSearch" Version="0.2.0" />
+
+    <!-- Provider packages (Anthropic and OpenAI as examples) -->
+    <PackageReference Include="HPD-Agent.Providers.Anthropic" Version="0.2.0" />
+    <PackageReference Include="HPD-Agent.Providers.OpenAI" Version="0.2.0" />
+
+    <!-- Events package -->
+    <PackageReference Include="HPD-Agent.Events" Version="0.2.0" />
+  </ItemGroup>
+
+</Project>

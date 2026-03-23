@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/HPD-Core/">
+    <Project Path="src/HPD-Graph/HPD-Graph.Abstractions/HPD-Graph.Abstractions.csproj" />
+    <Project Path="src/HPD-Graph/HPD-Graph.Core/HPD-Graph.Core.csproj" />
+    <Project Path="src/HPD-Graph/HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj" />
+    <Project Path="src/HPD-Events/HPD-Events.csproj" />
+    <Project Path="src/HPD-VCS/HPD-VCS.csproj" />
+    <Project Path="src/HPD.OpenApi.Core/HPD.OpenApi.Core.csproj" />
+  </Folder>
+  <Folder Name="/Helium/">
+    <Project Path="src/Helium/src/Helium.Primitives/Helium.Primitives.csproj" />
+    <Project Path="src/Helium/src/Helium.Native/Helium.Native.csproj" />
+    <Project Path="src/Helium/src/Helium.Algebra/Helium.Algebra.csproj" />
+    <Project Path="src/Helium/src/Helium.Algorithms/Helium.Algorithms.csproj" />
+  </Folder>
+  <Folder Name="/Rhodium/">
+    <Project Path="src/Rhodium/src/Rhodium.Primitives/Rhodium.Primitives.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.Connectivity/Rhodium.Connectivity.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.Platform/Rhodium.Platform.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.Data/Rhodium.Data.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.Kernel/Rhodium.Kernel.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.Indicators/Rhodium.Indicators.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.Tensor/Rhodium.Tensor.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.Control/Rhodium.Control.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.Quant/Rhodium.Quant.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.Options/Rhodium.Options.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.Risk/Rhodium.Risk.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.Analytics/Rhodium.Analytics.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.Events/Rhodium.Events.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.HFT/Rhodium.HFT.csproj" />
+  </Folder>
+  <Folder Name="/Tests/HeliumTests/">
+    <Project Path="src/Helium/test/Helium.Primitives.Tests/Helium.Primitives.Tests.csproj" />
+    <Project Path="src/Helium/test/Helium.Algebra.Tests/Helium.Algebra.Tests.csproj" />
+    <Project Path="src/Helium/test/Helium.Algorithms.Tests/Helium.Algorithms.Tests.csproj" />
+  </Folder>
+  <Folder Name="/Tests/RhodiumTests/">
+    <Project Path="src/Rhodium/test/Rhodium.Primitives.Tests/Rhodium.Primitives.Tests.csproj" />
+    <Project Path="src/Rhodium/test/Rhodium.Connectivity.Tests/Rhodium.Connectivity.Tests.csproj" />
+    <Project Path="src/Rhodium/test/Rhodium.Platform.Tests/Rhodium.Platform.Tests.csproj" />
+    <Project Path="src/Rhodium/test/Rhodium.Data.Tests/Rhodium.Data.Tests.csproj" />
+    <Project Path="src/Rhodium/test/Rhodium.Kernel.Tests/Rhodium.Kernel.Tests.csproj" />
+    <Project Path="src/Rhodium/test/Rhodium.Indicators.Tests/Rhodium.Indicators.Tests.csproj" />
+    <Project Path="src/Rhodium/test/Rhodium.Tensor.Tests/Rhodium.Tensor.Tests.csproj" />
+    <Project Path="src/Rhodium/test/Rhodium.Control.Tests/Rhodium.Control.Tests.csproj" />
+    <Project Path="src/Rhodium/test/Rhodium.Quant.Tests/Rhodium.Quant.Tests.csproj" />
+    <Project Path="src/Rhodium/test/Rhodium.Options.Tests/Rhodium.Options.Tests.csproj" />
+    <Project Path="src/Rhodium/test/Rhodium.Risk.Tests/Rhodium.Risk.Tests.csproj" />
+    <Project Path="src/Rhodium/test/Rhodium.Analytics.Tests/Rhodium.Analytics.Tests.csproj" />
+    <Project Path="src/Rhodium/test/Rhodium.Events.Tests/Rhodium.Events.Tests.csproj" />
+    <Project Path="src/Rhodium/test/Rhodium.HFT.Tests/Rhodium.HFT.Tests.csproj" />
+  </Folder>
+  <Folder Name="/Tests/HPDCoreTests/">
+    <Project Path="test/HPD-Graph.Tests/HPD-Graph.Tests.csproj" />
+    <Project Path="test/HPD-Events.Tests/HPD-Events.Tests.csproj" />
+    <Project Path="test/HPD-VCS.Tests/HPD-VCS.Tests.csproj" />
+  </Folder>
+  <Folder Name="/Tests/Integration/">
+    <Project Path="test/HPD.Agent.SerializationTests/HPD.Agent.SerializationTests.csproj" />
+    <Project Path="test/HPD.MultiAgent.Tests/HPD.MultiAgent.Tests.csproj" />
+  </Folder>
+</Solution>

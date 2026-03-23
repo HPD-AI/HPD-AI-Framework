@@ -1,0 +1,35 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Multi Server API", "version": "1.0.0" },
+  "servers": [
+    { "url": "https://global.example.com" },
+    { "url": "https://secondary.example.com" }
+  ],
+  "paths": {
+    "/items": {
+      "get": {
+        "operationId": "listItems",
+        "summary": "List items (inherits global server)",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/special": {
+      "servers": [
+        { "url": "https://path-level.example.com" }
+      ],
+      "get": {
+        "operationId": "getSpecial",
+        "summary": "Get special (path-level server)",
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "operationId": "createSpecialOverride",
+        "summary": "Create special (operation-level server overrides path-level)",
+        "servers": [
+          { "url": "https://operation-level.example.com" }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  }
+}

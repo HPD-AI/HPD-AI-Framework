@@ -1,0 +1,247 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="100%" height="100%" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, 'Apple Color Emoji', Arial, sans-serif, 'Segoe UI Emoji', 'Segoe UI Symbol'; background: #0d1117;">
+  <defs>
+    <marker id="arrow-minimal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4b5563" />
+    </marker>
+    <style>
+      .animate-node {
+        opacity: 0;
+        animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+      @keyframes slideUp {
+        0% { opacity: 0; transform: translateY(15px); }
+        100% { opacity: 1; transform: translateY(0); }
+      }
+      .delay-1 { animation-delay: 0.1s; }
+      .delay-2 { animation-delay: 0.25s; }
+      .delay-3 { animation-delay: 0.4s; }
+      .delay-4 { animation-delay: 0.55s; }
+      .delay-5 { animation-delay: 0.7s; }
+      .delay-6 { animation-delay: 0.85s; }
+      .flow-line {
+        stroke-dasharray: 6 6;
+        opacity: 0;
+        animation: flow 1.5s linear infinite, fadeIn 0.5s ease-out 0.8s forwards;
+      }
+      .flow-state {
+        stroke-dasharray: 3 5;
+        opacity: 0;
+        animation: flow-state 2s linear infinite, fadeIn 0.5s ease-out 0.8s forwards;
+      }
+      @keyframes flow {
+        to { stroke-dashoffset: -12; }
+      }
+      @keyframes flow-state {
+        to { stroke-dashoffset: -16; }
+      }
+      @keyframes fadeIn {
+        to { opacity: 1; }
+      }
+      .interactive-rect {
+        transition: stroke 0.2s ease, fill 0.2s ease;
+      }
+      .node-group:hover .interactive-rect {
+        stroke: #9ca3af;
+        fill: #374151;
+        cursor: default;
+      }
+      .core-pulse {
+        animation: pulseCore 4s ease-in-out infinite;
+      }
+      @keyframes pulseCore {
+        0% { stroke: #4b5563; }
+        50% { stroke: #9ca3af; }
+        100% { stroke: #4b5563; }
+      }
+    </style>
+  </defs>
+
+  <!-- Title -->
+  <g class="animate-node" style="animation-delay: 0s;">
+    <text x="600" y="55" fill="#f3f4f6" font-size="24" font-weight="600" letter-spacing="-0.5" text-anchor="middle">HPD-ML Architecture</text>
+    <text x="600" y="82" fill="#9ca3af" font-size="14" text-anchor="middle">Data Ingestion, Training, and Prediction Flow</text>
+  </g>
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- CONNECTIONS                                     -->
+  <!-- ═══════════════════════════════════════════════ -->
+
+  <!-- Data Sources → IDataHandle -->
+  <path d="M 340 220 L 430 220" class="flow-line" fill="none" stroke="#4b5563" stroke-width="2" marker-end="url(#arrow-minimal)" />
+
+  <!-- IDataHandle → Transforms -->
+  <path d="M 760 210 L 850 210" class="flow-line" fill="none" stroke="#4b5563" stroke-width="2" marker-end="url(#arrow-minimal)" />
+
+  <!-- Transforms → IDataHandle (loop back) -->
+  <path d="M 860 265 L 770 265" class="flow-line" fill="none" stroke="#4b5563" stroke-width="2" marker-end="url(#arrow-minimal)" />
+
+  <!-- IDataHandle down to Learners -->
+  <path d="M 600 310 L 600 380" class="flow-line" fill="none" stroke="#4b5563" stroke-width="2" marker-end="url(#arrow-minimal)" />
+
+  <!-- Learners → IModel -->
+  <path d="M 600 620 L 600 680" class="flow-line" fill="none" stroke="#4b5563" stroke-width="2" marker-end="url(#arrow-minimal)" />
+
+  <!-- IModel → Evaluation -->
+  <path d="M 740 740 L 870 740" class="flow-line" fill="none" stroke="#4b5563" stroke-width="2" marker-end="url(#arrow-minimal)" />
+
+  <!-- IModel → Serialization -->
+  <path d="M 470 740 L 340 740" class="flow-line" fill="none" stroke="#4b5563" stroke-width="2" marker-end="url(#arrow-minimal)" />
+
+  <!-- Learners → Progress -->
+  <path d="M 780 440 L 880 440" class="flow-state" fill="none" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow-minimal)" />
+
+  <!-- Helium → Learners -->
+  <path d="M 320 510 L 420 510" class="flow-state" fill="none" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow-minimal)" />
+
+  <!-- LightGBM → Learners -->
+  <path d="M 320 580 L 420 560" class="flow-state" fill="none" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow-minimal)" />
+
+  <!-- Line Labels -->
+  <g class="animate-node delay-6">
+    <text x="385" y="208" fill="#9ca3af" font-size="11" text-anchor="middle">load</text>
+    <text x="805" y="198" fill="#9ca3af" font-size="11" text-anchor="middle">apply</text>
+    <text x="805" y="258" fill="#9ca3af" font-size="11" text-anchor="middle">IDataHandle</text>
+    <text x="615" y="365" fill="#9ca3af" font-size="11" text-anchor="start">train</text>
+    <text x="615" y="670" fill="#9ca3af" font-size="11" text-anchor="start">IModel</text>
+    <text x="810" y="728" fill="#9ca3af" font-size="11" text-anchor="middle">score + measure</text>
+    <text x="405" y="728" fill="#9ca3af" font-size="11" text-anchor="middle">save / load</text>
+    <text x="830" y="428" fill="#6b7280" font-size="11" text-anchor="middle">progress</text>
+    <text x="365" y="498" fill="#6b7280" font-size="11" text-anchor="middle">gradients</text>
+    <text x="365" y="570" fill="#6b7280" font-size="11" text-anchor="middle">native</text>
+  </g>
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- NODES                                           -->
+  <!-- ═══════════════════════════════════════════════ -->
+
+  <!-- Data Sources (left of center) -->
+  <g transform="translate(170, 160)">
+    <g class="animate-node delay-1 node-group">
+      <rect class="interactive-rect" width="160" height="120" rx="6" fill="#1c2128" stroke="#2d333b" stroke-width="1.5" />
+      <text x="80" y="30" fill="#f3f4f6" font-size="14" font-weight="600" text-anchor="middle">Data Sources</text>
+      <rect x="14" y="45" width="132" height="25" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="80" y="62" fill="#9ca3af" font-size="12" text-anchor="middle">CSV · TSV · Parquet</text>
+      <rect x="14" y="78" width="132" height="25" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="80" y="95" fill="#9ca3af" font-size="12" text-anchor="middle">In-Memory Arrays</text>
+    </g>
+  </g>
+
+  <!-- IDataHandle (CENTER — the core node) -->
+  <g transform="translate(440, 140)">
+    <g class="animate-node delay-2 node-group">
+      <rect class="interactive-rect core-pulse" width="320" height="170" rx="6" fill="#1c2128" stroke="#4b5563" stroke-width="2" />
+      <text x="160" y="35" fill="#f3f4f6" font-size="18" font-weight="600" text-anchor="middle">IDataHandle</text>
+      <text x="160" y="58" fill="#9ca3af" font-size="13" text-anchor="middle">Universal data abstraction</text>
+
+      <rect x="20" y="75" width="280" height="28" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="160" y="94" fill="#f3f4f6" font-size="13" text-anchor="middle">ISchema · IRow · IRowCursor</text>
+
+      <rect x="20" y="112" width="280" height="28" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="160" y="131" fill="#f3f4f6" font-size="13" text-anchor="middle">ReadOnlyTensorSpan&lt;T&gt;</text>
+    </g>
+  </g>
+
+  <!-- ITransform (right of center) -->
+  <g transform="translate(860, 155)">
+    <g class="animate-node delay-2 node-group">
+      <rect class="interactive-rect" width="200" height="130" rx="6" fill="#1c2128" stroke="#2d333b" stroke-width="1.5" />
+      <text x="100" y="30" fill="#f3f4f6" font-size="14" font-weight="600" text-anchor="middle">ITransform</text>
+      <text x="100" y="48" fill="#9ca3af" font-size="12" text-anchor="middle">Feature Engineering</text>
+      <rect x="14" y="62" width="172" height="25" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="100" y="79" fill="#9ca3af" font-size="12" text-anchor="middle">Normalize · Encode · Text</text>
+      <rect x="14" y="95" width="172" height="25" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="100" y="112" fill="#9ca3af" font-size="11" text-anchor="middle">Compose · Column Ops</text>
+    </g>
+  </g>
+
+  <!-- ILearner (centered below IDataHandle) -->
+  <g transform="translate(430, 390)">
+    <g class="animate-node delay-3 node-group">
+      <rect class="interactive-rect" width="340" height="220" rx="6" fill="#1c2128" stroke="#2d333b" stroke-width="1.5" />
+      <text x="170" y="32" fill="#f3f4f6" font-size="16" font-weight="600" text-anchor="middle">ILearner</text>
+      <text x="170" y="52" fill="#9ca3af" font-size="12" text-anchor="middle">Fit(LearnerInput) → IModel</text>
+
+      <rect x="18" y="70" width="145" height="55" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="90" y="92" fill="#f3f4f6" font-size="13" text-anchor="middle">Classification</text>
+      <text x="90" y="110" fill="#9ca3af" font-size="11" text-anchor="middle">Binary · Multiclass</text>
+
+      <rect x="177" y="70" width="145" height="55" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="250" y="92" fill="#f3f4f6" font-size="13" text-anchor="middle">Regression</text>
+      <text x="250" y="110" fill="#9ca3af" font-size="11" text-anchor="middle">Linear · Poisson · GBM</text>
+
+      <rect x="18" y="138" width="145" height="55" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="90" y="160" fill="#f3f4f6" font-size="13" text-anchor="middle">Clustering</text>
+      <text x="90" y="178" fill="#9ca3af" font-size="11" text-anchor="middle">K-Means · MiniBatch</text>
+
+      <rect x="177" y="138" width="145" height="55" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="250" y="160" fill="#f3f4f6" font-size="13" text-anchor="middle">Time Series</text>
+      <text x="250" y="178" fill="#9ca3af" font-size="11" text-anchor="middle">SSA · Forecast · Anomaly</text>
+    </g>
+  </g>
+
+  <!-- Helium Autodiff (left of learner) -->
+  <g transform="translate(185, 470)">
+    <g class="animate-node delay-4 node-group">
+      <rect class="interactive-rect" width="130" height="80" rx="6" fill="#1c2128" stroke="#2d333b" stroke-width="1.5" />
+      <text x="65" y="28" fill="#f3f4f6" font-size="13" font-weight="600" text-anchor="middle">Helium</text>
+      <rect x="12" y="40" width="106" height="25" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="65" y="57" fill="#9ca3af" font-size="11" text-anchor="middle">Autodiff · L-BFGS</text>
+    </g>
+  </g>
+
+  <!-- LightGBM Native (left of learner, below Helium) -->
+  <g transform="translate(185, 565)">
+    <g class="animate-node delay-4 node-group">
+      <rect class="interactive-rect" width="130" height="60" rx="6" fill="#1c2128" stroke="#2d333b" stroke-width="1.5" />
+      <text x="65" y="25" fill="#f3f4f6" font-size="13" font-weight="600" text-anchor="middle">LightGBM</text>
+      <text x="65" y="44" fill="#9ca3af" font-size="11" text-anchor="middle">Native C++ · P/Invoke</text>
+    </g>
+  </g>
+
+  <!-- Progress (right of learner) -->
+  <g transform="translate(890, 400)">
+    <g class="animate-node delay-4 node-group">
+      <rect class="interactive-rect" width="170" height="80" rx="6" fill="#1c2128" stroke="#2d333b" stroke-width="1.5" />
+      <text x="85" y="28" fill="#f3f4f6" font-size="14" font-weight="600" text-anchor="middle">Progress</text>
+      <rect x="14" y="42" width="142" height="25" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="85" y="59" fill="#9ca3af" font-size="11" text-anchor="middle">ProgressSubject</text>
+    </g>
+  </g>
+
+  <!-- IModel (centered below learner) -->
+  <g transform="translate(480, 690)">
+    <g class="animate-node delay-4 node-group">
+      <rect class="interactive-rect" width="250" height="80" rx="6" fill="#1c2128" stroke="#2d333b" stroke-width="1.5" />
+      <text x="125" y="28" fill="#f3f4f6" font-size="16" font-weight="600" text-anchor="middle">IModel</text>
+      <rect x="14" y="42" width="105" height="25" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="66" y="59" fill="#f3f4f6" font-size="12" text-anchor="middle">ITransform</text>
+      <rect x="131" y="42" width="105" height="25" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="184" y="59" fill="#f3f4f6" font-size="12" text-anchor="middle">ILearnedParameters</text>
+    </g>
+  </g>
+
+  <!-- Serialization (bottom-left) -->
+  <g transform="translate(200, 700)">
+    <g class="animate-node delay-5 node-group">
+      <rect class="interactive-rect" width="130" height="80" rx="6" fill="#1c2128" stroke="#2d333b" stroke-width="1.5" />
+      <!-- DB icon -->
+      <path d="M 35 18 C 35 13, 95 13, 95 18 C 95 23, 35 23, 35 18 Z" fill="#2d333b" stroke="#4b5563" stroke-width="1.2" />
+      <path d="M 35 18 L 35 33 C 35 38, 95 38, 95 33 L 95 18" fill="none" stroke="#4b5563" stroke-width="1.2" />
+      <text x="65" y="55" fill="#f3f4f6" font-size="13" font-weight="600" text-anchor="middle">ISerializer</text>
+      <text x="65" y="72" fill="#9ca3af" font-size="11" text-anchor="middle">ZIP Archive</text>
+    </g>
+  </g>
+
+  <!-- Evaluation (bottom-right) -->
+  <g transform="translate(880, 685)">
+    <g class="animate-node delay-5 node-group">
+      <rect class="interactive-rect" width="220" height="110" rx="6" fill="#1c2128" stroke="#2d333b" stroke-width="1.5" />
+      <text x="110" y="30" fill="#f3f4f6" font-size="14" font-weight="600" text-anchor="middle">Evaluation</text>
+      <rect x="14" y="42" width="192" height="25" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="110" y="59" fill="#9ca3af" font-size="12" text-anchor="middle">Metrics · Cross-Validation</text>
+      <rect x="14" y="74" width="192" height="25" rx="4" fill="#2d333b" stroke="#3d444d" stroke-width="1" />
+      <text x="110" y="91" fill="#9ca3af" font-size="12" text-anchor="middle">Confusion Matrix · PFI</text>
+    </g>
+  </g>
+
+</svg>

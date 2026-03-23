@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HPD.Agent.ClientTools;
 
@@ -9,6 +10,9 @@ namespace HPD.Agent.ClientTools;
 /// Base interface for tool result content.
 /// Supports text, binary (images, files), and structured data.
 /// </summary>
+[JsonDerivedType(typeof(TextContent), typeDiscriminator: "text")]
+[JsonDerivedType(typeof(BinaryContent), typeDiscriminator: "binary")]
+[JsonDerivedType(typeof(JsonContent), typeDiscriminator: "json")]
 public interface IToolResultContent
 {
     /// <summary>

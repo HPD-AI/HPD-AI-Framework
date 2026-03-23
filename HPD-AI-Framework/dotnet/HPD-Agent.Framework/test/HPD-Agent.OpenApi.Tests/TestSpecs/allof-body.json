@@ -1,0 +1,107 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "AllOf Body API", "version": "1.0.0" },
+  "servers": [{ "url": "https://api.example.com" }],
+  "components": {
+    "schemas": {
+      "BaseEntity": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string", "description": "Unique identifier" },
+          "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+        }
+      },
+      "PetBase": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "description": "Pet name" },
+          "status": { "type": "string", "description": "Pet status" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/pets": {
+      "post": {
+        "operationId": "createPet",
+        "summary": "Create a pet using allOf composition",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  { "$ref": "#/components/schemas/PetBase" },
+                  {
+                    "type": "object",
+                    "required": ["age"],
+                    "properties": {
+                      "age": { "type": "integer", "description": "Age in years" },
+                      "breed": { "type": "string", "description": "Breed of the pet" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Created" } }
+      }
+    },
+    "/orders": {
+      "post": {
+        "operationId": "createOrder",
+        "summary": "Create an order using anyOf composition",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "productId": { "type": "string", "description": "Product ID" },
+                      "quantity": { "type": "integer", "description": "Order quantity" }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "sku": { "type": "string", "description": "Product SKU" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Created" } }
+      }
+    },
+    "/direct": {
+      "post": {
+        "operationId": "directProps",
+        "summary": "Operation with direct properties (baseline)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title"],
+                "properties": {
+                  "title": { "type": "string", "description": "Title" },
+                  "count": { "type": "integer", "description": "Count" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  }
+}

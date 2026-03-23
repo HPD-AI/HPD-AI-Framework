@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Core/">
+    <Project Path="src/HPD.ML.Core/HPD.ML.Core.csproj" />
+    <Project Path="src/HPD.ML.Abstractions/HPD.ML.Abstractions.csproj" />
+  </Folder>
+  <Folder Name="/Transforms/">
+    <Project Path="src/HPD.ML.Transforms/HPD.ML.Transforms.csproj" />
+    <Project Path="src/HPD.ML.Serialization.Zip/HPD.ML.Serialization.Zip.csproj" />
+  </Folder>
+  <Folder Name="/Algorithms/">
+    <Project Path="src/HPD.ML.Clustering/HPD.ML.Clustering.csproj" />
+    <Project Path="src/HPD.ML.BinaryClassification/HPD.ML.BinaryClassification.csproj" />
+    <Project Path="src/HPD.ML.Regression/HPD.ML.Regression.csproj" />
+    <Project Path="src/HPD.ML.TimeSeries/HPD.ML.TimeSeries.csproj" />
+  </Folder>
+  <Folder Name="/Providers/">
+    <Project Path="src/HPD.ML.LightGBM/HPD.ML.LightGBM.csproj" />
+    <Project Path="src/HPD.ML.DataSources/HPD.ML.DataSources.csproj" />
+  </Folder>
+  <Folder Name="/Specialized/">
+    <Project Path="src/HPD.ML.Evaluation/HPD.ML.Evaluation.csproj" />
+    <Project Path="src/HPD.ML.SourceGen/HPD.ML.SourceGen.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="test/HPD.ML.Core.Tests/HPD.ML.Core.Tests.csproj" />
+    <Project Path="test/HPD.ML.Clustering.Tests/HPD.ML.Clustering.Tests.csproj" />
+    <Project Path="test/HPD.ML.BinaryClassification.Tests/HPD.ML.BinaryClassification.Tests.csproj" />
+    <Project Path="test/HPD.ML.Regression.Tests/HPD.ML.Regression.Tests.csproj" />
+    <Project Path="test/HPD.ML.TimeSeries.Tests/HPD.ML.TimeSeries.Tests.csproj" />
+    <Project Path="test/HPD.ML.Transforms.Tests/HPD.ML.Transforms.Tests.csproj" />
+    <Project Path="test/HPD.ML.DataSources.Tests/HPD.ML.DataSources.Tests.csproj" />
+    <Project Path="test/HPD.ML.Serialization.Zip.Tests/HPD.ML.Serialization.Zip.Tests.csproj" />
+    <Project Path="test/HPD.ML.Evaluation.Tests/HPD.ML.Evaluation.Tests.csproj" />
+    <Project Path="test/HPD.ML.LightGBM.Tests/HPD.ML.LightGBM.Tests.csproj" />
+  </Folder>
+</Solution>

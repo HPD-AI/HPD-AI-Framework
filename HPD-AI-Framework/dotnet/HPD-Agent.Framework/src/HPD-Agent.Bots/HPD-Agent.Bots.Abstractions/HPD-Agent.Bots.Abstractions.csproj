@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <RootNamespace>HPD.Agent.Bots</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishAot>true</PublishAot>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+  </PropertyGroup>
+
+  <!-- NuGet Package Metadata -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.Bots.Abstractions</PackageId>
+    <Description>Contracts, attributes, and source generator for building HPD platform adapters (Slack, Teams, Discord, etc.).</Description>
+    <PackageTags>ai;agent;adapters;slack;teams;discord;webhooks</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
+    <!-- Source generator is a build-time analyzer, not a runtime reference -->
+    <ProjectReference Include="../HPD-Agent.Bots.SourceGenerator/HPD-Agent.Bots.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.3" />
+  </ItemGroup>
+
+  <!-- Pack source generator as analyzer in NuGet package -->
+  <Target Name="IncludeBotAnalyzers" BeforeTargets="_GetPackageFiles">
+    <ItemGroup>
+      <None Include="..\HPD-Agent.Bots.SourceGenerator\bin\$(Configuration)\netstandard2.0\HPD-Agent.Bots.SourceGenerator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+      <!-- Include dependencies of the source generator -->
+      <None Include="..\HPD-Agent.Bots.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('..\HPD-Agent.Bots.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.dll')" />
+      <None Include="..\HPD-Agent.Bots.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('..\HPD-Agent.Bots.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.CSharp.dll')" />
+    </ItemGroup>
+  </Target>
+
+</Project>

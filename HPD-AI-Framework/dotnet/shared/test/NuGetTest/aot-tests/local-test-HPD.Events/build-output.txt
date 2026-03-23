@@ -1,0 +1,6 @@
+  Determining projects to restore...
+  Restored /Users/einsteinessibu/Documents/HPD-Agent/test/NuGetTest/aot-tests/local-test-HPD.Events/Test.csproj (in 345 ms).
+  1 of 2 projects are up-to-date for restore.
+  HPD.Events -> /Users/einsteinessibu/Documents/HPD-Agent/HPD.Events/bin/Release/net8.0/HPD.Events.dll
+  Test -> /Users/einsteinessibu/Documents/HPD-Agent/test/NuGetTest/aot-tests/local-test-HPD.Events/bin/Release/net8.0/osx-arm64/Test.dll
+  Test -> /Users/einsteinessibu/Documents/HPD-Agent/test/NuGetTest/aot-tests/local-test-HPD.Events/bin/Release/net8.0/osx-arm64/publish/

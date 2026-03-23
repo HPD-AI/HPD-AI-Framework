@@ -536,6 +536,7 @@ public class ClientToolMiddleware : IAgentMiddleware
         // Emit invocation request
         context.Emit(new ClientToolInvokeRequestEvent(
             RequestId: requestId,
+            SourceName: "ClientToolMiddleware",
             ToolName: toolName,
             CallId: context.FunctionCallId ?? string.Empty,
             Arguments: context.Arguments?.ToDictionary(

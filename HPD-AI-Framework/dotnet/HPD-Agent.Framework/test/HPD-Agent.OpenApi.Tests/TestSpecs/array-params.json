@@ -1,0 +1,59 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Array Params API", "version": "1.0.0" },
+  "servers": [
+    { "url": "https://api.example.com" }
+  ],
+  "paths": {
+    "/items": {
+      "get": {
+        "operationId": "listItems",
+        "summary": "List items with array filters",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "array", "items": { "type": "string" } },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "tags",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "array", "items": { "type": "string" } },
+            "style": "form",
+            "explode": false
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "enabled",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "boolean" }
+          }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/typed": {
+      "get": {
+        "operationId": "getTyped",
+        "summary": "Operation with typed parameters",
+        "parameters": [
+          { "name": "count", "in": "query", "required": true, "schema": { "type": "integer" } },
+          { "name": "ratio", "in": "query", "required": false, "schema": { "type": "number" } },
+          { "name": "active", "in": "query", "required": false, "schema": { "type": "boolean" } },
+          { "name": "name", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  }
+}

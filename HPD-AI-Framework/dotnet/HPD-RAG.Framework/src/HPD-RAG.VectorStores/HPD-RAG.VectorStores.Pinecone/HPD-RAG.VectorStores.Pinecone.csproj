@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <PackageId>HPD-RAG.VectorStores.Pinecone</PackageId>
+    <Description>Pinecone vector store provider for HPD-RAG.</Description>
+    <PackageTags>rag;vector-store;pinecone</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\HPD-RAG.Core\HPD-RAG.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SemanticKernel.Connectors.Pinecone" Version="1.*-*" />
+  </ItemGroup>
+</Project>

@@ -22,9 +22,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\HPD-ML.Framework\HPD.ML.Regression\HPD.ML.Regression.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-ML.Framework\HPD.ML.BinaryClassification\HPD.ML.BinaryClassification.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-ML.Framework\HPD.ML.Core\HPD.ML.Core.csproj" />
+    <ProjectReference Include="..\..\src\HPD.ML.Regression\HPD.ML.Regression.csproj" />
+    <ProjectReference Include="..\..\src\HPD.ML.BinaryClassification\HPD.ML.BinaryClassification.csproj" />
+    <ProjectReference Include="..\..\src\HPD.ML.Core\HPD.ML.Core.csproj" />
   </ItemGroup>
 
 </Project>

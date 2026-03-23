@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>HPD.Agent.DevApp</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <UserSecretsId>hpd-agent-devapp</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Core agent runtime -->
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent\HPD-Agent.csproj" />
+    <!-- Session manager, IAgentFactory, HPDAgentConfig -->
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Hosting\HPD-Agent.Hosting.csproj" />
+    <!-- AddHPDAgent, MapHPDAgentApi -->
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.AspNetCore\HPD-Agent.AspNetCore.csproj" />
+    <!-- Bot abstractions -->
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Bots\HPD-Agent.Bots.Abstractions\HPD-Agent.Bots.Abstractions.csproj" />
+    <!-- Slack bot: AddSlackBot, MapSlackWebhook -->
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Bots\HPD-Agent.Bots.Slack\HPD-Agent.Bots.Slack.csproj" />
+    <!-- Providers — add/remove as needed -->
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Providers\HPD-Agent.Providers.Anthropic\HPD-Agent.Providers.Anthropic.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Providers\HPD-Agent.Providers.OpenAI\HPD-Agent.Providers.OpenAI.csproj" />
+  </ItemGroup>
+
+</Project>

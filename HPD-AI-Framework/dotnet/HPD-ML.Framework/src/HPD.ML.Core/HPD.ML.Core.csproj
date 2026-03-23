@@ -11,8 +11,8 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD.ML.Abstractions/HPD.ML.Abstractions.csproj" />
-    <ProjectReference Include="../../shared/Helium/src/Helium.Algebra/Helium.Algebra.csproj" />
-    <ProjectReference Include="../../shared/HPD-Events/HPD-Events.csproj" />
+    <ProjectReference Include="../../../shared/src/Helium/src/Helium.Algebra/Helium.Algebra.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
   </ItemGroup>
 
 </Project>

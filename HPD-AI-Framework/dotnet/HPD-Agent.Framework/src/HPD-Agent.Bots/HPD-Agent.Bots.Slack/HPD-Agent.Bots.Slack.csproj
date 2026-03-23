@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <RootNamespace>HPD.Agent.Bots.Slack</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishAot>true</PublishAot>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)Generated</CompilerGeneratedFilesOutputPath>
+  </PropertyGroup>
+
+  <!-- NuGet Package Metadata -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.Bots.Slack</PackageId>
+    <Description>Slack adapter for HPD agents. Connects an HPD agent to Slack via Events API and Block Kit — webhook routing, streaming (PostAndEdit and native chatStream), slash commands, modals, permissions, and file uploads.</Description>
+    <PackageTags>ai;agent;adapters;slack;webhooks;blockkit</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Agent.Bots.Abstractions/HPD-Agent.Bots.Abstractions.csproj" />
+    <ProjectReference Include="../HPD-Agent.Bots.AspNetCore/HPD-Agent.Bots.AspNetCore.csproj" />
+    <!-- Source generator: emits HandleWebhookAsync dispatch, registration extensions, JSON context -->
+    <ProjectReference Include="../HPD-Agent.Bots.SourceGenerator/HPD-Agent.Bots.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- HttpContext, IResult, IHttpClientFactory — required by SlackBot and SlackApiClient -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Pack source generator as analyzer in NuGet package -->
+  <Target Name="IncludeBotAnalyzers" BeforeTargets="_GetPackageFiles">
+    <ItemGroup>
+      <None Include="..\HPD-Agent.Bots.SourceGenerator\bin\$(Configuration)\netstandard2.0\HPD-Agent.Bots.SourceGenerator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+      <!-- Include dependencies of the source generator -->
+      <None Include="..\HPD-Agent.Bots.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('..\HPD-Agent.Bots.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.dll')" />
+      <None Include="..\HPD-Agent.Bots.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('..\HPD-Agent.Bots.SourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.CSharp.dll')" />
+    </ItemGroup>
+  </Target>
+
+</Project>

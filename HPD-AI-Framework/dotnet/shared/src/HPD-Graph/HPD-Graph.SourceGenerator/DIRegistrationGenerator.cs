@@ -1,0 +1,217 @@
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Text;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
+namespace HPDAgent.Graph.SourceGenerator;
+
+/// <summary>
+/// Source generator that creates DI registration extension methods for handlers.
+/// Scans all handlers marked with [GraphNodeHandler] and generates AddGeneratedXHandlers() methods.
+/// </summary>
+[Generator]
+public class DIRegistrationGenerator : IIncrementalGenerator
+{
+    public void Initialize(IncrementalGeneratorInitializationContext context)
+    {
+        var classDeclarations = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (node, _) => node is ClassDeclarationSyntax c && c.AttributeLists.Count > 0,
+                transform: static (ctx, _) => (ClassDeclarationSyntax)ctx.Node)
+            .Collect();
+
+        context.RegisterSourceOutput(
+            classDeclarations.Combine(context.CompilationProvider),
+            (spc, pair) => Execute(pair.Right, pair.Left, spc));
+    }
+
+    private void Execute(Compilation compilation, System.Collections.Immutable.ImmutableArray<ClassDeclarationSyntax> classes, SourceProductionContext context)
+    {
+        // Group handlers by context type
+        var handlersByContext = new Dictionary<string, List<INamedTypeSymbol>>();
+
+        // Collect routers (no context type needed - they implement IMapRouter)
+        var routers = new List<INamedTypeSymbol>();
+
+        foreach (var candidateClass in classes)
+        {
+            var model = compilation.GetSemanticModel(candidateClass.SyntaxTree);
+            var symbol = model.GetDeclaredSymbol(candidateClass);
+
+            if (symbol is not INamedTypeSymbol classSymbol)
+                continue;
+
+            // Check if class has [GraphNodeHandler] attribute
+            var handlerAttribute = classSymbol.GetAttributes()
+                .FirstOrDefault(a => a.AttributeClass?.Name == "GraphNodeHandlerAttribute");
+
+            if (handlerAttribute != null)
+            {
+                // Find the context type from IGraphNodeHandler<TContext> interface
+                var contextType = GetContextType(classSymbol);
+                if (contextType == null)
+                    continue;
+
+                var contextTypeName = contextType.ToDisplayString();
+
+                if (!handlersByContext.ContainsKey(contextTypeName))
+                {
+                    handlersByContext[contextTypeName] = new List<INamedTypeSymbol>();
+                }
+
+                handlersByContext[contextTypeName].Add(classSymbol);
+            }
+
+            // Check if class has [MapRouter] attribute
+            var routerAttribute = classSymbol.GetAttributes()
+                .FirstOrDefault(a => a.AttributeClass?.Name == "MapRouterAttribute");
+
+            if (routerAttribute != null)
+            {
+                // Verify it implements IMapRouter
+                if (ImplementsIMapRouter(classSymbol))
+                {
+                    routers.Add(classSymbol);
+                }
+            }
+        }
+
+        // Generate a registration method for each context type
+        foreach (var kvp in handlersByContext)
+        {
+            var contextType = kvp.Key;
+            var handlers = kvp.Value;
+
+            if (handlers.Count == 0)
+                continue;
+
+            var source = GenerateHandlerRegistrationCode(contextType, handlers);
+            var contextTypeName = contextType.Split('.').Last().Replace("<", "_").Replace(">", "");
+            var fileName = $"GraphHandlers.{contextTypeName}.g.cs";
+
+            context.AddSource(fileName, SourceText.From(source, Encoding.UTF8));
+        }
+
+        // Generate router registration method if any routers found
+        if (routers.Count > 0)
+        {
+            var source = GenerateRouterRegistrationCode(routers);
+            context.AddSource("GraphRouters.g.cs", SourceText.From(source, Encoding.UTF8));
+        }
+    }
+
+    private ITypeSymbol? GetContextType(INamedTypeSymbol classSymbol)
+    {
+        // Check if class implements IGraphNodeHandler<TContext>
+        foreach (var iface in classSymbol.AllInterfaces)
+        {
+            if (iface.Name == "IGraphNodeHandler" && iface.TypeArguments.Length == 1)
+            {
+                return iface.TypeArguments[0];
+            }
+        }
+        return null;
+    }
+
+    private bool ImplementsIMapRouter(INamedTypeSymbol classSymbol)
+    {
+        // Check if class implements IMapRouter
+        foreach (var iface in classSymbol.AllInterfaces)
+        {
+            if (iface.Name == "IMapRouter")
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private string GenerateHandlerRegistrationCode(string contextType, List<INamedTypeSymbol> handlers)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("// <auto-generated/>");
+        sb.AppendLine("#nullable enable");
+        sb.AppendLine();
+        sb.AppendLine("using Microsoft.Extensions.DependencyInjection;");
+        sb.AppendLine();
+
+        // Use a common namespace for extension methods
+        sb.AppendLine("namespace HPDAgent.Graph.Extensions;");
+        sb.AppendLine();
+        sb.AppendLine("/// <summary>");
+        sb.AppendLine($"/// Auto-generated DI registration extension methods for {contextType} handlers.");
+        sb.AppendLine("/// </summary>");
+        sb.AppendLine("public static class GeneratedHandlerRegistration");
+        sb.AppendLine("{");
+
+        // Generate extension method name based on context type
+        var contextTypeName = contextType.Split('.').Last().Replace("<", "").Replace(">", "");
+        var methodName = $"AddGenerated{contextTypeName}Handlers";
+
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine($"    /// Registers all generated handlers for {contextType}.");
+        sb.AppendLine($"    /// Found {handlers.Count} handler(s) in the current assembly.");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine($"    public static IServiceCollection {methodName}(this IServiceCollection services)");
+        sb.AppendLine("    {");
+
+        foreach (var handler in handlers)
+        {
+            var handlerFullName = handler.ToDisplayString();
+            sb.AppendLine($"        services.AddScoped<HPDAgent.Graph.Abstractions.Handlers.IGraphNodeHandler<{contextType}>, {handlerFullName}>();");
+        }
+
+        sb.AppendLine("        return services;");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+
+        return sb.ToString();
+    }
+
+    private string GenerateRouterRegistrationCode(List<INamedTypeSymbol> routers)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("// <auto-generated/>");
+        sb.AppendLine("#nullable enable");
+        sb.AppendLine();
+        sb.AppendLine("using Microsoft.Extensions.DependencyInjection;");
+        sb.AppendLine();
+
+        // Use a common namespace for extension methods
+        sb.AppendLine("namespace HPDAgent.Graph.Extensions;");
+        sb.AppendLine();
+        sb.AppendLine("/// <summary>");
+        sb.AppendLine("/// Auto-generated DI registration extension methods for Map routers.");
+        sb.AppendLine("/// Pattern: Identical to handler registration (AddGeneratedGraphContextHandlers).");
+        sb.AppendLine("/// </summary>");
+        sb.AppendLine("public static partial class GeneratedRouterRegistration");
+        sb.AppendLine("{");
+
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// Registers all generated Map routers.");
+        sb.AppendLine($"    /// Found {routers.Count} router(s) in the current assembly.");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    public static IServiceCollection AddGeneratedMapRouters(this IServiceCollection services)");
+        sb.AppendLine("    {");
+
+        // Use Singleton lifetime for stateless routers (better performance)
+        // Use fully qualified names to prevent namespace conflicts
+        foreach (var router in routers)
+        {
+            var routerFullName = router.ToDisplayString();
+            sb.AppendLine($"        services.AddSingleton<HPDAgent.Graph.Abstractions.Routing.IMapRouter, {routerFullName}>();");
+        }
+
+        sb.AppendLine("        return services;");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+
+        return sb.ToString();
+    }
+
+
+}

@@ -63,15 +63,15 @@ jobs:
             10.0.x
 
       - name: Restore dependencies
-        run: dotnet restore HPD-AI-Framework/dotnet/HPD-Agent.no-maui.slnf
+        run: dotnet restore HPD-AI-Framework/dotnet/HPD-Agent.Framework/HPD-Agent.slnx
 
       - name: Build
-        run: dotnet build HPD-AI-Framework/dotnet/HPD-Agent.no-maui.slnf --configuration Release --no-restore
+        run: dotnet build HPD-AI-Framework/dotnet/HPD-Agent.Framework/HPD-Agent.slnx --configuration Release --no-restore
 
       - name: Run tests
         run: |
-          dotnet test HPD-AI-Framework/dotnet/test/HPD-Agent.Tests/HPD-Agent.Tests.csproj --configuration Release --no-build --verbosity normal -f net10.0
-          dotnet test HPD-AI-Framework/dotnet/test/HPD.MultiAgent.Tests/HPD.MultiAgent.Tests.csproj --configuration Release --no-build --verbosity normal -f net10.0
+          dotnet test HPD-AI-Framework/dotnet/HPD-Agent.Framework/test/HPD-Agent.Tests/HPD-Agent.Tests.csproj --configuration Release --no-build --verbosity normal -f net10.0
+          dotnet test HPD-AI-Framework/dotnet/HPD-Agent.Framework/test/HPD.MultiAgent.Tests/HPD.MultiAgent.Tests.csproj --configuration Release --no-build --verbosity normal -f net10.0
 
       - name: Pack packages
         run: |
@@ -79,36 +79,36 @@ jobs:
 
           PROJECTS=(
             # Core
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent/HPD-Agent.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.FFI/HPD-Agent.FFI.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.MCP/HPD-Agent.MCP.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD.OpenApi.Core/HPD.OpenApi.Core.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent/HPD-Agent.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.FFI/HPD-Agent.FFI.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.MCP/HPD-Agent.MCP.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD.OpenApi.Core/HPD.OpenApi.Core.csproj"
             # Toolkits
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Toolkit/HPD-Agent.Toolkit.FileSystem/HPD-Agent.Toolkit.FileSystem.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Toolkit/HPD-Agent.Toolkit.WebSearch/HPD-Agent.Toolkit.WebSearch.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Toolkit/HPD-Agent.Toolkit.FileSystem/HPD-Agent.Toolkit.FileSystem.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Toolkit/HPD-Agent.Toolkit.WebSearch/HPD-Agent.Toolkit.WebSearch.csproj"
             # Audio (not ready for release)
-            # "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj"
-            # "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.AudioProviders.OpenAI/HPD-Agent.AudioProviders.OpenAI.csproj"
-            # "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.AudioProviders.ElevenLabs/HPD-Agent.AudioProviders.ElevenLabs.csproj"
+            # "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj"
+            # "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.AudioProviders.OpenAI/HPD-Agent.AudioProviders.OpenAI.csproj"
+            # "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.AudioProviders.ElevenLabs/HPD-Agent.AudioProviders.ElevenLabs.csproj"
             # Providers
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.AzureAIInference/HPD-Agent.Providers.AzureAIInference.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Bedrock/HPD-Agent.Providers.Bedrock.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/HPD-Agent.Providers.GoogleAI.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.HuggingFace/HPD-Agent.Providers.HuggingFace.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/HPD-Agent.Providers.Ollama.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.OnnxRuntime/HPD-Agent.Providers.OnnxRuntime.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj"
-            "HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAIInference/HPD-Agent.Providers.AzureAIInference.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Bedrock/HPD-Agent.Providers.Bedrock.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/HPD-Agent.Providers.GoogleAI.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.HuggingFace/HPD-Agent.Providers.HuggingFace.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/HPD-Agent.Providers.Ollama.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OnnxRuntime/HPD-Agent.Providers.OnnxRuntime.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj"
             # Events & Graph
             "HPD-AI-Framework/dotnet/src/HPD.Events/HPD.Events.csproj"
             "HPD-AI-Framework/dotnet/src/HPD.Graph/HPD.Graph.Abstractions/HPD.Graph.Abstractions.csproj"
@@ -167,61 +167,3 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "[View HPD-Agent packages on NuGet](https://www.nuget.org/packages?q=HPD-Agent)" >> $GITHUB_STEP_SUMMARY
 
-  publish-maui:
-    runs-on: macos-latest
-    needs: determine-version
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: |
-            8.0.x
-            9.0.x
-            10.0.x
-
-      - name: Install MAUI workload
-        run: dotnet workload install maui
-
-      - name: Restore MAUI
-        run: dotnet restore HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.MAUI/HPD-Agent.MAUI.csproj
-
-      - name: Build MAUI
-        run: dotnet build HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.MAUI/HPD-Agent.MAUI.csproj --configuration Release --no-restore
-
-      - name: Pack MAUI
-        run: |
-          mkdir -p ./nupkg
-
-          VERSION_PREFIX="${{ needs.determine-version.outputs.version_prefix }}"
-          VERSION_SUFFIX="${{ needs.determine-version.outputs.version_suffix }}"
-
-          if [ -n "$VERSION_SUFFIX" ]; then
-            dotnet pack HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.MAUI/HPD-Agent.MAUI.csproj \
-              -c Release -o ./nupkg \
-              -p:VersionPrefix="$VERSION_PREFIX" \
-              -p:VersionSuffix="$VERSION_SUFFIX"
-          else
-            dotnet pack HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.MAUI/HPD-Agent.MAUI.csproj \
-              -c Release -o ./nupkg \
-              -p:VersionPrefix="$VERSION_PREFIX"
-          fi
-
-      - name: Upload MAUI package as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: nuget-packages-maui
-          path: ./nupkg/*.nupkg
-
-      - name: Push MAUI to NuGet
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-        run: |
-          if [ -z "$NUGET_API_KEY" ]; then
-            echo "Error: NUGET_API_KEY secret is not set"
-            exit 1
-          fi
-          dotnet nuget push ./nupkg/*.nupkg --source https://api.nuget.org/v3/index.json --api-key $NUGET_API_KEY --skip-duplicate

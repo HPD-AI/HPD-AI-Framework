@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <RootNamespace>HPD.Sandbox.Local</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Required for seccomp P/Invoke on Linux -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- NuGet Package Metadata -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.Sandbox.Local</PackageId>
+    <Description>OS-level sandboxing (bwrap/sandbox-exec) for HPD Agent with enhanced security features including seccomp BPF filtering, dangerous file protection, and network isolation via proxies.</Description>
+    <PackageTags>sandbox;security;bwrap;bubblewrap;sandbox-exec;seatbelt;isolation;seccomp;bpf</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../../../src/shared/HPD-Events/HPD-Events.csproj" />
+
+    <!-- HTTP/SOCKS proxy for network filtering -->
+    <PackageReference Include="Titanium.Web.Proxy" Version="3.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Agent.Sandbox.Local.Tests" />
+  </ItemGroup>
+
+  <!-- Include native seccomp helpers for Linux -->
+  <!-- Pre-built binaries should be added to Platforms/Linux/Seccomp/native/bin/ by CI/CD -->
+  <!-- Use build.sh on Linux to compile the helpers before packaging -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <!-- Include pre-built seccomp helpers in NuGet package -->
+    <Content Include="Platforms/Linux/Seccomp/native/bin/apply-seccomp-*" Condition="Exists('Platforms/Linux/Seccomp/native/bin/')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <PackagePath>runtimes/linux-x64/native;runtimes/linux-arm64/native</PackagePath>
+    </Content>
+  </ItemGroup>
+
+  <!-- Always include the build script and C sources for reference -->
+  <ItemGroup>
+    <Content Include="Platforms/Linux/Seccomp/native/*.c">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <PackagePath>contentFiles/any/any/native-src</PackagePath>
+    </Content>
+    <Content Include="Platforms/Linux/Seccomp/native/build.sh">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <PackagePath>contentFiles/any/any/native-src</PackagePath>
+    </Content>
+  </ItemGroup>
+</Project>

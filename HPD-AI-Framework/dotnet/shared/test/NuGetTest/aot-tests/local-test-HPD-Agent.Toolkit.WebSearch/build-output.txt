@@ -1,0 +1,10 @@
+  Determining projects to restore...
+  Restored /Users/einsteinessibu/Documents/HPD-Agent/test/NuGetTest/aot-tests/local-test-HPD-Agent.Toolkit.WebSearch/Test.csproj (in 167 ms).
+  5 of 6 projects are up-to-date for restore.
+  HPD.Events -> /Users/einsteinessibu/Documents/HPD-Agent/HPD.Events/bin/Release/net8.0/HPD.Events.dll
+  HPD-Agent.TextExtraction -> /Users/einsteinessibu/Documents/HPD-Agent/HPD-Agent.TextExtraction/bin/Release/net8.0/HPD-Agent.TextExtraction.dll
+  HPD-Agent.SourceGenerator -> /Users/einsteinessibu/Documents/HPD-Agent/HPD-Agent.SourceGenerator/bin/Release/netstandard2.0/HPD-Agent.SourceGenerator.dll
+  HPD-Agent -> /Users/einsteinessibu/Documents/HPD-Agent/HPD-Agent/bin/Release/net8.0/HPD-Agent.dll
+  HPD-Agent.Toolkit.WebSearch -> /Users/einsteinessibu/Documents/HPD-Agent/HPD-Agent.Toolkit/HPD-Agent.Toolkit.WebSearch/bin/Release/net8.0/HPD-Agent.Toolkit.WebSearch.dll
+  Test -> /Users/einsteinessibu/Documents/HPD-Agent/test/NuGetTest/aot-tests/local-test-HPD-Agent.Toolkit.WebSearch/bin/Release/net8.0/osx-arm64/Test.dll
+  Test -> /Users/einsteinessibu/Documents/HPD-Agent/test/NuGetTest/aot-tests/local-test-HPD-Agent.Toolkit.WebSearch/bin/Release/net8.0/osx-arm64/publish/

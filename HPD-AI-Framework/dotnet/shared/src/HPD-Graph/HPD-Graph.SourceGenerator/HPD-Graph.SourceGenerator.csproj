@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Source generators must target netstandard2.0 for Roslyn compatibility -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <!-- Clear the multi-targeting from Directory.Build.props -->
+    <TargetFrameworks></TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>HPDAgent.Graph.SourceGenerator</RootNamespace>
+    <AssemblyName>HPDAgent.Graph.SourceGenerator</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IsRoslynComponent>true</IsRoslynComponent>
+
+    <!-- Package metadata -->
+    <PackageId>HPD-Agent.Graph.SourceGenerator</PackageId>
+    <Description>Source generator for HPD-Graph socket attributes - generates bridge code between clean handler methods and IGraphNodeHandler interface.</Description>
+    <PackageTags>source-generator;roslyn;graph;codegen</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Source generator dependencies -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Source generators cannot reference projects targeting newer frameworks -->
+  <!-- Attributes are already defined in HPD-Graph.Abstractions -->
+
+  <!-- Package the generator as an analyzer -->
+  <ItemGroup>
+    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+  </ItemGroup>
+
+</Project>

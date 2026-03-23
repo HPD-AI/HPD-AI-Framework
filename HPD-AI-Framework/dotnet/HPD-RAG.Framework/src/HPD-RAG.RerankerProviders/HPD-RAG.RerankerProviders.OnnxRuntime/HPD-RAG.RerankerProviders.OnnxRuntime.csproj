@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <RootNamespace>HPD-RAG.RerankerProviders.OnnxRuntime</RootNamespace>
+    <AssemblyName>HPD-RAG.RerankerProviders.OnnxRuntime</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <!--
+      OnnxRuntime uses native interop and cannot be fully AOT compiled.
+      We still apply trim analysis to avoid hidden trim issues in the managed wrapper layer.
+    -->
+    <IsAotCompatible>false</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <PackageId>HPD-RAG.RerankerProviders.OnnxRuntime</PackageId>
+    <Description>Local ONNX cross-encoder reranker provider for HPD-RAG via Microsoft.ML.OnnxRuntime.</Description>
+    <PackageTags>rag;reranker;onnx;onnxruntime;local</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\HPD-RAG.Core\HPD-RAG.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.*" />
+    <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+  </ItemGroup>
+</Project>

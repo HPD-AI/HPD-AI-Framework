@@ -1,0 +1,297 @@
+using HPD.Agent.Tests.Infrastructure;
+using Microsoft.Extensions.AI;
+using Xunit;
+using FluentAssertions;
+
+namespace HPD.Agent.Tests.Phase0_Characterization;
+
+/// <summary>
+/// Phase 0: Characterization Tests
+///
+/// These tests capture the CURRENT behavior of the agent before refactoring.
+/// They serve as regression tests to ensure refactoring doesn't break existing functionality.
+///
+/// Test Coverage:
+/// 1. Simple text response (no tools)
+/// 2. Single tool call
+/// 3. Multiple parallel tool calls
+/// 4. Circuit breaker trigger
+/// 5. Max iterations reached
+/// 6. Permission denial flow
+/// 7. Container expansion
+/// </summary>
+public class CharacterizationTests : AgentTestBase
+{
+    /// <summary>
+    /// Test 1: Simple text response with no tool calls.
+    /// Verifies basic agent-LLM communication and event sequence.
+    /// </summary>
+    [Fact]
+    public async Task CurrentBehavior_SimpleTextResponse_EmitsCorrectEventSequence()
+    {
+        // Arrange
+        var fakeLLM = new FakeChatClient();
+        fakeLLM.EnqueueStreamingResponse("Hello", " ", "World", "!");
+
+        var agent = CreateAgent(client: fakeLLM);
+        var messages = CreateSimpleConversation("Hello");
+
+        var capturedEvents = new List<AgentEvent>();
+
+        // Act
+        await foreach (var evt in agent.RunAgenticLoopAsync(messages, cancellationToken: TestCancellationToken))
+        {
+            capturedEvents.Add(evt);
+        }
+
+        // Assert - Event sequence should be:
+        // 1. MessageTurnStarted
+        // 2. AgentTurnStarted (iteration 0)
+        // 3. TextMessageStart
+        // 4. TextDelta (multiple)
+        // 5. TextMessageEnd
+        // 6. AgentTurnFinished
+        // 7. MessageTurnFinished
+
+        var eventTypes = capturedEvents.Select(e => e.GetType().Name).ToList();
+
+        eventTypes.Should().ContainInOrder(
+            nameof(MessageTurnStartedEvent),
+            nameof(AgentTurnStartedEvent),
+            nameof(TextMessageStartEvent));
+
+        // Should have multiple text deltas
+        capturedEvents.OfType<TextDeltaEvent>().Should().HaveCountGreaterOrEqualTo(1);
+
+        eventTypes.Should().ContainInOrder(
+            nameof(TextMessageEndEvent),
+            nameof(AgentTurnFinishedEvent),
+            nameof(MessageTurnFinishedEvent));
+
+        // Verify FakeLLM was called
+        fakeLLM.CapturedRequests.Should().HaveCount(1);
+        fakeLLM.CapturedRequests[0].Should().ContainSingle(m => m.Role == ChatRole.User);
+    }
+
+    /// <summary>
+    /// Test 2: Single tool call execution.
+    /// Verifies tool call detection, execution, and result handling.
+    /// </summary>
+    [Fact(Skip = "Infrastructure setup - implement after Agent constructor is working")]
+    public async Task CurrentBehavior_SingleToolCall_ExecutesAndReturnsResult()
+    {
+        // Arrange
+        var fakeLLM = new FakeChatClient();
+
+        // LLM requests a tool call
+        fakeLLM.EnqueueToolCall(
+            functionName: "Calculator",
+            callId: "call_1",
+            args: new Dictionary<string, object?> { ["expression"] = "2+2" });
+
+        // LLM responds after tool execution
+        fakeLLM.EnqueueTextResponse("The answer is 4");
+
+        // Create a simple calculator tool
+        var calculatorTool = AIFunctionFactory.Create(
+            (string expression) => EvaluateExpression(expression),
+            name: "Calculator",
+            description: "Evaluates mathematical expressions");
+
+        var agent = CreateAgent(
+            client: fakeLLM,
+            tools: [calculatorTool]);
+
+        var messages = CreateSimpleConversation("What is 2+2?");
+
+        var capturedEvents = new List<AgentEvent>();
+
+        // Act
+        await foreach (var evt in agent.RunAsync(messages, cancellationToken: TestCancellationToken))
+        {
+            capturedEvents.Add(evt);
+        }
+
+        // Assert
+        // Should have 2 iterations (tool call + final response)
+        var agentTurnStarts = capturedEvents.OfType<AgentTurnStartedEvent>().ToList();
+        agentTurnStarts.Should().HaveCount(2);
+
+        // Should have tool call events
+        capturedEvents.OfType<ToolCallStartEvent>().Should().ContainSingle();
+        capturedEvents.OfType<ToolCallEndEvent>().Should().ContainSingle();
+        capturedEvents.OfType<ToolCallResultEvent>().Should().ContainSingle();
+
+        // Should have final text response
+        var textDeltas = capturedEvents.OfType<TextDeltaEvent>().ToList();
+        var finalText = string.Concat(textDeltas.Select(e => e.Text));
+        finalText.Should().Contain("4");
+
+        // LLM should have been called twice
+        fakeLLM.CapturedRequests.Should().HaveCount(2);
+    }
+
+    /// <summary>
+    /// Test 3: Circuit breaker triggers after max consecutive identical calls.
+    /// Verifies infinite loop prevention.
+    /// </summary>
+    [Fact(Skip = "Infrastructure setup - implement after Agent constructor is working")]
+    public async Task CurrentBehavior_CircuitBreaker_TerminatesOnRepeatedCalls()
+    {
+        // Arrange
+        var fakeLLM = new FakeChatClient();
+
+        // LLM keeps requesting the same failing tool call
+        for (int i = 0; i < 6; i++)
+        {
+            fakeLLM.EnqueueToolCall(
+                functionName: "FailingTool",
+                callId: $"call_{i}",
+                args: new Dictionary<string, object?> { ["input"] = "same_value" });
+        }
+
+        // Create a tool that always fails
+        var failingTool = AIFunctionFactory.Create(
+            (string input) => throw new Exception("Tool always fails"),
+            name: "FailingTool",
+            description: "A tool that always fails");
+
+        var config = DefaultConfig();
+        config.AgenticLoop!.MaxConsecutiveFunctionCalls = 3;
+
+        var agent = CreateAgent(
+            config: config,
+            client: fakeLLM,
+            tools: [failingTool]);
+
+        var messages = CreateSimpleConversation("Use the failing tool");
+
+        var capturedEvents = new List<AgentEvent>();
+
+        // Act
+        await foreach (var evt in agent.RunAsync(messages, cancellationToken: TestCancellationToken))
+        {
+            capturedEvents.Add(evt);
+        }
+
+        // Assert
+        // Should terminate after 3 iterations (circuit breaker)
+        var agentTurnStarts = capturedEvents.OfType<AgentTurnStartedEvent>().ToList();
+        agentTurnStarts.Should().HaveCountLessOrEqualTo(4); // Initial + 3 retries
+
+        // Should have circuit breaker message
+        var textDeltas = capturedEvents.OfType<TextDeltaEvent>().ToList();
+        var allText = string.Concat(textDeltas.Select(e => e.Text));
+        allText.Should().Contain("Circuit breaker");
+    }
+
+    /// <summary>
+    /// Test 4: Max iterations limit prevents infinite loops.
+    /// </summary>
+    [Fact(Skip = "Infrastructure setup - implement after Agent constructor is working")]
+    public async Task CurrentBehavior_MaxIterations_TerminatesWhenLimitReached()
+    {
+        // Arrange
+        var fakeLLM = new FakeChatClient();
+
+        // Queue more responses than max iterations
+        for (int i = 0; i < 10; i++)
+        {
+            fakeLLM.EnqueueToolCall(
+                functionName: "DummyTool",
+                callId: $"call_{i}",
+                args: new Dictionary<string, object?> { ["index"] = i });
+        }
+
+        var dummyTool = AIFunctionFactory.Create(
+            (int index) => $"Result {index}",
+            name: "DummyTool",
+            description: "A dummy tool");
+
+        var config = DefaultConfig();
+        config.MaxAgenticIterations = 5; // Set low limit
+
+        var agent = CreateAgent(
+            config: config,
+            client: fakeLLM,
+            tools: [dummyTool]);
+
+        var messages = CreateSimpleConversation("Use the tool repeatedly");
+
+        var capturedEvents = new List<AgentEvent>();
+
+        // Act
+        await foreach (var evt in agent.RunAsync(messages, cancellationToken: TestCancellationToken))
+        {
+            capturedEvents.Add(evt);
+        }
+
+        // Assert
+        var agentTurnStarts = capturedEvents.OfType<AgentTurnStartedEvent>().ToList();
+        agentTurnStarts.Should().HaveCountLessOrEqualTo(5);
+
+        // Should terminate due to max iterations
+        var textDeltas = capturedEvents.OfType<TextDeltaEvent>().ToList();
+        var allText = string.Concat(textDeltas.Select(e => e.Text));
+        allText.Should().ContainAny("Maximum iterations", "iteration", "limit");
+    }
+
+    /// <summary>
+    /// Test 5: Multiple parallel tool calls.
+    /// Verifies parallel execution and result collection.
+    /// </summary>
+    [Fact(Skip = "Infrastructure setup - implement after Agent constructor is working")]
+    public async Task CurrentBehavior_ParallelToolCalls_ExecutesAllTools()
+    {
+        // Arrange
+        var fakeLLM = new FakeChatClient();
+
+        // LLM requests multiple tools in parallel
+        fakeLLM.EnqueueToolCall("Tool1", "call_1", new Dictionary<string, object?> { ["input"] = "A" });
+        fakeLLM.EnqueueToolCall("Tool2", "call_2", new Dictionary<string, object?> { ["input"] = "B" });
+        fakeLLM.EnqueueToolCall("Tool3", "call_3", new Dictionary<string, object?> { ["input"] = "C" });
+
+        // Final response after tool execution
+        fakeLLM.EnqueueTextResponse("All tools completed");
+
+        var tool1 = AIFunctionFactory.Create((string input) => $"Tool1: {input}", name: "Tool1");
+        var tool2 = AIFunctionFactory.Create((string input) => $"Tool2: {input}", name: "Tool2");
+        var tool3 = AIFunctionFactory.Create((string input) => $"Tool3: {input}", name: "Tool3");
+
+        var agent = CreateAgent(
+            client: fakeLLM,
+            tools: [tool1, tool2, tool3]);
+
+        var messages = CreateSimpleConversation("Use all three tools");
+
+        var capturedEvents = new List<AgentEvent>();
+
+        // Act
+        await foreach (var evt in agent.RunAsync(messages, cancellationToken: TestCancellationToken))
+        {
+            capturedEvents.Add(evt);
+        }
+
+        // Assert
+        // Should have 3 tool call executions
+        capturedEvents.OfType<ToolCallStartEvent>().Should().HaveCount(3);
+        capturedEvents.OfType<ToolCallEndEvent>().Should().HaveCount(3);
+        capturedEvents.OfType<ToolCallResultEvent>().Should().HaveCount(3);
+
+        // All tools should have unique call IDs
+        var callIds = capturedEvents.OfType<ToolCallStartEvent>()
+            .Select(e => e.CallId)
+            .ToList();
+        callIds.Should().OnlyHaveUniqueItems();
+    }
+
+    // Helper method for calculator
+    private static string EvaluateExpression(string expression)
+    {
+        // Simple evaluation (for testing only)
+        if (expression == "2+2")
+            return "4";
+
+        return "Unable to evaluate";
+    }
+}

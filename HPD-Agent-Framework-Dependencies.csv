@@ -1,0 +1,102 @@
+Package Name,Current Version(s),Status,Recommendation,Priority
+Anthropic,12.*,WILDCARD,Pin to exact version,HIGH
+AspNet.Security.OAuth.GitHub,10.0.*,WILDCARD,Pin to exact version,MEDIUM
+Azure.AI.Inference,1.0.0-beta.5,BETA,Evaluate stable release,MEDIUM
+Azure.AI.OpenAI,"2.*, 2.8.0-beta.1",MIXED/BETA,Move to stable,HIGH
+Azure.AI.Projects,2.0.0-beta.1,BETA,Experimental feature,LOW
+Azure.Identity,1.*,WILDCARD,Pin to exact version,MEDIUM
+AWSSDK.BedrockRuntime,"4.*, 4.0.16.1",MIXED,Pin to 4.0.16.1,MEDIUM
+AWSSDK.Core,"4.*, 4.0.3.15",MIXED,Pin to 4.0.3.15,MEDIUM
+AWSSDK.Extensions.Bedrock.MEAI,"4.*, 4.0.5.8",MIXED,Pin to 4.0.5.8,MEDIUM
+CliWrap,3.10.0,STABLE,Current,LOW
+Cronos,0.11.1,STABLE,Current,LOW
+DiffPlex,"1.7.*, 1.8.0, 1.9.0",WILDCARD,Standardize to 1.9.0,LOW
+DocumentFormat.OpenXml,3.4.1,STABLE,Current,LOW
+ElevenLabs,0.9.0,STABLE,Current,LOW
+FluentAssertions,"6.12.*, 8.8.0",SPLIT,Standardize to 8.8.0 (MAJOR),HIGH
+Google_GenerativeAI,3.6.3,STABLE,Current,MEDIUM
+Google_GenerativeAI.Microsoft,3.6.3,STABLE,Current,MEDIUM
+HtmlAgilityPack,1.12.4,STABLE,Current,LOW
+HuggingFace,0.4.1-dev.23,BETA,Experimental feature,LOW
+JsonSchema.Net.Generation,7.1.1,STABLE,Current,LOW
+MAB.DotIgnore,3.0.2,STABLE,Current,LOW
+Markdig,0.38.*,WILDCARD,Pin to 0.38.x,LOW
+Microsoft.AspNetCore.Authentication.Google,10.0.*,WILDCARD,Pin to 10.0.3,MEDIUM
+Microsoft.AspNetCore.Authentication.JwtBearer,10.0.*,WILDCARD,Pin to 10.0.3,MEDIUM
+Microsoft.AspNetCore.Authentication.MicrosoftAccount,10.0.*,WILDCARD,Pin to 10.0.3,MEDIUM
+Microsoft.AspNetCore.DataProtection.EntityFrameworkCore,10.0.*,WILDCARD,Pin to 10.0.3,MEDIUM
+Microsoft.AspNetCore.Http,2.2.*,WILDCARD,Update if needed,LOW
+Microsoft.AspNetCore.Http.Abstractions,2.2.*,WILDCARD,Update if needed,LOW
+Microsoft.AspNetCore.Identity.EntityFrameworkCore,10.0.*,WILDCARD,Pin to 10.0.3,MEDIUM
+Microsoft.AspNetCore.Mvc.Testing,"8.0.15, 9.0.5, 10.0.*, 10.0.3",MIXED_TFM,Correct per TFM,MEDIUM
+Microsoft.CodeAnalysis.Analyzers,"3.3.4, 3.11.0",SPLIT,Standardize to 3.11.0,HIGH
+Microsoft.CodeAnalysis.CSharp,"4.12.0, 5.0.0",MIXED,5.0.0 for .NET 9/10,MEDIUM
+Microsoft.CodeAnalysis.CSharp.Workspaces,5.0.0,STABLE,Current,MEDIUM
+Microsoft.Data.Sqlite,10.0.3,STABLE,Current,LOW
+Microsoft.EntityFrameworkCore.Sqlite,10.0.*,WILDCARD,Pin to 10.0.3,LOW
+Microsoft.Extensions.AI,10.3.0,STABLE,Current,MEDIUM
+Microsoft.Extensions.AI.Abstractions,10.3.0,STABLE,Current,MEDIUM
+Microsoft.Extensions.AI.AzureAIInference,10.0.0-preview.1.25559.3,PREVIEW,Track for stable,MEDIUM
+Microsoft.Extensions.AI.Evaluation,10.3.0,STABLE,Current,MEDIUM
+Microsoft.Extensions.AI.Evaluation.NLP,10.3.0-preview.1.26109.11,PREVIEW,Track for stable,LOW
+Microsoft.Extensions.AI.Evaluation.Quality,10.3.0,STABLE,Current,MEDIUM
+Microsoft.Extensions.AI.Evaluation.Reporting,10.3.0,STABLE,Current,MEDIUM
+Microsoft.Extensions.AI.OpenAI,10.3.0,STABLE,Current,MEDIUM
+Microsoft.Extensions.Caching.Abstractions,10.*,WILDCARD,Pin to 10.0.3,LOW
+Microsoft.Extensions.Caching.Memory,"10.*, 10.0.3",WILDCARD,Pin to 10.0.3,LOW
+Microsoft.Extensions.Configuration,10.0.3,STABLE,Current,LOW
+Microsoft.Extensions.Configuration.Abstractions,10.0.3,STABLE,Current,LOW
+Microsoft.Extensions.Configuration.EnvironmentVariables,10.0.3,STABLE,Current,LOW
+Microsoft.Extensions.Configuration.Json,10.0.3,STABLE,Current,LOW
+Microsoft.Extensions.DataIngestion,10.3.0-preview.1.26109.11,PREVIEW,Track for stable,MEDIUM
+Microsoft.Extensions.DataIngestion.MarkItDown,10.3.0-preview.1.26109.11,PREVIEW,Track for stable,MEDIUM
+Microsoft.Extensions.DataIngestion.Markdig,10.3.0-preview.1.26109.11,PREVIEW,Track for stable,MEDIUM
+Microsoft.Extensions.DependencyInjection,"10.*, 10.0.3",MIXED,Pin to 10.0.3,MEDIUM
+Microsoft.Extensions.DependencyInjection.Abstractions,"10.*, 10.0.3",MIXED,Pin to 10.0.3,MEDIUM
+Microsoft.Extensions.FileSystemGlobbing,"10.*, 10.0.3",MIXED,Pin to 10.0.3,MEDIUM
+Microsoft.Extensions.Hosting.Abstractions,10.0.3,STABLE,Current,LOW
+Microsoft.Extensions.Logging,"10.*, 10.0.3, 9.0.5",MIXED,Standardize to 10.0.3,MEDIUM
+Microsoft.Extensions.Logging.Abstractions,"10.*, 10.0.3, 9.0.5",MIXED,Standardize to 10.0.3,MEDIUM
+Microsoft.Extensions.Options,10.0.3,STABLE,Current,LOW
+Microsoft.Extensions.VectorData.Abstractions,10.0.1,STABLE,Current,LOW
+Microsoft.IdentityModel.Tokens,8.*,WILDCARD,Pin to exact version,LOW
+Microsoft.Maui.Controls,"9.0.120, 10.0.1",MIXED,Clarify TFM requirements,MEDIUM
+Microsoft.ML.OnnxRuntime,"1.*, 1.24.3",MIXED,Pin to 1.24.3,MEDIUM
+Microsoft.ML.OnnxRuntimeGenAI,0.12.2,STABLE,Current,MEDIUM
+Microsoft.ML.Tokenizers,2.0.0,STABLE,Current,MEDIUM
+Microsoft.NET.Test.Sdk,"17.6.0, 17.8.0, 17.11.1, 17.12.*, 17.14.1, 18.3.0",INCONSISTENT,Standardize to 18.3.0,HIGH
+Microsoft.OpenApi.Readers,2.0.0-preview.13,PREVIEW,Track for stable,LOW
+Microsoft.SemanticKernel.*,1.*-*,WILDCARD,Pin to specific versions,MEDIUM
+Mistral.SDK,2.3.1,STABLE,Current,MEDIUM
+ModelContextProtocol,1.0.0,STABLE,Current,MEDIUM
+Moq,"4.20.*, 4.20.72",MIXED,Pin to 4.20.72,LOW
+NSubstitute,5.3.*,WILDCARD,Pin to exact version,LOW
+Neo4j.Driver,6.0.0,STABLE,Current,LOW
+OpenAI,2.9.1,STABLE,Current,MEDIUM
+OllamaSharp,"5.*, 5.4.23",MIXED,Pin to 5.4.23,MEDIUM
+PdfPig,0.1.13,STABLE,Current,LOW
+Spectre.Console,0.49.1,STABLE,Current,LOW
+System.IO.Abstractions,22.0.14,STABLE,Current,LOW
+System.IO.Abstractions.TestingHelpers,22.0.14,STABLE,Current,LOW
+System.IO.Hashing,10.0.3,STABLE,Current,LOW
+System.IdentityModel.Tokens.Jwt,8.*,WILDCARD,Pin to exact version,LOW
+System.Linq.Async,7.0.0,STABLE,Current,LOW
+System.Numerics.Tensors,"9.0.0, 10.0.0-preview.5.25277.114",MIXED,Evaluate .NET 10 preview,LOW
+System.Text.Json,10.0.*,WILDCARD,Pin to 10.0.3,LOW
+Titanium.Web.Proxy,3.2.0,STABLE,Current,LOW
+UTF.Unknown,2.6.0,STABLE,Current,LOW
+Ude.NetStandard,1.2.0,STABLE,Current,LOW
+Xunit.SkippableFact,1.5.61,STABLE,Current,LOW
+coverlet.collector,"6.0.0, 6.0.4, 8.0.0",MIXED,Standardize to 8.0.0,MEDIUM
+xunit,"2.*, 2.4.2, 2.6.2, 2.9.*, 2.9.0, 2.9.3",INCONSISTENT,Standardize to 2.9.3,HIGH
+xunit.runner.visualstudio,"2.4.3, 2.5.4, 2.8.*, 2.8.2, 3.1.4, 3.1.5",INCONSISTENT,Standardize to 3.1.5,MEDIUM
+HPD-Agent.Events,0.2.0,INTERNAL,Update to 0.4.0,HIGH
+HPD-Agent.FFI,0.2.0,INTERNAL,Update to 0.4.0,HIGH
+HPD-Agent.Framework,0.2.0,INTERNAL,Update to 0.4.0,HIGH
+HPD-Agent.MCP,0.2.0,INTERNAL,Update to 0.4.0,HIGH
+HPD-Agent.Memory,0.2.0,INTERNAL,Update to 0.4.0,HIGH
+HPD-Agent.Providers.Anthropic,0.2.0,INTERNAL,Update to 0.4.0,HIGH
+HPD-Agent.Providers.OpenAI,0.2.0,INTERNAL,Update to 0.4.0,HIGH
+HPD-Agent.TextExtraction,0.2.0,INTERNAL,Update to 0.4.0,HIGH
+HPD-Agent.Toolkit.FileSystem,0.2.0,INTERNAL,Update to 0.4.0,HIGH
+HPD-Agent.Toolkit.WebSearch,0.2.0,INTERNAL,Update to 0.4.0,HIGH

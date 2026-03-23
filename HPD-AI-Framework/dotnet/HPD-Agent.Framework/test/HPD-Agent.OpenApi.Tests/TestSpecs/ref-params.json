@@ -1,0 +1,54 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Ref Params API", "version": "1.0.0" },
+  "servers": [{ "url": "https://api.example.com" }],
+  "components": {
+    "parameters": {
+      "PetId": {
+        "name": "petId",
+        "in": "path",
+        "required": true,
+        "description": "The pet identifier",
+        "schema": { "type": "string", "format": "uuid" }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "description": "Max results to return",
+        "schema": { "type": "integer", "format": "int32" }
+      },
+      "Tags": {
+        "name": "tags",
+        "in": "query",
+        "required": false,
+        "description": "Filter by tags",
+        "schema": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "paths": {
+    "/pets/{petId}": {
+      "get": {
+        "operationId": "getPet",
+        "summary": "Get a pet by ID",
+        "parameters": [
+          { "$ref": "#/components/parameters/PetId" },
+          { "$ref": "#/components/parameters/Limit" }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/pets": {
+      "get": {
+        "operationId": "listPets",
+        "summary": "List pets",
+        "parameters": [
+          { "$ref": "#/components/parameters/Tags" },
+          { "$ref": "#/components/parameters/Limit" }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  }
+}

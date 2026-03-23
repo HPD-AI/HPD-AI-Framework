@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+
+    <!-- Native AOT Configuration -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+
+    <PackageId>HPD-Agent.Providers.Anthropic</PackageId>
+    <Title>HPD-Agent Anthropic Provider</Title>
+    <Description>Anthropic (Claude) provider for HPD-Agent</Description>
+    <PackageTags>ai;agent;anthropic;claude;llm</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Agent.Providers.Tests" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <ProjectReference Include="../../../src/HPD-Agent/HPD-Agent.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Using NuGet package with AnthropicSchemaFixingChatClient wrapper to fix schema bug -->
+    <PackageReference Include="Anthropic" Version="12.*" />
+  </ItemGroup>
+</Project>

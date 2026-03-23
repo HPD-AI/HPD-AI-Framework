@@ -1,6 +1,8 @@
 // Copyright 2026 Einstein Essibu
 // SPDX-License-Identifier: AGPL-3.0-only
 
+using HPD.Events;
+
 namespace HPD.Agent.ClientTools;
 
 /// <summary>
@@ -9,58 +11,43 @@ namespace HPD.Agent.ClientTools;
 /// Client must respond with <see cref="ClientToolInvokeResponseEvent"/>.
 /// </summary>
 /// <param name="RequestId">Unique identifier for this request (used to correlate response)</param>
+/// <param name="SourceName">Name of the component emitting this event</param>
 /// <param name="ToolName">Name of the tool to invoke</param>
 /// <param name="CallId">The function call ID from the LLM</param>
 /// <param name="Arguments">Arguments to pass to the tool</param>
 /// <param name="Description">Optional description of the tool (for debugging)</param>
 public record ClientToolInvokeRequestEvent(
     string RequestId,
+    string SourceName,
     string ToolName,
     string CallId,
     IReadOnlyDictionary<string, object?> Arguments,
     string? Description = null
-) : AgentEvent;
+) : AgentEvent, IBidirectionalEvent
+{
+    public new HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+}
 
 /// <summary>
 /// Response from Client after executing a tool.
 /// Supports rich content types: text, binary (images/files), JSON.
 /// </summary>
 /// <param name="RequestId">Must match the RequestId from the corresponding request</param>
+/// <param name="SourceName">Name of the component that processed this response</param>
 /// <param name="Content">The tool result content (text, binary, or JSON)</param>
 /// <param name="Success">Whether the tool execution succeeded</param>
 /// <param name="ErrorMessage">Error message if Success is false</param>
 /// <param name="Augmentation">Optional state changes to apply before next iteration</param>
 public record ClientToolInvokeResponseEvent(
     string RequestId,
+    string SourceName,
     IReadOnlyList<IToolResultContent> Content,
     bool Success = true,
     string? ErrorMessage = null,
     ClientToolAugmentation? Augmentation = null
-) : AgentEvent
+) : AgentEvent, IBidirectionalEvent
 {
-    /// <summary>
-    /// Convenience constructor for simple text results.
-    /// </summary>
-    public ClientToolInvokeResponseEvent(
-        string requestId,
-        string textResult,
-        bool success = true,
-        string? errorMessage = null,
-        ClientToolAugmentation? augmentation = null)
-        : this(requestId, new IToolResultContent[] { new TextContent(textResult) }, success, errorMessage, augmentation)
-    { }
-
-    /// <summary>
-    /// Convenience constructor for single content item.
-    /// </summary>
-    public ClientToolInvokeResponseEvent(
-        string requestId,
-        IToolResultContent content,
-        bool success = true,
-        string? errorMessage = null,
-        ClientToolAugmentation? augmentation = null)
-        : this(requestId, new[] { content }, success, errorMessage, augmentation)
-    { }
+    public new HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 }
 
 /// <summary>
@@ -71,7 +58,7 @@ public record ClientToolInvokeResponseEvent(
 /// <param name="TotalTools">Total number of tools across all tool groups</param>
 /// <param name="Timestamp">When registration completed</param>
 public record clientToolKitsRegisteredEvent(
-    IReadOnlyList<string>RegisteredToolKits,
+    IReadOnlyList<string> RegisteredToolKits,
     int TotalTools,
     DateTimeOffset Timestamp
 ) : AgentEvent;

@@ -1,0 +1,41 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <RootNamespace>HPD.Agent.Providers.Tests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="8.0.0" />
+    <PackageReference Include="FluentAssertions" Version="8.8.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Reference the main agent library -->
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent\HPD-Agent.csproj" />
+
+    <!-- Reference all provider packages -->
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Providers\HPD-Agent.Providers.Anthropic\HPD-Agent.Providers.Anthropic.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Providers\HPD-Agent.Providers.OpenAI\HPD-Agent.Providers.OpenAI.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Providers\HPD-Agent.Providers.GoogleAI\HPD-Agent.Providers.GoogleAI.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Providers\HPD-Agent.Providers.Mistral\HPD-Agent.Providers.Mistral.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Providers\HPD-Agent.Providers.Ollama\HPD-Agent.Providers.Ollama.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Providers\HPD-Agent.Providers.Bedrock\HPD-Agent.Providers.Bedrock.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Providers\HPD-Agent.Providers.HuggingFace\HPD-Agent.Providers.HuggingFace.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Providers\HPD-Agent.Providers.AzureAI\HPD-Agent.Providers.AzureAI.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Providers\HPD-Agent.Providers.AzureAIInference\HPD-Agent.Providers.AzureAIInference.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Providers\HPD-Agent.Providers.OnnxRuntime\HPD-Agent.Providers.OnnxRuntime.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Providers\HPD-Agent.Providers.OpenRouter\HPD-Agent.Providers.OpenRouter.csproj" />
+  </ItemGroup>
+
+</Project>

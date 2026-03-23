@@ -1,0 +1,187 @@
+================================================================================
+HPD-AGENT-FRAMEWORK DEPENDENCY ANALYSIS SUMMARY
+Report Date: March 22, 2026
+Target Release: v0.4.0
+================================================================================
+
+ANALYSIS SCOPE:
+  - Total .csproj files: 187
+  - Unique packages found: 113
+  - Files requiring updates: 36
+
+================================================================================
+CRITICAL FINDINGS:
+================================================================================
+
+1. MICROSOFT.NET.TEST.SDK (Version Inconsistency) - PRIORITY: HIGH
+   Current versions: 17.6.0, 17.8.0, 17.11.1, 17.12.*, 17.14.1, 18.3.0
+   Target: 18.3.0
+   Impact: Used across all 20+ test projects
+   Files affected: Helium.*.Tests.csproj, Rhodium.*.Tests.csproj, HPD-*.Tests.csproj
+
+2. XUNIT (Testing Framework) - PRIORITY: HIGH
+   Current versions: 2.*, 2.4.2, 2.6.2, 2.9.*, 2.9.0, 2.9.3
+   Target: 2.9.3
+   Impact: Affects 15+ test projects
+   Breaking change: Possible with major updates
+
+3. FLUENTASSERTIONS (Major Version Split) - PRIORITY: HIGH
+   Current versions: 6.12.*, 8.8.0
+   Target: 8.8.0 (major version update)
+   Impact: Assertion library used across tests
+   Breaking change: Likely - requires testing
+
+4. INTERNAL HPD-AGENT.* PACKAGES - PRIORITY: HIGH
+   Current version: 0.2.0
+   Target: 0.4.0
+   Packages affected: 10 internal packages
+   Files affected: All source and test projects
+
+5. MICROSOFT.CODEANALYSIS.ANALYZERS - PRIORITY: HIGH
+   Current versions: 3.3.4, 3.11.0
+   Target: 3.11.0
+   Impact: Code quality analyzers
+   Files affected: HPD.ML.SourceGen, etc.
+
+================================================================================
+MEDIUM PRIORITY UPDATES:
+================================================================================
+
+MICROSOFT.EXTENSIONS.* PACKAGES (Standardization):
+  - Microsoft.Extensions.DependencyInjection: 10.*, 10.0.3 → 10.0.3
+  - Microsoft.Extensions.Logging: 10.*, 10.0.3, 9.0.5 → 10.0.3
+  - Microsoft.Extensions.FileSystemGlobbing: 10.*, 10.0.3 → 10.0.3
+  Impact: Infrastructure packages used throughout codebase
+
+MICROSOFT.ASPNETCORE.* (Pin Exact Versions):
+  - Microsoft.AspNetCore.Authentication.Google: 10.0.* → 10.0.3
+  - Microsoft.AspNetCore.Authentication.JwtBearer: 10.0.* → 10.0.3
+  - Microsoft.AspNetCore.Authentication.MicrosoftAccount: 10.0.* → 10.0.3
+  Impact: ASP.NET Core support packages
+
+COVERLET.COLLECTOR (Testing Coverage):
+  Current versions: 6.0.0, 6.0.4, 8.0.0
+  Target: 8.0.0
+  Files affected: Multiple test projects
+
+XUNIT.RUNNER.VISUALSTUDIO (Test Runner):
+  Current versions: 2.4.3, 2.5.4, 2.8.*, 2.8.2, 3.1.4, 3.1.5
+  Target: 3.1.5
+  Impact: Test execution in Visual Studio
+
+AI/ML PROVIDER PACKAGES:
+  - Anthropic: 12.* (wildcard) → Pin to specific 12.x.x
+  - Azure.AI.OpenAI: 2.*, 2.8.0-beta.1 → Evaluate stable release
+  - Google GenerativeAI: 3.6.3 (stable, OK)
+  - OpenAI: 2.9.1 (stable, OK)
+
+================================================================================
+FILES REQUIRING IMMEDIATE UPDATES:
+================================================================================
+
+Total: 36 .csproj files
+
+Key affected projects:
+  - /dotnet/test/HPD-RAG.VectorStores.Tests/
+  - /dotnet/test/HPD.Agent.SerializationTests/
+  - /dotnet/test/HPD-RAG.IntegrationTests/
+  - /dotnet/test/HPD-Agent.Tests/
+  - /dotnet/test/HPD-Agent.MAUI.Tests/
+  - /dotnet/src/shared/Helium/test/*.csproj (All versions)
+  - /dotnet/src/shared/Rhodium/test/*.csproj (All versions)
+  - /dotnet/src/shared/HPD-VCS/
+  - /dotnet/src/HPD-ML.Framework/
+
+================================================================================
+RECOMMENDED UPDATE STRATEGY FOR V0.4.0:
+================================================================================
+
+PHASE 1 - CRITICAL (Week 1):
+  1. Update HPD-Agent.* packages from 0.2.0 to 0.4.0
+  2. Standardize Microsoft.NET.Test.Sdk to 18.3.0
+  3. Update xunit projects to 2.9.3
+  4. Update FluentAssertions from 6.12.* to 8.8.0
+  5. Update Microsoft.CodeAnalysis.Analyzers to 3.11.0
+
+PHASE 2 - STANDARDIZATION (Week 2):
+  6. Pin all wildcard versions to exact versions
+  7. Update Microsoft.Extensions.Logging: 9.0.5 → 10.0.3
+  8. Update coverlet.collector to 8.0.0
+  9. Update xunit.runner.visualstudio to 3.1.5
+  10. Pin Microsoft.AspNetCore.* to exact versions
+
+PHASE 3 - PROVIDER EVALUATION (Week 2-3):
+  11. Evaluate and pin Anthropic SDK to specific 12.x.x
+  12. Review Azure.AI.OpenAI beta status
+  13. Verify all AI/ML provider compatibility
+
+PHASE 4 - TESTING & VALIDATION (Week 3-4):
+  14. Run full test suite
+  15. Verify AOT compilation compatibility
+  16. Test in all target frameworks (.NET 8, 9, 10)
+  17. Document breaking changes
+
+================================================================================
+WILDCARD PACKAGES TO ADDRESS:
+================================================================================
+
+These packages use wildcards and should be pinned to exact versions:
+
+  - Anthropic: 12.* → 12.x.x (Exact version TBD)
+  - AspNet.Security.OAuth.GitHub: 10.0.* → 10.0.x
+  - Azure.Identity: 1.* → 1.x.x
+  - Azure.AI.OpenAI: 2.* → 2.x.x
+  - Markdig: 0.38.* → 0.38.x
+  - Microsoft.AspNetCore.*: 10.0.* → 10.0.3
+  - Microsoft.Extensions.*: 10.* → 10.0.3
+  - AWSSDK.* packages: 4.* → 4.0.x.x
+
+================================================================================
+NOTES & RECOMMENDATIONS:
+================================================================================
+
+1. Version Consistency:
+   - The codebase has accumulated multiple versions of key packages
+   - v0.4.0 is a good opportunity to standardize and clean up dependencies
+
+2. Target Framework Support:
+   - Currently supports: .NET 6 (EOL), .NET 8 (LTS), .NET 9, .NET 10
+   - Recommendation: Consider dropping .NET 6 support for v0.4.0
+
+3. Preview/Beta Packages:
+   - Microsoft.Extensions.AI.Evaluation.NLP: Preview version
+   - Microsoft.Extensions.DataIngestion.*: Preview versions
+   - Azure.AI.Projects: Beta (intentional for experimental features)
+   - System.Numerics.Tensors: .NET 10 preview available
+
+4. Breaking Changes:
+   - FluentAssertions 6→8 is a MAJOR update
+   - Requires testing of assertion syntax across all test files
+   - Other updates should be backward compatible
+
+5. Testing Impact:
+   - Multiple test SDK versions indicate projects may have been updated separately
+   - Standardization will ensure consistent test behavior
+   - AOT compatibility should be verified post-update
+
+6. Performance:
+   - No significant performance impact expected from these updates
+   - Newer versions typically include optimizations and fixes
+
+================================================================================
+DELIVERABLES CREATED:
+================================================================================
+
+1. DEPENDENCY_ANALYSIS_v0.4.0.md
+   - Comprehensive dependency analysis report
+   - Location: /Volumes/Samsung/Documents/HPD-Agent-Framework/
+
+2. HPD-Agent-Framework-Dependencies.csv
+   - CSV file with all 113 packages and their status
+   - Sortable by priority, status, or package name
+   - Location: /Volumes/Samsung/Documents/HPD-Agent-Framework/
+
+3. This Summary Document
+   - Quick reference guide for all findings and recommendations
+
+================================================================================

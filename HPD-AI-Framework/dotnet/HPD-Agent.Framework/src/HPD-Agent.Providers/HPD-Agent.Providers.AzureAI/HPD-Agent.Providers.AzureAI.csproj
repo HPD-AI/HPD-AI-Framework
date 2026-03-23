@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <PackageId>HPD-Agent.Providers.AzureAI</PackageId>
+    <Title>HPD-Agent Azure AI Provider</Title>
+    <Description>Azure AI Projects provider for HPD-Agent using Azure.AI.Projects SDK</Description>
+    <PackageTags>ai;agent;azure;azure-ai;azure-ai-projects;llm;openai</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Agent.Providers.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../src/HPD-Agent/HPD-Agent.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Azure AI Projects SDK -->
+    <PackageReference Include="Azure.AI.Projects" Version="2.0.0-beta.1" />
+    <!-- Azure Identity for DefaultAzureCredential -->
+    <PackageReference Include="Azure.Identity" Version="1.*" />
+    <!-- Azure OpenAI for chat completions -->
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.8.0-beta.1" />
+    <!-- Microsoft.Extensions.AI for IChatClient -->
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.3.0" />
+  </ItemGroup>
+</Project>

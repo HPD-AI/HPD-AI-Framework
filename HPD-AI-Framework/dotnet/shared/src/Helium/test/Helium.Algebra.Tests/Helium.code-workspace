@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": "../.."
+		},
+		{
+			"path": "../../../CodeOS/InternalDocs"
+		},
+		{
+			"path": "../../../Neon"
+		},
+		{
+			"path": "../../../Krypton"
+		},
+		{
+			"path": "../../../Argon"
+		}
+	],
+	"settings": {}
+}

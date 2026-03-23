@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <RootNamespace>HPDAgent.Graph.Core</RootNamespace>
+    <AssemblyName>HPDAgent.Graph.Core</AssemblyName>
+    <IsPackable>true</IsPackable>
+
+    <!-- Package metadata -->
+    <PackageId>HPD-Agent.Graph.Core</PackageId>
+    <Description>Core implementation of HPD-Graph - a universal DAG execution engine with support for parallel execution, checkpointing, and content-addressable caching.</Description>
+    <PackageTags>graph;dag;workflow;orchestration;execution-engine;orchestrator</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Graph.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Graph.Abstractions\HPD-Graph.Abstractions.csproj" />
+    <ProjectReference Include="..\..\HPD-Events\HPD-Events.csproj" />
+
+    <!-- Source Generator Reference -->
+    <ProjectReference Include="..\HPD-Graph.SourceGenerator\HPD-Graph.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.3" />
+    <PackageReference Include="System.IO.Hashing" Version="10.0.3" />
+    <PackageReference Include="Cronos" Version="0.11.1" />
+  </ItemGroup>
+
+</Project>

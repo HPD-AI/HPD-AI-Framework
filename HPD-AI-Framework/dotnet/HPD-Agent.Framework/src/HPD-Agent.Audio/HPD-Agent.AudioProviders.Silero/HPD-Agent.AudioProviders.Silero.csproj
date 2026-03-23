@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <RootNamespace>HPD.Agent.AudioProviders.Silero</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NoWarn>HPDAUDIO001;IL2026;IL3050</NoWarn>
+    <PublishAot>true</PublishAot>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+
+  <!-- NuGet Package Metadata -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.AudioProviders.Silero</PackageId>
+    <Description>Silero VAD provider for HPD-Agent. Implements IVoiceActivityDetector using the Silero VAD ONNX model for local, offline voice activity detection.</Description>
+    <PackageTags>ai;agent;audio;vad;silero;voice;speech;onnx</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Core Audio abstractions -->
+    <ProjectReference Include="..\HPD-Agent.Audio\HPD-Agent.Audio.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ONNX runtime for local model inference -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.3" />
+  </ItemGroup>
+
+  <!-- Embed the Silero VAD ONNX model as a resource -->
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\silero_vad.onnx" />
+  </ItemGroup>
+
+  <!-- Expose internals to test project -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Agent.Audio.Tests" />
+  </ItemGroup>
+
+</Project>

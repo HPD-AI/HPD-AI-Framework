@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>HPD.Auth.Sample</RootNamespace>
+    <AssemblyName>HPD.Auth.Sample</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Meta-package: AddHPDAuth, UseHPDAuth, MapHPDAuthEndpoints -->
+    <ProjectReference Include="../../src/HPD.Auth/HPD.Auth.csproj" />
+    <!-- Sub-packages for full feature set -->
+    <ProjectReference Include="../../src/HPD.Auth.Authentication/HPD.Auth.Authentication.csproj" />
+    <ProjectReference Include="../../src/HPD.Auth.Audit/HPD.Auth.Audit.csproj" />
+    <ProjectReference Include="../../src/HPD.Auth.Authorization/HPD.Auth.Authorization.csproj" />
+    <ProjectReference Include="../../src/HPD.Auth.TwoFactor/HPD.Auth.TwoFactor.csproj" />
+    <ProjectReference Include="../../src/HPD.Auth.Admin/HPD.Auth.Admin.csproj" />
+  </ItemGroup>
+</Project>

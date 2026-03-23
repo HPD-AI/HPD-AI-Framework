@@ -25,9 +25,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\HPD-Auth.Framework\src\HPD.Auth.Authentication\HPD.Auth.Authentication.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-Auth.Framework\src\HPD.Auth.Core\HPD.Auth.Core.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-Auth.Framework\src\HPD.Auth\HPD.Auth.csproj" />
+    <ProjectReference Include="..\..\src\HPD.Auth.Authentication\HPD.Auth.Authentication.csproj" />
+    <ProjectReference Include="..\..\src\HPD.Auth.Core\HPD.Auth.Core.csproj" />
+    <ProjectReference Include="..\..\src\HPD.Auth\HPD.Auth.csproj" />
   </ItemGroup>
 
 </Project>

@@ -10,7 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../shared/Helium/src/Helium.Primitives/Helium.Primitives.csproj" />
+    <ProjectReference Include="../../../shared/src/Helium/src/Helium.Primitives/Helium.Primitives.csproj" />
   </ItemGroup>
 
   <ItemGroup>

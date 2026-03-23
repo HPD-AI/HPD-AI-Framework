@@ -1,0 +1,38 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Server Variables API", "version": "1.0.0" },
+  "servers": [
+    {
+      "url": "https://{region}.api.example.com/{version}",
+      "description": "Global server with region and version variables",
+      "variables": {
+        "region": {
+          "default": "us-east",
+          "description": "AWS region",
+          "enum": ["us-east", "eu-west", "ap-south"]
+        },
+        "version": {
+          "default": "v2",
+          "description": "API version",
+          "enum": ["v1", "v2", "v3"]
+        }
+      }
+    }
+  ],
+  "paths": {
+    "/items": {
+      "get": {
+        "operationId": "listItems",
+        "summary": "List items",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/orders": {
+      "get": {
+        "operationId": "listOrders",
+        "summary": "List orders",
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  }
+}

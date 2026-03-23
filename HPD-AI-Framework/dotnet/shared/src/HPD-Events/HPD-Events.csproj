@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <RootNamespace>HPDEvents</RootNamespace>
+    <AssemblyName>HPDEvents</AssemblyName>
+    <IsPackable>true</IsPackable>
+
+    <!-- Native AOT Configuration -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+
+    <!-- Package metadata -->
+    <PackageId>HPD-Agent.Events</PackageId>
+    <Description>Universal event coordination system for the HPD ecosystem. Provides priority-based event streaming, hierarchical event bubbling, and cross-domain event composition with zero dependencies.</Description>
+    <PackageTags>events;event-coordination;streaming;priority-channels;event-bubbling</PackageTags>
+  </PropertyGroup>
+
+</Project>

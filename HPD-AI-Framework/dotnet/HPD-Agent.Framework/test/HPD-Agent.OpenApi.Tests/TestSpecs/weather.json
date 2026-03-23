@@ -1,0 +1,65 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Weather API",
+    "description": "Simple weather forecast API",
+    "version": "2.0.0"
+  },
+  "servers": [
+    { "url": "https://api.weather.example.com" }
+  ],
+  "paths": {
+    "/forecast": {
+      "get": {
+        "operationId": "getForecast",
+        "summary": "Get weather forecast",
+        "description": "Returns weather forecast for a location",
+        "parameters": [
+          {
+            "name": "city",
+            "in": "query",
+            "required": true,
+            "description": "City name",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "description": "Number of forecast days (1-7)",
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "X-Api-Key",
+            "in": "header",
+            "required": false,
+            "description": "API key for authentication",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Forecast data" }
+        }
+      }
+    },
+    "/alerts": {
+      "get": {
+        "operationId": "getAlerts",
+        "summary": "Get weather alerts",
+        "description": "Returns active weather alerts for a region",
+        "parameters": [
+          {
+            "name": "region",
+            "in": "query",
+            "required": true,
+            "description": "Region code",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Active alerts" }
+        }
+      }
+    }
+  }
+}

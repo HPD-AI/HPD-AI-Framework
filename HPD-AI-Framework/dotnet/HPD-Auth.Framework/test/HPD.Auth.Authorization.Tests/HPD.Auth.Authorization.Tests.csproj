@@ -23,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\HPD-Auth.Framework\src\HPD.Auth.Authorization\HPD.Auth.Authorization.csproj" />
+    <ProjectReference Include="..\..\src\HPD.Auth.Authorization\HPD.Auth.Authorization.csproj" />
   </ItemGroup>
 
 </Project>

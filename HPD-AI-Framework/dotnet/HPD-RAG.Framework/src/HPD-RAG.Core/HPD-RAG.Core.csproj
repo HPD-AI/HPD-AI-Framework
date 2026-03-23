@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <RootNamespace>HPD-RAG.Core</RootNamespace>
+    <AssemblyName>HPD-RAG.Core</AssemblyName>
+    <IsPackable>true</IsPackable>
+
+    <!-- Native AOT Configuration -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+
+    <!-- Package metadata -->
+    <PackageId>HPD-RAG.Core</PackageId>
+    <Description>Core abstractions, DTOs, pipeline context, filter AST, and provider discovery systems for HPD-RAG.</Description>
+    <PackageTags>rag;modular-rag;ai;llm;vector-search;graph;dotnet</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\shared\src\HPD-Graph\HPD-Graph.Core\HPD-Graph.Core.csproj" />
+    <ProjectReference Include="..\..\..\shared\src\HPD-Graph\HPD-Graph.Abstractions\HPD-Graph.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.3.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" Version="10.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-RAG.Ingestion" />
+    <InternalsVisibleTo Include="HPD-RAG.Retrieval" />
+    <InternalsVisibleTo Include="HPD-RAG.Evaluation" />
+  </ItemGroup>
+
+</Project>

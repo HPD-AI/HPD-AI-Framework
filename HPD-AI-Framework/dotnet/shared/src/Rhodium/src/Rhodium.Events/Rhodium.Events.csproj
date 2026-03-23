@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\HPD-Events\HPD-Events.csproj" />
+    <ProjectReference Include="..\Rhodium.Primitives\Rhodium.Primitives.csproj" />
+    <ProjectReference Include="..\Rhodium.Quant\Rhodium.Quant.csproj" />
+  </ItemGroup>
+
+</Project>

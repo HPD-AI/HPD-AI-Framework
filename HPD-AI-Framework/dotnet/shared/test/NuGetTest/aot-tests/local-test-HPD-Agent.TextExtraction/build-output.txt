@@ -1,0 +1,6 @@
+  Determining projects to restore...
+  Restored /Users/einsteinessibu/Documents/HPD-Agent/test/NuGetTest/aot-tests/local-test-HPD-Agent.TextExtraction/Test.csproj (in 153 ms).
+  1 of 2 projects are up-to-date for restore.
+  HPD-Agent.TextExtraction -> /Users/einsteinessibu/Documents/HPD-Agent/HPD-Agent.TextExtraction/bin/Release/net8.0/HPD-Agent.TextExtraction.dll
+  Test -> /Users/einsteinessibu/Documents/HPD-Agent/test/NuGetTest/aot-tests/local-test-HPD-Agent.TextExtraction/bin/Release/net8.0/osx-arm64/Test.dll
+  Test -> /Users/einsteinessibu/Documents/HPD-Agent/test/NuGetTest/aot-tests/local-test-HPD-Agent.TextExtraction/bin/Release/net8.0/osx-arm64/publish/

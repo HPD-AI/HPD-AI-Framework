@@ -22,8 +22,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\HPD-ML.Framework\HPD.ML.DataSources\HPD.ML.DataSources.csproj" />
-    <ProjectReference Include="..\..\..\src\HPD-ML.Framework\HPD.ML.Core\HPD.ML.Core.csproj" />
+    <ProjectReference Include="..\..\src\HPD.ML.DataSources\HPD.ML.DataSources.csproj" />
+    <ProjectReference Include="..\..\src\HPD.ML.Core\HPD.ML.Core.csproj" />
   </ItemGroup>
 
 </Project>

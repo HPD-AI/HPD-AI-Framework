@@ -1,0 +1,6 @@
+# Ignore all NuGet packages in this directory
+*.nupkg
+*.snupkg
+
+# But keep the directory structure
+!.gitignore

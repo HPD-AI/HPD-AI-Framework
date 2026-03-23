@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <RootNamespace>HPD.Agent.Audio.OpenAI</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NoWarn>HPDAUDIO001;MEAI001;IL2026;IL3050;OPENAI001</NoWarn>
+    <!-- Native AOT Configuration -->
+    <PublishAot>true</PublishAot>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+
+  <!-- NuGet Package Metadata -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.AudioProviders.OpenAI</PackageId>
+    <Description>OpenAI audio provider for HPD-Agent. Implements ITextToSpeechClient using OpenAI's TTS API.</Description>
+    <PackageTags>ai;agent;audio;tts;openai;speech</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Core Audio abstractions -->
+    <ProjectReference Include="..\HPD-Agent.Audio\HPD-Agent.Audio.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- OpenAI SDK -->
+    <PackageReference Include="OpenAI" Version="2.9.1" />
+  </ItemGroup>
+
+  <!-- Expose internals to test project -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Agent.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,44 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <RootNamespace>HPD.Agent.Tests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="8.0.0" />
+    <PackageReference Include="FluentAssertions" Version="8.8.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.3" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.0.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exclude V1 archived test files from compilation -->
+    <Compile Remove="**/*.V1.OLD.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent\HPD-Agent.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.FFI\HPD-Agent.FFI.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Audio\HPD-Agent.Audio\HPD-Agent.Audio.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Audio\HPD-Agent.AudioProviders.OpenAI\HPD-Agent.AudioProviders.OpenAI.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.SourceGenerator\HPD-Agent.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="true" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.Toolkit\HPD-Agent.Toolkit.FileSystem\HPD-Agent.Toolkit.FileSystem.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.MultiAgent\HPD-Agent.MultiAgent.csproj" />
+    <ProjectReference Include="..\..\..\src\HPD-Agent.Framework\HPD-Agent.MCP\HPD-Agent.MCP.csproj" />
+  </ItemGroup>
+
+</Project>
