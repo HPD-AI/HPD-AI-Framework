@@ -23,10 +23,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\HPD-Agent.Framework\src\HPD-Agent.MultiAgent\HPD-Agent.MultiAgent.csproj" />
-    <ProjectReference Include="..\..\..\HPD-Agent.Framework\src\HPD-Agent\HPD-Agent.csproj" />
-    <ProjectReference Include="..\..\..\shared\src\HPD-Graph\HPD-Graph.Core\HPD-Graph.Core.csproj" />
-    <ProjectReference Include="..\..\..\shared\src\HPD-Events\HPD-Events.csproj" />
+    <ProjectReference Include="..\..\src\HPD-Agent.MultiAgent\HPD-Agent.MultiAgent.csproj" />
+    <ProjectReference Include="..\..\src\HPD-Agent\HPD-Agent.csproj" />
+    <ProjectReference Include="..\..\..\..\shared\src\HPD-Graph\HPD-Graph.Core\HPD-Graph.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\shared\src\HPD-Events\HPD-Events.csproj" />
   </ItemGroup>
 
 </Project>

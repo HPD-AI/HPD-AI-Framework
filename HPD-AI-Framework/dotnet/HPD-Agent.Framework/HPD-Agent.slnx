@@ -58,6 +58,7 @@
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="test/HPD-Agent.Tests/HPD-Agent.Tests.csproj" />
+    <Project Path="test/HPD-Agent.MultiAgent.Tests/HPD-Agent.MultiAgent.Tests.csproj" />
     <Project Path="test/HPD-Agent.OpenApi.Tests/HPD-Agent.OpenApi.Tests.csproj" />
     <Project Path="test/HPD-Agent.AspNetCore.Tests/HPD-Agent.AspNetCore.Tests.csproj" />
     <Project Path="test/HPD-Agent.Evaluations.Tests/HPD-Agent.Evaluations.Tests.csproj" />

@@ -71,7 +71,7 @@ jobs:
       - name: Run tests
         run: |
           dotnet test HPD-AI-Framework/dotnet/HPD-Agent.Framework/test/HPD-Agent.Tests/HPD-Agent.Tests.csproj --configuration Release --no-build --verbosity normal -f net10.0
-          dotnet test HPD-AI-Framework/dotnet/HPD-Agent.Framework/test/HPD.MultiAgent.Tests/HPD.MultiAgent.Tests.csproj --configuration Release --no-build --verbosity normal -f net10.0
+          dotnet test HPD-AI-Framework/dotnet/HPD-Agent.Framework/test/HPD-Agent.MultiAgent.Tests/HPD-Agent.MultiAgent.Tests.csproj --configuration Release --no-build --verbosity normal -f net10.0
 
       - name: Pack packages
         run: |
