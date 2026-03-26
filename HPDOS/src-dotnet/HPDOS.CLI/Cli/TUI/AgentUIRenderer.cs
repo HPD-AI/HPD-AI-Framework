@@ -304,6 +304,8 @@ public class AgentUIRenderer
             foreach (var line in remaining)
                 WriteAssistantTextRenderable(line);
         }
+
+        _session.WriteLine();
     }
 
     private void RenderError(MessageTurnErrorEvent evt)
