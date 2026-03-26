@@ -6,26 +6,20 @@ using HPDOS.Shell.Cli.TUI.Commands;
 using HPDOS.Shell.Cli.TUI.Markdown;
 using Spectre.Console;
 using Spectre.Console.Rendering;
-using System.Collections.Concurrent;
 using System.Net.Http.Json;
-using System.Text;
-using System.Text.Json;
 
 namespace HPDOS.Shell.Cli.TUI;
 
 
 /// <summary>
 /// Component-based UI renderer for HPD Agent events.
-/// Mirrors Gemini CLI's architecture with reusable components.
 /// Uses UIState for state management and components for rendering.
 /// </summary>
 public class AgentUIRenderer
 {
     private readonly IConsoleSession _session;
     private readonly UIStateManager _stateManager;
-    private readonly ConcurrentDictionary<string, ToolMessage> _toolComponents = new();
-    private readonly ConcurrentDictionary<string, string?> _callIdToToolkit = new();
-    private readonly ConcurrentDictionary<string, string?> _callIdToRenderedLine = new();
+    private readonly ToolRenderer _toolRenderer;
     private readonly object _lock = new();
     private bool _isFirstOutput = true;
     private bool _assistantThreadStarted;
@@ -35,24 +29,6 @@ public class AgentUIRenderer
     // Thinking spinner — runs between turn start and first output, and during tool execution
     private CancellationTokenSource? _spinnerCts;
     private Task? _spinnerTask;
-
-    // Known CodingToolkit tools (for fallback detection when ToolkitName is null)
-    private static readonly HashSet<string> CodingToolkitTools = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "ReadFile", "read_file", "ReadManyFiles", "read_many_files",
-        "EditFile", "edit_file", "WriteFile", "write_file",
-        "ListDirectory", "list_directory", "GlobSearch", "glob_search",
-        "Grep", "grep", "DiffFiles", "diff_files",
-        "GetFileInfo", "get_file_info", "ExecuteCommand", "execute_command"
-    };
-
-    // Tools whose results should be hidden (rendered via dedicated events instead)
-    private static readonly HashSet<string> HiddenResultTools = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "CreatePlanAsync", "create_plan_async", "CreatePlan", "create_plan",
-        "UpdatePlanStepAsync", "update_plan_step_async", "UpdatePlanStep", "update_plan_step",
-        "CodingToolkit", "MathToolkit"
-    };
 
     // Streaming markdown support - Codex-style line accumulator
     private readonly StreamCollector<IRenderable> _lineCollector = new(new SpectreMarkdownRenderer());
@@ -88,6 +64,16 @@ public class AgentUIRenderer
         _session = session;
         _stateManager = new UIStateManager();
         BuiltInCommands.RegisterAll(_commandRegistry);
+
+        // Initialize tool renderer with callbacks
+        _toolRenderer = new ToolRenderer(new ToolRenderContext(
+            Session: session,
+            WriteThread: WriteAssistantThreadRenderable,
+            FlushText: FlushPendingText,
+            StartSpinner: StartSpinner,
+            StopSpinner: StopSpinner,
+            SetShowMarkerOnNext: () => _showMarkerOnNextAssistantTextBlock = true
+        ));
     }
 
     /// <summary>
@@ -204,15 +190,15 @@ public class AgentUIRenderer
                     break;
                     
                 case ToolCallStartEvent toolStart:
-                    RenderToolStart(toolStart);
+                    _toolRenderer.RenderToolStart(toolStart);
                     break;
-                    
+
                 case ToolCallArgsEvent toolArgs:
-                    RenderToolArgs(toolArgs);
+                    _toolRenderer.RenderToolArgs(toolArgs);
                     break;
-                    
+
                 case ToolCallResultEvent toolResult:
-                    RenderToolResult(toolResult);
+                    _toolRenderer.RenderToolResult(toolResult);
                     break;
                     
                 case PermissionRequestEvent permissionRequest:
@@ -290,7 +276,7 @@ public class AgentUIRenderer
         _isFirstOutput = true;
         _assistantThreadStarted = false;
         _showMarkerOnNextAssistantTextBlock = false;
-        _toolComponents.Clear();
+        _toolRenderer.Clear();
         _lineCollector.Clear();
 
         _session.WriteLine();
@@ -379,53 +365,6 @@ public class AgentUIRenderer
         }
     }
     
-    private void RenderToolStart(ToolCallStartEvent evt)
-    {
-        StopSpinner();
-
-        // Flush any pending streamed text BEFORE showing tool call
-        // This ensures text appears in correct order relative to tool outputs
-        FlushPendingText();
-
-        var toolMessage = new ToolMessage
-        {
-            Name = evt.Name,
-            Status = ToolCallStatus.Executing
-        };
-        _toolComponents[evt.CallId] = toolMessage;
-        _callIdToToolkit[evt.CallId] = evt.ToolkitName;
-
-        // Hide toolkit containers and tools with dedicated event rendering
-        if (evt.Name.EndsWith("Toolkit") || HiddenResultTools.Contains(evt.Name))
-        {
-            StartSpinner($"{evt.Name}...");
-            return;
-        }
-
-        // CodingToolkit tools: don't show anything on start - we'll show inline with result
-        if (IsCodingToolkitTool(evt.Name, evt.ToolkitName))
-        {
-            StartSpinner($"{evt.Name}...");
-            return;
-        }
-
-        // Default: show full tool call info for non-CodingToolkit tools
-        _session.WriteLine();
-        WriteAssistantThreadRenderable(new Markup($"[yellow]⚙ Calling:[/] [bold]{Markup.Escape(evt.Name)}[/]"));
-        _showMarkerOnNextAssistantTextBlock = true;
-        StartSpinner("Waiting for result...");
-    }
-
-    /// <summary>
-    /// Detects if a tool belongs to CodingToolkit (by name or explicit ToolkitName)
-    /// </summary>
-    private static bool IsCodingToolkitTool(string toolName, string? toolkitName)
-    {
-        if (toolkitName == "CodingToolkit") return true;
-        if (CodingToolkitTools.Contains(toolName)) return true;
-        return false;
-    }
-
     /// <summary>
     /// Flushes any pending streamed text from the line collector.
     /// Call this before rendering tool calls/results to maintain proper ordering.
@@ -438,255 +377,6 @@ public class AgentUIRenderer
             WriteAssistantTextRenderable(line);
 
         _lineCollector.Clear();
-    }
-    
-    private void RenderToolArgs(ToolCallArgsEvent evt)
-    {
-        if (!_toolComponents.TryGetValue(evt.CallId, out var tool))
-            return;
-
-        tool.Args = evt.ArgsJson;
-        _callIdToToolkit.TryGetValue(evt.CallId, out var toolkit);
-
-        // For CodingToolkit tools: buffer the display line (will be shown with result)
-        if (IsCodingToolkitTool(tool.Name, toolkit))
-        {
-            var displayLine = BuildCodingToolkitDisplayLine(tool.Name, evt.ArgsJson);
-            _callIdToRenderedLine[evt.CallId] = displayLine;
-        }
-    }
-
-    /// <summary>
-    /// Builds the display line for a CodingToolkit tool call (returned as markup string)
-    /// </summary>
-    private static string BuildCodingToolkitDisplayLine(string toolName, string argsJson)
-    {
-        try
-        {
-            using var doc = System.Text.Json.JsonDocument.Parse(argsJson);
-            var root = doc.RootElement;
-
-            switch (toolName)
-            {
-                case "ReadFile" or "read_file":
-                    var path = root.TryGetProperty("path", out var p) ? p.GetString() :
-                               root.TryGetProperty("filePath", out var fp) ? fp.GetString() : null;
-                    var startLine = root.TryGetProperty("startLine", out var sl) ? sl.GetInt32() : (int?)null;
-                    var endLine = root.TryGetProperty("endLine", out var el) ? el.GetInt32() : (int?)null;
-                    if (path != null)
-                    {
-                        var lineInfo = (startLine.HasValue && endLine.HasValue)
-                            ? $" [dim](lines {startLine}-{endLine})[/]"
-                            : startLine.HasValue ? $" [dim](from line {startLine})[/]" : "";
-                        return $"[dim]⚙ ReadFile:[/] [blue]{Markup.Escape(path)}[/]{lineInfo}";
-                    }
-                    break;
-
-                case "ReadManyFiles" or "read_many_files":
-                    if (root.TryGetProperty("paths", out var paths) && paths.ValueKind == System.Text.Json.JsonValueKind.Array)
-                        return $"[dim]⚙ ReadManyFiles:[/] [blue]{paths.GetArrayLength()} files[/]";
-                    break;
-
-                case "EditFile" or "edit_file":
-                case "WriteFile" or "write_file":
-                    var editPath = root.TryGetProperty("path", out var ep) ? ep.GetString() :
-                                   root.TryGetProperty("filePath", out var efp) ? efp.GetString() : null;
-                    if (editPath != null)
-                        return $"[dim]⚙ {Markup.Escape(toolName)}:[/] [blue]{Markup.Escape(editPath)}[/]";
-                    break;
-
-                case "ListDirectory" or "list_directory":
-                    var dirPath = root.TryGetProperty("directoryPath", out var dp) ? dp.GetString() :
-                                  root.TryGetProperty("path", out var dp2) ? dp2.GetString() : null;
-                    var displayDir = string.IsNullOrWhiteSpace(dirPath) ? "." : dirPath;
-                    return $"[dim]⚙ ListDirectory:[/] [blue]{Markup.Escape(displayDir)}[/]";
-
-                case "GlobSearch" or "glob_search":
-                    var pattern = root.TryGetProperty("pattern", out var pat) ? pat.GetString() : null;
-                    if (pattern != null)
-                        return $"[dim]⚙ GlobSearch:[/] [blue]{Markup.Escape(pattern)}[/]";
-                    break;
-
-                case "Grep" or "grep":
-                    var query = root.TryGetProperty("pattern", out var q) ? q.GetString() :
-                                root.TryGetProperty("query", out var qry) ? qry.GetString() : null;
-                    if (query != null)
-                        return $"[dim]⚙ Grep:[/] [blue]{Markup.Escape(query)}[/]";
-                    break;
-
-                case "ExecuteCommand" or "execute_command":
-                    var cmd = root.TryGetProperty("command", out var c) ? c.GetString() : null;
-                    if (cmd != null)
-                    {
-                        var displayCmd = cmd.Length > 60 ? cmd[..60] + "..." : cmd;
-                        return $"[dim]⚙ ExecuteCommand:[/] [yellow]{Markup.Escape(displayCmd)}[/]";
-                    }
-                    break;
-            }
-        }
-        catch { /* JSON parse failed */ }
-
-        return $"[dim]⚙ {Markup.Escape(toolName)}[/]";
-    }
-    
-    private void RenderToolResult(ToolCallResultEvent evt)
-    {
-        StopSpinner();
-
-        // Flush any pending streamed text before showing tool result
-        FlushPendingText();
-
-        if (!_toolComponents.TryGetValue(evt.CallId, out var tool))
-            return;
-
-        tool.Result = evt.Result;
-
-        var isError = ResultDetector.IsError(evt.Result);
-        tool.Status = isError ? ToolCallStatus.Error : ToolCallStatus.Completed;
-
-        // Get toolkit name (from event or cached from start event)
-        var toolkitName = evt.ToolkitName ?? (_callIdToToolkit.TryGetValue(evt.CallId, out var cached) ? cached : null);
-
-        // Hide results for tools with dedicated event rendering
-        if (HiddenResultTools.Contains(tool.Name) || tool.Name.EndsWith("Toolkit"))
-        {
-            _toolComponents.TryRemove(evt.CallId, out _);
-            _callIdToToolkit.TryRemove(evt.CallId, out _);
-            _callIdToRenderedLine.TryRemove(evt.CallId, out _);
-            return;
-        }
-
-        // CodingToolkit tools: show inline with colored gear
-        if (IsCodingToolkitTool(tool.Name, toolkitName))
-        {
-            RenderCodingToolkitResult(tool, evt.Result, isError, evt.CallId);
-            _showMarkerOnNextAssistantTextBlock = true;
-            _toolComponents.TryRemove(evt.CallId, out _);
-            _callIdToToolkit.TryRemove(evt.CallId, out _);
-            _callIdToRenderedLine.TryRemove(evt.CallId, out _);
-            return;
-        }
-
-        // Default: show full result for non-CodingToolkit tools
-        WriteAssistantThreadRenderable(tool.Render());
-        if (!isError)
-        {
-            RenderResultByType(evt.Result);
-        }
-
-        _showMarkerOnNextAssistantTextBlock = true;
-
-        _toolComponents.TryRemove(evt.CallId, out _);
-        _callIdToToolkit.TryRemove(evt.CallId, out _);
-    }
-
-    private void RenderCodingToolkitResult(ToolMessage tool, string result, bool isError, string callId)
-    {
-        // Get buffered display line and colorize gear based on result
-        _callIdToRenderedLine.TryRemove(callId, out var displayLine);
-        displayLine ??= $"⚙ {Markup.Escape(tool.Name)}";
-
-        // Replace dim gear with colored gear based on success/failure
-        var coloredLine = isError
-            ? displayLine.Replace("[dim]⚙", "[red]⚙")
-            : displayLine.Replace("[dim]⚙", "[green]⚙");
-
-        _session.WriteLine();
-        WriteAssistantThreadRenderable(new Markup(coloredLine));
-
-        if (isError)
-        {
-            WriteAssistantThreadRenderable(new Markup($"[red dim]  {Markup.Escape(TruncateResult(result, 100))}[/]"));
-            return;
-        }
-
-        // Show diff for write operations
-        var isWriteOp = tool.Name is "EditFile" or "WriteFile" or "edit_file" or "write_file";
-
-        if (isWriteOp && ResultDetector.Detect(result) == ResultType.Diff)
-        {
-            DisplayToolDiff(result);
-        }
-    }
-
-    private static string TruncateResult(string result, int maxLength)
-    {
-        if (result.Length <= maxLength) return result;
-        return result[..maxLength] + "...";
-    }
-    
-    /// <summary>
-    /// Smart content-based rendering. Detects result type and renders accordingly.
-    /// This is Toolkit-agnostic: any tool outputting a diff gets diff rendering, etc.
-    /// </summary>
-    private void RenderResultByType(string result)
-    {
-        var resultType = ResultDetector.Detect(result);
-
-        switch (resultType)
-        {
-            case ResultType.Diff:
-                DisplayToolDiff(result);
-                break;
-            case ResultType.Json:
-                // Future: DisplayJson(result);
-                break;
-            case ResultType.Table:
-                // Future: DisplayTable(result);
-                break;
-            // Plain text already shown in tool.Render()
-        }
-    }
-
-    private void DisplayToolDiff(string result)
-    {
-        try
-        {
-            // The result might contain diff information
-            // Look for diff markers like +++ and --- (unified diff format)
-            if (result.Contains("+++") && result.Contains("---"))
-            {
-                var lines = result.Split('\n');
-                var diffContent = new StringBuilder();
-                bool inDiff = false;
-                string? fileName = null;
-                
-                foreach (var line in lines)
-                {
-                    // Extract filename from --- line
-                    if (line.StartsWith("---") && fileName == null)
-                    {
-                        var parts = line.Split('\t');
-                        if (parts.Length > 0)
-                        {
-                            fileName = parts[0].Substring(4).Trim(); // Remove "--- "
-                        }
-                        inDiff = true;
-                    }
-                    
-                    if (inDiff)
-                        diffContent.AppendLine(line);
-                }
-                
-                if (diffContent.Length > 0)
-                {
-                    // Use DiffRenderer component for rich diff display
-                    var diffRenderer = new DiffRenderer
-                    {
-                        DiffContent = diffContent.ToString(),
-                        Filename = fileName,
-                        MaxLines = 50
-                    };
-                    
-                    WriteAssistantThreadRenderable(diffRenderer.Render());
-                    _session.WriteLine();
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            WriteAssistantThreadRenderable(new Markup($"[dim]Note: Could not parse diff: {Markup.Escape(ex.Message)}[/]"));
-        }
     }
     
     private async Task RenderPermissionRequest(PermissionRequestEvent evt)
@@ -793,15 +483,10 @@ public class AgentUIRenderer
                         }
                         foreach (var call in msg.GetToolCalls())
                         {
-                            var callLine = BuildCodingToolkitDisplayLine(
-                                call.Name,
-                                call.Arguments != null
-                                    ? JsonSerializer.Serialize(call.Arguments)
-                                    : "{}");
-                            // All history is completed — colour gear green
-                            var doneLine = callLine.Replace("[dim]⚙", "[green]⚙");
-                            _session.WriteLine();
-                            WriteAssistantThreadRenderable(new Markup(doneLine));
+                            var argsJson = call.Arguments != null
+                                ? System.Text.Json.JsonSerializer.Serialize(call.Arguments)
+                                : "{}";
+                            _toolRenderer.RenderHistoryToolCall(call.Name, argsJson);
                         }
                         break;
                 }
