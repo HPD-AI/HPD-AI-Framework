@@ -3,6 +3,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 
 const backendPort = process.env['HPDOS_BACKEND_PORT'] ?? '5173';
+const isTauri = !!process.env['TAURI_ENV_PLATFORM'];
 
 export default defineConfig({
 	plugins: [
@@ -15,9 +16,12 @@ export default defineConfig({
 			name: 'strip-crossorigin',
 			apply: 'build',
 			transformIndexHtml(html) {
+				// Tauri's webview supports ES modules natively — only strip type="module"
+				// for MAUI's HybridWebView which serves from a custom local scheme.
+				const stripModule = !isTauri;
 				return html
 					.replace(/\s+crossorigin(?:="[^"]*")?/g, '')
-					.replace(/<script type="module"/g, '<script defer');
+					.replace(/<script type="module"/g, stripModule ? '<script defer' : '<script type="module"');
 			},
 		},
 	],

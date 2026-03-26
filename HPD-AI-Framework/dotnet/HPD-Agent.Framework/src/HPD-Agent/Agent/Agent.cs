@@ -33,7 +33,7 @@ public sealed class Agent
     // V2: AgentContext is now passed through middleware hooks, no need for AsyncLocal storage
     // AsyncLocal storage for root agent tracking in nested agent calls
     private static readonly AsyncLocal<Agent?> _rootAgent = new();
-    // V3: CurrentSession AsyncLocal removed. Session/Branch are now passed explicitly to RunAsync.
+    //  CurrentSession AsyncLocal removed. Session/Branch are now passed explicitly to RunAsync.
     // If ambient access is needed, use AgentContext.Session/AgentContext.Branch in middleware.
 
     // Specialized component fields for delegation
@@ -114,7 +114,7 @@ public sealed class Agent
         internal set => _rootAgent.Value = value;
     }
 
-    // V3: CurrentSession property removed. Use Session/Branch passed explicitly via RunAsync parameters.
+    //  CurrentSession property removed. Use Session/Branch passed explicitly via RunAsync parameters.
     // In middleware, access via AgentContext.Session and AgentContext.Branch.
 
     /// <summary>
@@ -533,7 +533,7 @@ public sealed class Agent
         }
         else if (session != null)
         {
-            // Use session ID as conversation ID (V3: ConversationId removed from Session)
+            // Use session ID as conversation ID ( ConversationId removed from Session)
             conversationId = session.Id;
         }
         else
@@ -642,7 +642,7 @@ public sealed class Agent
                     }, CancellationToken.None);
                 }
 
-                // Load persistent middleware state from session + branch (V3: split by scope)
+                // Load persistent middleware state from session + branch ( split by scope)
                 var sessionState = MiddlewareState.LoadFromSession(session, _stateFactories);
                 var branchState = MiddlewareState.LoadFromBranch(branch, _stateFactories);
                 var persistentState = sessionState.Merge(branchState);
@@ -1398,7 +1398,7 @@ public sealed class Agent
                         {
                             if (session != null)
                             {
-                                // V3: Store provider conversation ID in metadata (ConversationId removed from Session)
+                                //  Store provider conversation ID in metadata (ConversationId removed from Session)
                                 session.AddMetadata("ProviderConversationId", _agentTurn.LastResponseConversationId);
                             }
                         }
@@ -1905,7 +1905,7 @@ public sealed class Agent
                 }
             }
 
-            // PERSISTENCE: Save persistent middleware state (V3: split by scope)
+            // PERSISTENCE: Save persistent middleware state ( split by scope)
             if (session != null)
             {
                 try
@@ -3943,7 +3943,7 @@ public sealed class Agent
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
-        // V3: Get all existing siblings at this fork point.
+        //  Get all existing siblings at this fork point.
         // Siblings share the same ForkedFrom + ForkedAtMessageIndex (same preceding context).
         var existingForkSiblings = await GetSiblingsAsync(
             sourceBranch.SessionId,
@@ -3956,7 +3956,7 @@ public sealed class Agent
             .OrderBy(b => b.CreatedAt)
             .ToList();
 
-        // V3: The source branch is ALWAYS sibling #0 ("original branch = 0" per design intent).
+        //  The source branch is ALWAYS sibling #0 ("original branch = 0" per design intent).
         // Insert it at the front if this is the first fork at this point (i.e. it hasn't been
         // assigned sibling navigation fields yet for this fork group).
         bool isFirstFork = sortedForkSiblings.Count == 0;
@@ -3974,7 +3974,7 @@ public sealed class Agent
             CreatedAt = now,
             LastActivity = now,
 
-            // V3: Sibling metadata
+            //  Sibling metadata
             // sortedSiblings already includes sourceBranch at slot 0, so Count = correct next index
             SiblingIndex = sortedSiblings.Count,      // Next available index (after source + existing forks)
             TotalSiblings = sortedSiblings.Count + 1, // source + existing forks + this new branch
@@ -4006,7 +4006,7 @@ public sealed class Agent
             newBranch.MiddlewareState[kvp.Key] = kvp.Value;
         }
 
-        // V3: Update ALL existing siblings atomically.
+        //  Update ALL existing siblings atomically.
         // sourceBranch at slot 0 is the "original" for this new group.
         //
         // Special case: if sourceBranch itself has a parent (ForkedFrom != null), it is ALSO
@@ -4041,7 +4041,7 @@ public sealed class Agent
         // Wire newBranch's PreviousSiblingId to the last existing sibling.
         newBranch.PreviousSiblingId = sortedSiblings.Last().Id;
 
-        // V3: Update source branch's ChildBranches list
+        //  Update source branch's ChildBranches list
         if (!sourceBranch.ChildBranches.Contains(newBranch.Id))
         {
             sourceBranch.ChildBranches.Add(newBranch.Id);
@@ -4049,7 +4049,7 @@ public sealed class Agent
             await store.SaveBranchAsync(sourceBranch.SessionId, sourceBranch, cancellationToken);
         }
 
-        // V3: Update session's LastActivity
+        //  Update session's LastActivity
         if (sourceBranch.Session != null)
         {
             sourceBranch.Session.LastActivity = now;
@@ -4154,7 +4154,7 @@ public sealed class Agent
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
-        // V3: Protect "main" branch from deletion
+        //  Protect "main" branch from deletion
         if (branchId == "main")
         {
             throw new InvalidOperationException("Cannot delete the 'main' branch.");
@@ -4167,7 +4167,7 @@ public sealed class Agent
             throw new InvalidOperationException($"Branch '{branchId}' not found in session '{sessionId}'.");
         }
 
-        // V3: Prevent deletion if branch has children (referential integrity)
+        //  Prevent deletion if branch has children (referential integrity)
         if (branch.ChildBranches.Count > 0)
         {
             throw new InvalidOperationException(
@@ -4175,7 +4175,7 @@ public sealed class Agent
                 $"Delete children first: {string.Join(", ", branch.ChildBranches)}");
         }
 
-        // V3: Perform deletion with sibling reindexing
+        //  Perform deletion with sibling reindexing
         // Note: No session locking at Agent level - locking should be done by the caller (e.g., BranchEndpoints)
 
         // Remove from parent's ChildBranches list

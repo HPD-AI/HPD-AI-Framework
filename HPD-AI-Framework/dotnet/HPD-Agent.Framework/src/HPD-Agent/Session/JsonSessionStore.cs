@@ -37,7 +37,7 @@ public class JsonSessionStore : ISessionStore
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // SESSION PERSISTENCE (V3: Metadata only)
+    // SESSION PERSISTENCE ( Metadata only)
     // ═══════════════════════════════════════════════════════════════════
 
     public Task<Session?> LoadSessionAsync(
@@ -106,7 +106,7 @@ public class JsonSessionStore : ISessionStore
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // BRANCH PERSISTENCE (V3: New)
+    // BRANCH PERSISTENCE ( New)
     // ═══════════════════════════════════════════════════════════════════
 
     public Task<Branch?> LoadBranchAsync(

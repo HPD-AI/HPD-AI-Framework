@@ -1,0 +1,32 @@
+[package]
+name = "hpdos-app"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+# lib target is required for tauri mobile entry point support
+[lib]
+name = "hpdos_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+url = "2"
+libloading = "0.8"
+
+[profile.dev]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

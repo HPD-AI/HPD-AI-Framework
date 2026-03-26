@@ -677,7 +677,7 @@ namespace HPD.Agent.Diagnostics {{
                 sb.AppendLine($"                CollectOpenApiSources: null,");
             }
 
-            // V3: Content store document initialization
+            //  Content store document initialization
             sb.AppendLine($"                // ========== V3 CONTENT STORE DOCUMENTS ==========");
             var hasSkillDocs = Toolkit.SkillCapabilities.Any(s =>
                 s.Options.DocumentUploads.Any() || s.Options.DocumentReferences.Any());

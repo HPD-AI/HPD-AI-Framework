@@ -8,6 +8,7 @@
     <NoWarn>HPDAUDIO001;MEAI001;IL2026;IL3050;OPENAI001</NoWarn>
     <!-- Native AOT Configuration -->
     <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
     <OutputType>Library</OutputType>
   </PropertyGroup>
 

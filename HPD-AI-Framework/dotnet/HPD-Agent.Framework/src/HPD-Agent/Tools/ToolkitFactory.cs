@@ -163,7 +163,7 @@ public record ToolkitFactory(
     /// </summary>
     Action<object, Action<string, object, string>>? CollectOpenApiSources = null,
 
-    // ========== V3: CONTENT STORE DOCUMENT INITIALIZATION ==========
+    // ==========  CONTENT STORE DOCUMENT INITIALIZATION ==========
 
     /// <summary>
     /// Delegate to the generated InitializeDocumentsAsync(IContentStore) method.

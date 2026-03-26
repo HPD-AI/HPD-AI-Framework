@@ -6,14 +6,8 @@
  */
 
 import { createWorkspace, createExpandedToolKit, createSuccessResponse, createErrorResponse } from '@hpd/hpd-agent-headless-ui';
-import { buildAppRecorderToolKit } from './apps/app-recorder/clientToolkit';
 import { buildAppToolKit } from './apps/appToolkit';
-import { AppRecorderState } from './apps/app-recorder/AppRecorderState.svelte';
 import { appShellState } from './appShellState.svelte';
-
-// Shared app-recorder state — one instance for the lifetime of the workspace.
-// AppRecorderApp.svelte reads this same instance so agent tool calls update its UI.
-export const appRecorderState = new AppRecorderState();
 
 const STORAGE_KEY = 'hpdos:last-location';
 
@@ -94,7 +88,7 @@ export const workspace = createWorkspace({
 	transport: 'sse',
 	sessionId: saved.sessionId,
 	initialBranchId: saved.branchId,
-	clientToolKits: [artifactToolKit, buildAppToolKit(), buildAppRecorderToolKit()],
+	clientToolKits: [artifactToolKit, buildAppToolKit()],
 	onClientToolInvoke: async (request) => {
 		if (request.toolName === 'upsert_artifact') {
 			return createSuccessResponse(request.requestId, [{ type: 'text', text: 'Artifact created.' }]) as any;
@@ -108,8 +102,6 @@ export const workspace = createWorkspace({
 			appShellState.closeApp();
 			return createSuccessResponse(request.requestId, [{ type: 'text', text: 'App panel closed.' }]) as any;
 		}
-		const appRecorderResult = appRecorderState.handleClientTool(request);
-		if (appRecorderResult !== null) return appRecorderResult as any;
 		return createErrorResponse(request.requestId, `Unknown client tool: ${request.toolName}`) as any;
 	},
 });

@@ -205,6 +205,10 @@ public class AgentUIRenderer
                     RenderPermissionRequest(permissionRequest).GetAwaiter().GetResult();
                     break;
 
+                case ContinuationRequestEvent continuationRequest:
+                    RenderContinuationRequest(continuationRequest).GetAwaiter().GetResult();
+                    break;
+
                 case ReasoningMessageStartEvent:
                     StartSpinner("Reasoning...");
                     break;
@@ -443,6 +447,62 @@ public class AgentUIRenderer
         _session.MarkupLine(approved
             ? "[green]✓ Permission granted[/]"
             : "[red]✗ Permission denied[/]");
+    }
+
+    private async Task RenderContinuationRequest(ContinuationRequestEvent evt)
+    {
+        _session.WriteLine();
+        var panel = new Panel(
+            new Markup($"[yellow]Agent has reached the iteration limit:[/]\n\n" +
+                      $"Current iteration: [bold]{evt.CurrentIteration}[/]\n" +
+                      $"Max iterations: [bold]{evt.MaxIterations}[/]\n\n" +
+                      $"[dim]The agent would like to continue exploring and executing more steps.[/]")
+        )
+        .Header("[yellow]🔄 Continuation Request[/]")
+        .Border(BoxBorder.Double)
+        .BorderColor(Color.Yellow).CapToTerminal();
+
+        _session.Write(panel);
+
+        // Prompt user for continuation decision
+        var choice = _session.Prompt(
+            new SelectionPrompt<string>()
+                .Title("[yellow]Continue with more iterations?[/]")
+                .AddChoices("Continue (+3 iterations)", "Continue (+5 iterations)", "Stop"));
+
+        var (approved, extensionAmount) = choice switch
+        {
+            "Continue (+3 iterations)" => (true, 3),
+            "Continue (+5 iterations)" => (true, 5),
+            "Stop" => (false, 0),
+            _ => (false, 0)
+        };
+
+        // Send response to the API endpoint to unblock the agent middleware
+        if (_httpClient != null && _sessionId != null && _branchId != null)
+        {
+            var responseEvent = new ContinuationResponseEvent(
+                evt.ContinuationId,
+                "CLI",
+                approved,
+                extensionAmount);
+
+            try
+            {
+                await _httpClient.PostAsJsonAsync(
+                    $"/sessions/{_sessionId}/branches/{_branchId}/continuation/respond",
+                    responseEvent,
+                    HpdosJsonOptions.Http);
+            }
+            catch (Exception ex)
+            {
+                _session.MarkupLine($"[red dim]Continuation response failed: {Markup.Escape(ex.Message)}[/]");
+            }
+        }
+
+        _session.MarkupLine(approved
+            ? "[green]✓ Continuing with more iterations[/]"
+            : "[red]✗ Stopping execution[/]");
     }
 
     /// <summary>

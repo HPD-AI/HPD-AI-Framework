@@ -3,10 +3,10 @@ import { mount, unmount } from 'svelte'
 import App from './App.svelte'
 import { appRegistry } from './lib/apps/index'
 import { helloManifest } from './lib/apps/hello/manifest'
-import { appRecorderManifest } from './lib/apps/app-recorder/manifest'
+import { codeServerManifest } from './lib/apps/code-server/manifest'
 
 appRegistry.register(helloManifest)
-appRegistry.register(appRecorderManifest)
+appRegistry.register(codeServerManifest)
 
 let app: ReturnType<typeof mount> | undefined
 

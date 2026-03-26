@@ -194,7 +194,7 @@ public class RecursiveBranchDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
         await ForkBranch(sid, "main", "fork-2");
         await ForkBranch(sid, "fork-1", "fork-1a");
 
-        // Verify initial state: fork-1 and fork-2 are siblings of main (V3: group = [main, fork-1, fork-2] = 3 total)
+        // Verify initial state: fork-1 and fork-2 are siblings of main ( group = [main, fork-1, fork-2] = 3 total)
         var beforeFork1 = await GetBranch(sid, "fork-1");
         var beforeFork2 = await GetBranch(sid, "fork-2");
         beforeFork1!.TotalSiblings.Should().Be(3);

@@ -278,7 +278,7 @@ public class SkillInstructionMiddlewareTests
             Tools = new List<AITool> { dummyTool }
         };
 
-        // V3: Use AgentContext factory pattern with Session + Branch
+        //  Use AgentContext factory pattern with Session + Branch
         var agentContext = new AgentContext(
             "TestAgent",
             "test-conv-id",

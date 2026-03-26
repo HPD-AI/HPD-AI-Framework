@@ -432,7 +432,7 @@ public class ClientToolMiddleware : IAgentMiddleware
             returnMessage += $"\n\n{skill.FunctionResult}";
         }
 
-        // Build document reference list for activation message (V3: content_read paths)
+        // Build document reference list for activation message ( content_read paths)
         if (skill.Documents != null && skill.Documents.Count > 0)
         {
             returnMessage += "\n\nReference documents available in the content store:";

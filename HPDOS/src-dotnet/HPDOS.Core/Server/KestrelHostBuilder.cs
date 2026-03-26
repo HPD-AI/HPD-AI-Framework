@@ -2,15 +2,16 @@ using HPD.Agent;
 using HPD.Agent.AspNetCore;
 using HPD.Agent.Planning;
 using HPD.Agent.Secrets;
-using HPDOS.Apps.AppRecorder;
 using HPDOS.Core.Auth;
 using HPDOS.Toolkits;
 using HPDOS.Core.Auth.Providers;
 using HPDOS.Core.Shell;
+using HPDOS.Core.Shell.ExternalApps;
 using HPDOS.Shell.Shell;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.HostFiltering;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Configuration;
@@ -81,16 +82,12 @@ public static class KestrelHostBuilder
             options.AllowedHosts = authEnabled ? ["*"] : ["localhost", "127.0.0.1", "[::1]"];
             options.AllowEmptyHosts = false;
         });
-
-
-        // HPD Video — recording engine, project store, editor toolkits.
-        builder.Services.AddAppRecorder();
-
         // Provider credential store — persists LLM API keys/OAuth tokens to HpdosDataPaths.Root/providers.json.
         // Resolution order: providers.json (with OAuth refresh) → env vars → appsettings.json
         builder.Services.AddSingleton<AuthStorage>();
         builder.Services.AddSingleton<AuthManager>();
         builder.Services.AddSingleton<UserPreferencesStore>();
+        builder.Services.AddSingleton<ExternalAppLauncher>();
 
         // Register HPDOS-local types with the Minimal API JSON serializer.
         builder.Services.TryAddEnumerable(
@@ -128,16 +125,18 @@ public static class KestrelHostBuilder
                 agentBuilder.WithToolkit<MathToolkit>();
                 agentBuilder.WithToolkit<PingToolkit>();
                 agentBuilder.WithToolkit<CodingToolkit>();
-                agentBuilder.AddAppRecorderToolkits(sp);
                 agentBuilder.WithPermissions();
                 agentBuilder.WithPlanMode();
-                //agentBuilder.WithLogging();
+                agentBuilder.WithLogging();
+                // Optional: Enable iteration limits with user permission requests.
+                // When enabled, after reaching MaxAgenticIterations (default 10), the agent asks for permission to continue.
+                // Uncomment the line below to enable:
+                // agentBuilder.WithMiddleware(new ContinuationPermissionMiddleware(maxIterations: 15, extensionAmount: 3));
             };
         });
 
         var app = builder.Build();
 
-        app.UseAppRecorder();
         serviceProviderBox[0] = app.Services;
 
         // Build and cache the chained secret resolver now that the DI container is ready.
@@ -170,10 +169,11 @@ public static class KestrelHostBuilder
         {
             ctx.Response.Headers["Content-Security-Policy"] =
                 "default-src 'self'; " +
-                "script-src 'self'; " +
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
                 "style-src 'self' 'unsafe-inline'; " +
                 "img-src 'self' data:; " +
-                "connect-src 'self'; " +
+                "connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; " +
+                "frame-src http://127.0.0.1:*; " +
                 "font-src 'self'; " +
                 "frame-ancestors 'none'";
             await next();
@@ -182,20 +182,32 @@ public static class KestrelHostBuilder
         // Agent API — anonymous (auth removed)
         var agentApi = app.MapHPDAgentApi();
 
+        // External app launch endpoints
+        app.MapPost("/api/apps/{appId}/launch",
+            (string appId, ExternalAppLaunchRequest req, ExternalAppLauncher launcher) =>
+                LaunchExternalAppAsync(appId, req, launcher));
+
+        app.MapDelete("/api/apps/{appId}",
+            (string appId, ExternalAppLauncher launcher) =>
+            {
+                launcher.Stop(appId);
+                return TypedResults.Ok();
+            });
+
         // Health check — used by remote clients to verify the server is reachable before saving.
-        app.MapGet("/api/status", () => Results.Ok(new StatusResponse("ok")));
+        app.MapGet("/api/status", Ok<StatusResponse> () => TypedResults.Ok(new StatusResponse("ok")));
 
         // Remote server config — read and write the remote URL preference.
         // Persistence is delegated to ShellConfig.SaveRemoteUrl (wired by MauiProgram
         // to Preferences API) so this code has no MAUI dependency.
-        var remoteGet = app.MapGet("/api/config/remote", () =>
-            Results.Ok(new RemoteConfigResponse(ShellConfig.RemoteServerUrl)));
+        var remoteGet = app.MapGet("/api/config/remote", Ok<RemoteConfigResponse> () =>
+            TypedResults.Ok(new RemoteConfigResponse(ShellConfig.RemoteServerUrl)));
 
-        var remotePost = app.MapPost("/api/config/remote", (RemoteConfigRequest req) =>
+        var remotePost = app.MapPost("/api/config/remote", Ok (RemoteConfigRequest req) =>
         {
             ShellConfig.RemoteServerUrl = string.IsNullOrWhiteSpace(req.Url) ? null : req.Url;
             ShellConfig.SaveRemoteUrl?.Invoke(ShellConfig.RemoteServerUrl);
-            return Results.Ok();
+            return TypedResults.Ok();
         });
 
         // Auth endpoints removed
@@ -213,57 +225,156 @@ public static class KestrelHostBuilder
 
         // Provider credential management — list, check status, logout, and start login flows.
         // In auth-enabled mode all provider endpoints require a valid JWT.
-        var providerList = app.MapGet("/api/providers", async (AuthManager auth) =>
-            Results.Ok(await auth.GetAuthSummaryAsync()));
+        var providerList = app.MapGet("/api/providers", (AuthManager auth) =>
+            GetProvidersAsync(auth));
 
-        var providerStatus = app.MapGet("/api/providers/{id}", async (string id, AuthManager auth) =>
-        {
-            var summaries = await auth.GetAuthSummaryAsync();
-            var summary = summaries.FirstOrDefault(s => s.ProviderId.Equals(id, StringComparison.OrdinalIgnoreCase));
-            return summary is null ? Results.NotFound() : Results.Ok(summary);
-        });
+        var providerStatus = app.MapGet("/api/providers/{id}", (string id, AuthManager auth) =>
+            GetProviderByIdAsync(id, auth));
 
-        var providerMethods = app.MapGet("/api/providers/{id}/methods", (string id, AuthManager auth) =>
-        {
-            var provider = auth.GetProvider(id);
-            if (provider is null) return Results.NotFound(new ErrorResponse($"Unknown provider: {id}"));
-            var methods = provider.Methods.Select((m, i) => new AuthMethodInfoResponse(i, m.Label, m.Description, m.IsRecommended)).ToList();
-            return Results.Ok(methods);
-        });
+        var providerMethods = app.MapGet("/api/providers/{id}/methods",
+            (string id, AuthManager auth) =>
+                GetProviderMethodsAsync(id, auth));
 
-        var providerLogout = app.MapDelete("/api/providers/{id}", async (string id, AuthManager auth) =>
-        {
-            var removed = await auth.Storage.RemoveAsync(id);
-            return removed ? Results.Ok() : Results.NotFound();
-        });
+        var providerLogout = app.MapDelete("/api/providers/{id}", (string id, AuthManager auth) =>
+            LogoutProviderAsync(id, auth));
 
         // Remove a specific stored entry by ID.
         var providerEntryDelete = app.MapDelete("/api/providers/{id}/entries/{entryId}",
-            async (string id, string entryId, AuthManager auth) =>
-            {
-                var removed = await auth.Storage.RemoveEntryAsync(id, entryId);
-                return removed ? Results.Ok() : Results.NotFound();
-            });
+            (string id, string entryId, AuthManager auth) =>
+                RemoveProviderEntryAsync(id, entryId, auth));
 
         // Promote a stored entry to active.
         var providerSetActive = app.MapPut("/api/providers/{id}/active",
-            async (string id, SetActiveRequest req, AuthManager auth) =>
-            {
-                var ok = await auth.Storage.SetActiveAsync(id, req.EntryId);
-                return ok ? Results.Ok() : Results.NotFound();
-            });
+            (string id, SetActiveRequest req, AuthManager auth) =>
+                SetActiveAsync(id, req, auth));
 
         // Login — starts an auth flow. Returns either a success (entry stored), a pending action
         // (device code: show code + URL to user), or a needs-input (manual code: return input URL).
         // The method index to use is passed as ?method=N (defaults to 0 = recommended method).
-        var providerLogin = app.MapPost("/api/providers/{id}/login", async (string id, int? method, AuthManager auth) =>
+        var providerLogin = app.MapPost("/api/providers/{id}/login",
+            (string id, int? method, AuthManager auth) =>
+                ProviderLoginAsync(id, method, auth, pendingFlows));
+
+        // Complete a NeedsUserInput flow (e.g. paste Anthropic auth code or an API key).
+        var providerLoginComplete = app.MapPost("/api/providers/{id}/login/complete",
+            (string id, int? method, ProviderLoginCompleteRequest req, AuthManager auth) =>
+                ProviderLoginCompleteAsync(id, method, req, auth, pendingFlows));
+
+        var providerModels = app.MapGet("/api/providers/{id}/models",
+            (string id, bool? live, string? filter, AuthManager auth, AuthStorage storage) =>
+                GetProviderModelsAsync(id, live, filter, auth, storage));
+
+        var defaultsGet = app.MapGet("/api/defaults",
+            (UserPreferencesStore prefs) =>
+                GetDefaultsAsync(prefs));
+
+        var defaultsPatch = app.MapPatch("/api/defaults",
+            (DefaultsRequest req, UserPreferencesStore prefs) =>
+                SetDefaultsAsync(req, prefs));
+
+        // Auth requirements removed
+
+        app.UseStaticFiles();                // serves wwwroot/ via PhysicalFileProvider
+        app.MapFallbackToFile("index.html"); // SPA fallback
+
+        app.Urls.Add($"http://localhost:{port}");
+        return app;
+    }
+
+    private static async Task<Results<Ok<List<HPDOS.Core.Auth.AuthSummary>>, ValidationProblem>> GetProvidersAsync(AuthManager auth)
+    {
+        try
+        {
+            return TypedResults.Ok(await auth.GetAuthSummaryAsync());
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["GetProvidersError"] = [ex.Message] });
+        }
+    }
+
+    private static Task<Results<Ok<List<AuthMethodInfoResponse>>, NotFound<ErrorResponse>, ValidationProblem>> GetProviderMethodsAsync(string id, AuthManager auth)
+    {
+        try
         {
             var provider = auth.GetProvider(id);
-            if (provider is null) return Results.NotFound(new ErrorResponse($"Unknown provider: {id}"));
+            if (provider is null) return Task.FromResult<Results<Ok<List<AuthMethodInfoResponse>>, NotFound<ErrorResponse>, ValidationProblem>>(
+                TypedResults.NotFound(new ErrorResponse($"Unknown provider: {id}")));
+            var methods = provider.Methods.Select((m, i) => new AuthMethodInfoResponse(i, m.Label, m.Description, m.IsRecommended)).ToList();
+            return Task.FromResult<Results<Ok<List<AuthMethodInfoResponse>>, NotFound<ErrorResponse>, ValidationProblem>>(
+                TypedResults.Ok(methods));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult<Results<Ok<List<AuthMethodInfoResponse>>, NotFound<ErrorResponse>, ValidationProblem>>(
+                TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["GetProviderMethodsError"] = [ex.Message] }));
+        }
+    }
+
+    private static async Task<Results<Ok<HPDOS.Core.Auth.AuthSummary>, NotFound, ValidationProblem>> GetProviderByIdAsync(string id, AuthManager auth)
+    {
+        try
+        {
+            var summaries = await auth.GetAuthSummaryAsync();
+            var summary = summaries.FirstOrDefault(s => s.ProviderId.Equals(id, StringComparison.OrdinalIgnoreCase));
+            return summary is null ? TypedResults.NotFound() : TypedResults.Ok(summary);
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["GetProviderError"] = [ex.Message] });
+        }
+    }
+
+    private static async Task<Results<Ok, NotFound, ValidationProblem>> LogoutProviderAsync(string id, AuthManager auth)
+    {
+        try
+        {
+            var removed = await auth.Storage.RemoveAsync(id);
+            return removed ? TypedResults.Ok() : TypedResults.NotFound();
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["LogoutError"] = [ex.Message] });
+        }
+    }
+
+    private static async Task<Results<Ok, NotFound, ValidationProblem>> RemoveProviderEntryAsync(string id, string entryId, AuthManager auth)
+    {
+        try
+        {
+            var removed = await auth.Storage.RemoveEntryAsync(id, entryId);
+            return removed ? TypedResults.Ok() : TypedResults.NotFound();
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["RemoveEntryError"] = [ex.Message] });
+        }
+    }
+
+    private static async Task<Results<Ok, NotFound, ValidationProblem>> SetActiveAsync(string id, SetActiveRequest req, AuthManager auth)
+    {
+        try
+        {
+            var ok = await auth.Storage.SetActiveAsync(id, req.EntryId);
+            return ok ? TypedResults.Ok() : TypedResults.NotFound();
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["SetActiveError"] = [ex.Message] });
+        }
+    }
+
+    private static async Task<Results<Ok<AuthStoreResponse>, Ok<PendingActionResponse>, Ok<NeedsInputResponse>, BadRequest<ErrorResponse>, NotFound<ErrorResponse>>> ProviderLoginAsync(
+        string id, int? method, AuthManager auth, System.Collections.Concurrent.ConcurrentDictionary<string, (AuthFlowResult.NeedsUserInput Flow, DateTime Expires)> pendingFlows)
+    {
+        try
+        {
+            var provider = auth.GetProvider(id);
+            if (provider is null) return TypedResults.NotFound(new ErrorResponse($"Unknown provider: {id}"));
 
             var methodIndex = method ?? 0;
             if (methodIndex < 0 || methodIndex >= provider.Methods.Count)
-                return Results.BadRequest(new ErrorResponse($"Method index {methodIndex} out of range"));
+                return TypedResults.BadRequest(new ErrorResponse($"Method index {methodIndex} out of range"));
 
             var authMethod = provider.Methods[methodIndex];
             var result = await authMethod.StartFlow(CancellationToken.None);
@@ -280,25 +391,31 @@ public static class KestrelHostBuilder
             {
                 AuthFlowResult.Success s => await KestrelHostBuilderHelpers.StoreAndOkAsync(auth, id,
                     s.Entry with { MethodLabel = authMethod.Label }),
-                AuthFlowResult.PendingUserAction p => Results.Ok(
+                AuthFlowResult.PendingUserAction p => TypedResults.Ok(
                     new PendingActionResponse("pending", p.Message, p.Url, p.UserCode)),
                 AuthFlowResult.NeedsUserInput n => KestrelHostBuilderHelpers.StoreAndReturnNeedsInput(pendingFlows, flowKey, n),
-                AuthFlowResult.Cancelled => Results.Ok(new StatusResponse("cancelled")),
-                AuthFlowResult.Failed f => Results.BadRequest(new ErrorResponse(f.Error)),
-                _ => Results.StatusCode(500)
+                AuthFlowResult.Cancelled => TypedResults.BadRequest(new ErrorResponse("Cancelled")),
+                AuthFlowResult.Failed f => TypedResults.BadRequest(new ErrorResponse(f.Error)),
+                _ => throw new InvalidOperationException("Unexpected auth flow result")
             };
-        });
+        }
+        catch (Exception ex)
+        {
+            throw;
+        }
+    }
 
-        // Complete a NeedsUserInput flow (e.g. paste Anthropic auth code or an API key).
-        var providerLoginComplete = app.MapPost("/api/providers/{id}/login/complete", async (
-            string id, int? method, ProviderLoginCompleteRequest req, AuthManager auth) =>
+    private static async Task<Results<Ok<AuthStoreResponse>, BadRequest<ErrorResponse>, NotFound<ErrorResponse>>> ProviderLoginCompleteAsync(
+        string id, int? method, ProviderLoginCompleteRequest req, AuthManager auth, System.Collections.Concurrent.ConcurrentDictionary<string, (AuthFlowResult.NeedsUserInput Flow, DateTime Expires)> pendingFlows)
+    {
+        try
         {
             var provider = auth.GetProvider(id);
-            if (provider is null) return Results.NotFound(new ErrorResponse($"Unknown provider: {id}"));
+            if (provider is null) return TypedResults.NotFound(new ErrorResponse($"Unknown provider: {id}"));
 
             var methodIndex = method ?? 0;
             if (methodIndex < 0 || methodIndex >= provider.Methods.Count)
-                return Results.BadRequest(new ErrorResponse($"Method index {methodIndex} out of range"));
+                return TypedResults.BadRequest(new ErrorResponse($"Method index {methodIndex} out of range"));
 
             var flowKey = $"{id.ToLowerInvariant()}:{methodIndex}";
 
@@ -315,7 +432,7 @@ public static class KestrelHostBuilder
                 var authMethod = provider.Methods[methodIndex];
                 var startResult = await authMethod.StartFlow(CancellationToken.None);
                 if (startResult is not AuthFlowResult.NeedsUserInput ni)
-                    return Results.BadRequest(new ErrorResponse("Flow does not require input at this stage"));
+                    return TypedResults.BadRequest(new ErrorResponse("Flow does not require input at this stage"));
                 needsInput = ni;
             }
 
@@ -325,16 +442,24 @@ public static class KestrelHostBuilder
             {
                 AuthFlowResult.Success s => await KestrelHostBuilderHelpers.StoreAndOkAsync(auth, id,
                     s.Entry with { MethodLabel = methodLabel }),
-                AuthFlowResult.Cancelled => Results.Ok(new StatusResponse("cancelled")),
-                AuthFlowResult.Failed f => Results.BadRequest(new ErrorResponse(f.Error)),
-                _ => Results.StatusCode(500)
+                AuthFlowResult.Cancelled => TypedResults.BadRequest(new ErrorResponse("Cancelled")),
+                AuthFlowResult.Failed f => TypedResults.BadRequest(new ErrorResponse(f.Error)),
+                _ => throw new InvalidOperationException("Unexpected auth flow result")
             };
-        });
+        }
+        catch (Exception ex)
+        {
+            throw;
+        }
+    }
 
-        var providerModels = app.MapGet("/api/providers/{id}/models", async (string id, bool? live, string? filter, AuthManager auth, AuthStorage storage) =>
+    private static async Task<Results<Ok<ModelInfo[]>, NotFound, ValidationProblem>> GetProviderModelsAsync(
+        string id, bool? live, string? filter, AuthManager auth, AuthStorage storage)
+    {
+        try
         {
             var provider = auth.GetProvider(id);
-            if (provider is null) return Results.NotFound();
+            if (provider is null) return TypedResults.NotFound();
 
             // live=true: fetch full model list from provider API
             if (live == true && provider is ILiveModelProvider liveProvider)
@@ -345,45 +470,76 @@ public static class KestrelHostBuilder
                 var toolModels = liveModels.Where(m => m.SupportsTools);
                 // filter=free: also restrict to free models
                 if (string.Equals(filter, "free", StringComparison.OrdinalIgnoreCase))
-                    return Results.Ok(toolModels.Where(m => m.IsFree).ToArray());
-                return Results.Ok(toolModels.ToArray());
+                    return TypedResults.Ok(toolModels.Where(m => m.IsFree).ToArray());
+                return TypedResults.Ok(toolModels.ToArray());
             }
 
             // Default: return curated static list from IModelProvider
             var models = provider is IModelProvider mp ? mp.GetModels().ToArray() : Array.Empty<ModelInfo>();
-            return Results.Ok(models);
-        });
+            return TypedResults.Ok(models);
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["GetProviderModelsError"] = [ex.Message] });
+        }
+    }
 
-        var defaultsGet = app.MapGet("/api/defaults", async (UserPreferencesStore prefs) =>
+    private static async Task<Results<Ok<DefaultsResponse>, ValidationProblem>> GetDefaultsAsync(UserPreferencesStore prefs)
+    {
+        try
         {
             var p = await prefs.GetAsync();
-            return Results.Ok(new DefaultsResponse(
+            return TypedResults.Ok(new DefaultsResponse(
                 p.DefaultProvider ?? "openrouter",
                 p.DefaultModel ?? "google/gemini-3.1-flash-lite-preview"));
-        });
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["GetDefaultsError"] = [ex.Message] });
+        }
+    }
 
-        var defaultsPatch = app.MapPatch("/api/defaults", async (DefaultsRequest req, UserPreferencesStore prefs) =>
+    private static async Task<Results<Ok, ValidationProblem>> SetDefaultsAsync(DefaultsRequest req, UserPreferencesStore prefs)
+    {
+        try
         {
             await prefs.SetAsync(new UserPreferences
             {
                 DefaultProvider = req.ProviderKey,
                 DefaultModel = req.ModelId
             });
-            return Results.Ok();
-        });
+            return TypedResults.Ok();
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["SetDefaultsError"] = [ex.Message] });
+        }
+    }
 
-        // Auth requirements removed
+    private static async Task<Results<Ok<ExternalAppLaunchResponse>, ValidationProblem>> LaunchExternalAppAsync(
+        string appId, ExternalAppLaunchRequest req, ExternalAppLauncher launcher)
+    {
+        try
+        {
+            var url = await launcher.LaunchAsync(
+                appId,
+                req.Executable,
+                port => [.. req.Args.Select(a => a.Replace("{port}", port.ToString()))],
+                port => req.UrlTemplate.Replace("{port}", port.ToString()),
+                req.TimeoutSeconds.HasValue ? TimeSpan.FromSeconds(req.TimeoutSeconds.Value) : null);
 
-        app.UseStaticFiles();                // serves wwwroot/ via PhysicalFileProvider
-        app.MapFallbackToFile("index.html"); // SPA fallback
-
-        app.Urls.Add($"http://localhost:{port}");
-        return app;
+            return TypedResults.Ok(new ExternalAppLaunchResponse(url));
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["LaunchError"] = [ex.Message] });
+        }
     }
 }
 
 // Request types
 internal record RemoteConfigRequest(string? Url);
+internal record ExternalAppLaunchRequest(string Executable, string[] Args, string UrlTemplate, int? TimeoutSeconds);
 internal record ProviderLoginCompleteRequest(string Input);
 internal record DefaultsRequest(string? ProviderKey, string? ModelId);
 internal record SetActiveRequest(string EntryId);
@@ -397,6 +553,7 @@ internal record NeedsInputResponse(string Status, string Prompt, string? InputLa
 internal record PendingActionResponse(string Status, string? Message, string? Url, string? UserCode);
 internal record AuthMethodInfoResponse(int Index, string Label, string? Description, bool IsRecommended);
 internal record DefaultsResponse(string ProviderKey, string ModelId);
+internal record ExternalAppLaunchResponse(string Url);
 
 /// <summary>
 /// Registers HPDOS-local request/response types with the Minimal API JSON serializer.
@@ -408,6 +565,8 @@ internal class HpdosJsonOptionsSetup : IConfigureOptions<JsonOptions>
         options.SerializerOptions.TypeInfoResolverChain.Add(HpdosJsonContext.Default);
 }
 
+[JsonSerializable(typeof(ExternalAppLaunchRequest))]
+[JsonSerializable(typeof(ExternalAppLaunchResponse))]
 [JsonSerializable(typeof(SetActiveRequest))]
 [JsonSerializable(typeof(RemoteConfigRequest))]
 [JsonSerializable(typeof(ProviderLoginCompleteRequest))]
@@ -427,23 +586,24 @@ internal class HpdosJsonOptionsSetup : IConfigureOptions<JsonOptions>
 [JsonSerializable(typeof(List<HPDOS.Core.Auth.StoredEntryInfo>))]
 [JsonSerializable(typeof(HPDOS.Core.Auth.ModelInfo))]
 [JsonSerializable(typeof(HPDOS.Core.Auth.ModelInfo[]))]
+[JsonSerializable(typeof(Microsoft.AspNetCore.Http.HttpValidationProblemDetails))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal partial class HpdosJsonContext : JsonSerializerContext { }
 
 internal static class KestrelHostBuilderHelpers
 {
-    public static async Task<IResult> StoreAndOkAsync(AuthManager auth, string providerId, AuthEntry entry)
+    public static async Task<Ok<AuthStoreResponse>> StoreAndOkAsync(AuthManager auth, string providerId, AuthEntry entry)
     {
         await auth.Storage.SetAsync(providerId, entry);
-        return Results.Ok(new AuthStoreResponse("ok", entry is OAuthEntry ? "oauth" : "api"));
+        return TypedResults.Ok(new AuthStoreResponse("ok", entry is OAuthEntry ? "oauth" : "api"));
     }
 
-    public static IResult StoreAndReturnNeedsInput(
+    public static Ok<NeedsInputResponse> StoreAndReturnNeedsInput(
         System.Collections.Concurrent.ConcurrentDictionary<string, (AuthFlowResult.NeedsUserInput, DateTime)> pendingFlows,
         string flowKey,
         AuthFlowResult.NeedsUserInput flow)
     {
         pendingFlows[flowKey] = (flow, DateTime.UtcNow.AddMinutes(10));
-        return Results.Ok(new NeedsInputResponse("needs_input", flow.Prompt, flow.InputLabel));
+        return TypedResults.Ok(new NeedsInputResponse("needs_input", flow.Prompt, flow.InputLabel));
     }
 }

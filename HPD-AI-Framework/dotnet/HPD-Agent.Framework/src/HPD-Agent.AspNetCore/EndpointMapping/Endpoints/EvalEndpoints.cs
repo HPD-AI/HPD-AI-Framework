@@ -3,6 +3,7 @@ using HPD.Agent.Evaluations;
 using HPD.Agent.Evaluations.Storage;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -18,61 +19,87 @@ internal static class EvalEndpoints
 
         // Score queries
         group.MapGet("/scores", (string evaluatorName, DateTimeOffset? from, DateTimeOffset? to, CancellationToken ct)
-            => GetScores(evaluatorName, from, to, scoreStore, ct));
+            => GetScores(evaluatorName, from, to, scoreStore, ct))
+            .WithName("GetScores")
+            .WithSummary("Get scores by evaluator name");
 
         group.MapGet("/scores/by-branch", (string sessionId, string? branchId, CancellationToken ct)
-            => GetScoresByBranch(sessionId, branchId, scoreStore, ct));
+            => GetScoresByBranch(sessionId, branchId, scoreStore, ct))
+            .WithName("GetScoresByBranch")
+            .WithSummary("Get scores filtered by session and branch");
 
         group.MapGet("/scores/by-version", (string evaluatorName, string version, CancellationToken ct)
-            => GetScoresByVersion(evaluatorName, version, scoreStore, ct));
+            => GetScoresByVersion(evaluatorName, version, scoreStore, ct))
+            .WithName("GetScoresByVersion")
+            .WithSummary("Get scores by evaluator name and version");
 
         // Accepts a flat DTO rather than ScoreRecord directly — EvaluationResult is not
         // JSON-deserializable from external callers; enums are sent as strings.
         group.MapPost("/scores", (WriteScoreRequest request, CancellationToken ct)
-            => WriteScore(request, scoreStore, ct));
+            => WriteScore(request, scoreStore, ct))
+            .WithName("WriteScore")
+            .WithSummary("Write a score record");
 
         // Analytics
         group.MapGet("/evaluators", (DateTimeOffset? from, DateTimeOffset? to, CancellationToken ct)
-            => GetEvaluatorSummary(from, to, scoreStore, ct));
+            => GetEvaluatorSummary(from, to, scoreStore, ct))
+            .WithName("GetEvaluatorSummary")
+            .WithSummary("Get evaluator summary analytics");
 
         group.MapGet("/trend/{evaluatorName}", (string evaluatorName, DateTimeOffset from, DateTimeOffset to,
             string? bucketSize, CancellationToken ct)
-            => GetTrend(evaluatorName, from, to, bucketSize, scoreStore, ct));
+            => GetTrend(evaluatorName, from, to, bucketSize, scoreStore, ct))
+            .WithName("GetTrend")
+            .WithSummary("Get trend data for an evaluator");
 
         group.MapGet("/pass-rate/{evaluatorName}", (string evaluatorName, DateTimeOffset? from, DateTimeOffset? to,
             CancellationToken ct)
-            => GetPassRate(evaluatorName, from, to, scoreStore, ct));
+            => GetPassRate(evaluatorName, from, to, scoreStore, ct))
+            .WithName("GetPassRate")
+            .WithSummary("Get pass rate for an evaluator");
 
         group.MapGet("/failure-rate/{evaluatorName}", (string evaluatorName, DateTimeOffset? from, DateTimeOffset? to,
             CancellationToken ct)
-            => GetFailureRate(evaluatorName, from, to, scoreStore, ct));
+            => GetFailureRate(evaluatorName, from, to, scoreStore, ct))
+            .WithName("GetFailureRate")
+            .WithSummary("Get failure rate for an evaluator");
 
         group.MapGet("/agent-comparison/{evaluatorName}", (string evaluatorName, string agentNames,
             DateTimeOffset? from, DateTimeOffset? to, CancellationToken ct)
-            => GetAgentComparison(evaluatorName, agentNames, from, to, scoreStore, ct));
+            => GetAgentComparison(evaluatorName, agentNames, from, to, scoreStore, ct))
+            .WithName("GetAgentComparison")
+            .WithSummary("Compare performance across agents");
 
         group.MapGet("/branch-comparison", (string sessionId, string branchId1, string branchId2,
             string evaluatorNames, CancellationToken ct)
-            => GetBranchComparison(sessionId, branchId1, branchId2, evaluatorNames, scoreStore, ct));
+            => GetBranchComparison(sessionId, branchId1, branchId2, evaluatorNames, scoreStore, ct))
+            .WithName("GetBranchComparison")
+            .WithSummary("Compare performance across branches");
 
         group.MapGet("/tool-usage", (DateTimeOffset? from, DateTimeOffset? to, CancellationToken ct)
-            => GetToolUsage(from, to, scoreStore, ct));
+            => GetToolUsage(from, to, scoreStore, ct))
+            .WithName("GetToolUsage")
+            .WithSummary("Get tool usage summary");
 
         group.MapGet("/risk-autonomy", (DateTimeOffset? from, DateTimeOffset? to, CancellationToken ct)
-            => GetRiskAutonomy(from, to, scoreStore, ct));
+            => GetRiskAutonomy(from, to, scoreStore, ct))
+            .WithName("GetRiskAutonomy")
+            .WithSummary("Get risk autonomy distribution");
 
         group.MapGet("/cost", (DateTimeOffset? from, DateTimeOffset? to, CancellationToken ct)
-            => GetCost(from, to, scoreStore, ct));
+            => GetCost(from, to, scoreStore, ct))
+            .WithName("GetCost")
+            .WithSummary("Get cost breakdown");
     }
 
     // Results.Problem() uses ProblemHttpResult → WriteAsJsonAsync → PipeWriter.UnflushedBytes,
     // which is not implemented by the TestServer response body. Use a plain 503 content result.
-    private static IResult NoStore() =>
-        Results.Content("No IScoreStore is registered.", "text/plain", statusCode: 503);
+    private static ContentHttpResult NoStore() =>
+        TypedResults.Content("No IScoreStore is registered.", "text/plain", statusCode: 503);
 
     // ── Score queries ─────────────────────────────────────────────────────────
 
-    private static async Task<IResult> GetScores(
+    private static async Task<Results<Ok<List<ScoreRecord>>, ContentHttpResult, ValidationProblem>> GetScores(
         string evaluatorName,
         DateTimeOffset? from,
         DateTimeOffset? to,
@@ -85,18 +112,18 @@ internal static class EvalEndpoints
             var records = new List<ScoreRecord>();
             await foreach (var r in scoreStore.GetScoresAsync(evaluatorName, from, to, ct))
                 records.Add(r);
-            return ErrorResponses.Json(records);
+            return TypedResults.Ok(records);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetScoresError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> GetScoresByBranch(
+    private static async Task<Results<Ok<List<ScoreRecord>>, ContentHttpResult, ValidationProblem>> GetScoresByBranch(
         string sessionId,
         string? branchId,
         IScoreStore? scoreStore,
@@ -108,18 +135,18 @@ internal static class EvalEndpoints
             var records = new List<ScoreRecord>();
             await foreach (var r in scoreStore.GetScoresAsync(sessionId, branchId, ct))
                 records.Add(r);
-            return ErrorResponses.Json(records);
+            return TypedResults.Ok(records);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetScoresByBranchError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> GetScoresByVersion(
+    private static async Task<Results<Ok<List<ScoreRecord>>, ContentHttpResult, ValidationProblem>> GetScoresByVersion(
         string evaluatorName,
         string version,
         IScoreStore? scoreStore,
@@ -131,18 +158,18 @@ internal static class EvalEndpoints
             var records = new List<ScoreRecord>();
             await foreach (var r in scoreStore.GetScoresByVersionAsync(evaluatorName, version, ct))
                 records.Add(r);
-            return ErrorResponses.Json(records);
+            return TypedResults.Ok(records);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetScoresByVersionError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> WriteScore(
+    private static async Task<Results<Created<ScoreRecord>, ContentHttpResult, ValidationProblem>> WriteScore(
         WriteScoreRequest request,
         IScoreStore? scoreStore,
         CancellationToken ct)
@@ -171,11 +198,11 @@ internal static class EvalEndpoints
                 CreatedAt = request.CreatedAt == default ? DateTimeOffset.UtcNow : request.CreatedAt,
             };
             await scoreStore.WriteScoreAsync(stored, ct);
-            return ErrorResponses.Json(stored, 201);
+            return TypedResults.Created("", stored);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["WriteScoreError"] = [ex.Message]
             });
@@ -184,7 +211,7 @@ internal static class EvalEndpoints
 
     // ── Analytics ─────────────────────────────────────────────────────────────
 
-    private static async Task<IResult> GetEvaluatorSummary(
+    private static async Task<Results<Ok<object>, ContentHttpResult, ValidationProblem>> GetEvaluatorSummary(
         DateTimeOffset? from,
         DateTimeOffset? to,
         IScoreStore? scoreStore,
@@ -194,18 +221,18 @@ internal static class EvalEndpoints
         try
         {
             var summary = await scoreStore.GetEvaluatorSummaryAsync(from, to, ct);
-            return ErrorResponses.Json(summary);
+            return TypedResults.Ok((object)summary);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetEvaluatorSummaryError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> GetTrend(
+    private static async Task<Results<Ok<object>, ContentHttpResult, ValidationProblem>> GetTrend(
         string evaluatorName,
         DateTimeOffset from,
         DateTimeOffset to,
@@ -220,18 +247,18 @@ internal static class EvalEndpoints
                 ? System.Xml.XmlConvert.ToTimeSpan(bucketSize)
                 : TimeSpan.FromHours(1);
             var trend = await scoreStore.GetTrendAsync(evaluatorName, from, to, bucket, ct);
-            return ErrorResponses.Json(trend);
+            return TypedResults.Ok((object)trend);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetTrendError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> GetPassRate(
+    private static async Task<Results<Ok<object>, ContentHttpResult, ValidationProblem>> GetPassRate(
         string evaluatorName,
         DateTimeOffset? from,
         DateTimeOffset? to,
@@ -242,18 +269,18 @@ internal static class EvalEndpoints
         try
         {
             var passRate = await scoreStore.GetPassRateAsync(evaluatorName, from, to, ct);
-            return ErrorResponses.Json(new { evaluatorName, passRate });
+            return TypedResults.Ok((object)new { evaluatorName, passRate });
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetPassRateError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> GetFailureRate(
+    private static async Task<Results<Ok<object>, ContentHttpResult, ValidationProblem>> GetFailureRate(
         string evaluatorName,
         DateTimeOffset? from,
         DateTimeOffset? to,
@@ -264,18 +291,18 @@ internal static class EvalEndpoints
         try
         {
             var failureRate = await scoreStore.GetFailureRateAsync(evaluatorName, from, to, ct);
-            return ErrorResponses.Json(new { evaluatorName, failureRate });
+            return TypedResults.Ok((object)new { evaluatorName, failureRate });
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetFailureRateError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> GetAgentComparison(
+    private static async Task<Results<Ok<object>, ContentHttpResult, ValidationProblem>> GetAgentComparison(
         string evaluatorName,
         string agentNames,
         DateTimeOffset? from,
@@ -288,18 +315,18 @@ internal static class EvalEndpoints
         {
             var names = agentNames.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var result = await scoreStore.GetAgentComparisonAsync(evaluatorName, names, from, to, ct);
-            return ErrorResponses.Json(result);
+            return TypedResults.Ok((object)result);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetAgentComparisonError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> GetBranchComparison(
+    private static async Task<Results<Ok<object>, ContentHttpResult, ValidationProblem>> GetBranchComparison(
         string sessionId,
         string branchId1,
         string branchId2,
@@ -312,18 +339,18 @@ internal static class EvalEndpoints
         {
             var names = evaluatorNames.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var result = await scoreStore.GetBranchComparisonAsync(sessionId, branchId1, branchId2, names, ct);
-            return ErrorResponses.Json(result);
+            return TypedResults.Ok((object)result);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetBranchComparisonError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> GetToolUsage(
+    private static async Task<Results<Ok<object>, ContentHttpResult, ValidationProblem>> GetToolUsage(
         DateTimeOffset? from,
         DateTimeOffset? to,
         IScoreStore? scoreStore,
@@ -333,18 +360,18 @@ internal static class EvalEndpoints
         try
         {
             var result = await scoreStore.GetToolUsageSummaryAsync(from, to, ct);
-            return ErrorResponses.Json(result);
+            return TypedResults.Ok((object)result);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetToolUsageError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> GetRiskAutonomy(
+    private static async Task<Results<Ok<object>, ContentHttpResult, ValidationProblem>> GetRiskAutonomy(
         DateTimeOffset? from,
         DateTimeOffset? to,
         IScoreStore? scoreStore,
@@ -354,18 +381,18 @@ internal static class EvalEndpoints
         try
         {
             var result = await scoreStore.GetRiskAutonomyDistributionAsync(from, to, ct);
-            return ErrorResponses.Json(result);
+            return TypedResults.Ok((object)result);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetRiskAutonomyError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> GetCost(
+    private static async Task<Results<Ok<object>, ContentHttpResult, ValidationProblem>> GetCost(
         DateTimeOffset? from,
         DateTimeOffset? to,
         IScoreStore? scoreStore,
@@ -375,11 +402,11 @@ internal static class EvalEndpoints
         try
         {
             var result = await scoreStore.GetCostBreakdownAsync(from, to, ct);
-            return ErrorResponses.Json(result);
+            return TypedResults.Ok((object)result);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetCostError"] = [ex.Message]
             });

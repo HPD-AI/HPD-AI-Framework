@@ -106,7 +106,7 @@ public class AssetStorageIntegrationTests
             Assert.Single(assetFiles);
             Assert.EndsWith(".png", assetFiles[0]);
 
-            // Save session and branch (V3: messages live in Branch, not Session)
+            // Save session and branch ( messages live in Branch, not Session)
             await session.SaveAsync();
             await store.SaveBranchAsync(session.Id, branch);
 

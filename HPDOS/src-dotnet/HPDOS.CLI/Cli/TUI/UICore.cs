@@ -117,6 +117,7 @@ public static class HpdosJsonOptions
 [JsonSerializable(typeof(List<StoredEntryInfo>))]
 // Bidirectional event responses
 [JsonSerializable(typeof(PermissionResponseEvent))]
+[JsonSerializable(typeof(ContinuationResponseEvent))]
 [JsonSerializable(typeof(PermissionChoice))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 public partial class HpdosCliJsonContext : JsonSerializerContext { }

@@ -56,7 +56,7 @@ internal static class SessionEndpoints
             .WithSummary("Delete a session and all its branches");
     }
 
-    private static async Task<IResult> CreateSession(
+    private static async Task<Results<Created<SessionDto>, ValidationProblem>> CreateSession(
         AspNetCoreSessionManager manager,
         CreateSessionRequest? request = null,
         CancellationToken ct = default)
@@ -79,18 +79,18 @@ internal static class SessionEndpoints
                 session.LastActivity,
                 session.Metadata);
 
-            return ErrorResponses.Created($"/sessions/{session.Id}", dto);
+            return TypedResults.Created($"/sessions/{session.Id}", dto);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["CreateSessionError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> SearchSessions(
+    private static async Task<Results<Ok<List<SessionDto>>, ValidationProblem>> SearchSessions(
         AspNetCoreSessionManager manager,
         SearchSessionsRequest? request = null,
         CancellationToken ct = default)
@@ -149,18 +149,18 @@ internal static class SessionEndpoints
                 .Take(limit)
                 .ToList();
 
-            return ErrorResponses.Json(result);
+            return TypedResults.Ok(result);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["SearchSessionsError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> GetSession(
+    private static async Task<Results<Ok<SessionDto>, NotFound, ValidationProblem>> GetSession(
         string sessionId,
         AspNetCoreSessionManager manager,
         CancellationToken ct = default)
@@ -170,7 +170,7 @@ internal static class SessionEndpoints
             var session = await manager.Store.LoadSessionAsync(sessionId, ct);
             if (session == null)
             {
-                return ErrorResponses.NotFound();
+                return TypedResults.NotFound();
             }
 
             var dto = new SessionDto(
@@ -179,18 +179,18 @@ internal static class SessionEndpoints
                 session.LastActivity,
                 session.Metadata);
 
-            return ErrorResponses.Json(dto);
+            return TypedResults.Ok(dto);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetSessionError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> UpdateSession(
+    private static async Task<Results<Ok<SessionDto>, NotFound, ValidationProblem>> UpdateSession(
         string sessionId,
         UpdateSessionRequest request,
         AspNetCoreSessionManager manager,
@@ -199,73 +199,20 @@ internal static class SessionEndpoints
         try
         {
             // Use session lock to prevent concurrent modification race conditions
-            return await manager.WithSessionLockAsync(sessionId, async () =>
-            {
-                var session = await manager.Store.LoadSessionAsync(sessionId, ct);
-                if (session == null)
-                {
-                    return ErrorResponses.NotFound();
-                }
-
-                session.Store = manager.Store;
-
-                // Merge semantics: update or add provided keys, remove keys set to null
-                if (request.Metadata != null)
-                {
-                    foreach (var kvp in request.Metadata)
-                    {
-                        // Check for null or JsonElement with Null/Undefined value kind
-                        bool isNullValue = kvp.Value == null ||
-                            (kvp.Value is JsonElement je && (
-                                je.ValueKind == JsonValueKind.Null ||
-                                je.ValueKind == JsonValueKind.Undefined));
-
-                        if (isNullValue)
-                        {
-                            // Remove the key from metadata entirely
-                            // Use TryRemove to be safe even if key doesn't exist
-                            if (session.Metadata.ContainsKey(kvp.Key))
-                            {
-                                session.Metadata.Remove(kvp.Key);
-                            }
-                        }
-                        else
-                        {
-                            // Add or update the metadata value
-                            session.Metadata[kvp.Key] = kvp.Value;
-                        }
-                    }
-                }
-
-                // Update LastActivity timestamp after metadata changes
-                session.LastActivity = DateTime.UtcNow;
-
-                await manager.Store.SaveSessionAsync(session, ct);
-
-                // Return DTO - ensure no null values in metadata and always return a dictionary
-                var cleanedMetadata = session.Metadata
-                    .Where(kvp => kvp.Value != null)
-                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-
-                var dto = new SessionDto(
-                    session.Id,
-                    session.CreatedAt,
-                    session.LastActivity,
-                    cleanedMetadata);
-
-                return ErrorResponses.Json(dto);
-            }, ct);
+            return await manager.WithSessionLockAsync(sessionId,
+                () => DoUpdateSessionAsync(sessionId, request, manager, ct),
+                ct);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["UpdateSessionError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> DeleteSession(
+    private static async Task<Results<NoContent, NotFound, ValidationProblem>> DeleteSession(
         string sessionId,
         AspNetCoreSessionManager manager,
         CancellationToken ct = default)
@@ -275,7 +222,7 @@ internal static class SessionEndpoints
             var session = await manager.Store.LoadSessionAsync(sessionId, ct);
             if (session == null)
             {
-                return ErrorResponses.NotFound();
+                return TypedResults.NotFound();
             }
 
             // Delete the session (this will delete all branches and assets via ISessionStore)
@@ -284,14 +231,74 @@ internal static class SessionEndpoints
             // Clean up in-memory stream/session locks for this session
             manager.RemoveSession(sessionId);
 
-            return ErrorResponses.NoContent();
+            return TypedResults.NoContent();
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["DeleteSessionError"] = [ex.Message]
             });
         }
+    }
+
+    private static async Task<Results<Ok<SessionDto>, NotFound, ValidationProblem>> DoUpdateSessionAsync(
+        string sessionId,
+        UpdateSessionRequest request,
+        AspNetCoreSessionManager manager,
+        CancellationToken ct)
+    {
+        var session = await manager.Store.LoadSessionAsync(sessionId, ct);
+        if (session == null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        session.Store = manager.Store;
+
+        // Merge semantics: update or add provided keys, remove keys set to null
+        if (request.Metadata != null)
+        {
+            foreach (var kvp in request.Metadata)
+            {
+                // Check for null or JsonElement with Null/Undefined value kind
+                bool isNullValue = kvp.Value == null ||
+                    (kvp.Value is JsonElement je && (
+                        je.ValueKind == JsonValueKind.Null ||
+                        je.ValueKind == JsonValueKind.Undefined));
+
+                if (isNullValue)
+                {
+                    // Remove the key from metadata entirely
+                    if (session.Metadata.ContainsKey(kvp.Key))
+                    {
+                        session.Metadata.Remove(kvp.Key);
+                    }
+                }
+                else
+                {
+                    // Add or update the metadata value
+                    session.Metadata[kvp.Key] = kvp.Value;
+                }
+            }
+        }
+
+        // Update LastActivity timestamp after metadata changes
+        session.LastActivity = DateTime.UtcNow;
+
+        await manager.Store.SaveSessionAsync(session, ct);
+
+        // Return DTO - ensure no null values in metadata
+        var cleanedMetadata = session.Metadata
+            .Where(kvp => kvp.Value != null)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+        var dto = new SessionDto(
+            session.Id,
+            session.CreatedAt,
+            session.LastActivity,
+            cleanedMetadata);
+
+        return TypedResults.Ok(dto);
     }
 }

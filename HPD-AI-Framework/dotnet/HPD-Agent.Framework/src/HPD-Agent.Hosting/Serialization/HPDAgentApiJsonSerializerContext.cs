@@ -6,6 +6,11 @@ namespace HPD.Agent.Hosting.Serialization;
 /// <summary>
 /// Source-generated JSON serialization context for all HPD-Agent hosting DTOs.
 /// Enables Native AOT compilation by eliminating runtime reflection.
+///
+/// Used by:
+/// - ErrorResponses (in AspNetCore) for HTTP error responses during data access operations
+/// - SseEventHandler streaming for agent events (via chain in AspNetCore JsonOptionsSetup)
+/// - Minimal API endpoints that return these DTOs
 /// </summary>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

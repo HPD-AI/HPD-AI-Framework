@@ -58,7 +58,7 @@ public class AgentBuilder
     public readonly List<ToolInstanceRegistration> _instanceRegistrations = new();
     // store individual Toolkit contexts
     internal readonly Dictionary<string, IToolMetadata?> _toolkitContexts = new();
-    // V3: Unified content store for all agent content (skills, knowledge, memory, uploads, artifacts)
+    //  Unified content store for all agent content (skills, knowledge, memory, uploads, artifacts)
     internal IContentStore? _contentStore;
     // Track explicitly registered Toolkits (for Collapsing manager)
     internal readonly HashSet<string> _explicitlyRegisteredToolkits = new(StringComparer.OrdinalIgnoreCase);
@@ -1030,7 +1030,7 @@ public class AgentBuilder
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // V3: Unified Content Store
+    //  Unified Content Store
     // ═══════════════════════════════════════════════════════════════════
 
     /// <summary>
@@ -1939,15 +1939,10 @@ public class AgentBuilder
         // Set global config for source-generated code to access (sync path sets this, harmless when called from async)
         AgentConfig.GlobalConfig = _config;
 
-        // Register ContinuationPermissionMiddleware if enabled
-        // This requests user permission when iteration limit is reached
-        // Only register if we have a reasonable iteration limit set
-        if (_config!.MaxAgenticIterations > 0 && _config.MaxAgenticIterations < 1000)
-        {
-            _middlewares.Add(new ContinuationPermissionMiddleware(
-                maxIterations: _config.MaxAgenticIterations,
-                extensionAmount: _config.ContinuationExtensionAmount));
-        }
+        // NOTE: ContinuationPermissionMiddleware is NO LONGER auto-registered.
+        // To enable iteration limits with user permission requests, explicitly call:
+        //   agentBuilder.WithMiddleware(new ContinuationPermissionMiddleware(maxIterations: 15))
+        // This gives users full control over whether to ask for permission at iteration limits.
 
         // Register HistoryReductionMiddleware if enabled
         // This reduces conversation history to manage context window size
@@ -2326,7 +2321,7 @@ public class AgentBuilder
     [RequiresUnreferencedCode("MCP tool loading via reflection. Requires HPD.Agent.MCP types preserved.")]
     private async Task<AgentBuildDependencies> BuildDependenciesAsync(CancellationToken cancellationToken)
     {
-        // === V3: INITIALIZE SKILL DOCUMENTS VIA CONTENT STORE ===
+        // ===  INITIALIZE SKILL DOCUMENTS VIA CONTENT STORE ===
         // Each toolkit registration class with skill documents generates InitializeDocumentsAsync.
         // Idempotent: same document ID + same content hash = no-op (startup-safe).
         if (_contentStore != null)

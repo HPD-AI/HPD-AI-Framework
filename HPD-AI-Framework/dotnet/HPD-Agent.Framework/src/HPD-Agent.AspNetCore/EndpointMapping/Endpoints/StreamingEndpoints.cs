@@ -29,77 +29,9 @@ internal static class StreamingEndpoints
         AspNetCoreAgentManager agentManager)
     {
         // POST /sessions/{sid}/branches/{bid}/stream - SSE streaming
-        endpoints.MapPost("/sessions/{sid}/branches/{bid}/stream", async (string sid, string bid, StreamRequest request, HttpContext context, CancellationToken ct) =>
-        {
-            // Validate session and branch exist BEFORE starting stream
-            var session = await sessionManager.Store.LoadSessionAsync(sid, ct);
-            if (session == null)
-            {
-                return ErrorResponses.NotFound();
-            }
-
-            var branch = await sessionManager.Store.LoadBranchAsync(sid, bid, ct);
-            if (branch == null)
-            {
-                return ErrorResponses.NotFound();
-            }
-
-            // Try to acquire stream lock (prevents concurrent streams on same branch)
-            if (!sessionManager.TryAcquireStreamLock(sid, bid))
-            {
-                return ErrorResponses.Conflict();
-            }
-
-            // Register cleanup callback for request cancellation
-            // This ensures lock is released even if request is aborted (critical for TestServer scenarios)
-            using var _ = context.RequestAborted.Register(() =>
-            {
-                sessionManager.ReleaseStreamLock(sid, bid);
-            });
-
-            try
-            {
-                // Get or build the agent (keyed by agentId, defaults to "default")
-                var agentId = request.AgentId ?? "default";
-                var agent = await agentManager.GetOrBuildAgentAsync(agentId, ct);
-
-                // Extract user message from request
-                string userMessage = "";
-                if (request.Messages != null && request.Messages.Count > 0)
-                {
-                    userMessage = string.Join("\n", request.Messages.Select(m => m.Content));
-                }
-
-                // Build run configuration from request
-                var runConfig = BuildRunConfig(request.RunConfig);
-                runConfig.ClientToolInput = request.ToAgentClientInput();
-
-                // Stream events using SSE - this sends headers and starts streaming
-                // After this call, we cannot return a typed result
-                try
-                {
-                    var events = agent.RunAsync(userMessage, sid, bid, options: runConfig, cancellationToken: ct);
-                    await SseEventHandler.StreamEventsAsync(context, events, ct);
-                }
-                catch (OperationCanceledException)
-                {
-                    // Gracefully handle cancellation - lock will be released via registered callback
-                    // Don't rethrow since we can't return a proper response after SSE headers sent
-                }
-                catch
-                {
-                    // SseEventHandler already sent a MessageTurnErrorEvent — swallow here so
-                    // Kestrel doesn't log an unhandled exception and close the connection abruptly.
-                }
-
-                // Response is complete - return Empty to indicate no further action needed
-                return Results.Empty;
-            }
-            finally
-            {
-                sessionManager.ReleaseStreamLock(sid, bid);
-            }
-        })
+        endpoints.MapPost("/sessions/{sid}/branches/{bid}/stream",
+                async (string sid, string bid, StreamRequest request, HttpContext context, CancellationToken ct) =>
+                    await StreamWithSse(sid, bid, request, context, sessionManager, agentManager, ct))
             .WithName("StreamWithSse")
             .WithSummary("Stream agent responses using Server-Sent Events (SSE)");
 
@@ -110,7 +42,85 @@ internal static class StreamingEndpoints
             .WithSummary("Stream agent responses using WebSocket");
     }
 
-    private static async Task<IResult> StreamWithWebSocket(
+    private static async Task StreamWithSse(
+        string sid,
+        string bid,
+        StreamRequest request,
+        HttpContext context,
+        AspNetCoreSessionManager sessionManager,
+        AspNetCoreAgentManager agentManager,
+        CancellationToken ct = default)
+    {
+        // Validate session and branch exist BEFORE starting stream
+        var session = await sessionManager.Store.LoadSessionAsync(sid, ct);
+        if (session == null)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        var branch = await sessionManager.Store.LoadBranchAsync(sid, bid, ct);
+        if (branch == null)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        // Try to acquire stream lock (prevents concurrent streams on same branch)
+        if (!sessionManager.TryAcquireStreamLock(sid, bid))
+        {
+            context.Response.StatusCode = StatusCodes.Status409Conflict;
+            return;
+        }
+
+        // Register cleanup callback for request cancellation
+        // This ensures lock is released even if request is aborted (critical for TestServer scenarios)
+        using var _ = context.RequestAborted.Register(() =>
+        {
+            sessionManager.ReleaseStreamLock(sid, bid);
+        });
+
+        try
+        {
+            // Get or build the agent (keyed by agentId, defaults to "default")
+            var agentId = request.AgentId ?? "default";
+            var agent = await agentManager.GetOrBuildAgentAsync(agentId, ct);
+
+            // Extract user message from request
+            string userMessage = "";
+            if (request.Messages != null && request.Messages.Count > 0)
+            {
+                userMessage = string.Join("\n", request.Messages.Select(m => m.Content));
+            }
+
+            // Build run configuration from request
+            var runConfig = BuildRunConfig(request.RunConfig);
+            runConfig.ClientToolInput = request.ToAgentClientInput();
+
+            // Stream events using SSE - this sends headers and starts streaming
+            try
+            {
+                var events = agent.RunAsync(userMessage, sid, bid, options: runConfig, cancellationToken: ct);
+                await SseEventHandler.StreamEventsAsync(context, events, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                // Gracefully handle cancellation - lock will be released via registered callback
+                // Don't rethrow since we can't return a proper response after SSE headers sent
+            }
+            catch
+            {
+                // SseEventHandler already sent a MessageTurnErrorEvent — swallow here so
+                // Kestrel doesn't log an unhandled exception and close the connection abruptly.
+            }
+        }
+        finally
+        {
+            sessionManager.ReleaseStreamLock(sid, bid);
+        }
+    }
+
+    private static async Task<Results<Ok, NotFound, Conflict, ValidationProblem>> StreamWithWebSocket(
         string sid,
         string bid,
         HttpContext context,
@@ -121,7 +131,7 @@ internal static class StreamingEndpoints
         // Validate WebSocket request
         if (!context.WebSockets.IsWebSocketRequest)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["InvalidRequest"] = ["This endpoint requires a WebSocket connection."]
             });
@@ -131,19 +141,19 @@ internal static class StreamingEndpoints
         var session = await sessionManager.Store.LoadSessionAsync(sid, ct);
         if (session == null)
         {
-            return ErrorResponses.NotFound();
+            return TypedResults.NotFound();
         }
 
         var branch = await sessionManager.Store.LoadBranchAsync(sid, bid, ct);
         if (branch == null)
         {
-            return ErrorResponses.NotFound();
+            return TypedResults.NotFound();
         }
 
         // Try to acquire stream lock
         if (!sessionManager.TryAcquireStreamLock(sid, bid))
         {
-            return ErrorResponses.Conflict();
+            return TypedResults.Conflict();
         }
 
         try
@@ -180,7 +190,7 @@ internal static class StreamingEndpoints
                     WebSocketCloseStatus.NormalClosure,
                     "Client closed connection",
                     ct);
-                return Results.Ok();
+                return TypedResults.Ok();
             }
 
             // Parse stream request
@@ -193,7 +203,7 @@ internal static class StreamingEndpoints
                     WebSocketCloseStatus.InvalidPayloadData,
                     "Invalid request format",
                     ct);
-                return Results.Ok(); // Can't return error after WS accepted
+                return TypedResults.Ok(); // Can't return error after WS accepted
             }
 
             // Extract user message from request
@@ -231,7 +241,7 @@ internal static class StreamingEndpoints
                 "Stream completed",
                 ct);
 
-            return Results.Ok();
+            return TypedResults.Ok();
         }
         finally
         {

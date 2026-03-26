@@ -4,8 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "TAURI_ENV_PLATFORM=1 vite build",
     "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
     "postinstall": "bun run scripts/link-peers.ts",
     "check": "svelte-check --tsconfig tsconfig.json",
     "lint": "eslint src --ext .ts,.svelte",
@@ -47,6 +50,7 @@
     "typescript": "latest",
     "typescript-eslint": "latest",
     "vite": "^8.0.0",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.0",
+    "@tauri-apps/cli": "^2"
   }
 }

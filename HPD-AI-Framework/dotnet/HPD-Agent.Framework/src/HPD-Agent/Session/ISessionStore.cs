@@ -22,7 +22,7 @@ namespace HPD.Agent;
 public interface ISessionStore
 {
     // ═══════════════════════════════════════════════════════════════════
-    // SESSION PERSISTENCE (V3: Metadata only, no messages)
+    // SESSION PERSISTENCE ( Metadata only, no messages)
     // ═══════════════════════════════════════════════════════════════════
 
     /// <summary>
@@ -67,7 +67,7 @@ public interface ISessionStore
         CancellationToken cancellationToken = default);
 
     // ═══════════════════════════════════════════════════════════════════
-    // BRANCH PERSISTENCE (V3: New - conversation paths)
+    // BRANCH PERSISTENCE ( New - conversation paths)
     // ═══════════════════════════════════════════════════════════════════
 
     /// <summary>

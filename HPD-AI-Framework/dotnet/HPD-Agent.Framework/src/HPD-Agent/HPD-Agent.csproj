@@ -9,6 +9,7 @@
     <NoWarn>HPDAUDIO001;MEAI001;IL2026;IL3050;CS8600;CS8601;CS8602;CS8604;CS0628</NoWarn>
     <!-- Native AOT Configuration -->
     <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
     <OutputType>Library</OutputType>
   </PropertyGroup>
 

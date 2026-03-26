@@ -16,6 +16,7 @@
   <!-- AOT configuration -->
   <PropertyGroup>
     <IsAotCompatible>true</IsAotCompatible>
+    <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
@@ -35,42 +36,42 @@
 
   <!-- Development: reference source generator from HPD-AI-Framework -->
   <ItemGroup Condition="'$(Configuration)' == 'Debug'">
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <!-- Production: reference source generator from HPD-AI-Framework -->
   <ItemGroup Condition="'$(Configuration)' == 'Release'">
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <!-- Development: reference local HPD-AI-Framework -->
   <ItemGroup Condition="'$(Configuration)' == 'Debug'">
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/HPD-Agent.Providers.GoogleAI.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/HPD-Agent.Providers.Ollama.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.HuggingFace/HPD-Agent.Providers.HuggingFace.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.MCP/HPD-Agent.MCP.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/HPD-Agent.Providers.GoogleAI.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/HPD-Agent.Providers.Ollama.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.HuggingFace/HPD-Agent.Providers.HuggingFace.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.MCP/HPD-Agent.MCP.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj" />
   </ItemGroup>
 
   <!-- Production: reference HPD-AI-Framework -->
   <ItemGroup Condition="'$(Configuration)' == 'Release'">
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/HPD-Agent.Providers.GoogleAI.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/HPD-Agent.Providers.Ollama.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.HuggingFace/HPD-Agent.Providers.HuggingFace.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.MCP/HPD-Agent.MCP.csproj" />
-    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/HPD-Agent.Providers.GoogleAI.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/HPD-Agent.Providers.Ollama.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.HuggingFace/HPD-Agent.Providers.HuggingFace.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.MCP/HPD-Agent.MCP.csproj" />
+    <ProjectReference Include="../../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj" />
   </ItemGroup>
 
   <!-- Copy the Bun build output to the consuming binary's output directory -->

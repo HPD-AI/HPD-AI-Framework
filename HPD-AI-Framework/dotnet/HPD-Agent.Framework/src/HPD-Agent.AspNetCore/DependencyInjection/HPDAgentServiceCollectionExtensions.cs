@@ -75,5 +75,9 @@ internal class HPDAgentApiJsonOptionsSetup : IConfigureOptions<JsonOptions>
         // Core types including AgentConfig (from HPD-Agent core)
         options.SerializerOptions.TypeInfoResolverChain.Insert(3,
             HPDJsonContext.Default);
+
+        // Make options read-only to enforce source-gen-only JSON serialization when IsAotCompatible is true
+        // This prevents reflection fallback and ensures all types must be explicitly registered
+        options.SerializerOptions.MakeReadOnly();
     }
 }

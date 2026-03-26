@@ -204,7 +204,7 @@ public class Branch
         CreatedAt = DateTime.UtcNow;
         LastActivity = DateTime.UtcNow;
 
-        // V3: Initialize tree navigation properties with safe defaults
+        //  Initialize tree navigation properties with safe defaults
         SiblingIndex = 0;
         TotalSiblings = 1;
         IsOriginal = true;
@@ -225,7 +225,7 @@ public class Branch
         CreatedAt = DateTime.UtcNow;
         LastActivity = DateTime.UtcNow;
 
-        // V3: Initialize tree navigation properties with safe defaults
+        //  Initialize tree navigation properties with safe defaults
         SiblingIndex = 0;
         TotalSiblings = 1;
         IsOriginal = true;
@@ -247,7 +247,7 @@ public class Branch
         CreatedAt = DateTime.UtcNow;
         LastActivity = DateTime.UtcNow;
 
-        // V3: Initialize tree navigation properties with safe defaults
+        //  Initialize tree navigation properties with safe defaults
         SiblingIndex = 0;
         TotalSiblings = 1;
         IsOriginal = true;
@@ -271,7 +271,7 @@ public class Branch
         List<string>? tags,
         Dictionary<string, string>? ancestors,
         Dictionary<string, string> middlewareState,
-        // V3: Tree navigation properties (with safe defaults for backward compatibility)
+        //  Tree navigation properties (with safe defaults for backward compatibility)
         int siblingIndex = 0,
         int totalSiblings = 1,
         bool isOriginal = true,
@@ -293,7 +293,7 @@ public class Branch
         Ancestors = ancestors;
         MiddlewareState = middlewareState;
 
-        // V3: Tree navigation properties
+        //  Tree navigation properties
         SiblingIndex = siblingIndex;
         TotalSiblings = totalSiblings;
         IsOriginal = isOriginal;
@@ -397,17 +397,17 @@ public class Branch
     }
 
     /// <summary>
-    /// V3: Check if this branch is a leaf (has no children).
+    ///  Check if this branch is a leaf (has no children).
     /// </summary>
     public bool IsLeaf => ChildBranches.Count == 0;
 
     /// <summary>
-    /// V3: Check if this branch is the root (no parent).
+    ///  Check if this branch is the root (no parent).
     /// </summary>
     public bool IsRoot => ForkedFrom == null;
 
     /// <summary>
-    /// V3: Validate branch tree invariants.
+    ///  Validate branch tree invariants.
     /// Throws InvalidOperationException if any invariant is violated.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when tree invariants are violated</exception>

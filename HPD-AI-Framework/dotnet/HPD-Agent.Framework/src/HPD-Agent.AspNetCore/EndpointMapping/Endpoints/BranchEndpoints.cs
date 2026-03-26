@@ -72,7 +72,7 @@ internal static class BranchEndpoints
             .WithSummary("Get sibling branch IDs (branches that share the same parent)");
     }
 
-    private static async Task<IResult> ListBranches(
+    private static async Task<Results<Ok<List<BranchDto>>, NotFound, ValidationProblem>> ListBranches(
         string sid,
         AspNetCoreSessionManager sessionManager,
         CancellationToken ct = default)
@@ -82,7 +82,7 @@ internal static class BranchEndpoints
             var session = await sessionManager.Store.LoadSessionAsync(sid, ct);
             if (session == null)
             {
-                return ErrorResponses.NotFound();
+                return TypedResults.NotFound();
             }
 
             var branchIds = await sessionManager.Store.ListBranchIdsAsync(sid, ct);
@@ -97,18 +97,18 @@ internal static class BranchEndpoints
                 }
             }
 
-            return ErrorResponses.Json(dtos);
+            return TypedResults.Ok(dtos);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["ListBranchesError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> GetBranch(
+    private static async Task<Results<Ok<BranchDto>, NotFound, ValidationProblem>> GetBranch(
         string sid,
         string bid,
         AspNetCoreSessionManager sessionManager,
@@ -119,22 +119,22 @@ internal static class BranchEndpoints
             var branch = await sessionManager.Store.LoadBranchAsync(sid, bid, ct);
             if (branch == null)
             {
-                return ErrorResponses.NotFound();
+                return TypedResults.NotFound();
             }
 
             var dto = ToBranchDto(branch, sid);
-            return ErrorResponses.Json(dto);
+            return TypedResults.Ok(dto);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetBranchError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> CreateBranch(
+    private static async Task<Results<Created<BranchDto>, NotFound, Conflict, ValidationProblem>> CreateBranch(
         string sid,
         CreateBranchRequest request,
         AspNetCoreSessionManager sessionManager,
@@ -146,7 +146,7 @@ internal static class BranchEndpoints
             var sessionExists = await sessionManager.Store.LoadSessionAsync(sid, ct);
             if (sessionExists == null)
             {
-                return ErrorResponses.NotFound();
+                return TypedResults.NotFound();
             }
 
             // Generate branch ID if not provided
@@ -158,7 +158,7 @@ internal static class BranchEndpoints
             var existingBranch = await sessionManager.Store.LoadBranchAsync(sid, branchId, ct);
             if (existingBranch != null)
             {
-                return ErrorResponses.Conflict();
+                return TypedResults.Conflict();
             }
 
             // Use string-based ForkBranchAsync to create the new branch from message 0
@@ -180,18 +180,18 @@ internal static class BranchEndpoints
             await sessionManager.Store.SaveBranchAsync(sid, branch, ct);
 
             var dto = ToBranchDto(branch, sid);
-            return ErrorResponses.Created($"/sessions/{sid}/branches/{branch.Id}", dto);
+            return TypedResults.Created($"/sessions/{sid}/branches/{branch.Id}", dto);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["CreateBranchError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> ForkBranch(
+    private static async Task<Results<Created<BranchDto>, NotFound, ValidationProblem>> ForkBranch(
         string sid,
         string bid,
         ForkBranchRequest request,
@@ -201,57 +201,21 @@ internal static class BranchEndpoints
     {
         try
         {
-            // V3: Use session-level lock for atomic sibling updates
-            return await sessionManager.WithSessionLockAsync(sid, async () =>
-            {
-                var sessionExists = await sessionManager.Store.LoadSessionAsync(sid, ct);
-                if (sessionExists == null)
-                {
-                    return ErrorResponses.NotFound();
-                }
-
-                var sourceBranchExists = await sessionManager.Store.LoadBranchAsync(sid, bid, ct);
-                if (sourceBranchExists == null)
-                {
-                    return ErrorResponses.NotFound();
-                }
-
-                var newBranchId = string.IsNullOrWhiteSpace(request.NewBranchId)
-                    ? Guid.NewGuid().ToString()
-                    : request.NewBranchId;
-
-                var agent = await agentManager.GetOrBuildAgentAsync(request.AgentId ?? "default", ct);
-                await agent.ForkBranchAsync(sid, bid, newBranchId, request.FromMessageIndex, ct);
-
-                var newBranch = await sessionManager.Store.LoadBranchAsync(sid, newBranchId, ct)
-                    ?? throw new InvalidOperationException($"Branch '{newBranchId}' not found after fork.");
-
-                if (!string.IsNullOrEmpty(request.Name))
-                    newBranch.Name = request.Name;
-
-                if (!string.IsNullOrEmpty(request.Description))
-                    newBranch.Description = request.Description;
-
-                if (request.Tags != null && request.Tags.Count > 0)
-                    newBranch.Tags = request.Tags;
-
-                await sessionManager.Store.SaveBranchAsync(sid, newBranch, ct);
-
-                var dto = ToBranchDto(newBranch, sid);
-                return ErrorResponses.Created($"/sessions/{sid}/branches/{newBranch.Id}", dto);
-
-            }, ct);
+            //  Use session-level lock for atomic sibling updates
+            return await sessionManager.WithSessionLockAsync(sid,
+                () => DoForkBranchAsync(sid, bid, request, sessionManager, agentManager, ct),
+                ct);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["ForkBranchError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> UpdateBranch(
+    private static async Task<Results<Ok<BranchDto>, NotFound, ValidationProblem>> UpdateBranch(
         string sid,
         string bid,
         UpdateBranchRequest request,
@@ -263,30 +227,23 @@ internal static class BranchEndpoints
             var branch = await sessionManager.Store.LoadBranchAsync(sid, bid, ct);
             if (branch == null)
             {
-                return ErrorResponses.NotFound();
+                return TypedResults.NotFound();
             }
 
-            return await sessionManager.WithSessionLockAsync(sid, async () =>
-            {
-                if (request.Name != null) branch.Name = request.Name;
-                if (request.Description != null) branch.Description = request.Description;
-                if (request.Tags != null) branch.Tags = request.Tags;
-                branch.LastActivity = DateTime.UtcNow;
-
-                await sessionManager.Store.SaveBranchAsync(sid, branch, ct);
-                return ErrorResponses.Json(ToBranchDto(branch, sid));
-            }, ct);
+            return await sessionManager.WithSessionLockAsync(sid,
+                () => DoUpdateBranchAsync(sid, branch, request, sessionManager, ct),
+                ct);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["UpdateBranchError"] = [ex.Message]
             });
         }
     }
 
-    private static async Task<IResult> DeleteBranch(
+    private static async Task<Results<NoContent, NotFound, Conflict, ValidationProblem>> DeleteBranch(
         string sid,
         string bid,
         bool recursive,
@@ -296,7 +253,7 @@ internal static class BranchEndpoints
         // 1. Protect "main" branch from deletion
         if (bid == "main")
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["ProtectedBranch"] = ["Cannot delete the 'main' branch."]
             });
@@ -306,15 +263,15 @@ internal static class BranchEndpoints
         var branch = await sessionManager.Store.LoadBranchAsync(sid, bid, ct);
         if (branch == null)
         {
-            return ErrorResponses.NotFound();
+            return TypedResults.NotFound();
         }
 
-        // 3. V3: Guard children — reject unless recursive is explicitly requested and permitted
+        // 3.  Guard children — reject unless recursive is explicitly requested and permitted
         if (branch.ChildBranches.Count > 0)
         {
             if (!recursive)
             {
-                return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+                return TypedResults.ValidationProblem(new Dictionary<string, string[]>
                 {
                     ["HasChildren"] = [
                         $"Cannot delete branch with {branch.ChildBranches.Count} child branches. " +
@@ -326,7 +283,7 @@ internal static class BranchEndpoints
 
             if (!sessionManager.AllowRecursiveBranchDelete)
             {
-                return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+                return TypedResults.ValidationProblem(new Dictionary<string, string[]>
                 {
                     ["RecursiveDeleteDisabled"] = [
                         "Recursive branch deletion is not enabled on this server. " +
@@ -339,43 +296,19 @@ internal static class BranchEndpoints
         // 4. Check if branch is actively streaming — acquire and HOLD the stream lock
         if (!sessionManager.TryAcquireStreamLock(sid, bid))
         {
-            return ErrorResponses.Conflict("StreamingInProgress",
-                "Branch is actively streaming and cannot be deleted. Try again later.");
+            return TypedResults.Conflict();
         }
 
-        // 5. V3: Perform atomic deletion with sibling reindexing (stream lock held throughout)
+        // 5.  Perform atomic deletion with sibling reindexing (stream lock held throughout)
         try
         {
-            return await sessionManager.WithSessionLockAsync(sid, async () =>
-            {
-                // 5a. Recursively delete all descendants first (if requested)
-                if (recursive)
-                {
-                    foreach (var childId in branch.ChildBranches.ToList())
-                        await DeleteSubtreeAsync(sid, childId, sessionManager, ct);
-                }
-
-                // 5b. Reindex siblings and remove this branch from parent's ChildBranches
-                await ReindexSiblingsAfterDeleteAsync(sid, bid, branch, sessionManager, ct);
-
-                // 5c. Update session's LastActivity
-                var session = await sessionManager.Store.LoadSessionAsync(sid, ct);
-                if (session != null)
-                {
-                    session.LastActivity = DateTime.UtcNow;
-                    await sessionManager.Store.SaveSessionAsync(session, ct);
-                }
-
-                // 5d. Delete the branch (after all updates complete)
-                await sessionManager.Store.DeleteBranchAsync(sid, bid, ct);
-
-                return ErrorResponses.NoContent();
-
-            }, ct);
+            return await sessionManager.WithSessionLockAsync(sid,
+                () => DoDeleteBranchAsync(sid, bid, branch, recursive, sessionManager, ct),
+                ct);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["DeleteBranchError"] = [ex.Message]
             });
@@ -471,7 +404,7 @@ internal static class BranchEndpoints
         }
     }
 
-    private static async Task<IResult> GetMessages(
+    private static async Task<Results<Ok<List<MessageDto>>, NotFound, ValidationProblem>> GetMessages(
         string sid,
         string bid,
         AspNetCoreSessionManager sessionManager,
@@ -482,7 +415,7 @@ internal static class BranchEndpoints
             var branch = await sessionManager.Store.LoadBranchAsync(sid, bid, ct);
             if (branch == null)
             {
-                return ErrorResponses.NotFound();
+                return TypedResults.NotFound();
             }
 
             var messages = new List<MessageDto>();
@@ -501,13 +434,13 @@ internal static class BranchEndpoints
                     message.CreatedAt?.ToString("O") ?? DateTime.UtcNow.ToString("O")));
             }
 
-            // ErrorResponses.Json uses options that chain HPDAgentApiJsonSerializerContext
+            // TypedResults.Ok uses options that chain HPDAgentApiJsonSerializerContext
             // (has List<MessageDto>) + HPDJsonContext (has AIContent polymorphism).
-            return ErrorResponses.Json(messages);
+            return TypedResults.Ok(messages);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetMessagesError"] = [ex.Message]
             });
@@ -515,10 +448,10 @@ internal static class BranchEndpoints
     }
 
     /// <summary>
-    /// V3: Get sibling branch metadata with full navigation info.
+    ///  Get sibling branch metadata with full navigation info.
     /// Returns siblings sorted by SiblingIndex (deterministic ordering).
     /// </summary>
-    private static async Task<IResult> GetSiblings(
+    private static async Task<Results<Ok<List<BranchDto>>, NotFound, ValidationProblem>> GetSiblings(
         string sid,
         string bid,
         AspNetCoreSessionManager sessionManager,
@@ -530,12 +463,12 @@ internal static class BranchEndpoints
             var targetBranch = await sessionManager.Store.LoadBranchAsync(sid, bid, ct);
             if (targetBranch == null)
             {
-                return ErrorResponses.NotFound();
+                return TypedResults.NotFound();
             }
 
             // Get all branches in session
             var branchIds = await sessionManager.Store.ListBranchIdsAsync(sid, ct);
-            var siblingDtos = new List<SiblingBranchDto>();
+            var siblingDtos = new List<BranchDto>();
 
             // Filter siblings: same ForkedFrom + ForkedAtMessageIndex (peer forks),
             // plus the source branch (slot 0) when targetBranch is itself a fork.
@@ -550,16 +483,7 @@ internal static class BranchEndpoints
 
                 if (isSameGroup || isSource)
                 {
-                    siblingDtos.Add(new SiblingBranchDto(
-                        Id: branch.Id,
-                        Name: branch.GetDisplayName(),
-                        SiblingIndex: branch.SiblingIndex,
-                        TotalSiblings: branch.TotalSiblings,
-                        IsOriginal: branch.IsOriginal,
-                        MessageCount: branch.MessageCount,
-                        CreatedAt: branch.CreatedAt,
-                        LastActivity: branch.LastActivity
-                    ));
+                    siblingDtos.Add(ToBranchDto(branch, sid));
                 }
             }
 
@@ -568,15 +492,108 @@ internal static class BranchEndpoints
                 .OrderBy(s => s.SiblingIndex)
                 .ToList();
 
-            return ErrorResponses.Json(siblingDtos);
+            return TypedResults.Ok(siblingDtos);
         }
         catch (Exception ex)
         {
-            return ErrorResponses.ValidationProblem(new Dictionary<string, string[]>
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["GetSiblingsError"] = [ex.Message]
             });
         }
+    }
+
+    private static async Task<Results<Created<BranchDto>, NotFound, ValidationProblem>> DoForkBranchAsync(
+        string sid,
+        string bid,
+        ForkBranchRequest request,
+        AspNetCoreSessionManager sessionManager,
+        AspNetCoreAgentManager agentManager,
+        CancellationToken ct)
+    {
+        var sessionExists = await sessionManager.Store.LoadSessionAsync(sid, ct);
+        if (sessionExists == null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var sourceBranchExists = await sessionManager.Store.LoadBranchAsync(sid, bid, ct);
+        if (sourceBranchExists == null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var newBranchId = string.IsNullOrWhiteSpace(request.NewBranchId)
+            ? Guid.NewGuid().ToString()
+            : request.NewBranchId;
+
+        var agent = await agentManager.GetOrBuildAgentAsync(request.AgentId ?? "default", ct);
+        await agent.ForkBranchAsync(sid, bid, newBranchId, request.FromMessageIndex, ct);
+
+        var newBranch = await sessionManager.Store.LoadBranchAsync(sid, newBranchId, ct)
+            ?? throw new InvalidOperationException($"Branch '{newBranchId}' not found after fork.");
+
+        if (!string.IsNullOrEmpty(request.Name))
+            newBranch.Name = request.Name;
+
+        if (!string.IsNullOrEmpty(request.Description))
+            newBranch.Description = request.Description;
+
+        if (request.Tags != null && request.Tags.Count > 0)
+            newBranch.Tags = request.Tags;
+
+        await sessionManager.Store.SaveBranchAsync(sid, newBranch, ct);
+
+        var dto = ToBranchDto(newBranch, sid);
+        return TypedResults.Created($"/sessions/{sid}/branches/{newBranch.Id}", dto);
+    }
+
+    private static async Task<Results<Ok<BranchDto>, NotFound, ValidationProblem>> DoUpdateBranchAsync(
+        string sid,
+        Branch branch,
+        UpdateBranchRequest request,
+        AspNetCoreSessionManager sessionManager,
+        CancellationToken ct)
+    {
+        if (request.Name != null) branch.Name = request.Name;
+        if (request.Description != null) branch.Description = request.Description;
+        if (request.Tags != null) branch.Tags = request.Tags;
+        branch.LastActivity = DateTime.UtcNow;
+
+        await sessionManager.Store.SaveBranchAsync(sid, branch, ct);
+        return TypedResults.Ok(ToBranchDto(branch, sid));
+    }
+
+    private static async Task<Results<NoContent, NotFound, Conflict, ValidationProblem>> DoDeleteBranchAsync(
+        string sid,
+        string bid,
+        Branch branch,
+        bool recursive,
+        AspNetCoreSessionManager sessionManager,
+        CancellationToken ct)
+    {
+        // Recursively delete all descendants first (if requested)
+        if (recursive)
+        {
+            foreach (var childId in branch.ChildBranches.ToList())
+                await DeleteSubtreeAsync(sid, childId, sessionManager, ct);
+        }
+
+        // Reindex siblings and remove this branch from parent's ChildBranches
+        await ReindexSiblingsAfterDeleteAsync(sid, bid, branch, sessionManager, ct);
+
+        // Update session's LastActivity
+        var session = await sessionManager.Store.LoadSessionAsync(sid, ct);
+        if (session != null)
+        {
+            session.LastActivity = DateTime.UtcNow;
+            await sessionManager.Store.SaveSessionAsync(session, ct);
+        }
+
+        // Delete the branch (after all updates complete)
+        await sessionManager.Store.DeleteBranchAsync(sid, bid, ct);
+
+        return TypedResults.NoContent();
     }
 
     private static BranchDto ToBranchDto(Branch branch, string sessionId)
@@ -593,7 +610,7 @@ internal static class BranchEndpoints
             branch.MessageCount,
             branch.Tags,
             branch.Ancestors,
-            // V3: Tree navigation metadata
+            //  Tree navigation metadata
             branch.SiblingIndex,
             branch.TotalSiblings,
             branch.IsOriginal,

@@ -37,7 +37,7 @@ public class InMemorySessionStore : ISessionStore
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // SESSION PERSISTENCE (V3: Metadata only)
+    // SESSION PERSISTENCE ( Metadata only)
     // ═══════════════════════════════════════════════════════════════════
 
     public Task<Session?> LoadSessionAsync(
@@ -74,7 +74,7 @@ public class InMemorySessionStore : ISessionStore
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // BRANCH PERSISTENCE (V3: New)
+    // BRANCH PERSISTENCE ( New)
     // ═══════════════════════════════════════════════════════════════════
 
     public Task<Branch?> LoadBranchAsync(

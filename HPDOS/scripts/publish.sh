@@ -137,6 +137,29 @@ for platform in "${PLATFORMS[@]}"; do
       # Get file size
       size=$(du -h "$output" | cut -f1)
       echo "  ✓ $filename ($size)"
+
+      # Codesign macOS binaries with Hardened Runtime so that macOS will prompt
+      # for TCC permissions (screen recording, microphone, camera) on first use.
+      # Requires a 'Developer ID Application' identity in the keychain.
+      if [[ "$UNAME" == "Darwin" && "$rid" == osx-* ]]; then
+        ENTITLEMENTS="$SCRIPT_DIR/entitlements.plist"
+        if [[ -f "$ENTITLEMENTS" ]]; then
+          SIGNING_ID=$(security find-identity -v -p codesigning 2>/dev/null \
+            | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}' || true)
+          if [[ -n "$SIGNING_ID" ]]; then
+            echo "  🔐 Codesigning with Hardened Runtime ($SIGNING_ID)..."
+            codesign --force --sign "$SIGNING_ID" \
+              --entitlements "$ENTITLEMENTS" \
+              --identifier com.hpd.hpdos \
+              --options runtime \
+              "$output"
+          else
+            echo "  ⚠️  No 'Developer ID Application' identity found — binary not codesigned"
+            echo "     TCC permissions (screen recording, microphone) will not be auto-granted"
+            echo "     Run: codesign --force --sign 'Developer ID Application: ...' --entitlements scripts/entitlements.plist --identifier com.hpd.hpdos --options runtime $output"
+          fi
+        fi
+      fi
     else
       echo "  ✗ ERROR: Binary not found at $src_binary"
       exit 1

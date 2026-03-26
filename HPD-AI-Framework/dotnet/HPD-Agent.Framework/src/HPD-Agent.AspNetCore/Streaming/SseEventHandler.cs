@@ -61,17 +61,5 @@ internal static class SseEventHandler
                 // Response stream already closed — nothing we can do.
             }
         }
-        finally
-        {
-            // Close the response body to signal end-of-stream to the client.
-            try
-            {
-                await context.Response.Body.FlushAsync(CancellationToken.None);
-            }
-            catch
-            {
-                // Stream may already be closed.
-            }
-        }
     }
 }

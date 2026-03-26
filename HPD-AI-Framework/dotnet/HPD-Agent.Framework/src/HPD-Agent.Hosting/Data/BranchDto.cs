@@ -34,7 +34,7 @@ public record BranchDto(
     int MessageCount,
     List<string>? Tags,
     Dictionary<string, string>? Ancestors,
-    // V3: Tree navigation metadata
+    //  Tree navigation metadata
     int SiblingIndex,
     int TotalSiblings,
     bool IsOriginal,

@@ -43,12 +43,18 @@
 			isLoading = true;
 			loadingError = null;
 
-			fragmentEl = document.createElement('web-fragment');
-			fragmentEl.setAttribute('fragment-id', tab.appId);
+			const endpoint = manifest.isolation?.endpoint || `/apps/${tab.appId}`;
 
-			// Unbound fragment: set explicit src so web-fragments fetches its HTML
+			// bound=false: plain external URL server — use a native iframe.
+			// bound=true: web-fragments-aware server with gateway — use <web-fragment>.
 			if (manifest.isolation?.bound === false) {
-				fragmentEl.setAttribute('src', manifest.isolation.endpoint || `/apps/${tab.appId}`);
+				fragmentEl = document.createElement('iframe');
+				(fragmentEl as HTMLIFrameElement).src = endpoint;
+				(fragmentEl as HTMLIFrameElement).style.cssText = 'width:100%;height:100%;border:none;';
+			} else {
+				fragmentEl = document.createElement('web-fragment');
+				fragmentEl.setAttribute('fragment-id', tab.appId);
+				fragmentEl.setAttribute('src', endpoint);
 			}
 
 			containerRef.appendChild(fragmentEl);
@@ -113,6 +119,14 @@
 	onMount(async () => {
 		if (useFragment) {
 			await initFragments();
+			// Await the manifest's onMount hook so external apps (e.g. code-server)
+			// can launch their process and set isolation.endpoint before the fragment
+			// element is created and its src is read.
+			if (manifest?.onMount) {
+				try { await manifest.onMount(tab as any); } catch (e) {
+					console.warn('[DynamicAppLoader] onMount hook failed:', e);
+				}
+			}
 			createFragment();
 		}
 		// Direct mount: directContainer only exists after isLoading → false renders the
@@ -132,10 +146,12 @@
 		unmountSvelte();
 	});
 
-	// Recreate fragment when tab.appId changes
+	// Recreate fragment when tab.appId changes (but not on initial mount)
+	let prevAppId = tab.appId;
 	$effect(() => {
-		void tab.appId; // reactive dependency
-		if (useFragment && fragmentEl && containerRef) {
+		const currentAppId = tab.appId;
+		if (useFragment && currentAppId !== prevAppId && containerRef) {
+			prevAppId = currentAppId;
 			destroyFragment();
 			createFragment();
 		}
@@ -157,8 +173,10 @@
 				Retry
 			</button>
 		</div>
-	{:else if useFragment}
-		<div bind:this={containerRef} class="app-container"></div>
+	{/if}
+
+	{#if useFragment}
+		<div bind:this={containerRef} class="app-container" style:display={isLoading || loadingError ? 'none' : undefined}></div>
 	{/if}
 
 	<!--

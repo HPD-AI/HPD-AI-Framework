@@ -1,0 +1,3 @@
+<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#a0aec0;font-size:0.875rem;">
+    Starting Code Editor…
+</div>
