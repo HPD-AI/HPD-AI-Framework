@@ -13,7 +13,6 @@ public static class PolynomialFactoring
     public readonly record struct FactorOverZDiagnostics(
         int PrimeAttempts,
         int PrimeAccepted,
-        int SubsetMasksTried,
         int HenselLiftAttempts,
         int HenselLiftSuccesses,
         int LllDimension);
@@ -22,13 +21,12 @@ public static class PolynomialFactoring
     {
         public int PrimeAttempts;
         public int PrimeAccepted;
-        public int SubsetMasksTried;
         public int HenselLiftAttempts;
         public int HenselLiftSuccesses;
         public int LllDimension;
 
         public FactorOverZDiagnostics Snapshot() =>
-            new(PrimeAttempts, PrimeAccepted, SubsetMasksTried, HenselLiftAttempts, HenselLiftSuccesses, LllDimension);
+            new(PrimeAttempts, PrimeAccepted, HenselLiftAttempts, HenselLiftSuccesses, LllDimension);
     }
 
     public static (Rational Content, List<(Polynomial<Rational> Factor, int Multiplicity)> Factors)
@@ -285,10 +283,10 @@ public static class PolynomialFactoring
 
             if (!found)
             {
-                if (TrySplitWithTwoFactorHensel(current, diagnostics, out var left, out var right))
+                var vanHoeijResult = TrySplitWithVanHoeij(current, diagnostics);
+                if (vanHoeijResult != null)
                 {
-                    factors.AddRange(FactorSquareFreeOverZ(left, diagnostics));
-                    factors.AddRange(FactorSquareFreeOverZ(right, diagnostics));
+                    factors.AddRange(vanHoeijResult);
                 }
                 else
                 {
@@ -751,83 +749,14 @@ public static class PolynomialFactoring
         return bound <= BigInteger.Zero ? Integer.One : (Integer)bound;
     }
 
-    // -------------------------------------------------------------------------
-    // Two-factor Hensel split (kept for fallback / small cases)
-    // -------------------------------------------------------------------------
 
-    private static bool TrySplitWithTwoFactorHensel(
-        Polynomial<Integer> f,
-        DiagnosticsAccumulator diagnostics,
-        out Polynomial<Integer> left,
-        out Polynomial<Integer> right)
+    private static int ComputePrimeBudget(int degree) => degree switch
     {
-        left = Polynomial<Integer>.Zero;
-        right = Polynomial<Integer>.Zero;
-        if (f.Degree <= 1)
-            return false;
-
-        int acceptedPrimeIndex = 0;
-        int maxPrimes = ComputePrimeBudget(f.Degree);
-        foreach (int p in EnumerateGoodRecombinationPrimes(f, diagnostics, maxPrimes))
-        {
-            int primeIndex = acceptedPrimeIndex++;
-            var rawModPoly = ToModCoefficients(f, p);
-            int leadingMod = rawModPoly[^1];
-            var modPoly = Monic(rawModPoly, p);
-            if (Degree(modPoly) <= 1)
-                continue;
-
-            var ffInput = FromModCoefficients(modPoly, p);
-            var ffFactors = p <= 7 ? Berlekamp(ffInput, p) : CantorZassenhaus(ffInput, p);
-            if (ffFactors.Count < 2)
-                continue;
-
-            var ffPieces = ffFactors
-                .Select(x => Monic(ToModCoefficients(x, p), p))
-                .Where(x => Degree(x) > 0)
-                .ToList();
-            if (ffPieces.Count < 2)
-                continue;
-
-            var bound = MignotteBoundUpper(f);
-            var target = bound * (Integer)2;
-            var modulusPow = (Integer)p;
-            int precision = 1;
-            while ((BigInteger)modulusPow <= (BigInteger)target)
-            {
-                modulusPow *= (Integer)p;
-                precision++;
-            }
-
-            int maskBudget = ComputeMaskBudget(ffPieces.Count, f.Degree, primeIndex);
-            foreach (var mask in EnumerateSubsetMasks(ffPieces, targetDegree: f.Degree / 2, maxMasks: maskBudget))
-            {
-                diagnostics.SubsetMasksTried++;
-                var g0 = new[] { 1 };
-                var h0 = new[] { 1 };
-                for (int i = 0; i < ffPieces.Count; i++)
-                {
-                    if (((mask >> i) & 1) == 1)
-                        g0 = MulMod(g0, ffPieces[i], p);
-                    else
-                        h0 = MulMod(h0, ffPieces[i], p);
-                }
-
-                g0 = Monic(g0, p);
-                h0 = Monic(h0, p);
-                if (Degree(g0) <= 0 || Degree(h0) <= 0 || Degree(g0) + Degree(h0) != f.Degree)
-                    continue;
-
-                // Factors are computed for the monic-normalized polynomial; rescale to match f mod p.
-                g0 = ScaleMod(g0, leadingMod, p);
-
-                if (TryLiftedSplitCandidate(f, diagnostics, g0, h0, p, modulusPow, precision, out left, out right))
-                    return true;
-            }
-        }
-
-        return false;
-    }
+        <= 8 => 16,
+        <= 16 => 24,
+        <= 24 => 28,
+        _ => 32
+    };
 
     private static IEnumerable<int> EnumerateGoodRecombinationPrimes(
         Polynomial<Integer> f,
@@ -1140,127 +1069,6 @@ public static class PolynomialFactoring
         return poly.Length == 1 && poly[0] == 1;
     }
 
-    private static IEnumerable<int> EnumerateSubsetMasks(
-        List<int[]> factors,
-        int targetDegree,
-        int maxMasks)
-    {
-        int count = factors.Count;
-        if (count < 2 || count >= 31)
-            yield break;
-
-        int fullMask = (1 << count) - 1;
-        int[] degrees = factors.Select(Degree).ToArray();
-        int totalDegree = degrees.Sum();
-        int[] suffixDegree = new int[count + 1];
-        for (int i = count - 1; i >= 0; i--)
-            suffixDegree[i] = suffixDegree[i + 1] + degrees[i];
-
-        int degreeWindow = Math.Max(1, Math.Max(targetDegree / 2, totalDegree / 4));
-        int minDegree = Math.Max(1, targetDegree - degreeWindow);
-        int maxDegree = Math.Min(totalDegree - 1, targetDegree + degreeWindow);
-        int poolLimit = Math.Max(maxMasks * 6, 96);
-        var scoredMasks = new List<(int Mask, int Score, int SizeScore, int DegreeScore)>(poolLimit);
-
-        void AddCandidate(int mask, int degreeSum, int sizeSum)
-        {
-            int balanceScore = Math.Abs(totalDegree - (2 * degreeSum));
-            int degreeScore = Math.Abs(targetDegree - degreeSum);
-            int sizeScore = Math.Abs((count / 2) - sizeSum);
-            int score = (degreeScore * 1000) + (balanceScore * 10) + sizeScore;
-            scoredMasks.Add((mask, score, sizeScore, degreeScore));
-            if (scoredMasks.Count > poolLimit * 2)
-            {
-                scoredMasks.Sort((a, b) =>
-                {
-                    int c1 = a.Score.CompareTo(b.Score);
-                    if (c1 != 0) return c1;
-                    int c2 = a.SizeScore.CompareTo(b.SizeScore);
-                    if (c2 != 0) return c2;
-                    int c3 = a.DegreeScore.CompareTo(b.DegreeScore);
-                    if (c3 != 0) return c3;
-                    return a.Mask.CompareTo(b.Mask);
-                });
-                scoredMasks.RemoveRange(poolLimit, scoredMasks.Count - poolLimit);
-            }
-        }
-
-        void Search(int index, int mask, int degreeSum, int sizeSum)
-        {
-            if (degreeSum > maxDegree)
-                return;
-
-            int remainingDegree = suffixDegree[index];
-            if (degreeSum + remainingDegree < minDegree)
-                return;
-
-            if (index == count)
-            {
-                if ((mask & 1) == 0)
-                    return;
-                int complement = fullMask ^ mask;
-                if (mask == 0 || complement == 0)
-                    return;
-                if (degreeSum < minDegree || degreeSum > maxDegree)
-                    return;
-
-                AddCandidate(mask, degreeSum, sizeSum);
-                return;
-            }
-
-            Search(index + 1, mask, degreeSum, sizeSum);
-            Search(index + 1, mask | (1 << index), degreeSum + degrees[index], sizeSum + 1);
-        }
-
-        Search(0, 0, 0, 0);
-
-        foreach (var item in scoredMasks
-            .OrderBy(x => x.Score)
-            .ThenBy(x => x.SizeScore)
-            .ThenBy(x => x.DegreeScore)
-            .ThenBy(x => x.Mask)
-            .Take(maxMasks))
-        {
-            yield return item.Mask;
-        }
-    }
-
-    private static int ComputeMaskBudget(int factorCount, int degree)
-    {
-        int baseBudget = factorCount switch
-        {
-            <= 4 => 80,
-            <= 6 => 160,
-            <= 8 => 320,
-            <= 10 => 480,
-            _ => 640
-        };
-
-        if (degree >= 16)
-            baseBudget += 160;
-        if (degree >= 24)
-            baseBudget += 160;
-        return baseBudget;
-    }
-
-    private static int ComputeMaskBudget(int factorCount, int degree, int acceptedPrimeIndex)
-    {
-        int baseBudget = ComputeMaskBudget(factorCount, degree);
-        return acceptedPrimeIndex switch
-        {
-            0 => Math.Max(96, baseBudget / 2),
-            1 => Math.Max(128, (baseBudget * 3) / 4),
-            _ => baseBudget
-        };
-    }
-
-    private static int ComputePrimeBudget(int degree) => degree switch
-    {
-        <= 8 => 16,
-        <= 16 => 24,
-        <= 24 => 28,
-        _ => 32
-    };
 
     private static Polynomial<QuotientRing<Integer>> FromModCoefficients(int[] coeffs, int p)
     {

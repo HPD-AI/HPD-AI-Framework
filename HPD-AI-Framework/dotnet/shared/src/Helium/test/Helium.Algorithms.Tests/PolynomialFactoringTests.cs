@@ -81,7 +81,6 @@ public class PolynomialFactoringTests
         var (factors, diagnostics) = PolynomialFactoring.FactorOverZWithDiagnostics(f);
 
         Assert.Equal(2, factors.Count);
-        Assert.Equal(0, diagnostics.SubsetMasksTried);
         Assert.Equal(0, diagnostics.HenselLiftAttempts);
         Assert.Equal(0, diagnostics.HenselLiftSuccesses);
     }
@@ -201,7 +200,7 @@ public class PolynomialFactoringTests
         Assert.Equal(3, factors.Count);
         Assert.True(diagnostics.PrimeAttempts > 0);
         Assert.True(diagnostics.PrimeAccepted > 0);
-        Assert.True(diagnostics.SubsetMasksTried > 0);
+        Assert.True(diagnostics.LllDimension > 0);
         Assert.True(diagnostics.HenselLiftAttempts > 0);
         Assert.True(diagnostics.HenselLiftSuccesses > 0);
         Assert.True(diagnostics.HenselLiftSuccesses <= diagnostics.HenselLiftAttempts);
@@ -230,8 +229,8 @@ public class PolynomialFactoringTests
         Assert.Equal(quadratics.Length, factors.Count);
         Assert.True(diagnostics.PrimeAttempts < 200);
         Assert.True(diagnostics.PrimeAccepted <= diagnostics.PrimeAttempts);
-        Assert.True(diagnostics.SubsetMasksTried < 5000);
-        Assert.True(diagnostics.HenselLiftAttempts <= diagnostics.SubsetMasksTried);
+        Assert.True(diagnostics.LllDimension > 0);
+        Assert.True(diagnostics.HenselLiftAttempts > 0);
         Assert.True(diagnostics.HenselLiftSuccesses > 0);
     }
 
@@ -250,7 +249,6 @@ public class PolynomialFactoringTests
 
         Assert.Equal(expectedFactorCount, factors.Count);
         Assert.True(diagnostics.PrimeAttempts <= maxPrimeAttempts);
-        Assert.True(diagnostics.SubsetMasksTried >= 0);
         Assert.True(diagnostics.HenselLiftSuccesses > 0);
     }
 
