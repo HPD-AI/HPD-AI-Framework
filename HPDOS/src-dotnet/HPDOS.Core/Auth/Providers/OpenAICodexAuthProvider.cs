@@ -4,6 +4,24 @@ using System.Text.Json.Serialization;
 
 namespace HPDOS.Core.Auth.Providers;
 
+/// <summary>
+/// OpenAI provider for ChatGPT Plus/Pro subscriptions.
+///
+/// This provider uses OAuth to authenticate users with their ChatGPT subscription,
+/// allowing access to the Codex API endpoints at https://chatgpt.com/backend-api/codex.
+///
+/// Authentication Methods:
+/// 1. Browser OAuth: Opens browser window for user to authenticate via ChatGPT account
+/// 2. Device Code: For headless/CLI environments (user enters code on openai.com)
+/// 3. Manual API Key: For users with OpenAI API platform accounts
+///
+/// Special Handling for Organization Subscriptions:
+/// - Extracts chatgpt_account_id from OAuth tokens
+/// - Sets ChatGPT-Account-Id header for requests to map subscription benefits
+/// - Automatically handles token refresh
+///
+/// This implementation is based on opencode's CodexAuthPlugin pattern.
+/// </summary>
 public class OpenAICodexAuthProvider : IAuthProvider, ILiveModelProvider
 {
     private const string ClientId = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -154,11 +172,12 @@ public class OpenAICodexAuthProvider : IAuthProvider, ILiveModelProvider
         {
             OAuthEntry oauth => new AuthLoadResult
             {
+                // For OAuth, use access token as bearer token (not traditional API key)
                 ApiKey = oauth.AccessToken,
                 BaseUrl = CodexApiBaseUrl,
-                CustomHeaders = oauth.AccountId != null
-                    ? new Dictionary<string, string> { ["ChatGPT-Account-Id"] = oauth.AccountId }
-                    : null,
+                // Include ChatGPT-Account-Id header for organization subscriptions
+                // This header is required when user has a ChatGPT Pro/Plus subscription
+                CustomHeaders = BuildCustomHeaders(oauth),
                 AccountId = oauth.AccountId
             },
             ApiKeyEntry apiKey => new AuthLoadResult { ApiKey = apiKey.Key },
@@ -166,6 +185,23 @@ public class OpenAICodexAuthProvider : IAuthProvider, ILiveModelProvider
             _ => throw new ArgumentException($"Unsupported auth entry type: {entry.GetType().Name}")
         };
         return Task.FromResult(result);
+    }
+
+    /// <summary>
+    /// Builds custom headers for ChatGPT OAuth requests.
+    /// Includes ChatGPT-Account-Id header when available for organization subscriptions.
+    /// </summary>
+    private static Dictionary<string, string>? BuildCustomHeaders(OAuthEntry oauth)
+    {
+        if (oauth.AccountId == null)
+            return null;
+
+        return new Dictionary<string, string>
+        {
+            // Required header for ChatGPT Pro/Plus subscriptions
+            // Maps the user's ChatGPT account to their subscription benefits
+            ["ChatGPT-Account-Id"] = oauth.AccountId
+        };
     }
 
     public async Task<AuthEntry?> RefreshIfNeededAsync(AuthEntry entry)
@@ -209,10 +245,17 @@ public class OpenAICodexAuthProvider : IAuthProvider, ILiveModelProvider
             ["response_type"] = "code",
             ["client_id"] = ClientId,
             ["redirect_uri"] = callbackServer.CallbackUrl,
+            // Request scopes for ChatGPT subscription access
+            // openid: Identity information
+            // profile: User profile (needed for account ID extraction)
+            // email: Email address
+            // offline_access: Refresh token for long-lived sessions
             ["scope"] = "openid profile email offline_access",
             ["code_challenge"] = codeChallenge,
             ["code_challenge_method"] = "S256",
+            // Request organization information (for ChatGPT Pro/Plus accounts)
             ["id_token_add_organizations"] = "true",
+            // Simplified flow for CLI/headless usage
             ["codex_cli_simplified_flow"] = "true",
             ["state"] = state,
             ["originator"] = ""
@@ -321,17 +364,34 @@ public class OpenAICodexAuthProvider : IAuthProvider, ILiveModelProvider
         catch (Exception ex) { return new AuthFlowResult.Failed($"Failed to exchange device code: {ex.Message}", ex); }
     }
 
+    /// <summary>
+    /// Extracts the ChatGPT account ID from OAuth tokens for organization subscriptions.
+    ///
+    /// The account ID is used to set the ChatGPT-Account-Id header in API requests,
+    /// which maps the authenticated user to their ChatGPT Plus/Pro subscription benefits.
+    ///
+    /// JWT Claims are checked in order:
+    /// 1. Top-level "chatgpt_account_id" claim
+    /// 2. Nested "https://api.openai.com/auth" -> "chatgpt_account_id"
+    /// 3. Fallback to "organizations" claim
+    /// </summary>
     private static string? ExtractAccountId(string accessToken)
     {
         var claims = OAuthHelpers.ParseJwtClaims(accessToken);
         if (claims == null) return null;
+
+        // Check top-level chatgpt_account_id claim
         var accountId = OAuthHelpers.GetJwtClaim(claims, "chatgpt_account_id");
         if (!string.IsNullOrEmpty(accountId)) return accountId;
+
+        // Check nested chatgpt_account_id in https://api.openai.com/auth
         if (claims.TryGetValue("https://api.openai.com/auth", out var authClaim) &&
             authClaim.ValueKind == System.Text.Json.JsonValueKind.Object &&
             authClaim.TryGetProperty("chatgpt_account_id", out var nested) &&
             nested.ValueKind == System.Text.Json.JsonValueKind.String)
             return nested.GetString();
+
+        // Fallback to organizations claim for org subscriptions
         return OAuthHelpers.GetJwtClaim(claims, "organizations");
     }
 

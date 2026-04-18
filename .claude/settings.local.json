@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find \"C:\\\\Users\\\\ewoof\\\\Documents\\\\nautilus_trader-develop\\\\crates\\\\execution\\\\src\" -name \"*.rs\" -exec grep -l \"pub fn\\\\|pub struct\" {} \\\\;)",
+      "Bash(wc -l \"C:\\\\Users\\\\ewoof\\\\Documents\\\\pfund-main\\\\pfund\"/*.py \"C:\\\\Users\\\\ewoof\\\\Documents\\\\pfund-main\\\\pfund\"/engines/*.py \"C:\\\\Users\\\\ewoof\\\\Documents\\\\pfund-main\\\\pfund\"/brokers/*.py)",
+      "Bash(python3)",
+      "Bash(sed 's/name = \"//')",
+      "Bash(sed 's/\".*//')",
+      "Read(//tmp/**)",
+      "Read(//c/Users/ewoof/Documents/HPD-OS/**)",
+      "Bash(dotnet test:*)",
+      "Bash(xargs grep:*)",
+      "Bash(grep -r \"TestSuiteConfig\\\\|interface.*Config\" /c/Users/ewoof/Documents/promptfoo-main/src/types/*.ts)",
+      "Bash(wc -l \"C:\\\\Users\\\\ewoof\\\\Documents\\\\promptfoo-main\\\\src\\\\assertions\"/*.ts)",
+      "Bash(xargs basename:*)",
+      "Bash(ls commands/*.ts)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(ls -lh /c/Users/ewoof/AppData/Local/Temp/claude/c--Users-ewoof-Documents-HPD-OS/799ec8c7-0bba-4713-b381-c0893c899ccc/tasks/*.output)",
+      "Read(//c/Users/ewoof/Documents/promptfoo-main/src/**)",
+      "Bash(find /c/Users/ewoof/AppData/Local/Temp -name \"bwpcqke0p.output\" -exec head -200 {} \\\\;)",
+      "Bash(find \"C:\\\\Users\\\\ewoof\\\\Documents\\\\opencode-dev\" -type f \\\\\\( -name \"*.ts\" -o -name \"*.js\" \\\\\\) -exec grep -l \"oauth.*openai\\\\|openai.*oauth\" -i {} \\\\;)",
+      "Bash(grep -r \"JsonSerializer\\\\.\" \"c:\\\\Users\\\\ewoof\\\\Documents\\\\HPD-OS\\\\HPD-AI-Framework\\\\dotnet\\\\HPD-Agent.Framework\\\\src\\\\HPD-Agent.Providers\\\\HPD-Agent.Providers.OpenAI\\\\\" --include=\"*.cs\" | grep -v \"OpenAIJsonContext\\\\|OpenAIErrorHandler\")",
+      "Bash(grep -r \"JsonSerializer\\\\.Deserialize\\\\|JsonSerializer\\\\.Serialize\" \"c:\\\\Users\\\\ewoof\\\\Documents\\\\HPD-OS\\\\HPD-AI-Framework\\\\dotnet\\\\HPD-Agent.Framework\\\\src\\\\HPD-Agent\\\\\" --include=\"*.cs\" | grep -v \"JsonContext\\\\|JsonTypeInfo\" | head -20)",
+      "Bash(\"HPDOS/src-dotnet/HPDOS.CLI/bin/Release/net10.0/hpdos.exe\" chat *)",
+      "Bash(find C:\\\\\\\\Users\\\\\\\\ewoof\\\\\\\\Documents\\\\\\\\mastra-main\\\\\\\\packages\\\\\\\\server\\\\\\\\src -name \"*.ts\")"
+    ]
+  }
+}
