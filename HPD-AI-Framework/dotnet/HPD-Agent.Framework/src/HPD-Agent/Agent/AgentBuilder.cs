@@ -75,9 +75,6 @@ public class AgentBuilder
     // Internal observers for agent-level observability (developer-only, hidden from users)
     private readonly List<IAgentEventObserver> _observers = new();
 
-    // Event handlers for synchronous, ordered event processing (UI, console, web streams)
-    private readonly List<IAgentEventHandler> _eventHandlers = new();
-
     internal readonly Dictionary<Type, object> _providerConfigs = new();
     internal IServiceProvider? _serviceProvider;
     internal ILoggerFactory? _logger;
@@ -1554,51 +1551,6 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Registers an event handler for synchronous, ordered event processing.
-    /// Use this for UI handlers (console, web streams) that need guaranteed ordering.
-    /// </summary>
-    /// <param name="handler">The event handler to register</param>
-    /// <returns>The builder for chaining</returns>
-    /// <remarks>
-    /// <para>
-    /// Unlike <see cref="WithObserver"/>, event handlers are awaited synchronously
-    /// in the event loop, guaranteeing events are processed in order.
-    /// </para>
-    /// <para>
-    /// <b>Use WithEventHandler for:</b>
-    /// <list type="bullet">
-    /// <item>Console output that needs correct ordering</item>
-    /// <item>Web UI streaming (SSE, WebSockets)</item>
-    /// <item>Permission prompts that need user interaction</item>
-    /// </list>
-    /// </para>
-    /// <para>
-    /// <b>Use WithObserver for:</b>
-    /// <list type="bullet">
-    /// <item>Telemetry and metrics (ordering doesn't matter)</item>
-    /// <item>Background logging</item>
-    /// <item>Analytics</item>
-    /// </list>
-    /// </para>
-    /// </remarks>
-    /// <example>
-    /// <code>
-    /// var agent = new AgentBuilder(config)
-    ///     .WithEventHandler(new ConsoleEventHandler())  // Synchronous, ordered
-    ///     .WithObserver(new TelemetryObserver())        // Fire-and-forget
-    ///     .Build();
-    /// </code>
-    /// </example>
-    public AgentBuilder WithEventHandler(IAgentEventHandler handler)
-    {
-        if (handler == null)
-            throw new ArgumentNullException(nameof(handler));
-
-        _eventHandlers.Add(handler);
-        return this;
-    }
-
-    /// <summary>
     /// Enables distributed caching for LLM response caching.
     /// Dramatically reduces latency and cost for repeated queries.
     /// Automatically applies Microsoft's <c>DistributedCachingChatClient</c> middleware.
@@ -2049,7 +2001,6 @@ public class AgentBuilder
             _middlewares,
             _serviceProvider,
             _observers,
-            _eventHandlers,
             _providerRegistry,
             _stateFactories,
             buildData.OwnedHttpClients);

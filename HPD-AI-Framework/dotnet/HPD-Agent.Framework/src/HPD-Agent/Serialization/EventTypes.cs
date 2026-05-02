@@ -10,6 +10,19 @@ namespace HPD.Agent.Serialization;
 /// </remarks>
 public static partial class EventTypes
 {
+    #region Input Events
+
+    /// <summary>
+    /// Events accepted as agent input.
+    /// </summary>
+    public static class Input
+    {
+        public const string USER_TEXT_INPUT = "USER_TEXT_INPUT";
+        public const string USER_MESSAGES_INPUT = "USER_MESSAGES_INPUT";
+    }
+
+    #endregion
+
     #region Message Turn Events
 
     /// <summary>

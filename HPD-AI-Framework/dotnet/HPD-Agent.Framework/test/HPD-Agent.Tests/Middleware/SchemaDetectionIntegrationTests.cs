@@ -30,14 +30,11 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
         var agent = CreateTestAgentWithLogging(_sessionStore!);
 
         // Act: Resume from pre-versioning checkpoint
-        await foreach (var evt in agent.RunAsync(
-            Array.Empty<ChatMessage>(),
-            session: session,
-            branch: branch,
-            cancellationToken: TestCancellationToken))
+        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
         {
-            // Consume events
-        }
+            Session = session,
+            Branch = branch
+        }, TestCancellationToken);
 
         // Wait a bit for async observer notifications to complete
         await Task.Delay(100);
@@ -67,14 +64,11 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
         var agent = CreateTestAgentWithLogging(_sessionStore!);
 
         // Act: Resume
-        await foreach (var evt in agent.RunAsync(
-            Array.Empty<ChatMessage>(),
-            session: session,
-            branch: branch,
-            cancellationToken: TestCancellationToken))
+        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
         {
-            // Consume events
-        }
+            Session = session,
+            Branch = branch
+        }, TestCancellationToken);
 
         // Assert: Warning logged
         var logs = _loggerProvider.GetLogs();
@@ -101,14 +95,11 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
         var agent = CreateTestAgentWithLogging(_sessionStore!);
 
         // Act: Resume (agent now has more middleware)
-        await foreach (var evt in agent.RunAsync(
-            Array.Empty<ChatMessage>(),
-            session: session,
-            branch: branch,
-            cancellationToken: TestCancellationToken))
+        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
         {
-            // Consume events
-        }
+            Session = session,
+            Branch = branch
+        }, TestCancellationToken);
 
         // Assert: Info logged about new middleware being initialized to defaults
         var logs = _loggerProvider.GetLogs();
@@ -135,14 +126,11 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
         var agent = CreateTestAgentWithLogging(_sessionStore!);
 
         // Act: Resume
-        await foreach (var evt in agent.RunAsync(
-            Array.Empty<ChatMessage>(),
-            session: session,
-            branch: branch,
-            cancellationToken: TestCancellationToken))
+        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
         {
-            // Consume events
-        }
+            Session = session,
+            Branch = branch
+        }, TestCancellationToken);
 
         // Assert: No schema-related logs
         var logs = _loggerProvider.GetLogs();

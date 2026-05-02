@@ -2,7 +2,7 @@
 
 > Get a console CLI running in under 2 minutes
 
-HPD-Agent works natively in .NET console applications with no additional dependencies. Use `await foreach` to consume events and build interactive command-line tools.
+HPD-Agent works natively in .NET console applications with no additional dependencies. Register `On<TEvent>()` handlers for output, then call `RunAsync(...)` with each user input.
 
 ## Quick Start
 
@@ -27,6 +27,18 @@ var agent = await new AgentBuilder()
 // Create a session to track conversation history
 var sessionId = await agent.CreateSessionAsync();
 
+agent
+    .On<TextDeltaEvent>(e =>
+    {
+        Console.Write(e.Text);
+        return ValueTask.CompletedTask;
+    })
+    .On<MessageTurnFinishedEvent>(_ =>
+    {
+        Console.WriteLine("\n");
+        return ValueTask.CompletedTask;
+    });
+
 while (true)
 {
     // Get user input
@@ -34,21 +46,9 @@ while (true)
     var input = Console.ReadLine();
     if (string.IsNullOrEmpty(input)) break;
 
-    // Stream agent response — history is tracked automatically via sessionId
+    // Send input - history is tracked automatically via sessionId.
     Console.Write("Agent: ");
-    await foreach (var evt in agent.RunAsync(input, sessionId: sessionId))
-    {
-        switch (evt)
-        {
-            case TextDeltaEvent delta:
-                Console.Write(delta.Text);
-                break;
-
-            case MessageTurnFinishedEvent:
-                Console.WriteLine("\n");
-                break;
-        }
-    }
+    await agent.RunAsync(input, sessionId: sessionId);
 }
 ```
 
@@ -85,7 +85,7 @@ This is still a console application. The only difference is how input and output
 | Transport | Input | Output | Access |
 |---|---|---|---|
 | stdin/stdout | `Console.ReadLine()` | `Console.Write()` | Same machine, same terminal |
-| Kestrel (HTTP) | `POST .../stream` body | SSE or WebSocket event stream | Any HTTP client, over the network |
+| Kestrel (HTTP) | Event envelope | SSE or WebSocket output events | Any HTTP client, over the network |
 
 ### Minimal Kestrel console app
 
@@ -118,5 +118,5 @@ For everything `MapHPDAgentApi()` exposes, see [**Building Web Apps**](08%20Buil
 
 ## See Also
 
-- [**Event Handling**](05%20Event%20Handling.md) - Understanding the event stream
+- [**Event Handling**](05%20Event%20Handling.md) - Handling output events
 - [**Building Web Apps**](08%20Building%20Web%20Apps.md) - SSE streaming for web/mobile

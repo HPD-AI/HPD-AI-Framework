@@ -1,5 +1,6 @@
-import type { AgentEvent } from '../types/events.js';
-import type { AgentTransport, ClientMessage, ConnectOptions } from '../types/transport.js';
+import type { AgentEvent, AgentRunInputEvent } from '../types/events.js';
+import { EventTypes } from '../types/events.js';
+import type { AgentTransport, RuntimeScope } from '../types/transport.js';
 import type {
   Session,
   Branch,
@@ -53,9 +54,18 @@ export class MauiTransport implements AgentTransport {
     return this._connected;
   }
 
-  async connect(options: ConnectOptions): Promise<void> {
+  async connect(_scope?: RuntimeScope): Promise<void> {
+    // MAUI starts a native stream when run(USER_TEXT_INPUT) is called.
+  }
+
+  async run(input: AgentRunInputEvent): Promise<void> {
     if (!window.HybridWebView) {
       throw new Error('MAUI HybridWebView not available');
+    }
+
+    if (input.type !== EventTypes.USER_TEXT_INPUT) {
+      await this.sendInputEvent(input);
+      return;
     }
 
     // Always clean up any previous listener before registering a new one.
@@ -90,46 +100,40 @@ export class MauiTransport implements AgentTransport {
     window.addEventListener('HybridWebViewMessageReceived', this.messageListener);
 
     try {
-      this.currentSessionId = options.sessionId;
+      this.currentSessionId = input.sessionId;
       this.currentStreamId = await window.HybridWebView.InvokeDotNet<string>(
         'StartStream',
         [
-          options.messages[0]?.content ?? '',
-          options.sessionId,
-          options.branchId || 'main',
-          options.runConfig ? JSON.stringify(options.runConfig) : undefined,
-          options.agentId,
+          input.text,
+          input.sessionId,
+          input.branchId || 'main',
+          input.runConfig ? JSON.stringify(input.runConfig) : undefined,
+          input.agentId,
         ]
       );
 
       this._connected = true;
-
-      if (options.signal) {
-        options.signal.addEventListener('abort', () => {
-          this.disconnect();
-        }, { once: true });
-      }
     } catch (error) {
       this.cleanup();
       throw new Error(`Failed to start stream: ${error}`);
     }
   }
 
-  async send(message: ClientMessage): Promise<void> {
+  private async sendInputEvent(message: AgentRunInputEvent): Promise<void> {
     if (!window.HybridWebView) {
       throw new Error('MAUI HybridWebView not available');
     }
 
     switch (message.type) {
-      case 'permission_response':
+      case EventTypes.PERMISSION_RESPONSE:
         {
           const request = {
             SessionId: this.currentSessionId,
             PermissionId: message.permissionId,
+            SourceName: message.sourceName,
             Approved: message.approved,
             Reason: message.reason,
             Choice: message.choice,
-            AgentId: message.agentId,
           };
           await window.HybridWebView.InvokeDotNet('RespondToPermission', [
             JSON.stringify(request),
@@ -137,7 +141,7 @@ export class MauiTransport implements AgentTransport {
         }
         break;
 
-      case 'client_tool_response':
+      case EventTypes.CLIENT_TOOL_INVOKE_RESPONSE:
         {
           const request = {
             SessionId: this.currentSessionId,
@@ -145,7 +149,6 @@ export class MauiTransport implements AgentTransport {
             Success: message.success,
             Content: message.content,
             ErrorMessage: message.errorMessage,
-            AgentId: message.agentId,
           };
           await window.HybridWebView.InvokeDotNet('RespondToClientTool', [
             JSON.stringify(request),

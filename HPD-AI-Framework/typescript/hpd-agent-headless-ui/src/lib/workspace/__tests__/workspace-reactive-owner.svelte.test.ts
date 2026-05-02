@@ -94,7 +94,10 @@ function makeFakeClient(
 	messages: Map<string, BranchMessage[]> = new Map(),
 ): AgentClientLike {
 	return {
-		stream: vi.fn(async () => {}),
+		run: vi.fn(async () => {}),
+		on: vi.fn(() => ({ dispose: vi.fn() })),
+		onAny: vi.fn(() => ({ dispose: vi.fn() })),
+		onError: vi.fn(() => ({ dispose: vi.fn() })),
 		abort: vi.fn(),
 		listSessions: vi.fn(async (_opts?: ListSessionsOptions) => sessions),
 		getSession: vi.fn(async (id: string) => sessions.find((s) => s.id === id) ?? null),

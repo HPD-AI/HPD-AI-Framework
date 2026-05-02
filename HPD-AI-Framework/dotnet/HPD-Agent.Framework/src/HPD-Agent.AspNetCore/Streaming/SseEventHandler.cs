@@ -15,11 +15,13 @@ internal static class SseEventHandler
     /// </summary>
     public static async Task StreamEventsAsync(
         HttpContext context,
-        IAsyncEnumerable<AgentEvent> events,
+        Agent agent,
+        AgentEvent input,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(agent);
+        ArgumentNullException.ThrowIfNull(input);
 
         context.Response.ContentType = "text/event-stream";
         context.Response.Headers.CacheControl = "no-cache";
@@ -29,7 +31,7 @@ internal static class SseEventHandler
 
         try
         {
-            await foreach (var evt in events.WithCancellation(cancellationToken))
+            using var subscription = agent.SubscribeAny((Func<AgentEvent, Task>)(async evt =>
             {
                 var json = AgentEventSerializer.ToJson(evt);
                 var data = $"data: {json}\n\n";
@@ -37,7 +39,9 @@ internal static class SseEventHandler
 
                 await context.Response.Body.WriteAsync(bytes, cancellationToken);
                 await context.Response.Body.FlushAsync(cancellationToken);
-            }
+            }));
+
+            await agent.RunAsync(input, cancellationToken);
         }
         catch (OperationCanceledException)
         {

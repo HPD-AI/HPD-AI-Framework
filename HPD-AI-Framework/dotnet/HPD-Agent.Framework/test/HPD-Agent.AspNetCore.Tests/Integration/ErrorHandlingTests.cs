@@ -1,8 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using FluentAssertions;
+using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent.AspNetCore.Tests.Integration;
 
@@ -18,6 +21,12 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
     {
         _client = factory.CreateClient();
     }
+
+    private static string CreateInputJson(string text) =>
+        AgentEventSerializer.ToJson(new UserTextInputEvent(text));
+
+    private Task<HttpResponseMessage> PostInputAsync(string url, string json) =>
+        _client.PostAsync(url, new StringContent(json, Encoding.UTF8, "application/json"));
 
     #region Consistent Error Format
 
@@ -136,18 +145,10 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
         var createResponse = await _client.PostAsync("/sessions", null);
         var session = await createResponse.Content.ReadFromJsonAsync<SessionDto>();
 
-        var streamRequest = new StreamRequest(
-            new List<StreamMessage> { new("Test", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var streamRequest = CreateInputJson("Test");
 
         // Act
-        var response = await _client.PostAsJsonAsync(
+        var response = await PostInputAsync(
             $"/sessions/{session!.Id}/branches/main/stream",
             streamRequest);
 

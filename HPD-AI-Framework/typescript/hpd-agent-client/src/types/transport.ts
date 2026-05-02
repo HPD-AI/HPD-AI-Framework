@@ -1,10 +1,4 @@
-import type { AgentEvent, PermissionChoice } from './events.js';
-import type {
-  clientToolKitDefinition,
-  ContextItem,
-  ToolResultContent,
-  ClientToolAugmentation,
-} from './client-tools.js';
+import type { AgentEvent, AgentRunInputEvent } from './events.js';
 import type {
   Session,
   Branch,
@@ -35,77 +29,23 @@ import type {
   CreateAgentRequest,
   UpdateAgentRequest,
 } from './agent.js';
-import type { RunConfig } from './run-config.js';
 
 /**
- * Options for connecting to an agent stream.
- * V3 API uses session + branch instead of conversation.
+ * Runtime connection scope for long-lived transports such as WebSocket.
  */
-export interface ConnectOptions {
-  /** Session ID to stream from */
-  sessionId: string;
-  /** Branch ID to stream from (default: 'main') */
+export interface RuntimeScope {
+  /** Session ID for scoped transports */
+  sessionId?: string;
+  /** Branch ID for scoped transports (default: 'main') */
   branchId?: string;
-  /** Messages to send to the agent */
-  messages: Array<{ content: string; role?: string }>;
   /** Optional AbortSignal for cancellation */
   signal?: AbortSignal;
-  /** Client tool groups to register */
-  clientToolKits?: clientToolKitDefinition[];
-  /** Context items to pass to the agent */
-  context?: ContextItem[];
-  /** Application state (opaque to agent) */
-  state?: unknown;
-  /** Tool groups to start expanded */
-  expandedContainers?: string[];
-  /** Tools to start hidden */
-  hiddenTools?: string[];
-  /** Reset client state (clear all registered tool groups) */
-  resetClientState?: boolean;
-  /** Run configuration (temperature, model overrides, etc.) */
-  runConfig?: RunConfig;
-  /** Agent definition ID to run (defaults to "default") */
+  /** Agent definition ID to run when the input event omits agentId */
   agentId?: string;
 }
 
-/**
- * Messages sent from client to server (bidirectional communication).
- */
-export type ClientMessage =
-  | PermissionResponseMessage
-  | ClarificationResponseMessage
-  | ContinuationResponseMessage
-  | ClientToolResponseMessage;
-
-export interface PermissionResponseMessage {
-  type: 'permission_response';
-  permissionId: string;
-  approved: boolean;
-  choice?: PermissionChoice;
-  reason?: string;
-  agentId?: string;
-}
-
-export interface ClarificationResponseMessage {
-  type: 'clarification_response';
-  clarificationId: string;
-  response: string;
-}
-
-export interface ContinuationResponseMessage {
-  type: 'continuation_response';
-  continuationId: string;
-  shouldContinue: boolean;
-}
-
-export interface ClientToolResponseMessage {
-  type: 'client_tool_response';
-  requestId: string;
-  content: ToolResultContent[];
-  success: boolean;
-  errorMessage?: string;
-  augmentation?: ClientToolAugmentation;
-  agentId?: string;
+export interface RunTransportOptions {
+  signal?: AbortSignal;
 }
 
 /**
@@ -113,15 +53,11 @@ export interface ClientToolResponseMessage {
  * Implementations handle the specifics of SSE, WebSocket, etc.
  */
 export interface AgentTransport {
-  // ============================================
-  // STREAMING (existing)
-  // ============================================
+  /** Connect/start a long-lived runtime transport. SSE transports may no-op. */
+  connect(scope?: RuntimeScope): Promise<void>;
 
-  /** Connect and start streaming */
-  connect(options: ConnectOptions): Promise<void>;
-
-  /** Send a message (for bidirectional transports) */
-  send(message: ClientMessage): Promise<void>;
+  /** Send an agent input event. */
+  run(event: AgentRunInputEvent, options?: RunTransportOptions): Promise<void>;
 
   /** Register event handler */
   onEvent(handler: (event: AgentEvent) => void): void;

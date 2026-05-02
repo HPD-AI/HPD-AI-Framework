@@ -28,38 +28,26 @@ public class ChannelRoutingTests
     }
 
     [Fact]
-    public async Task SynchronousAgentEvents_AreReadFromSynchronousChannelInFifoOrder()
+    public async Task SynchronousAgentEvents_AreReadFromSynchronousChannel()
     {
         var coordinator = new HPD.Events.Core.EventCoordinator();
 
         var snapshot = new StateSnapshotEvent(1, 10, false, null, 0, [], "agent");
-        var text = new TextDeltaEvent("hello", "msg1");
 
         coordinator.Emit(snapshot);
-        coordinator.Emit(text);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var events = new List<AgentEvent>();
+        var evt = await ReadFirstAsync(coordinator.ReadSynchronousAsync(cts.Token));
 
-        await foreach (var evt in coordinator.ReadSynchronousAsync(cts.Token))
-        {
-            events.Add((AgentEvent)evt);
-            if (events.Count == 2)
-                break;
-        }
-
-        Assert.Collection(
-            events,
-            evt => Assert.IsType<StateSnapshotEvent>(evt),
-            evt => Assert.IsType<TextDeltaEvent>(evt));
+        Assert.IsType<StateSnapshotEvent>(evt);
     }
 
     [Fact]
-    public void EventChannel_DefaultsToSynchronous()
+    public void TextDeltas_DefaultToStreaming()
     {
         var evt = new TextDeltaEvent("hello", "msg1");
 
-        Assert.Equal(EventChannel.Synchronous, evt.Channel);
+        Assert.Equal(EventChannel.Streaming, evt.Channel);
     }
 
     [Fact]
@@ -79,8 +67,8 @@ public class ChannelRoutingTests
         coordinator.Emit(new TextDeltaEvent("second", "msg1"));
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var first = await ReadFirstAsync(coordinator.ReadSynchronousAsync(cts.Token));
-        var second = await ReadFirstAsync(coordinator.ReadSynchronousAsync(cts.Token));
+        var first = await ReadFirstAsync(coordinator.ReadStreamingAsync(cts.Token));
+        var second = await ReadFirstAsync(coordinator.ReadStreamingAsync(cts.Token));
 
         Assert.True(first.SequenceNumber > 0);
         Assert.True(second.SequenceNumber > first.SequenceNumber);
@@ -212,7 +200,7 @@ public class ChannelRoutingTests
         });
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var evt = await ReadFirstAsync(coordinator.ReadSynchronousAsync(cts.Token));
+        var evt = await ReadFirstAsync(coordinator.ReadStreamingAsync(cts.Token));
 
         Assert.IsType<TextMessageEndEvent>(evt);
     }
@@ -244,6 +232,29 @@ public class ChannelRoutingTests
         Assert.Equal(EventDirection.Upstream, evt.Direction);
         Assert.Equal(EventKind.Control, evt.Kind);
     }
+
+    [Theory]
+    [MemberData(nameof(ChannelSamples))]
+    public void AgentEvents_HaveExpectedDefaultChannels(AgentEvent evt, EventChannel expectedChannel, EventKind expectedKind)
+    {
+        Assert.Equal(expectedChannel, evt.Channel);
+        Assert.Equal(expectedKind, evt.Kind);
+    }
+
+    public static TheoryData<AgentEvent, EventChannel, EventKind> ChannelSamples() => new()
+    {
+        { new UserTextInputEvent("hello"), EventChannel.Interactive, EventKind.Content },
+        { new TextDeltaEvent("hello", "msg1"), EventChannel.Streaming, EventKind.Content },
+        { new ReasoningDeltaEvent("thinking", "msg1"), EventChannel.Streaming, EventKind.Content },
+        { new ToolCallStartEvent("call1", "tool", "msg1"), EventChannel.Synchronous, EventKind.Lifecycle },
+        { new PermissionRequestEvent("perm1", "source", "tool", null, "call1", null), EventChannel.Interactive, EventKind.Control },
+        { new PermissionResponseEvent("perm1", "source", true), EventChannel.Interactive, EventKind.Control },
+        { new ClarificationRequestEvent("req1", "source", "question"), EventChannel.Interactive, EventKind.Control },
+        { new HPD.Agent.ClientTools.ClientToolInvokeResponseEvent("req1", "ok"), EventChannel.Interactive, EventKind.Control },
+        { new StateSnapshotEvent(1, 10, false, null, 0, [], "agent"), EventChannel.Synchronous, EventKind.Diagnostic },
+        { new EventDroppedEvent("stream1", "TextDeltaEvent", 1), EventChannel.Synchronous, EventKind.Diagnostic },
+        { new InterruptionRequestEvent(null, "stop", InterruptionSource.User), EventChannel.Control, EventKind.Control },
+    };
 
     [Fact]
     public async Task ControlEvent_BubblesToParentThroughEmit()
@@ -289,11 +300,11 @@ public class ChannelRoutingTests
     [Fact]
     public void EventChannel_NonDefaultValue_Serializes()
     {
-        var evt = new TextDeltaEvent("hello", "msg1") { Channel = EventChannel.Streaming };
+        var evt = new MessageTurnStartedEvent("turn1", "conv1", "agent") { Channel = EventChannel.Control };
 
         var json = AgentEventSerializer.ToJson(evt);
 
-        Assert.Contains("\"type\":\"TEXT_DELTA\"", json);
+        Assert.Contains("\"type\":\"MESSAGE_TURN_STARTED\"", json);
         Assert.Contains("channel", json, StringComparison.OrdinalIgnoreCase);
     }
 

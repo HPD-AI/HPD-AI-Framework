@@ -1,17 +1,13 @@
 import type {
   AgentEvent,
-  PermissionRequestEvent,
-  ClarificationRequestEvent,
-  ContinuationRequestEvent,
+  AgentEventOfType,
+  AgentRunInputEvent,
   ClientToolInvokeRequestEvent,
-  clientToolKitsRegisteredEvent,
-  PermissionChoice,
 } from './types/events.js';
 import { EventTypes } from './types/events.js';
-import type { AgentTransport } from './types/transport.js';
+import type { AgentTransport, RuntimeScope, RunTransportOptions } from './types/transport.js';
 import type {
   clientToolKitDefinition,
-  ContextItem,
   ClientToolInvokeResponse,
 } from './types/client-tools.js';
 import type {
@@ -32,7 +28,6 @@ import type {
   CreateAgentRequest,
   UpdateAgentRequest,
 } from './types/agent.js';
-import type { RunConfig } from './types/run-config.js';
 import type {
   ScoreRecord,
   EvaluatorSummary,
@@ -49,197 +44,14 @@ import { SseTransport } from './transports/sse.js';
 import { WebSocketTransport } from './transports/websocket.js';
 import { MauiTransport } from './transports/maui.js';
 
-// ============================================
-// Event Handler Interfaces
-// ============================================
+export type MaybePromise<T> = T | Promise<T>;
 
-/**
- * Response to a permission request.
- */
-export interface PermissionResponse {
-  approved: boolean;
-  choice?: PermissionChoice;
-  reason?: string;
+export interface EventSubscription {
+  dispose(): void;
 }
 
-/**
- * Options for streaming.
- */
-export interface StreamOptions {
-  signal?: AbortSignal;
-  /** Client tool groups to register */
-  clientToolKits?: clientToolKitDefinition[];
-  /** Context items to pass to the agent */
-  context?: ContextItem[];
-  /** Application state (opaque to agent) */
-  state?: unknown;
-  /** Tool groups to start expanded */
-  expandedContainers?: string[];
-  /** Tools to start hidden */
-  hiddenTools?: string[];
-  /** Reset client state (clear all registered tool groups) */
-  resetClientState?: boolean;
-  /** Run configuration (temperature, model overrides, etc.) */
-  runConfig?: RunConfig;
-  /** Agent definition ID to run (defaults to "default") */
-  agentId?: string;
-}
-
-/**
- * Event handlers for the agent client.
- * All handlers are optional - only implement what you need.
- */
-export interface EventHandlers {
-  // ============================================
-  // Content Handlers
-  // ============================================
-
-  /** Called for each text chunk */
-  onTextDelta?: (text: string, messageId: string) => void;
-
-  /** Called when a new message starts */
-  onTextMessageStart?: (messageId: string, role: string) => void;
-
-  /** Called when a message completes */
-  onTextMessageEnd?: (messageId: string) => void;
-
-  // ============================================
-  // Tool Handlers
-  // ============================================
-
-  /** Called when a tool invocation starts */
-  onToolCallStart?: (callId: string, name: string, messageId: string) => void;
-
-  /** Called with tool arguments (JSON string) */
-  onToolCallArgs?: (callId: string, argsJson: string) => void;
-
-  /** Called when tool execution completes */
-  onToolCallEnd?: (callId: string) => void;
-
-  /** Called with tool result */
-  onToolCallResult?: (callId: string, result: string) => void;
-
-  // ============================================
-  // Reasoning Handlers
-  // ============================================
-
-  /** Called for reasoning/thinking content */
-  onReasoning?: (text: string, messageId: string) => void;
-
-  // ============================================
-  // Bidirectional Handlers (async for user interaction)
-  // ============================================
-
-  /**
-   * Called when permission is required.
-   * Return a PermissionResponse to approve/deny.
-   */
-  onPermissionRequest?: (request: PermissionRequestEvent) => Promise<PermissionResponse>;
-
-  /**
-   * Called when clarification is needed.
-   * Return user's clarifying response.
-   */
-  onClarificationRequest?: (request: ClarificationRequestEvent) => Promise<string>;
-
-  /**
-   * Called when agent wants to continue (e.g., iteration limit).
-   * Return true to continue, false to stop.
-   */
-  onContinuationRequest?: (request: ContinuationRequestEvent) => Promise<boolean>;
-
-  // ============================================
-  // Client Tool Handlers
-  // ============================================
-
-  /**
-   * Called when a client tool needs to be invoked.
-   * Implement this to execute tools in the browser/client context.
-   * Return the tool result to send back to the agent.
-   */
-  onClientToolInvoke?: (request: ClientToolInvokeRequestEvent) => Promise<ClientToolInvokeResponse>;
-
-  /**
-   * Called when client tool groups are successfully registered.
-   * Useful for debugging and UI updates.
-   */
-  onclientToolKitsRegistered?: (event: clientToolKitsRegisteredEvent) => void;
-
-  // ============================================
-  // Lifecycle Handlers
-  // ============================================
-
-  /** Called when an agent iteration starts */
-  onTurnStart?: (iteration: number) => void;
-
-  /** Called when an agent iteration ends */
-  onTurnEnd?: (iteration: number) => void;
-
-  /** Called when the entire message turn completes */
-  onComplete?: () => void;
-
-  /** Called on error */
-  onError?: (message: string) => void;
-
-  /** Called on middleware progress */
-  onProgress?: (sourceName: string, message: string, percentComplete?: number) => void;
-
-  // ============================================
-  // Audio Event Handlers (TTS/STT/Voice)
-  // ============================================
-
-  /** Called when TTS synthesis starts */
-  onSynthesisStarted?: (event: import('./types/events.js').SynthesisStartedEvent) => void;
-
-  /** Called for each audio chunk during TTS */
-  onAudioChunk?: (event: import('./types/events.js').AudioChunkEvent) => void;
-
-  /** Called when TTS synthesis completes */
-  onSynthesisCompleted?: (event: import('./types/events.js').SynthesisCompletedEvent) => void;
-
-  /** Called with streaming transcription updates */
-  onTranscriptionDelta?: (event: import('./types/events.js').TranscriptionDeltaEvent) => void;
-
-  /** Called when transcription completes */
-  onTranscriptionCompleted?: (event: import('./types/events.js').TranscriptionCompletedEvent) => void;
-
-  /** Called when user interrupts agent speech */
-  onUserInterrupted?: (event: import('./types/events.js').UserInterruptedEvent) => void;
-
-  /** Called when speech is paused (potential interruption) */
-  onSpeechPaused?: (event: import('./types/events.js').SpeechPausedEvent) => void;
-
-  /** Called when paused speech resumes (false interruption) */
-  onSpeechResumed?: (event: import('./types/events.js').SpeechResumedEvent) => void;
-
-  /** Called when preemptive LLM generation starts */
-  onPreemptiveGenerationStarted?: (event: import('./types/events.js').PreemptiveGenerationStartedEvent) => void;
-
-  /** Called when preemptive generation is discarded */
-  onPreemptiveGenerationDiscarded?: (event: import('./types/events.js').PreemptiveGenerationDiscardedEvent) => void;
-
-  /** Called when voice activity detected (user starts speaking) */
-  onVadStartOfSpeech?: (event: import('./types/events.js').VadStartOfSpeechEvent) => void;
-
-  /** Called when voice activity ends (user stops speaking) */
-  onVadEndOfSpeech?: (event: import('./types/events.js').VadEndOfSpeechEvent) => void;
-
-  /** Called with audio pipeline metrics */
-  onAudioPipelineMetrics?: (event: import('./types/events.js').AudioPipelineMetricsEvent) => void;
-
-  /** Called when turn detected (user finished speaking) */
-  onTurnDetected?: (event: import('./types/events.js').TurnDetectedEvent) => void;
-
-  /** Called when filler audio is played */
-  onFillerAudioPlayed?: (event: import('./types/events.js').FillerAudioPlayedEvent) => void;
-
-  // ============================================
-  // Raw Event Access
-  // ============================================
-
-  /** Called for every event (for logging, custom handling) */
-  onEvent?: (event: AgentEvent) => void;
-}
+export type AgentEventHandler<TEvent extends AgentEvent> =
+  (event: TEvent) => MaybePromise<void>;
 
 // ============================================
 // Client Configuration
@@ -257,11 +69,8 @@ export interface AgentClientConfig {
   /** Custom headers for requests (SSE only) */
   headers?: Record<string, string>;
 
-  /** Client tool groups to register automatically on every stream */
+  /** Client tool groups registered locally for browser-side invocation */
   clientToolKits?: clientToolKitDefinition[];
-
-  /** Default context items to include on every stream */
-  defaulTMetadata?: ContextItem[];
 
   /** Handler for client tool invocations */
   onClientToolInvoke?: (request: ClientToolInvokeRequestEvent) => Promise<ClientToolInvokeResponse>;
@@ -278,6 +87,10 @@ export interface AgentClientConfig {
 export class AgentClient {
   private config: AgentClientConfig;
   private transport: AgentTransport;
+  private typedHandlers = new Map<string, Set<AgentEventHandler<AgentEvent>>>();
+  private anyHandlers = new Set<AgentEventHandler<AgentEvent>>();
+  private errorHandlers = new Set<(error: Error) => MaybePromise<void>>();
+  private outputDispatchQueue: Promise<void> = Promise.resolve();
 
   /**
    * Create a new AgentClient.
@@ -286,6 +99,12 @@ export class AgentClient {
   constructor(config: AgentClientConfig | string) {
     this.config = typeof config === 'string' ? { baseUrl: config } : config;
     this.transport = this.createTransport();
+    this.transport.onEvent((event) => {
+      this.outputDispatchQueue = this.outputDispatchQueue.then(() => this.dispatchOutputEvent(event));
+    });
+    this.transport.onError((error) => {
+      void this.dispatchError(error);
+    });
   }
 
   private createTransport(): AgentTransport {
@@ -302,311 +121,84 @@ export class AgentClient {
     }
   }
 
-  /**
-   * Stream agent events with typed handlers.
-   * Returns a promise that resolves on completion or rejects on error.
-   *
-   * @param sessionId The session to stream from
-   * @param branchId The branch to stream from (default: 'main')
-   * @param messages Messages to send to the agent
-   * @param handlers Event handlers
-   * @param options Streaming options (e.g., abort signal)
-   */
-  async stream(
-    sessionId: string,
-    branchId: string | undefined,
-    messages: Array<{ content: string; role?: string }>,
-    handlers: EventHandlers,
-    options?: StreamOptions
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      let completed = false;
-
-      const complete = () => {
-        if (!completed) {
-          completed = true;
-          resolve();
-        }
-      };
-
-      const fail = (error: Error) => {
-        if (!completed) {
-          completed = true;
-          reject(error);
-        }
-      };
-
-      // Event queue for sequential processing
-      const eventQueue: AgentEvent[] = [];
-      let processing = false;
-
-      // Process events sequentially to ensure proper reactivity
-      const processQueue = async () => {
-        if (processing || eventQueue.length === 0) return;
-
-        processing = true;
-        try {
-          while (eventQueue.length > 0) {
-            const event = eventQueue.shift()!;
-
-            // Call raw handler first (synchronous)
-            handlers.onEvent?.(event);
-
-            // Dispatch to typed handlers (await to ensure sequential processing)
-            try {
-              await this.dispatchEvent(event, handlers, complete, fail);
-            } catch (error) {
-              fail(error as Error);
-              break;
-            }
-          }
-        } finally {
-          processing = false;
-        }
-      };
-
-      // Set up event dispatching - queue events for sequential processing
-      this.transport.onEvent((event) => {
-        eventQueue.push(event);
-        // Process queue asynchronously but don't await
-        processQueue().catch(fail);
-      });
-
-      this.transport.onError((error) => {
-        handlers.onError?.(error.message);
-        fail(error);
-      });
-
-      this.transport.onClose(() => {
-        complete();
-      });
-
-      // Merge config defaults with stream options
-      const mergedToolKits = [
-        ...(this.config.clientToolKits ?? []),
-        ...(options?.clientToolKits ?? []),
-      ];
-      const mergedContext = [
-        ...(this.config.defaulTMetadata ?? []),
-        ...(options?.context ?? []),
-      ];
-
-      // Connect
-      this.transport
-        .connect({
-          sessionId,
-          branchId: branchId || 'main',
-          messages,
-          signal: options?.signal,
-          clientToolKits: mergedToolKits.length > 0 ? mergedToolKits : undefined,
-          context: mergedContext.length > 0 ? mergedContext : undefined,
-          state: options?.state,
-          expandedContainers: options?.expandedContainers,
-          hiddenTools: options?.hiddenTools,
-          resetClientState: options?.resetClientState,
-          runConfig: options?.runConfig,
-          agentId: options?.agentId,
-        })
-        .catch(fail);
-    });
+  async start(scope?: RuntimeScope): Promise<void> {
+    await this.transport.connect(scope);
   }
 
-  private async dispatchEvent(
-    event: AgentEvent,
-    handlers: EventHandlers,
-    complete: () => void,
-    fail: (error: Error) => void
-  ): Promise<void> {
-    try {
-      switch (event.type) {
-        // Content events
-        case EventTypes.TEXT_DELTA:
-          handlers.onTextDelta?.(event.text, event.messageId);
-          break;
+  async stop(): Promise<void> {
+    this.transport.disconnect();
+  }
 
-        case EventTypes.TEXT_MESSAGE_START:
-          handlers.onTextMessageStart?.(event.messageId, event.role);
-          break;
+  async run(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<void> {
+    await this.transport.run(input, options);
+    await this.outputDispatchQueue;
+  }
 
-        case EventTypes.TEXT_MESSAGE_END:
-          handlers.onTextMessageEnd?.(event.messageId);
-          break;
+  on<TType extends AgentEvent['type']>(
+    type: TType,
+    handler: AgentEventHandler<AgentEventOfType<TType>>
+  ): EventSubscription {
+    const handlers = this.typedHandlers.get(type) ?? new Set<AgentEventHandler<AgentEvent>>();
+    const stored = handler as AgentEventHandler<AgentEvent>;
+    handlers.add(stored);
+    this.typedHandlers.set(type, handlers);
 
-        // Tool events
-        case EventTypes.TOOL_CALL_START:
-          handlers.onToolCallStart?.(event.callId, event.name, event.messageId);
-          break;
+    return {
+      dispose: () => {
+        handlers.delete(stored);
+        if (handlers.size === 0) {
+          this.typedHandlers.delete(type);
+        }
+      },
+    };
+  }
 
-        case EventTypes.TOOL_CALL_ARGS:
-          handlers.onToolCallArgs?.(event.callId, event.argsJson);
-          break;
+  onAny(handler: AgentEventHandler<AgentEvent>): EventSubscription {
+    this.anyHandlers.add(handler);
+    return {
+      dispose: () => {
+        this.anyHandlers.delete(handler);
+      },
+    };
+  }
 
-        case EventTypes.TOOL_CALL_END:
-          handlers.onToolCallEnd?.(event.callId);
-          break;
+  onError(handler: (error: Error) => MaybePromise<void>): EventSubscription {
+    this.errorHandlers.add(handler);
+    return {
+      dispose: () => {
+        this.errorHandlers.delete(handler);
+      },
+    };
+  }
 
-        case EventTypes.TOOL_CALL_RESULT:
-          handlers.onToolCallResult?.(event.callId, event.result);
-          break;
-
-        // Reasoning
-        case EventTypes.REASONING_DELTA:
-          handlers.onReasoning?.(event.text, event.messageId);
-          break;
-
-        // Bidirectional - Permission
-        case EventTypes.PERMISSION_REQUEST:
-          if (handlers.onPermissionRequest) {
-            const response = await handlers.onPermissionRequest(event);
-            await this.transport.send({
-              type: 'permission_response',
-              permissionId: event.permissionId,
-              approved: response.approved,
-              choice: response.choice,
-              reason: response.reason,
-            });
-          }
-          break;
-
-        // Bidirectional - Clarification
-        case EventTypes.CLARIFICATION_REQUEST:
-          if (handlers.onClarificationRequest) {
-            const answer = await handlers.onClarificationRequest(event);
-            await this.transport.send({
-              type: 'clarification_response',
-              clarificationId: event.requestId,
-              response: answer,
-            });
-          }
-          break;
-
-        // Bidirectional - Continuation
-        case EventTypes.CONTINUATION_REQUEST:
-          if (handlers.onContinuationRequest) {
-            const shouldContinue = await handlers.onContinuationRequest(event);
-            await this.transport.send({
-              type: 'continuation_response',
-              continuationId: event.continuationId,
-              shouldContinue,
-            });
-          }
-          break;
-
-        // Bidirectional - Client Tool Invocation
-        case EventTypes.CLIENT_TOOL_INVOKE_REQUEST:
-          // Use handler from stream() or fall back to config handler
-          const toolHandler = handlers.onClientToolInvoke ?? this.config.onClientToolInvoke;
-          if (toolHandler) {
-            const toolResponse = await toolHandler(event);
-            await this.transport.send({
-              type: 'client_tool_response',
-              requestId: toolResponse.requestId,
-              content: toolResponse.content,
-              success: toolResponse.success,
-              errorMessage: toolResponse.errorMessage,
-              augmentation: toolResponse.augmentation,
-            });
-          }
-          break;
-
-        // Client Tool Groups Registered (informational)
-        case EventTypes.CLIENT_TOOL_GROUPS_REGISTERED:
-          handlers.onclientToolKitsRegistered?.(event);
-          break;
-
-        // Lifecycle
-        case EventTypes.AGENT_TURN_STARTED:
-          handlers.onTurnStart?.(event.iteration);
-          break;
-
-        case EventTypes.AGENT_TURN_FINISHED:
-          handlers.onTurnEnd?.(event.iteration);
-          break;
-
-        // Middleware progress
-        case EventTypes.MIDDLEWARE_PROGRESS:
-          handlers.onProgress?.(event.sourceName, event.message, event.percentComplete);
-          break;
-
-        // Audio Events (TTS)
-        case EventTypes.SYNTHESIS_STARTED:
-          handlers.onSynthesisStarted?.(event);
-          break;
-
-        case EventTypes.AUDIO_CHUNK:
-          handlers.onAudioChunk?.(event);
-          break;
-
-        case EventTypes.SYNTHESIS_COMPLETED:
-          handlers.onSynthesisCompleted?.(event);
-          break;
-
-        // Audio Events (STT)
-        case EventTypes.TRANSCRIPTION_DELTA:
-          handlers.onTranscriptionDelta?.(event);
-          break;
-
-        case EventTypes.TRANSCRIPTION_COMPLETED:
-          handlers.onTranscriptionCompleted?.(event);
-          break;
-
-        // Audio Events (Interruption)
-        case EventTypes.USER_INTERRUPTED:
-          handlers.onUserInterrupted?.(event);
-          break;
-
-        case EventTypes.SPEECH_PAUSED:
-          handlers.onSpeechPaused?.(event);
-          break;
-
-        case EventTypes.SPEECH_RESUMED:
-          handlers.onSpeechResumed?.(event);
-          break;
-
-        // Audio Events (Preemptive Generation)
-        case EventTypes.PREEMPTIVE_GENERATION_STARTED:
-          handlers.onPreemptiveGenerationStarted?.(event);
-          break;
-
-        case EventTypes.PREEMPTIVE_GENERATION_DISCARDED:
-          handlers.onPreemptiveGenerationDiscarded?.(event);
-          break;
-
-        // Audio Events (VAD)
-        case EventTypes.VAD_START_OF_SPEECH:
-          handlers.onVadStartOfSpeech?.(event);
-          break;
-
-        case EventTypes.VAD_END_OF_SPEECH:
-          handlers.onVadEndOfSpeech?.(event);
-          break;
-
-        // Audio Events (Metrics/Turn/Filler)
-        case EventTypes.AUDIO_PIPELINE_METRICS:
-          handlers.onAudioPipelineMetrics?.(event);
-          break;
-
-        case EventTypes.TURN_DETECTED:
-          handlers.onTurnDetected?.(event);
-          break;
-
-        case EventTypes.FILLER_AUDIO_PLAYED:
-          handlers.onFillerAudioPlayed?.(event);
-          break;
-
-        // Terminal events
-        case EventTypes.MESSAGE_TURN_FINISHED:
-          handlers.onComplete?.();
-          complete();
-          break;
-
-        case EventTypes.MESSAGE_TURN_ERROR:
-          handlers.onError?.(event.message);
-          fail(new Error(event.message));
-          break;
+  private async dispatchOutputEvent(event: AgentEvent): Promise<void> {
+    const typedHandlers = this.typedHandlers.get(event.type);
+    if (typedHandlers) {
+      for (const handler of typedHandlers) {
+        await handler(event);
       }
-    } catch (error) {
-      fail(error as Error);
+    }
+
+    for (const handler of this.anyHandlers) {
+      await handler(event);
+    }
+
+    if (event.type === EventTypes.CLIENT_TOOL_INVOKE_REQUEST && this.config.onClientToolInvoke) {
+      const toolResponse = await this.config.onClientToolInvoke(event);
+      await this.transport.run({
+        type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
+        requestId: toolResponse.requestId,
+        content: toolResponse.content,
+        success: toolResponse.success,
+        errorMessage: toolResponse.errorMessage,
+        augmentation: toolResponse.augmentation,
+      });
+    }
+  }
+
+  private async dispatchError(error: Error): Promise<void> {
+    for (const handler of this.errorHandlers) {
+      await handler(error);
     }
   }
 

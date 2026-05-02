@@ -1,7 +1,9 @@
 using System.Text.Json;
 using FluentAssertions;
+using HPD.Agent;
 using HPD.Agent.Hosting.Data;
 using HPD.Agent.Hosting.Serialization;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent.Hosting.Tests.Data;
 
@@ -21,6 +23,7 @@ public class DtoSerializationTests
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
         };
         _options.TypeInfoResolverChain.Add(HPDAgentApiJsonSerializerContext.Default);
+        _options.TypeInfoResolverChain.Add(AgentEventJsonContext.Default);
     }
 
     #region Serialization Round-Trip Tests
@@ -279,97 +282,46 @@ public class DtoSerializationTests
     }
 
     [Fact]
-    public void StreamRequest_SerializesAndDeserializes_WithAllFields()
+    public void UserTextInputEvent_SerializesAndDeserializes_WithRunConfig()
     {
         // Arrange
-        var original = new StreamRequest(
-            new List<StreamMessage> { new StreamMessage("Hello", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            new StreamRunConfigDto(
-                new ChatRunConfigDto(0.7, 4000, null, null, null),
-                "anthropic",
-                "claude-sonnet-4-5",
-                "Be concise",
-                new Dictionary<string, object> { ["key"] = "value" },
-                new Dictionary<string, bool> { ["file_write"] = true },
-                true,
-                false,
-                TimeSpan.FromMinutes(5).ToString()));
+        var original = new UserTextInputEvent("Hello")
+        {
+            SessionId = "session-123",
+            BranchId = "main",
+            AgentId = "default",
+            RunConfig = new AgentRunConfig
+            {
+                ProviderKey = "anthropic",
+                ModelId = "claude-sonnet-4-5",
+                AdditionalSystemInstructions = "Be concise",
+                ContextOverrides = new Dictionary<string, object> { ["key"] = "value" },
+                PermissionOverrides = new Dictionary<string, bool> { ["file_write"] = true },
+                CoalesceDeltas = true,
+                SkipTools = false,
+                Chat = new ChatRunConfig
+                {
+                    Temperature = 0.7,
+                    MaxOutputTokens = 4000
+                }
+            }
+        };
 
         // Act
-        var json = JsonSerializer.Serialize(original, _options);
-        var deserialized = JsonSerializer.Deserialize<StreamRequest>(json, _options);
+        var json = AgentEventSerializer.ToJson(original);
+        var deserialized = AgentEventSerializer.FromJson(json) as UserTextInputEvent;
 
         // Assert
         deserialized.Should().NotBeNull();
-        deserialized!.Messages.Should().HaveCount(1);
+        deserialized!.Text.Should().Be(original.Text);
+        deserialized.SessionId.Should().Be(original.SessionId);
+        deserialized.BranchId.Should().Be(original.BranchId);
+        deserialized.AgentId.Should().Be(original.AgentId);
         deserialized.RunConfig.Should().NotBeNull();
         deserialized.RunConfig!.Chat.Should().NotBeNull();
         deserialized.RunConfig.Chat!.Temperature.Should().Be(0.7);
+        deserialized.RunConfig.Chat.MaxOutputTokens.Should().Be(4000);
         deserialized.RunConfig.ModelId.Should().Be("claude-sonnet-4-5");
-    }
-
-    [Fact]
-    public void StreamMessage_SerializesAndDeserializes_Correctly()
-    {
-        // Arrange
-        var original = new StreamMessage("Hello, world!", "user");
-
-        // Act
-        var json = JsonSerializer.Serialize(original, _options);
-        var deserialized = JsonSerializer.Deserialize<StreamMessage>(json, _options);
-
-        // Assert
-        deserialized.Should().NotBeNull();
-        deserialized!.Content.Should().Be(original.Content);
-        deserialized.Role.Should().Be(original.Role);
-    }
-
-    [Fact]
-    public void StreamRunConfigDto_SerializesAndDeserializes_Correctly()
-    {
-        // Arrange
-        var original = new StreamRunConfigDto(
-            new ChatRunConfigDto(0.8, 2000, null, null, null),
-            "openai",
-            "gpt-4",
-            "System instructions",
-            null,
-            null,
-            false,
-            true,
-            TimeSpan.FromMinutes(10).ToString());
-
-        // Act
-        var json = JsonSerializer.Serialize(original, _options);
-        var deserialized = JsonSerializer.Deserialize<StreamRunConfigDto>(json, _options);
-
-        // Assert
-        deserialized.Should().NotBeNull();
-        deserialized!.ProviderKey.Should().Be(original.ProviderKey);
-        deserialized.ModelId.Should().Be(original.ModelId);
-        deserialized.RunTimeout.Should().Be(original.RunTimeout);
-    }
-
-    [Fact]
-    public void ChatRunConfigDto_SerializesAndDeserializes_Correctly()
-    {
-        // Arrange
-        var original = new ChatRunConfigDto(0.9, 1000, null, null, null);
-
-        // Act
-        var json = JsonSerializer.Serialize(original, _options);
-        var deserialized = JsonSerializer.Deserialize<ChatRunConfigDto>(json, _options);
-
-        // Assert
-        deserialized.Should().NotBeNull();
-        deserialized!.Temperature.Should().Be(original.Temperature);
-        deserialized.MaxOutputTokens.Should().Be(original.MaxOutputTokens);
     }
 
     [Fact]

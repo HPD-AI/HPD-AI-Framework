@@ -5,6 +5,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MauiTransport } from '../src/transports/maui';
+import { EventTypes } from '../src/types/events';
 import type { AgentEvent } from '../src/types/events';
 
 // Mock HybridWebView
@@ -47,11 +48,12 @@ describe('MauiTransport', () => {
     transport = new MauiTransport();
   });
 
-  describe('connect()', () => {
+  describe('run(USER_TEXT_INPUT)', () => {
     it('throws error when HybridWebView not available', async () => {
       delete (global as any).window.HybridWebView;
-      await expect(transport.connect({
-        messages: [{ content: 'Test', role: 'user' }],
+      await expect(transport.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        text: 'Test',
         sessionId: 's1',
         branchId: 'main'
       })).rejects.toThrow('MAUI HybridWebView not available');
@@ -60,8 +62,9 @@ describe('MauiTransport', () => {
     it('calls InvokeDotNet with correct parameters', async () => {
       mockHybridWebView.InvokeDotNet.mockResolvedValue('stream-123');
 
-      await transport.connect({
-        messages: [{ content: 'Hello', role: 'user' }],
+      await transport.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        text: 'Hello',
         sessionId: 'session-1',
         branchId: 'main'
       });
@@ -75,8 +78,9 @@ describe('MauiTransport', () => {
     it('sets connected to true on success', async () => {
       mockHybridWebView.InvokeDotNet.mockResolvedValue('stream-123');
 
-      await transport.connect({
-        messages: [{ content: 'Test', role: 'user' }],
+      await transport.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        text: 'Test',
         sessionId: 's1',
         branchId: 'main'
       });
@@ -87,8 +91,9 @@ describe('MauiTransport', () => {
     it('registers message listener', async () => {
       mockHybridWebView.InvokeDotNet.mockResolvedValue('stream-123');
 
-      await transport.connect({
-        messages: [{ content: 'Test', role: 'user' }],
+      await transport.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        text: 'Test',
         sessionId: 's1',
         branchId: 'main'
       });
@@ -96,14 +101,12 @@ describe('MauiTransport', () => {
       expect(mockHybridWebView.listeners.length).toBeGreaterThan(0);
     });
 
-    it('passes first message content', async () => {
+    it('passes text input content', async () => {
       mockHybridWebView.InvokeDotNet.mockResolvedValue('stream-123');
 
-      await transport.connect({
-        messages: [
-          { content: 'First message', role: 'user' },
-          { content: 'Second message', role: 'user' }
-        ],
+      await transport.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        text: 'First message',
         sessionId: 's1',
         branchId: 'main'
       });
@@ -117,8 +120,9 @@ describe('MauiTransport', () => {
     it('passes sessionId and branchId', async () => {
       mockHybridWebView.InvokeDotNet.mockResolvedValue('stream-123');
 
-      await transport.connect({
-        messages: [{ content: 'Test', role: 'user' }],
+      await transport.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        text: 'Test',
         sessionId: 'my-session',
         branchId: 'my-branch'
       });
@@ -132,8 +136,9 @@ describe('MauiTransport', () => {
     it('passes runConfig when provided', async () => {
       mockHybridWebView.InvokeDotNet.mockResolvedValue('stream-123');
 
-      await transport.connect({
-        messages: [{ content: 'Test', role: 'user' }],
+      await transport.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        text: 'Test',
         sessionId: 's1',
         branchId: 'main',
         runConfig: { chat: { temperature: 0.7 } }
@@ -147,8 +152,9 @@ describe('MauiTransport', () => {
       mockHybridWebView.InvokeDotNet.mockResolvedValue('stream-123');
 
       const config = { chat: { temperature: 0.9, maxOutputTokens: 1000 } };
-      await transport.connect({
-        messages: [{ content: 'Test', role: 'user' }],
+      await transport.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        text: 'Test',
         sessionId: 's1',
         branchId: 'main',
         runConfig: config
@@ -162,8 +168,9 @@ describe('MauiTransport', () => {
     it('stores streamId', async () => {
       mockHybridWebView.InvokeDotNet.mockResolvedValue('my-stream-id');
 
-      await transport.connect({
-        messages: [{ content: 'Test', role: 'user' }],
+      await transport.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        text: 'Test',
         sessionId: 's1',
         branchId: 'main'
       });
@@ -172,30 +179,27 @@ describe('MauiTransport', () => {
       expect(transport.connected).toBe(true);
     });
 
-    it('registers abort signal when provided', async () => {
+    it('disconnects active stream', async () => {
       mockHybridWebView.InvokeDotNet.mockResolvedValue('stream-123');
-      const controller = new AbortController();
 
-      await transport.connect({
-        messages: [{ content: 'Test', role: 'user' }],
+      await transport.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        text: 'Test',
         sessionId: 's1',
-        branchId: 'main',
-        signal: controller.signal
+        branchId: 'main'
       });
 
-      // Verify connection established
       expect(transport.connected).toBe(true);
-
-      // Trigger abort
-      controller.abort();
+      transport.disconnect();
       expect(transport.connected).toBe(false);
     });
 
     it('cleans up on error', async () => {
       mockHybridWebView.InvokeDotNet.mockRejectedValue(new Error('Failed'));
 
-      await expect(transport.connect({
-        messages: [{ content: 'Test', role: 'user' }],
+      await expect(transport.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        text: 'Test',
         sessionId: 's1',
         branchId: 'main'
       })).rejects.toThrow();
@@ -207,8 +211,9 @@ describe('MauiTransport', () => {
   describe('Message Parsing', () => {
     beforeEach(async () => {
       mockHybridWebView.InvokeDotNet.mockResolvedValue('stream-123');
-      await transport.connect({
-        messages: [{ content: 'Test', role: 'user' }],
+      await transport.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        text: 'Test',
         sessionId: 's1',
         branchId: 'main'
       });
@@ -824,8 +829,9 @@ describe('MauiTransport', () => {
   describe('disconnect()', () => {
     beforeEach(async () => {
       mockHybridWebView.InvokeDotNet.mockResolvedValue('stream-123');
-      await transport.connect({
-        messages: [{ content: 'Test', role: 'user' }],
+      await transport.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        text: 'Test',
         sessionId: 's1',
         branchId: 'main'
       });

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
 using EventChannel = HPD.Events.EventChannel;
 using EventDirection = HPD.Events.EventDirection;
@@ -73,11 +74,21 @@ public enum InterruptionSource
 /// <summary>
 /// Requests interruption of active streams or operations.
 /// </summary>
-public record InterruptionRequestEvent(
-    string? StreamId,
-    string Reason,
-    InterruptionSource Source) : AgentEvent
+public record InterruptionRequestEvent : AgentEvent
 {
+    public InterruptionRequestEvent(
+        string? StreamId,
+        string Reason,
+        InterruptionSource Source)
+    {
+        this.StreamId = StreamId;
+        this.Reason = Reason;
+        this.Source = Source;
+    }
+
+    public string Reason { get; init; }
+    public InterruptionSource Source { get; init; }
+
     public override EventChannel Channel { get; init; } = EventChannel.Control;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
     public override EventDirection Direction { get; init; } = EventDirection.Upstream;
@@ -181,6 +192,57 @@ public abstract record AgentEvent : HPD.Events.Event
     public string? ParentSpanId { get; init; }
 }
 
+/// <summary>
+/// Marker interface for semantic events that can be sent into an agent.
+/// </summary>
+public interface IAgentInputEvent { }
+
+/// <summary>
+/// Base type for first-class user input events.
+/// </summary>
+public abstract record AgentInputEvent : AgentEvent, IAgentInputEvent
+{
+    /// <summary>Session scope for the input event.</summary>
+    public string? SessionId { get; init; }
+
+    /// <summary>Branch scope for the input event. Defaults to the agent's branch resolution behavior when null.</summary>
+    public string? BranchId { get; init; }
+
+    /// <summary>Optional target agent identifier for hosted or multi-agent runtimes.</summary>
+    public string? AgentId { get; init; }
+
+    /// <summary>Per-run configuration carried with the input event.</summary>
+    public AgentRunConfig? RunConfig { get; init; }
+
+    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
+}
+
+/// <summary>
+/// User text input sent into an agent turn.
+/// </summary>
+public sealed record UserTextInputEvent(string Text) : AgentInputEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Content;
+}
+
+/// <summary>
+/// Process-local user message input sent into an agent turn.
+/// </summary>
+public sealed record UserMessagesInputEvent(
+    IReadOnlyList<ChatMessage> Messages) : AgentInputEvent
+{
+    /// <summary>Process-local session scope for in-memory integrations.</summary>
+    [JsonIgnore]
+    public Session? Session { get; init; }
+
+    /// <summary>Process-local branch scope for in-memory integrations.</summary>
+    [JsonIgnore]
+    public Branch? Branch { get; init; }
+
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Content;
+}
+
 #region Message Turn Events (Entire User Interaction)
 
 /// <summary>
@@ -192,7 +254,7 @@ public record MessageTurnStartedEvent(
     string ConversationId,
     string AgentName) : AgentEvent
 {
-    public new HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -206,7 +268,7 @@ public record MessageTurnFinishedEvent(
     TimeSpan Duration,
     UsageDetails? Usage = null) : AgentEvent
 {
-    public new HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -217,6 +279,8 @@ public record MessageTurnErrorEvent(
     string Message,
     [property: System.Text.Json.Serialization.JsonIgnore] Exception? Exception = null) : AgentEvent, IErrorEvent
 {
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+
     /// <inheritdoc />
     string IErrorEvent.ErrorMessage => Message;
 
@@ -274,7 +338,7 @@ public record MessageTurnErrorEvent(
 /// </summary>
 public record AgentTurnStartedEvent(int Iteration) : AgentEvent
 {
-    public new HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -282,7 +346,7 @@ public record AgentTurnStartedEvent(int Iteration) : AgentEvent
 /// </summary>
 public record AgentTurnFinishedEvent(int Iteration) : AgentEvent
 {
-    public new HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -298,7 +362,7 @@ public record StateSnapshotEvent(
     List<string> CompletedFunctions,
     string AgentName) : AgentEvent
 {
-    public new HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
 
 #endregion
@@ -308,17 +372,26 @@ public record StateSnapshotEvent(
 /// <summary>
 /// Emitted when the agent starts producing text content
 /// </summary>
-public record TextMessageStartEvent(string MessageId, string Role) : AgentEvent;
+public record TextMessageStartEvent(string MessageId, string Role) : AgentEvent
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+}
 
 /// <summary>
 /// Emitted when the agent produces text content (streaming delta)
 /// </summary>
-public record TextDeltaEvent(string Text, string MessageId) : AgentEvent;
+public record TextDeltaEvent(string Text, string MessageId) : AgentEvent
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+}
 
 /// <summary>
 /// Emitted when the agent finishes producing text content
 /// </summary>
-public record TextMessageEndEvent(string MessageId) : AgentEvent;
+public record TextMessageEndEvent(string MessageId) : AgentEvent
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+}
 
 
 #endregion
@@ -329,17 +402,26 @@ public record TextMessageEndEvent(string MessageId) : AgentEvent;
 /// Emitted when the agent starts producing reasoning content.
 /// Reasoning is extended thinking used by models like o1, DeepSeek-R1.
 /// </summary>
-public record ReasoningMessageStartEvent(string MessageId, string Role) : AgentEvent;
+public record ReasoningMessageStartEvent(string MessageId, string Role) : AgentEvent
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+}
 
 /// <summary>
 /// Emitted when the agent produces reasoning content (streaming delta).
 /// </summary>
-public record ReasoningDeltaEvent(string Text, string MessageId) : AgentEvent;
+public record ReasoningDeltaEvent(string Text, string MessageId) : AgentEvent
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+}
 
 /// <summary>
 /// Emitted when the agent finishes producing reasoning content.
 /// </summary>
-public record ReasoningMessageEndEvent(string MessageId) : AgentEvent;
+public record ReasoningMessageEndEvent(string MessageId) : AgentEvent
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+}
 
 #endregion
 
@@ -373,17 +455,26 @@ public record ToolCallStartEvent(
     string Name,
     string MessageId,
     string? ToolkitName = null,
-    ToolCallType? CallType = null) : AgentEvent;
+    ToolCallType? CallType = null) : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+}
 
 /// <summary>
 /// Emitted when a tool call's arguments are fully available
 /// </summary>
-public record ToolCallArgsEvent(string CallId, string ArgsJson) : AgentEvent;
+public record ToolCallArgsEvent(string CallId, string ArgsJson) : AgentEvent
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+}
 
 /// <summary>
 /// Emitted when a tool call completes execution
 /// </summary>
-public record ToolCallEndEvent(string CallId) : AgentEvent;
+public record ToolCallEndEvent(string CallId) : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+}
 
 /// <summary>
 /// Emitted when a tool call result is available
@@ -392,7 +483,10 @@ public record ToolCallResultEvent(
     string CallId,
     string Result,
     string? ToolkitName = null,
-    ToolCallType? CallType = null) : AgentEvent;
+    ToolCallType? CallType = null) : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+}
 
 #endregion
 
@@ -442,7 +536,8 @@ public record PermissionRequestEvent(
     string CallId,
     IDictionary<string, object?>? Arguments) : AgentEvent, IPermissionEvent
 {
-    public new HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 
     /// <summary>Explicit interface implementation - maps PermissionId to RequestId</summary>
     string HPD.Events.IBidirectionalEvent.RequestId => PermissionId;
@@ -459,7 +554,9 @@ public record PermissionResponseEvent(
     string? Reason = null,
     PermissionChoice Choice = PermissionChoice.Ask) : AgentEvent, IPermissionEvent
 {
-    public new HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
 
     /// <summary>Explicit interface implementation - maps PermissionId to RequestId</summary>
     string HPD.Events.IBidirectionalEvent.RequestId => PermissionId;
@@ -472,6 +569,9 @@ public record PermissionApprovedEvent(
     string PermissionId,
     string SourceName) : AgentEvent, IPermissionEvent
 {
+    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+
     /// <summary>Explicit interface implementation - maps PermissionId to RequestId</summary>
     string HPD.Events.IBidirectionalEvent.RequestId => PermissionId;
 }
@@ -485,6 +585,9 @@ public record PermissionDeniedEvent(
     string CallId,
     string Reason) : AgentEvent, IPermissionEvent
 {
+    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+
     /// <summary>Explicit interface implementation - maps PermissionId to RequestId</summary>
     string HPD.Events.IBidirectionalEvent.RequestId => PermissionId;
 }
@@ -498,6 +601,9 @@ public record ContinuationRequestEvent(
     int CurrentIteration,
     int MaxIterations) : AgentEvent, IPermissionEvent
 {
+    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+
     /// <summary>
     /// Explicit interface implementation for IPermissionEvent.PermissionId
     /// Maps ContinuationId to PermissionId for consistency.
@@ -517,6 +623,10 @@ public record ContinuationResponseEvent(
     bool Approved,
     int ExtensionAmount = 0) : AgentEvent, IPermissionEvent
 {
+    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
+
     /// <summary>
     /// Explicit interface implementation for IPermissionEvent.PermissionId
     /// Maps ContinuationId to PermissionId for consistency.
@@ -557,7 +667,8 @@ public record ClarificationRequestEvent(
     string? AgentName = null,
     string[]? Options = null) : AgentEvent, IClarificationEvent
 {
-    public new HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 }
 
 /// <summary>
@@ -570,7 +681,9 @@ public record ClarificationResponseEvent(
     string Question,
     string Answer) : AgentEvent, IClarificationEvent
 {
-    public new HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
 }
 
 /// <summary>
@@ -581,6 +694,8 @@ public record MiddlewareErrorEvent(
     string SourceName,
     string ErrorMessage) : AgentEvent, IErrorEvent
 {
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+
     /// <summary>
     /// The underlying exception. Not serialized.
     /// </summary>
@@ -638,7 +753,10 @@ public record CollapsedToolsVisibleEvent(
     ImmutableHashSet<string> ExpandedSkills,
     int TotalToolCount,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when a Toolkit or skill container is expanded.
@@ -649,7 +767,10 @@ public record ContainerExpandedEvent(
     IReadOnlyList<string> UnlockedFunctions,
     int Iteration,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 public enum ContainerType { Toolkit, Skill }
 
@@ -665,7 +786,10 @@ public record PermissionCheckEvent(
     int Iteration,
     TimeSpan Duration,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when an iteration starts with full state snapshot.
@@ -678,7 +802,10 @@ public record IterationStartEvent(
     int HistoryMessageCount,
     int TurnHistoryMessageCount,
     int CompletedFunctionsCount
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when circuit breaker is triggered.
@@ -689,7 +816,11 @@ public record CircuitBreakerTriggeredEvent(
     int ConsecutiveCount,
     int Iteration,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Control;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+}
 
 /// <summary>
 /// Emitted when history reduction cache is checked.
@@ -702,7 +833,10 @@ public record HistoryReductionCacheEvent(
     int CurrentMessageCount,
     int? TokenSavings,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when an asset is successfully uploaded to AssetStore.
@@ -712,7 +846,10 @@ public record AssetUploadedEvent(
     string AssetId,
     string MediaType,
     int SizeBytes
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when an asset upload fails.
@@ -723,6 +860,8 @@ public record AssetUploadFailedEvent(
     string Error
 ) : AgentEvent, IObservabilityEvent, IErrorEvent
 {
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+
     /// <summary>
     /// Human-readable error message describing what went wrong.
     /// </summary>
@@ -759,7 +898,10 @@ public record CheckpointEvent(
     int? MessageCount = null,
     bool? Success = null,
     string? ErrorMessage = null
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 #region Background Operation Events
 
@@ -776,7 +918,10 @@ public record BackgroundOperationStartedEvent(
     ResponseContinuationToken ContinuationToken,
     OperationStatus Status,
     string? OperationId = null
-) : AgentEvent;
+) : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+}
 
 /// <summary>
 /// Emitted during polling with status updates for a background operation.
@@ -785,7 +930,10 @@ public record BackgroundOperationStatusEvent(
     ResponseContinuationToken ContinuationToken,
     OperationStatus Status,
     string? StatusMessage = null
-) : AgentEvent;
+) : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+}
 
 #endregion
 
@@ -803,7 +951,10 @@ public record InternalParallelToolExecutionEvent(
     TimeSpan? SemaphoreWaitDuration,
     bool IsParallel,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Retry status for function execution.
@@ -828,7 +979,10 @@ public record InternalRetryEvent(
     DateTimeOffset Timestamp,
     string? ErrorMessage = null,
     TimeSpan? RetryDelay = null
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when a function execution is being retried due to an error.
@@ -851,6 +1005,8 @@ public record FunctionRetryEvent(
     string ErrorMessage
 ) : AgentEvent, IObservabilityEvent, IErrorEvent
 {
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+
     /// <summary>
     /// The exception that caused the retry. Not serialized.
     /// </summary>
@@ -950,7 +1106,8 @@ public record ModelCallRetryEvent(
     /// <inheritdoc />
     Exception? IErrorEvent.Exception => Exception;
 
-    public new HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+    public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 
     // Lazy-computed error details
     private ErrorHandling.ProviderErrorDetails? _errorDetails;
@@ -993,7 +1150,10 @@ public record DeltaSendingActivatedEvent(
     string AgentName,
     int MessageCountSent,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when plan mode is activated.
@@ -1001,7 +1161,10 @@ public record DeltaSendingActivatedEvent(
 public record PlanModeActivatedEvent(
     string AgentName,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 #region Plan Lifecycle Events
 
@@ -1058,7 +1221,10 @@ public record PlanUpdatedEvent(
     object Plan,
     string? Explanation,
     DateTimeOffset UpdatedAt
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 #endregion
 
@@ -1070,7 +1236,10 @@ public record NestedAgentInvokedEvent(
     string ChildAgentName,
     int NestingDepth,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when document processing occurs.
@@ -1081,7 +1250,10 @@ public record DocumentProcessedEvent(
     long SizeBytes,
     TimeSpan Duration,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when message preparation completes.
@@ -1091,7 +1263,10 @@ public record InternalMessagePreparedEvent(
     int Iteration,
     int FinalMessageCount,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when a bidirectional event is processed.
@@ -1101,7 +1276,10 @@ public record BidirectionalEventProcessedEvent(
     string EventType,
     bool RequiresResponse,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when agent makes a decision.
@@ -1112,7 +1290,10 @@ public record AgentDecisionEvent(
     int Iteration,
     int ConsecutiveFailures,
     int CompletedFunctionsCount
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when agent completes successfully.
@@ -1122,7 +1303,10 @@ public record AgentCompletionEvent(
     int TotalIterations,
     TimeSpan Duration,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when iteration messages are logged.
@@ -1132,7 +1316,10 @@ public record IterationMessagesEvent(
     int Iteration,
     int MessageCount,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when middleware schema changes are detected during checkpoint restoration.
@@ -1146,6 +1333,8 @@ public record SchemaChangedEvent(
     bool IsUpgrade
 ) : AgentEvent, IObservabilityEvent
 {
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+
     public SchemaChangedEvent(
         string? oldSignature,
         string newSignature)
@@ -1169,7 +1358,10 @@ public record CollapsingStateEvent(
     int ExpandedToolkitsCount,
     int ExpandedSkillsCount,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 
 
@@ -1180,7 +1372,7 @@ public record CollapsingStateEvent(
 
 /// <summary>
 /// A structured output result containing a parsed (partial or complete) value.
-/// Emitted during RunStructuredAsync&lt;T&gt;() streaming.
+/// Emitted by RunStructuredAsync&lt;T&gt;().
 /// </summary>
 /// <typeparam name="T">The output type</typeparam>
 /// <param name="Value">The parsed value (partial or complete)</param>
@@ -1190,7 +1382,10 @@ public sealed record StructuredResultEvent<T>(
     T Value,
     bool IsPartial,
     string RawJson
-) : AgentEvent where T : class;
+) : AgentEvent where T : class
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+}
 
 /// <summary>
 /// Emitted when structured output parsing fails on final validation.
@@ -1205,7 +1400,10 @@ public sealed record StructuredOutputErrorEvent(
     string ErrorMessage,
     string ExpectedTypeName,
     Exception? Exception = null
-) : AgentEvent, IErrorEvent;
+) : AgentEvent, IErrorEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+}
 
 #region Structured Output Observability Events
 
@@ -1220,7 +1418,10 @@ public sealed record StructuredOutputStartEvent(
     string MessageId,
     string OutputTypeName,
     string OutputMode
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when a partial structured output is successfully parsed.
@@ -1235,7 +1436,10 @@ public sealed record StructuredOutputPartialEvent(
     string OutputTypeName,
     int ParseAttempt,
     int AccumulatedJsonLength
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when structured output processing completes successfully.
@@ -1252,7 +1456,10 @@ public sealed record StructuredOutputCompleteEvent(
     int TotalParseAttempts,
     int FinalJsonLength,
     TimeSpan Duration
-) : AgentEvent, IObservabilityEvent;
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
 
 /// <summary>
 /// Emitted when an event is dropped due to stream interruption.
@@ -1263,7 +1470,7 @@ public record EventDroppedEvent(
     string DroppedEventType,
     long DroppedSequenceNumber) : AgentEvent, IObservabilityEvent
 {
-    public new HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
 
 #endregion

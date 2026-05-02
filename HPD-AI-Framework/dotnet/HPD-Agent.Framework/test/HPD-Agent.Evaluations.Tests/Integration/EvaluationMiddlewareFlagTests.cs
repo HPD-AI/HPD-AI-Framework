@@ -29,7 +29,7 @@ public sealed class EvaluationMiddlewareFlagTests
 {
     private static async Task RunAgentAsync(Agent agent, string input, AgentRunConfig? runConfig = null)
     {
-        await foreach (var _ in agent.RunAsync(input, options: runConfig ?? new AgentRunConfig())) { }
+        await agent.RunAsync(input, runConfig: runConfig ?? new AgentRunConfig());
     }
 
     private static AgentConfig MakeConfig(string name = "FlagTestAgent") => new()

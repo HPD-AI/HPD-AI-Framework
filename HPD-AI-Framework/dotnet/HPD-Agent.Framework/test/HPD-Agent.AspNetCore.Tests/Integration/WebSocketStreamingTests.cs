@@ -1,9 +1,13 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
 using FluentAssertions;
+using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent.AspNetCore.Tests.Integration;
 
@@ -26,6 +30,71 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var response = await client.PostAsync("/sessions", null);
         var session = await response.Content.ReadFromJsonAsync<SessionDto>();
         return session!.Id;
+    }
+
+    private static string CreateInputJson(string text)
+    {
+        return AgentEventSerializer.ToJson(new UserTextInputEvent(text));
+    }
+
+    private static string CreateInputJson(string text, string agentId)
+    {
+        return AgentEventSerializer.ToJson(new UserTextInputEvent(text)
+        {
+            AgentId = agentId
+        });
+    }
+
+    private static async Task SendJsonAsync(WebSocket ws, string json)
+    {
+        var bytes = Encoding.UTF8.GetBytes(json);
+        await ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
+    }
+
+    private static async Task<JsonDocument> ReceiveJsonAsync(WebSocket ws)
+    {
+        var buffer = new byte[8192];
+        var result = await ws.ReceiveAsync(buffer, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        result.MessageType.Should().Be(WebSocketMessageType.Text);
+
+        var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
+        return JsonDocument.Parse(json);
+    }
+
+    private static async Task<JsonDocument> ReceiveUntilTypeAsync(WebSocket ws, string eventType)
+    {
+        for (var i = 0; i < 20; i++)
+        {
+            var document = await ReceiveJsonAsync(ws);
+            if (document.RootElement.TryGetProperty("type", out var type) &&
+                type.GetString() == eventType)
+            {
+                return document;
+            }
+
+            document.Dispose();
+        }
+
+        throw new TimeoutException($"Did not receive WebSocket event type '{eventType}'.");
+    }
+
+    private async Task<StoredAgentDto> CreateAgentAsync(string name)
+    {
+        var client = _factory.CreateClient();
+        var request = new CreateAgentRequest(name, new AgentConfig
+        {
+            Name = name,
+            MaxAgenticIterations = 10,
+            Provider = new ProviderConfig { ProviderKey = "test", ModelName = "test-model" }
+        });
+
+        var response = await client.PostAsJsonAsync("/agents", request);
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<StoredAgentDto>()
+            ?? throw new InvalidOperationException("CreateAgent returned null DTO.");
     }
 
     #region GET /sessions/{sid}/branches/{bid}/ws
@@ -58,19 +127,9 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
             new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
             CancellationToken.None);
 
-        // Send a message
-        var message = new StreamRequest(
-            new List<StreamMessage> { new("Hello via WebSocket", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
-
-        var json = System.Text.Json.JsonSerializer.Serialize(message);
-        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+        // Send an agent input event envelope
+        var json = CreateInputJson("Hello via WebSocket");
+        var bytes = Encoding.UTF8.GetBytes(json);
         await ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
 
         // Act - Receive response
@@ -94,12 +153,117 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
             CancellationToken.None);
 
         // Act - Send message
-        var message = "{\"messages\":[{\"content\":\"Test\",\"role\":\"user\"}]}";
-        var bytes = System.Text.Encoding.UTF8.GetBytes(message);
+        var message = CreateInputJson("Test");
+        var bytes = Encoding.UTF8.GetBytes(message);
         await ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
 
         // Assert - Connection should remain open
         ws.State.Should().Be(WebSocketState.Open);
+
+        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Test complete", CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task StreamWs_InvalidEventEnvelope_ClosesWithInvalidPayload()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var wsClient = _factory.Server.CreateWebSocketClient();
+        var ws = await wsClient.ConnectAsync(
+            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            CancellationToken.None);
+
+        var bytes = Encoding.UTF8.GetBytes("{\"type\":\"NOT_AN_AGENT_INPUT\",\"text\":\"Hello\"}");
+
+        // Act
+        await ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
+
+        var buffer = new byte[4096];
+        var result = await ws.ReceiveAsync(buffer, CancellationToken.None);
+
+        // Assert
+        result.MessageType.Should().Be(WebSocketMessageType.Close);
+        result.CloseStatus.Should().Be(WebSocketCloseStatus.InvalidPayloadData);
+    }
+
+    [Fact]
+    public async Task StreamWs_AcceptsPermissionResponseWhileTurnActive()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        _factory.FakeChatClient.Clear();
+        _factory.FakeChatClient.EnqueueStreamingResponse("first ", "second ", "third");
+
+        var wsClient = _factory.Server.CreateWebSocketClient();
+        var ws = await wsClient.ConnectAsync(
+            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            CancellationToken.None);
+
+        // Act
+        await SendJsonAsync(ws, CreateInputJson("long turn"));
+        using var _ = await ReceiveUntilTypeAsync(ws, "TEXT_DELTA");
+
+        await SendJsonAsync(ws, AgentEventSerializer.ToJson(
+            new PermissionResponseEvent("missing-waiter", "test", Approved: true)));
+
+        using var finished = await ReceiveUntilTypeAsync(ws, "MESSAGE_TURN_FINISHED");
+
+        // Assert
+        finished.RootElement.GetProperty("type").GetString().Should().Be("MESSAGE_TURN_FINISHED");
+        ws.State.Should().Be(WebSocketState.Open);
+
+        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Test complete", CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task StreamWs_AcceptsInterruptionRequestEnvelope()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        _factory.FakeChatClient.Clear();
+        _factory.FakeChatClient.EnqueueStreamingResponse("first ", "second ", "third ", "fourth");
+
+        var wsClient = _factory.Server.CreateWebSocketClient();
+        var ws = await wsClient.ConnectAsync(
+            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            CancellationToken.None);
+
+        // Act
+        await SendJsonAsync(ws, CreateInputJson("interrupt me"));
+        using var _ = await ReceiveUntilTypeAsync(ws, "TEXT_DELTA");
+
+        await SendJsonAsync(ws, AgentEventSerializer.ToJson(new InterruptionRequestEvent(
+            StreamId: null,
+            Reason: "stop from client",
+            Source: InterruptionSource.User)));
+
+        using var interruption = await ReceiveUntilTypeAsync(ws, "INTERRUPTION_REQUEST");
+
+        // Assert
+        interruption.RootElement.GetProperty("reason").GetString().Should().Be("stop from client");
+        ws.State.Should().Be(WebSocketState.Open);
+
+        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Test complete", CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task StreamWs_UsesAgentIdFromInputEvent()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var customAgent = await CreateAgentAsync("Custom Agent");
+
+        var wsClient = _factory.Server.CreateWebSocketClient();
+        var ws = await wsClient.ConnectAsync(
+            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            CancellationToken.None);
+
+        // Act
+        await SendJsonAsync(ws, CreateInputJson("hello custom", customAgent.Id));
+        using var started = await ReceiveUntilTypeAsync(ws, "MESSAGE_TURN_STARTED");
+
+        // Assert
+        started.RootElement.GetProperty("agentName").GetString().Should().Be(customAgent.Id);
 
         await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Test complete", CancellationToken.None);
     }

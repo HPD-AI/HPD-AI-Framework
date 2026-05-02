@@ -2,6 +2,9 @@ import type {
 	clientToolKitDefinition,
 	ClientToolInvokeResponse,
 	ClientToolInvokeRequestEvent,
+	AgentEvent,
+	AgentRunInputEvent,
+	EventSubscription,
 	PermissionChoice,
 	CreateSessionRequest,
 	UpdateSessionRequest,
@@ -12,7 +15,6 @@ import type {
 	StoredAgentDto,
 	CreateAgentRequest,
 	UpdateAgentRequest,
-	StreamOptions,
 	Session,
 	Branch,
 	SiblingBranch,
@@ -22,7 +24,6 @@ import type {
 	ChatRunConfig,
 } from '@hpd/hpd-agent-client';
 export type { RunConfig, ChatRunConfig };
-import type { EventHandlers } from '@hpd/hpd-agent-client';
 import type { AgentState } from '../agent/agent.svelte.ts';
 
 /**
@@ -30,14 +31,14 @@ import type { AgentState } from '../agent/agent.svelte.ts';
  * Allows test injection of a fake client without importing the real class.
  */
 export interface AgentClientLike {
-	// Streaming
-	stream(
-		sessionId: string,
-		branchId: string | undefined,
-		messages: Array<{ content: string; role?: string }>,
-		handlers: EventHandlers,
-		options?: StreamOptions
-	): Promise<void>;
+	// Event-native runtime
+	run(input: AgentRunInputEvent): Promise<void>;
+	on<TType extends AgentEvent['type']>(
+		type: TType,
+		handler: (event: Extract<AgentEvent, { type: TType }>) => void | Promise<void>
+	): EventSubscription;
+	onAny(handler: (event: AgentEvent) => void | Promise<void>): EventSubscription;
+	onError(handler: (error: Error) => void | Promise<void>): EventSubscription;
 	abort(): void;
 
 	// Session CRUD
@@ -122,8 +123,6 @@ export interface SendOptions {
 	runConfig?: RunConfig;
 	/** Resolved asset references to attach to the message as UriContent */
 	attachments?: AssetReference[];
-	/** Additional client tool groups to register for this send only (merged with workspace-level toolkits) */
-	clientToolKits?: clientToolKitDefinition[];
 }
 
 export interface Workspace {
@@ -226,6 +225,9 @@ export interface Workspace {
 
 	/** Send a message. Accepts optional SendOptions for per-send runConfig and file attachments. */
 	send(content: string, options?: SendOptions): Promise<void>;
+
+	/** Send an event-native input envelope. Missing workspace scope is stamped when possible. */
+	run(input: AgentRunInputEvent): Promise<void>;
 
 	/** Abort the current stream */
 	abort(): void;

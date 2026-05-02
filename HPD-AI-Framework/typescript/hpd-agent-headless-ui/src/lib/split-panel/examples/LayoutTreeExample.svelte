@@ -45,7 +45,7 @@
 				{ type: 'leaf', id: 'main', size: 400, priority: 'normal' as const, maximized: false },
 				{ type: 'leaf', id: 'panel', size: 250, priority: 'normal' as const, maximized: false }
 			],
-			flexes: new Float32Array([250, 400, 250])
+			flexes: [250, 400, 250]
 		};
 	});
 

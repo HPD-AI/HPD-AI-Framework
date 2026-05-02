@@ -45,11 +45,13 @@ var agent = await new AgentBuilder()
     .WithInstructions("You are a helpful assistant.")
     .BuildAsync();
 
-await foreach (var evt in agent.RunAsync("Hello!"))
+agent.On<TextDeltaEvent>(e =>
 {
-    if (evt is TextDeltaEvent delta)
-        Console.Write(delta.Text);
-}
+    Console.Write(e.Text);
+    return ValueTask.CompletedTask;
+});
+
+await agent.RunAsync("Hello!");
 ```
 
 ### What's Inside
@@ -60,7 +62,7 @@ await foreach (var evt in agent.RunAsync("Hello!"))
 - **Middleware** — Intercept every stage. Built-in: CircuitBreaker, Retry, HistoryReduction, PII, FunctionTimeout, Logging.
 - **Multi-Agent Workflows** — Directed graph composition with conditional routing.
 - **Evaluation** — LLM-as-judge scoring, decompose-verify evaluators, score store, and human-in-the-loop annotation queue.
-- **Event Streaming** — 50+ event types streamed in real time. Bidirectional flows for permissions and continuations.
+- **Event Runtime** — 50+ event types in real time. Send input events with `RunAsync`, handle output with `On<TEvent>`.
 - **Memory & Content Store** — ISessionStore, IContentStore, and agent working memory.
 - **Audio** — Native audio input/output for voice agents.
 - **Observability** — OpenTelemetry integration with automatic span hierarchy.
@@ -69,7 +71,7 @@ await foreach (var evt in agent.RunAsync("Hello!"))
 
 | Package | Purpose |
 |---------|---------|
-| `@hpd/hpd-agent-client` | Lightweight event stream consumer — browser & Node.js, SSE/WebSocket/MAUI transports |
+| `@hpd/hpd-agent-client` | Event-native browser & Node.js client — `run()` input events, `on()` output handlers, SSE/WebSocket/MAUI transports |
 | `@hpd/hpd-agent-headless-ui` | Svelte 5 headless component library — < 20 KB gzipped, 12+ components |
 
 ### Documentation

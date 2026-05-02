@@ -114,13 +114,15 @@ Now every time the agent calls a function, your middleware will log it. For more
 ### Step 3a: Run the Agent (Stateless)
 
 ```csharp
-// Run the agent - no session needed for simple queries
-var message = "Add 5 and 3";  // Uses the CalculatorTool
-await foreach (var evt in agent.RunAsync(message))
+// Handle output events once, then send input events with RunAsync.
+agent.On<TextDeltaEvent>(e =>
 {
-    if (evt is TextDeltaEvent textDelta)
-        Console.Write(textDelta.Text);
-}
+    Console.Write(e.Text);
+    return ValueTask.CompletedTask;
+});
+
+// Run the agent - no session needed for simple queries.
+await agent.RunAsync("Add 5 and 3"); // Uses the CalculatorTool
 ```
 
 That's it! Your agent is running and can use tools.
@@ -133,20 +135,18 @@ For multi-turn conversations, create a session first, then pass its ID to each `
 // Create the session once
 await agent.CreateSessionAsync("user-123");
 
-// Each call with the same sessionId continues the conversation
-await foreach (var evt in agent.RunAsync("Add 10 and 20", sessionId: "user-123"))
+agent.On<TextDeltaEvent>(e =>
 {
-    if (evt is TextDeltaEvent textDelta)
-        Console.Write(textDelta.Text);
-}
+    Console.Write(e.Text);
+    return ValueTask.CompletedTask;
+});
+
+// Each call with the same sessionId continues the conversation
+await agent.RunAsync("Add 10 and 20", sessionId: "user-123");
 Console.WriteLine();
 
 // Agent remembers the previous result
-await foreach (var evt in agent.RunAsync("Now multiply the result by 5", sessionId: "user-123"))
-{
-    if (evt is TextDeltaEvent textDelta)
-        Console.Write(textDelta.Text);
-}
+await agent.RunAsync("Now multiply the result by 5", sessionId: "user-123");
 ```
 
 ## Key Concepts
@@ -178,18 +178,18 @@ Agents can leverage memory systems to persist and recall information across conv
 
 ## Event-Driven Architecture
 
-The agent doesn't just return a final answer - it streams **events** as it works:
+The agent doesn't just return a final answer. It emits **events** as it works. Applications register output handlers with `On<TEvent>()`, then send input with `RunAsync(...)`:
 
 ```csharp
 await agent.CreateSessionAsync("user-123");
 
-await foreach (var evt in agent.RunAsync("Do something", sessionId: "user-123"))
+agent.On<TextDeltaEvent>(e =>
 {
-    if (evt is TextDeltaEvent textDelta)
-    {
-        Console.Write(textDelta.Text);  // Streaming text output
-    }
-}
+    Console.Write(e.Text); // Streaming text output
+    return ValueTask.CompletedTask;
+});
+
+await agent.RunAsync("Do something", sessionId: "user-123");
 ```
 
 This means you can:
@@ -204,10 +204,10 @@ This means you can:
 
 ### In-Memory (Default)
 ```csharp
-// Create the session, then run — history lives in memory for the lifetime of the process
+// Create the session, then run - history lives in memory for the lifetime of the process
 await agent.CreateSessionAsync("user-123");
-await foreach (var evt in agent.RunAsync("First message", sessionId: "user-123")) { }
-await foreach (var evt in agent.RunAsync("Second message", sessionId: "user-123")) { }
+await agent.RunAsync("First message", sessionId: "user-123");
+await agent.RunAsync("Second message", sessionId: "user-123");
 // Session is lost when process ends
 ```
 
@@ -219,9 +219,9 @@ var agent = await new AgentBuilder()
     .WithSessionStore("./sessions")  // auto-saves after every turn
     .BuildAsync();
 
-// Create the session once — survives process restarts
+// Create the session once - survives process restarts
 await agent.CreateSessionAsync("user-123");
-await foreach (var evt in agent.RunAsync("Message", sessionId: "user-123")) { }
+await agent.RunAsync("Message", sessionId: "user-123");
 ```
 
 Use this for: Web apps, long-running services, conversation resumption.

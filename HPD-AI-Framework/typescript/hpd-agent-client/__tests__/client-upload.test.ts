@@ -6,9 +6,8 @@
  *      error handling.
  *   2. uploadAsset() — WebSocketTransport: uses HTTP base URL, not the ws:// URL.
  *   3. uploadAsset() — AgentClient: delegates to transport.
- *   4. runConfig threading: StreamOptions.runConfig is forwarded to ConnectOptions.runConfig
- *      when AgentClient.stream() connects.
- *   5. SseTransport: runConfig included/omitted from POST body based on options.
+ *   4. runConfig threading: USER_TEXT_INPUT.runConfig is forwarded in the event envelope.
+ *   5. SseTransport: runConfig included/omitted from POST body based on input events.
  *
  * Test type: unit — all network I/O is replaced by vi.spyOn(globalThis, 'fetch').
  */
@@ -16,6 +15,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AgentClient } from '../src/client.js';
 import { SseTransport } from '../src/transports/sse.js';
+import { EventTypes } from '../src/types/events.js';
 import { WebSocketTransport } from '../src/transports/websocket.js';
 
 // ---------------------------------------------------------------------------
@@ -155,7 +155,7 @@ describe('WebSocketTransport.uploadAsset() — uses HTTP base URL', () => {
 
 // ---------------------------------------------------------------------------
 
-describe('AgentClient.stream() — runConfig threading', () => {
+describe('AgentClient.run() — runConfig threading', () => {
   let client: AgentClient;
 
   beforeEach(() => {
@@ -167,7 +167,7 @@ describe('AgentClient.stream() — runConfig threading', () => {
     vi.restoreAllMocks();
   });
 
-  it('forwards runConfig from StreamOptions to the POST body', async () => {
+  it('forwards runConfig from the input event to the POST body', async () => {
     // Mock the stream response — we only care about what was sent
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
@@ -181,14 +181,20 @@ describe('AgentClient.stream() — runConfig threading', () => {
     const runConfig = { providerKey: 'anthropic', modelId: 'claude-sonnet-4-6', chat: { temperature: 0.7 } };
     const signal = new AbortController().signal;
 
-    await client.stream('sess-1', 'main', [{ content: 'hi' }], {}, { runConfig, signal }).catch(() => {});
+    await client.run({
+      type: EventTypes.USER_TEXT_INPUT,
+      sessionId: 'sess-1',
+      branchId: 'main',
+      text: 'hi',
+      runConfig,
+    }, { signal }).catch(() => {});
 
     const [, init] = vi.mocked(fetch).mock.calls[0];
     const body = JSON.parse(init?.body as string);
     expect(body.runConfig).toEqual(runConfig);
   });
 
-  it('omits runConfig from POST body when not provided in StreamOptions', async () => {
+  it('omits runConfig from POST body when not provided on the input event', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       status: 200,
@@ -199,7 +205,12 @@ describe('AgentClient.stream() — runConfig threading', () => {
     } as unknown as Response);
 
     const signal = new AbortController().signal;
-    await client.stream('sess-1', 'main', [{ content: 'hi' }], {}, { signal }).catch(() => {});
+    await client.run({
+      type: EventTypes.USER_TEXT_INPUT,
+      sessionId: 'sess-1',
+      branchId: 'main',
+      text: 'hi',
+    }, { signal }).catch(() => {});
 
     const [, init] = vi.mocked(fetch).mock.calls[0];
     const body = JSON.parse(init?.body as string);
@@ -214,7 +225,7 @@ describe('SseTransport — runConfig in POST body', () => {
   beforeEach(() => vi.resetAllMocks());
   afterEach(() => vi.restoreAllMocks());
 
-  it('includes runConfig key when provided in ConnectOptions', async () => {
+  it('includes runConfig key when provided on the input event', async () => {
     const transport = new SseTransport(BASE);
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
@@ -231,9 +242,11 @@ describe('SseTransport — runConfig in POST body', () => {
     transport.onClose(() => {});
 
     const runConfig = { modelId: 'claude-opus-4-6' };
-    await transport.connect({
+    await transport.run({
+      type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'sess-1',
-      messages: [{ content: 'hi' }],
+      branchId: 'main',
+      text: 'hi',
       runConfig,
     }).catch(() => {});
 
@@ -242,7 +255,7 @@ describe('SseTransport — runConfig in POST body', () => {
     expect(body.runConfig).toEqual(runConfig);
   });
 
-  it('omits runConfig key when not provided in ConnectOptions', async () => {
+  it('omits runConfig key when not provided on the input event', async () => {
     const transport = new SseTransport(BASE);
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
@@ -258,9 +271,11 @@ describe('SseTransport — runConfig in POST body', () => {
     transport.onError(() => {});
     transport.onClose(() => {});
 
-    await transport.connect({
+    await transport.run({
+      type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'sess-1',
-      messages: [{ content: 'hi' }],
+      branchId: 'main',
+      text: 'hi',
     }).catch(() => {});
 
     const [, init] = vi.mocked(fetch).mock.calls[0];

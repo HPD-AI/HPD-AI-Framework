@@ -1,8 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using FluentAssertions;
+using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent.AspNetCore.Tests.Integration;
 
@@ -13,9 +16,11 @@ namespace HPD.Agent.AspNetCore.Tests.Integration;
 public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
 {
     private readonly HttpClient _client;
+    private readonly TestWebApplicationFactory _factory;
 
     public SseStreamingTests(TestWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -26,6 +31,25 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         return session!.Id;
     }
 
+    private static string CreateInputJson(string text, AgentRunConfig? runConfig = null)
+    {
+        return AgentEventSerializer.ToJson(new UserTextInputEvent(text)
+        {
+            RunConfig = runConfig
+        });
+    }
+
+    private Task<HttpResponseMessage> PostInputAsync(
+        string url,
+        string json,
+        CancellationToken cancellationToken = default)
+    {
+        return _client.PostAsync(
+            url,
+            new StringContent(json, Encoding.UTF8, "application/json"),
+            cancellationToken);
+    }
+
     #region POST /sessions/{sid}/branches/{bid}/stream
 
     [Fact]
@@ -33,20 +57,10 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Test message", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var request = CreateInputJson("Test message");
 
         // Act
-        var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request);
+        var response = await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
 
         // Assert
         response.Content.Headers.ContentType!.MediaType.Should().Be("text/event-stream");
@@ -57,20 +71,10 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Hello", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var request = CreateInputJson("Hello");
 
         // Act
-        var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request);
+        var response = await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -79,25 +83,47 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
+    public async Task StreamSse_StreamsSerializedEventEnvelopeDataLines()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var request = CreateInputJson("Hello");
+
+        // Act
+        var response = await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        body.Should().Contain("data:");
+        body.Should().Contain("\"type\":\"TEXT_DELTA\"");
+        body.Should().Contain("\"type\":\"MESSAGE_TURN_FINISHED\"");
+    }
+
+    [Fact]
+    public async Task StreamSse_InvalidEventEnvelope_Returns400()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        const string request = "{\"type\":\"NOT_AN_AGENT_INPUT\",\"text\":\"Hello\"}";
+
+        // Act
+        var response = await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task StreamSse_SendsToolCallEvents()
     {
         // This would require an agent with tools configured
         // Simplified test verifies endpoint accepts request
         var sessionId = await CreateTestSession();
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Use a tool", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var request = CreateInputJson("Use a tool");
 
         // Act
-        var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request);
+        var response = await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -108,20 +134,10 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Test", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var request = CreateInputJson("Test");
 
         // Act
-        var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request);
+        var response = await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -132,20 +148,10 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     {
         // Comprehensive test for all event types
         var sessionId = await CreateTestSession();
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Complete interaction", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var request = CreateInputJson("Complete interaction");
 
         // Act
-        var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request);
+        var response = await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -157,28 +163,16 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Test", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var request = CreateInputJson("Test");
 
         // Start first stream (don't await completion)
-        var firstStreamTask = _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request);
+        var firstStreamTask = PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
 
         // Give it time to start
         await Task.Delay(100);
 
         // Act - Try to start second stream on same branch
-        var secondResponse = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request);
+        var secondResponse = await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
 
         // Assert
         secondResponse.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -192,23 +186,12 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Long running task", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var request = CreateInputJson("Long running task");
 
         using var cts = new CancellationTokenSource();
 
         // Act - Start stream and cancel it
-        var streamTask = _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request,
-            cts.Token);
+        var streamTask = PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request, cts.Token);
 
         await Task.Delay(50);
         cts.Cancel();
@@ -223,20 +206,10 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         // This test verifies the endpoint uses HttpContext.RequestAborted
         // Implicit in the cancellation test above
         var sessionId = await CreateTestSession();
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Test", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var request = CreateInputJson("Test");
 
         // Act
-        var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request);
+        var response = await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -247,26 +220,14 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Quick message", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var request = CreateInputJson("Quick message");
 
         // Act - Complete first stream
-        var firstResponse = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request);
+        var firstResponse = await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
         firstResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // Act - Start second stream (should succeed if lock was released)
-        var secondResponse = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request);
+        var secondResponse = await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
 
         // Assert
         secondResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -277,20 +238,10 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     {
         // Similar to completion test but with error scenario
         var sessionId = await CreateTestSession();
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Test", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var request = CreateInputJson("Test");
 
         // Act
-        var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request);
+        var response = await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -301,21 +252,10 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Test", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var request = CreateInputJson("Test");
 
         using var cts = new CancellationTokenSource();
-        var streamTask = _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request,
-            cts.Token);
+        var streamTask = PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request, cts.Token);
 
         await Task.Delay(50);
         cts.Cancel();
@@ -323,9 +263,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         try { await streamTask; } catch { }
 
         // Act - Try new stream after cancellation
-        var newResponse = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request);
+        var newResponse = await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
 
         // Assert - Lock should be released
         newResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -336,34 +274,31 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var runConfig = new StreamRunConfigDto(
-            new ChatRunConfigDto(0.7, 1000, null, null, null),
-            null,
-            null,
-            "Be concise",
-            null,
-            null,
-            true,
-            false,
-            null);
+        _factory.FakeChatClient.Clear();
 
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Test with config", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            runConfig);
+        var request = CreateInputJson("Test with config", new AgentRunConfig
+        {
+            Chat = new ChatRunConfig
+            {
+                Temperature = 0.7,
+                MaxOutputTokens = 1000
+            },
+            AdditionalSystemInstructions = "Be concise",
+            CoalesceDeltas = true,
+            SkipTools = false
+        });
 
         // Act
-        var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request);
+        var response = await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+        _factory.FakeChatClient.CapturedOptions.Should().ContainSingle();
+        var options = _factory.FakeChatClient.CapturedOptions.Single();
+        options.Should().NotBeNull();
+        options!.Temperature.Should().Be(0.7f);
+        options.MaxOutputTokens.Should().Be(1000);
+        options.Instructions.Should().Contain("Be concise");
     }
 
     [Fact]
@@ -371,20 +306,10 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Save this message", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var request = CreateInputJson("Save this message");
 
         // Act
-        await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request);
+        await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
 
         // Verify messages were saved
         var messagesResponse = await _client.GetAsync($"/sessions/{sessionId}/branches/main/messages");
@@ -400,20 +325,10 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Persistent message", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var request = CreateInputJson("Persistent message");
 
         // Act
-        await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/stream",
-            request);
+        await PostInputAsync($"/sessions/{sessionId}/branches/main/stream", request);
 
         // Verify session still exists
         var sessionResponse = await _client.GetAsync($"/sessions/{sessionId}");
@@ -426,20 +341,10 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     public async Task StreamSse_Returns404_WhenSessionNotFound()
     {
         // Arrange
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Test", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var request = CreateInputJson("Test");
 
         // Act
-        var response = await _client.PostAsJsonAsync(
-            "/sessions/nonexistent/branches/main/stream",
-            request);
+        var response = await PostInputAsync("/sessions/nonexistent/branches/main/stream", request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -450,20 +355,10 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Test", "user") },
-            new List<System.Text.Json.JsonElement>(),
-            new List<System.Text.Json.JsonElement>(),
-            null,
-            new List<string>(),
-            new List<string>(),
-            false,
-            null);
+        var request = CreateInputJson("Test");
 
         // Act
-        var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/nonexistent/stream",
-            request);
+        var response = await PostInputAsync($"/sessions/{sessionId}/branches/nonexistent/stream", request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);

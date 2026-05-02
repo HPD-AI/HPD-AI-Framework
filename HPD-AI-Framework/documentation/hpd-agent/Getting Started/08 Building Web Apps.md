@@ -15,14 +15,14 @@ HPD-Agent works in web applications through real-time event streaming. The frame
 │   (TypeScript)  │ ← ─ ─ ─ ─ ─ ─ ─ ─ ─  │   (C# Backend)  │
 └─────────────────┘       events           └─────────────────┘
                                                     ↓
-                                           Agent.RunAsync()
+                                           Agent.RunAsync(input event)
 ```
 
 **How it works:**
-1. Frontend sends user messages to the backend
-2. Backend streams agent events via SSE or WebSocket
-3. Frontend receives events in real-time using `@hpd/hpd-agent-client`
-4. Bidirectional events (permissions, clarifications) are sent back to the backend
+1. Frontend sends input event envelopes to the backend
+2. Backend calls `Agent.RunAsync(inputEvent)`
+3. Backend emits agent output events via SSE or WebSocket
+4. Frontend handles output events with `client.on(...)` and sends response/control events with `client.run(...)`
 
 ## Quick Start
 
@@ -64,18 +64,23 @@ Install the client:
 npm install @hpd/hpd-agent-client
 ```
 
-Connect and stream:
+Register output handlers and send an input event:
 
 ```typescript
-import { HpdAgentClient } from '@hpd/hpd-agent-client';
+import { AgentClient, EventTypes } from '@hpd/hpd-agent-client';
 
-const client = new HpdAgentClient({ baseUrl: 'http://localhost:5000' });
+const client = new AgentClient({ baseUrl: 'http://localhost:5000' });
 
-for await (const event of client.streamMessage({ content: 'Hello!' })) {
-    if (event.type === 'TextDeltaEvent') {
-        process.stdout.write(event.text);
-    }
-}
+client.on(EventTypes.TEXT_DELTA, event => {
+    process.stdout.write(event.text);
+});
+
+await client.run({
+    type: EventTypes.USER_TEXT_INPUT,
+    text: 'Hello!',
+    sessionId: 'user-123',
+    branchId: 'main'
+});
 ```
 
 The client handles event parsing, bidirectional communication, and reconnection automatically.
@@ -100,9 +105,9 @@ The client handles event parsing, bidirectional communication, and reconnection 
 - `GET /sessions/{sid}/branches/{bid}/messages` — get messages
 - `GET /sessions/{sid}/branches/{bid}/siblings` — get sibling branches
 
-**Streaming**
-- `POST /sessions/{sid}/branches/{bid}/stream` — SSE streaming
-- `GET /sessions/{sid}/branches/{bid}/ws` — WebSocket streaming
+**Event input/output**
+- `POST /sessions/{sid}/branches/{bid}/stream` — SSE output for a posted input event envelope
+- `GET /sessions/{sid}/branches/{bid}/ws` — WebSocket input/output event envelopes
 
 **Assets**
 - `POST /sessions/{sid}/assets` — upload file (multipart)
@@ -204,7 +209,7 @@ builder.Services.AddHPDAgent();
 
 For complete production patterns, see:
 
-- [**Event Handling**](05%20Event%20Handling.md) - Understanding the event stream
+- [**Event Handling**](05%20Event%20Handling.md) - Handling agent output events
 - [**Bidirectional Events**](../Events/05.6%20Bidirectional%20Events.md) - User prompts and permissions
 - [**Streaming & Cancellation**](../Events/05.5%20Streaming%20%26%20Cancellation.md) - Stop button implementation
 - [**Client Tools**](../Tools/02.3%20Client%20Tools.md) - Browser-side tool execution
@@ -250,5 +255,5 @@ A Svelte 5 component library built on top of `@hpd/hpd-agent-client`. Ships zero
 
 ## See Also
 
-- [**Event Handling**](05%20Event%20Handling.md) - Understanding the event stream
+- [**Event Handling**](05%20Event%20Handling.md) - Handling output events
 - [**Building Console Apps**](07%20Building%20Console%20Apps.md) - Native .NET console patterns

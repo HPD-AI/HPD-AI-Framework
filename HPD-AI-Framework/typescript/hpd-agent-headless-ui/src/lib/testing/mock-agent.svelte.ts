@@ -22,7 +22,8 @@ import type {
 	StoredAgentDto,
 	CreateAgentRequest,
 	UpdateAgentRequest,
-	UpdateSessionRequest
+	UpdateSessionRequest,
+	AgentRunInputEvent
 } from '@hpd/hpd-agent-client';
 import type { Workspace, AgentClientLike } from '../workspace/types.ts';
 
@@ -520,6 +521,10 @@ class MockWorkspaceImpl implements Workspace {
 		await this.#simulateResponse(activeState);
 	}
 
+	async run(_input: AgentRunInputEvent): Promise<void> {
+		// Mock runtime accepts event-native inputs without a backend.
+	}
+
 	abort(): void {
 		// No-op — mock streams run to completion
 	}
@@ -556,7 +561,10 @@ class MockWorkspaceImpl implements Workspace {
 	}
 
 	readonly client: AgentClientLike = {
-		stream: async () => {},
+		run: async () => {},
+		on: () => ({ dispose: () => {} }),
+		onAny: () => ({ dispose: () => {} }),
+		onError: () => ({ dispose: () => {} }),
 		abort: () => {},
 		listSessions: async () => [],
 		getSession: async () => null,
@@ -632,6 +640,7 @@ class MockAgentImpl implements Workspace {
 	async refreshBranch(_branchId: string): Promise<void> {}
 	invalidateBranch(_branchId: string): void {}
 	async send(_content: string): Promise<void> {}
+	async run(_input: AgentRunInputEvent): Promise<void> {}
 	abort(): void {}
 
 	async approve(permissionId: string, _choice?: PermissionChoice): Promise<void> {
@@ -654,7 +663,10 @@ class MockAgentImpl implements Workspace {
 	selectAgent(_agentId: string | null): void {}
 	async listAgents(): Promise<AgentSummaryDto[]> { return []; }
 	readonly client: AgentClientLike = {
-		stream: async () => {},
+		run: async () => {},
+		on: () => ({ dispose: () => {} }),
+		onAny: () => ({ dispose: () => {} }),
+		onError: () => ({ dispose: () => {} }),
 		abort: () => {},
 		listSessions: async () => [],
 		getSession: async () => null,

@@ -12,6 +12,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.ComponentModel;
+using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using HPD.Agent.StructuredOutput;
 using HPD.Events;
@@ -45,7 +46,17 @@ public sealed class Agent
     private readonly AgentMiddlewarePipeline _middlewarePipeline;
     // Observer pattern for event-driven observability
     private readonly IReadOnlyList<ObserverDispatcher> _observerDispatchers;
-    private readonly IReadOnlyList<IAgentEventHandler> _eventHandlers;
+    private readonly object _eventHandlerLock = new();
+    private readonly Dictionary<Type, List<RegisteredOutputHandler>> _typedEventHandlers = new();
+    private readonly List<RegisteredOutputHandler> _anyEventHandlers = new();
+    private readonly object _structHandlerLock = new();
+    private readonly List<RuntimeStructHandlerSubscription> _structHandlerSubscriptions = new();
+    private readonly object _runtimeLock = new();
+    private Channel<AgentEvent>? _runtimeInbox;
+    private CancellationTokenSource? _runtimeCts;
+    private Task? _runtimeLoopTask;
+    private bool _runtimeStopping;
+    private readonly List<CancellationTokenSource> _activeRuntimeTurnCts = new();
     private readonly ObserverHealthTracker? _observerHealthTracker;
     private readonly ILogger? _observerErrorLogger;
     private readonly Counter<long>? _observerErrorCounter;
@@ -199,17 +210,6 @@ public sealed class Agent
     internal HPD.Events.IEventCoordinator MiddlewareEventCoordinator => _eventCoordinator;
 
     /// <summary>
-    /// Sends a response to a pending middleware request (e.g., permission response, clarification).
-    /// Convenience method that delegates to the underlying event coordinator.
-    /// </summary>
-    /// <param name="requestId">The request ID to respond to</param>
-    /// <param name="response">The response event</param>
-    public void SendMiddlewareResponse(string requestId, AgentEvent response)
-    {
-        _eventCoordinator.SendResponse(requestId, response);
-    }
-
-    /// <summary>
     /// Sets the execution context for event attribution.
     /// Called when the execution context is lazily initialized (e.g., on first RunAsync).
     /// Thread-safe: Can be called from any session.
@@ -235,7 +235,6 @@ public sealed class Agent
         IReadOnlyList<IAgentMiddleware>? middlewares = null,
         IServiceProvider? serviceProvider = null,
         IEnumerable<IAgentEventObserver>? observers = null,
-        IEnumerable<IAgentEventHandler>? eventHandlers = null,
         Providers.IProviderRegistry? providerRegistry = null,
         IReadOnlyDictionary<string, MiddlewareStateFactory>? stateFactories = null,
         IReadOnlyList<HttpClient>? ownedHttpClients = null)
@@ -289,9 +288,6 @@ public sealed class Agent
         var loggerFactory = serviceProvider?.GetService(typeof(ILoggerFactory))
             as ILoggerFactory;
 
-        // Initialize event handlers (synchronous, ordered, for UI)
-        _eventHandlers = eventHandlers?.ToList() ?? new List<IAgentEventHandler>();
-
         // Initialize observer health tracker and dispatchers if observers are configured
         var observerList = observers?.ToList() ?? new List<IAgentEventObserver>();
         if (observerList.Count > 0 && loggerFactory != null)
@@ -338,11 +334,336 @@ public sealed class Agent
     public ChatOptions? DefaultOptions => Config?.Provider?.DefaultChatOptions ?? _messageProcessor.DefaultOptions;
 
     /// <summary>
+    /// Gets whether this agent currently has a continuous runtime input loop.
+    /// </summary>
+    public bool IsRunning
+    {
+        get
+        {
+            lock (_runtimeLock)
+            {
+                return !_runtimeStopping &&
+                    _runtimeInbox != null &&
+                    _runtimeLoopTask is { IsCompleted: false };
+            }
+        }
+    }
+
+    /// <summary>
     /// Agent middlewares applied to the agent lifecycle (message turns, iterations, functions).
     /// These are the unified IAgentMiddleware instances with built-in Collapsing support.
     /// </summary>
     public IReadOnlyList<IAgentMiddleware> Middlewares =>
         _middlewarePipeline.Middlewares;
+
+    private sealed class RegisteredOutputHandler(Func<AgentEvent, ValueTask> handler)
+    {
+        public Guid Id { get; } = Guid.NewGuid();
+        public Func<AgentEvent, ValueTask> Handler { get; } = handler;
+    }
+
+    private sealed class OutputHandlerSubscription(
+        Agent agent,
+        Type? eventType,
+        Guid handlerId) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+
+            agent.RemoveOutputHandler(eventType, handlerId);
+        }
+    }
+
+    private sealed class RuntimeStructHandlerSubscription(
+        Agent agent,
+        CancellationTokenSource cancellationTokenSource,
+        Func<ValueTask> disposeSubscription) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+
+            cancellationTokenSource.Cancel();
+            disposeSubscription().AsTask().GetAwaiter().GetResult();
+            cancellationTokenSource.Dispose();
+            agent.RemoveStructHandlerSubscription(this);
+        }
+    }
+
+    private void RemoveOutputHandler(Type? eventType, Guid handlerId)
+    {
+        lock (_eventHandlerLock)
+        {
+            if (eventType is null)
+            {
+                _anyEventHandlers.RemoveAll(h => h.Id == handlerId);
+                return;
+            }
+
+            if (!_typedEventHandlers.TryGetValue(eventType, out var handlers))
+                return;
+
+            handlers.RemoveAll(h => h.Id == handlerId);
+            if (handlers.Count == 0)
+                _typedEventHandlers.Remove(eventType);
+        }
+    }
+
+    private void RemoveStructHandlerSubscription(RuntimeStructHandlerSubscription subscription)
+    {
+        lock (_structHandlerLock)
+        {
+            _structHandlerSubscriptions.Remove(subscription);
+        }
+    }
+
+    private async Task RunStructHandlerPumpAsync<TEvent>(
+        StructSubscription<TEvent> subscription,
+        Func<TEvent, ValueTask> handler,
+        CancellationToken cancellationToken)
+        where TEvent : struct, IStructEvent
+    {
+        try
+        {
+            await foreach (var evt in subscription.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            {
+                try
+                {
+                    await handler(evt).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _observerErrorLogger?.LogError(ex,
+                        "Agent struct output handler failed processing {EventType}",
+                        typeof(TEvent).Name);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Cooperative handler shutdown.
+        }
+        finally
+        {
+            await subscription.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Registers a removable ordered output handler for the exact event type.
+    /// </summary>
+    public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler)
+        where TEvent : AgentEvent
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        var registration = new RegisteredOutputHandler(evt => handler((TEvent)evt));
+
+        lock (_eventHandlerLock)
+        {
+            if (!_typedEventHandlers.TryGetValue(typeof(TEvent), out var handlers))
+            {
+                handlers = new List<RegisteredOutputHandler>();
+                _typedEventHandlers[typeof(TEvent)] = handlers;
+            }
+
+            handlers.Add(registration);
+        }
+
+        return new OutputHandlerSubscription(this, typeof(TEvent), registration.Id);
+    }
+
+    /// <summary>
+    /// Registers a removable ordered output handler for the exact event type.
+    /// </summary>
+    public IDisposable Subscribe<TEvent>(Func<TEvent, Task> handler)
+        where TEvent : AgentEvent
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return Subscribe<TEvent>(evt => new ValueTask(handler(evt)));
+    }
+
+    /// <summary>
+    /// Registers a removable ordered output handler for the exact event type.
+    /// </summary>
+    public IDisposable Subscribe<TEvent>(Action<TEvent> handler)
+        where TEvent : AgentEvent
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return Subscribe<TEvent>(evt =>
+        {
+            handler(evt);
+            return ValueTask.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    /// Registers a removable ordered catch-all output handler.
+    /// </summary>
+    public IDisposable SubscribeAny(Func<AgentEvent, ValueTask> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        var registration = new RegisteredOutputHandler(handler);
+
+        lock (_eventHandlerLock)
+        {
+            _anyEventHandlers.Add(registration);
+        }
+
+        return new OutputHandlerSubscription(this, eventType: null, registration.Id);
+    }
+
+    /// <summary>
+    /// Registers a removable ordered catch-all output handler.
+    /// </summary>
+    public IDisposable SubscribeAny(Func<AgentEvent, Task> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return SubscribeAny(evt => new ValueTask(handler(evt)));
+    }
+
+    /// <summary>
+    /// Registers a removable ordered catch-all output handler.
+    /// </summary>
+    public IDisposable SubscribeAny(Action<AgentEvent> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return SubscribeAny(evt =>
+        {
+            handler(evt);
+            return ValueTask.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    /// Registers a removable handler for a process-local struct event type.
+    /// Agent owns the subscription pump; callers do not need to run the event coordinator.
+    /// </summary>
+    public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler)
+        where TEvent : struct, IStructEvent
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+
+        var subscription = _eventCoordinator.SubscribeStruct<TEvent>();
+        var cts = new CancellationTokenSource();
+        var runtimeSubscription = new RuntimeStructHandlerSubscription(
+            this,
+            cts,
+            subscription.DisposeAsync);
+
+        lock (_structHandlerLock)
+        {
+            _structHandlerSubscriptions.Add(runtimeSubscription);
+        }
+
+        _ = Task.Run(
+            () => RunStructHandlerPumpAsync(subscription, handler, cts.Token),
+            CancellationToken.None);
+
+        return runtimeSubscription;
+    }
+
+    /// <summary>
+    /// Registers a removable handler for a process-local struct event type.
+    /// Agent owns the subscription pump; callers do not need to run the event coordinator.
+    /// </summary>
+    public IDisposable SubscribeStruct<TEvent>(Action<TEvent> handler)
+        where TEvent : struct, IStructEvent
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return SubscribeStruct<TEvent>(evt =>
+        {
+            handler(evt);
+            return ValueTask.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    /// Registers a permanent ordered output handler for the exact event type.
+    /// </summary>
+    public Agent On<TEvent>(Func<TEvent, ValueTask> handler)
+        where TEvent : AgentEvent
+    {
+        _ = Subscribe(handler);
+        return this;
+    }
+
+    /// <summary>
+    /// Registers a permanent ordered output handler for the exact event type.
+    /// </summary>
+    public Agent On<TEvent>(Func<TEvent, Task> handler)
+        where TEvent : AgentEvent
+    {
+        _ = Subscribe(handler);
+        return this;
+    }
+
+    /// <summary>
+    /// Registers a permanent ordered output handler for the exact event type.
+    /// </summary>
+    public Agent On<TEvent>(Action<TEvent> handler)
+        where TEvent : AgentEvent
+    {
+        _ = Subscribe(handler);
+        return this;
+    }
+
+    /// <summary>
+    /// Registers a permanent ordered catch-all output handler.
+    /// </summary>
+    public Agent OnAny(Func<AgentEvent, ValueTask> handler)
+    {
+        _ = SubscribeAny(handler);
+        return this;
+    }
+
+    /// <summary>
+    /// Registers a permanent ordered catch-all output handler.
+    /// </summary>
+    public Agent OnAny(Func<AgentEvent, Task> handler)
+    {
+        _ = SubscribeAny(handler);
+        return this;
+    }
+
+    /// <summary>
+    /// Registers a permanent ordered catch-all output handler.
+    /// </summary>
+    public Agent OnAny(Action<AgentEvent> handler)
+    {
+        _ = SubscribeAny(handler);
+        return this;
+    }
+
+    /// <summary>
+    /// Registers a permanent handler for a process-local struct event type.
+    /// </summary>
+    public Agent OnStruct<TEvent>(Func<TEvent, ValueTask> handler)
+        where TEvent : struct, IStructEvent
+    {
+        _ = SubscribeStruct(handler);
+        return this;
+    }
+
+    /// <summary>
+    /// Registers a permanent handler for a process-local struct event type.
+    /// </summary>
+    public Agent OnStruct<TEvent>(Action<TEvent> handler)
+        where TEvent : struct, IStructEvent
+    {
+        _ = SubscribeStruct(handler);
+        return this;
+    }
 
     /// <summary>
     /// Validates and migrates middleware state schema when resuming from checkpoint.
@@ -470,41 +791,386 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Processes event handlers synchronously, guaranteeing ordered execution.
-    /// Unlike DispatchToObservers which enqueues asynchronously, this awaits each handler.
+    /// Processes registered output handlers synchronously, guaranteeing ordered execution.
+    /// Typed exact-match handlers run first, followed by catch-all handlers.
     /// Handler failures are logged but don't crash the agent.
     /// </summary>
-    private async Task ProcessEventHandlersAsync(AgentEvent evt, CancellationToken cancellationToken)
+    private async ValueTask ProcessRegisteredHandlersAsync(AgentEvent evt, CancellationToken cancellationToken)
     {
-        if (_eventHandlers.Count == 0) return;
+        List<Func<AgentEvent, ValueTask>>? typedHandlers = null;
+        List<Func<AgentEvent, ValueTask>>? anyHandlers = null;
 
-        foreach (var handler in _eventHandlers)
+        lock (_eventHandlerLock)
         {
-            // Check handler-specific filter
-            if (!handler.ShouldProcess(evt))
-            {
-                continue;
-            }
+            if (_typedEventHandlers.TryGetValue(evt.GetType(), out var registeredTypedHandlers))
+                typedHandlers = registeredTypedHandlers.Select(h => h.Handler).ToList();
 
-            try
+            if (_anyEventHandlers.Count > 0)
+                anyHandlers = _anyEventHandlers.Select(h => h.Handler).ToList();
+        }
+
+        if (typedHandlers == null && anyHandlers == null)
+            return;
+
+        static async ValueTask InvokeHandlersAsync(
+            IEnumerable<Func<AgentEvent, ValueTask>> handlers,
+            AgentEvent evt,
+            ILogger? logger,
+            CancellationToken cancellationToken)
+        {
+            foreach (var handler in handlers)
             {
-                await handler.OnEventAsync(evt, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                // Cancellation requested - stop processing handlers
-                throw;
-            }
-            catch (Exception ex)
-            {
-                // Log but don't crash - handler failures shouldn't break the agent
-                _observerErrorLogger?.LogError(ex,
-                    "EventHandler {HandlerType} failed processing {EventType}",
-                    handler.GetType().Name, evt.GetType().Name);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    await handler(evt).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogError(ex,
+                        "Agent output handler failed processing {EventType}",
+                        evt.GetType().Name);
+                }
             }
         }
+
+        if (typedHandlers != null)
+            await InvokeHandlersAsync(typedHandlers, evt, _observerErrorLogger, cancellationToken).ConfigureAwait(false);
+
+        if (anyHandlers != null)
+            await InvokeHandlersAsync(anyHandlers, evt, _observerErrorLogger, cancellationToken).ConfigureAwait(false);
     }
-        /// <summary>
+
+    /// <summary>
+    /// Single ordered output dispatch point for events produced by the agent engine.
+    /// </summary>
+    private async ValueTask HandleOutputEventAsync(AgentEvent evt, CancellationToken cancellationToken)
+    {
+        await ProcessRegisteredHandlersAsync(evt, cancellationToken).ConfigureAwait(false);
+        DispatchToObservers(evt);
+    }
+
+    private async Task HandleInterruptionAsync(InterruptionRequestEvent interruption, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(interruption.StreamId))
+        {
+            _eventCoordinator.Streams.InterruptStream(interruption.StreamId);
+        }
+        else
+        {
+            _eventCoordinator.Streams.InterruptAll();
+        }
+
+        List<CancellationTokenSource> activeTurnCts;
+        lock (_runtimeLock)
+        {
+            activeTurnCts = _activeRuntimeTurnCts.ToList();
+        }
+
+        foreach (var turnCts in activeTurnCts)
+        {
+            try
+            {
+                turnCts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Turn completed concurrently.
+            }
+        }
+
+        await HandleOutputEventAsync(interruption, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RunTextInputAsync(UserTextInputEvent input, CancellationToken cancellationToken)
+    {
+        var message = new ChatMessage(ChatRole.User, input.Text);
+        var messagesInput = new UserMessagesInputEvent([message])
+        {
+            SessionId = input.SessionId,
+            BranchId = input.BranchId,
+            AgentId = input.AgentId,
+            RunConfig = input.RunConfig
+        };
+
+        await RunMessagesInputAsync(messagesInput, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RunMessagesInputAsync(UserMessagesInputEvent input, CancellationToken cancellationToken)
+    {
+        if (input.Session != null || input.Branch != null)
+        {
+            if (input.Session is null || input.Branch is null)
+                throw new InvalidOperationException("UserMessagesInputEvent must provide both Session and Branch for process-local scoped runs.");
+
+            await foreach (var _ in RunTurnStreamAsync(
+                input.Messages,
+                input.Session,
+                input.Branch,
+                input.RunConfig,
+                cancellationToken).ConfigureAwait(false))
+            {
+            }
+
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(input.SessionId))
+        {
+            var (session, branch) = await LoadSessionAndBranchAsync(
+                input.SessionId,
+                input.BranchId,
+                cancellationToken).ConfigureAwait(false);
+
+            await foreach (var _ in RunTurnStreamAsync(
+                input.Messages,
+                session,
+                branch,
+                input.RunConfig,
+                cancellationToken).ConfigureAwait(false))
+            {
+            }
+
+            if (Config.SessionStoreOptions?.PersistAfterTurn == true)
+            {
+                await SaveSessionAndBranchAsync(session, branch, cancellationToken).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
+        await foreach (var _ in RunTurnStreamAsync(
+            input.Messages,
+            session: null,
+            branch: null,
+            input.RunConfig,
+            cancellationToken).ConfigureAwait(false))
+        {
+        }
+    }
+
+    private static bool ShouldEnqueueToRuntime(AgentEvent input) =>
+        input is UserTextInputEvent or UserMessagesInputEvent;
+
+    private ChannelWriter<AgentEvent>? GetRuntimeWriter()
+    {
+        lock (_runtimeLock)
+        {
+            if (_runtimeStopping || _runtimeInbox == null || _runtimeLoopTask is not { IsCompleted: false })
+                return null;
+
+            return _runtimeInbox.Writer;
+        }
+    }
+
+    private async Task RunInputDirectAsync(AgentEvent input, CancellationToken cancellationToken)
+    {
+        switch (input)
+        {
+            case UserTextInputEvent text:
+                await RunTextInputAsync(text, cancellationToken).ConfigureAwait(false);
+                break;
+
+            case UserMessagesInputEvent messages:
+                await RunMessagesInputAsync(messages, cancellationToken).ConfigureAwait(false);
+                break;
+
+            case PermissionResponseEvent response:
+                _eventCoordinator.SendResponse(response.PermissionId, response);
+                break;
+
+            case ContinuationResponseEvent response:
+                _eventCoordinator.SendResponse(response.ContinuationId, response);
+                break;
+
+            case ClarificationResponseEvent response:
+                _eventCoordinator.SendResponse(response.RequestId, response);
+                break;
+
+            case ClientTools.ClientToolInvokeResponseEvent response:
+                _eventCoordinator.SendResponse(response.RequestId, response);
+                break;
+
+            case InterruptionRequestEvent interruption:
+                await HandleInterruptionAsync(interruption, cancellationToken).ConfigureAwait(false);
+                break;
+
+            default:
+                throw new NotSupportedException(
+                    $"Event type {input.GetType().Name} cannot be used as agent input.");
+        }
+    }
+
+    private async Task RunRuntimeLoopAsync(
+        ChannelReader<AgentEvent> reader,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var input in reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            {
+                using var activeTurnCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                lock (_runtimeLock)
+                {
+                    _activeRuntimeTurnCts.Add(activeTurnCts);
+                }
+
+                try
+                {
+                    await RunInputDirectAsync(input, activeTurnCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (OperationCanceledException) when (activeTurnCts.IsCancellationRequested)
+                {
+                    // The active turn was interrupted; keep the runtime loop alive.
+                }
+                catch (Exception ex)
+                {
+                    _observerErrorLogger?.LogError(ex,
+                        "Agent runtime loop failed processing input event {EventType}",
+                        input.GetType().Name);
+                }
+                finally
+                {
+                    lock (_runtimeLock)
+                    {
+                        _activeRuntimeTurnCts.Remove(activeTurnCts);
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Cooperative runtime shutdown.
+        }
+    }
+
+    /// <summary>
+    /// Starts the agent's continuous runtime input loop.
+    /// </summary>
+    public Task StartAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_runtimeLock)
+        {
+            if (!_runtimeStopping && _runtimeLoopTask is { IsCompleted: false })
+                return Task.CompletedTask;
+
+            _runtimeCts?.Dispose();
+            _runtimeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _runtimeInbox = Channel.CreateUnbounded<AgentEvent>(new UnboundedChannelOptions
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                AllowSynchronousContinuations = false
+            });
+            _runtimeStopping = false;
+            _runtimeLoopTask = Task.Run(
+                () => RunRuntimeLoopAsync(_runtimeInbox.Reader, _runtimeCts.Token),
+                CancellationToken.None);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Stops accepting new runtime inputs and drains queued work.
+    /// </summary>
+    public async Task StopAsync(CancellationToken cancellationToken = default)
+    {
+        Task? runtimeTask;
+        CancellationTokenSource? runtimeCts;
+
+        lock (_runtimeLock)
+        {
+            runtimeTask = _runtimeLoopTask;
+            runtimeCts = _runtimeCts;
+
+            if (_runtimeInbox == null || runtimeTask == null)
+                return;
+
+            _runtimeStopping = true;
+            _runtimeInbox.Writer.TryComplete();
+        }
+
+        try
+        {
+            await runtimeTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_runtimeLock)
+            {
+                if (ReferenceEquals(_runtimeLoopTask, runtimeTask))
+                {
+                    _runtimeInbox = null;
+                    _runtimeLoopTask = null;
+                    _runtimeCts = null;
+                    _runtimeStopping = false;
+                }
+            }
+
+            runtimeCts?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Sends a semantic input event to the agent.
+    /// </summary>
+    public async Task RunAsync(AgentEvent input, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+
+        if (ShouldEnqueueToRuntime(input) && GetRuntimeWriter() is { } runtimeWriter)
+        {
+            await runtimeWriter.WriteAsync(input, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        await RunInputDirectAsync(input, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Sends a process-local struct event to the agent's struct event path.
+    /// </summary>
+    public ValueTask RunAsync<TEvent>(
+        TEvent input,
+        CancellationToken cancellationToken = default)
+        where TEvent : struct, IStructEvent
+    {
+        return _eventCoordinator.EmitStructAsync(input, cancellationToken);
+    }
+
+    /// <summary>
+    /// Sends user text input to the agent.
+    /// </summary>
+    public Task RunAsync(
+        string userMessage,
+        string? sessionId = null,
+        string? branchId = "main",
+        AgentRunConfig? runConfig = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(userMessage);
+
+        return RunAsync(new UserTextInputEvent(userMessage)
+        {
+            SessionId = sessionId,
+            BranchId = branchId,
+            RunConfig = runConfig
+        }, cancellationToken);
+    }
+
+    /// <summary>
     /// - Accepts PreparedTurn (functional preparation from MessageProcessor.PrepareTurnAsync)
     /// - Uses AgentDecisionEngine (pure, testable) for all decision logic
     /// - Executes decisions INLINE to preserve real-time streaming
@@ -1586,11 +2252,11 @@ public sealed class Agent
                         // ═══════════════════════════════════════════════════════════════
                         // OUTPUT TOOL TERMINATION (structured output tool mode)
                         // When an output tool is called, terminate immediately.
-                        // RunStructuredAsync captures the args and handles parsing.
+                        // RunStructuredStreamAsync captures the args and handles parsing.
                         // ═══════════════════════════════════════════════════════════════
                         if (executionResult.OutputToolCalled)
                         {
-                            // Emit ToolCallEndEvent for output tools so RunStructuredAsync knows args are complete
+                            // Emit ToolCallEndEvent for output tools so RunStructuredStreamAsync knows args are complete
                             foreach (var toolRequest in toolRequests)
                             {
                                 if (_functionCallProcessor.IsOutputToolByName(toolRequest.Name, effectiveOptionsForTools?.Tools))
@@ -2143,6 +2809,18 @@ public sealed class Agent
     /// <inheritdoc />
     public void Dispose()
     {
+        StopAsync().GetAwaiter().GetResult();
+
+        RuntimeStructHandlerSubscription[] structSubscriptions;
+        lock (_structHandlerLock)
+        {
+            structSubscriptions = _structHandlerSubscriptions.ToArray();
+            _structHandlerSubscriptions.Clear();
+        }
+
+        foreach (var subscription in structSubscriptions)
+            subscription.Dispose();
+
         _baseClient?.Dispose();
         (_eventCoordinator as IDisposable)?.Dispose();
         foreach (var dispatcher in _observerDispatchers)
@@ -2188,7 +2866,7 @@ public sealed class Agent
     /// <param name="options">Chat options including tools</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Stream of agent events</returns>
-    public async IAsyncEnumerable<AgentEvent> RunAgenticLoopAsync(
+    internal async IAsyncEnumerable<AgentEvent> RunAgenticLoopAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -2213,14 +2891,8 @@ public sealed class Agent
             initialContextProperties: null,
             cancellationToken: cancellationToken))
         {
-            // 1. Event handlers FIRST (awaited, ordered) - for UI
-            await ProcessEventHandlersAsync(evt, cancellationToken).ConfigureAwait(false);
-
-            // 2. Yield event (for direct stream consumers)
+            await HandleOutputEventAsync(evt, cancellationToken).ConfigureAwait(false);
             yield return evt;
-
-            // 3. Observers LAST (fire-and-forget) - for telemetry
-            DispatchToObservers(evt);
         }
     }
 
@@ -2243,7 +2915,7 @@ public sealed class Agent
 
 
     //──────────────────────────────────────────────────────────────────
-    // PRIMARY RUN API (Consolidated)
+    // INTERNAL TURN STREAM ENGINE
     //──────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -2266,11 +2938,11 @@ public sealed class Agent
     /// <b>Example:</b>
     /// <code>
     /// // Simple stateless call
-    /// await agent.RunAsync("Hello");
+    /// await agent.RunTurnStreamAsync("Hello");
     ///
     /// // With session + branch
     /// var (session, branch) = agent.CreateSession();
-    /// await agent.RunAsync("Hello", session, branch);
+    /// await agent.RunTurnStreamAsync("Hello", session, branch);
     ///
     /// // With options
     /// var options = new AgentRunConfig
@@ -2279,18 +2951,18 @@ public sealed class Agent
     ///     ModelId = "claude-opus",
     ///     Chat = new ChatRunConfig { Temperature = 0.7 }
     /// };
-    /// await agent.RunAsync("Hello", session, options);
+    /// await agent.RunTurnStreamAsync("Hello", session, options);
     /// </code>
     /// </para>
     /// </remarks>
-    internal IAsyncEnumerable<AgentEvent> RunAsync(
+    internal IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         string userMessage,
         Session? session = null,
         Branch? branch = null,
         AgentRunConfig? options = null,
         CancellationToken cancellationToken = default)
     {
-        return RunAsync(
+        return RunTurnStreamAsync(
             [new ChatMessage(ChatRole.User, userMessage)],
             session,
             branch,
@@ -2307,7 +2979,7 @@ public sealed class Agent
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Stream of agent events</returns>
     /// <exception cref="InvalidOperationException">Thrown if branch.Session is null</exception>
-    internal IAsyncEnumerable<AgentEvent> RunAsync(
+    internal IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         string userMessage,
         Branch branch,
         AgentRunConfig? options = null,
@@ -2318,7 +2990,7 @@ public sealed class Agent
             throw new InvalidOperationException(
                 "Branch.Session is null. Branches must be created via Session.CreateBranch() or loaded via LoadSessionAndBranchAsync().");
 
-        return RunAsync(userMessage, branch.Session, branch, options, cancellationToken);
+        return RunTurnStreamAsync(userMessage, branch.Session, branch, options, cancellationToken);
     }
 
     /// <summary>
@@ -2330,7 +3002,7 @@ public sealed class Agent
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Stream of agent events</returns>
     /// <exception cref="InvalidOperationException">Thrown if branch.Session is null</exception>
-    internal IAsyncEnumerable<AgentEvent> RunAsync(
+    internal IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         IEnumerable<ChatMessage> messages,
         Branch branch,
         AgentRunConfig? options = null,
@@ -2341,7 +3013,7 @@ public sealed class Agent
             throw new InvalidOperationException(
                 "Branch.Session is null. Branches must be created via Session.CreateBranch() or loaded via LoadSessionAndBranchAsync().");
 
-        return RunAsync(messages, branch.Session, branch, options, cancellationToken);
+        return RunTurnStreamAsync(messages, branch.Session, branch, options, cancellationToken);
     }
 
     /// <summary>
@@ -2367,7 +3039,7 @@ public sealed class Agent
     /// <para>
     /// <b>Example - Text + Attachments:</b>
     /// <code>
-    /// await agent.RunAsync(new AgentRunConfig
+    /// await agent.RunTurnStreamAsync(new AgentRunConfig
     /// {
     ///     UserMessage = "Analyze this document",
     ///     Attachments = [await DocumentContent.FromFileAsync("report.pdf")]
@@ -2377,7 +3049,7 @@ public sealed class Agent
     /// <para>
     /// <b>Example - Audio Only:</b>
     /// <code>
-    /// await agent.RunAsync(new AgentRunConfig
+    /// await agent.RunTurnStreamAsync(new AgentRunConfig
     /// {
     ///     Attachments = [new AudioContent(audioBytes)]
     /// });
@@ -2386,7 +3058,7 @@ public sealed class Agent
     /// <para>
     /// <b>Example - Multiple Attachments:</b>
     /// <code>
-    /// await agent.RunAsync(new AgentRunConfig
+    /// await agent.RunTurnStreamAsync(new AgentRunConfig
     /// {
     ///     Attachments = [
     ///         new ImageContent(screenshotBytes),
@@ -2396,7 +3068,7 @@ public sealed class Agent
     /// </code>
     /// </para>
     /// </remarks>
-    internal IAsyncEnumerable<AgentEvent> RunAsync(
+    internal IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         AgentRunConfig options,
         Session? session = null,
         Branch? branch = null,
@@ -2420,7 +3092,7 @@ public sealed class Agent
         }
 
         var message = new ChatMessage(ChatRole.User, contents);
-        return RunAsync([message], session, branch, options, cancellationToken);
+        return RunTurnStreamAsync([message], session, branch, options, cancellationToken);
     }
 
     /// <summary>
@@ -2448,7 +3120,7 @@ public sealed class Agent
     /// - Context overrides and runtime middleware
     /// </para>
     /// </remarks>
-    internal async IAsyncEnumerable<AgentEvent> RunAsync(
+    internal async IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         IEnumerable<ChatMessage> messages,
         Session? session = null,
         Branch? branch = null,
@@ -2533,10 +3205,8 @@ public sealed class Agent
                 await options.CustomStreamCallback(evt).ConfigureAwait(false);
             }
 
-            // Standard event processing
-            await ProcessEventHandlersAsync(evt, cancellationToken).ConfigureAwait(false);
+            await HandleOutputEventAsync(evt, cancellationToken).ConfigureAwait(false);
             yield return evt;
-            DispatchToObservers(evt);
         }
     }
 
@@ -2563,7 +3233,7 @@ public sealed class Agent
     /// <para>If you need to return a primitive or struct, wrap it in a class:</para>
     /// <code>public record CountResult(int Count);</code>
     /// </remarks>
-    public async IAsyncEnumerable<AgentEvent> RunStructuredAsync<T>(
+    internal async IAsyncEnumerable<AgentEvent> RunStructuredStreamAsync<T>(
         IEnumerable<ChatMessage> messages,
         Session? session = null,
         Branch? branch = null,
@@ -2626,7 +3296,7 @@ public sealed class Agent
             OutputTypeName: schemaName,
             OutputMode: outputMode);
 
-        await foreach (var evt in RunAsync(messages, session, branch, options, cancellationToken))
+        await foreach (var evt in RunTurnStreamAsync(messages, session, branch, options, cancellationToken))
         {
             // ═══════════════════════════════════════════════════════════════
             // PASS-THROUGH: All bidirectional events (built-in + custom)
@@ -2675,7 +3345,7 @@ public sealed class Agent
                 if (evt is ToolCallEndEvent toolEnd && toolEnd.CallId == outputToolCallId)
                 {
                     // Final parse for tool/union mode
-                    // Note: Event draining is handled by RunAsync() - no need to drain here
+                    // Note: Event draining is handled by RunTurnStreamAsync() - no need to drain here
                     var finalJson = textAccumulator.ToString();
                     var elapsed = Stopwatch.GetElapsedTime(startTime);
                     var resultTypeName = (isUnionMode || isToolModeWithUnionTypes) && matchedUnionType != null
@@ -2740,7 +3410,7 @@ public sealed class Agent
             // ═══════════════════════════════════════════════════════════════
             if (evt is TextMessageEndEvent && !isToolMode && !isUnionMode)
             {
-                // Note: Event draining is handled by RunAsync() - no need to drain here
+                // Note: Event draining is handled by RunTurnStreamAsync() - no need to drain here
                 var finalJson = textAccumulator.ToString();
                 var elapsed = Stopwatch.GetElapsedTime(startTime);
 
@@ -2798,15 +3468,115 @@ public sealed class Agent
     /// <summary>
     /// Convenience overload: Runs structured output from a string message.
     /// </summary>
-    public IAsyncEnumerable<AgentEvent> RunStructuredAsync<T>(
+    internal IAsyncEnumerable<AgentEvent> RunStructuredStreamAsync<T>(
         string userMessage,
         Session? session = null,
         Branch? branch = null,
         AgentRunConfig? options = null,
         CancellationToken cancellationToken = default) where T : class
-        => RunStructuredAsync<T>(
+        => RunStructuredStreamAsync<T>(
             new[] { new ChatMessage(ChatRole.User, userMessage) },
             session, branch, options, cancellationToken);
+
+    /// <summary>
+    /// Runs structured output from a text input and dispatches results through Agent output handlers.
+    /// </summary>
+    public Task RunStructuredAsync<T>(
+        string userMessage,
+        string? sessionId = null,
+        string? branchId = "main",
+        AgentRunConfig? runConfig = null,
+        CancellationToken cancellationToken = default) where T : class
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(userMessage);
+
+        return RunStructuredAsync<T>(new UserTextInputEvent(userMessage)
+        {
+            SessionId = sessionId,
+            BranchId = branchId,
+            RunConfig = runConfig
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs structured output from an input event and dispatches results through Agent output handlers.
+    /// </summary>
+    public async Task RunStructuredAsync<T>(
+        AgentEvent input,
+        CancellationToken cancellationToken = default) where T : class
+    {
+        ArgumentNullException.ThrowIfNull(input);
+
+        var (messages, session, branch, options) = await ResolveStructuredInputAsync(input, cancellationToken)
+            .ConfigureAwait(false);
+
+        await foreach (var evt in RunStructuredStreamAsync<T>(
+            messages,
+            session,
+            branch,
+            options,
+            cancellationToken).ConfigureAwait(false))
+        {
+            if (IsStructuredOutputEvent<T>(evt))
+                await HandleOutputEventAsync(evt, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<(IEnumerable<ChatMessage> Messages, Session? Session, Branch? Branch, AgentRunConfig Options)> ResolveStructuredInputAsync(
+        AgentEvent input,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<ChatMessage> messages;
+        Session? session = null;
+        Branch? branch = null;
+        AgentRunConfig? options;
+
+        switch (input)
+        {
+            case UserTextInputEvent text:
+                messages = [new ChatMessage(ChatRole.User, text.Text)];
+                options = text.RunConfig;
+                if (!string.IsNullOrWhiteSpace(text.SessionId))
+                    (session, branch) = await LoadSessionAndBranchAsync(text.SessionId, text.BranchId, cancellationToken)
+                        .ConfigureAwait(false);
+                break;
+
+            case UserMessagesInputEvent messageInput:
+                messages = messageInput.Messages;
+                options = messageInput.RunConfig;
+                if (messageInput.Session != null || messageInput.Branch != null)
+                {
+                    if (messageInput.Session is null || messageInput.Branch is null)
+                        throw new InvalidOperationException("UserMessagesInputEvent must provide both Session and Branch for process-local scoped runs.");
+
+                    session = messageInput.Session;
+                    branch = messageInput.Branch;
+                }
+                else if (!string.IsNullOrWhiteSpace(messageInput.SessionId))
+                {
+                    (session, branch) = await LoadSessionAndBranchAsync(messageInput.SessionId, messageInput.BranchId, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                break;
+
+            default:
+                throw new NotSupportedException(
+                    $"Event type {input.GetType().Name} cannot be used as structured agent input.");
+        }
+
+        options ??= new AgentRunConfig();
+        options.StructuredOutput ??= new StructuredOutputOptions();
+
+        return (messages, session, branch, options);
+    }
+
+    private static bool IsStructuredOutputEvent<T>(AgentEvent evt) where T : class
+    {
+        return evt is StructuredOutputStartEvent
+            or StructuredOutputPartialEvent
+            or StructuredOutputCompleteEvent
+            or StructuredResultEvent<T>;
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // STRUCTURED OUTPUT PRIVATE HELPERS
@@ -3504,7 +4274,7 @@ public sealed class Agent
     /// <param name="options">Optional per-invocation run options</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Stream of internal agent events</returns>
-    public async IAsyncEnumerable<AgentEvent> RunWithAutoPollAsync(
+    internal async IAsyncEnumerable<AgentEvent> RunWithAutoPollAsync(
         IEnumerable<ChatMessage> messages,
         Session? session = null,
         Branch? branch = null,
@@ -3517,7 +4287,7 @@ public sealed class Agent
         if (!autoPoll)
         {
             // Auto-poll not enabled, just run normally
-            await foreach (var evt in RunAsync(messages, session, branch, options, cancellationToken))
+            await foreach (var evt in RunTurnStreamAsync(messages, session, branch, options, cancellationToken))
             {
                 yield return evt;
             }
@@ -3576,7 +4346,7 @@ public sealed class Agent
             var messagesForRun = isFirstRun ? messages : Enumerable.Empty<ChatMessage>();
             lastToken = null;
 
-            await foreach (var evt in RunAsync(messagesForRun, session, branch, options, cancellationToken))
+            await foreach (var evt in RunTurnStreamAsync(messagesForRun, session, branch, options, cancellationToken))
             {
                 yield return evt;
 
@@ -3607,7 +4377,7 @@ public sealed class Agent
     /// <summary>
     /// Runs the agent with automatic polling for background operations (string message overload).
     /// </summary>
-    public IAsyncEnumerable<AgentEvent> RunWithAutoPollAsync(
+    internal IAsyncEnumerable<AgentEvent> RunWithAutoPollAsync(
         string userMessage,
         Session? session = null,
         Branch? branch = null,
@@ -3630,12 +4400,12 @@ public sealed class Agent
     /// Runs the agent statelessly with a list of messages (no session, no persistence).
     /// Suitable for one-off calls, sub-agents, and multi-agent graph nodes.
     /// </summary>
-    public IAsyncEnumerable<AgentEvent> RunAsync(
+    internal IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         IEnumerable<ChatMessage> messages,
         AgentRunConfig? options = null,
         CancellationToken cancellationToken = default)
     {
-        return RunAsync(messages, session: null, branch: null, options, cancellationToken);
+        return RunTurnStreamAsync(messages, session: null, branch: null, options, cancellationToken);
     }
 
     /// <summary>
@@ -3657,12 +4427,12 @@ public sealed class Agent
     /// <code>
     /// await agent.CreateSessionAsync("user-123");
     ///
-    /// await agent.RunAsync("Hello!", "user-123");
-    /// await agent.RunAsync("Follow up", "user-123");  // Continues conversation
+    /// await agent.RunTurnStreamAsync("Hello!", "user-123");
+    /// await agent.RunTurnStreamAsync("Follow up", "user-123");  // Continues conversation
     /// </code>
     /// </para>
     /// </remarks>
-    public async IAsyncEnumerable<AgentEvent> RunAsync(
+    internal async IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         string userMessage,
         string sessionId,
         string? branchId = null,
@@ -3671,7 +4441,7 @@ public sealed class Agent
     {
         var (session, branch) = await LoadSessionAndBranchAsync(sessionId, branchId, cancellationToken);
 
-        await foreach (var evt in RunAsync(userMessage, session, branch, options, cancellationToken))
+        await foreach (var evt in RunTurnStreamAsync(userMessage, session, branch, options, cancellationToken))
         {
             yield return evt;
         }
@@ -3700,13 +4470,13 @@ public sealed class Agent
     /// <b>Example - Send image to vision model:</b>
     /// <code>
     /// var image = await ImageContent.FromFileAsync("photo.jpg");
-    /// await agent.RunAsync(
+    /// await agent.RunTurnStreamAsync(
     ///     new ChatMessage(ChatRole.User, [new TextContent("What's in this?"), image]),
     ///     sessionId);
     /// </code>
     /// </para>
     /// </remarks>
-    public async IAsyncEnumerable<AgentEvent> RunAsync(
+    internal async IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         ChatMessage message,
         string sessionId,
         string? branchId = null,
@@ -3715,7 +4485,7 @@ public sealed class Agent
     {
         var (session, branch) = await LoadSessionAndBranchAsync(sessionId, branchId, cancellationToken);
 
-        await foreach (var evt in RunAsync(new[] { message }, session, branch, options, cancellationToken))
+        await foreach (var evt in RunTurnStreamAsync(new[] { message }, session, branch, options, cancellationToken))
         {
             yield return evt;
         }
@@ -3795,7 +4565,7 @@ public sealed class Agent
 
     /// <summary>
     /// Creates a new session and its default "main" branch in the configured store.
-    /// Must be called before <c>RunAsync(userMessage, sessionId)</c> when a store is configured.
+    /// Must be called before <c>RunTurnStreamAsync(userMessage, sessionId)</c> when a store is configured.
     /// </summary>
     /// <param name="sessionId">Session identifier. If null, a new GUID is generated.</param>
     /// <param name="metadata">Optional metadata to attach to the session.</param>
@@ -5728,12 +6498,12 @@ internal class FunctionCallProcessor
             // ═══════════════════════════════════════════════════════════════
             // OUTPUT TOOL CHECK (structured output tool mode)
             // Output tools don't execute - their args ARE the structured output
-            // RunStructuredAsync handles parsing via ToolCallArgsEvent
+            // RunStructuredStreamAsync handles parsing via ToolCallArgsEvent
             // ═══════════════════════════════════════════════════════════════
             if (IsOutputTool(function))
             {
-                // Skip execution - args are captured by RunStructuredAsync
-                // Still emits ToolCallEndEvent so RunStructuredAsync knows args are complete
+                // Skip execution - args are captured by RunStructuredStreamAsync
+                // Still emits ToolCallEndEvent so RunStructuredStreamAsync knows args are complete
                 continue;
             }
 

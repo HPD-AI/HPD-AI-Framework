@@ -172,14 +172,12 @@ public sealed class MockPermissionHandler : IDisposable
                     }
 
                     // Send response back to agent
-                    _agent.SendMiddlewareResponse(
+                    await _agent.RunAsync(new PermissionResponseEvent(
                         permissionRequest.PermissionId,
-                        new PermissionResponseEvent(
-                            permissionRequest.PermissionId,
-                            "MockPermissionHandler",
-                            response.Approved,
-                            response.DenialReason,
-                            response.Choice));
+                        "MockPermissionHandler",
+                        response.Approved,
+                        response.DenialReason,
+                        response.Choice));
                 }
                 else if (evt is ContinuationRequestEvent continuationRequest)
                 {
@@ -190,12 +188,10 @@ public sealed class MockPermissionHandler : IDisposable
                         approved = _autoApproveContinuation && !_autoDenyContinuation;
                     }
 
-                    _agent.SendMiddlewareResponse(
+                    await _agent.RunAsync(new ContinuationResponseEvent(
                         continuationRequest.ContinuationId,
-                        new ContinuationResponseEvent(
-                            continuationRequest.ContinuationId,
-                            "MockPermissionHandler",
-                            approved));
+                        "MockPermissionHandler",
+                        approved));
                 }
             }
         }

@@ -37,6 +37,12 @@ internal static class MiddlewareResponseEndpoints
             .WithName("RespondToContinuation")
             .WithSummary("Respond to a continuation request from the agent");
 
+        // POST /sessions/{sid}/branches/{bid}/clarifications/respond - Clarification answer
+        endpoints.MapPost("/sessions/{sid}/branches/{bid}/clarifications/respond", (string sid, string bid, ClarificationResponseEvent evt, CancellationToken ct) =>
+                RespondToClarification(sid, bid, evt, agentManager, ct))
+            .WithName("RespondToClarification")
+            .WithSummary("Respond to a clarification request from the agent");
+
         // POST /sessions/{sid}/branches/{bid}/client-tools/respond - Client tool result
         endpoints.MapPost("/sessions/{sid}/branches/{bid}/client-tools/respond", (string sid, string bid, ClientToolInvokeResponseEvent evt, CancellationToken ct) =>
                 RespondToClientTool(sid, bid, evt, agentManager, ct))
@@ -61,8 +67,8 @@ internal static class MiddlewareResponseEndpoints
                 return TypedResults.NotFound();
             }
 
-            // Send response directly to waiting permission middleware
-            agent.SendMiddlewareResponse(evt.PermissionId, evt);
+            // Send response as an input event to the waiting permission middleware
+            await agent.RunAsync(evt, ct);
 
             return TypedResults.Ok();
         }
@@ -92,8 +98,8 @@ internal static class MiddlewareResponseEndpoints
                 return TypedResults.NotFound();
             }
 
-            // Send response directly to waiting continuation permission middleware
-            agent.SendMiddlewareResponse(evt.ContinuationId, evt);
+            // Send response as an input event to the waiting continuation middleware
+            await agent.RunAsync(evt, ct);
 
             return TypedResults.Ok();
         }
@@ -102,6 +108,35 @@ internal static class MiddlewareResponseEndpoints
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["ContinuationResponseError"] = [ex.Message]
+            });
+        }
+    }
+
+    private static async Task<Results<Ok, NotFound, ValidationProblem>> RespondToClarification(
+        string sid,
+        string bid,
+        ClarificationResponseEvent evt,
+        AspNetCoreAgentManager agentManager,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var agentId = "default"; // ClarificationResponseEvent doesn't carry AgentId; default to "default"
+            var agent = agentManager.GetAgent(agentId);
+            if (agent == null)
+            {
+                return TypedResults.NotFound();
+            }
+
+            await agent.RunAsync(evt, ct);
+
+            return TypedResults.Ok();
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["ClarificationResponseError"] = [ex.Message]
             });
         }
     }
@@ -123,8 +158,8 @@ internal static class MiddlewareResponseEndpoints
                 return TypedResults.NotFound();
             }
 
-            // Send response directly to waiting ClientToolMiddleware
-            agent.SendMiddlewareResponse(evt.RequestId, evt);
+            // Send response as an input event to the waiting ClientToolMiddleware
+            await agent.RunAsync(evt, ct);
 
             return TypedResults.Ok();
         }

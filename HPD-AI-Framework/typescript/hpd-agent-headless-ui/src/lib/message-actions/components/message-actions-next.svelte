@@ -14,12 +14,13 @@
 	const nextState = MessageActionsNextState.create(boxWith(() => ariaLabel));
 
 	const mergedProps = $derived(mergeProps(restProps, nextState.props, className ? { class: className } : {}) as MessageActionsNextHTMLProps);
+	const snippetProps = $derived(nextState.snippetProps);
 </script>
 
 {#if child}
-	{@render child({ props: mergedProps })}
+	{@render child({ ...snippetProps, props: mergedProps })}
 {:else}
 	<button {...mergedProps}>
-		{@render children?.()}
+		{@render children?.(snippetProps)}
 	</button>
 {/if}

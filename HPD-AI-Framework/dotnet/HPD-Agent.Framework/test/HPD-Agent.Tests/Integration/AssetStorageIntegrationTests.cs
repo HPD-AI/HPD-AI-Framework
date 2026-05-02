@@ -61,9 +61,17 @@ public class AssetStorageIntegrationTests
 
             // Track events emitted during execution
             var events = new List<AgentEvent>();
-            await foreach (var evt in agent.RunAsync([userMessage], session, branch))
+            using (var subscription = agent.SubscribeAny(evt =>
             {
                 events.Add(evt);
+                return ValueTask.CompletedTask;
+            }))
+            {
+                await agent.RunAsync(new UserMessagesInputEvent([userMessage])
+                {
+                    Session = session,
+                    Branch = branch
+                });
             }
 
             // Assert: Verify AssetUploadedEvent was emitted
@@ -169,9 +177,17 @@ public class AssetStorageIntegrationTests
 
             // Act
             var events = new List<AgentEvent>();
-            await foreach (var evt in agent.RunAsync([message], session, branch))
+            using (var subscription = agent.SubscribeAny(evt =>
             {
                 events.Add(evt);
+                return ValueTask.CompletedTask;
+            }))
+            {
+                await agent.RunAsync(new UserMessagesInputEvent([message])
+                {
+                    Session = session,
+                    Branch = branch
+                });
             }
 
             // Assert: 3 upload events
@@ -241,9 +257,17 @@ public class AssetStorageIntegrationTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunAsync([message], session, branch))
+        using (var subscription = agent.SubscribeAny(evt =>
         {
             events.Add(evt);
+            return ValueTask.CompletedTask;
+        }))
+        {
+            await agent.RunAsync(new UserMessagesInputEvent([message])
+            {
+                Session = session,
+                Branch = branch
+            });
         }
 
         // Assert: NO upload events (middleware skipped)
@@ -291,7 +315,11 @@ public class AssetStorageIntegrationTests
                 new DataContent(imageBytes, "image/png")
             ]);
 
-            await foreach (var _ in agent.RunAsync([userMessage], session1, branch1)) { }
+            await agent.RunAsync(new UserMessagesInputEvent([userMessage])
+            {
+                Session = session1,
+                Branch = branch1
+            });
             await session1.SaveAsync();
             await store.SaveBranchAsync(session1.Id, branch1);
 

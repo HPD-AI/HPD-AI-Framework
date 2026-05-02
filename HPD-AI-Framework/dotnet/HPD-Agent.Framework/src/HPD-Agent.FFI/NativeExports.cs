@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using System.Threading.Channels;
 using Microsoft.Extensions.AI;
 using HPD.Agent;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent.FFI;
 
@@ -498,28 +499,21 @@ public static partial class NativeExports
 
             // Run agent and collect all events
             var responseText = new StringBuilder();
-            IAsyncEnumerable<AgentEvent> eventStream;
-
-            if (thread != null)
-            {
-                eventStream = agent.RunAsync(messages, session: thread.Session, branch: thread.Branch, options: null);
-            }
-            else
-            {
-                eventStream = agent.RunAsync(messages, session: null, options: null);
-            }
 
             // Block and collect response
             var task = Task.Run(async () =>
             {
-                await foreach (var evt in eventStream)
+                using var subscription = agent.Subscribe<TextDeltaEvent>(evt =>
                 {
-                    // Collect text deltas
-                    if (evt is TextDeltaEvent textDelta)
-                    {
-                        responseText.Append(textDelta.Text);
-                    }
-                }
+                    responseText.Append(evt.Text);
+                    return ValueTask.CompletedTask;
+                });
+
+                await agent.RunAsync(new UserMessagesInputEvent(messages)
+                {
+                    Session = thread?.Session,
+                    Branch = thread?.Branch
+                });
             });
 
             task.Wait();
@@ -572,25 +566,13 @@ public static partial class NativeExports
                 thread = ObjectManager.Get<FFIConversationThread>(threadHandle);
             }
 
-            // Run agent and stream events
-            IAsyncEnumerable<AgentEvent> eventStream;
-
-            if (thread != null)
-            {
-                eventStream = agent.RunAsync(messages, session: thread.Session, branch: thread.Branch, options: null);
-            }
-            else
-            {
-                eventStream = agent.RunAsync(messages, session: null, options: null);
-            }
-
             // Stream events to callback
             var task = Task.Run(async () =>
             {
-                await foreach (var evt in eventStream)
+                using var subscription = agent.SubscribeAny(evt =>
                 {
                     // Serialize event to JSON
-                    var eventJson = JsonSerializer.Serialize(evt, HPDFFIJsonContext.Default.AgentEvent);
+                    var eventJson = AgentEventSerializer.ToJson(evt);
                     var eventPtr = MarshalString(eventJson);
 
                     try
@@ -603,7 +585,14 @@ public static partial class NativeExports
                         // Free the event string
                         Marshal.FreeHGlobal(eventPtr);
                     }
-                }
+                    return ValueTask.CompletedTask;
+                });
+
+                await agent.RunAsync(new UserMessagesInputEvent(messages)
+                {
+                    Session = thread?.Session,
+                    Branch = thread?.Branch
+                });
 
                 // Signal end of stream with null pointer
                 callback(context, IntPtr.Zero);
@@ -659,8 +648,7 @@ public static partial class NativeExports
             };
 
             // Send response back to the agent
-            agent.SendMiddlewareResponse(
-                permissionId,
+            agent.RunAsync(
                 new PermissionResponseEvent(
                     permissionId,
                     "FFI",  // Source name
@@ -668,7 +656,7 @@ public static partial class NativeExports
                     approved == 1 ? null : "User denied permission via FFI",
                     choice
                 )
-            );
+            ).GetAwaiter().GetResult();
 
             return 1;
         }

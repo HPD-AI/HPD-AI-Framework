@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SseTransport } from '../src/transports/sse.js';
+import { EventTypes } from '../src/types/events.js';
 
 describe('SseTransport', () => {
   beforeEach(() => {
@@ -34,9 +35,11 @@ describe('SseTransport', () => {
 
     transport.onEvent((event) => events.push(event));
 
-    await transport.connect({
-      conversationId: 'test-123',
-      messages: [{ content: 'Hi' }],
+    await transport.run({
+      type: EventTypes.USER_TEXT_INPUT,
+      sessionId: 'test-123',
+      branchId: 'main',
+      text: 'Hi',
     });
 
     // Wait for stream processing
@@ -56,9 +59,11 @@ describe('SseTransport', () => {
     } as Response);
 
     await expect(
-      transport.connect({
-        conversationId: 'test-123',
-        messages: [{ content: 'Hi' }],
+      transport.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        sessionId: 'test-123',
+        branchId: 'main',
+        text: 'Hi',
       })
     ).rejects.toThrow('HTTP 404: Not Found');
   });
@@ -73,9 +78,11 @@ describe('SseTransport', () => {
     } as unknown as Response);
 
     await expect(
-      transport.connect({
-        conversationId: 'test-123',
-        messages: [{ content: 'Hi' }],
+      transport.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        sessionId: 'test-123',
+        branchId: 'main',
+        text: 'Hi',
       })
     ).rejects.toThrow('No response body');
   });
@@ -98,9 +105,11 @@ describe('SseTransport', () => {
 
     transport.onClose(closeHandler);
 
-    await transport.connect({
-      conversationId: 'test-123',
-      messages: [{ content: 'Hi' }],
+    await transport.run({
+      type: EventTypes.USER_TEXT_INPUT,
+      sessionId: 'test-123',
+      branchId: 'main',
+      text: 'Hi',
     });
 
     expect(closeHandler).toHaveBeenCalled();
@@ -126,9 +135,11 @@ describe('SseTransport', () => {
 
     transport.onClose(closeHandler);
 
-    const connectPromise = transport.connect({
-      conversationId: 'test-123',
-      messages: [{ content: 'Hi' }],
+    const connectPromise = transport.run({
+      type: EventTypes.USER_TEXT_INPUT,
+      sessionId: 'test-123',
+      branchId: 'main',
+      text: 'Hi',
     });
 
     // Wait for connection to establish
@@ -155,9 +166,10 @@ describe('SseTransport', () => {
       text: async () => '',
     } as Response);
 
-    await transport.send({
-      type: 'permission_response',
+    await transport.run({
+      type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'perm-1',
+      sourceName: 'PermissionMiddleware',
       approved: true,
       choice: 'allow_always',
     });
@@ -181,10 +193,12 @@ describe('SseTransport', () => {
       text: async () => '',
     } as Response);
 
-    await transport.send({
-      type: 'clarification_response',
-      clarificationId: 'clar-1',
-      response: 'Yes, proceed',
+    await transport.run({
+      type: EventTypes.CLARIFICATION_RESPONSE,
+      requestId: 'clar-1',
+      sourceName: 'ClarificationMiddleware',
+      question: 'Proceed?',
+      answer: 'Yes, proceed',
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
@@ -205,14 +219,15 @@ describe('SseTransport', () => {
       text: async () => '',
     } as Response);
 
-    await transport.send({
-      type: 'continuation_response',
+    await transport.run({
+      type: EventTypes.CONTINUATION_RESPONSE,
       continuationId: 'cont-1',
-      shouldContinue: true,
+      sourceName: 'ContinuationMiddleware',
+      approved: true,
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/sessions/test-123/branches/main/continuations/respond',
+      'http://localhost:5135/sessions/test-123/branches/main/continuation/respond',
       expect.objectContaining({
         method: 'POST',
       })
@@ -223,9 +238,10 @@ describe('SseTransport', () => {
     const transport = new SseTransport('http://localhost:5135');
 
     await expect(
-      transport.send({
-        type: 'permission_response',
+      transport.run({
+        type: EventTypes.PERMISSION_RESPONSE,
         permissionId: 'perm-1',
+        sourceName: 'PermissionMiddleware',
         approved: true,
       })
     ).rejects.toThrow('Not connected');
@@ -365,7 +381,7 @@ describe('SseTransport', () => {
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:5135/sessions/session-123',
         expect.objectContaining({
-          method: 'PUT',
+          method: 'PATCH',
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
           }),

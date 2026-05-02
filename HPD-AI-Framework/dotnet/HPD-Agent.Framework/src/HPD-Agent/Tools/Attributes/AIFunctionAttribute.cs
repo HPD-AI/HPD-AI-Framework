@@ -14,7 +14,7 @@ public enum ToolKind
     /// <summary>
     /// Output tool - calling terminates the agent run.
     /// The tool's arguments ARE the structured output, and the tool is never executed.
-    /// Used with RunStructuredAsync&lt;T&gt;() for typed responses.
+    /// Used with structured output for typed responses.
     /// </summary>
     Output = 1
 }

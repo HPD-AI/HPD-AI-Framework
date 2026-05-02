@@ -43,7 +43,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -82,7 +82,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -123,7 +123,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -153,7 +153,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -181,7 +181,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -214,7 +214,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -243,7 +243,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -271,7 +271,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -298,7 +298,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -325,7 +325,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -359,7 +359,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -407,7 +407,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -448,7 +448,7 @@ public class StructuredOutputTests
         var eventCount = 0;
         try
         {
-            await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options, cancellationToken: cts.Token))
+            await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options, cancellationToken: cts.Token))
             {
                 events.Add(evt);
                 eventCount++;
@@ -496,7 +496,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -533,7 +533,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<NestedResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<NestedResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -570,7 +570,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -603,7 +603,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<Animal>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<Animal>("test", options: options))
         {
             events.Add(evt);
         }
@@ -637,7 +637,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -663,7 +663,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -689,7 +689,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -718,7 +718,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -747,7 +747,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -777,7 +777,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -806,7 +806,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -844,7 +844,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -884,7 +884,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -923,7 +923,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -950,7 +950,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -993,7 +993,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -1035,7 +1035,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -1077,7 +1077,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -1114,7 +1114,7 @@ public class StructuredOutputTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -1143,7 +1143,7 @@ public class StructuredOutputTests
         // Act & Assert
         var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
-            await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+            await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
             {
                 // Enumerate to trigger the exception
             }

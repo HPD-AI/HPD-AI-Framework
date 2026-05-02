@@ -4,8 +4,6 @@ using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.AspNetCore.Lifecycle;
 using HPD.Agent.AspNetCore.Streaming;
-using HPD.Agent.Hosting.Data;
-using HPD.Agent.Hosting.Extensions;
 using HPD.Agent.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -30,10 +28,10 @@ internal static class StreamingEndpoints
     {
         // POST /sessions/{sid}/branches/{bid}/stream - SSE streaming
         endpoints.MapPost("/sessions/{sid}/branches/{bid}/stream",
-                async (string sid, string bid, StreamRequest request, HttpContext context, CancellationToken ct) =>
+                async (string sid, string bid, JsonElement request, HttpContext context, CancellationToken ct) =>
                     await StreamWithSse(sid, bid, request, context, sessionManager, agentManager, ct))
             .WithName("StreamWithSse")
-            .WithSummary("Stream agent responses using Server-Sent Events (SSE)");
+            .WithSummary("Stream agent events using Server-Sent Events (SSE)");
 
         // GET /sessions/{sid}/branches/{bid}/ws - WebSocket streaming
         endpoints.MapGet("/sessions/{sid}/branches/{bid}/ws", (string sid, string bid, HttpContext context, CancellationToken ct) =>
@@ -45,7 +43,7 @@ internal static class StreamingEndpoints
     private static async Task StreamWithSse(
         string sid,
         string bid,
-        StreamRequest request,
+        JsonElement request,
         HttpContext context,
         AspNetCoreSessionManager sessionManager,
         AspNetCoreAgentManager agentManager,
@@ -82,26 +80,25 @@ internal static class StreamingEndpoints
 
         try
         {
-            // Get or build the agent (keyed by agentId, defaults to "default")
-            var agentId = request.AgentId ?? "default";
-            var agent = await agentManager.GetOrBuildAgentAsync(agentId, ct);
-
-            // Extract user message from request
-            string userMessage = "";
-            if (request.Messages != null && request.Messages.Count > 0)
+            var input = ParseInputEvent(request);
+            if (input == null)
             {
-                userMessage = string.Join("\n", request.Messages.Select(m => m.Content));
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                return;
             }
 
-            // Build run configuration from request
-            var runConfig = BuildRunConfig(request.RunConfig);
-            runConfig.ClientToolInput = request.ToAgentClientInput();
+            input = ApplyRouteScope(input, sid, bid);
+
+            // Get or build the agent (keyed by event AgentId, defaults to "default")
+            var agentId = input is AgentInputEvent agentInput
+                ? agentInput.AgentId ?? "default"
+                : "default";
+            var agent = await agentManager.GetOrBuildAgentAsync(agentId, ct);
 
             // Stream events using SSE - this sends headers and starts streaming
             try
             {
-                var events = agent.RunAsync(userMessage, sid, bid, options: runConfig, cancellationToken: ct);
-                await SseEventHandler.StreamEventsAsync(context, events, ct);
+                await SseEventHandler.StreamEventsAsync(context, agent, input, ct);
             }
             catch (OperationCanceledException)
             {
@@ -176,70 +173,79 @@ internal static class StreamingEndpoints
 
             using var webSocket = await acceptTask;
 
-            // Receive initial message from client
-            var buffer = new byte[1024 * 4];
-            var receiveResult = await webSocket.ReceiveAsync(
-                new ArraySegment<byte>(buffer), ct);
+            Agent? agent = null;
+            IDisposable? subscription = null;
+            var runtimeStarted = false;
 
-            if (receiveResult.MessageType == WebSocketMessageType.Close)
+            try
             {
-                // Release the lock before echoing the close frame so a subsequent
-                // connection attempt on the same branch is not rejected with 409.
-                sessionManager.ReleaseStreamLock(sid, bid);
-                await webSocket.CloseAsync(
-                    WebSocketCloseStatus.NormalClosure,
-                    "Client closed connection",
-                    ct);
-                return TypedResults.Ok();
+                var buffer = new byte[1024 * 4];
+                while (!ct.IsCancellationRequested && webSocket.State == WebSocketState.Open)
+                {
+                    var json = await ReceiveTextMessageAsync(webSocket, buffer, ct);
+                    if (json == null)
+                    {
+                        break;
+                    }
+
+                    var input = AgentEventSerializer.FromJson(json);
+                    if (input == null)
+                    {
+                        await webSocket.CloseAsync(
+                            WebSocketCloseStatus.InvalidPayloadData,
+                            "Invalid agent event envelope",
+                            ct);
+                        return TypedResults.Ok();
+                    }
+
+                    input = ApplyRouteScope(input, sid, bid);
+                    if (agent == null)
+                    {
+                        var agentId = input is AgentInputEvent agentInput
+                            ? agentInput.AgentId ?? "default"
+                            : "default";
+
+                        agent = await agentManager.GetOrBuildAgentAsync(agentId, ct);
+                        subscription = agent.SubscribeAny((Func<AgentEvent, Task>)(async evt =>
+                        {
+                            var eventJson = AgentEventSerializer.ToJson(evt);
+                            var bytes = Encoding.UTF8.GetBytes(eventJson);
+
+                            await webSocket.SendAsync(
+                                new ArraySegment<byte>(bytes),
+                                WebSocketMessageType.Text,
+                                endOfMessage: true,
+                                ct);
+                        }));
+                    }
+
+                    if (!runtimeStarted)
+                    {
+                        await agent.StartAsync(ct);
+                        runtimeStarted = true;
+                    }
+
+                    await agent.RunAsync(input, ct);
+                }
             }
-
-            // Parse stream request
-            var json = Encoding.UTF8.GetString(buffer, 0, receiveResult.Count);
-            var request = JsonSerializer.Deserialize<StreamRequest>(json);
-
-            if (request == null)
+            finally
             {
-                await webSocket.CloseAsync(
-                    WebSocketCloseStatus.InvalidPayloadData,
-                    "Invalid request format",
-                    ct);
-                return TypedResults.Ok(); // Can't return error after WS accepted
-            }
+                subscription?.Dispose();
 
-            // Extract user message from request
-            string userMessage = "";
-            if (request.Messages != null && request.Messages.Count > 0)
-            {
-                userMessage = string.Join("\n", request.Messages.Select(m => m.Content));
-            }
-
-            // Build run configuration
-            var runConfig = BuildRunConfig(request.RunConfig);
-            runConfig.ClientToolInput = request.ToAgentClientInput();
-
-            // Get or build the agent (keyed by agentId, defaults to "default")
-            var agentId = request.AgentId ?? "default";
-            var agent = await agentManager.GetOrBuildAgentAsync(agentId, ct);
-
-            // Stream events via WebSocket with ID-based API
-            var events = agent.RunAsync(userMessage, sid, bid, options: runConfig, cancellationToken: ct);
-            await foreach (var evt in events.WithCancellation(ct))
-            {
-                var eventJson = AgentEventSerializer.ToJson(evt);
-                var bytes = Encoding.UTF8.GetBytes(eventJson);
-
-                await webSocket.SendAsync(
-                    new ArraySegment<byte>(bytes),
-                    WebSocketMessageType.Text,
-                    endOfMessage: true,
-                    ct);
+                if (runtimeStarted)
+                {
+                    await agent!.StopAsync(CancellationToken.None);
+                }
             }
 
             // Close WebSocket gracefully
-            await webSocket.CloseAsync(
-                WebSocketCloseStatus.NormalClosure,
-                "Stream completed",
-                ct);
+            if (webSocket.State is WebSocketState.Open or WebSocketState.CloseReceived)
+            {
+                await webSocket.CloseAsync(
+                    WebSocketCloseStatus.NormalClosure,
+                    "Stream completed",
+                    ct);
+            }
 
             return TypedResults.Ok();
         }
@@ -249,78 +255,58 @@ internal static class StreamingEndpoints
         }
     }
 
-    private static AgentRunConfig BuildRunConfig(StreamRunConfigDto? dto)
+    private static AgentEvent? ParseInputEvent(JsonElement request)
     {
-        if (dto == null)
-        {
-            return new AgentRunConfig();
-        }
+        return AgentEventSerializer.FromJson(request.GetRawText());
+    }
 
-        var config = new AgentRunConfig();
-
-        // Apply chat options if provided
-        if (dto.Chat != null)
+    private static AgentEvent ApplyRouteScope(AgentEvent input, string sid, string bid)
+    {
+        return input switch
         {
-            config.Chat = new ChatRunConfig
+            UserTextInputEvent text => text with
             {
-                Temperature = dto.Chat.Temperature,
-                MaxOutputTokens = dto.Chat.MaxOutputTokens,
-                TopP = dto.Chat.TopP,
-                FrequencyPenalty = dto.Chat.FrequencyPenalty,
-                PresencePenalty = dto.Chat.PresencePenalty
-            };
-        }
-
-        // Apply provider and model overrides
-        if (!string.IsNullOrEmpty(dto.ProviderKey))
-        {
-            config.ProviderKey = dto.ProviderKey;
-        }
-
-        if (!string.IsNullOrEmpty(dto.ModelId))
-        {
-            config.ModelId = dto.ModelId;
-        }
-
-        // Apply additional system instructions
-        if (!string.IsNullOrEmpty(dto.AdditionalSystemInstructions))
-        {
-            config.AdditionalSystemInstructions = dto.AdditionalSystemInstructions;
-        }
-
-        // Apply context overrides
-        if (dto.ContextOverrides != null)
-        {
-            config.ContextOverrides = dto.ContextOverrides;
-        }
-
-        // Apply permission overrides
-        if (dto.PermissionOverrides != null)
-        {
-            config.PermissionOverrides = dto.PermissionOverrides;
-        }
-
-        // Apply coalesce deltas
-        if (dto.CoalesceDeltas.HasValue)
-        {
-            config.CoalesceDeltas = dto.CoalesceDeltas.Value;
-        }
-
-        // Apply skip tools
-        if (dto.SkipTools.HasValue)
-        {
-            config.SkipTools = dto.SkipTools.Value;
-        }
-
-        // Apply run timeout
-        if (!string.IsNullOrEmpty(dto.RunTimeout))
-        {
-            if (TimeSpan.TryParse(dto.RunTimeout, out var timeout))
+                SessionId = text.SessionId ?? sid,
+                BranchId = text.BranchId ?? bid
+            },
+            UserMessagesInputEvent messages => messages with
             {
-                config.RunTimeout = timeout;
+                SessionId = messages.SessionId ?? sid,
+                BranchId = messages.BranchId ?? bid
+            },
+            _ => input
+        };
+    }
+
+    private static async Task<string?> ReceiveTextMessageAsync(
+        WebSocket webSocket,
+        byte[] buffer,
+        CancellationToken ct)
+    {
+        using var payload = new MemoryStream();
+
+        while (true)
+        {
+            var receiveResult = await webSocket.ReceiveAsync(
+                new ArraySegment<byte>(buffer),
+                ct);
+
+            if (receiveResult.MessageType == WebSocketMessageType.Close)
+            {
+                return null;
+            }
+
+            if (receiveResult.MessageType != WebSocketMessageType.Text)
+            {
+                throw new InvalidOperationException("Only text agent event envelopes are supported.");
+            }
+
+            payload.Write(buffer, 0, receiveResult.Count);
+
+            if (receiveResult.EndOfMessage)
+            {
+                return Encoding.UTF8.GetString(payload.ToArray());
             }
         }
-
-        return config;
     }
 }

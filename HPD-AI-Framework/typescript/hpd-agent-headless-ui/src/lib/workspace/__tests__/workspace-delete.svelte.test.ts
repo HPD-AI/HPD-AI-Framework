@@ -70,7 +70,10 @@ function makeFakeAgentClient(
 	branchesPerSession: Map<string, Branch[]>
 ): AgentClientLike {
 	const client: AgentClientLike = {
-		stream: vi.fn(async () => new Promise<void>(() => {})),
+		run: vi.fn(async () => new Promise<void>(() => {})),
+		on: vi.fn(() => ({ dispose: vi.fn() })),
+		onAny: vi.fn(() => ({ dispose: vi.fn() })),
+		onError: vi.fn(() => ({ dispose: vi.fn() })),
 		abort: vi.fn(),
 
 		listSessions: vi.fn(async () => sessions),

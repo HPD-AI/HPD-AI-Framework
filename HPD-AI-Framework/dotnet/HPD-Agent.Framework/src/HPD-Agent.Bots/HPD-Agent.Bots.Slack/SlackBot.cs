@@ -334,7 +334,7 @@ public partial class SlackBot(
     // The generator detects Content-Type and routes accordingly.
 
     [HpdWebhookHandler("block_actions")]
-    private Task<IResult> HandleBlockActionsAsync(
+    private async Task<IResult> HandleBlockActionsAsync(
         HttpContext ctx, SlackBlockActionsPayload payload)
     {
         foreach (var action in payload.Actions)
@@ -347,7 +347,7 @@ public partial class SlackBot(
                 if (agent is not null)
                 {
                     var approved = action.Value == "approve";
-                    agent.SendMiddlewareResponse(action.ActionId, new PermissionResponseEvent(
+                    await agent.RunAsync(new PermissionResponseEvent(
                         PermissionId: action.ActionId,
                         SourceName:   "slack",
                         Approved:     approved));
@@ -357,7 +357,7 @@ public partial class SlackBot(
 
             OnBlockAction?.Invoke(new SlackBlockActionReceivedEvent(action, payload));
         }
-        return Task.FromResult(Results.Ok());
+        return Results.Ok();
     }
 
     [HpdWebhookHandler("view_submission")]
@@ -396,7 +396,7 @@ public partial class SlackBot(
     /// Posts Approve/Deny Block Kit buttons when the agent yields a
     /// <see cref="PermissionRequestEvent"/>. The block_id encodes the sessionId so
     /// <see cref="HandleBlockActionsAsync"/> can route the button click back to the
-    /// waiting agent loop via <c>agent.SendMiddlewareResponse()</c>.
+    /// waiting agent loop via <c>agent.RunAsync(PermissionResponseEvent)</c>.
     /// </summary>
     [HpdPermissionHandler]
     private async Task RenderPermissionAsync(
@@ -454,7 +454,7 @@ public partial class SlackBot(
             var debounce = new DebounceTimer(_config.StreamingDebounceMs);
 
             Console.WriteLine($"[SLACK] StreamToSlackAsync: running agent with input={input.Text}");
-            await foreach (var evt in agent.RunAsync(input.Text, sessionId, branchId, cancellationToken: ct))
+            using var subscription = agent.SubscribeAny((Func<AgentEvent, Task>)(async evt =>
             {
                 Console.WriteLine($"[SLACK] AgentEvent: {evt.GetType().Name}");
                 switch (evt)
@@ -479,7 +479,7 @@ public partial class SlackBot(
                         // Post Block Kit approve/deny buttons. block_id = sessionId for routing.
                         var permCtx = new SlackPermissionContext(channel, threadTs, sessionId, ct);
                         await RenderPermissionAsync(req, permCtx);
-                        // agent.SendMiddlewareResponse is called by HandleBlockActionsAsync
+                        // agent.RunAsync(PermissionResponseEvent) is called by HandleBlockActionsAsync
                         // when the user clicks a button — the agent loop is already waiting.
                         break;
 
@@ -507,7 +507,13 @@ public partial class SlackBot(
                             await api.UpdateMessageAsync(channel, placeholderTs, cardFallback, cardBlocks, ct);
                         break;
                 }
-            }
+            }));
+
+            await agent.RunAsync(new UserTextInputEvent(input.Text)
+            {
+                SessionId = sessionId,
+                BranchId = branchId
+            }, ct);
             Console.WriteLine($"[SLACK] StreamToSlackAsync: agent stream complete");
         }
         catch (Exception ex)
@@ -694,7 +700,7 @@ public partial class SlackBot(
                             if (agent is not null)
                             {
                                 var approved = action.Value == "approve";
-                                agent.SendMiddlewareResponse(action.ActionId, new PermissionResponseEvent(
+                                await agent.RunAsync(new PermissionResponseEvent(
                                     PermissionId: action.ActionId,
                                     SourceName:   "slack",
                                     Approved:     approved));
@@ -715,7 +721,7 @@ public partial class SlackBot(
     }
 
     // ── Bot-internal input bag ─────────────────────────────────────────────
-    // Does NOT cross the agent boundary — agent.RunAsync() takes a plain string.
+    // Crosses the agent boundary as UserTextInputEvent in StreamToSlackAsync.
     // RecipientUserId/RecipientTeamId drive native streaming eligibility.
     // Extensions carries Slack-specific values (triggerId, responseUrl) for
     // post-stream use by user code subscribing to adapter events.

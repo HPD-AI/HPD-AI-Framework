@@ -9,22 +9,20 @@ var agent = await new AgentBuilder()
     .WithAnthropic("your-api-key")
     .BuildAsync();
 
+agent.On<TextDeltaEvent>(e =>
+{
+    Console.Write(e.Text);
+    return ValueTask.CompletedTask;
+});
+
 // Create the session explicitly — must be done before the first RunAsync
 await agent.CreateSessionAsync("user-123");
 
 // First call — session exists, agent runs and appends to history
-await foreach (var evt in agent.RunAsync("Hello!", sessionId: "user-123"))
-{
-    if (evt is TextDeltaEvent text)
-        Console.Write(text.Text);
-}
+await agent.RunAsync("Hello!", sessionId: "user-123");
 
 // Second call — session already has history, conversation continues
-await foreach (var evt in agent.RunAsync("What did I just say?", sessionId: "user-123"))
-{
-    if (evt is TextDeltaEvent text)
-        Console.Write(text.Text);
-}
+await agent.RunAsync("What did I just say?", sessionId: "user-123");
 ```
 
 `CreateSessionAsync` throws if the session already exists — session IDs are unique and creation is always intentional. `RunAsync` throws `SessionNotFoundException` if the session has not been created.
@@ -47,7 +45,7 @@ var agent = await new AgentBuilder()
 await agent.CreateSessionAsync("user-123");
 
 // Run — history is persisted automatically after each turn
-await foreach (var evt in agent.RunAsync("Hello!", sessionId: "user-123")) { }
+await agent.RunAsync("Hello!", sessionId: "user-123");
 ```
 
 The built-in `JsonSessionStore` stores sessions as JSON files under the given path. For production use, implement `ISessionStore` to back sessions with any storage system — SQL, Redis, MongoDB, etc.:
@@ -101,18 +99,16 @@ string newBranchId = await agent.ForkBranchAsync(
     fromMessageIndex: 4);
 
 // Continue on the new branch
-await foreach (var evt in agent.RunAsync(
+await agent.RunAsync(
     "Try a completely different approach",
     sessionId: "user-123",
-    branchId: newBranchId))
-{ }
+    branchId: newBranchId);
 
 // Switch back to main any time
-await foreach (var evt in agent.RunAsync(
+await agent.RunAsync(
     "Continue where we left off",
     sessionId: "user-123",
-    branchId: "main"))
-{ }
+    branchId: "main");
 ```
 
 > **Note:** Once a session has been forked, always pass `branchId` explicitly. If you omit it and the session has more than one branch, an `AmbiguousBranchException` is thrown.
@@ -156,20 +152,21 @@ Creates a new session and its default `"main"` branch in the store. Throws if th
 ### RunAsync
 
 ```csharp
-// Standard — session history managed automatically
-IAsyncEnumerable<AgentEvent> RunAsync(
+// Convenience input - creates UserTextInputEvent internally.
+Task RunAsync(
     string userMessage,
-    string sessionId,
-    string? branchId = null,           // omit when session has a single branch
-    AgentRunConfig? options = null,
+    string? sessionId = null,
+    string? branchId = "main",
+    AgentRunConfig? runConfig = null,
     CancellationToken cancellationToken = default)
 
-// Stateless — no session, no persistence (useful for one-off calls)
-IAsyncEnumerable<AgentEvent> RunAsync(
-    IEnumerable<ChatMessage> messages,
-    AgentRunConfig? options = null,
+// Event-native input.
+Task RunAsync(
+    AgentEvent input,
     CancellationToken cancellationToken = default)
 ```
+
+Output is handled through `agent.On<TEvent>()` and `agent.OnAny()`.
 
 ### ForkBranchAsync
 

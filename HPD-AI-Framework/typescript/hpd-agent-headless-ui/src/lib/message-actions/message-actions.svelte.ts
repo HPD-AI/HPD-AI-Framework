@@ -120,19 +120,46 @@ export class MessageActionsRootState {
 	// switcher stays visible even when you navigate to a branch whose fork point
 	// is at a different message index.
 	readonly #siblingsAtThisRow = $derived.by(() => {
-		const forkAtIndex = this.messageIndex - 1;
+		const forkAtIndices = new Set([this.messageIndex - 1, this.messageIndex]);
 		const all = this.workspace.branches;
+		const branchProp = this.#branch;
+
+		if (all.size === 0 && branchProp && !branchProp.isOriginal) {
+			const legacyForkedHere = branchProp.forkedAtMessageIndex === this.messageIndex;
+			if (!legacyForkedHere || branchProp.totalSiblings <= 1) return [];
+
+			return Array.from({ length: branchProp.totalSiblings }, (_, index) => {
+				if (index === branchProp.siblingIndex) return branchProp;
+
+				return {
+					...branchProp,
+					id:
+						index === branchProp.siblingIndex - 1 && branchProp.previousSiblingId
+							? branchProp.previousSiblingId
+							: index === branchProp.siblingIndex + 1 && branchProp.nextSiblingId
+								? branchProp.nextSiblingId
+								: `${branchProp.id}-sibling-${index}`,
+					isOriginal: index === 0,
+					siblingIndex: index,
+					previousSiblingId: index > 0 ? `${branchProp.id}-sibling-${index - 1}` : undefined,
+					nextSiblingId:
+						index < branchProp.totalSiblings - 1
+							? `${branchProp.id}-sibling-${index + 1}`
+							: undefined,
+				};
+			});
+		}
 
 		// Find any fork at this row to identify the source branch.
 		const anyFork = Array.from(all.values()).find(
-			b => !b.isOriginal && b.forkedAtMessageIndex === forkAtIndex
+			b => !b.isOriginal && forkAtIndices.has(b.forkedAtMessageIndex ?? -1)
 		);
 		if (!anyFork) return [];
 
 		const sourceId = anyFork.forkedFrom!;
-		const source = all.get(sourceId);
+		const source = all.get(sourceId) ?? (branchProp?.id === sourceId ? branchProp : undefined);
 		const forks = Array.from(all.values()).filter(
-			b => b.forkedFrom === sourceId && b.forkedAtMessageIndex === forkAtIndex
+			b => b.forkedFrom === sourceId && forkAtIndices.has(b.forkedAtMessageIndex ?? -1)
 		);
 		const group = source ? [source, ...forks] : forks;
 		return group.sort((a, b) => a.siblingIndex - b.siblingIndex);
@@ -184,7 +211,7 @@ export class MessageActionsRootState {
 		const active = this.#activeSiblingInRow;
 		if (!active) return false;
 		const idx = this.#siblingsAtThisRow.findIndex(b => b.id === active.id);
-		return idx > 0;
+		return idx > 0 && !!active.previousSiblingId;
 	});
 
 	readonly canGoNext = $derived.by(() => {
@@ -193,7 +220,7 @@ export class MessageActionsRootState {
 		const active = this.#activeSiblingInRow;
 		if (!active) return false;
 		const idx = siblings.findIndex(b => b.id === active.id);
-		return idx >= 0 && idx < siblings.length - 1;
+		return idx >= 0 && idx < siblings.length - 1 && !!active.nextSiblingId;
 	});
 
 	readonly position = $derived.by(() => {
@@ -225,7 +252,7 @@ export class MessageActionsRootState {
 	readonly goPrevious = async (): Promise<void> => {
 		const siblings = this.#siblingsAtThisRow;
 		const active = this.#activeSiblingInRow;
-		if (!active) return;
+		if (!active?.previousSiblingId) return;
 		const idx = siblings.findIndex(b => b.id === active.id);
 		if (idx <= 0) return;
 		await this.workspace.switchBranch(siblings[idx - 1].id);
@@ -234,7 +261,7 @@ export class MessageActionsRootState {
 	readonly goNext = async (): Promise<void> => {
 		const siblings = this.#siblingsAtThisRow;
 		const active = this.#activeSiblingInRow;
-		if (!active) return;
+		if (!active?.nextSiblingId) return;
 		const idx = siblings.findIndex(b => b.id === active.id);
 		if (idx < 0 || idx >= siblings.length - 1) return;
 		await this.workspace.switchBranch(siblings[idx + 1].id);

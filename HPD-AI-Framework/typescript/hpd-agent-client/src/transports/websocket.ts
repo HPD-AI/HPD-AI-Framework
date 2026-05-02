@@ -1,8 +1,7 @@
-import type { AgentEvent } from '../types/events.js';
+import type { AgentEvent, AgentRunInputEvent } from '../types/events.js';
 import type {
   AgentTransport,
-  ClientMessage,
-  ConnectOptions,
+  RuntimeScope,
 } from '../types/transport.js';
 import type {
   Session,
@@ -43,6 +42,7 @@ export class WebSocketTransport implements AgentTransport {
   private baseUrl: string;
   private httpBaseUrl: string; // HTTP base URL for CRUD operations
   private ws?: WebSocket;
+  private scope?: RuntimeScope;
   private eventHandler?: (event: AgentEvent) => void;
   private errorHandler?: (error: Error) => void;
   private closeHandler?: () => void;
@@ -65,14 +65,20 @@ export class WebSocketTransport implements AgentTransport {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  connect(options: ConnectOptions): Promise<void> {
+  connect(scope?: RuntimeScope): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return Promise.reject(new Error('Already connected. Call disconnect() first.'));
     }
 
     return new Promise((resolve, reject) => {
-      const sessionId = options.sessionId;
-      const branchId = options.branchId || 'main';
+      if (!scope?.sessionId) {
+        reject(new Error('WebSocket connect() requires sessionId'));
+        return;
+      }
+
+      this.scope = scope;
+      const sessionId = scope.sessionId;
+      const branchId = scope.branchId || 'main';
       const url = `${this.baseUrl}/sessions/${sessionId}/branches/${branchId}/ws`;
 
       try {
@@ -84,7 +90,7 @@ export class WebSocketTransport implements AgentTransport {
 
       // Cleanup function for event listeners
       const cleanup = () => {
-        options.signal?.removeEventListener('abort', onAbort);
+        scope.signal?.removeEventListener('abort', onAbort);
       };
 
       // Handle abort signal
@@ -94,27 +100,15 @@ export class WebSocketTransport implements AgentTransport {
         reject(new DOMException('Aborted', 'AbortError'));
       };
 
-      if (options.signal?.aborted) {
+      if (scope.signal?.aborted) {
         reject(new DOMException('Aborted', 'AbortError'));
         return;
       }
 
-      options.signal?.addEventListener('abort', onAbort, { once: true });
+      scope.signal?.addEventListener('abort', onAbort, { once: true });
 
       this.ws.onopen = () => {
         cleanup();
-        // Send initial messages and client tool options once connected
-        this.ws!.send(JSON.stringify({
-          messages: options.messages,
-          clientToolKits: options.clientToolKits,
-          context: options.context,
-          state: options.state,
-          expandedContainers: options.expandedContainers,
-          hiddenTools: options.hiddenTools,
-          resetClientState: options.resetClientState,
-          runConfig: options.runConfig,
-          agentId: options.agentId,
-        }));
         resolve();
       };
 
@@ -141,11 +135,17 @@ export class WebSocketTransport implements AgentTransport {
     });
   }
 
-  async send(message: ClientMessage): Promise<void> {
+  async run(input: AgentRunInputEvent): Promise<void> {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
-    this.ws.send(JSON.stringify(message));
+
+    this.ws.send(JSON.stringify({
+      ...input,
+      sessionId: 'sessionId' in input ? input.sessionId ?? this.scope?.sessionId : this.scope?.sessionId,
+      branchId: 'branchId' in input ? input.branchId ?? this.scope?.branchId ?? 'main' : this.scope?.branchId ?? 'main',
+      agentId: 'agentId' in input ? input.agentId ?? this.scope?.agentId : this.scope?.agentId,
+    }));
   }
 
   onEvent(handler: (event: AgentEvent) => void): void {

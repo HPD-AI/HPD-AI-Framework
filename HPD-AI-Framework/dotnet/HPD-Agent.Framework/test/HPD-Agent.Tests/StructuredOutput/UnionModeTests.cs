@@ -44,7 +44,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -85,7 +85,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -126,7 +126,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -163,7 +163,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -208,7 +208,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -247,7 +247,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -288,7 +288,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -331,7 +331,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -368,7 +368,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -407,7 +407,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -442,7 +442,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -476,7 +476,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -518,7 +518,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -553,7 +553,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -589,7 +589,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -624,7 +624,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -663,7 +663,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -704,7 +704,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -738,7 +738,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -785,7 +785,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -826,7 +826,7 @@ public class UnionModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ApiResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -866,7 +866,7 @@ public class UnionModeTests
         };
 
         var nativeEvents = new List<AgentEvent>();
-        await foreach (var evt in agentNative.RunStructuredAsync<ApiResponse>("test", options: nativeOptions))
+        await foreach (var evt in agentNative.RunStructuredStreamAsync<ApiResponse>("test", options: nativeOptions))
         {
             nativeEvents.Add(evt);
         }
@@ -893,7 +893,7 @@ public class UnionModeTests
         };
 
         var toolEvents = new List<AgentEvent>();
-        await foreach (var evt in agentTool.RunStructuredAsync<ApiResponse>("test", options: toolOptions))
+        await foreach (var evt in agentTool.RunStructuredStreamAsync<ApiResponse>("test", options: toolOptions))
         {
             toolEvents.Add(evt);
         }

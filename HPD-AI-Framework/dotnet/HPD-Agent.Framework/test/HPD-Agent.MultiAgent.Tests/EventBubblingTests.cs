@@ -38,7 +38,7 @@ public class EventBubblingTests
         var receivedEvents = new List<Event>();
         var readTask = Task.Run(async () =>
         {
-            await foreach (var evt in parentCoordinator.ReadSynchronousAsync(CancellationToken.None))
+            await foreach (var evt in parentCoordinator.ReadStreamingAsync(CancellationToken.None))
             {
                 receivedEvents.Add(evt);
                 if (receivedEvents.Count >= 1) break;
@@ -72,7 +72,7 @@ public class EventBubblingTests
         {
             try
             {
-                await foreach (var evt in parentCoordinator.ReadSynchronousAsync(cts.Token))
+                await foreach (var evt in parentCoordinator.ReadStreamingAsync(cts.Token))
                 {
                     receivedEvents.Add(evt);
                     if (receivedEvents.Count >= 3) break;

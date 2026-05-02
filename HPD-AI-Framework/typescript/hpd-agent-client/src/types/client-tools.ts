@@ -284,33 +284,6 @@ export interface ClientToolInvokeResponse {
 }
 
 // ============================================
-// Stream Options Extension
-// ============================================
-
-/**
- * Client-specific options for streaming.
- */
-export interface ClientStreamOptions {
-  /** Tool groups to register for this stream */
-  clientToolKits?: clientToolKitDefinition[];
-
-  /** Context items to pass to the agent */
-  context?: ContextItem[];
-
-  /** Application state (opaque to agent) */
-  state?: unknown;
-
-  /** Tool groups to start expanded */
-  expandedContainers?: string[];
-
-  /** Tools to start hidden */
-  hiddenTools?: string[];
-
-  /** Reset client state (clear all registered tool groups) */
-  resetClientState?: boolean;
-}
-
-// ============================================
 // Helper Functions
 // ============================================
 

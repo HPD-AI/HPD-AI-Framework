@@ -1,6 +1,7 @@
 using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.Serialization;
+using Microsoft.Extensions.AI;
 using Xunit;
 
 namespace HPD.Agent.Tests.Serialization;
@@ -70,6 +71,75 @@ public class AgentEventSerializerTests
             var json = AgentEventSerializer.ToJson(events[i]);
             Assert.Contains($"\"type\":\"{expectedTypes[i]}\"", json);
         }
+    }
+
+    [Fact]
+    public void ToJson_UserInputEvents_UseInputDiscriminators()
+    {
+        var textJson = AgentEventSerializer.ToJson(new UserTextInputEvent("hello")
+        {
+            SessionId = "s1",
+            BranchId = "main"
+        });
+
+        var messagesJson = AgentEventSerializer.ToJson(new UserMessagesInputEvent(
+            [new ChatMessage(ChatRole.User, "hello")])
+        {
+            SessionId = "s1",
+            BranchId = "main"
+        });
+
+        Assert.Contains("\"type\":\"USER_TEXT_INPUT\"", textJson);
+        Assert.Contains("\"sessionId\":\"s1\"", textJson);
+        Assert.Contains("\"type\":\"USER_MESSAGES_INPUT\"", messagesJson);
+    }
+
+    [Fact]
+    public void FromJson_UserTextInputEvent_RoundTrips()
+    {
+        var json = AgentEventSerializer.ToJson(new UserTextInputEvent("hello")
+        {
+            SessionId = "s1",
+            BranchId = "main"
+        });
+
+        var result = Assert.IsType<UserTextInputEvent>(AgentEventSerializer.FromJson(json));
+
+        Assert.Equal("hello", result.Text);
+        Assert.Equal("s1", result.SessionId);
+        Assert.Equal("main", result.BranchId);
+    }
+
+    [Fact]
+    public void FromJson_UserMessagesInputEvent_RoundTrips()
+    {
+        var json = AgentEventSerializer.ToJson(new UserMessagesInputEvent(
+            [new ChatMessage(ChatRole.User, "hello")])
+        {
+            SessionId = "s1",
+            BranchId = "main",
+            RunConfig = new AgentRunConfig
+            {
+                CoalesceDeltas = true,
+                Chat = new ChatRunConfig
+                {
+                    Temperature = 0.7,
+                    MaxOutputTokens = 123
+                }
+            }
+        });
+
+        var result = Assert.IsType<UserMessagesInputEvent>(AgentEventSerializer.FromJson(json));
+
+        Assert.Equal("s1", result.SessionId);
+        Assert.Equal("main", result.BranchId);
+        Assert.Single(result.Messages);
+        Assert.Equal(ChatRole.User, result.Messages[0].Role);
+        Assert.Equal("hello", result.Messages[0].Text);
+        Assert.NotNull(result.RunConfig);
+        Assert.True(result.RunConfig!.CoalesceDeltas);
+        Assert.Equal(0.7, result.RunConfig.Chat!.Temperature);
+        Assert.Equal(123, result.RunConfig.Chat.MaxOutputTokens);
     }
 
     #endregion
@@ -393,6 +463,8 @@ public class AgentEventSerializerTests
         Assert.Equal("TOOL_CALL_START", AgentEventSerializer.GetEventTypeName(typeof(ToolCallStartEvent)));
         Assert.Equal("PERMISSION_REQUEST", AgentEventSerializer.GetEventTypeName(typeof(PermissionRequestEvent)));
         Assert.Equal("MESSAGE_TURN_STARTED", AgentEventSerializer.GetEventTypeName(typeof(MessageTurnStartedEvent)));
+        Assert.Equal("USER_TEXT_INPUT", AgentEventSerializer.GetEventTypeName(typeof(UserTextInputEvent)));
+        Assert.Equal("USER_MESSAGES_INPUT", AgentEventSerializer.GetEventTypeName(typeof(UserMessagesInputEvent)));
     }
 
     [Fact]

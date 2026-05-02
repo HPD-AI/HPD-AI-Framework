@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { WebSocketTransport } from '../src/transports/websocket.js';
+import { EventTypes } from '../src/types/events.js';
 
 // Mock WebSocket
 class MockWebSocket {
@@ -70,18 +71,17 @@ describe('WebSocketTransport', () => {
     expect((transport as any).baseUrl).toBe('ws://localhost:5135');
   });
 
-  it('should connect and send initial messages', async () => {
+  it('should connect to scoped runtime without sending initial messages', async () => {
     const transport = new WebSocketTransport('http://localhost:5135');
 
     await transport.connect({
       sessionId: 'test-123',
       branchId: 'main',
-      messages: [{ content: 'Hello' }],
     });
 
     const ws = (transport as any).ws as MockWebSocket;
     expect(ws.url).toBe('ws://localhost:5135/sessions/test-123/branches/main/ws');
-    expect(ws.sentMessages).toContainEqual(JSON.stringify({ messages: [{ content: 'Hello' }] }));
+    expect(ws.sentMessages).toEqual([]);
   });
 
   it('should receive and parse events', async () => {
@@ -91,8 +91,8 @@ describe('WebSocketTransport', () => {
     transport.onEvent((event) => events.push(event));
 
     await transport.connect({
-      conversationId: 'test-123',
-      messages: [{ content: 'Hi' }],
+      sessionId: 'test-123',
+      branchId: 'main',
     });
 
     const ws = (transport as any).ws as MockWebSocket;
@@ -109,8 +109,8 @@ describe('WebSocketTransport', () => {
     transport.onEvent((event) => events.push(event));
 
     await transport.connect({
-      conversationId: 'test-123',
-      messages: [{ content: 'Hi' }],
+      sessionId: 'test-123',
+      branchId: 'main',
     });
 
     const ws = (transport as any).ws as MockWebSocket;
@@ -119,26 +119,30 @@ describe('WebSocketTransport', () => {
     expect(events).toHaveLength(0);
   });
 
-  it('should send messages directly over WebSocket', async () => {
+  it('should run input events directly over WebSocket', async () => {
     const transport = new WebSocketTransport('http://localhost:5135');
 
     await transport.connect({
-      conversationId: 'test-123',
-      messages: [{ content: 'Hi' }],
+      sessionId: 'test-123',
+      branchId: 'main',
     });
 
-    await transport.send({
-      type: 'permission_response',
+    await transport.run({
+      type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'perm-1',
+      sourceName: 'PermissionMiddleware',
       approved: true,
     });
 
     const ws = (transport as any).ws as MockWebSocket;
     expect(ws.sentMessages).toContainEqual(
       JSON.stringify({
-        type: 'permission_response',
+        type: EventTypes.PERMISSION_RESPONSE,
         permissionId: 'perm-1',
+        sourceName: 'PermissionMiddleware',
         approved: true,
+        sessionId: 'test-123',
+        branchId: 'main',
       })
     );
   });
@@ -150,8 +154,8 @@ describe('WebSocketTransport', () => {
     transport.onClose(closeHandler);
 
     await transport.connect({
-      conversationId: 'test-123',
-      messages: [{ content: 'Hi' }],
+      sessionId: 'test-123',
+      branchId: 'main',
     });
 
     transport.disconnect();
@@ -163,9 +167,10 @@ describe('WebSocketTransport', () => {
     const transport = new WebSocketTransport('http://localhost:5135');
 
     await expect(
-      transport.send({
-        type: 'permission_response',
+      transport.run({
+        type: EventTypes.PERMISSION_RESPONSE,
         permissionId: 'perm-1',
+        sourceName: 'PermissionMiddleware',
         approved: true,
       })
     ).rejects.toThrow('WebSocket not connected');
@@ -177,8 +182,8 @@ describe('WebSocketTransport', () => {
     expect(transport.connected).toBe(false);
 
     await transport.connect({
-      conversationId: 'test-123',
-      messages: [{ content: 'Hi' }],
+      sessionId: 'test-123',
+      branchId: 'main',
     });
 
     expect(transport.connected).toBe(true);
@@ -197,8 +202,8 @@ describe('WebSocketTransport', () => {
 
     await expect(
       transport.connect({
-        conversationId: 'test-123',
-        messages: [{ content: 'Hi' }],
+        sessionId: 'test-123',
+        branchId: 'main',
         signal: controller.signal,
       })
     ).rejects.toThrow('Aborted');
@@ -243,8 +248,8 @@ describe('WebSocketTransport', () => {
 
     await expect(
       transport.connect({
-        conversationId: 'test-123',
-        messages: [{ content: 'Hi' }],
+        sessionId: 'test-123',
+        branchId: 'main',
       })
     ).rejects.toThrow('WebSocket error');
 
@@ -370,7 +375,7 @@ describe('WebSocketTransport', () => {
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:5135/sessions/session-123',
         expect.objectContaining({
-          method: 'PUT',
+          method: 'PATCH',
         })
       );
 

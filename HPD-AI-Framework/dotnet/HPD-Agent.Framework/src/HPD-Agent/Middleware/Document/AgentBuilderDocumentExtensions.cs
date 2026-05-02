@@ -28,7 +28,7 @@ namespace HPD.Agent.Middleware.Document;
 ///     new DataContent(pdfBytes, "application/pdf") { Name = "document.pdf" }
 /// ]);
 /// 
-/// var response = await agent.RunAsync([message]);
+/// await agent.RunAsync(new UserMessagesInputEvent([message]));
 /// </code>
 /// </summary>
 public static class AgentBuilderDocumentExtensions

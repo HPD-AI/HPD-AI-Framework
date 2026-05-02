@@ -39,13 +39,7 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(CreateBranchRequest))]
 [JsonSerializable(typeof(UpdateBranchRequest))]
 [JsonSerializable(typeof(ForkBranchRequest))]
-[JsonSerializable(typeof(StreamRequest))]
-[JsonSerializable(typeof(StreamMessage))]
-[JsonSerializable(typeof(StreamMessage[]))]
-[JsonSerializable(typeof(List<StreamMessage>))]
-[JsonSerializable(typeof(StreamRunConfigDto))]
-[JsonSerializable(typeof(ChatRunConfigDto))]
-// Note: PermissionResponseEvent and ClientToolInvokeResponseEvent are used directly (from AgentEventJsonContext)
+// Note: Agent input/output events are covered by AgentEventJsonContext.
 [JsonSerializable(typeof(ClientToolContentDto))]
 [JsonSerializable(typeof(ClientToolContentDto[]))]
 [JsonSerializable(typeof(List<ClientToolContentDto>))]
@@ -56,7 +50,7 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(StoredAgentDto))]
 [JsonSerializable(typeof(CreateAgentRequest))]
 [JsonSerializable(typeof(UpdateAgentRequest))]
-// ReasoningOptions — used by ChatRunConfigDto
+// ReasoningOptions — used by AgentRunConfig when events are serialized through AgentEventJsonContext.
 [JsonSerializable(typeof(HPD.Agent.ReasoningOptions))]
 [JsonSerializable(typeof(HPD.Agent.ReasoningEffort))]
 [JsonSerializable(typeof(HPD.Agent.ReasoningOutput))]

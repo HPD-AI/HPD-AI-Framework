@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.AI;
 using EventChannel = HPD.Events.EventChannel;
 using EventDirection = HPD.Events.EventDirection;
 
@@ -29,6 +30,17 @@ namespace HPD.Agent.Serialization;
 // Base types
 [JsonSerializable(typeof(AgentEvent))]
 [JsonSerializable(typeof(AgentExecutionContext))]
+[JsonSerializable(typeof(AgentInputEvent))]
+[JsonSerializable(typeof(UserTextInputEvent))]
+[JsonSerializable(typeof(UserMessagesInputEvent))]
+[JsonSerializable(typeof(AgentRunConfig))]
+[JsonSerializable(typeof(ChatRunConfig))]
+[JsonSerializable(typeof(ReasoningOptions))]
+[JsonSerializable(typeof(ChatMessage), TypeInfoPropertyName = "MicrosoftExtensionsAiChatMessage")]
+[JsonSerializable(typeof(AIContent), TypeInfoPropertyName = "MicrosoftExtensionsAiAIContent")]
+[JsonSerializable(typeof(Microsoft.Extensions.AI.TextContent), TypeInfoPropertyName = "MicrosoftExtensionsAiTextContent")]
+[JsonSerializable(typeof(IReadOnlyList<ChatMessage>), TypeInfoPropertyName = "MicrosoftExtensionsAiChatMessageReadOnlyList")]
+[JsonSerializable(typeof(List<ChatMessage>), TypeInfoPropertyName = "MicrosoftExtensionsAiChatMessageList")]
 
 // Message Turn Events
 [JsonSerializable(typeof(MessageTurnStartedEvent))]

@@ -33,10 +33,12 @@ public class CoalesceDeltasTests : AgentTestBase
 
         // Act: Collect all events
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunAsync("test", options: options, cancellationToken: TestCancellationToken))
+        using var subscription = agent.SubscribeAny(evt =>
         {
             events.Add(evt);
-        }
+            return ValueTask.CompletedTask;
+        });
+        await agent.RunAsync("test", runConfig: options, cancellationToken: TestCancellationToken);
 
         // Assert: Should have multiple TextDeltaEvent
         var textDeltas = events.OfType<TextDeltaEvent>().ToList();
@@ -67,10 +69,12 @@ public class CoalesceDeltasTests : AgentTestBase
 
         // Act: Collect all events
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunAsync("test", options: options, cancellationToken: TestCancellationToken))
+        using var subscription = agent.SubscribeAny(evt =>
         {
             events.Add(evt);
-        }
+            return ValueTask.CompletedTask;
+        });
+        await agent.RunAsync("test", runConfig: options, cancellationToken: TestCancellationToken);
 
         // Assert: Should have exactly ONE TextDeltaEvent with complete text
         var textDeltas = events.OfType<TextDeltaEvent>().ToList();
@@ -93,10 +97,12 @@ public class CoalesceDeltasTests : AgentTestBase
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunAsync("test", options: options, cancellationToken: TestCancellationToken))
+        using var subscription = agent.SubscribeAny(evt =>
         {
             events.Add(evt);
-        }
+            return ValueTask.CompletedTask;
+        });
+        await agent.RunAsync("test", runConfig: options, cancellationToken: TestCancellationToken);
 
         // Assert: Should still have start and end events
         Assert.Contains(events, e => e is TextMessageStartEvent);
@@ -125,10 +131,12 @@ public class CoalesceDeltasTests : AgentTestBase
 
         // Act: No run options specified, should use config default
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunAsync("test", cancellationToken: TestCancellationToken))
+        using var subscription = agent.SubscribeAny(evt =>
         {
             events.Add(evt);
-        }
+            return ValueTask.CompletedTask;
+        });
+        await agent.RunAsync("test", cancellationToken: TestCancellationToken);
 
         // Assert: Should coalesce because config has it enabled
         var textDeltas = events.OfType<TextDeltaEvent>().ToList();
@@ -157,10 +165,12 @@ public class CoalesceDeltasTests : AgentTestBase
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunAsync("test", options: options, cancellationToken: TestCancellationToken))
+        using var subscription = agent.SubscribeAny(evt =>
         {
             events.Add(evt);
-        }
+            return ValueTask.CompletedTask;
+        });
+        await agent.RunAsync("test", runConfig: options, cancellationToken: TestCancellationToken);
 
         // Assert: Should NOT coalesce because run options explicitly disabled it
         var textDeltas = events.OfType<TextDeltaEvent>().ToList();

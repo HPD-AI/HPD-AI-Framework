@@ -1,14 +1,15 @@
 # HPD-Agent TypeScript Client SDK
 
-A lightweight, transport-agnostic TypeScript client SDK for consuming HPD-Agent events.
+A lightweight TypeScript client SDK for HPD-Agent's event-native runtime.
 
 ## Features
 
-- **Zero dependencies** - Pure TypeScript, works in browser and Node.js
-- **Transport agnostic** - Supports SSE and WebSocket transports
-- **Type safe** - Full TypeScript support with typed event handlers
-- **Bidirectional** - Built-in support for permissions, clarifications, and continuations
-- **Simple API** - Callbacks + async/await for interactive flows
+- **Event-native API** - Send input events with `run(...)`, handle output events with `on(...)`
+- **Transport agnostic** - Supports SSE, WebSocket, and MAUI transports
+- **Type safe** - Typed event handlers keyed by `EventTypes`
+- **Bidirectional** - Permissions, clarifications, continuations, interruptions, and client tools are all events
+- **Realtime ready** - `start(...)` opens a continuous runtime for WebSocket-style apps
+- **Zero runtime dependencies** - Pure TypeScript for browser and Node.js
 
 ## Installation
 
@@ -19,59 +20,92 @@ npm install @hpd/hpd-agent-client
 ## Quick Start
 
 ```typescript
-import { AgentClient } from '@hpd/hpd-agent-client';
+import { AgentClient, EventTypes } from '@hpd/hpd-agent-client';
 
 const client = new AgentClient('http://localhost:5135');
 
 let response = '';
 
-await client.stream('conversation-123', [{ content: 'Hello!' }], {
-  onTextDelta: (text) => {
-    response += text;
-    process.stdout.write(text);
-  },
-  onComplete: () => {
-    console.log('\n\nDone!');
-  },
-  onError: (message) => {
-    console.error('Error:', message);
-  },
+client.on(EventTypes.TEXT_DELTA, (event) => {
+  response += event.text;
+  process.stdout.write(event.text);
+});
+
+client.on(EventTypes.MESSAGE_TURN_FINISHED, () => {
+  console.log('\n\nDone!');
+});
+
+client.onError((error) => {
+  console.error('Error:', error.message);
+});
+
+await client.run({
+  type: EventTypes.USER_TEXT_INPUT,
+  text: 'Hello!',
+  sessionId: 'conversation-123',
+  branchId: 'main',
 });
 ```
 
 ## With Permission Handling
 
 ```typescript
-await client.stream(conversationId, messages, {
-  onTextDelta: (text) => {
-    updateUI(text);
-  },
+client.on(EventTypes.TEXT_DELTA, (event) => {
+  updateUI(event.text);
+});
 
-  onToolCallStart: (callId, name) => {
-    showToolIndicator(name);
-  },
+client.on(EventTypes.TOOL_CALL_START, (event) => {
+  showToolIndicator(event.name);
+});
 
-  onPermissionRequest: async (request) => {
-    // Show dialog and wait for user
-    const userChoice = await showPermissionDialog({
-      functionName: request.functionName,
-      description: request.description,
-      arguments: request.arguments,
-    });
+client.on(EventTypes.PERMISSION_REQUEST, async (event) => {
+  const userChoice = await showPermissionDialog({
+    functionName: event.functionName,
+    description: event.description,
+    arguments: event.arguments,
+  });
 
-    return {
-      approved: userChoice.approved,
-      choice: userChoice.remember ? 'allow_always' : 'ask',
-    };
-  },
+  await client.run({
+    type: EventTypes.PERMISSION_RESPONSE,
+    permissionId: event.permissionId,
+    sourceName: event.sourceName,
+    approved: userChoice.approved,
+    choice: userChoice.remember ? 'allow_always' : 'ask',
+    reason: userChoice.approved ? undefined : 'User denied',
+  });
+});
 
-  onComplete: () => {
-    hideLoadingIndicator();
+await client.run({
+  type: EventTypes.USER_TEXT_INPUT,
+  text: 'Read this file and summarize it.',
+  sessionId: conversationId,
+  branchId: 'main',
+});
+```
+
+## Run Configuration
+
+`runConfig` travels on the input event.
+
+```typescript
+await client.run({
+  type: EventTypes.USER_TEXT_INPUT,
+  text: 'Give me a concise analysis.',
+  sessionId: 'conversation-123',
+  branchId: 'main',
+  runConfig: {
+    modelId: 'gpt-4o',
+    chat: {
+      temperature: 0.3,
+      maxOutputTokens: 1200,
+    },
   },
 });
 ```
 
-## WebSocket Transport
+## WebSocket Runtime
+
+For realtime apps, start the runtime once and send input events over time.
 
 ```typescript
 const client = new AgentClient({
@@ -79,67 +113,129 @@ const client = new AgentClient({
   transport: 'websocket',
 });
 
-await client.stream(conversationId, messages, {
-  onTextDelta: (text) => console.log(text),
-  onPermissionRequest: async (req) => ({ approved: true }),
+client.onAny((event) => {
+  socketToBrowser.send(JSON.stringify(event));
 });
+
+await client.start({
+  sessionId: 'conversation-123',
+  branchId: 'main',
+});
+
+await client.run({
+  type: EventTypes.USER_TEXT_INPUT,
+  text: 'hello',
+});
+
+await client.run({
+  type: EventTypes.INTERRUPTION_REQUEST,
+  reason: 'User clicked stop',
+  source: 'User',
+});
+
+await client.stop();
 ```
 
-## With AbortController
+## Abort A Run
 
 ```typescript
 const controller = new AbortController();
 
-// Cancel after 30 seconds
-setTimeout(() => controller.abort(), 30000);
+setTimeout(() => controller.abort(), 30_000);
 
-try {
-  await client.stream(conversationId, messages, handlers, {
+await client.run(
+  {
+    type: EventTypes.USER_TEXT_INPUT,
+    text: 'Do a deep analysis.',
+    sessionId: 'conversation-123',
+    branchId: 'main',
+  },
+  {
     signal: controller.signal,
-  });
-} catch (e) {
-  if (e.name === 'AbortError') {
-    console.log('Stream cancelled');
   }
-}
+);
+```
+
+You can also stop the active transport directly:
+
+```typescript
+client.abort();
+```
+
+## Client Tools
+
+Register a browser-side tool handler with `onClientToolInvoke`. The client automatically sends the `CLIENT_TOOL_INVOKE_RESPONSE` event.
+
+```typescript
+const client = new AgentClient({
+  baseUrl: 'http://localhost:5135',
+  onClientToolInvoke: async (request) => {
+    const value = await runBrowserTool(request.toolName, request.arguments);
+
+    return {
+      requestId: request.requestId,
+      success: true,
+      content: [{ type: 'text', text: String(value) }],
+    };
+  },
+});
 ```
 
 ## Event Handlers
 
-| Handler | Description |
-|---------|-------------|
-| `onTextDelta` | Called for each text chunk |
-| `onTextMessageStart` | Called when a new message starts |
-| `onTextMessageEnd` | Called when a message completes |
-| `onToolCallStart` | Called when a tool invocation starts |
-| `onToolCallArgs` | Called with tool arguments |
-| `onToolCallEnd` | Called when tool execution completes |
-| `onToolCallResult` | Called with tool result |
-| `onReasoning` | Called for reasoning/thinking content |
-| `onPermissionRequest` | Called when permission is required (async) |
-| `onClarificationRequest` | Called when clarification is needed (async) |
-| `onContinuationRequest` | Called when agent wants to continue (async) |
-| `onTurnStart` | Called when an agent iteration starts |
-| `onTurnEnd` | Called when an agent iteration ends |
-| `onComplete` | Called when the message turn completes |
-| `onError` | Called on error |
-| `onProgress` | Called on middleware progress |
-| `onEvent` | Called for every event (raw access) |
+```typescript
+const subscription = client.on(EventTypes.TEXT_DELTA, (event) => {
+  console.log(event.text);
+});
+
+const anySubscription = client.onAny((event) => {
+  console.debug(event.type, event);
+});
+
+const errorSubscription = client.onError((error) => {
+  console.error(error);
+});
+
+subscription.dispose();
+anySubscription.dispose();
+errorSubscription.dispose();
+```
+
+Handler ordering is deterministic for each output event:
+
+1. Exact typed `on(EventTypes.X, ...)` handlers
+2. `onAny(...)` handlers
+
+## Common Input Events
+
+| Event | Use |
+|---|---|
+| `USER_TEXT_INPUT` | Start a text turn |
+| `USER_MESSAGES_INPUT` | Start a message-list turn |
+| `PERMISSION_RESPONSE` | Respond to a permission request |
+| `CLARIFICATION_RESPONSE` | Respond to a clarification request |
+| `CONTINUATION_RESPONSE` | Respond to a continuation request |
+| `CLIENT_TOOL_INVOKE_RESPONSE` | Send a client tool result |
+| `INTERRUPTION_REQUEST` | Stop or interrupt active work |
 
 ## API Reference
-
-### AgentClient
 
 ```typescript
 class AgentClient {
   constructor(config: AgentClientConfig | string);
 
-  stream(
-    conversationId: string,
-    messages: Array<{ content: string; role?: string }>,
-    handlers: EventHandlers,
-    options?: StreamOptions
-  ): Promise<void>;
+  start(scope?: RuntimeScope): Promise<void>;
+  stop(): Promise<void>;
+
+  run(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<void>;
+
+  on<TType extends AgentEvent['type']>(
+    type: TType,
+    handler: (event: AgentEventOfType<TType>) => void | Promise<void>
+  ): EventSubscription;
+
+  onAny(handler: (event: AgentEvent) => void | Promise<void>): EventSubscription;
+  onError(handler: (error: Error) => void | Promise<void>): EventSubscription;
 
   abort(): void;
 
@@ -152,9 +248,34 @@ class AgentClient {
 ```typescript
 interface AgentClientConfig {
   baseUrl: string;
-  transport?: 'sse' | 'websocket';
+  transport?: 'sse' | 'websocket' | 'maui';
   headers?: Record<string, string>;
+  clientToolKits?: clientToolKitDefinition[];
+  onClientToolInvoke?: (
+    request: ClientToolInvokeRequestEvent
+  ) => Promise<ClientToolInvokeResponse>;
 }
+```
+
+### Runtime Scope
+
+```typescript
+interface RuntimeScope {
+  sessionId?: string;
+  branchId?: string;
+  agentId?: string;
+  signal?: AbortSignal;
+}
+```
+
+## Mental Model
+
+```text
+client.run(...)     sends input events to the agent
+client.on(...)      handles specific output events from the agent
+client.onAny(...)   handles all output events
+client.start(...)   opens a continuous runtime connection
+client.stop(...)    closes it
 ```
 
 ## License

@@ -142,7 +142,7 @@ describe('AgentClient — session/branch passthroughs', () => {
   });
 
   describe('updateSession', () => {
-    it('calls PUT /sessions/{id} with the metadata and returns updated session', async () => {
+    it('calls PATCH /sessions/{id} with the metadata and returns updated session', async () => {
       const updated = { ...SESSION, metadata: { foo: 'bar' } };
       mockFetchJson(updated);
 
@@ -150,7 +150,7 @@ describe('AgentClient — session/branch passthroughs', () => {
 
       const [url, init] = vi.mocked(fetch).mock.calls[0];
       expect(String(url)).toBe(`${BASE}/sessions/sess-1`);
-      expect(init?.method).toBe('PUT');
+      expect(init?.method).toBe('PATCH');
       expect(result).toEqual(updated);
     });
   });

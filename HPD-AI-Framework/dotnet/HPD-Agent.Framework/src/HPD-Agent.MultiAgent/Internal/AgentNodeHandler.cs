@@ -223,10 +223,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         // Build per-invocation options (with fallback chat client from parent)
         var runConfig = BuildRunConfig(options, context);
 
-        await foreach (var evt in agent.RunAsync(
-            messages,
-            options: runConfig,
-            cancellationToken: ct))
+        using (agent.SubscribeAny(evt =>
         {
             // Bubble agent events up to graph event stream
             context.EventCoordinator?.Emit(evt);
@@ -235,6 +232,13 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
             {
                 response.Append(textEvt.Text);
             }
+            return ValueTask.CompletedTask;
+        }))
+        {
+            await agent.RunAsync(new UserMessagesInputEvent(messages)
+            {
+                RunConfig = runConfig
+            }, ct);
         }
 
         var outputKey = options.OutputKey ?? "answer";
@@ -268,10 +272,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
 
         object? result = null;
 
-        await foreach (var evt in agent.RunAsync(
-            messages,
-            options: runConfig,
-            cancellationToken: ct))
+        using (agent.SubscribeAny(evt =>
         {
             context.EventCoordinator?.Emit(evt);
 
@@ -293,6 +294,13 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
                     }
                 }
             }
+            return ValueTask.CompletedTask;
+        }))
+        {
+            await agent.RunAsync(new UserMessagesInputEvent(messages)
+            {
+                RunConfig = runConfig
+            }, ct);
         }
 
         return FlattenToOutputs(result, options.StructuredType);
@@ -323,10 +331,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         object? result = null;
         Type? matchedType = null;
 
-        await foreach (var evt in agent.RunAsync(
-            messages,
-            options: runConfig,
-            cancellationToken: ct))
+        using (agent.SubscribeAny(evt =>
         {
             context.EventCoordinator?.Emit(evt);
 
@@ -348,6 +353,13 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
                     }
                 }
             }
+            return ValueTask.CompletedTask;
+        }))
+        {
+            await agent.RunAsync(new UserMessagesInputEvent(messages)
+            {
+                RunConfig = runConfig
+            }, ct);
         }
 
         var outputs = FlattenToOutputs(result, matchedType);
@@ -399,10 +411,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
                 : runConfig.AdditionalSystemInstructions + handoffInstructions;
         }
 
-        await foreach (var evt in agent.RunAsync(
-            messages,
-            options: runConfig,
-            cancellationToken: ct))
+        using (agent.SubscribeAny(evt =>
         {
             context.EventCoordinator?.Emit(evt);
 
@@ -417,6 +426,13 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
             {
                 responseText.Append(textEvt.Text);
             }
+            return ValueTask.CompletedTask;
+        }))
+        {
+            await agent.RunAsync(new UserMessagesInputEvent(messages)
+            {
+                RunConfig = runConfig
+            }, ct);
         }
 
         if (selectedHandoff == null)

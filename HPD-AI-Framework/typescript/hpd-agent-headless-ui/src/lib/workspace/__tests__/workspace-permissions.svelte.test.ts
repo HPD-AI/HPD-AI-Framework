@@ -4,18 +4,19 @@
  * Tests for permission and clarification round-trips through WorkspaceImpl.
  *
  * Strategy: inject a FakeAgentClient via `_client` option. The fake captures
- * the EventHandlers passed by workspace.send() and exposes test helpers to
+ * the AgentClient event handlers registered by WorkspaceImpl and exposes test helpers to
  * fire synthetic events (permission requests, clarification requests, completion).
  *
- * This exercises the full workspace → AgentClient → EventHandlers → AgentState
+ * This exercises the full workspace → AgentClient.on(...) → AgentState
  * pipeline without a real server.
  */
 
 import { describe, it, expect, vi } from 'vitest';
 import { createWorkspace } from '../workspace.svelte.ts';
 import type { AgentClientLike, CreateWorkspaceOptions } from '../types.ts';
-import type { EventHandlers, PermissionResponse } from '@hpd/hpd-agent-client';
 import type {
+	AgentEvent,
+	AgentRunInputEvent,
 	Branch,
 	BranchMessage,
 	Session,
@@ -29,7 +30,11 @@ import type {
 	UpdateAgentRequest,
 	StoredAgentDto,
 	AssetReference,
+	EventSubscription,
+	PermissionRequestEvent,
+	ClarificationRequestEvent,
 } from '@hpd/hpd-agent-client';
+import { EventTypes } from '@hpd/hpd-agent-client';
 
 // ============================================
 // Helpers
@@ -42,17 +47,21 @@ async function tick(ms = 50): Promise<void> {
 // ============================================
 // FakeAgentClient
 //
-// Captures EventHandlers on stream() and exposes helpers to drive
-// synthetic events. stream() returns a Promise that resolves when
-// complete() is called (simulating MESSAGE_TURN_FINISHED).
+// Captures AgentClient handlers and exposes helpers to drive synthetic events.
+// run(USER_TEXT_INPUT) returns a Promise that resolves when complete() is called
+// (simulating MESSAGE_TURN_FINISHED).
 // ============================================
 
 class FakeAgentClient implements AgentClientLike {
-	#handlers: EventHandlers | null = null;
-	#resolveStream: (() => void) | null = null;
-	#streamCallCount = 0;
+	#typedHandlers = new Map<string, Array<(event: AgentEvent) => void | Promise<void>>>();
+	#anyHandlers: Array<(event: AgentEvent) => void | Promise<void>> = [];
+	#errorHandlers: Array<(error: Error) => void | Promise<void>> = [];
+	#resolveRun: (() => void) | null = null;
+	#runCallCount = 0;
 	#lastSessionId: string | null = null;
 	#lastBranchId: string | undefined = undefined;
+	#lastRunInput: AgentRunInputEvent | null = null;
+	#runInputs: AgentRunInputEvent[] = [];
 
 	// CRUD state — minimal stubs sufficient for init (one session, one branch)
 	readonly #sessions: Session[] = [
@@ -72,25 +81,62 @@ class FakeAgentClient implements AgentClientLike {
 		};
 	}
 
-	get streamCallCount() { return this.#streamCallCount; }
+	get runCallCount() { return this.#runCallCount; }
 	get lastSessionId() { return this.#lastSessionId; }
 	get lastBranchId() { return this.#lastBranchId; }
+	get lastRunInput() { return this.#lastRunInput; }
+	get runInputs() { return this.#runInputs; }
 
-	// ---- Streaming ----
+	// ---- Event runtime ----
 
-	async stream(
-		sessionId: string,
-		branchId: string | undefined,
-		_messages: Array<{ content: string; role?: string }>,
-		handlers: EventHandlers
-	): Promise<void> {
-		this.#streamCallCount++;
-		this.#lastSessionId = sessionId;
-		this.#lastBranchId = branchId;
-		this.#handlers = handlers;
+	on<TType extends AgentEvent['type']>(
+		type: TType,
+		handler: (event: Extract<AgentEvent, { type: TType }>) => void | Promise<void>
+	): EventSubscription {
+		const handlers = this.#typedHandlers.get(type) ?? [];
+		const stored = handler as (event: AgentEvent) => void | Promise<void>;
+		handlers.push(stored);
+		this.#typedHandlers.set(type, handlers);
+		return {
+			dispose: () => {
+				const next = (this.#typedHandlers.get(type) ?? []).filter((h) => h !== stored);
+				this.#typedHandlers.set(type, next);
+			}
+		};
+	}
+
+	onAny(handler: (event: AgentEvent) => void | Promise<void>): EventSubscription {
+		this.#anyHandlers.push(handler);
+		return {
+			dispose: () => {
+				this.#anyHandlers = this.#anyHandlers.filter((h) => h !== handler);
+			}
+		};
+	}
+
+	onError(handler: (error: Error) => void | Promise<void>): EventSubscription {
+		this.#errorHandlers.push(handler);
+		return {
+			dispose: () => {
+				this.#errorHandlers = this.#errorHandlers.filter((h) => h !== handler);
+			}
+		};
+	}
+
+	async run(input: AgentRunInputEvent): Promise<void> {
+		this.#runCallCount++;
+		this.#lastRunInput = input;
+		this.#runInputs.push(input);
+
+		if (input.type !== EventTypes.USER_TEXT_INPUT) {
+			return;
+		}
+
+		this.#lastSessionId = input.sessionId ?? null;
+		this.#lastBranchId = input.branchId;
 
 		return new Promise<void>((resolve) => {
-			this.#resolveStream = resolve;
+			this.#resolveRun = resolve;
 		});
 	}
 
@@ -160,13 +206,19 @@ class FakeAgentClient implements AgentClientLike {
 
 	// ---- Test helpers ----
 
-	/** Fire a PERMISSION_REQUEST event. Returns the promise that workspace resolves when approve/deny is called. */
-	async firePermissionRequest(permissionId: string): Promise<PermissionResponse> {
-		const handlers = this.#handlers;
-		if (!handlers?.onPermissionRequest) throw new Error('No permission handler registered');
+	async #emit(event: AgentEvent): Promise<void> {
+		for (const handler of this.#typedHandlers.get(event.type) ?? []) {
+			await handler(event);
+		}
+		for (const handler of this.#anyHandlers) {
+			await handler(event);
+		}
+	}
 
-		return handlers.onPermissionRequest({
-			type: 'PERMISSION_REQUEST',
+	/** Fire a PERMISSION_REQUEST event. */
+	async firePermissionRequest(permissionId: string): Promise<void> {
+		await this.#emit({
+			type: EventTypes.PERMISSION_REQUEST,
 			version: '1',
 			permissionId,
 			sourceName: 'test-tool',
@@ -174,44 +226,47 @@ class FakeAgentClient implements AgentClientLike {
 			description: 'Test permission',
 			callId: `call-${permissionId}`,
 			arguments: {}
-		});
+		} satisfies PermissionRequestEvent);
 	}
 
-	/** Fire a CLARIFICATION_REQUEST event. Returns the promise that workspace resolves when clarify() is called. */
-	async fireClarificationRequest(requestId: string): Promise<string> {
-		const handlers = this.#handlers;
-		if (!handlers?.onClarificationRequest) throw new Error('No clarification handler registered');
-
-		return handlers.onClarificationRequest({
-			type: 'CLARIFICATION_REQUEST',
+	/** Fire a CLARIFICATION_REQUEST event. */
+	async fireClarificationRequest(requestId: string): Promise<void> {
+		await this.#emit({
+			type: EventTypes.CLARIFICATION_REQUEST,
 			version: '1',
 			requestId,
 			sourceName: 'test-source',
 			question: 'What do you mean?',
 			agentName: 'TestAgent',
 			options: ['Option A', 'Option B']
-		});
+		} satisfies ClarificationRequestEvent);
 	}
 
-	/** Complete the stream (simulates MESSAGE_TURN_FINISHED). */
+	/** Complete the run (simulates MESSAGE_TURN_FINISHED). */
 	complete(): void {
-		this.#handlers?.onComplete?.();
-		this.#resolveStream?.();
-		this.#resolveStream = null;
-		this.#handlers = null;
+		void this.#emit({
+			type: EventTypes.MESSAGE_TURN_FINISHED,
+			version: '1',
+			messageTurnId: 'turn-1',
+			conversationId: 's1',
+			agentName: 'TestAgent',
+			duration: '00:00:00',
+			timestamp: new Date().toISOString()
+		});
+		this.#resolveRun?.();
+		this.#resolveRun = null;
 	}
 
-	/** Fail the stream with an error message. */
+	/** Fail the run with an error message. */
 	fail(message: string): void {
-		this.#handlers?.onError?.(message);
-		this.#resolveStream?.();
-		this.#resolveStream = null;
-		this.#handlers = null;
+		void this.#emit({ type: EventTypes.MESSAGE_TURN_ERROR, version: '1', message });
+		this.#resolveRun?.();
+		this.#resolveRun = null;
 	}
 
-	/** True if a stream is currently in progress (handlers captured, not yet resolved). */
+	/** True if a run is currently in progress. */
 	get isStreaming(): boolean {
-		return this.#resolveStream !== null;
+		return this.#resolveRun !== null;
 	}
 }
 
@@ -238,11 +293,11 @@ describe('createWorkspace — permission round-trip', () => {
 		const client = new FakeAgentClient();
 		const ws = await buildWorkspace(client);
 
-		// Start a stream (non-awaited — stream is held open by FakeAgentClient)
+		// Start a run (non-awaited — run is held open by FakeAgentClient)
 		const sendPromise = ws.send('hello');
 
 		// Fire a permission request into the workspace's event handlers
-		const permissionPromise = client.firePermissionRequest('perm-1');
+		await client.firePermissionRequest('perm-1');
 		await tick(50);
 
 		expect(ws.state?.pendingPermissions).toHaveLength(1);
@@ -251,7 +306,6 @@ describe('createWorkspace — permission round-trip', () => {
 		// Resolve so test doesn't hang
 		client.complete();
 		await sendPromise;
-		void permissionPromise;
 	});
 
 	it('canSend is false while permission is pending', async () => {
@@ -259,7 +313,7 @@ describe('createWorkspace — permission round-trip', () => {
 		const ws = await buildWorkspace(client);
 
 		const sendPromise = ws.send('hello');
-		client.firePermissionRequest('perm-1');
+		await client.firePermissionRequest('perm-1');
 		await tick(50);
 
 		expect(ws.state?.canSend).toBe(false);
@@ -268,47 +322,51 @@ describe('createWorkspace — permission round-trip', () => {
 		await sendPromise;
 	});
 
-	it('approve() resolves the permission request and removes it from pendingPermissions', async () => {
+	it('approve() sends a permission response event and removes it from pendingPermissions', async () => {
 		const client = new FakeAgentClient();
 		const ws = await buildWorkspace(client);
 
 		const sendPromise = ws.send('hello');
-		const permPromise = client.firePermissionRequest('perm-1');
+		await client.firePermissionRequest('perm-1');
 		await tick(50);
 
 		expect(ws.state?.pendingPermissions).toHaveLength(1);
 
-		// Approve — this should resolve the promise and remove from pendingPermissions
 		await ws.approve('perm-1', 'ask');
 		await tick(50);
 
 		expect(ws.state?.pendingPermissions).toHaveLength(0);
-
-		// The permPromise should have resolved with approved: true
-		const response = await permPromise;
-		expect(response.approved).toBe(true);
-		expect(response.choice).toBe('ask');
+		expect(client.lastRunInput).toMatchObject({
+			type: EventTypes.PERMISSION_RESPONSE,
+			permissionId: 'perm-1',
+			sourceName: 'test-tool',
+			approved: true,
+			choice: 'ask'
+		});
 
 		client.complete();
 		await sendPromise;
 	});
 
-	it('deny() resolves the permission request with approved: false', async () => {
+	it('deny() sends a permission response event with approved: false', async () => {
 		const client = new FakeAgentClient();
 		const ws = await buildWorkspace(client);
 
 		const sendPromise = ws.send('hello');
-		const permPromise = client.firePermissionRequest('perm-1');
+		await client.firePermissionRequest('perm-1');
 		await tick(50);
 
 		await ws.deny('perm-1', 'not allowed');
 		await tick(50);
 
 		expect(ws.state?.pendingPermissions).toHaveLength(0);
-
-		const response = await permPromise;
-		expect(response.approved).toBe(false);
-		expect(response.reason).toBe('not allowed');
+		expect(client.lastRunInput).toMatchObject({
+			type: EventTypes.PERMISSION_RESPONSE,
+			permissionId: 'perm-1',
+			sourceName: 'test-tool',
+			approved: false,
+			reason: 'not allowed'
+		});
 
 		client.complete();
 		await sendPromise;
@@ -337,9 +395,9 @@ describe('createWorkspace — permission round-trip', () => {
 
 		const sendPromise = ws.send('hello');
 
-		const perm1Promise = client.firePermissionRequest('perm-1');
+		await client.firePermissionRequest('perm-1');
 		await tick(30);
-		const perm2Promise = client.firePermissionRequest('perm-2');
+		await client.firePermissionRequest('perm-2');
 		await tick(50);
 
 		expect(ws.state?.pendingPermissions).toHaveLength(2);
@@ -355,10 +413,12 @@ describe('createWorkspace — permission round-trip', () => {
 		await tick(30);
 		expect(ws.state?.pendingPermissions).toHaveLength(0);
 
-		const r1 = await perm1Promise;
-		const r2 = await perm2Promise;
-		expect(r1.approved).toBe(true);
-		expect(r2.approved).toBe(true);
+		expect(client.runInputs).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ type: EventTypes.PERMISSION_RESPONSE, permissionId: 'perm-1', approved: true }),
+				expect.objectContaining({ type: EventTypes.PERMISSION_RESPONSE, permissionId: 'perm-2', approved: true })
+			])
+		);
 
 		client.complete();
 		await sendPromise;
@@ -375,7 +435,7 @@ describe('createWorkspace — clarification round-trip', () => {
 		const ws = await buildWorkspace(client);
 
 		const sendPromise = ws.send('hello');
-		const clarifPromise = client.fireClarificationRequest('clarif-1');
+		await client.fireClarificationRequest('clarif-1');
 		await tick(50);
 
 		expect(ws.state?.pendingClarifications).toHaveLength(1);
@@ -383,7 +443,6 @@ describe('createWorkspace — clarification round-trip', () => {
 
 		client.complete();
 		await sendPromise;
-		void clarifPromise;
 	});
 
 	it('canSend is false while clarification is pending', async () => {
@@ -391,7 +450,7 @@ describe('createWorkspace — clarification round-trip', () => {
 		const ws = await buildWorkspace(client);
 
 		const sendPromise = ws.send('hello');
-		client.fireClarificationRequest('clarif-1');
+		await client.fireClarificationRequest('clarif-1');
 		await tick(50);
 
 		expect(ws.state?.canSend).toBe(false);
@@ -400,12 +459,12 @@ describe('createWorkspace — clarification round-trip', () => {
 		await sendPromise;
 	});
 
-	it('clarify() resolves the clarification and removes it from pendingClarifications', async () => {
+	it('clarify() sends a clarification response event', async () => {
 		const client = new FakeAgentClient();
 		const ws = await buildWorkspace(client);
 
 		const sendPromise = ws.send('hello');
-		const clarifPromise = client.fireClarificationRequest('clarif-1');
+		await client.fireClarificationRequest('clarif-1');
 		await tick(50);
 
 		expect(ws.state?.pendingClarifications).toHaveLength(1);
@@ -413,9 +472,13 @@ describe('createWorkspace — clarification round-trip', () => {
 		await ws.clarify('clarif-1', 'my answer');
 		await tick(50);
 
-		// The clarification promise should resolve with the answer
-		const answer = await clarifPromise;
-		expect(answer).toBe('my answer');
+		expect(client.lastRunInput).toMatchObject({
+			type: EventTypes.CLARIFICATION_RESPONSE,
+			requestId: 'clarif-1',
+			sourceName: 'test-source',
+			question: 'What do you mean?',
+			answer: 'my answer'
+		});
 
 		client.complete();
 		await sendPromise;
@@ -434,7 +497,7 @@ describe('createWorkspace — clarification round-trip', () => {
 		const ws = await buildWorkspace(client);
 
 		const sendPromise = ws.send('hello');
-		const clarifPromise = client.fireClarificationRequest('clarif-1');
+		await client.fireClarificationRequest('clarif-1');
 		await tick(50);
 
 		const pending = ws.state?.pendingClarifications[0];
@@ -443,16 +506,15 @@ describe('createWorkspace — clarification round-trip', () => {
 
 		client.complete();
 		await sendPromise;
-		void clarifPromise;
 	});
 });
 
 // ============================================
-// Group C: stream() is called with correct session + branch
+// Group C: run() is called with correct session + branch
 // ============================================
 
 describe('createWorkspace — send() targets correct session and branch', () => {
-	it('send() calls client.stream with activeSessionId and activeBranchId', async () => {
+	it('send() calls client.run with activeSessionId and activeBranchId', async () => {
 		const client = new FakeAgentClient();
 		const ws = await buildWorkspace(client);
 
@@ -480,15 +542,15 @@ describe('createWorkspace — send() targets correct session and branch', () => 
 		client.complete();
 		await p2;
 
-		expect(client.streamCallCount).toBe(2);
+		expect(client.runCallCount).toBe(2);
 	});
 });
 
 // ============================================
-// Group D: stream error path
+// Group D: run error path
 // ============================================
 
-describe('createWorkspace — stream error handling', () => {
+describe('createWorkspace — run error handling', () => {
 	it('onError sets error message on AgentState', async () => {
 		const client = new FakeAgentClient();
 		const ws = await buildWorkspace(client);
@@ -521,6 +583,6 @@ describe('createWorkspace — stream error handling', () => {
 		client.complete();
 		await p2;
 
-		expect(client.streamCallCount).toBe(2);
+		expect(client.runCallCount).toBe(2);
 	});
 });

@@ -40,7 +40,7 @@ public class StructuredOutputToolModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -80,7 +80,7 @@ public class StructuredOutputToolModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -115,7 +115,7 @@ public class StructuredOutputToolModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -157,7 +157,7 @@ public class StructuredOutputToolModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -221,7 +221,7 @@ public class StructuredOutputToolModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -262,7 +262,7 @@ public class StructuredOutputToolModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -300,7 +300,7 @@ public class StructuredOutputToolModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<TestResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<TestResponse>("test", options: options))
         {
             events.Add(evt);
         }
@@ -334,7 +334,7 @@ public class StructuredOutputToolModeTests
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredAsync<ArrayResponse>("test", options: options))
+        await foreach (var evt in agent.RunStructuredStreamAsync<ArrayResponse>("test", options: options))
         {
             events.Add(evt);
         }

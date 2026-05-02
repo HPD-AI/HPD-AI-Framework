@@ -2,9 +2,9 @@
 export { AgentClient } from './client.js';
 export type {
   AgentClientConfig,
-  EventHandlers,
-  PermissionResponse,
-  StreamOptions,
+  AgentEventHandler,
+  EventSubscription,
+  MaybePromise,
   TransportType,
 } from './client.js';
 

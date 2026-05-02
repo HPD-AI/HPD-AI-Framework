@@ -50,7 +50,9 @@ Both layers are configured via `AgentBuilder` methods. The `ObservabilityConfig`
 .WithObserver(myObserver)       // implements IAgentEventObserver
 
 // Synchronous — executes in order, can inspect/transform events
-.WithEventHandler(myHandler)    // implements IAgentEventHandler
+// Ordered application output handlers are registered on the built agent:
+agent.On<TextDeltaEvent>(e => { Console.Write(e.Text); return ValueTask.CompletedTask; });
+agent.OnAny(e => { /* forward to diagnostics or a websocket */ return ValueTask.CompletedTask; });
 ```
 
 ---

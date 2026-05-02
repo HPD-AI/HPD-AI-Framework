@@ -29,12 +29,8 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
         branch.AddMessage(UserMessage("Hi"));
 
         // Act
-        var events = new List<AgentEvent>();
         var messages = branch.Messages;
-        await foreach (var evt in agent.RunAsync(messages, session: session, branch: branch, cancellationToken: TestCancellationToken))
-        {
-            events.Add(evt);
-        }
+        var events = await RunAndCollectAsync(agent, messages, session, branch);
 
         // Assert: Should not contain any background events
         Assert.DoesNotContain(events, e => e is BackgroundOperationStartedEvent);
@@ -58,12 +54,8 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         // Act: Override at run level to disable
         var options = new AgentRunConfig { AllowBackgroundResponses = false };
-        var events = new List<AgentEvent>();
         var messages = branch.Messages;
-        await foreach (var evt in agent.RunAsync(messages, session: session, branch: branch, options: options, cancellationToken: TestCancellationToken))
-        {
-            events.Add(evt);
-        }
+        var events = await RunAndCollectAsync(agent, messages, session, branch, options);
 
         // Assert: Background events should not be emitted when disabled at run level
         Assert.DoesNotContain(events, e => e is BackgroundOperationStartedEvent);
@@ -136,10 +128,11 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         // Act
         var messages = branch.Messages;
-        await foreach (var evt in agent.RunAsync(messages, session: session, branch: branch, cancellationToken: TestCancellationToken))
+        await agent.RunAsync(new UserMessagesInputEvent(messages)
         {
-            // Consume all events
-        }
+            Session = session,
+            Branch = branch
+        }, TestCancellationToken);
 
         // Assert: ExecutionState should not have active background operation after completion
         // (This is set during streaming when continuation token becomes null)
@@ -245,12 +238,8 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
         branch.AddMessage(UserMessage("Hi"));
 
         // Act
-        var events = new List<AgentEvent>();
         var messages = branch.Messages;
-        await foreach (var evt in agent.RunAsync(messages, session: session, branch: branch, cancellationToken: TestCancellationToken))
-        {
-            events.Add(evt);
-        }
+        var events = await RunAndCollectAsync(agent, messages, session, branch);
 
         // Assert: Should have text delta events
         var textEvents = events.OfType<TextDeltaEvent>().ToList();
@@ -273,12 +262,8 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
         branch.AddMessage(UserMessage("Complete my task"));
 
         // Act
-        var events = new List<AgentEvent>();
         var messages = branch.Messages;
-        await foreach (var evt in agent.RunAsync(messages, session: session, branch: branch, cancellationToken: TestCancellationToken))
-        {
-            events.Add(evt);
-        }
+        var events = await RunAndCollectAsync(agent, messages, session, branch);
 
         // Assert: Should have turn finished event
         Assert.Contains(events, e => e is MessageTurnFinishedEvent);
@@ -316,12 +301,8 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         // Act: This tests that the token is accepted and passed through
         // The actual behavior depends on provider support
-        var events = new List<AgentEvent>();
         var messages = branch.Messages;
-        await foreach (var evt in agent.RunAsync(messages, session: session, branch: branch, options: options, cancellationToken: TestCancellationToken))
-        {
-            events.Add(evt);
-        }
+        var events = await RunAndCollectAsync(agent, messages, session, branch, options);
 
         // Assert: Agent should complete without error
         Assert.Contains(events, e => e is MessageTurnFinishedEvent);
@@ -388,10 +369,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
         branch1.AddMessage(UserMessage("Request 1"));
         var events1 = new List<AgentEvent>();
         var messages1 = branch1.Messages;
-        await foreach (var evt in agent.RunAsync(messages1, session: session1, branch: branch1, cancellationToken: TestCancellationToken))
-        {
-            events1.Add(evt);
-        }
+        events1.AddRange(await RunAndCollectAsync(agent, messages1, session1, branch1));
 
         // Run 2: With background disabled (via options override)
         var session2 = new global::HPD.Agent.Session("test-session-2");
@@ -400,10 +378,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
         var options2 = new AgentRunConfig { AllowBackgroundResponses = false };
         var events2 = new List<AgentEvent>();
         var messages2 = branch2.Messages;
-        await foreach (var evt in agent.RunAsync(messages2, session: session2, branch: branch2, options: options2, cancellationToken: TestCancellationToken))
-        {
-            events2.Add(evt);
-        }
+        events2.AddRange(await RunAndCollectAsync(agent, messages2, session2, branch2, options2));
 
         // Assert: Both runs should complete successfully
         Assert.Contains(events1, e => e is MessageTurnFinishedEvent);
@@ -411,4 +386,28 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
     }
 
     #endregion
+
+    private async Task<List<AgentEvent>> RunAndCollectAsync(
+        Agent agent,
+        IReadOnlyList<ChatMessage> messages,
+        global::HPD.Agent.Session session,
+        Branch branch,
+        AgentRunConfig? options = null)
+    {
+        var events = new List<AgentEvent>();
+        using var subscription = agent.SubscribeAny(evt =>
+        {
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        await agent.RunAsync(new UserMessagesInputEvent(messages)
+        {
+            Session = session,
+            Branch = branch,
+            RunConfig = options
+        }, TestCancellationToken);
+
+        return events;
+    }
 }

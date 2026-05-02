@@ -1,5 +1,4 @@
 using HPD.Agent.Serialization;
-using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Integrations;
 
@@ -35,7 +34,7 @@ public static class AspNetCoreExtensions
     /// <remarks>
     /// <para>
     /// This method creates a POST endpoint that:
-    /// - Accepts a JSON body with messages
+    /// - Accepts a JSON agent input event
     /// - Streams agent events as SSE
     /// - Uses standard event serialization format
     /// </para>
@@ -46,9 +45,9 @@ public static class AspNetCoreExtensions
     /// Content-Type: application/json
     ///
     /// {
-    ///   "messages": [
-    ///     { "content": "Hello, agent!" }
-    ///   ]
+    ///   "version": "1.0",
+    ///   "type": "USER_TEXT_INPUT",
+    ///   "text": "Hello, agent!"
     /// }
     /// </code>
     /// </para>
@@ -93,19 +92,6 @@ public static class AspNetCoreExtensions
 }
 
 /// <summary>
-/// Request model for agent streaming endpoints.
-/// </summary>
-/// <param name="Messages">List of user messages to send to the agent.</param>
-public record StreamRequest(List<MessageInput> Messages);
-
-/// <summary>
-/// A single message input.
-/// </summary>
-/// <param name="Content">The message content.</param>
-/// <param name="Role">Optional role (defaults to "user").</param>
-public record MessageInput(string Content, string? Role = null);
-
-/// <summary>
 /// Helper class for manually implementing SSE endpoints.
 /// </summary>
 /// <remarks>
@@ -117,7 +103,7 @@ public static class SseHelper
     /// Streams agent events as SSE data lines.
     /// </summary>
     /// <param name="agent">The agent to run.</param>
-    /// <param name="messages">The messages to send to the agent.</param>
+    /// <param name="input">The input event to send to the agent.</param>
     /// <param name="writeAsync">Async function to write SSE data.</param>
     /// <param name="flushAsync">Async function to flush the response.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -125,19 +111,15 @@ public static class SseHelper
     /// <example>
     /// <code>
     /// // In an ASP.NET Core minimal API
-    /// app.MapPost("/agent/stream", async (HttpContext context, StreamRequest request) =>
+    /// app.MapPost("/agent/stream", async (HttpContext context, UserTextInputEvent input) =>
     /// {
     ///     context.Response.ContentType = "text/event-stream";
     ///     context.Response.Headers.CacheControl = "no-cache";
     ///
     ///     var agent = CreateAgent();
-    ///     var messages = request.Messages
-    ///         .Select(m => new ChatMessage(ChatRole.User, m.Content))
-    ///         .ToList();
-    ///
     ///     await SseHelper.StreamEventsAsync(
     ///         agent,
-    ///         messages,
+    ///         input,
     ///         data => context.Response.WriteAsync($"data: {data}\n\n"),
     ///         () => context.Response.Body.FlushAsync(),
     ///         context.RequestAborted
@@ -147,52 +129,56 @@ public static class SseHelper
     /// </example>
     public static async Task StreamEventsAsync(
         Agent agent,
-        IList<ChatMessage> messages,
+        AgentEvent input,
         Func<string, Task> writeAsync,
         Func<Task> flushAsync,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(agent);
-        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(writeAsync);
         ArgumentNullException.ThrowIfNull(flushAsync);
 
-        await foreach (var evt in agent.RunAsync(messages, options: (AgentRunConfig?)null, cancellationToken: cancellationToken))
+        using var subscription = agent.SubscribeAny((Func<AgentEvent, Task>)(async evt =>
         {
             var json = AgentEventSerializer.ToJson(evt);
             await writeAsync($"data: {json}\n\n");
             await flushAsync();
-        }
+        }));
+
+        await agent.RunAsync(input, cancellationToken);
     }
 
     /// <summary>
     /// Streams agent events as SSE with a custom serializer.
     /// </summary>
     /// <param name="agent">The agent to run.</param>
-    /// <param name="messages">The messages to send to the agent.</param>
+    /// <param name="input">The input event to send to the agent.</param>
     /// <param name="writeAsync">Async function to write SSE data.</param>
     /// <param name="flushAsync">Async function to flush the response.</param>
     /// <param name="eventSerializer">Custom event serializer function.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public static async Task StreamEventsAsync(
         Agent agent,
-        IList<ChatMessage> messages,
+        AgentEvent input,
         Func<string, Task> writeAsync,
         Func<Task> flushAsync,
         Func<AgentEvent, string> eventSerializer,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(agent);
-        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(writeAsync);
         ArgumentNullException.ThrowIfNull(flushAsync);
         ArgumentNullException.ThrowIfNull(eventSerializer);
 
-        await foreach (var evt in agent.RunAsync(messages, options: (AgentRunConfig?)null, cancellationToken: cancellationToken))
+        using var subscription = agent.SubscribeAny((Func<AgentEvent, Task>)(async evt =>
         {
             var json = eventSerializer(evt);
             await writeAsync($"data: {json}\n\n");
             await flushAsync();
-        }
+        }));
+
+        await agent.RunAsync(input, cancellationToken);
     }
 }

@@ -32,9 +32,17 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
 
         // Run agent (async for LLM)
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunAsync(Array.Empty<ChatMessage>(), session: session, branch: branch, cancellationToken: TestCancellationToken))
+        using (var subscription = agent.SubscribeAny(evt =>
         {
             events.Add(evt);
+            return ValueTask.CompletedTask;
+        }))
+        {
+            await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
+            {
+                Session = session,
+                Branch = branch
+            }, TestCancellationToken);
         }
 
         // Assert - sync API works after agent run
@@ -70,10 +78,11 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
         Assert.Equal(4, branch.MessageCount);
 
         // Run agent
-        await foreach (var evt in agent.RunAsync(Array.Empty<ChatMessage>(), session: session, branch: branch, cancellationToken: TestCancellationToken))
+        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
         {
-            // Just consume events
-        }
+            Session = session,
+            Branch = branch
+        }, TestCancellationToken);
 
         // Assert - agent processed the history
         Assert.True(branch.MessageCount > 4);
@@ -113,17 +122,21 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
 
         // Act - add message and run agent
         branch.AddMessage(new ChatMessage(ChatRole.User, "Question 1"));
-        await foreach (var evt in agent.RunAsync(Array.Empty<ChatMessage>(), session: session, branch: branch, cancellationToken: TestCancellationToken))
+        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
         {
-        }
+            Session = session,
+            Branch = branch
+        }, TestCancellationToken);
 
         var countAfterFirstRun = branch.MessageCount;
 
         // Add another message and run again
         branch.AddMessage(new ChatMessage(ChatRole.User, "Question 2"));
-        await foreach (var evt in agent.RunAsync(Array.Empty<ChatMessage>(), session: session, branch: branch, cancellationToken: TestCancellationToken))
+        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
         {
-        }
+            Session = session,
+            Branch = branch
+        }, TestCancellationToken);
 
         var countAfterSecondRun = branch.MessageCount;
 
@@ -152,9 +165,11 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
         var countAfterUserMessage = branch.MessageCount;
         Assert.Equal(1, countAfterUserMessage);
 
-        await foreach (var evt in agent.RunAsync(Array.Empty<ChatMessage>(), session: session, branch: branch, cancellationToken: TestCancellationToken))
+        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
         {
-        }
+            Session = session,
+            Branch = branch
+        }, TestCancellationToken);
 
         var countAfterAgentRun = branch.MessageCount;
 
@@ -188,9 +203,11 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
         Assert.Equal(4, branch.Messages.Count);
 
         // Run agent with mixed history
-        await foreach (var evt in agent.RunAsync(Array.Empty<ChatMessage>(), session: session, branch: branch, cancellationToken: TestCancellationToken))
+        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
         {
-        }
+            Session = session,
+            Branch = branch
+        }, TestCancellationToken);
 
         Assert.True(branch.MessageCount > 4);
     }

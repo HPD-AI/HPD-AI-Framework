@@ -32,6 +32,10 @@ public static partial class AgentEventSerializer
     /// </summary>
     private static readonly Dictionary<Type, string> TypeNames = new()
     {
+        // Input Events
+        [typeof(UserTextInputEvent)] = EventTypes.Input.USER_TEXT_INPUT,
+        [typeof(UserMessagesInputEvent)] = EventTypes.Input.USER_MESSAGES_INPUT,
+
         // Message Turn Events
         [typeof(MessageTurnStartedEvent)] = EventTypes.MessageTurn.MESSAGE_TURN_STARTED,
         [typeof(MessageTurnFinishedEvent)] = EventTypes.MessageTurn.MESSAGE_TURN_FINISHED,

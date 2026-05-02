@@ -1,8 +1,9 @@
-import type { AgentEvent } from '../types/events.js';
+import type { AgentEvent, AgentRunInputEvent } from '../types/events.js';
+import { EventTypes } from '../types/events.js';
 import type {
   AgentTransport,
-  ClientMessage,
-  ConnectOptions,
+  RunTransportOptions,
+  RuntimeScope,
 } from '../types/transport.js';
 import type {
   Session,
@@ -60,52 +61,43 @@ export class SseTransport implements AgentTransport {
     return this._connected;
   }
 
-  async connect(options: ConnectOptions): Promise<void> {
+  async connect(scope?: RuntimeScope): Promise<void> {
     if (this._connected) {
       throw new Error('Already connected. Call disconnect() first.');
     }
 
-    this.sessionId = options.sessionId;
-    this.branchId = options.branchId || 'main';
+    this.sessionId = scope?.sessionId;
+    this.branchId = scope?.branchId || 'main';
+  }
+
+  async run(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<void> {
+    const sessionId = 'sessionId' in input ? input.sessionId : undefined;
+    const branchId = 'branchId' in input ? input.branchId : undefined;
+
+    this.sessionId = sessionId ?? this.sessionId;
+    this.branchId = branchId ?? this.branchId ?? 'main';
+
+    if (this.isMiddlewareResponse(input)) {
+      await this.postMiddlewareResponse(input);
+      return;
+    }
+
+    if (this._connected) {
+      throw new Error('Already connected. Call disconnect() first.');
+    }
+
+    if (!this.sessionId) {
+      throw new Error('Input event must include sessionId for SSE run()');
+    }
+
     this.abortController = new AbortController();
 
     // Combine user signal with our internal abort controller
-    const signal = options.signal
+    const signal = options?.signal
       ? this.combineSignals(options.signal, this.abortController.signal)
       : this.abortController.signal;
 
     const url = `${this.baseUrl}/sessions/${this.sessionId}/branches/${this.branchId}/stream`;
-
-    // Build request body with all stream options
-    const requestBody: Record<string, unknown> = {
-      messages: options.messages,
-    };
-
-    // Include client tools configuration
-    if (options.clientToolKits && options.clientToolKits.length > 0) {
-      requestBody.clientToolKits = options.clientToolKits;
-    }
-    if (options.context && options.context.length > 0) {
-      requestBody.context = options.context;
-    }
-    if (options.state !== undefined) {
-      requestBody.state = options.state;
-    }
-    if (options.expandedContainers && options.expandedContainers.length > 0) {
-      requestBody.expandedContainers = options.expandedContainers;
-    }
-    if (options.hiddenTools && options.hiddenTools.length > 0) {
-      requestBody.hiddenTools = options.hiddenTools;
-    }
-    if (options.resetClientState) {
-      requestBody.resetClientState = options.resetClientState;
-    }
-    if (options.runConfig !== undefined) {
-      requestBody.runConfig = options.runConfig;
-    }
-    if (options.agentId !== undefined) {
-      requestBody.agentId = options.agentId;
-    }
 
     const response = await fetch(url, {
       method: 'POST',
@@ -113,7 +105,11 @@ export class SseTransport implements AgentTransport {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify({
+        ...input,
+        sessionId: this.sessionId,
+        branchId: this.branchId,
+      }),
       signal,
     });
 
@@ -164,12 +160,18 @@ export class SseTransport implements AgentTransport {
     }
   }
 
-  async send(message: ClientMessage): Promise<void> {
+  private isMiddlewareResponse(input: AgentRunInputEvent): boolean {
+    return input.type === EventTypes.PERMISSION_RESPONSE ||
+      input.type === EventTypes.CONTINUATION_RESPONSE ||
+      input.type === EventTypes.CLARIFICATION_RESPONSE ||
+      input.type === EventTypes.CLIENT_TOOL_INVOKE_RESPONSE;
+  }
+
+  private async postMiddlewareResponse(message: AgentRunInputEvent): Promise<void> {
     if (!this.sessionId || !this.branchId) {
       throw new Error('Not connected');
     }
 
-    // SSE is unidirectional - send via separate HTTP request
     const endpoint = this.getEndpointForMessage(message);
 
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
@@ -184,15 +186,15 @@ export class SseTransport implements AgentTransport {
     }
   }
 
-  private getEndpointForMessage(message: ClientMessage): string {
+  private getEndpointForMessage(message: AgentRunInputEvent): string {
     switch (message.type) {
-      case 'permission_response':
+      case EventTypes.PERMISSION_RESPONSE:
         return `/sessions/${this.sessionId}/branches/${this.branchId}/permissions/respond`;
-      case 'clarification_response':
+      case EventTypes.CONTINUATION_RESPONSE:
+        return `/sessions/${this.sessionId}/branches/${this.branchId}/continuation/respond`;
+      case EventTypes.CLARIFICATION_RESPONSE:
         return `/sessions/${this.sessionId}/branches/${this.branchId}/clarifications/respond`;
-      case 'continuation_response':
-        return `/sessions/${this.sessionId}/branches/${this.branchId}/continuations/respond`;
-      case 'client_tool_response':
+      case EventTypes.CLIENT_TOOL_INVOKE_RESPONSE:
         return `/sessions/${this.sessionId}/branches/${this.branchId}/client-tools/respond`;
       default:
         throw new Error(`Unknown message type: ${(message as { type: string }).type}`);

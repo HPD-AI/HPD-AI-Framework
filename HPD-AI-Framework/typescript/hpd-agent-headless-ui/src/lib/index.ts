@@ -35,7 +35,8 @@ export type {
 	ClientToolInvokeResponse,
 	ClientToolInvokeRequestEvent,
 	PermissionChoice,
-	PermissionResponse,
+	AgentRunInputEvent,
+	AgentEvent,
 	// Agent definition types
 	AgentSummaryDto,
 	StoredAgentDto,

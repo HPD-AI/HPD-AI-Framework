@@ -31,12 +31,10 @@
 
 import {
 	AgentClient,
+	EventTypes,
 	createErrorResponse,
-	type EventHandlers,
+	type AgentRunInputEvent,
 	type PermissionChoice,
-	type PermissionResponse,
-	type StreamOptions,
-	type RunConfig,
 	type Branch,
 	type BranchMessage,
 	type AssetReference,
@@ -160,9 +158,9 @@ class WorkspaceImpl implements Workspace {
 
 	readonly #pendingPermissionResolvers = new Map<
 		string,
-		(response: PermissionResponse) => void
+		{ sourceName: string }
 	>();
-	readonly #pendingClarificationResolvers = new Map<string, (answer: string) => void>();
+	readonly #pendingClarificationResolvers = new Map<string, { sourceName: string; question: string }>();
 
 	// ==========================================
 	// Derived state ($derived.by)
@@ -246,8 +244,10 @@ class WorkspaceImpl implements Workspace {
 			baseUrl: options.baseUrl,
 			transport: options.transport ?? 'sse',
 			headers: options.headers,
-			clientToolKits: options.clientToolKits
+			clientToolKits: options.clientToolKits,
+			onClientToolInvoke: options.onClientToolInvoke
 		});
+		this.#registerClientHandlers();
 
 		// Kick off async init (loading flag covers UI during this)
 		void this.#init();
@@ -319,19 +319,20 @@ class WorkspaceImpl implements Workspace {
 
 	async #loadBranch(sessionId: string, branchId: string): Promise<void> {
 		const cacheKey = `${sessionId}:${branchId}`;
-		const rawMessages = await this.#client.getBranchMessages(sessionId, branchId);
-		const mapped = mapToUIMessages(rawMessages);
-
 		const existing = this.#branchStates.get(cacheKey);
 		if (existing) {
-			existing.loadHistory(mapped);
+			this.#branchAccessTimestamps.set(cacheKey, Date.now());
+			this.#activeBranchId = branchId;
+			return;
 		} else {
+			const rawMessages = await this.#client.getBranchMessages(sessionId, branchId);
+			const mapped = mapToUIMessages(rawMessages);
 			const state = new AgentState();
 			state.loadHistory(mapped);
 			this.#branchStates.set(cacheKey, state);
+			this.#branchAccessTimestamps.set(cacheKey, Date.now());
 		}
 
-		this.#branchAccessTimestamps.set(cacheKey, Date.now());
 		this.#activeBranchId = branchId;
 		this.#evictOldBranchStates();
 	}
@@ -372,193 +373,196 @@ class WorkspaceImpl implements Workspace {
 	}
 
 	// ==========================================
-	// Internal: build streaming event handlers
+	// Internal: register client event handlers
 	// ==========================================
 
-	#buildEventHandlers(): EventHandlers {
-		return {
-			// Core events → dispatch to active AgentState
-			onEvent: (event) => {
-				this.#activeState()?.dispatch(event);
-			},
+	#registerClientHandlers(): void {
+		this.#client.onAny((event) => {
+			this.#activeState()?.dispatch(event);
+		});
 
-			// Permission request — add to state, pause stream until resolved
-			onPermissionRequest: async (request) => {
-				this.#activeState()?.onPermissionRequest({
-					permissionId: request.permissionId,
-					sourceName: request.sourceName,
-					functionName: request.functionName,
-					description: request.description,
-					callId: request.callId,
-					arguments: request.arguments
-				});
+		this.#client.on(EventTypes.PERMISSION_REQUEST, (request) => {
+			this.#activeState()?.onPermissionRequest({
+				permissionId: request.permissionId,
+				sourceName: request.sourceName,
+				functionName: request.functionName,
+				description: request.description,
+				callId: request.callId,
+				arguments: request.arguments
+			});
+			this.#pendingPermissionResolvers.set(request.permissionId, {
+				sourceName: request.sourceName
+			});
+		});
 
-				return new Promise<PermissionResponse>((resolve) => {
-					this.#pendingPermissionResolvers.set(request.permissionId, resolve);
-				});
-			},
+		this.#client.on(EventTypes.CLARIFICATION_REQUEST, (request) => {
+			this.#activeState()?.onClarificationRequest({
+				requestId: request.requestId,
+				sourceName: request.sourceName,
+				question: request.question,
+				agentName: request.agentName,
+				options: request.options
+			});
+			this.#pendingClarificationResolvers.set(request.requestId, {
+				sourceName: request.sourceName,
+				question: request.question
+			});
+		});
 
-			// Clarification request — add to state, pause stream until resolved
-			onClarificationRequest: async (request) => {
-				this.#activeState()?.onClarificationRequest({
-					requestId: request.requestId,
-					sourceName: request.sourceName,
-					question: request.question,
-					agentName: request.agentName,
-					options: request.options
-				});
+		this.#client.on(EventTypes.CONTINUATION_REQUEST, async (request) => {
+			await this.#client.run({
+				type: EventTypes.CONTINUATION_RESPONSE,
+				continuationId: request.continuationId,
+				sourceName: request.sourceName,
+				approved: true
+			});
+		});
 
-				return new Promise<string>((resolve) => {
-					this.#pendingClarificationResolvers.set(request.requestId, resolve);
-				});
-			},
-
-			// Continuation request — auto-continue
-			onContinuationRequest: async (_request) => true,
-
-			// Client tool invocations → user's handler
-			onClientToolInvoke: async (request) => {
-				if (this.#options.onClientToolInvoke) {
-					return await this.#options.onClientToolInvoke(request);
-				}
-				return createErrorResponse(
+		this.#client.on(EventTypes.CLIENT_TOOL_INVOKE_REQUEST, async (request) => {
+			if (!this.#options.onClientToolInvoke) {
+				const response = createErrorResponse(
 					request.requestId,
 					`No onClientToolInvoke handler registered for tool: ${request.toolName}`
 				);
-			},
-
-			onclientToolKitsRegistered: (event) => {
-				this.#activeState()?.onclientToolKitsRegistered(
-					event.registeredToolKits,
-					event.totalTools,
-					event.timestamp
-				);
-			},
-
-			// Lifecycle
-			onComplete: () => {
-				this.#options.onComplete?.();
-			},
-
-			onError: (message) => {
-				this.#activeState()?.onMessageTurnError(message);
-				this.#options.onError?.(message);
-			},
-
-			// Audio (TTS)
-			onSynthesisStarted: (event) => {
-				this.#activeState()?.onSynthesisStarted(
-					event.synthesisId,
-					event.modelId,
-					event.voice,
-					event.streamId
-				);
-			},
-
-			onAudioChunk: (event) => {
-				this.#activeState()?.onAudioChunk(
-					event.synthesisId,
-					event.base64Audio,
-					event.mimeType,
-					event.chunkIndex,
-					event.duration,
-					event.isLast,
-					event.streamId
-				);
-			},
-
-			onSynthesisCompleted: (event) => {
-				this.#activeState()?.onSynthesisCompleted(
-					event.synthesisId,
-					event.wasInterrupted,
-					event.totalChunks,
-					event.deliveredChunks,
-					event.streamId
-				);
-			},
-
-			// Audio (STT)
-			onTranscriptionDelta: (event) => {
-				this.#activeState()?.onTranscriptionDelta(
-					event.transcriptionId,
-					event.text,
-					event.isFinal,
-					event.confidence
-				);
-			},
-
-			onTranscriptionCompleted: (event) => {
-				this.#activeState()?.onTranscriptionCompleted(
-					event.transcriptionId,
-					event.finalText,
-					event.processingDuration
-				);
-			},
-
-			// Audio (Interruption)
-			onUserInterrupted: (event) => {
-				this.#activeState()?.onUserInterrupted(event.transcribedText);
-			},
-
-			onSpeechPaused: (event) => {
-				this.#activeState()?.onSpeechPaused(event.synthesisId, event.reason);
-			},
-
-			onSpeechResumed: (event) => {
-				this.#activeState()?.onSpeechResumed(event.synthesisId, event.pauseDuration);
-			},
-
-			// Audio (Preemptive generation)
-			onPreemptiveGenerationStarted: (event) => {
-				this.#activeState()?.onPreemptiveGenerationStarted(
-					event.generationId,
-					event.turnCompletionProbability
-				);
-			},
-
-			onPreemptiveGenerationDiscarded: (event) => {
-				this.#activeState()?.onPreemptiveGenerationDiscarded(
-					event.generationId,
-					event.reason
-				);
-			},
-
-			// Audio (VAD)
-			onVadStartOfSpeech: (event) => {
-				this.#activeState()?.onVadStartOfSpeech(event.timestamp, event.speechProbability);
-			},
-
-			onVadEndOfSpeech: (event) => {
-				this.#activeState()?.onVadEndOfSpeech(
-					event.timestamp,
-					event.speechDuration,
-					event.speechProbability
-				);
-			},
-
-			// Audio (Metrics/Turn/Filler)
-			onAudioPipelineMetrics: (event) => {
-				this.#activeState()?.onAudioPipelineMetrics(
-					event.metricType,
-					event.metricName,
-					event.value,
-					event.unit
-				);
-			},
-
-			onTurnDetected: (event) => {
-				this.#activeState()?.onTurnDetected(
-					event.transcribedText,
-					event.completionProbability,
-					event.silenceDuration,
-					event.detectionMethod
-				);
-			},
-
-			onFillerAudioPlayed: (event) => {
-				this.#activeState()?.onFillerAudioPlayed(event.phrase, event.duration);
+				await this.#client.run({
+					type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
+					requestId: response.requestId,
+					content: response.content,
+					success: response.success,
+					errorMessage: response.errorMessage,
+					augmentation: response.augmentation
+				});
 			}
-		};
+		});
+
+		this.#client.on(EventTypes.CLIENT_TOOL_GROUPS_REGISTERED, (event) => {
+			this.#activeState()?.onclientToolKitsRegistered(
+				event.registeredToolKits,
+				event.totalTools,
+				event.timestamp
+			);
+		});
+
+		this.#client.on(EventTypes.MESSAGE_TURN_FINISHED, () => {
+			this.#options.onComplete?.();
+		});
+
+		this.#client.on(EventTypes.MESSAGE_TURN_ERROR, (event) => {
+			this.#activeState()?.onMessageTurnError(event.message);
+			this.#options.onError?.(event.message);
+		});
+
+		this.#client.onError((error) => {
+			this.#options.onError?.(error.message);
+		});
+
+		this.#client.on(EventTypes.SYNTHESIS_STARTED, (event) => {
+			this.#activeState()?.onSynthesisStarted(
+				event.synthesisId,
+				event.modelId,
+				event.voice,
+				event.streamId
+			);
+		});
+
+		this.#client.on(EventTypes.AUDIO_CHUNK, (event) => {
+			this.#activeState()?.onAudioChunk(
+				event.synthesisId,
+				event.base64Audio,
+				event.mimeType,
+				event.chunkIndex,
+				event.duration,
+				event.isLast,
+				event.streamId
+			);
+		});
+
+		this.#client.on(EventTypes.SYNTHESIS_COMPLETED, (event) => {
+			this.#activeState()?.onSynthesisCompleted(
+				event.synthesisId,
+				event.wasInterrupted,
+				event.totalChunks,
+				event.deliveredChunks,
+				event.streamId
+			);
+		});
+
+		this.#client.on(EventTypes.TRANSCRIPTION_DELTA, (event) => {
+			this.#activeState()?.onTranscriptionDelta(
+				event.transcriptionId,
+				event.text,
+				event.isFinal,
+				event.confidence
+			);
+		});
+
+		this.#client.on(EventTypes.TRANSCRIPTION_COMPLETED, (event) => {
+			this.#activeState()?.onTranscriptionCompleted(
+				event.transcriptionId,
+				event.finalText,
+				event.processingDuration
+			);
+		});
+
+		this.#client.on(EventTypes.USER_INTERRUPTED, (event) => {
+			this.#activeState()?.onUserInterrupted(event.transcribedText);
+		});
+
+		this.#client.on(EventTypes.SPEECH_PAUSED, (event) => {
+			this.#activeState()?.onSpeechPaused(event.synthesisId, event.reason);
+		});
+
+		this.#client.on(EventTypes.SPEECH_RESUMED, (event) => {
+			this.#activeState()?.onSpeechResumed(event.synthesisId, event.pauseDuration);
+		});
+
+		this.#client.on(EventTypes.PREEMPTIVE_GENERATION_STARTED, (event) => {
+			this.#activeState()?.onPreemptiveGenerationStarted(
+				event.generationId,
+				event.turnCompletionProbability
+			);
+		});
+
+		this.#client.on(EventTypes.PREEMPTIVE_GENERATION_DISCARDED, (event) => {
+			this.#activeState()?.onPreemptiveGenerationDiscarded(
+				event.generationId,
+				event.reason
+			);
+		});
+
+		this.#client.on(EventTypes.VAD_START_OF_SPEECH, (event) => {
+			this.#activeState()?.onVadStartOfSpeech(event.timestamp, event.speechProbability);
+		});
+
+		this.#client.on(EventTypes.VAD_END_OF_SPEECH, (event) => {
+			this.#activeState()?.onVadEndOfSpeech(
+				event.timestamp,
+				event.speechDuration,
+				event.speechProbability
+			);
+		});
+
+		this.#client.on(EventTypes.AUDIO_PIPELINE_METRICS, (event) => {
+			this.#activeState()?.onAudioPipelineMetrics(
+				event.metricType,
+				event.metricName,
+				event.value,
+				event.unit
+			);
+		});
+
+		this.#client.on(EventTypes.TURN_DETECTED, (event) => {
+			this.#activeState()?.onTurnDetected(
+				event.transcribedText,
+				event.completionProbability,
+				event.silenceDuration,
+				event.detectionMethod
+			);
+		});
+
+		this.#client.on(EventTypes.FILLER_AUDIO_PLAYED, (event) => {
+			this.#activeState()?.onFillerAudioPlayed(event.phrase, event.duration);
+		});
 	}
 
 	// ==========================================
@@ -874,21 +878,31 @@ class WorkspaceImpl implements Workspace {
 		activeState.addUserMessage(content);
 
 		const effectiveAgentId = this.#activeAgentId ?? undefined;
-		await this.#client.stream(
+		const messages = this.#buildMessages(content, options?.attachments);
+		await this.#client.run({
+			type: EventTypes.USER_TEXT_INPUT,
+			text: messages[0]?.content ?? content,
 			sessionId,
 			branchId,
-			this.#buildMessages(content, options?.attachments),
-			this.#buildEventHandlers(),
-			{
-				agentId: effectiveAgentId,
-				runConfig: options?.runConfig,
-				resetClientState: true,
-				clientToolKits: [
-					...(this.#options.clientToolKits ?? []),
-					...(options?.clientToolKits ?? []),
-				],
-			}
-		);
+			agentId: effectiveAgentId,
+			runConfig: options?.runConfig
+		});
+	}
+
+	async run(input: AgentRunInputEvent): Promise<void> {
+		await this.#client.run(this.#stampInputScope(input));
+	}
+
+	#stampInputScope(input: AgentRunInputEvent): AgentRunInputEvent {
+		if (input.type === EventTypes.USER_TEXT_INPUT || input.type === EventTypes.USER_MESSAGES_INPUT) {
+			return {
+				...input,
+				sessionId: input.sessionId ?? this.#activeSessionId ?? undefined,
+				branchId: input.branchId ?? this.#activeBranchId ?? undefined,
+				agentId: input.agentId ?? this.#activeAgentId ?? undefined
+			};
+		}
+		return input;
 	}
 
 	#buildMessages(content: string, attachments?: AssetReference[]): Array<{ content: string; role?: string }> {
@@ -908,27 +922,45 @@ class WorkspaceImpl implements Workspace {
 	}
 
 	async approve(permissionId: string, choice: PermissionChoice = 'ask'): Promise<void> {
-		const resolver = this.#pendingPermissionResolvers.get(permissionId);
-		if (resolver) {
-			resolver({ approved: true, choice });
+		const pending = this.#pendingPermissionResolvers.get(permissionId);
+		if (pending) {
+			await this.#client.run({
+				type: EventTypes.PERMISSION_RESPONSE,
+				permissionId,
+				sourceName: pending.sourceName,
+				approved: true,
+				choice
+			});
 			this.#pendingPermissionResolvers.delete(permissionId);
-			this.#activeState()?.onPermissionApproved(permissionId, '');
+			this.#activeState()?.onPermissionApproved(permissionId, pending.sourceName);
 		}
 	}
 
 	async deny(permissionId: string, reason?: string): Promise<void> {
-		const resolver = this.#pendingPermissionResolvers.get(permissionId);
-		if (resolver) {
-			resolver({ approved: false, reason });
+		const pending = this.#pendingPermissionResolvers.get(permissionId);
+		if (pending) {
+			await this.#client.run({
+				type: EventTypes.PERMISSION_RESPONSE,
+				permissionId,
+				sourceName: pending.sourceName,
+				approved: false,
+				reason
+			});
 			this.#pendingPermissionResolvers.delete(permissionId);
-			this.#activeState()?.onPermissionDenied(permissionId, '', reason ?? 'User denied');
+			this.#activeState()?.onPermissionDenied(permissionId, pending.sourceName, reason ?? 'User denied');
 		}
 	}
 
 	async clarify(clarificationId: string, answer: string): Promise<void> {
-		const resolver = this.#pendingClarificationResolvers.get(clarificationId);
-		if (resolver) {
-			resolver(answer);
+		const pending = this.#pendingClarificationResolvers.get(clarificationId);
+		if (pending) {
+			await this.#client.run({
+				type: EventTypes.CLARIFICATION_RESPONSE,
+				requestId: clarificationId,
+				sourceName: pending.sourceName,
+				question: pending.question,
+				answer
+			});
 			this.#pendingClarificationResolvers.delete(clarificationId);
 			// Note: AgentState has no onClarificationResolved yet.
 			// The stream unblocks, but the UI item stays visually pending.

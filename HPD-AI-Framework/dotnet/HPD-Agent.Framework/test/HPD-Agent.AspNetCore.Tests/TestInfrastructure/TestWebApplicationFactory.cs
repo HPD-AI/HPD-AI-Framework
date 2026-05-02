@@ -113,7 +113,7 @@ internal class TestWebApplicationAgentFactory : IAgentFactory
     {
         var config = new AgentConfig
         {
-            Name = "TestAgent",
+            Name = sessionId,
             MaxAgenticIterations = 50,
             Provider = new ProviderConfig
             {

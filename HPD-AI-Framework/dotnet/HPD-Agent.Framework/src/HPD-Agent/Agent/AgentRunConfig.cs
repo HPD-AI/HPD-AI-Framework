@@ -211,7 +211,7 @@ public class AgentRunConfig
     ///         ["DatabaseTools"] = new DbContext { TenantId = user.TenantId }
     ///     }
     /// };
-    /// await agent.RunAsync(messages, options);
+    /// await agent.RunAsync("Search for tenant-specific records.", runConfig: options);
     /// </code>
     /// </para>
     /// </remarks>
@@ -319,7 +319,7 @@ public class AgentRunConfig
     /// {
     ///     Audio = new AudioRunConfig { Voice = "alloy" }
     /// };
-    /// await agent.RunAsync(messages, options);
+    /// await agent.RunAsync("Use the configured voice for this turn.", runConfig: options);
     /// </code>
     /// </para>
     /// <para>
@@ -408,7 +408,7 @@ public class AgentRunConfig
 
     /// <summary>
     /// Configuration for structured output mode.
-    /// When set, enables RunStructuredAsync&lt;T&gt;() to return typed responses.
+    /// When set, enables RunStructuredAsync&lt;T&gt;() to emit typed response events.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -426,11 +426,12 @@ public class AgentRunConfig
     /// {
     ///     StructuredOutput = new StructuredOutputOptions { Mode = "native" }
     /// };
-    /// await foreach (var evt in agent.RunStructuredAsync&lt;Report&gt;(messages, options: options))
+    /// agent.On&lt;StructuredResultEvent&lt;Report&gt;&gt;(result =>
     /// {
-    ///     if (evt is StructuredResultEvent&lt;Report&gt; result)
-    ///         Console.WriteLine(result.Value);
-    /// }
+    ///     Console.WriteLine(result.Value);
+    /// });
+    ///
+    /// await agent.RunStructuredAsync&lt;Report&gt;("Generate the report.", runConfig: options);
     /// </code>
     /// </para>
     /// </remarks>
@@ -456,7 +457,7 @@ public class AgentRunConfig
     /// {
     ///     AdditionalTools = new List&lt;AIFunction&gt; { handoffTool }
     /// };
-    /// await agent.RunAsync(messages, options: options);
+    /// await agent.RunAsync("Route this to the right specialist.", runConfig: options);
     /// </code>
     /// </para>
     /// </remarks>
@@ -638,7 +639,7 @@ public class ChatRunConfig
     /// </summary>
     /// <remarks>
     /// For structured output, prefer using <see cref="AgentRunConfig.StructuredOutput"/>
-    /// which handles this automatically via RunStructuredAsync&lt;T&gt;().
+    /// which is handled automatically by RunStructuredAsync&lt;T&gt;().
     /// </remarks>
     [JsonIgnore] // Not FFI-serializable (ChatResponseFormat contains complex types)
     public ChatResponseFormat? ResponseFormat { get; set; }

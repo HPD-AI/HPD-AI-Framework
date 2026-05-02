@@ -165,9 +165,9 @@ public class StructuredOutputOptions
     ///     }
     /// };
     ///
-    /// await foreach (var evt in agent.RunStructuredAsync&lt;ApiResponse&gt;(messages, options: options))
+    /// agent.On&lt;StructuredResultEvent&lt;ApiResponse&gt;&gt;(result =>
     /// {
-    ///     if (evt is StructuredResultEvent&lt;ApiResponse&gt; result)
+    ///     if (!result.IsPartial)
     ///     {
     ///         switch (result.Value)
     ///         {
@@ -175,7 +175,9 @@ public class StructuredOutputOptions
     ///             case ErrorResponse error: HandleError(error); break;
     ///         }
     ///     }
-    /// }
+    /// });
+    ///
+    /// await agent.RunStructuredAsync&lt;ApiResponse&gt;("Call the API.", runConfig: options);
     /// </code>
     /// </remarks>
     [JsonIgnore] // Type[] not FFI-serializable

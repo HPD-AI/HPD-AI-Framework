@@ -24,10 +24,7 @@ namespace HPD.Agent;
 ///     .WithObserver(vizObserver)
 ///     .Build();
 ///
-/// await foreach (var evt in agent.RunAsync(messages, thread))
-/// {
-///     // Process events...
-/// }
+/// await agent.RunAsync("Analyze the request.");
 ///
 /// // Generate Mermaid diagram
 /// var diagram = vizObserver.GenerateMermaid();

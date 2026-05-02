@@ -202,8 +202,9 @@ See [Providers](Providers/00%20Providers%20Overview.md) for full signatures and 
 // Custom event observer (fire-and-forget, not ordered)
 .WithObserver(myObserver)       // implements IAgentEventObserver
 
-// Synchronous ordered event handler
-.WithEventHandler(myHandler)    // implements IAgentEventHandler
+// Ordered application output handlers are registered on the built agent:
+agent.On<TextDeltaEvent>(e => { Console.Write(e.Text); return ValueTask.CompletedTask; });
+agent.OnAny(e => { /* forward to diagnostics or a websocket */ return ValueTask.CompletedTask; });
 ```
 
 ---

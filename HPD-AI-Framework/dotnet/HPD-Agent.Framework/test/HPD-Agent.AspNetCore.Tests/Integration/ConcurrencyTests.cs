@@ -1,8 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using FluentAssertions;
+using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent.AspNetCore.Tests.Integration;
 
@@ -18,6 +21,12 @@ public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
     {
         _client = factory.CreateClient();
     }
+
+    private static string CreateInputJson(string text) =>
+        AgentEventSerializer.ToJson(new UserTextInputEvent(text));
+
+    private Task<HttpResponseMessage> PostInputAsync(string url, string json) =>
+        _client.PostAsync(url, new StringContent(json, Encoding.UTF8, "application/json"));
 
     #region Multi-Agent Support
 
@@ -106,20 +115,13 @@ public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
         await _client.PostAsJsonAsync($"/sessions/{session!.Id}/branches",
             new CreateBranchRequest("branch2", "Branch 2", null, null));
 
-        var request1 = new StreamRequest(
-            new List<StreamMessage> { new("Test 1", "user") },
-            new List<System.Text.Json.JsonElement>(), new List<System.Text.Json.JsonElement>(), null,
-            new List<string>(), new List<string>(), false, null);
-
-        var request2 = new StreamRequest(
-            new List<StreamMessage> { new("Test 2", "user") },
-            new List<System.Text.Json.JsonElement>(), new List<System.Text.Json.JsonElement>(), null,
-            new List<string>(), new List<string>(), false, null);
+        var request1 = CreateInputJson("Test 1");
+        var request2 = CreateInputJson("Test 2");
 
         // Act - Stream on both branches simultaneously
-        var stream1Task = _client.PostAsJsonAsync(
+        var stream1Task = PostInputAsync(
             $"/sessions/{session.Id}/branches/main/stream", request1);
-        var stream2Task = _client.PostAsJsonAsync(
+        var stream2Task = PostInputAsync(
             $"/sessions/{session.Id}/branches/branch2/stream", request2);
 
         await Task.WhenAll(stream1Task, stream2Task);
@@ -136,20 +138,17 @@ public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
         var createResponse = await _client.PostAsync("/sessions", null);
         var session = await createResponse.Content.ReadFromJsonAsync<SessionDto>();
 
-        var request = new StreamRequest(
-            new List<StreamMessage> { new("Long task", "user") },
-            new List<System.Text.Json.JsonElement>(), new List<System.Text.Json.JsonElement>(), null,
-            new List<string>(), new List<string>(), false, null);
+        var request = CreateInputJson("Long task");
 
         // Act - Start first stream (don't await)
-        var stream1Task = _client.PostAsJsonAsync(
+        var stream1Task = PostInputAsync(
             $"/sessions/{session!.Id}/branches/main/stream", request);
 
         // Give first stream time to acquire lock
         await Task.Delay(100);
 
         // Try second stream
-        var stream2Response = await _client.PostAsJsonAsync(
+        var stream2Response = await PostInputAsync(
             $"/sessions/{session.Id}/branches/main/stream", request);
 
         // Assert

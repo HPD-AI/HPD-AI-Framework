@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 using System.Text.Json.Serialization;
+using HPD.Events;
 
 namespace HPD.Agent.ClientTools;
 
@@ -21,7 +22,11 @@ public record ClientToolInvokeRequestEvent(
     string CallId,
     IReadOnlyDictionary<string, object?> Arguments,
     string? Description = null
-) : AgentEvent;
+) : AgentEvent
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+    public override EventKind Kind { get; init; } = EventKind.Control;
+}
 
 /// <summary>
 /// Response from Client after executing a tool.
@@ -41,6 +46,10 @@ public record ClientToolInvokeResponseEvent(
     ClientToolAugmentation? Augmentation = null
 ) : AgentEvent
 {
+    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+    public override EventKind Kind { get; init; } = EventKind.Control;
+    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
+
     /// <summary>
     /// Convenience constructor for simple text results.
     /// </summary>
@@ -77,4 +86,7 @@ public record clientToolKitsRegisteredEvent(
     IReadOnlyList<string>RegisteredToolKits,
     int TotalTools,
     DateTimeOffset Timestamp
-) : AgentEvent;
+) : AgentEvent
+{
+    public override EventKind Kind { get; init; } = EventKind.Diagnostic;
+}

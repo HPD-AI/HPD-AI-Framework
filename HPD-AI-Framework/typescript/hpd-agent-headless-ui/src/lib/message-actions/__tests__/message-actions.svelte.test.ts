@@ -75,6 +75,7 @@ function makeWorkspace(messages: Message[] = [], editImpl?: () => Promise<void>)
 		refreshBranch: vi.fn(),
 		invalidateBranch: vi.fn(),
 		send: vi.fn(),
+		run: vi.fn(),
 		abort: vi.fn(),
 		approve: vi.fn(),
 		deny: vi.fn(),

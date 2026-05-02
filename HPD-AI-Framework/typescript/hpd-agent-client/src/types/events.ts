@@ -1,8 +1,14 @@
+import type { ClientToolAugmentation, ToolResultContent } from './client-tools.js';
+
 /**
  * Event type constants matching C# EventTypes.cs
  * Uses SCREAMING_SNAKE_CASE for JSON discriminators
  */
 export const EventTypes = {
+  // Input Events
+  USER_TEXT_INPUT: 'USER_TEXT_INPUT',
+  USER_MESSAGES_INPUT: 'USER_MESSAGES_INPUT',
+
   // Message Turn Lifecycle
   MESSAGE_TURN_STARTED: 'MESSAGE_TURN_STARTED',
   MESSAGE_TURN_FINISHED: 'MESSAGE_TURN_FINISHED',
@@ -87,6 +93,7 @@ export const EventTypes = {
   TRANSCRIPTION_COMPLETED: 'TRANSCRIPTION_COMPLETED',
 
   // Audio Events (Interruption)
+  INTERRUPTION_REQUEST: 'INTERRUPTION_REQUEST',
   USER_INTERRUPTED: 'USER_INTERRUPTED',
   SPEECH_PAUSED: 'SPEECH_PAUSED',
   SPEECH_RESUMED: 'SPEECH_RESUMED',
@@ -129,9 +136,31 @@ export interface AgentExecutionContext {
 // ============================================
 
 export interface BaseEvent {
-  version: string;
+  version?: string;
   type: string;
   executionContext?: AgentExecutionContext;
+  streamId?: string;
+}
+
+// ============================================
+// Input Events
+// ============================================
+
+export interface AgentInputEvent extends BaseEvent {
+  sessionId?: string;
+  branchId?: string;
+  agentId?: string;
+  runConfig?: import('./run-config.js').RunConfig;
+}
+
+export interface UserTextInputEvent extends AgentInputEvent {
+  type: typeof EventTypes.USER_TEXT_INPUT;
+  text: string;
+}
+
+export interface UserMessagesInputEvent extends AgentInputEvent {
+  type: typeof EventTypes.USER_MESSAGES_INPUT;
+  messages: Array<{ content: string; role?: string }>;
 }
 
 // ============================================
@@ -379,10 +408,22 @@ export interface ClientToolInvokeRequestEvent extends BaseEvent {
 export interface ClientToolInvokeResponseEvent extends BaseEvent {
   type: typeof EventTypes.CLIENT_TOOL_INVOKE_RESPONSE;
   requestId: string;
-  content: Array<{ type: string; [key: string]: unknown }>;
+  content: ToolResultContent[];
   success: boolean;
   errorMessage?: string;
-  augmentation?: Record<string, unknown>;
+  augmentation?: ClientToolAugmentation;
+}
+
+// ============================================
+// Control Events
+// ============================================
+
+export type InterruptionSource = 'User' | 'System' | 'Parent' | 'Middleware';
+
+export interface InterruptionRequestEvent extends BaseEvent {
+  type: typeof EventTypes.INTERRUPTION_REQUEST;
+  reason: string;
+  source: InterruptionSource;
 }
 
 export interface clientToolKitsRegisteredEvent extends BaseEvent {
@@ -545,6 +586,9 @@ export interface FillerAudioPlayedEvent extends BaseEvent {
  * Does not include observability events (which are for debugging).
  */
 export type AgentEvent =
+  // Input Events
+  | UserTextInputEvent
+  | UserMessagesInputEvent
   // Message Turn Events
   | MessageTurnStartedEvent
   | MessageTurnFinishedEvent
@@ -584,6 +628,8 @@ export type AgentEvent =
   | ClientToolInvokeRequestEvent
   | ClientToolInvokeResponseEvent
   | clientToolKitsRegisteredEvent
+  // Control Events
+  | InterruptionRequestEvent
   // Audio Events (TTS)
   | SynthesisStartedEvent
   | AudioChunkEvent
@@ -605,6 +651,18 @@ export type AgentEvent =
   | AudioPipelineMetricsEvent
   | TurnDetectedEvent
   | FillerAudioPlayedEvent;
+
+export type AgentRunInputEvent =
+  | UserTextInputEvent
+  | UserMessagesInputEvent
+  | PermissionResponseEvent
+  | ContinuationResponseEvent
+  | ClarificationResponseEvent
+  | ClientToolInvokeResponseEvent
+  | InterruptionRequestEvent;
+
+export type AgentEventOfType<TType extends AgentEvent['type']> =
+  Extract<AgentEvent, { type: TType }>;
 
 // ============================================
 // Type Guards

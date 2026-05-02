@@ -11,6 +11,7 @@ public sealed class FakeChatClient : IChatClient
 {
     private readonly Queue<QueuedResponse> _queuedResponses = new();
     private readonly List<IList<ChatMessage>> _capturedRequests = new();
+    private readonly List<ChatOptions?> _capturedOptions = new();
     private ChatClientMetadata? _metadata;
 
     public ChatClientMetadata Metadata => _metadata ?? new ChatClientMetadata(
@@ -23,6 +24,12 @@ public sealed class FakeChatClient : IChatClient
     /// Useful for verifying what was sent to the LLM.
     /// </summary>
     public IReadOnlyList<IList<ChatMessage>> CapturedRequests => _capturedRequests.AsReadOnly();
+
+    /// <summary>
+    /// Gets all captured chat options.
+    /// Useful for verifying per-run configuration reached the model call.
+    /// </summary>
+    public IReadOnlyList<ChatOptions?> CapturedOptions => _capturedOptions.AsReadOnly();
 
     /// <summary>
     /// Enqueues a simple text response.
@@ -97,6 +104,7 @@ public sealed class FakeChatClient : IChatClient
     {
         _queuedResponses.Clear();
         _capturedRequests.Clear();
+        _capturedOptions.Clear();
     }
 
     public async Task<ChatResponse> GetResponseAsync(
@@ -106,6 +114,7 @@ public sealed class FakeChatClient : IChatClient
     {
         // Capture the request
         _capturedRequests.Add(chatMessages.ToList());
+        _capturedOptions.Add(options);
 
         // Get next queued response, or use default
         if (!_queuedResponses.TryDequeue(out var response))
@@ -139,6 +148,7 @@ public sealed class FakeChatClient : IChatClient
     {
         // Capture the request
         _capturedRequests.Add(chatMessages.ToList());
+        _capturedOptions.Add(options);
 
         // Get next queued response, or use default
         if (!_queuedResponses.TryDequeue(out var response))

@@ -96,6 +96,12 @@ var agent = await new AgentBuilder()
     .WithProvider("openai", "gpt-4o")
     .BuildAsync();
 
+agent.On<TextDeltaEvent>(e =>
+{
+    Console.Write(e.Text);
+    return ValueTask.CompletedTask;
+});
+
 await agent.RunAsync("Hello! Tell me about yourself.");
 ```
 
@@ -105,7 +111,7 @@ HPD-Agent is the only .NET agentic framework you'll ever need. It's designed for
 
 - **Native AOT First** - Full source generation, instant startup
 - **Provider Agnostic** - Never be locked into a single LLM vendor
-- **Event-Driven** - Real-time streaming with 50+ event types
+- **Event-Driven** - Send input events with `RunAsync`; handle real-time output with `On<TEvent>`
 - **Multi-Agent Ready** - Built-in orchestration and routing
 - **Production Features** - Crash recovery, permissions, middleware, observability
 

@@ -93,7 +93,10 @@ function makeFakeAgentClient(sessions: Session[], branchesPerSession: Map<string
 
 	const client: AgentClientLike = {
 		// ---- Streaming (not used in workspace CRUD tests) ----
-		stream: vi.fn(async () => new Promise<void>(() => {})),
+		run: vi.fn(async () => new Promise<void>(() => {})),
+		on: vi.fn(() => ({ dispose: vi.fn() })),
+		onAny: vi.fn(() => ({ dispose: vi.fn() })),
+		onError: vi.fn(() => ({ dispose: vi.fn() })),
 		abort: vi.fn(),
 
 		// ---- Session CRUD ----

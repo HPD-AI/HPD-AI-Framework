@@ -20,6 +20,8 @@ public class MinimalAssetUploadTest
             var store = new JsonSessionStore(tempDir);
             var session = await store.LoadSessionAsync("minimal-session") ?? new HPD.Agent.Session("minimal-session");
             session.Store = store;
+            var branch = await store.LoadBranchAsync("minimal-session", "main") ?? session.CreateBranch("main");
+            branch.Session = session;
 
             // Verify session has store
             Assert.NotNull(session.Store);
@@ -44,13 +46,22 @@ public class MinimalAssetUploadTest
 
             // Run agent and collect events
             var events = new List<AgentEvent>();
-            await foreach (var evt in agent.RunAsync([userMessage], session))
+            using (var subscription = agent.SubscribeAny(evt =>
             {
                 events.Add(evt);
                 if (evt is AssetUploadedEvent upload)
                 {
                     Console.WriteLine($"✓ AssetUploadedEvent: {upload.AssetId}");
                 }
+
+                return ValueTask.CompletedTask;
+            }))
+            {
+                await agent.RunAsync(new UserMessagesInputEvent([userMessage])
+                {
+                    Session = session,
+                    Branch = branch
+                });
             }
 
             // Verify

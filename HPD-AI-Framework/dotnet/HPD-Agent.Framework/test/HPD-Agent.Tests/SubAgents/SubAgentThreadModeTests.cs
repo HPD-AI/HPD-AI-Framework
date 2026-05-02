@@ -27,10 +27,7 @@ public class SubAgentSessionModeTests : AgentTestBase
             .WithSessionStore(store)
             .BuildAsync(CancellationToken.None).GetAwaiter().GetResult();
 
-    private static async Task DrainAsync(IAsyncEnumerable<AgentEvent> events)
-    {
-        await foreach (var _ in events) { }
-    }
+    private static Task DrainAsync(Task runTask) => runTask;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Group 1 — SubAgent model / factory (unit, no LLM)

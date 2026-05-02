@@ -2,7 +2,7 @@
 
 > Per-invocation customization without rebuilding the agent
 
-`AgentRunConfig` is the optional last parameter on every `RunAsync` call. It lets you adjust provider, model, temperature, system instructions, tool behaviour, and more on a per-request basis — without touching `AgentConfig` or rebuilding the agent.
+`AgentRunConfig` is carried by each input event, and the string `RunAsync(...)` convenience overload accepts it as `runConfig`. It lets you adjust provider, model, temperature, system instructions, tool behaviour, and more on a per-request basis — without touching `AgentConfig` or rebuilding the agent.
 
 ```csharp
 var options = new AgentRunConfig
@@ -11,7 +11,11 @@ var options = new AgentRunConfig
     AdditionalSystemInstructions = "Be concise. Respond in bullet points."
 };
 
-await foreach (var evt in agent.RunAsync("Summarize this", branch, options)) { }
+await agent.RunAsync(
+    "Summarize this",
+    sessionId: "user-123",
+    branchId: "main",
+    runConfig: options);
 ```
 
 ---
@@ -236,7 +240,12 @@ var options = new AgentRunConfig
     Attachments = [await DocumentContent.FromFileAsync("report.pdf")]
 };
 
-await foreach (var evt in agent.RunAsync(options, branch)) { }
+await agent.RunAsync(new UserTextInputEvent("What does this document say?")
+{
+    SessionId = "user-123",
+    BranchId = "main",
+    RunConfig = options
+});
 ```
 
 Attachments can be used without a `UserMessage` — middleware handles content-only inputs (e.g., `AudioPipelineMiddleware` transcribes audio-only input into the message).

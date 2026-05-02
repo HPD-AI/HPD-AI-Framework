@@ -124,7 +124,10 @@ function makeFakeClient(
 	}
 
 	const client: AgentClientLike = {
-		stream: vi.fn(async () => {}),
+		run: vi.fn(async () => {}),
+		on: vi.fn(() => ({ dispose: vi.fn() })),
+		onAny: vi.fn(() => ({ dispose: vi.fn() })),
+		onError: vi.fn(() => ({ dispose: vi.fn() })),
 		abort: vi.fn(),
 
 		listSessions: vi.fn(async () => sessions),

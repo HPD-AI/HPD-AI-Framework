@@ -61,8 +61,12 @@ public class MessageTurnFinishedEventTests : AgentTestBase
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunAsync("hi", cancellationToken: TestCancellationToken))
+        using var subscription = agent.SubscribeAny(evt =>
+        {
             events.Add(evt);
+            return ValueTask.CompletedTask;
+        });
+        await agent.RunAsync("hi", cancellationToken: TestCancellationToken);
 
         // Assert
         var finished = events.OfType<MessageTurnFinishedEvent>().SingleOrDefault();
@@ -85,8 +89,12 @@ public class MessageTurnFinishedEventTests : AgentTestBase
 
         // Act
         var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunAsync("hi", cancellationToken: TestCancellationToken))
+        using var subscription = agent.SubscribeAny(evt =>
+        {
             events.Add(evt);
+            return ValueTask.CompletedTask;
+        });
+        await agent.RunAsync("hi", cancellationToken: TestCancellationToken);
 
         // Assert: event is emitted, Usage may be null — no exception either way
         var finished = events.OfType<MessageTurnFinishedEvent>().SingleOrDefault();

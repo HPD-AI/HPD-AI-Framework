@@ -283,10 +283,10 @@ var pdf = await DocumentContent.FromFileAsync("report.pdf");
 var doc = DocumentContent.Pdf(File.ReadAllBytes("report.pdf"));
 
 // Send with a message
-await foreach (var evt in agent.RunAsync(
-    [new ChatMessage(ChatRole.User, ["What's in this image?", image])],
-    branch))
-{ }
+await agent.RunAsync("What's in this image?", runConfig: new AgentRunConfig
+{
+    Attachments = [image]
+});
 ```
 
 `ImageContent` supports: PNG, JPEG, GIF, WebP, BMP, HEIC, AVIF, SVG.
