@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.Extensions.AI;
 using Xunit;
 using HPD.Agent;
+using HPD.Agent.Middleware;
 using HPD.Agent.Providers;
 namespace HPD.Agent.Tests.Infrastructure;
 
@@ -27,6 +28,16 @@ public abstract class AgentTestBase : IAsyncDisposable, IDisposable
         params AIFunction[] tools)
     {
         return TestAgentFactory.Create(config, client, circuitBreakerThreshold, tools);
+    }
+
+    internal Agent CreateAgentWithMiddlewares(
+        AgentConfig? config = null,
+        IChatClient? client = null,
+        IEnumerable<IAgentMiddleware>? middlewares = null,
+        int? circuitBreakerThreshold = 5,
+        params AIFunction[] tools)
+    {
+        return TestAgentFactory.CreateWithMiddlewares(config, client, middlewares, circuitBreakerThreshold, tools);
     }
 
     /// <summary>

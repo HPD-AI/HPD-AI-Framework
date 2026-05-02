@@ -85,14 +85,14 @@ public class ProgressSubjectTests
     }
 
     [Fact]
-    public void WithCoordinator_EmitsTrainingProgressEvent()
+    public async Task WithCoordinator_EmitsTrainingProgressEvent()
     {
         using var coordinator = new EventCoordinator();
         using var subject = new ProgressSubject(coordinator);
 
         subject.OnNext(MakeProgress(epoch: 5));
 
-        Assert.True(coordinator.TryRead(out var evt));
+        var evt = await ReadFirstSynchronousAsync(coordinator);
         var tpe = Assert.IsType<TrainingProgressEvent>(evt);
         Assert.Equal(5, tpe.Progress.Epoch);
     }
@@ -116,5 +116,14 @@ public class ProgressSubjectTests
         public void OnNext(ProgressEvent value) => events?.Add(value);
         public void OnCompleted() => onCompleted?.Invoke();
         public void OnError(Exception error) => onError?.Invoke(error);
+    }
+
+    private static async Task<Event> ReadFirstSynchronousAsync(EventCoordinator coordinator)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await foreach (var evt in coordinator.ReadSynchronousAsync(cts.Token))
+            return evt;
+
+        throw new InvalidOperationException("No event was produced.");
     }
 }

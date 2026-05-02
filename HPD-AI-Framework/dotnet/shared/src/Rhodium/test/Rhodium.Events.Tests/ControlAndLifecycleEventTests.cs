@@ -42,13 +42,13 @@ public class UserCancellationTests
     }
 
     [Fact]
-    public void UserCancellation_ShouldHaveImmediatePriority()
+    public void UserCancellation_ShouldHaveControlChannel()
     {
         // Arrange & Act
         var evt = new UserCancellation("Stop");
 
         // Assert
-        Assert.Equal(HPD.Events.EventPriority.Immediate, evt.Priority);
+        Assert.Equal(HPD.Events.EventChannel.Control, evt.Channel);
     }
 }
 
@@ -82,13 +82,13 @@ public class RiskLimitBreachedTests
     }
 
     [Fact]
-    public void RiskLimitBreached_ShouldHaveImmediatePriority()
+    public void RiskLimitBreached_ShouldHaveControlChannel()
     {
         // Arrange & Act
         var evt = new RiskLimitBreached("DailyLoss", 50000m, 25000m);
 
         // Assert
-        Assert.Equal(HPD.Events.EventPriority.Immediate, evt.Priority);
+        Assert.Equal(HPD.Events.EventChannel.Control, evt.Channel);
     }
 }
 
@@ -160,13 +160,13 @@ public class SessionStartedTests
     }
 
     [Fact]
-    public void SessionStarted_ShouldHaveNormalPriority()
+    public void SessionStarted_ShouldHaveSynchronousChannel()
     {
         // Arrange & Act
         var evt = new SessionStarted();
 
         // Assert
-        Assert.Equal(HPD.Events.EventPriority.Normal, evt.Priority);
+        Assert.Equal(HPD.Events.EventChannel.Synchronous, evt.Channel);
     }
 }
 

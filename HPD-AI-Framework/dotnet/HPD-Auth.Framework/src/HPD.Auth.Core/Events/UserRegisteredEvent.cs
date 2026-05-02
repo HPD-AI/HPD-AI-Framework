@@ -18,5 +18,5 @@ public record UserRegisteredEvent : AuthEvent
     /// </summary>
     public string? RegistrationMethod { get; init; }
 
-    public override EventPriority Priority => EventPriority.Normal;
+    public override EventChannel Channel => EventChannel.Synchronous;
 }

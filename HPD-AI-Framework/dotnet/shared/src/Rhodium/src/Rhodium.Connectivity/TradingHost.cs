@@ -47,35 +47,32 @@ public sealed class TradingHost : IDisposable
         // Get subscriptions from strategy's instruments
         var subscriptions = GetSubscriptions();
 
-        // Start connector in background
-        var connectorTask = _connector.StartAsync(subscriptions, _coordinator, ct);
-
-        // Main loop - pull events from coordinator
-        while (!ct.IsCancellationRequested)
+        var gate = new object();
+        _coordinator.OnAny(evt =>
         {
-            // Try to read from event coordinator (priority-ordered)
-            if (_coordinator.TryRead(out var rawEvt))
+            if (evt is FinanceEvent financeEvt)
             {
-                // Process finance events
-                if (rawEvt is FinanceEvent financeEvt)
+                lock (gate)
                 {
                     ProcessEvent(financeEvt, strategy);
                 }
             }
-            else if (!_connector.IsConnected)
-            {
-                // Connector finished (end of backtest data)
-                break;
-            }
-            else
-            {
-                // No events available, yield to prevent busy-wait
-                await Task.Yield();
-            }
-        }
 
-        // Wait for connector to complete
-        await connectorTask;
+            return ValueTask.CompletedTask;
+        });
+
+        using var coordinatorCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var coordinatorTask = _coordinator.RunAsync(coordinatorCts.Token);
+
+        try
+        {
+            await _connector.StartAsync(subscriptions, _coordinator, ct);
+        }
+        finally
+        {
+            await coordinatorCts.CancelAsync();
+            await SuppressCancellationAsync(coordinatorTask);
+        }
     }
 
     private void ProcessEvent(FinanceEvent evt, StrategyBase strategy)
@@ -105,5 +102,16 @@ public sealed class TradingHost : IDisposable
     public void Dispose()
     {
         _connector.Dispose();
+    }
+
+    private static async Task SuppressCancellationAsync(Task task)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 }

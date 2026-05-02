@@ -72,6 +72,6 @@ public sealed record TrainingProgressEvent : Event
     {
         Progress = progress;
         Kind = EventKind.Content;
-        Priority = EventPriority.Normal;
+        Channel = EventChannel.Synchronous;
     }
 }

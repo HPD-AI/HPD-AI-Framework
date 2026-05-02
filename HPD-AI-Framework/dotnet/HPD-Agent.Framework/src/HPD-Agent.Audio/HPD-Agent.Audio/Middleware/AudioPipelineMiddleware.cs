@@ -478,7 +478,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
         context.TryEmit(new TranscriptionDeltaEvent(transcriptionId, "", false, null)
         {
-            Priority = EventPriority.Normal
+            Channel = EventChannel.Streaming
         });
 
         // Transcribe each audio item
@@ -495,7 +495,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
                     context.TryEmit(new TranscriptionDeltaEvent(transcriptionId, transcription, false, null)
                     {
-                        Priority = EventPriority.Normal
+                        Channel = EventChannel.Streaming
                     });
                 }
             }
@@ -504,7 +504,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                 // Log but continue - don't fail the entire request for STT errors
                 context.TryEmit(new AudioPipelineMetricsEvent("error", "stt_error", 1, "count")
                 {
-                    Priority = EventPriority.Background
+                    Channel = EventChannel.Streaming
                 });
 
                 System.Diagnostics.Debug.WriteLine($"STT error: {ex.Message}");
@@ -521,7 +521,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             // Emit completion event
             context.TryEmit(new TranscriptionCompletedEvent(transcriptionId, fullTranscription, sttDuration)
             {
-                Priority = EventPriority.Normal
+                Channel = EventChannel.Synchronous
             });
 
             // Update speed estimate based on transcription
@@ -647,7 +647,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         {
             request.EventCoordinator?.Emit(new SynthesisStartedEvent(synthesisId, model, voice)
             {
-                Priority = EventPriority.Normal,
+                Channel = EventChannel.Synchronous,
                 StreamId = stream?.StreamId
             });
 
@@ -707,7 +707,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
             request.EventCoordinator?.Emit(new SynthesisCompletedEvent(synthesisId, wasInterrupted, synthesisState.ChunkIndex, synthesisState.ChunkIndex)
             {
-                Priority = EventPriority.Control,
+                Channel = EventChannel.Control,
                 StreamId = stream?.StreamId,
                 CanInterrupt = false
             });
@@ -779,6 +779,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         var synthesisId = Guid.NewGuid().ToString("N")[..8];
         var synthesisState = new SynthesisState();
         var outputFormat = DefaultOutputFormat ?? "audio/pcm";
+        var audioFrameEmitter = CreateAudioChunkFrameEmitter(request.EventCoordinator);
 
         _turnMetrics ??= new TurnMetrics { TurnStartTime = DateTime.UtcNow };
         DateTime? firstAudioTime = null;
@@ -787,7 +788,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         {
             request.EventCoordinator?.Emit(new SynthesisStartedEvent(synthesisId, null, null)
             {
-                Priority = EventPriority.Normal,
+                Channel = EventChannel.Synchronous,
                 StreamId = stream?.StreamId
             });
 
@@ -814,12 +815,13 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                                 TimeSpan.Zero,
                                 false)
                             {
-                                Priority = EventPriority.Normal,
+                                Channel = EventChannel.Streaming,
                                 StreamId = stream?.StreamId,
                                 CanInterrupt = true
                             };
 
                             firstAudioTime ??= DateTime.UtcNow;
+                            EmitAudioChunkFrame(audioFrameEmitter, audioChunk, audioBytes);
                             request.EventCoordinator?.Emit(audioChunk);
                         }
                     }
@@ -834,7 +836,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
             request.EventCoordinator?.Emit(new SynthesisCompletedEvent(synthesisId, wasInterrupted, synthesisState.ChunkIndex, synthesisState.ChunkIndex)
             {
-                Priority = EventPriority.Control,
+                Channel = EventChannel.Control,
                 StreamId = stream?.StreamId,
                 CanInterrupt = false
             });
@@ -901,7 +903,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         {
             eventCoordinator?.Emit(new AudioPipelineMetricsEvent("latency", "stt_duration", _turnMetrics.SttDuration.Value.TotalMilliseconds, "ms")
             {
-                Priority = EventPriority.Background
+                Channel = EventChannel.Streaming
             });
         }
 
@@ -909,7 +911,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         {
             eventCoordinator?.Emit(new AudioPipelineMetricsEvent("latency", "tts_duration", _turnMetrics.TtsDuration.Value.TotalMilliseconds, "ms")
             {
-                Priority = EventPriority.Background
+                Channel = EventChannel.Streaming
             });
         }
 
@@ -917,20 +919,20 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         {
             eventCoordinator?.Emit(new AudioPipelineMetricsEvent("latency", "time_to_first_audio", _turnMetrics.TimeToFirstAudio.Value.TotalMilliseconds, "ms")
             {
-                Priority = EventPriority.Background
+                Channel = EventChannel.Streaming
             });
         }
 
         eventCoordinator?.Emit(new AudioPipelineMetricsEvent("latency", "total_latency", totalLatency.TotalMilliseconds, "ms")
         {
-            Priority = EventPriority.Background
+            Channel = EventChannel.Streaming
         });
 
         if (_turnMetrics.UserWpm.HasValue)
         {
             eventCoordinator?.Emit(new AudioPipelineMetricsEvent("quality", "user_wpm", _turnMetrics.UserWpm.Value, "wpm")
             {
-                Priority = EventPriority.Background
+                Channel = EventChannel.Streaming
             });
         }
 
@@ -938,13 +940,13 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         {
             eventCoordinator?.Emit(new AudioPipelineMetricsEvent("quality", "was_interrupted", 1, "bool")
             {
-                Priority = EventPriority.Background
+                Channel = EventChannel.Streaming
             });
         }
 
         eventCoordinator?.Emit(new AudioPipelineMetricsEvent("throughput", "total_chunks", _turnMetrics.TotalChunks, "chunks")
         {
-            Priority = EventPriority.Background
+            Channel = EventChannel.Streaming
         });
 
         // Reset metrics for next turn
@@ -1010,7 +1012,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                             activeStream.StreamId,
                             "potential_interruption")
                         {
-                            Priority = EventPriority.Control,
+                            Channel = EventChannel.Control,
                             StreamId = activeStream.StreamId
                         });
 
@@ -1061,7 +1063,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             stateToResume.SynthesisId,
             pauseDuration)
         {
-            Priority = EventPriority.Control,
+            Channel = EventChannel.Control,
             StreamId = stateToResume.SynthesisId
         });
 
@@ -1078,7 +1080,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             pauseDuration.TotalMilliseconds,
             "ms")
         {
-            Priority = EventPriority.Background
+            Channel = EventChannel.Streaming
         });
 
         await Task.CompletedTask;
@@ -1098,7 +1100,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
         context.Emit(new UserInterruptedEvent(transcribedText)
         {
-            Priority = EventPriority.Immediate
+            Channel = EventChannel.Control
         });
     }
 
@@ -1299,18 +1301,22 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                     filler.Duration,
                     true)
                 {
-                    Priority = EventPriority.Normal,
+                    Channel = EventChannel.Streaming,
                     StreamId = stream?.StreamId,
                     CanInterrupt = true
                 };
 
                 eventCoordinator?.Emit(fillerChunk);
+                EmitAudioChunkFrame(
+                    eventCoordinator,
+                    fillerChunk,
+                    filler.AudioData);
 
                 eventCoordinator?.Emit(new FillerAudioPlayedEvent(
                     filler.Phrase,
                     filler.Duration)
                 {
-                    Priority = EventPriority.Background
+                    Channel = EventChannel.Streaming
                 });
             }
         }
@@ -1347,6 +1353,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         [EnumeratorCancellation] CancellationToken ct)
     {
         if (stream?.IsInterrupted == true) yield break;
+        var audioFrameEmitter = CreateAudioChunkFrameEmitter(eventCoordinator);
 
         var options = new TextToSpeechOptions
         {
@@ -1376,15 +1383,52 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                 chunk.Duration ?? TimeSpan.Zero,
                 chunk.IsLast)
             {
-                Priority = EventPriority.Normal,
+                Channel = EventChannel.Streaming,
                 StreamId = stream?.StreamId,
                 CanInterrupt = true
             };
 
             eventCoordinator?.Emit(audioChunk);
+            EmitAudioChunkFrame(audioFrameEmitter, audioChunk, audioBytes);
             yield return audioChunk;
         }
     }
+
+    private static StructEmitter<AudioChunkFrame>? CreateAudioChunkFrameEmitter(IEventCoordinator? eventCoordinator) =>
+        eventCoordinator?.CreateStructEmitter<AudioChunkFrame>(
+            new StructEmitterOptions<AudioChunkFrame> { AssignSequenceNumbers = true });
+
+    private static void EmitAudioChunkFrame(
+        StructEmitter<AudioChunkFrame>? emitter,
+        AudioChunkEvent audioChunk,
+        ReadOnlyMemory<byte> audioBytes)
+    {
+        if (emitter is not { } audioFrames)
+            return;
+
+        audioFrames.TryEmit(CreateAudioChunkFrame(audioChunk, audioBytes));
+    }
+
+    private static void EmitAudioChunkFrame(
+        IEventCoordinator? eventCoordinator,
+        AudioChunkEvent audioChunk,
+        ReadOnlyMemory<byte> audioBytes)
+    {
+        var emitter = CreateAudioChunkFrameEmitter(eventCoordinator);
+        EmitAudioChunkFrame(emitter, audioChunk, audioBytes);
+    }
+
+    private static AudioChunkFrame CreateAudioChunkFrame(
+        AudioChunkEvent audioChunk,
+        ReadOnlyMemory<byte> audioBytes) =>
+        new(
+            audioChunk.SynthesisId,
+            audioBytes,
+            audioChunk.MimeType,
+            audioChunk.ChunkIndex,
+            audioChunk.Duration,
+            audioChunk.IsLast,
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1_000_000L);
 
 
     private static bool IsSentenceBoundary(string text)

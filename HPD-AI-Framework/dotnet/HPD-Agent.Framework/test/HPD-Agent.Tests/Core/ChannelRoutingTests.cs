@@ -1,0 +1,313 @@
+using HPD.Agent;
+using HPD.Agent.Serialization;
+using HPD.Events;
+using Xunit;
+using EventDirection = HPD.Events.EventDirection;
+
+namespace HPD.Agent.Tests.Core;
+
+/// <summary>
+/// Agent-specific coverage for channel-routed events.
+/// Core channel behavior lives in HPD.Events.Tests.
+/// </summary>
+public class ChannelRoutingTests
+{
+    [Fact]
+    public async Task ControlEvents_AreReadFromControlChannel()
+    {
+        var coordinator = new HPD.Events.Core.EventCoordinator();
+        var interruption = new InterruptionRequestEvent(null, "test", InterruptionSource.User);
+
+        coordinator.Emit(interruption);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var evt = await ReadFirstAsync(coordinator.ReadControlAsync(cts.Token));
+
+        Assert.Same(interruption, evt);
+        Assert.Equal(EventChannel.Control, evt.Channel);
+    }
+
+    [Fact]
+    public async Task SynchronousAgentEvents_AreReadFromSynchronousChannelInFifoOrder()
+    {
+        var coordinator = new HPD.Events.Core.EventCoordinator();
+
+        var snapshot = new StateSnapshotEvent(1, 10, false, null, 0, [], "agent");
+        var text = new TextDeltaEvent("hello", "msg1");
+
+        coordinator.Emit(snapshot);
+        coordinator.Emit(text);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var events = new List<AgentEvent>();
+
+        await foreach (var evt in coordinator.ReadSynchronousAsync(cts.Token))
+        {
+            events.Add((AgentEvent)evt);
+            if (events.Count == 2)
+                break;
+        }
+
+        Assert.Collection(
+            events,
+            evt => Assert.IsType<StateSnapshotEvent>(evt),
+            evt => Assert.IsType<TextDeltaEvent>(evt));
+    }
+
+    [Fact]
+    public void EventChannel_DefaultsToSynchronous()
+    {
+        var evt = new TextDeltaEvent("hello", "msg1");
+
+        Assert.Equal(EventChannel.Synchronous, evt.Channel);
+    }
+
+    [Fact]
+    public void EventDirection_DefaultsToDownstream()
+    {
+        var evt = new TextDeltaEvent("hello", "msg1");
+
+        Assert.Equal(EventDirection.Downstream, evt.Direction);
+    }
+
+    [Fact]
+    public async Task SequenceNumber_AssignedByCoordinator()
+    {
+        var coordinator = new HPD.Events.Core.EventCoordinator();
+
+        coordinator.Emit(new TextDeltaEvent("first", "msg1"));
+        coordinator.Emit(new TextDeltaEvent("second", "msg1"));
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var first = await ReadFirstAsync(coordinator.ReadSynchronousAsync(cts.Token));
+        var second = await ReadFirstAsync(coordinator.ReadSynchronousAsync(cts.Token));
+
+        Assert.True(first.SequenceNumber > 0);
+        Assert.True(second.SequenceNumber > first.SequenceNumber);
+    }
+
+    [Fact]
+    public void StreamRegistry_CreateStream_ReturnsHandle()
+    {
+        var coordinator = new HPD.Events.Core.EventCoordinator();
+
+        var handle = coordinator.Streams.Create();
+
+        Assert.NotNull(handle.StreamId);
+        Assert.False(handle.IsInterrupted);
+        Assert.False(handle.IsCompleted);
+        Assert.Equal(0, handle.EmittedCount);
+        Assert.Equal(0, handle.DroppedCount);
+    }
+
+    [Fact]
+    public void StreamRegistry_CreateStream_WithCustomId()
+    {
+        var coordinator = new HPD.Events.Core.EventCoordinator();
+
+        var handle = coordinator.Streams.Create("my-custom-stream-id");
+
+        Assert.Equal("my-custom-stream-id", handle.StreamId);
+    }
+
+    [Fact]
+    public void StreamRegistry_CreateStream_DuplicateIdThrows()
+    {
+        var coordinator = new HPD.Events.Core.EventCoordinator();
+        coordinator.Streams.Create("duplicate-id");
+
+        Assert.Throws<InvalidOperationException>(() => coordinator.Streams.Create("duplicate-id"));
+    }
+
+    [Fact]
+    public void StreamRegistry_Get_ReturnsExistingStream()
+    {
+        var coordinator = new HPD.Events.Core.EventCoordinator();
+        var created = coordinator.Streams.Create("test-stream");
+
+        var retrieved = coordinator.Streams.Get("test-stream");
+
+        Assert.NotNull(retrieved);
+        Assert.Equal(created.StreamId, retrieved!.StreamId);
+    }
+
+    [Fact]
+    public void StreamHandle_Interrupt_SetsFlags()
+    {
+        var coordinator = new HPD.Events.Core.EventCoordinator();
+        var handle = coordinator.Streams.Create();
+
+        handle.Interrupt();
+
+        Assert.True(handle.IsInterrupted);
+        Assert.True(handle.IsCompleted);
+    }
+
+    [Fact]
+    public void StreamHandle_Complete_SetsCompletedFlag()
+    {
+        var coordinator = new HPD.Events.Core.EventCoordinator();
+        var handle = coordinator.Streams.Create();
+
+        handle.Complete();
+
+        Assert.False(handle.IsInterrupted);
+        Assert.True(handle.IsCompleted);
+    }
+
+    [Fact]
+    public async Task StreamHandle_WaitAsync_CompletesOnInterrupt()
+    {
+        var coordinator = new HPD.Events.Core.EventCoordinator();
+        var handle = coordinator.Streams.Create();
+
+        var waitTask = handle.WaitAsync();
+        handle.Interrupt();
+
+        await waitTask;
+        Assert.True(handle.IsCompleted);
+    }
+
+    [Fact]
+    public void StreamRegistry_InterruptAll_InterruptsAllStreams()
+    {
+        var coordinator = new HPD.Events.Core.EventCoordinator();
+        var stream1 = coordinator.Streams.Create();
+        var stream2 = coordinator.Streams.Create();
+        var stream3 = coordinator.Streams.Create();
+
+        coordinator.Streams.InterruptAll();
+
+        Assert.True(stream1.IsInterrupted);
+        Assert.True(stream2.IsInterrupted);
+        Assert.True(stream3.IsInterrupted);
+    }
+
+    [Fact]
+    public void StreamRegistry_InterruptWhere_SelectivelyInterrupts()
+    {
+        var coordinator = new HPD.Events.Core.EventCoordinator();
+        var stream1 = coordinator.Streams.Create("keep-1");
+        var stream2 = coordinator.Streams.Create("interrupt-2");
+        var stream3 = coordinator.Streams.Create("interrupt-3");
+
+        coordinator.Streams.InterruptWhere(h => h.StreamId.StartsWith("interrupt"));
+
+        Assert.False(stream1.IsInterrupted);
+        Assert.True(stream2.IsInterrupted);
+        Assert.True(stream3.IsInterrupted);
+    }
+
+    [Fact]
+    public async Task Emit_DoesNotDropCanInterruptFalseEvents_WhenStreamInterrupted()
+    {
+        var coordinator = new HPD.Events.Core.EventCoordinator();
+        var stream = coordinator.Streams.Create();
+        stream.Interrupt();
+
+        coordinator.Emit(new TextMessageEndEvent("msg1")
+        {
+            StreamId = stream.StreamId,
+            CanInterrupt = false
+        });
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var evt = await ReadFirstAsync(coordinator.ReadSynchronousAsync(cts.Token));
+
+        Assert.IsType<TextMessageEndEvent>(evt);
+    }
+
+    [Fact]
+    public void StreamHandle_TracksEmittedAndDroppedCounts()
+    {
+        var coordinator = new HPD.Events.Core.EventCoordinator();
+        var stream = coordinator.Streams.Create();
+
+        for (var i = 0; i < 3; i++)
+            coordinator.Emit(new TextDeltaEvent($"before{i}", "msg1") { StreamId = stream.StreamId });
+
+        stream.Interrupt();
+
+        for (var i = 0; i < 2; i++)
+            coordinator.Emit(new TextDeltaEvent($"after{i}", "msg1") { StreamId = stream.StreamId });
+
+        Assert.Equal(3, stream.EmittedCount);
+        Assert.Equal(2, stream.DroppedCount);
+    }
+
+    [Fact]
+    public void InterruptionRequestEvent_IsControlUpstream()
+    {
+        var evt = new InterruptionRequestEvent(null, "test", InterruptionSource.User);
+
+        Assert.Equal(EventChannel.Control, evt.Channel);
+        Assert.Equal(EventDirection.Upstream, evt.Direction);
+        Assert.Equal(EventKind.Control, evt.Kind);
+    }
+
+    [Fact]
+    public async Task ControlEvent_BubblesToParentThroughEmit()
+    {
+        var parent = new HPD.Events.Core.EventCoordinator();
+        var child = new HPD.Events.Core.EventCoordinator();
+        child.SetParent(parent);
+
+        var interruption = new InterruptionRequestEvent("stream1", "test", InterruptionSource.User);
+
+        child.Emit(interruption);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var evt = await ReadFirstAsync(parent.ReadControlAsync(cts.Token));
+
+        Assert.Same(interruption, evt);
+        Assert.Equal(EventDirection.Upstream, evt.Direction);
+    }
+
+    [Fact]
+    public void InterruptionRequestEvent_SerializesWithType()
+    {
+        var evt = new InterruptionRequestEvent("stream-abc", "User cancelled", InterruptionSource.User);
+
+        var json = AgentEventSerializer.ToJson(evt);
+
+        Assert.Contains("\"type\":\"INTERRUPTION_REQUEST\"", json);
+        Assert.Contains("\"version\":\"1.0\"", json);
+        Assert.Contains("\"reason\":\"User cancelled\"", json);
+    }
+
+    [Fact]
+    public void EventChannel_DefaultValue_SerializesAgentEventPayload()
+    {
+        var evt = new TextDeltaEvent("hello", "msg1");
+
+        var json = AgentEventSerializer.ToJson(evt);
+
+        Assert.Contains("\"type\":\"TEXT_DELTA\"", json);
+        Assert.Contains("\"text\":\"hello\"", json);
+    }
+
+    [Fact]
+    public void EventChannel_NonDefaultValue_Serializes()
+    {
+        var evt = new TextDeltaEvent("hello", "msg1") { Channel = EventChannel.Streaming };
+
+        var json = AgentEventSerializer.ToJson(evt);
+
+        Assert.Contains("\"type\":\"TEXT_DELTA\"", json);
+        Assert.Contains("channel", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AgentEventSerializer_GetEventTypeName_ReturnsCorrectType()
+    {
+        Assert.Equal("INTERRUPTION_REQUEST", AgentEventSerializer.GetEventTypeName(typeof(InterruptionRequestEvent)));
+    }
+
+    private static async Task<Event> ReadFirstAsync(IAsyncEnumerable<Event> events)
+    {
+        await foreach (var evt in events)
+            return evt;
+
+        throw new InvalidOperationException("No event was produced.");
+    }
+}

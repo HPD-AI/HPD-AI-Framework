@@ -11,6 +11,9 @@ public sealed record TimeEvent : Event
     /// <summary>Time at which the timer fired.</summary>
     public required DateTimeOffset TriggerTime { get; init; }
 
+    /// <inheritdoc />
     public override EventKind Kind => EventKind.Lifecycle;
-    public override EventPriority Priority => EventPriority.Normal;
+
+    /// <inheritdoc />
+    public override EventChannel Channel => EventChannel.Synchronous;
 }

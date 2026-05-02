@@ -16,7 +16,7 @@ public static class EventExtensions
     /// <example>
     /// <code>
     /// // In GraphOrchestrator
-    /// await foreach (var evt in _coordinator.ReadAllAsync())
+    /// await foreach (var evt in _coordinator.ReadSynchronousAsync())
     /// {
     ///     var agentContext = evt.GetExecutionContext();
     ///     if (agentContext != null)

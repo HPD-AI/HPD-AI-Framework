@@ -29,7 +29,7 @@ public sealed record IterationStartedEvent : GraphEvent
     /// </summary>
     public required int LayerCount { get; init; }
 
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -68,7 +68,7 @@ public sealed record IterationCompletedEvent : GraphEvent
     /// </summary>
     public bool IsFinalIteration => NodesToReExecute.Count == 0;
 
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -103,7 +103,7 @@ public sealed record BackEdgeTriggeredEvent : GraphEvent
     /// </summary>
     public required int IterationIndex { get; init; }
 
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -128,12 +128,12 @@ public sealed record MaxIterationsReachedEvent : GraphEvent
     /// </summary>
     public required IReadOnlyList<string> ActiveBackEdges { get; init; }
 
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 
     /// <summary>
-    /// Control priority - this is a warning condition that should be noticed by operators.
+    /// Control channel - this is a warning condition that should be noticed by operators.
     /// </summary>
-    public new EventPriority Priority { get; init; } = EventPriority.Control;
+    public override EventChannel Channel { get; init; } = EventChannel.Control;
 }
 
 /// <summary>
@@ -157,7 +157,7 @@ public sealed record GraphConvergedEvent : GraphEvent
     /// </summary>
     public required string ConvergenceReason { get; init; }
 
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -181,7 +181,7 @@ public sealed record NodeSkippedUnchangedEvent : GraphEvent
     /// </summary>
     public required string Reason { get; init; }
 
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -210,5 +210,5 @@ public sealed record BackEdgeSkippedEvent : GraphEvent
     /// </summary>
     public required int IterationIndex { get; init; }
 
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }

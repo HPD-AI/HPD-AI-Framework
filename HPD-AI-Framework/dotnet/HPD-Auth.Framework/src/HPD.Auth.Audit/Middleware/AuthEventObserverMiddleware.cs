@@ -8,13 +8,13 @@ namespace HPD.Auth.Audit.Middleware;
 
 /// <summary>
 /// ASP.NET Core middleware that wires the <see cref="AuditingAuthObserver"/> onto the
-/// per-request <see cref="IEventCoordinator"/> and drains emitted auth events after the
-/// endpoint handler completes.
+/// per-request <see cref="IEventCoordinator"/> and observes emitted auth events while the
+/// endpoint handler runs.
 ///
 /// Flow:
 ///   1. Resolve the scoped <see cref="IEventCoordinator"/> for this request.
-///   2. Call next (endpoint runs, emitting auth events onto the coordinator).
-///   3. Drain all pending events from the coordinator, passing each
+///   2. Register an OnAny observer and run the coordinator.
+///   3. Call next (endpoint runs, emitting auth events onto the coordinator), passing each
 ///      <see cref="AuthEvent"/> to <see cref="AuditingAuthObserver"/>.
 ///
 /// Registration: call <c>app.UseAuthEventObserver()</c> after <c>UseRouting</c>
@@ -31,24 +31,39 @@ public sealed class AuthEventObserverMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        await _next(context);
-
-        // Drain events after the endpoint has run.
         var coordinator = context.RequestServices.GetService<IEventCoordinator>();
         var observer = context.RequestServices.GetService<AuditingAuthObserver>();
 
         if (coordinator is null || observer is null)
+        {
+            await _next(context);
             return;
+        }
 
-        // Use a short-lived CancellationToken — we are post-response, so use
-        // the request aborted token as a best-effort guard.
-        var ct = context.RequestAborted;
-
-        while (coordinator.TryRead(out var evt))
+        coordinator.OnAny(async evt =>
         {
             if (evt is AuthEvent authEvent && observer.ShouldProcess(authEvent))
             {
-                await observer.OnEventAsync(authEvent, ct);
+                await observer.OnEventAsync(authEvent, context.RequestAborted);
+            }
+        });
+
+        using var coordinatorCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+        var coordinatorTask = coordinator.RunAsync(coordinatorCts.Token);
+
+        try
+        {
+            await _next(context);
+        }
+        finally
+        {
+            await coordinatorCts.CancelAsync();
+            try
+            {
+                await coordinatorTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (coordinatorCts.IsCancellationRequested)
+            {
             }
         }
     }

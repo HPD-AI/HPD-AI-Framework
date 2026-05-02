@@ -22,7 +22,7 @@ public sealed record GraphExecutionStartedEvent : GraphEvent
     /// <summary>
     /// Override Kind to Lifecycle.
     /// </summary>
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -53,7 +53,7 @@ public sealed record GraphExecutionCompletedEvent : GraphEvent
     /// <summary>
     /// Override Kind to Lifecycle.
     /// </summary>
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -75,7 +75,7 @@ public sealed record LayerExecutionStartedEvent : GraphEvent
     /// <summary>
     /// Override Kind to Lifecycle.
     /// </summary>
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -102,7 +102,7 @@ public sealed record LayerExecutionCompletedEvent : GraphEvent
     /// <summary>
     /// Override Kind to Lifecycle.
     /// </summary>
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -128,7 +128,7 @@ public sealed record NodeExecutionStartedEvent : GraphEvent
     /// <summary>
     /// Override Kind to Lifecycle.
     /// </summary>
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -204,7 +204,7 @@ public sealed record EdgeTraversedEvent : GraphEvent
     /// <summary>
     /// Override Kind to Diagnostic.
     /// </summary>
-    public new EventKind Kind { get; init; } = EventKind.Diagnostic;
+    public override EventKind Kind { get; init; } = EventKind.Diagnostic;
 }
 
 /// <summary>
@@ -241,7 +241,7 @@ public sealed record EdgeConditionFailedEvent : GraphEvent
     /// <summary>
     /// Override Kind to Diagnostic.
     /// </summary>
-    public new EventKind Kind { get; init; } = EventKind.Diagnostic;
+    public override EventKind Kind { get; init; } = EventKind.Diagnostic;
 }
 
 /// <summary>
@@ -267,7 +267,7 @@ public sealed record NodeSkippedEvent : GraphEvent
     /// <summary>
     /// Override Kind to Diagnostic.
     /// </summary>
-    public new EventKind Kind { get; init; } = EventKind.Diagnostic;
+    public override EventKind Kind { get; init; } = EventKind.Diagnostic;
 }
 
 /// <summary>
@@ -314,7 +314,7 @@ public sealed record GraphDiagnosticEvent : GraphEvent
     /// <summary>
     /// Override Kind to Diagnostic.
     /// </summary>
-    public new EventKind Kind { get; init; } = EventKind.Diagnostic;
+    public override EventKind Kind { get; init; } = EventKind.Diagnostic;
 }
 
 /// <summary>
@@ -356,7 +356,7 @@ public sealed record NodePollingEvent : GraphEvent
     /// <summary>
     /// Override Kind to Lifecycle.
     /// </summary>
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -388,7 +388,7 @@ public sealed record NodePollingTimeoutEvent : GraphEvent
     /// <summary>
     /// Override Kind to Diagnostic.
     /// </summary>
-    public new EventKind Kind { get; init; } = EventKind.Diagnostic;
+    public override EventKind Kind { get; init; } = EventKind.Diagnostic;
 }
 
 /// <summary>
@@ -420,7 +420,7 @@ public sealed record NodePollingMaxRetriesEvent : GraphEvent
     /// <summary>
     /// Override Kind to Diagnostic.
     /// </summary>
-    public new EventKind Kind { get; init; } = EventKind.Diagnostic;
+    public override EventKind Kind { get; init; } = EventKind.Diagnostic;
 }
 
 /// <summary>
@@ -458,7 +458,7 @@ public sealed record BackfillStartedEvent : GraphEvent
     /// <summary>
     /// Override Kind to Lifecycle.
     /// </summary>
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -523,7 +523,7 @@ public sealed record BackfillPartitionCompletedEvent : GraphEvent
     /// <summary>
     /// Override Kind to Lifecycle.
     /// </summary>
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -560,5 +560,5 @@ public sealed record BackfillCompletedEvent : GraphEvent
     /// <summary>
     /// Override Kind to Lifecycle.
     /// </summary>
-    public new EventKind Kind { get; init; } = EventKind.Lifecycle;
+    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }

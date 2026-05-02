@@ -87,7 +87,7 @@ public class MarketEventTests
     }
 
     [Fact]
-    public void MarketEvent_ShouldHaveNormalPriority()
+    public void MarketEvent_ShouldHaveStreamingChannel()
     {
         // Arrange
         var instrument = new Instrument(new Asset("AAPL", AssetClass.Equity), Venue.NASDAQ);
@@ -103,7 +103,7 @@ public class MarketEventTests
         var evt = new QuoteReceived(instrument, quote);
 
         // Assert
-        Assert.Equal(EventPriority.Normal, evt.Priority);
+        Assert.Equal(EventChannel.Streaming, evt.Channel);
     }
 }
 
@@ -120,13 +120,13 @@ public class ExecutionEventTests
     }
 
     [Fact]
-    public void ExecutionEvent_ShouldHaveControlPriority()
+    public void ExecutionEvent_ShouldHaveSynchronousChannel()
     {
         // Arrange & Act
         var evt = new OrderAccepted(OrderId.New(), 1);
 
         // Assert
-        Assert.Equal(EventPriority.Control, evt.Priority);
+        Assert.Equal(EventChannel.Synchronous, evt.Channel);
     }
 }
 
@@ -143,13 +143,13 @@ public class ControlEventTests
     }
 
     [Fact]
-    public void ControlEvent_ShouldHaveImmediatePriority()
+    public void ControlEvent_ShouldHaveControlChannel()
     {
         // Arrange & Act
         var evt = new UserCancellation("User requested");
 
         // Assert
-        Assert.Equal(EventPriority.Immediate, evt.Priority);
+        Assert.Equal(EventChannel.Control, evt.Channel);
     }
 }
 
@@ -166,13 +166,13 @@ public class LifecycleEventTests
     }
 
     [Fact]
-    public void LifecycleEvent_ShouldHaveNormalPriority()
+    public void LifecycleEvent_ShouldHaveSynchronousChannel()
     {
         // Arrange & Act
         var evt = new SessionStarted();
 
         // Assert
-        Assert.Equal(EventPriority.Normal, evt.Priority);
+        Assert.Equal(EventChannel.Synchronous, evt.Channel);
     }
 }
 
@@ -192,13 +192,13 @@ public class DiagnosticEventTests
     }
 
     [Fact]
-    public void DiagnosticEvent_ShouldHaveBackgroundPriority()
+    public void DiagnosticEvent_ShouldHaveStreamingChannel()
     {
         // Arrange & Act
         var evt = new TestDiagnosticEvent();
 
         // Assert
-        Assert.Equal(EventPriority.Background, evt.Priority);
+        Assert.Equal(EventChannel.Streaming, evt.Channel);
     }
 
     [Fact]

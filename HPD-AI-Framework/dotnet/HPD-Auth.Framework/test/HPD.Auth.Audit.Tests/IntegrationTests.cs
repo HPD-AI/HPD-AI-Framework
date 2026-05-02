@@ -19,11 +19,34 @@ public class IntegrationTests
 {
     private static async Task EmitAndDrainAsync(IEventCoordinator coordinator, AuditingAuthObserver observer, AuthEvent evt)
     {
-        coordinator.Emit(evt);
-        while (coordinator.TryRead(out var pending))
+        var observed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        coordinator.OnAny(async pending =>
         {
             if (pending is AuthEvent authEvent && observer.ShouldProcess(authEvent))
                 await observer.OnEventAsync(authEvent);
+
+            if (ReferenceEquals(pending, evt))
+                observed.TrySetResult();
+        });
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var runTask = coordinator.RunAsync(cts.Token);
+
+        coordinator.Emit(evt);
+
+        await observed.Task.WaitAsync(cts.Token);
+        await cts.CancelAsync();
+        await SuppressCancellationAsync(runTask);
+    }
+
+    private static async Task SuppressCancellationAsync(Task task)
+    {
+        try
+        {
+            await task;
+        }
+        catch (OperationCanceledException)
+        {
         }
     }
 

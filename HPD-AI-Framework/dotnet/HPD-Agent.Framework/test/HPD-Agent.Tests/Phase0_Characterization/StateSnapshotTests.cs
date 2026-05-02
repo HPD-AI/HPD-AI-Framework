@@ -207,9 +207,10 @@ public class StateSnapshotTests : AgentTestBase
         config.Provider.ProviderKey = "test";
         config.Provider.ModelName = "test-model";
 
-        var agent = CreateAgent(
+        var agent = CreateAgentWithMiddlewares(
             config: config,
             client: fakeLLM,
+            middlewares: [new ContinuationPermissionMiddleware(maxIterations: config.MaxAgenticIterations)],
             tools: [dummyTool]);
 
         var messages = CreateSimpleConversation("Use the tool repeatedly");

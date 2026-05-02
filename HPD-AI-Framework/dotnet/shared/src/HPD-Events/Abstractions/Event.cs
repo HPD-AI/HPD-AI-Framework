@@ -3,10 +3,16 @@ namespace HPD.Events;
 /// <summary>
 /// Universal base class for all events in the HPD ecosystem.
 /// All domain-specific events (Agent, Graph, Audio, etc.) inherit from this class.
-/// Provides common fields for event classification, priority routing, timestamps, and cross-domain metadata.
+/// Provides common fields for event classification, channel routing, timestamps, and cross-domain metadata.
 /// </summary>
-public abstract record Event
+public abstract record Event : IEvent
 {
+    /// <summary>
+    /// Routing channel. Determines which independent channel this event travels through.
+    /// Default: Synchronous.
+    /// </summary>
+    public virtual EventChannel Channel { get; init; } = EventChannel.Synchronous;
+
     /// <summary>
     /// Event classification (Lifecycle, Content, Control, Diagnostic).
     /// Used for filtering and routing events to appropriate handlers.
@@ -16,20 +22,12 @@ public abstract record Event
     public virtual EventKind Kind { get; init; } = EventKind.Content;
 
     /// <summary>
-    /// Priority for channel routing.
-    /// Higher priority events are processed before lower priority events.
-    /// Default: Normal
-    /// Override in derived event classes to provide domain-specific defaults.
-    /// </summary>
-    public virtual EventPriority Priority { get; init; } = EventPriority.Normal;
-
-    /// <summary>
     /// Direction of event flow (Downstream or Upstream).
     /// Downstream: normal flow from parent to child.
     /// Upstream: bubbling from child to parent (interruptions, cancellations).
     /// Default: Downstream
     /// </summary>
-    public EventDirection Direction { get; init; } = EventDirection.Downstream;
+    public virtual EventDirection Direction { get; init; } = EventDirection.Downstream;
 
     /// <summary>
     /// Sequence number for ordering (assigned by coordinator).
@@ -57,6 +55,12 @@ public abstract record Event
     /// Automatically populated at event construction.
     /// </summary>
     public DateTimeOffset Timestamp { get; init; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    /// External timestamp in nanoseconds since Unix epoch.
+    /// Zero if not set.
+    /// </summary>
+    public long ExchangeTimestampNs { get; init; }
 
     /// <summary>
     /// Optional extension dictionary for cross-domain metadata.

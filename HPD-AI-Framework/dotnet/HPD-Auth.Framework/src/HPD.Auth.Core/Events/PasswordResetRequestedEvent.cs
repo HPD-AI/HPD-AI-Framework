@@ -13,5 +13,5 @@ public record PasswordResetRequestedEvent : AuthEvent
 
     public required string Email { get; init; }
 
-    public override EventPriority Priority => EventPriority.Normal;
+    public override EventChannel Channel => EventChannel.Synchronous;
 }

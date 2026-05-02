@@ -5,46 +5,72 @@ namespace HPD.Events;
 /// Non-generic design works with any Event subclass without type conversions.
 ///
 /// Key Features:
-/// - Priority-based event routing (Upstream > Immediate > Control > Normal > Background)
+/// - Channel-based event routing (Streaming, Synchronous, Interactive, Control)
 /// - Hierarchical event bubbling via SetParent (child events bubble to parent)
 /// - Bidirectional patterns (request/response with WaitForResponseAsync)
 /// - Interruptible streams (group events that can be canceled together)
-/// - Fire-and-forget emission (Emit) and ordered streaming (ReadAllAsync)
+/// - Fluent typed handlers and low-level channel readers
 /// </summary>
 public interface IEventCoordinator
 {
     /// <summary>
     /// Emit an event downstream (fire-and-forget).
-    /// Event is assigned a sequence number and routed to priority channel.
+    /// Event is assigned a sequence number and routed to its declared channel.
     /// If a parent coordinator is set, event bubbles up automatically.
     /// </summary>
     /// <param name="evt">Event to emit</param>
     void Emit(Event evt);
 
     /// <summary>
-    /// Emit an event upstream (for interruption propagation).
-    /// Used to propagate cancellations and interruptions up the hierarchy.
+    /// Emit an event asynchronously. Bounded Interactive and Control channels wait
+    /// for capacity; Streaming drops oldest; Synchronous is unbounded.
     /// </summary>
-    /// <param name="evt">Event to emit upstream</param>
-    void EmitUpstream(Event evt);
+    ValueTask EmitAsync(Event evt, CancellationToken ct = default);
 
     /// <summary>
-    /// Try to read a single event without blocking.
-    /// Returns immediately with true if an event was available, false otherwise.
-    /// Events are returned in priority order: Upstream > Immediate > Control > Normal > Background.
+    /// Register a typed handler for an exact class event type.
     /// </summary>
-    /// <param name="evt">Output parameter containing the event if available</param>
-    /// <returns>True if an event was read, false if no events available</returns>
-    bool TryRead([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Event? evt);
+    IEventCoordinator On<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event;
 
     /// <summary>
-    /// Read all events in priority order.
-    /// Events are yielded in priority order: Upstream > Immediate > Control > Normal > Background.
-    /// Blocks until events are available or cancellation is requested.
+    /// Register a broad observer that receives every class event from every channel.
     /// </summary>
-    /// <param name="ct">Cancellation token</param>
-    /// <returns>Async enumerable of events</returns>
-    IAsyncEnumerable<Event> ReadAllAsync(CancellationToken ct = default);
+    IEventCoordinator OnAny(Func<Event, ValueTask> handler);
+
+    /// <summary>
+    /// Try to emit a local struct event without waiting.
+    /// </summary>
+    bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent;
+
+    /// <summary>
+    /// Emit a local struct event asynchronously, waiting when subscriber options request backpressure.
+    /// </summary>
+    ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default)
+        where TEvent : struct, IStructEvent;
+
+    /// <summary>
+    /// Register a handler for an exact local struct event type.
+    /// </summary>
+    IEventCoordinator OnStruct<TEvent>(Func<TEvent, ValueTask> handler)
+        where TEvent : struct, IStructEvent;
+
+    /// <summary>
+    /// Subscribe directly to a local struct event stream.
+    /// </summary>
+    StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null)
+        where TEvent : struct, IStructEvent;
+
+    /// <summary>
+    /// Create a pre-bound hot-path emitter for local struct events.
+    /// </summary>
+    StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null)
+        where TEvent : struct, IStructEvent;
+
+    /// <summary>
+    /// Start all registered handlers. Runs one reader task per class-event channel
+    /// plus registered struct-event handler pumps.
+    /// </summary>
+    Task RunAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Set parent coordinator for hierarchical event bubbling.
@@ -83,4 +109,19 @@ public interface IEventCoordinator
     /// Allows grouping events into streams that can be interrupted together.
     /// </summary>
     IStreamRegistry Streams { get; }
+
+    /// <summary>Returns current class-event channel depths.</summary>
+    EventCoordinatorStats GetStats();
+
+    /// <summary>Read streaming events directly.</summary>
+    IAsyncEnumerable<Event> ReadStreamingAsync(CancellationToken ct = default);
+
+    /// <summary>Read synchronous events directly.</summary>
+    IAsyncEnumerable<Event> ReadSynchronousAsync(CancellationToken ct = default);
+
+    /// <summary>Read interactive events directly.</summary>
+    IAsyncEnumerable<Event> ReadInteractiveAsync(CancellationToken ct = default);
+
+    /// <summary>Read control events directly.</summary>
+    IAsyncEnumerable<Event> ReadControlAsync(CancellationToken ct = default);
 }

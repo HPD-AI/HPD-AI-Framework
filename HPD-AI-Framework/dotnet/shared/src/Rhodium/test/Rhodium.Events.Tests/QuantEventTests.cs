@@ -26,7 +26,7 @@ public class QuantEventTests
     }
 
     [Fact]
-    public void QuantResultReady_HasCorrectPriority()
+    public void QuantResultReady_HasCorrectChannel()
     {
         var result = new QuantResult
         {
@@ -37,7 +37,7 @@ public class QuantEventTests
 
         var evt = new QuantResultReady(result);
 
-        Assert.Equal(HPD.Events.EventPriority.Normal, evt.Priority);
+        Assert.Equal(HPD.Events.EventChannel.Synchronous, evt.Channel);
     }
 
     [Fact]

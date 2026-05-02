@@ -148,9 +148,53 @@ public sealed class Agent
     /// </summary>
     public HPD.Events.IEventCoordinator EventCoordinator => _eventCoordinator;
 
+    private async IAsyncEnumerable<AgentEvent> DrainMiddlewareEventsAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await foreach (var evt in DrainAvailableChannelAsync(_eventCoordinator.ReadControlAsync, cancellationToken).ConfigureAwait(false))
+            yield return evt;
+
+        await foreach (var evt in DrainAvailableChannelAsync(_eventCoordinator.ReadInteractiveAsync, cancellationToken).ConfigureAwait(false))
+            yield return evt;
+
+        await foreach (var evt in DrainAvailableChannelAsync(_eventCoordinator.ReadStreamingAsync, cancellationToken).ConfigureAwait(false))
+            yield return evt;
+
+        await foreach (var evt in DrainAvailableChannelAsync(_eventCoordinator.ReadSynchronousAsync, cancellationToken).ConfigureAwait(false))
+            yield return evt;
+    }
+
+    private static async IAsyncEnumerable<AgentEvent> DrainAvailableChannelAsync(
+        Func<CancellationToken, IAsyncEnumerable<Event>> readChannel,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            using var idleCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            idleCts.CancelAfter(TimeSpan.FromMilliseconds(1));
+
+            await using var enumerator = readChannel(idleCts.Token).GetAsyncEnumerator(idleCts.Token);
+            bool hasItem;
+            try
+            {
+                hasItem = await enumerator.MoveNextAsync().ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (idleCts.IsCancellationRequested)
+            {
+                yield break;
+            }
+
+            if (!hasItem)
+                yield break;
+
+            if (enumerator.Current is AgentEvent agentEvent)
+                yield return agentEvent;
+        }
+    }
+
     /// <summary>
     /// Internal access to event coordinator for middleware event emission.
-    /// Use Emit() method for priority-aware routing.
+    /// Use Emit() method for channel-aware routing.
     /// </summary>
     internal HPD.Events.IEventCoordinator MiddlewareEventCoordinator => _eventCoordinator;
 
@@ -765,8 +809,8 @@ public sealed class Agent
             effectiveMessages = sharedMessages;
 
             // Drain middleware events
-            while (_eventCoordinator.TryRead(out var middlewareEvt))
-                yield return (AgentEvent)middlewareEvt;
+            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                yield return middlewareEvt;
 
 
             // MAIN AGENTIC LOOP (Hybrid: Pure Decisions + Inline Execution)
@@ -800,8 +844,8 @@ public sealed class Agent
                 { TraceId = traceId };
 
                 // Drain middleware events before decision
-                while (_eventCoordinator.TryRead(out var MiddlewareEvt))
-                    yield return (AgentEvent)MiddlewareEvt;
+                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                yield return middlewareEvt;
 
                 //      
                 // FUNCTIONAL CORE: Pure Decision (No I/O)
@@ -838,8 +882,8 @@ public sealed class Agent
 
                 // Drain middleware events after decision-making, before execution
                 // CRITICAL: Ensures events emitted during decision logic are yielded before LLM streaming starts
-                while (_eventCoordinator.TryRead(out var MiddlewareEvt))
-                    yield return (AgentEvent)MiddlewareEvt;
+                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                yield return middlewareEvt;
 
                 //     
                 // ARCHITECTURAL DECISION: Inline Execution for Zero-Latency Streaming
@@ -951,20 +995,16 @@ public sealed class Agent
                         var delayTask = Task.Delay(10, effectiveCancellationToken);
                         await Task.WhenAny(beforeIterationTask, delayTask).ConfigureAwait(false);
 
-                        while (_eventCoordinator.TryRead(out var middlewareEvt))
-                        {
-                            yield return (AgentEvent)middlewareEvt;
-                        }
+                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                        yield return middlewareEvt;
                     }
 
                     // Await to propagate any exceptions
                     await beforeIterationTask.ConfigureAwait(false);
 
                     // Final drain of events from middleware
-                    while (_eventCoordinator.TryRead(out var middlewareEvt))
-                    {
-                        yield return (AgentEvent)middlewareEvt;
-                    }
+                    await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                        yield return middlewareEvt;
 
                     // V2: State updates are immediate - no GetPendingState() needed!
                     state = agentContext.State;
@@ -1169,10 +1209,8 @@ public sealed class Agent
                                 }
 
                                 // Still emit middleware events immediately
-                                while (_eventCoordinator.TryRead(out var MiddlewareEvt))
-                                {
-                                    yield return (AgentEvent)MiddlewareEvt;
-                                }
+                                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                        yield return middlewareEvt;
                             }
 
                             // Now coalesce and emit events
@@ -1374,10 +1412,8 @@ public sealed class Agent
                                 }
 
                                 // Periodically yield Middleware events during LLM streaming
-                                while (_eventCoordinator.TryRead(out var MiddlewareEvt))
-                                {
-                                    yield return (AgentEvent)MiddlewareEvt;
-                                }
+                                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                        yield return middlewareEvt;
 
                                 // Check for stream completion
                                 if (update.FinishReason != null)
@@ -1475,10 +1511,8 @@ public sealed class Agent
                         var effectiveOptionsForTools = beforeIterationContext.Options;
 
                         // Yield Middleware events before tool execution
-                        while (_eventCoordinator.TryRead(out var MiddlewareEvt))
-                        {
-                            yield return (AgentEvent)MiddlewareEvt;
-                        }
+                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                        yield return middlewareEvt;
 
                         // UPDATE AGENT CONTEXT STATE before tool execution hook
                         agentContext.SyncState(state);
@@ -1497,10 +1531,8 @@ public sealed class Agent
                             effectiveCancellationToken).ConfigureAwait(false);
 
                         // Drain events from middleware
-                        while (_eventCoordinator.TryRead(out var middlewareEvt))
-                        {
-                            yield return (AgentEvent)middlewareEvt;
-                        }
+                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                        yield return middlewareEvt;
 
                         // V2: Sync state after middleware
                         state = agentContext.State;
@@ -1512,10 +1544,8 @@ public sealed class Agent
                             if (state.IsTerminated)
                             {
                                 // Drain any final events from middleware (e.g., TextDeltaEvent from circuit breaker)
-                                while (_eventCoordinator.TryRead(out var terminationEvt))
-                                {
-                                    yield return (AgentEvent)terminationEvt;
-                                }
+                                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                        yield return middlewareEvt;
                                 break; // Exit the main loop WITHOUT executing tools
                             }
 
@@ -1539,10 +1569,8 @@ public sealed class Agent
                             var delayTask = Task.Delay(10, effectiveCancellationToken);
                             await Task.WhenAny(executeTask, delayTask).ConfigureAwait(false);
 
-                            while (_eventCoordinator.TryRead(out var MiddlewareEvt))
-                            {
-                                yield return (AgentEvent)MiddlewareEvt;
-                            }
+                            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                        yield return middlewareEvt;
                         }
 
                         var executionResult = await executeTask.ConfigureAwait(false);
@@ -1552,10 +1580,8 @@ public sealed class Agent
                         var successfulFunctions = executionResult.SuccessfulFunctions;
 
                         // Final drain
-                        while (_eventCoordinator.TryRead(out var MiddlewareEvt))
-                        {
-                            yield return (AgentEvent)MiddlewareEvt;
-                        }
+                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                        yield return middlewareEvt;
 
                         // ═══════════════════════════════════════════════════════════════
                         // OUTPUT TOOL TERMINATION (structured output tool mode)
@@ -1600,10 +1626,8 @@ public sealed class Agent
                         if (state.IsTerminated)
                         {
                             // Drain any events emitted during termination (e.g., StateSnapshotEvent from ErrorTrackingMiddleware)
-                            while (_eventCoordinator.TryRead(out var terminationEvt))
-                            {
-                                yield return (AgentEvent)terminationEvt;
-                            }
+                            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                        yield return middlewareEvt;
                             break;
                         }
 
@@ -1801,8 +1825,8 @@ public sealed class Agent
             }
 
             // Final drain of middleware events after loop
-            while (_eventCoordinator.TryRead(out var MiddlewareEvt))
-                yield return (AgentEvent)MiddlewareEvt;
+            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                yield return middlewareEvt;
 
             // Emit MESSAGE TURN finished event
             turnStopwatch.Stop();
@@ -1886,8 +1910,8 @@ public sealed class Agent
             // The turnHistory variable is passed by reference and may have been updated
 
             // Drain middleware events
-            while (_eventCoordinator.TryRead(out var middlewareEvt))
-                yield return (AgentEvent)middlewareEvt;
+            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                yield return middlewareEvt;
 
             // PERSISTENCE: Save complete turn history to branch
             if (branch != null && turnHistory.Count > 0)

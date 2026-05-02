@@ -61,6 +61,36 @@ public class NativeAudioModeTests
         Assert.Equal(audioBytes, Convert.FromBase64String(emittedChunks[0].Base64Audio));
     }
 
+    [Fact]
+    public async Task NativeMode_Stream_EmitsAudioChunkFrameStruct_WhenModelResponseContainsAudioDataContent()
+    {
+        // Arrange — real coordinator receives local struct frames alongside class events
+        var audioBytes = new byte[] { 0x01, 0x02, 0x03, 0x04 };
+        using var coordinator = new HPD.Events.Core.EventCoordinator();
+        await using var audioFrames = coordinator.SubscribeStruct<AudioChunkFrame>();
+
+        var model = new AudioDataChatClient([new DataContent(audioBytes, "audio/pcm")]);
+        var middleware = new AudioPipelineMiddleware
+        {
+            IOMode = AudioIOMode.AudioToAudio,
+            ProcessingMode = AudioProcessingMode.Native
+        };
+
+        var request = CreateModelRequest(session: null, model, coordinator);
+
+        // Act
+        await DrainStreamAsync(middleware.WrapModelCallStreamingAsync(request,
+            r => r.Model.GetStreamingResponseAsync(r.Messages, r.Options), CancellationToken.None)!);
+
+        // Assert — local frame preserves raw bytes and receives a struct sequence number
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var frame = await audioFrames.Reader.ReadAsync(timeout.Token);
+        Assert.Equal(audioBytes, frame.Audio.ToArray());
+        Assert.Equal("audio/pcm", frame.MimeType);
+        Assert.Equal(0, frame.ChunkIndex);
+        Assert.Equal(1, frame.SequenceNumber);
+    }
+
     // -------------------------------------------------------------------------
     // 47. All ChatResponseUpdates are still yielded to the consumer
     // -------------------------------------------------------------------------
@@ -421,6 +451,40 @@ public class NativeAudioModeTests
         Assert.True(tts.CallCount > 0);
     }
 
+    [Fact]
+    public async Task PipelineMode_Stream_EmitsAudioChunkFrameStruct_WhenTtsProducesAudio()
+    {
+        // Arrange — pipeline TTS audio also emits local raw-byte struct frames
+        var tts = new CallCountingTtsClient();
+        using var coordinator = new HPD.Events.Core.EventCoordinator();
+        await using var audioFrames = coordinator.SubscribeStruct<AudioChunkFrame>();
+
+        var middleware = new AudioPipelineMiddleware
+        {
+            TextToSpeechClient = tts,
+            IOMode = AudioIOMode.TextToAudio
+            // ProcessingMode defaults to Pipeline
+        };
+
+        var model = new MultiUpdateChatClient([
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("Hello.")])
+        ]);
+        var request = CreateModelRequest(session: null, model, coordinator);
+
+        // Act
+        await DrainStreamAsync(middleware.WrapModelCallStreamingAsync(request,
+            r => r.Model.GetStreamingResponseAsync(r.Messages, r.Options), CancellationToken.None)!);
+
+        // Assert
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var frame = await audioFrames.Reader.ReadAsync(timeout.Token);
+        Assert.Equal(new byte[] { 0x00 }, frame.Audio.ToArray());
+        Assert.Equal("audio/mpeg", frame.MimeType);
+        Assert.Equal(0, frame.ChunkIndex);
+        Assert.True(frame.IsLast);
+        Assert.Equal(1, frame.SequenceNumber);
+    }
+
     // -------------------------------------------------------------------------
     // 58. Native mode returns non-null (intercepts stream) when HasAudioOutput
     // -------------------------------------------------------------------------
@@ -661,13 +725,15 @@ public class NativeAudioModeTests
         private readonly Action<AgentEvent> _onEmit;
         public CapturingEventCoordinator(Action<AgentEvent> onEmit) => _onEmit = onEmit;
         public void Emit(Event evt) => _onEmit((AgentEvent)evt);
-        public void EmitUpstream(Event evt) => _onEmit((AgentEvent)evt);
-        public bool TryRead([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Event? evt) { evt = null; return false; }
-        public async IAsyncEnumerable<Event> ReadAllAsync(CancellationToken ct = default) 
-        {
-            await Task.CompletedTask;
-            yield break;
-        }
+        public ValueTask EmitAsync(Event evt, CancellationToken ct = default) { Emit(evt); return ValueTask.CompletedTask; }
+        public IEventCoordinator On<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event => this;
+        public IEventCoordinator OnAny(Func<Event, ValueTask> handler) => this;
+        public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent => false;
+        public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : struct, IStructEvent => ValueTask.CompletedTask;
+        public IEventCoordinator OnStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => this;
+        public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null) where TEvent : struct, IStructEvent => default;
+        public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null) where TEvent : struct, IStructEvent => default;
+        public Task RunAsync(CancellationToken ct = default) => Task.CompletedTask;
         public void SetParent(IEventCoordinator parent) { }
         public Task<TResponse> WaitForResponseAsync<TResponse>(
             string requestId,
@@ -676,7 +742,17 @@ public class NativeAudioModeTests
             => throw new NotImplementedException("WaitForResponseAsync not supported in test mock");
         public void SendResponse(string requestId, Event response) { }
         public IStreamRegistry Streams { get; } = new NoOpStreamRegistry();
+        public EventCoordinatorStats GetStats() => default;
+        public IAsyncEnumerable<Event> ReadStreamingAsync(CancellationToken ct = default) => EmptyAsync(ct);
+        public IAsyncEnumerable<Event> ReadSynchronousAsync(CancellationToken ct = default) => EmptyAsync(ct);
+        public IAsyncEnumerable<Event> ReadInteractiveAsync(CancellationToken ct = default) => EmptyAsync(ct);
+        public IAsyncEnumerable<Event> ReadControlAsync(CancellationToken ct = default) => EmptyAsync(ct);
         public IDisposable Subscribe(Action<AgentEvent> handler) => NoOpDisposable.Instance;
+        private static async IAsyncEnumerable<Event> EmptyAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
         private sealed class NoOpDisposable : IDisposable
         {
             public static readonly NoOpDisposable Instance = new();

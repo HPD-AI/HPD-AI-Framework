@@ -16,5 +16,5 @@ public record UserLoggedOutEvent : AuthEvent
     /// </summary>
     public required Guid SessionId { get; init; }
 
-    public override EventPriority Priority => EventPriority.Normal;
+    public override EventChannel Channel => EventChannel.Synchronous;
 }

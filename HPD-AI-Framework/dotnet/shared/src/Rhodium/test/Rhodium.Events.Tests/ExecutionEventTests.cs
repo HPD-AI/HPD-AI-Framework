@@ -32,13 +32,13 @@ public class OrderAcceptedTests
     }
 
     [Fact]
-    public void OrderAccepted_ShouldHaveControlPriority()
+    public void OrderAccepted_ShouldHaveSynchronousChannel()
     {
         // Arrange & Act
         var evt = new OrderAccepted(OrderId.New(), 1);
 
         // Assert
-        Assert.Equal(HPD.Events.EventPriority.Control, evt.Priority);
+        Assert.Equal(HPD.Events.EventChannel.Synchronous, evt.Channel);
     }
 }
 

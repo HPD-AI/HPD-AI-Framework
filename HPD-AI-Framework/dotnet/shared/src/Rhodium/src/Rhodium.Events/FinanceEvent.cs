@@ -5,7 +5,7 @@ namespace Rhodium.Events;
 
 /// <summary>
 /// Base class for all finance events. Inherits from HPD.Events.Event for
-/// priority routing, stream management, and hierarchical coordination.
+/// channel routing, stream management, and hierarchical coordination.
 /// </summary>
 public abstract record FinanceEvent : Event
 {
@@ -24,36 +24,34 @@ public abstract record FinanceEvent : Event
 
 /// <summary>
 /// Market data events (quotes, bars, trades, book updates).
-/// Normal priority - processed in order during live trading.
+/// Streaming channel - high-throughput feed data.
 /// </summary>
 public abstract record MarketEvent : FinanceEvent
 {
     public abstract Instrument Instrument { get; }
 
-    // Market data is normal priority content
     public override EventKind Kind => EventKind.Content;
-    public override EventPriority Priority => EventPriority.Normal;
+    public override EventChannel Channel => EventChannel.Streaming;
 }
 
 /// <summary>
 /// Execution events (fills, rejects, cancellations).
-/// Higher priority - processed before market data in live trading.
+/// Synchronous channel - causally ordered account state.
 /// </summary>
 public abstract record ExecutionEvent : FinanceEvent
 {
-    // Execution events are higher priority
     public override EventKind Kind => EventKind.Content;
-    public override EventPriority Priority => EventPriority.Control;
+    public override EventChannel Channel => EventChannel.Synchronous;
 }
 
 /// <summary>
 /// Control events (user cancellation, risk limits).
-/// Highest priority - jump the queue immediately.
+/// Control channel - interruptions and circuit breakers.
 /// </summary>
 public abstract record ControlEvent : FinanceEvent
 {
     public override EventKind Kind => EventKind.Control;
-    public override EventPriority Priority => EventPriority.Immediate;
+    public override EventChannel Channel => EventChannel.Control;
 }
 
 /// <summary>
@@ -62,15 +60,15 @@ public abstract record ControlEvent : FinanceEvent
 public abstract record LifecycleEvent : FinanceEvent
 {
     public override EventKind Kind => EventKind.Lifecycle;
-    public override EventPriority Priority => EventPriority.Normal;
+    public override EventChannel Channel => EventChannel.Synchronous;
 }
 
 /// <summary>
 /// Diagnostic events (metrics, performance snapshots).
-/// Lowest priority - processed when idle.
+/// Streaming channel - high-volume observability data.
 /// </summary>
 public abstract record DiagnosticEvent : FinanceEvent
 {
     public override EventKind Kind => EventKind.Diagnostic;
-    public override EventPriority Priority => EventPriority.Background;
+    public override EventChannel Channel => EventChannel.Streaming;
 }

@@ -20,5 +20,5 @@ public record UserLoggedInEvent : AuthEvent
     /// </summary>
     public string AuthMethod { get; init; } = "password";
 
-    public override EventPriority Priority => EventPriority.Normal;
+    public override EventChannel Channel => EventChannel.Synchronous;
 }

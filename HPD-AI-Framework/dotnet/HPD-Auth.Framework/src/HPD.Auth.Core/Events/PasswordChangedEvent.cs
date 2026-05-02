@@ -11,5 +11,5 @@ public record PasswordChangedEvent : AuthEvent
 {
     public required Guid UserId { get; init; }
 
-    public override EventPriority Priority => EventPriority.Normal;
+    public override EventChannel Channel => EventChannel.Synchronous;
 }

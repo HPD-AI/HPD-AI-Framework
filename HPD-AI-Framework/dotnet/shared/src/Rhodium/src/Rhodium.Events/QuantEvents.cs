@@ -10,8 +10,8 @@ namespace Rhodium.Events;
 /// </summary>
 public abstract record QuantEvent : FinanceEvent
 {
-    public new EventKind Kind => EventKind.Content;
-    public new EventPriority Priority => EventPriority.Normal;
+    public override EventKind Kind => EventKind.Content;
+    public override EventChannel Channel => EventChannel.Synchronous;
 }
 
 /// <summary>

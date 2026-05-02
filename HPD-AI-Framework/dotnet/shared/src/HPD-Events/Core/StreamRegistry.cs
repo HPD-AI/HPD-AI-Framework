@@ -53,8 +53,6 @@ public sealed class StreamRegistry : IStreamRegistry
         if (_activeStreams.TryGetValue(streamId, out var handle))
         {
             handle.Interrupt();
-            // Explicitly remove interrupted streams (OnCompleted won't do it for interrupted streams)
-            _activeStreams.TryRemove(streamId, out _);
         }
     }
 
@@ -64,13 +62,14 @@ public sealed class StreamRegistry : IStreamRegistry
         if (_activeStreams.TryGetValue(streamId, out var handle))
         {
             handle.Complete();
+            _activeStreams.TryRemove(streamId, out _);
         }
     }
 
     /// <inheritdoc />
     public bool IsActive(string streamId)
     {
-        return _activeStreams.ContainsKey(streamId);
+        return _activeStreams.TryGetValue(streamId, out var handle) && !handle.IsCompleted;
     }
 
     /// <inheritdoc />
@@ -80,7 +79,6 @@ public sealed class StreamRegistry : IStreamRegistry
         {
             handle.Interrupt();
         }
-        _activeStreams.Clear();
     }
 
     /// <inheritdoc />
@@ -89,13 +87,13 @@ public sealed class StreamRegistry : IStreamRegistry
         foreach (var handle in _activeStreams.Values.Where(predicate).ToArray())
         {
             handle.Interrupt();
-            _activeStreams.TryRemove(handle.StreamId, out _);
         }
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<IStreamHandle> ActiveStreams => _activeStreams.Values.ToList();
+    public IReadOnlyList<IStreamHandle> ActiveStreams =>
+        _activeStreams.Values.Where(static handle => !handle.IsCompleted).ToList();
 
     /// <inheritdoc />
-    public int ActiveCount => _activeStreams.Count;
+    public int ActiveCount => _activeStreams.Values.Count(static handle => !handle.IsCompleted);
 }

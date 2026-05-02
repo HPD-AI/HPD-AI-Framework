@@ -10,5 +10,9 @@ public record EventDroppedEvent(
     long DroppedSequenceNumber
 ) : Event
 {
-    public new EventKind Kind { get; init; } = EventKind.Diagnostic;
+    /// <inheritdoc />
+    public override EventChannel Channel { get; init; } = EventChannel.Control;
+
+    /// <inheritdoc />
+    public override EventKind Kind { get; init; } = EventKind.Diagnostic;
 }

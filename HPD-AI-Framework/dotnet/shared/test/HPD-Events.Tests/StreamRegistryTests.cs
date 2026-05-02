@@ -39,7 +39,7 @@ public class StreamRegistryTests
     }
 
     [Fact]
-    public void InterruptStream_RemovesStreamFromRegistry()
+    public void InterruptStream_MarksStreamInterruptedButInactive()
     {
         // Arrange
         var registry = new StreamRegistry();
@@ -50,6 +50,8 @@ public class StreamRegistryTests
 
         // Assert
         Assert.False(registry.IsActive("stream-1"));
+        var interrupted = Assert.IsType<StreamHandle>(registry.Get("stream-1"));
+        Assert.True(interrupted.IsInterrupted);
     }
 
     [Fact]
@@ -81,7 +83,7 @@ public class StreamRegistryTests
     }
 
     [Fact]
-    public void StreamHandle_Interrupt_MarksAsInterrupted()
+    public void StreamHandle_Interrupt_MarksAsInterruptedButInactive()
     {
         // Arrange
         var registry = new StreamRegistry();
@@ -90,8 +92,9 @@ public class StreamRegistryTests
         // Act
         handle.Interrupt();
 
-        // Assert - Stream stays in registry (marked interrupted) so EventCoordinator can check IsInterrupted
-        Assert.True(registry.IsActive("stream-1"));
+        // Assert - Stream stays observable as an interrupted tombstone so EventCoordinator can check IsInterrupted
+        Assert.False(registry.IsActive("stream-1"));
+        Assert.Same(handle, registry.Get("stream-1"));
         Assert.True(handle.IsInterrupted);
         Assert.True(handle.IsCompleted);
     }
@@ -150,8 +153,8 @@ public class StreamRegistryTests
 
         // Assert
         Assert.True(handle.IsInterrupted);
-        // Stream stays in registry when interrupted via handle.Interrupt()
-        Assert.True(registry.IsActive("stream-1"));
+        Assert.False(registry.IsActive("stream-1"));
+        Assert.Same(handle, registry.Get("stream-1"));
     }
 
     [Fact]
@@ -208,17 +211,13 @@ public class StreamRegistryTests
         handle.Interrupt();
         coordinator.Emit(new TestEvent("after-interrupt") { StreamId = "stream-1" });
 
-        var cts = new CancellationTokenSource(100);
-        var results = await coordinator.ReadAllAsync(cts.Token)
-            .Take(3) // Expect: before-interrupt TestEvent + EventDroppedEvent
-            .ToListAsync();
+        var before = Assert.IsType<TestEvent>(await ReadOneAsync(coordinator.ReadSynchronousAsync()));
+        var droppedEvent = Assert.IsType<EventDroppedEvent>(await ReadOneAsync(coordinator.ReadControlAsync()));
 
         // Assert - First event should be received, second dropped (with EventDroppedEvent emitted)
-        Assert.Equal(2, results.Count);
-        Assert.Equal("before-interrupt", ((TestEvent)results[0]).Message);
+        Assert.Equal("before-interrupt", before.Message);
 
         // EventDroppedEvent should be emitted for the dropped event
-        var droppedEvent = Assert.IsType<EventDroppedEvent>(results[1]);
         Assert.Equal("stream-1", droppedEvent.DroppedStreamId);
         Assert.Equal("TestEvent", droppedEvent.DroppedEventType);
         Assert.Equal(2, droppedEvent.DroppedSequenceNumber);
@@ -239,10 +238,7 @@ public class StreamRegistryTests
             CanInterrupt = false // Critical event
         });
 
-        var cts = new CancellationTokenSource(100);
-        var results = await coordinator.ReadAllAsync(cts.Token)
-            .Take(2)
-            .ToListAsync();
+        var results = await ReadManyAsync(coordinator.ReadSynchronousAsync(), 2);
 
         // Assert - Both events should be received
         Assert.Equal(2, results.Count);
@@ -261,8 +257,7 @@ public class StreamRegistryTests
         handle.Interrupt();
         coordinator.Emit(new TestEvent("no-stream-id")); // No StreamId
 
-        var cts = new CancellationTokenSource(100);
-        var result = await coordinator.ReadAllAsync(cts.Token).FirstOrDefaultAsync();
+        var result = await ReadOneAsync(coordinator.ReadSynchronousAsync());
 
         // Assert - Event should be received
         Assert.NotNull(result);
@@ -294,18 +289,100 @@ public class StreamRegistryTests
         // Emit one critical event (CanInterrupt = false, should NOT be dropped)
         coordinator.Emit(new TestEvent("critical") { StreamId = "stream-1", CanInterrupt = false });
 
-        // Read all events
-        var cts = new CancellationTokenSource(200);
-        var results = await coordinator.ReadAllAsync(cts.Token).ToListAsync();
+        var testEvents = await ReadManyAsync(coordinator.ReadSynchronousAsync(), 6);
+        var droppedEvents = await ReadManyAsync(coordinator.ReadControlAsync(), 5);
 
         // Assert
-        var testEvents = results.OfType<TestEvent>().ToList();
-        var droppedEvents = results.OfType<EventDroppedEvent>().ToList();
-
         Assert.Equal(6, testEvents.Count); // 5 before + 1 critical
         Assert.Equal(5, droppedEvents.Count); // 5 dropped events
         Assert.Equal(5, handle.EmittedCount); // Only interruptible events before interruption
         Assert.Equal(5, handle.DroppedCount); // 5 events dropped
+    }
+
+    [Fact]
+    public async Task CompletedStream_RemovesHandleAndDoesNotDropLaterEvents()
+    {
+        var coordinator = new EventCoordinator();
+        var handle = coordinator.Streams.BeginStream("stream-1");
+
+        coordinator.Emit(new TestEvent("before-complete") { StreamId = "stream-1" });
+        handle.Complete();
+        coordinator.Emit(new TestEvent("after-complete") { StreamId = "stream-1" });
+
+        var events = await ReadManyAsync(coordinator.ReadSynchronousAsync(), 2);
+
+        Assert.Null(coordinator.Streams.Get("stream-1"));
+        Assert.Equal(["before-complete", "after-complete"], events.Cast<TestEvent>().Select(static evt => evt.Message));
+    }
+
+    [Fact]
+    public async Task InterruptStream_DropsLaterEventsAndIncrementsDroppedCount()
+    {
+        var coordinator = new EventCoordinator();
+        var handle = coordinator.Streams.BeginStream("stream-1");
+
+        coordinator.Streams.InterruptStream("stream-1");
+        coordinator.Emit(new TestEvent("after-interrupt") { StreamId = "stream-1" });
+
+        var dropped = Assert.IsType<EventDroppedEvent>(await ReadOneAsync(coordinator.ReadControlAsync()));
+
+        Assert.Equal("stream-1", dropped.DroppedStreamId);
+        Assert.Equal(1, handle.DroppedCount);
+    }
+
+    [Fact]
+    public async Task InterruptAll_DropsLaterEventsForAllInterruptedStreams()
+    {
+        var coordinator = new EventCoordinator();
+        var handle1 = coordinator.Streams.BeginStream("stream-1");
+        var handle2 = coordinator.Streams.BeginStream("stream-2");
+
+        coordinator.Streams.InterruptAll();
+
+        coordinator.Emit(new TestEvent("after-1") { StreamId = "stream-1" });
+        coordinator.Emit(new TestEvent("after-2") { StreamId = "stream-2" });
+
+        var droppedEvents = await ReadManyAsync(coordinator.ReadControlAsync(), 2);
+
+        Assert.Equal(0, coordinator.Streams.ActiveCount);
+        Assert.Equal(["stream-1", "stream-2"], droppedEvents.Cast<EventDroppedEvent>().Select(static evt => evt.DroppedStreamId));
+        Assert.Equal(1, handle1.DroppedCount);
+        Assert.Equal(1, handle2.DroppedCount);
+    }
+
+    [Fact]
+    public async Task InterruptWhere_DropsOnlyMatchingStreams()
+    {
+        var coordinator = new EventCoordinator();
+        var handle1 = coordinator.Streams.BeginStream("stream-1");
+        var handle2 = coordinator.Streams.BeginStream("stream-2");
+
+        coordinator.Streams.InterruptWhere(stream => stream.StreamId == "stream-1");
+
+        coordinator.Emit(new TestEvent("after-1") { StreamId = "stream-1" });
+        coordinator.Emit(new TestEvent("after-2") { StreamId = "stream-2" });
+
+        var delivered = Assert.IsType<TestEvent>(await ReadOneAsync(coordinator.ReadSynchronousAsync()));
+        var dropped = Assert.IsType<EventDroppedEvent>(await ReadOneAsync(coordinator.ReadControlAsync()));
+
+        Assert.Equal("after-2", delivered.Message);
+        Assert.Equal("stream-1", dropped.DroppedStreamId);
+        Assert.True(handle1.IsInterrupted);
+        Assert.False(handle2.IsInterrupted);
+    }
+
+    [Fact]
+    public void Dispose_InterruptedStream_DoesNotClearTombstone()
+    {
+        var registry = new StreamRegistry();
+        var handle = registry.BeginStream("stream-1");
+
+        handle.Interrupt();
+        handle.Dispose();
+
+        Assert.Same(handle, registry.Get("stream-1"));
+        Assert.False(registry.IsActive("stream-1"));
+        Assert.True(handle.IsInterrupted);
     }
 
     [Fact]
@@ -336,10 +413,36 @@ public class StreamRegistryTests
         // Act
         handle1.Interrupt();
 
-        // Assert - Interrupted streams stay in registry, but are marked interrupted
-        Assert.True(registry.IsActive("stream-1")); // Still in registry
+        // Assert - Interrupted streams stay observable, but are not active
+        Assert.False(registry.IsActive("stream-1"));
+        Assert.Same(handle1, registry.Get("stream-1"));
         Assert.True(handle1.IsInterrupted); // But marked interrupted
         Assert.True(registry.IsActive("stream-2")); // Other stream unaffected
         Assert.False(handle2.IsInterrupted);
+    }
+
+    private static async Task<Event> ReadOneAsync(IAsyncEnumerable<Event> source)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        await foreach (var evt in source.WithCancellation(timeout.Token))
+            return evt;
+
+        throw new InvalidOperationException("No event was available.");
+    }
+
+    private static async Task<List<Event>> ReadManyAsync(IAsyncEnumerable<Event> source, int count)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var events = new List<Event>(count);
+
+        await foreach (var evt in source.WithCancellation(timeout.Token))
+        {
+            events.Add(evt);
+            if (events.Count == count)
+                break;
+        }
+
+        return events;
     }
 }

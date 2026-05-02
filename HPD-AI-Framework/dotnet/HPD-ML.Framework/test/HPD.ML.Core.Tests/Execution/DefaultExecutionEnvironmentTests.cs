@@ -54,14 +54,14 @@ public class DefaultExecutionEnvironmentTests
     }
 
     [Fact]
-    public void CreateProgressSubject_WiredToCoordinator()
+    public async Task CreateProgressSubject_WiredToCoordinator()
     {
         using var coordinator = new EventCoordinator();
         var env = new DefaultExecutionEnvironment(coordinator: coordinator);
         using var subject = env.CreateProgressSubject();
 
         subject.OnNext(new ProgressEvent { Epoch = 1 });
-        Assert.True(coordinator.TryRead(out var evt));
+        var evt = await ReadFirstSynchronousAsync(coordinator);
         Assert.IsType<TrainingProgressEvent>(evt);
     }
 
@@ -98,7 +98,7 @@ public class DefaultExecutionEnvironmentTests
     }
 
     [Fact]
-    public void CreateChild_CreatesChildCoordinator_WithParent()
+    public async Task CreateChild_CreatesChildCoordinator_WithParent()
     {
         using var coordinator = new EventCoordinator();
         var env = new DefaultExecutionEnvironment(coordinator: coordinator);
@@ -108,7 +108,7 @@ public class DefaultExecutionEnvironmentTests
         using var subject = child.CreateProgressSubject();
         subject.OnNext(new ProgressEvent { Epoch = 99 });
 
-        Assert.True(coordinator.TryRead(out var evt));
+        var evt = await ReadFirstSynchronousAsync(coordinator);
         var tpe = Assert.IsType<TrainingProgressEvent>(evt);
         Assert.Equal(99, tpe.Progress.Epoch);
     }
@@ -122,5 +122,14 @@ public class DefaultExecutionEnvironmentTests
         // Should not throw — just works without coordinator
         var progress = child.CreateProgress<int>("test");
         Assert.IsType<Progress<int>>(progress);
+    }
+
+    private static async Task<Event> ReadFirstSynchronousAsync(EventCoordinator coordinator)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await foreach (var evt in coordinator.ReadSynchronousAsync(cts.Token))
+            return evt;
+
+        throw new InvalidOperationException("No event was produced.");
     }
 }

@@ -225,7 +225,7 @@ public class PollingCheckpointTests
         var execTask = Task.Run(async () => await orchestrator.ExecuteAsync(context));
 
         // Collect polling events
-        await foreach (var evt in coordinator.ReadAllAsync(new CancellationTokenSource(500).Token))
+        await foreach (var evt in ReadSynchronousUntilTimeoutAsync(coordinator, TimeSpan.FromMilliseconds(500)))
         {
             if (evt is NodePollingEvent pollingEvt)
             {
@@ -240,5 +240,31 @@ public class PollingCheckpointTests
         pollingEvents.Should().NotBeEmpty("polling events should have been emitted during execution");
         pollingEvents.Should().AllSatisfy(e => e.NodeId.Should().Be("poller"));
         handler.PollCount.Should().Be(3, "handler should have polled 3 times");
+    }
+
+    private static async IAsyncEnumerable<HPD.Events.Event> ReadSynchronousUntilTimeoutAsync(
+        EventCoordinator coordinator,
+        TimeSpan timeout)
+    {
+        using var cts = new CancellationTokenSource(timeout);
+        await using var enumerator = coordinator.ReadSynchronousAsync(cts.Token).GetAsyncEnumerator(cts.Token);
+
+        while (true)
+        {
+            bool hasNext;
+            try
+            {
+                hasNext = await enumerator.MoveNextAsync();
+            }
+            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+            {
+                yield break;
+            }
+
+            if (!hasNext)
+                yield break;
+
+            yield return enumerator.Current;
+        }
     }
 }

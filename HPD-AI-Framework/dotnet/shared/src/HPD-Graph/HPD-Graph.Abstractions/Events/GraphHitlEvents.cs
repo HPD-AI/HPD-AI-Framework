@@ -39,8 +39,7 @@ namespace HPDAgent.Graph.Abstractions.Events;
 ///     NodeId = context.CurrentNodeId,
 ///     Message = "Approve deletion of 1000 records?",
 ///     Description = "This will permanently delete all records matching the criteria.",
-///     Metadata = new Dictionary&lt;string, object?&gt; { ["RecordCount"] = 1000 },
-///     Priority = EventPriority.Control
+///     Metadata = new Dictionary&lt;string, object?&gt; { ["RecordCount"] = 1000 }
 /// });
 ///
 /// var response = await context.WaitForResponseAsync&lt;NodeApprovalResponseEvent&gt;(
@@ -78,8 +77,11 @@ public sealed record NodeApprovalRequestEvent : GraphEvent, IBidirectionalGraphE
     /// <summary>Additional metadata for the approval request (e.g., record counts, cost estimates)</summary>
     public IReadOnlyDictionary<string, object?>? Metadata { get; init; }
 
-    /// <summary>Override Kind to Control for priority routing</summary>
-    public new EventKind Kind { get; init; } = EventKind.Control;
+    /// <summary>Route approval prompts through the interactive channel.</summary>
+    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+
+    /// <summary>Override Kind to Control for prompt handling.</summary>
+    public override EventKind Kind { get; init; } = EventKind.Control;
 }
 
 /// <summary>
@@ -106,8 +108,11 @@ public sealed record NodeApprovalResponseEvent : GraphEvent, IBidirectionalGraph
     /// </summary>
     public object? ResumeData { get; init; }
 
-    /// <summary>Override Kind to Control for priority routing</summary>
-    public new EventKind Kind { get; init; } = EventKind.Control;
+    /// <summary>Route approval responses through the interactive channel.</summary>
+    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+
+    /// <summary>Override Kind to Control for prompt handling.</summary>
+    public override EventKind Kind { get; init; } = EventKind.Control;
 }
 
 /// <summary>
@@ -144,5 +149,5 @@ public sealed record NodeApprovalTimeoutEvent : GraphEvent
     public required TimeSpan WaitedFor { get; init; }
 
     /// <summary>Override Kind to Diagnostic for observability routing</summary>
-    public new EventKind Kind { get; init; } = EventKind.Diagnostic;
+    public override EventKind Kind { get; init; } = EventKind.Diagnostic;
 }

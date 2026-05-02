@@ -1184,7 +1184,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             LayerCount = layerCount,
             GraphContext = CreateGraphExecutionContext(context),
             Kind = EventKind.Lifecycle,
-            Priority = EventPriority.Normal
+            Channel = EventChannel.Synchronous
         });
     }
 
@@ -1235,7 +1235,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             SkippedNodes = 0,
             GraphContext = CreateGraphExecutionContext(context),
             Kind = EventKind.Lifecycle,
-            Priority = EventPriority.Normal
+            Channel = EventChannel.Synchronous
         });
     }
 
@@ -1255,7 +1255,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             SkippedNodes = 0,
             GraphContext = CreateGraphExecutionContext(context),
             Kind = EventKind.Lifecycle,
-            Priority = EventPriority.Normal
+            Channel = EventChannel.Synchronous
         });
     }
 
@@ -1271,7 +1271,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             SkippedNodes = 0,
             GraphContext = CreateGraphExecutionContext(context),
             Kind = EventKind.Lifecycle,
-            Priority = EventPriority.Normal
+            Channel = EventChannel.Synchronous
         });
     }
 
@@ -1516,7 +1516,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 CurrentLayer = layer.Level
             },
             Kind = HPD.Events.EventKind.Lifecycle,
-            Priority = HPD.Events.EventPriority.Normal
+            Channel = HPD.Events.EventChannel.Synchronous
         });
 
         if (nodesToExecute.Count == 1)
@@ -1545,7 +1545,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 CurrentLayer = layer.Level
             },
             Kind = HPD.Events.EventKind.Lifecycle,
-            Priority = HPD.Events.EventPriority.Normal
+            Channel = HPD.Events.EventChannel.Synchronous
         });
 
         // Clear ephemeral channels after layer execution (prevents state leakage in loops)
@@ -1695,7 +1695,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 CurrentLayer = context.CurrentLayerIndex
             },
             Kind = HPD.Events.EventKind.Lifecycle,
-            Priority = HPD.Events.EventPriority.Normal
+            Channel = HPD.Events.EventChannel.Synchronous
         });
 
         try
@@ -2362,7 +2362,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 CurrentLayer = context.CurrentLayerIndex
             },
             Kind = HPD.Events.EventKind.Lifecycle,
-            Priority = HPD.Events.EventPriority.Normal
+            Channel = HPD.Events.EventChannel.Synchronous
         });
     }
 
@@ -2498,7 +2498,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 CurrentLayer = context.CurrentLayerIndex
             },
             Kind = HPD.Events.EventKind.Lifecycle,
-            Priority = HPD.Events.EventPriority.Normal
+            Channel = HPD.Events.EventChannel.Synchronous
         });
     }
 

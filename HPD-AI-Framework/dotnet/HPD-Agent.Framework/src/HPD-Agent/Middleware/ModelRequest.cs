@@ -147,7 +147,7 @@ public sealed record ModelRequest
     ///     MimeType: "audio/mp3",
     ///     Duration: TimeSpan.FromMilliseconds(100))
     /// {
-    ///     Priority = EventPriority.Normal,
+    ///     Channel = EventChannel.Streaming,
     ///     StreamId = stream?.StreamId
     /// });
     /// </code>

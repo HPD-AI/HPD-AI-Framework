@@ -51,7 +51,7 @@ public class IEventHandlerTests
 
         public bool ShouldProcess(TestEvent evt)
         {
-            return evt.Priority == EventPriority.Control;
+            return evt.Channel == EventChannel.Control;
         }
 
         public Task OnEventAsync(TestEvent evt, CancellationToken cancellationToken = default)
@@ -159,13 +159,13 @@ public class IEventHandlerTests
     }
 
     [Fact]
-    public void IEventHandler_CanFilterByPriority()
+    public void IEventHandler_CanFilterByChannel()
     {
         // Arrange
         var handler = new FilteringHandler();
 
-        var controlEvt = new TestEvent { Data = "control", Priority = EventPriority.Control };
-        var normalEvt = new TestEvent { Data = "normal", Priority = EventPriority.Normal };
+        var controlEvt = new TestEvent { Data = "control", Channel = EventChannel.Control };
+        var normalEvt = new TestEvent { Data = "normal", Channel = EventChannel.Synchronous };
 
         // Act & Assert
         Assert.True(handler.ShouldProcess(controlEvt));
@@ -179,9 +179,9 @@ public class IEventHandlerTests
         var handler = new FilteringHandler();
         var events = new[]
         {
-            new TestEvent { Data = "control1", Priority = EventPriority.Control },
-            new TestEvent { Data = "normal", Priority = EventPriority.Normal },
-            new TestEvent { Data = "control2", Priority = EventPriority.Control }
+            new TestEvent { Data = "control1", Channel = EventChannel.Control },
+            new TestEvent { Data = "normal", Channel = EventChannel.Synchronous },
+            new TestEvent { Data = "control2", Channel = EventChannel.Control }
         };
 
         // Act
@@ -196,7 +196,7 @@ public class IEventHandlerTests
         // Assert
         Assert.Equal(2, handler.HandledEvents.Count);
         Assert.All(handler.HandledEvents, evt =>
-            Assert.Equal(EventPriority.Control, evt.Priority));
+            Assert.Equal(EventChannel.Control, evt.Channel));
     }
 
     [Fact]

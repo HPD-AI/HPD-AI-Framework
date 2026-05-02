@@ -332,7 +332,7 @@ public class SensorPollingTests
         await Task.Delay(100); // Give time for events
 
         // Collect events
-        await foreach (var evt in coordinator.ReadAllAsync(new CancellationTokenSource(500).Token))
+        await foreach (var evt in ReadSynchronousUntilTimeoutAsync(coordinator, TimeSpan.FromMilliseconds(500)))
         {
             if (evt is NodePollingEvent pollingEvt)
             {
@@ -378,7 +378,7 @@ public class SensorPollingTests
         var execTask = Task.Run(async () => await orchestrator.ExecuteAsync(context));
 
         // Collect events
-        await foreach (var evt in coordinator.ReadAllAsync(new CancellationTokenSource(2000).Token))
+        await foreach (var evt in ReadSynchronousUntilTimeoutAsync(coordinator, TimeSpan.FromMilliseconds(2000)))
         {
             if (evt is NodePollingTimeoutEvent timeoutEvt)
             {
@@ -424,7 +424,7 @@ public class SensorPollingTests
         var execTask = Task.Run(async () => await orchestrator.ExecuteAsync(context));
 
         // Collect events
-        await foreach (var evt in coordinator.ReadAllAsync(new CancellationTokenSource(2000).Token))
+        await foreach (var evt in ReadSynchronousUntilTimeoutAsync(coordinator, TimeSpan.FromMilliseconds(2000)))
         {
             if (evt is NodePollingMaxRetriesEvent maxRetryEvt)
             {
@@ -595,5 +595,40 @@ public class SensorPollingTests
         handler.PollCount.Should().Be(2, "handler should be called 2 times before succeeding");
         context.CompletedNodes.Should().Contain("poller");
         context.Tags["node_state:poller"].Should().Contain(NodeState.Succeeded.ToString());
+    }
+
+    private static async IAsyncEnumerable<HPD.Events.Event> ReadSynchronousUntilTimeoutAsync(
+        EventCoordinator coordinator,
+        TimeSpan timeout)
+    {
+        using var cts = new CancellationTokenSource(timeout);
+
+        IAsyncEnumerator<HPD.Events.Event>? enumerator = null;
+        try
+        {
+            enumerator = coordinator.ReadSynchronousAsync(cts.Token).GetAsyncEnumerator(cts.Token);
+            while (true)
+            {
+                bool hasNext;
+                try
+                {
+                    hasNext = await enumerator.MoveNextAsync();
+                }
+                catch (OperationCanceledException) when (cts.IsCancellationRequested)
+                {
+                    yield break;
+                }
+
+                if (!hasNext)
+                    yield break;
+
+                yield return enumerator.Current;
+            }
+        }
+        finally
+        {
+            if (enumerator is not null)
+                await enumerator.DisposeAsync();
+        }
     }
 }

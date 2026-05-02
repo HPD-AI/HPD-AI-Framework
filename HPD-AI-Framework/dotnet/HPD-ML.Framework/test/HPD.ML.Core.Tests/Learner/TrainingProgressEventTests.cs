@@ -14,10 +14,10 @@ public class TrainingProgressEventTests
     }
 
     [Fact]
-    public void Priority_IsNormal()
+    public void Channel_IsSynchronous()
     {
         var evt = new TrainingProgressEvent(new ProgressEvent());
-        Assert.Equal(EventPriority.Normal, evt.Priority);
+        Assert.Equal(EventChannel.Synchronous, evt.Channel);
     }
 
     [Fact]

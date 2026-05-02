@@ -124,7 +124,7 @@ public class BarClosedTests
     }
 
     [Fact]
-    public void BarClosed_ShouldHaveNormalPriority()
+    public void BarClosed_ShouldHaveStreamingChannel()
     {
         // Arrange
         var instrument = new Instrument(new Asset("ETH", AssetClass.Crypto), Venue.Coinbase);
@@ -134,7 +134,7 @@ public class BarClosedTests
         var evt = new BarClosed(instrument, bar);
 
         // Assert
-        Assert.Equal(HPD.Events.EventPriority.Normal, evt.Priority);
+        Assert.Equal(HPD.Events.EventChannel.Streaming, evt.Channel);
     }
 }
 
@@ -185,7 +185,7 @@ public class BookUpdatedTests
     }
 
     [Fact]
-    public void BookUpdated_ShouldHaveNormalPriority()
+    public void BookUpdated_ShouldHaveStreamingChannel()
     {
         // Arrange
         var instrument = new Instrument(new Asset("TSLA", AssetClass.Equity), Venue.NASDAQ);
@@ -195,7 +195,7 @@ public class BookUpdatedTests
         var evt = new BookUpdated(instrument, book);
 
         // Assert
-        Assert.Equal(HPD.Events.EventPriority.Normal, evt.Priority);
+        Assert.Equal(HPD.Events.EventChannel.Streaming, evt.Channel);
     }
 
     [Fact]

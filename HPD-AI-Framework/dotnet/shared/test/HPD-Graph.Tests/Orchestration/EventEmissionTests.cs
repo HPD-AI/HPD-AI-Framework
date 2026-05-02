@@ -43,12 +43,7 @@ public class EventEmissionTests
         await Task.Delay(100); // Give time for start event
 
         // Assert
-        var events = new List<Event>();
-        await foreach (var evt in coordinator.ReadAllAsync(new CancellationTokenSource(500).Token))
-        {
-            events.Add(evt);
-            if (events.Count >= 10) break;
-        }
+        var events = await CollectSynchronousEventsAsync(coordinator, maxCount: 10);
 
         var startedEvent = events.OfType<GraphExecutionStartedEvent>().FirstOrDefault();
         startedEvent.Should().NotBeNull();
@@ -83,12 +78,7 @@ public class EventEmissionTests
         await orchestrator.ExecuteAsync(context);
 
         // Assert
-        var events = new List<Event>();
-        await foreach (var evt in coordinator.ReadAllAsync(new CancellationTokenSource(500).Token))
-        {
-            events.Add(evt);
-            if (evt is GraphExecutionCompletedEvent) break;
-        }
+        var events = await CollectSynchronousEventsAsync(coordinator, evt => evt is GraphExecutionCompletedEvent);
 
         var completedEvent = events.OfType<GraphExecutionCompletedEvent>().FirstOrDefault();
         completedEvent.Should().NotBeNull();
@@ -124,12 +114,7 @@ public class EventEmissionTests
         await orchestrator.ExecuteAsync(context);
 
         // Assert
-        var events = new List<Event>();
-        await foreach (var evt in coordinator.ReadAllAsync(new CancellationTokenSource(500).Token))
-        {
-            events.Add(evt);
-            if (evt is GraphExecutionCompletedEvent) break;
-        }
+        var events = await CollectSynchronousEventsAsync(coordinator, evt => evt is GraphExecutionCompletedEvent);
 
         var nodeStartedEvents = events.OfType<NodeExecutionStartedEvent>().ToList();
         var nodeCompletedEvents = events.OfType<NodeExecutionCompletedEvent>().ToList();
@@ -195,17 +180,36 @@ public class EventEmissionTests
         await orchestrator.ExecuteAsync(context);
 
         // Assert
-        var events = new List<Event>();
-        await foreach (var evt in coordinator.ReadAllAsync(new CancellationTokenSource(500).Token))
-        {
-            events.Add(evt);
-            if (evt is GraphExecutionCompletedEvent) break;
-        }
+        var events = await CollectSynchronousEventsAsync(coordinator, evt => evt is GraphExecutionCompletedEvent);
 
         var layerStartedEvents = events.OfType<LayerExecutionStartedEvent>().ToList();
         var layerCompletedEvents = events.OfType<LayerExecutionCompletedEvent>().ToList();
 
         layerStartedEvents.Should().NotBeEmpty();
         layerCompletedEvents.Should().NotBeEmpty();
+    }
+
+    private static async Task<List<Event>> CollectSynchronousEventsAsync(
+        EventCoordinator coordinator,
+        Func<Event, bool>? stopWhen = null,
+        int maxCount = int.MaxValue)
+    {
+        var events = new List<Event>();
+        using var cts = new CancellationTokenSource(500);
+
+        try
+        {
+            await foreach (var evt in coordinator.ReadSynchronousAsync(cts.Token))
+            {
+                events.Add(evt);
+                if (events.Count >= maxCount || stopWhen?.Invoke(evt) == true)
+                    break;
+            }
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+        }
+
+        return events;
     }
 }

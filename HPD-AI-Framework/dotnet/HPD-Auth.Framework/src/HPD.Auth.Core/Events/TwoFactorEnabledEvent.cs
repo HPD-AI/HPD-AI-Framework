@@ -17,5 +17,5 @@ public record TwoFactorEnabledEvent : AuthEvent
     /// </summary>
     public required string Method { get; init; }
 
-    public override EventPriority Priority => EventPriority.Normal;
+    public override EventChannel Channel => EventChannel.Synchronous;
 }

@@ -24,5 +24,5 @@ public record LoginFailedEvent : AuthEvent
     /// </summary>
     public required string Reason { get; init; }
 
-    public override EventPriority Priority => EventPriority.Control;
+    public override EventChannel Channel => EventChannel.Control;
 }

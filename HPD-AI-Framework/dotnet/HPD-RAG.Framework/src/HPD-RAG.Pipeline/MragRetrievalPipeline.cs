@@ -1,4 +1,6 @@
 using System.Runtime.CompilerServices;
+using System.Threading.Channels;
+using HPD.Events;
 using HPD.Events.Core;
 using HPD.RAG.Core.Context;
 using HPD.RAG.Core.Events;
@@ -95,13 +97,6 @@ public sealed class MragRetrievalPipeline : IMragRetriever
             }
         }, ct);
 
-        // Drain events until execution completes
-        await foreach (var _ in eventCoordinator.ReadAllAsync(ct).ConfigureAwait(false))
-        {
-            if (context.IsComplete || context.IsCancelled)
-                break;
-        }
-
         await executionTask.ConfigureAwait(false);
 
         return ExtractContextOutput(context);
@@ -128,6 +123,16 @@ public sealed class MragRetrievalPipeline : IMragRetriever
             services,
             checkpointStore: null);
 
+        var eventChannel = Channel.CreateUnbounded<Event>();
+        using var coordinatorCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        eventCoordinator.OnAny(evt =>
+        {
+            eventChannel.Writer.TryWrite(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        var coordinatorTask = eventCoordinator.RunAsync(coordinatorCts.Token);
+
         var executionTask = Task.Run(async () =>
         {
             try
@@ -144,9 +149,14 @@ public sealed class MragRetrievalPipeline : IMragRetriever
                     Exception = ex
                 });
             }
+            finally
+            {
+                eventChannel.Writer.TryComplete();
+                await coordinatorCts.CancelAsync().ConfigureAwait(false);
+            }
         }, ct);
 
-        await foreach (var evt in eventCoordinator.ReadAllAsync(ct).ConfigureAwait(false))
+        await foreach (var evt in eventChannel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
         {
             var mapped = MragEventMapper.MapRetrievalEvent(evt, PipelineName, query);
             if (mapped != null)
@@ -157,6 +167,7 @@ public sealed class MragRetrievalPipeline : IMragRetriever
         }
 
         await executionTask.ConfigureAwait(false);
+        await SuppressCancellationAsync(coordinatorTask).ConfigureAwait(false);
     }
 
     // ------------------------------------------------------------------ //
@@ -202,5 +213,16 @@ public sealed class MragRetrievalPipeline : IMragRetriever
         }
 
         return string.Empty;
+    }
+
+    private static async Task SuppressCancellationAsync(Task task)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 }

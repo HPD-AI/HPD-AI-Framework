@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
+using HPD.Events;
 using HPD.Events.Core;
 using HPD.RAG.Core.Context;
 using HPD.RAG.Core.Events;
@@ -169,6 +170,16 @@ public sealed class MragEvaluationPipeline
             _pipelineServices,
             checkpointStore: null);
 
+        var eventChannel = Channel.CreateUnbounded<Event>();
+        using var coordinatorCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        eventCoordinator.OnAny(evt =>
+        {
+            eventChannel.Writer.TryWrite(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        var coordinatorTask = eventCoordinator.RunAsync(coordinatorCts.Token);
+
         var executionTask = Task.Run(async () =>
         {
             try
@@ -185,9 +196,14 @@ public sealed class MragEvaluationPipeline
                     Exception = ex
                 });
             }
+            finally
+            {
+                eventChannel.Writer.TryComplete();
+                await coordinatorCts.CancelAsync().ConfigureAwait(false);
+            }
         }, ct);
 
-        await foreach (var evt in eventCoordinator.ReadAllAsync(ct).ConfigureAwait(false))
+        await foreach (var evt in eventChannel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
         {
             var mapped = MragEventMapper.MapEvaluationEvent(evt, PipelineName, scoreAccumulator);
             if (mapped != null)
@@ -198,6 +214,7 @@ public sealed class MragEvaluationPipeline
         }
 
         await executionTask.ConfigureAwait(false);
+        await SuppressCancellationAsync(coordinatorTask).ConfigureAwait(false);
     }
 
     private MragPipelineContext BuildContext(PartitionKey partition, EventCoordinator ec)
@@ -219,5 +236,16 @@ public sealed class MragEvaluationPipeline
         if (segs.Count > 2) ctx.Channels["execution"].Set(segs[2]);
 
         return ctx;
+    }
+
+    private static async Task SuppressCancellationAsync(Task task)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 }

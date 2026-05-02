@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using EventPriority = HPD.Events.EventPriority;
+using EventChannel = HPD.Events.EventChannel;
 using EventDirection = HPD.Events.EventDirection;
 
 namespace HPD.Agent.Serialization;
@@ -132,12 +132,12 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(StructuredOutputPartialEvent))]
 [JsonSerializable(typeof(StructuredOutputCompleteEvent))]
 
-// Priority Streaming Enums
-[JsonSerializable(typeof(EventPriority))]
+// Channel Routing Enums
+[JsonSerializable(typeof(EventChannel))]
 [JsonSerializable(typeof(EventDirection))]
 [JsonSerializable(typeof(InterruptionSource))]
 
-// Priority Streaming Events
+// Channel Routing Events
 [JsonSerializable(typeof(InterruptionRequestEvent))]
 
 // Common types for IDictionary<string, object?> serialization (e.g., PermissionRequestEvent.Arguments)

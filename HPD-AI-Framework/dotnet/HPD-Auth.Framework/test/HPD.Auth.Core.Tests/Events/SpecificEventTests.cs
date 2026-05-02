@@ -81,23 +81,23 @@ public class SpecificEventTests
     }
 
     [Fact]
-    public void LoginFailedEvent_Priority_IsControl()
+    public void LoginFailedEvent_Channel_IsControl()
     {
         var evt = new LoginFailedEvent { Email = "a@b.com", Reason = "invalid_password" };
-        evt.Priority.Should().Be(EventPriority.Control);
+        evt.Channel.Should().Be(EventChannel.Control);
     }
 
     [Fact]
-    public void SessionRevokedEvent_Priority_IsControl()
+    public void SessionRevokedEvent_Channel_IsControl()
     {
         var evt = new SessionRevokedEvent { UserId = Guid.NewGuid(), SessionId = Guid.NewGuid(), RevokedBy = "user" };
-        evt.Priority.Should().Be(EventPriority.Control);
+        evt.Channel.Should().Be(EventChannel.Control);
     }
 
     [Fact]
-    public void UserLoggedInEvent_Priority_IsNormal()
+    public void UserLoggedInEvent_Channel_IsSynchronous()
     {
         var evt = new UserLoggedInEvent { UserId = Guid.NewGuid(), Email = "a@b.com" };
-        evt.Priority.Should().Be(EventPriority.Normal);
+        evt.Channel.Should().Be(EventChannel.Synchronous);
     }
 }

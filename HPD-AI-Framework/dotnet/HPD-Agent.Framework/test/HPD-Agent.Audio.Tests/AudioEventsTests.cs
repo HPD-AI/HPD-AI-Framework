@@ -4,7 +4,6 @@ using HPD.Agent.Audio;
 using HPD.Events;
 using System.Text.Json;
 using Xunit;
-using EventPriority = HPD.Events.EventPriority;
 
 namespace HPD.Agent.Audio.Tests;
 
@@ -244,7 +243,7 @@ public class AudioEventsTests
     }
 
     [Fact]
-    public void AudioChunkEvent_CanSetPriorityStreamingProperties()
+    public void AudioChunkEvent_CanSetStreamingChannelProperties()
     {
         // Act
         var evt = new AudioChunkEvent(
@@ -255,29 +254,29 @@ public class AudioEventsTests
             TimeSpan.FromMilliseconds(100),
             false)
         {
-            Priority = EventPriority.Normal,
+            Channel = EventChannel.Streaming,
             StreamId = "stream-456",
             CanInterrupt = true
         };
 
         // Assert
-        Assert.Equal(EventPriority.Normal, evt.Priority);
+        Assert.Equal(EventChannel.Streaming, evt.Channel);
         Assert.Equal("stream-456", evt.StreamId);
         Assert.True(evt.CanInterrupt);
     }
 
     [Fact]
-    public void SynthesisCompletedEvent_CanSetControlPriority()
+    public void SynthesisCompletedEvent_CanSetControlChannel()
     {
         // Act
         var evt = new SynthesisCompletedEvent("synth-123")
         {
-            Priority = EventPriority.Control,
+            Channel = EventChannel.Control,
             CanInterrupt = false
         };
 
         // Assert
-        Assert.Equal(EventPriority.Control, evt.Priority);
+        Assert.Equal(EventChannel.Control, evt.Channel);
         Assert.False(evt.CanInterrupt);
     }
 }

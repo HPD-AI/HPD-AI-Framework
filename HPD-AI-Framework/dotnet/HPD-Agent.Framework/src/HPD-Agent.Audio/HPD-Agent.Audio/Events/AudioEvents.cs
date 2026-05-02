@@ -1,6 +1,8 @@
 // Copyright 2026 Einstein Essibu
 // SPDX-License-Identifier: AGPL-3.0-only
 
+using HPD.Events;
+
 namespace HPD.Agent.Audio;
 
 //
@@ -28,6 +30,28 @@ public record AudioChunkEvent(
     TimeSpan Duration,
     bool IsLast
 ) : AgentEvent;
+
+/// <summary>
+/// Local zero-allocation audio chunk frame for hot-path audio delivery.
+/// </summary>
+public readonly record struct AudioChunkFrame(
+    string SynthesisId,
+    ReadOnlyMemory<byte> Audio,
+    string MimeType,
+    int ChunkIndex,
+    TimeSpan Duration,
+    bool IsLast,
+    long TimestampNs = 0,
+    long SequenceNumber = 0
+) : IStructEvent, ISequencedStructEvent<AudioChunkFrame>
+{
+    /// <inheritdoc />
+    public EventKind Kind => EventKind.Content;
+
+    /// <inheritdoc />
+    public AudioChunkFrame WithSequenceNumber(long sequenceNumber) =>
+        this with { SequenceNumber = sequenceNumber };
+}
 
 /// <summary>
 /// Emitted when TTS synthesis completes.

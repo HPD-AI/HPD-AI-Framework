@@ -158,13 +158,29 @@ public class AgentContextEmitTests
             Captured.Add(evt);
         }
 
-        public void EmitUpstream(Event evt) => _inner.EmitUpstream(evt);
-        public bool TryRead(out Event? evt) => _inner.TryRead(out evt);
-        public IAsyncEnumerable<Event> ReadAllAsync(CancellationToken ct) => _inner.ReadAllAsync(ct);
+        public ValueTask EmitAsync(Event evt, CancellationToken ct = default)
+        {
+            Emit(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        public IEventCoordinator On<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event => _inner.On(handler);
+        public IEventCoordinator OnAny(Func<Event, ValueTask> handler) => _inner.OnAny(handler);
+        public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent => _inner.TryEmitStruct(in evt);
+        public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : struct, IStructEvent => _inner.EmitStructAsync(evt, ct);
+        public IEventCoordinator OnStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => _inner.OnStruct(handler);
+        public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null) where TEvent : struct, IStructEvent => _inner.SubscribeStruct<TEvent>(options);
+        public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null) where TEvent : struct, IStructEvent => _inner.CreateStructEmitter(options);
+        public Task RunAsync(CancellationToken ct = default) => _inner.RunAsync(ct);
         public void SetParent(IEventCoordinator parent) => _inner.SetParent(parent);
         public Task<TResponse> WaitForResponseAsync<TResponse>(string requestId, TimeSpan timeout, CancellationToken ct)
             where TResponse : Event => _inner.WaitForResponseAsync<TResponse>(requestId, timeout, ct);
         public void SendResponse(string requestId, Event response) => _inner.SendResponse(requestId, response);
         public IStreamRegistry Streams => _inner.Streams;
+        public EventCoordinatorStats GetStats() => _inner.GetStats();
+        public IAsyncEnumerable<Event> ReadStreamingAsync(CancellationToken ct = default) => _inner.ReadStreamingAsync(ct);
+        public IAsyncEnumerable<Event> ReadSynchronousAsync(CancellationToken ct = default) => _inner.ReadSynchronousAsync(ct);
+        public IAsyncEnumerable<Event> ReadInteractiveAsync(CancellationToken ct = default) => _inner.ReadInteractiveAsync(ct);
+        public IAsyncEnumerable<Event> ReadControlAsync(CancellationToken ct = default) => _inner.ReadControlAsync(ct);
     }
 }

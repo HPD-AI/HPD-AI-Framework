@@ -509,22 +509,20 @@ public class TestEventCoordinator : IEventCoordinator
         }
     }
 
-    public void EmitUpstream(Event evt)
-    {
-        Emit(evt);
-    }
-
-    public bool TryRead(out Event? evt)
-    {
-        evt = null;
-        return false;
-    }
-
-    public async IAsyncEnumerable<Event> ReadAllAsync(CancellationToken ct = default)
-    {
-        await Task.CompletedTask;
-        yield break;
-    }
+    public ValueTask EmitAsync(Event evt, CancellationToken ct = default) { Emit(evt); return ValueTask.CompletedTask; }
+    public IEventCoordinator On<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event => this;
+    public IEventCoordinator OnAny(Func<Event, ValueTask> handler) => this;
+    public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent => false;
+    public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : struct, IStructEvent => ValueTask.CompletedTask;
+    public IEventCoordinator OnStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => this;
+    public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null) where TEvent : struct, IStructEvent => default;
+    public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null) where TEvent : struct, IStructEvent => default;
+    public Task RunAsync(CancellationToken ct = default) => Task.CompletedTask;
+    public EventCoordinatorStats GetStats() => default;
+    public IAsyncEnumerable<Event> ReadStreamingAsync(CancellationToken ct = default) => EmptyAsync(ct);
+    public IAsyncEnumerable<Event> ReadSynchronousAsync(CancellationToken ct = default) => EmptyAsync(ct);
+    public IAsyncEnumerable<Event> ReadInteractiveAsync(CancellationToken ct = default) => EmptyAsync(ct);
+    public IAsyncEnumerable<Event> ReadControlAsync(CancellationToken ct = default) => EmptyAsync(ct);
 
     public void SetParent(IEventCoordinator parent) { }
 
@@ -566,6 +564,12 @@ public class TestEventCoordinator : IEventCoordinator
     }
 
     public IStreamRegistry Streams => throw new NotImplementedException();
+
+    private static async IAsyncEnumerable<Event> EmptyAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await Task.CompletedTask;
+        yield break;
+    }
 }
 
 /// <summary>

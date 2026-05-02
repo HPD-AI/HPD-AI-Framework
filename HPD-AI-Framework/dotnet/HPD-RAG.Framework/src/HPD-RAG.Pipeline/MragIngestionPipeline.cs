@@ -1,4 +1,6 @@
 using System.Runtime.CompilerServices;
+using System.Threading.Channels;
+using HPD.Events;
 using HPD.Events.Core;
 using HPD.RAG.Core.Context;
 using HPD.RAG.Core.Events;
@@ -83,8 +85,8 @@ public sealed class MragIngestionPipeline
     ///
     /// <para>
     /// Implementation follows the AgentWorkflowInstance event coordinator pattern:
-    /// graph execution starts in a background task, and events are consumed from
-    /// <see cref="EventCoordinator.ReadAllAsync"/> until completion.
+    /// graph execution starts in a background task, and events are observed through
+    /// <see cref="IEventCoordinator.OnAny"/> until completion.
     /// </para>
     ///
     /// <para>
@@ -118,6 +120,16 @@ public sealed class MragIngestionPipeline
             services,
             checkpointStore: null);
 
+        var eventChannel = Channel.CreateUnbounded<Event>();
+        using var coordinatorCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        eventCoordinator.OnAny(evt =>
+        {
+            eventChannel.Writer.TryWrite(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        var coordinatorTask = eventCoordinator.RunAsync(coordinatorCts.Token);
+
         var executionTask = Task.Run(async () =>
         {
             try
@@ -134,9 +146,14 @@ public sealed class MragIngestionPipeline
                     Exception = ex
                 });
             }
+            finally
+            {
+                eventChannel.Writer.TryComplete();
+                await coordinatorCts.CancelAsync().ConfigureAwait(false);
+            }
         }, ct);
 
-        await foreach (var evt in eventCoordinator.ReadAllAsync(ct).ConfigureAwait(false))
+        await foreach (var evt in eventChannel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
         {
             var mapped = MragEventMapper.MapIngestionEvent(evt, PipelineName, ingestionCtx);
             if (mapped != null)
@@ -147,6 +164,7 @@ public sealed class MragIngestionPipeline
         }
 
         await executionTask.ConfigureAwait(false);
+        await SuppressCancellationAsync(coordinatorTask).ConfigureAwait(false);
 
         // Emit synthetic DocumentSkippedEvent for every submitted document that was
         // not recorded as written by the writer handler.
@@ -201,5 +219,16 @@ public sealed class MragIngestionPipeline
         }
 
         return ctx;
+    }
+
+    private static async Task SuppressCancellationAsync(Task task)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 }

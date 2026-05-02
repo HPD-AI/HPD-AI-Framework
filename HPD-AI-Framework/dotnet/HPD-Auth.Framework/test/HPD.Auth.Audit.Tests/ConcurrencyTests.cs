@@ -92,11 +92,35 @@ public class ConcurrencyTests
         using var scope = sp.CreateScope();
         var coordinator = scope.ServiceProvider.GetRequiredService<IEventCoordinator>();
         var observer    = scope.ServiceProvider.GetRequiredService<AuditingAuthObserver>();
-        coordinator.Emit(authEvent);
-        while (coordinator.TryRead(out var pending))
+
+        var observed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        coordinator.OnAny(async pending =>
         {
             if (pending is AuthEvent ae && observer.ShouldProcess(ae))
                 await observer.OnEventAsync(ae);
+
+            if (ReferenceEquals(pending, authEvent))
+                observed.TrySetResult();
+        });
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var runTask = coordinator.RunAsync(cts.Token);
+
+        coordinator.Emit(authEvent);
+
+        await observed.Task.WaitAsync(cts.Token);
+        await cts.CancelAsync();
+        await SuppressCancellationAsync(runTask);
+    }
+
+    private static async Task SuppressCancellationAsync(Task task)
+    {
+        try
+        {
+            await task;
+        }
+        catch (OperationCanceledException)
+        {
         }
     }
 }

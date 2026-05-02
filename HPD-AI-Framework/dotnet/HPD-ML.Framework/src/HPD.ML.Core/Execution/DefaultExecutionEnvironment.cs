@@ -97,6 +97,6 @@ internal sealed record ProgressReportEvent : Event
         Name = name;
         Value = value;
         Kind = EventKind.Diagnostic;
-        Priority = EventPriority.Background;
+        Channel = EventChannel.Streaming;
     }
 }

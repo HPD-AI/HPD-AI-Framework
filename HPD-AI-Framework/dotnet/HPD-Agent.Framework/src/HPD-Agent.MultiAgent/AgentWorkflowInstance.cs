@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent;
@@ -421,6 +422,16 @@ public sealed class AgentWorkflowInstance
 
         var orchestrator = new GraphOrchestrator<AgentGraphContext>(_serviceProvider, checkpointStore: checkpointStore);
 
+        var eventChannel = Channel.CreateUnbounded<Event>();
+        using var coordinatorCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        eventCoordinator.OnAny(evt =>
+        {
+            eventChannel.Writer.TryWrite(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        var coordinatorTask = eventCoordinator.RunAsync(coordinatorCts.Token);
+
         // Start execution in background task
         var executionTask = Task.Run(async () =>
         {
@@ -435,10 +446,15 @@ public sealed class AgentWorkflowInstance
                     Message: ex.Message,
                     Exception: ex));
             }
+            finally
+            {
+                eventChannel.Writer.TryComplete();
+                await coordinatorCts.CancelAsync().ConfigureAwait(false);
+            }
         }, cancellationToken);
 
         // Stream events from coordinator, wrapping graph events into agent-idiomatic workflow events
-        await foreach (var evt in eventCoordinator.ReadAllAsync(cancellationToken))
+        await foreach (var evt in eventChannel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
             // Wrap graph events into AgentEvent-derived workflow events
             var wrappedEvent = WrapGraphEvent(evt, workflowContext);
@@ -456,6 +472,7 @@ public sealed class AgentWorkflowInstance
 
         // Wait for execution to complete
         await executionTask;
+        await SuppressCancellationAsync(coordinatorTask).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -563,6 +580,17 @@ public sealed class AgentWorkflowInstance
             // These are internal implementation details
             _ => null
         };
+    }
+
+    private static async Task SuppressCancellationAsync(Task task)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     /// <summary>

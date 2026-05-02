@@ -1,6 +1,7 @@
 using Microsoft.Extensions.AI;
 using HPD.Agent.Providers;
 using HPD.Agent;
+using HPD.Agent.Middleware;
 
 namespace HPD.Agent.Tests.Infrastructure;
 
@@ -22,6 +23,22 @@ public static class TestAgentFactory
         AgentConfig? config = null,
         IChatClient? chatClient = null,
         int? circuitBreakerThreshold = 5,
+        params AIFunction[] tools)
+        => CreateCore(config, chatClient, middlewares: null, circuitBreakerThreshold, tools);
+
+    internal static Agent CreateWithMiddlewares(
+        AgentConfig? config = null,
+        IChatClient? chatClient = null,
+        IEnumerable<IAgentMiddleware>? middlewares = null,
+        int? circuitBreakerThreshold = 5,
+        params AIFunction[] tools)
+        => CreateCore(config, chatClient, middlewares, circuitBreakerThreshold, tools);
+
+    private static Agent CreateCore(
+        AgentConfig? config,
+        IChatClient? chatClient,
+        IEnumerable<IAgentMiddleware>? middlewares,
+        int? circuitBreakerThreshold,
         params AIFunction[] tools)
     {
         // Use defaults if not provided
@@ -46,6 +63,12 @@ public static class TestAgentFactory
             builder.WithCircuitBreaker(circuitBreakerThreshold.Value);
         }
         builder.WithErrorTracking(maxConsecutiveErrors: 3);
+
+        if (middlewares is not null)
+        {
+            foreach (var middleware in middlewares)
+                builder.WithMiddleware(middleware);
+        }
 
         // Build and return core agent (not protocol-wrapped)
         // Use the internal BuildCoreAsync method to get the core agent directly

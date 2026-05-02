@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using Microsoft.Extensions.AI;
-// EventPriority and EventDirection are now in HPD.Events namespace
-using EventPriority = HPD.Events.EventPriority;
+using EventChannel = HPD.Events.EventChannel;
 using EventDirection = HPD.Events.EventDirection;
 
 namespace HPD.Agent;
@@ -47,8 +46,8 @@ public record AgentExecutionContext
 
 
 
-#region Priority and Direction Enums
-// EventPriority and EventDirection enums moved to HPD.Events (imported via using aliases at top of file)
+#region Channel and Direction Enums
+// EventChannel and EventDirection enums live in HPD.Events.
 #endregion
 
 #region Interruption Types
@@ -79,7 +78,9 @@ public record InterruptionRequestEvent(
     string Reason,
     InterruptionSource Source) : AgentEvent
 {
-    public new HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+    public override EventChannel Channel { get; init; } = EventChannel.Control;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
 }
 
 #endregion
@@ -1286,4 +1287,3 @@ public record EventDroppedEvent(
 /// can emit events concurrently.
 /// </para>
 /// <para>
-
