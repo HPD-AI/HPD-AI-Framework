@@ -24,6 +24,7 @@ internal sealed class TestContextBuilder
     private string _outputText = "Paris.";
     private string? _reasoningText;
     private string? _groundTruth;
+    private List<ChatMessage> _conversationHistory = [];
     private List<ToolCallRecord> _toolCalls = [];
     private int _iterationCount = 1;
     private TimeSpan _duration = TimeSpan.FromSeconds(2);
@@ -39,6 +40,7 @@ internal sealed class TestContextBuilder
     public TestContextBuilder WithOutputText(string text) { _outputText = text; return this; }
     public TestContextBuilder WithReasoningText(string? text) { _reasoningText = text; return this; }
     public TestContextBuilder WithGroundTruth(string? gt) { _groundTruth = gt; return this; }
+    public TestContextBuilder WithConversationHistory(params ChatMessage[] messages) { _conversationHistory = messages.ToList(); return this; }
     public TestContextBuilder WithIterationCount(int count) { _iterationCount = count; return this; }
     public TestContextBuilder WithDuration(TimeSpan d) { _duration = d; return this; }
     public TestContextBuilder WithStopKind(AgentStopKind kind) { _stopKind = kind; return this; }
@@ -82,7 +84,7 @@ internal sealed class TestContextBuilder
             ConversationId = _conversationId,
             TurnIndex = _turnIndex,
             UserInput = _userInput,
-            ConversationHistory = [],
+            ConversationHistory = _conversationHistory,
             OutputText = _outputText,
             FinalResponse = response,
             ReasoningText = _reasoningText,

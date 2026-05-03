@@ -107,7 +107,44 @@ public static class DatasetGenerator
     {
         var inputSchema = GetJsonSchema<TInput>();
         var outputSchema = GetJsonSchema<TOutput>();
+        return await GenerateAsync<TInput>(
+            options,
+            inputSchema,
+            outputSchema,
+            inputTypeInfo: null,
+            ct).ConfigureAwait(false);
+    }
 
+    /// <summary>
+    /// Native AOT-friendly generation overload that uses source-generated JSON
+    /// metadata for schema fallback and generated input validation.
+    /// </summary>
+    public static async Task<Dataset<TInput>> GenerateAsync<TInput, TOutput>(
+        DatasetGenerationOptions options,
+        JsonTypeInfo<TInput> inputTypeInfo,
+        JsonTypeInfo<TOutput> outputTypeInfo,
+        CancellationToken ct = default)
+        where TInput : notnull
+        where TOutput : notnull
+    {
+        var inputSchema = GetJsonSchema(inputTypeInfo);
+        var outputSchema = GetJsonSchema(outputTypeInfo);
+        return await GenerateAsync(
+            options,
+            inputSchema,
+            outputSchema,
+            inputTypeInfo,
+            ct).ConfigureAwait(false);
+    }
+
+    private static async Task<Dataset<TInput>> GenerateAsync<TInput>(
+        DatasetGenerationOptions options,
+        string inputSchema,
+        string outputSchema,
+        JsonTypeInfo<TInput>? inputTypeInfo,
+        CancellationToken ct)
+        where TInput : notnull
+    {
         var systemPrompt =
             "You are a test-case generator for an AI agent evaluation system. " +
             "Generate test cases as a JSON array. Each case must be a JSON object with " +
@@ -117,7 +154,7 @@ public static class DatasetGenerator
         var userPrompt = BuildGenerationPrompt(options.Count, inputSchema, outputSchema, options.ExtraInstructions);
 
         var cases = await GenerateWithRetryAsync<TInput>(
-            options.ChatClient, systemPrompt, userPrompt, options.MaxRetries, ct)
+            options.ChatClient, systemPrompt, userPrompt, options.MaxRetries, inputTypeInfo, ct)
             .ConfigureAwait(false);
 
         var dataset = new Dataset<TInput> { Cases = cases };
@@ -140,11 +177,36 @@ public static class DatasetGenerator
         where TInput : notnull
     {
         var inputSchema = GetJsonSchema<TInput>();
+        return await AugmentAsync(existing, options, inputSchema, inputTypeInfo: null, ct)
+            .ConfigureAwait(false);
+    }
 
-        // Summarise existing inputs so the LLM knows what already exists
-        var existingSummary = JsonSerializer.Serialize(
-            existing.Cases.Select(c => c.Input),
-            _jsonOptions);
+    /// <summary>
+    /// Native AOT-friendly augmentation overload that uses source-generated JSON
+    /// metadata for schema fallback and generated input validation.
+    /// </summary>
+    public static async Task<Dataset<TInput>> AugmentAsync<TInput>(
+        Dataset<TInput> existing,
+        DatasetAugmentOptions options,
+        JsonTypeInfo<TInput> inputTypeInfo,
+        CancellationToken ct = default)
+        where TInput : notnull
+    {
+        var inputSchema = GetJsonSchema(inputTypeInfo);
+        return await AugmentAsync(existing, options, inputSchema, inputTypeInfo, ct)
+            .ConfigureAwait(false);
+    }
+
+    private static async Task<Dataset<TInput>> AugmentAsync<TInput>(
+        Dataset<TInput> existing,
+        DatasetAugmentOptions options,
+        string inputSchema,
+        JsonTypeInfo<TInput>? inputTypeInfo,
+        CancellationToken ct)
+        where TInput : notnull
+    {
+        // Summarise existing inputs so the LLM knows what already exists.
+        var existingSummary = SerializeExistingInputs(existing, inputTypeInfo);
 
         var systemPrompt =
             "You are a test-case augmentation assistant for an AI agent evaluation system. " +
@@ -162,7 +224,7 @@ public static class DatasetGenerator
             diversityNote;
 
         var newCases = await GenerateWithRetryAsync<TInput>(
-            options.ChatClient, systemPrompt, userPrompt, options.MaxRetries, ct)
+            options.ChatClient, systemPrompt, userPrompt, options.MaxRetries, inputTypeInfo, ct)
             .ConfigureAwait(false);
 
         // Return a new dataset combining original + augmented cases
@@ -181,6 +243,7 @@ public static class DatasetGenerator
         string systemPrompt,
         string userPrompt,
         int maxRetries,
+        JsonTypeInfo<TInput>? inputTypeInfo,
         CancellationToken ct)
         where TInput : notnull
     {
@@ -213,7 +276,7 @@ public static class DatasetGenerator
 
             try
             {
-                var cases = ParseCases<TInput>(rawJson);
+                var cases = ParseCases(rawJson, inputTypeInfo);
                 return cases;
             }
             catch (Exception ex)
@@ -230,7 +293,9 @@ public static class DatasetGenerator
         throw new DatasetGenerationException("Dataset generation failed unexpectedly.");
     }
 
-    private static List<EvalCase<TInput>> ParseCases<TInput>(string json)
+    private static List<EvalCase<TInput>> ParseCases<TInput>(
+        string json,
+        JsonTypeInfo<TInput>? inputTypeInfo)
         where TInput : notnull
     {
         using var doc = JsonDocument.Parse(json);
@@ -251,7 +316,9 @@ public static class DatasetGenerator
             TInput input;
             try
             {
-                input = JsonSerializer.Deserialize<TInput>(inputJson, _jsonOptions)
+                input = (inputTypeInfo is null
+                    ? JsonSerializer.Deserialize<TInput>(inputJson, _jsonOptions)
+                    : JsonSerializer.Deserialize(inputJson, inputTypeInfo))
                     ?? throw new JsonException($"Case {index}: 'input' deserialized to null.");
             }
             catch (JsonException ex)
@@ -329,29 +396,33 @@ public static class DatasetGenerator
     /// Uses <see cref="AIJsonUtilities.CreateJsonSchema"/> when available; falls back
     /// to a minimal schema derived from property names via reflection.
     /// </summary>
-    private static string GetJsonSchema<T>()
+    private static string GetJsonSchema<T>(JsonTypeInfo<T>? typeInfo = null)
     {
         try
         {
-            var schema = AIJsonUtilities.CreateJsonSchema(typeof(T));
+            var schema = AIJsonUtilities.CreateJsonSchema(
+                typeof(T),
+                serializerOptions: typeInfo?.Options ?? AIJsonUtilities.DefaultOptions);
             return schema.ToString();
         }
         catch
         {
-            // Fallback: describe T by its property names using reflection
-            var props = typeof(T).GetProperties()
-                .Select(p => $"\"{p.Name.ToLowerInvariant()}\": {{ \"type\": \"{MapTypeName(p.PropertyType)}\" }}");
-            return $"{{ \"type\": \"object\", \"properties\": {{ {string.Join(", ", props)} }} }}";
+            return "{ \"type\": \"object\", \"additionalProperties\": true }";
         }
     }
 
-    private static string MapTypeName(Type t)
+    private static string SerializeExistingInputs<TInput>(
+        Dataset<TInput> existing,
+        JsonTypeInfo<TInput>? inputTypeInfo)
+        where TInput : notnull
     {
-        if (t == typeof(string)) return "string";
-        if (t == typeof(bool) || t == typeof(bool?)) return "boolean";
-        if (t == typeof(int) || t == typeof(long) || t == typeof(int?) || t == typeof(long?)) return "integer";
-        if (t == typeof(double) || t == typeof(float) || t == typeof(decimal)) return "number";
-        if (t.IsArray || (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(List<>))) return "array";
-        return "object";
+        if (inputTypeInfo is null)
+            return JsonSerializer.Serialize(existing.Cases.Select(c => c.Input), _jsonOptions);
+
+        var inputs = existing.Cases
+            .Select(c => JsonSerializer.SerializeToNode(c.Input, inputTypeInfo))
+            .ToArray();
+
+        return JsonSerializer.Serialize(inputs, _jsonOptions);
     }
 }

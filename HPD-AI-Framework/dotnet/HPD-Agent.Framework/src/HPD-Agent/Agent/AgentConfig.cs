@@ -112,6 +112,7 @@ public class AgentConfig
     /// </code>
     /// </para>
     /// </remarks>
+    [JsonPropertyName("harnesses")]
     public List<HarnessReference> Harneses { get; set; } = new();
 
     /// <summary>

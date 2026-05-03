@@ -102,19 +102,11 @@ public class PIIMiddleware : IAgentMiddleware
         if (!ApplyToInput)
             return;
 
-        // Process user messages
-        var processedMessages = await ProcessMessagesAsync(
+        await ProcessMessagesAsync(
             context.ConversationHistory,
             ChatRole.User,
             context,
-            cancellationToken);
-
-        // V2: ConversationHistory is mutable - replace content
-        context.ConversationHistory.Clear();
-        foreach (var msg in processedMessages)
-        {
-            context.ConversationHistory.Add(msg);
-        }
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -124,8 +116,20 @@ public class PIIMiddleware : IAgentMiddleware
         AfterMessageTurnContext context,
         CancellationToken cancellationToken)
     {
-        // Output filtering would apply to FinalResponse if enabled
-        // This is observational - the response has already been yielded
+        if (!ApplyToOutput)
+            return;
+
+        await ProcessMessagesAsync(
+            context.FinalResponse.Messages,
+            ChatRole.Assistant,
+            context,
+            cancellationToken).ConfigureAwait(false);
+
+        await ProcessMessagesAsync(
+            context.TurnHistory,
+            ChatRole.Assistant,
+            context,
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -138,19 +142,14 @@ public class PIIMiddleware : IAgentMiddleware
         if (!ApplyToToolResults || context.ToolResults.Count == 0)
             return;
 
-        // Tool result filtering - scan results for PII
         foreach (var result in context.ToolResults)
         {
             var resultText = result.Result?.ToString();
-            if (!string.IsNullOrEmpty(resultText))
-            {
-                var matches = await DetectPIIAsync(resultText, cancellationToken);
-                foreach (var match in matches.Where(m => m.Strategy == PIIStrategy.Block))
-                {
-                    // Emit warning event for blocked PII in tool results
-                    EmitPIIDetectedEvent(context, match.PIIType, PIIStrategy.Block, 1);
-                }
-            }
+            if (string.IsNullOrEmpty(resultText))
+                continue;
+
+            result.Result = await ProcessTextAsync(resultText, context, cancellationToken)
+                .ConfigureAwait(false);
         }
     }
 
@@ -158,43 +157,43 @@ public class PIIMiddleware : IAgentMiddleware
     // PROCESSING LOGIC
     //     
 
-    private async Task<IEnumerable<ChatMessage>> ProcessMessagesAsync(
+    private async Task ProcessMessagesAsync(
         IEnumerable<ChatMessage> messages,
         ChatRole targetRole,
         HookContext context,
         CancellationToken cancellationToken)
     {
-        var result = new List<ChatMessage>();
-
         foreach (var message in messages)
         {
             if (message.Role == targetRole)
-            {
-                var processedMessage = await ProcessMessageAsync(message, context, cancellationToken);
-                result.Add(processedMessage);
-            }
-            else
-            {
-                result.Add(message);
-            }
+                await ProcessMessageAsync(message, context, cancellationToken).ConfigureAwait(false);
         }
-
-        return result;
     }
 
-    private async Task<ChatMessage> ProcessMessageAsync(
+    private async Task ProcessMessageAsync(
         ChatMessage message,
         HookContext context,
         CancellationToken cancellationToken)
     {
-        var text = message.Text;
-        if (string.IsNullOrEmpty(text))
-            return message;
+        foreach (var content in message.Contents)
+        {
+            if (content is not TextContent textContent || string.IsNullOrEmpty(textContent.Text))
+                continue;
 
+            textContent.Text = await ProcessTextAsync(textContent.Text, context, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private async Task<string> ProcessTextAsync(
+        string text,
+        HookContext context,
+        CancellationToken cancellationToken)
+    {
         var allMatches = await DetectPIIAsync(text, cancellationToken);
 
         if (allMatches.Count == 0)
-            return message;
+            return text;
 
         // Check for any Block strategies first
         var blockedMatch = allMatches.FirstOrDefault(m => m.Strategy == PIIStrategy.Block);
@@ -234,7 +233,7 @@ public class PIIMiddleware : IAgentMiddleware
             EmitPIIDetectedEvent(context, piiType, strategy, count);
         }
 
-        return new ChatMessage(message.Role, processedText);
+        return processedText;
     }
 
     private async Task<List<PIIMatch>> DetectPIIAsync(string text, CancellationToken cancellationToken)

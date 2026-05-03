@@ -344,13 +344,20 @@ public class FunctionRetryMiddlewareTests
             MaxRetryDelay = TimeSpan.FromMilliseconds(200) // Cap at 200ms
         };
         var middleware = new RetryMiddleware(config);
-        var request = CreateFunctionRequest();
+        var retryEvents = new List<FunctionRetryEvent>();
+        var eventCoordinator = new HPD.Events.Core.EventCoordinator();
+        using var eventPumpCts = new CancellationTokenSource();
+        var eventPump = eventCoordinator.RunAsync(eventPumpCts.Token);
+        eventCoordinator.On<FunctionRetryEvent>(evt =>
+        {
+            retryEvents.Add(evt);
+            return ValueTask.CompletedTask;
+        });
+        var request = CreateFunctionRequest() with { EventCoordinator = eventCoordinator };
 
         int attempts = 0;
-        var delayTimes = new List<DateTime>();
         Func<FunctionRequest, Task<object?>> handler = async (req) =>
         {
-            delayTimes.Add(DateTime.UtcNow);
             attempts++;
             if (attempts <= 2)
                 throw new InvalidOperationException("Transient");
@@ -358,13 +365,36 @@ public class FunctionRetryMiddlewareTests
         };
 
         // Act
-        await middleware.WrapFunctionCallAsync(request, handler, CancellationToken.None);
+        try
+        {
+            await middleware.WrapFunctionCallAsync(request, handler, CancellationToken.None);
+
+            var deadline = DateTime.UtcNow.AddSeconds(1);
+            while (retryEvents.Count < 2 && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(10);
+            }
+        }
+        finally
+        {
+            eventPumpCts.Cancel();
+            try
+            {
+                await eventPump;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
 
         // Assert - delays should be capped at MaxRetryDelay
-        for (int i = 1; i < delayTimes.Count; i++)
+        Assert.Equal(3, attempts);
+        Assert.Equal(2, retryEvents.Count);
+        foreach (var retryEvent in retryEvents)
         {
-            var delay = delayTimes[i] - delayTimes[i - 1];
-            Assert.True(delay.TotalMilliseconds <= 400); // 200ms + generous tolerance for system delays and jitter
+            Assert.True(
+                retryEvent.Delay.TotalMilliseconds <= 220,
+                $"Retry delay ({retryEvent.Delay.TotalMilliseconds}ms) should be capped at 200ms plus jitter.");
         }
     }
 

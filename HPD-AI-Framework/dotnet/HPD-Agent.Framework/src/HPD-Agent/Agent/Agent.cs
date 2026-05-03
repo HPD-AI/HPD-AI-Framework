@@ -1011,20 +1011,8 @@ public sealed class Agent
                 await RunMessagesInputAsync(messages, eventCoordinator, cancellationToken).ConfigureAwait(false);
                 break;
 
-            case PermissionResponseEvent response:
-                eventCoordinator.SendResponse(response.PermissionId, response);
-                break;
-
-            case ContinuationResponseEvent response:
-                eventCoordinator.SendResponse(response.ContinuationId, response);
-                break;
-
-            case ClarificationResponseEvent response:
-                eventCoordinator.SendResponse(response.RequestId, response);
-                break;
-
-            case ClientTools.ClientToolInvokeResponseEvent response:
-                eventCoordinator.SendResponse(response.RequestId, response);
+            case HPD.Events.IBidirectionalEvent response:
+                eventCoordinator.SendResponse(response.RequestId, input);
                 break;
 
             case InterruptionRequestEvent interruption:
@@ -4076,6 +4064,10 @@ public sealed class Agent
             return false;
         }
         catch (JsonException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
         {
             return false;
         }

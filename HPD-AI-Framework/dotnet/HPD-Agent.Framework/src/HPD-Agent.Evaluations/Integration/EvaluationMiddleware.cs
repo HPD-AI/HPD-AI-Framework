@@ -3,9 +3,12 @@
 
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
+using System.Collections.Concurrent;
 using HPD.Agent.Middleware;
 using HPD.Agent.Evaluations.Annotation;
+using HPD.Agent.Evaluations.Contexts;
 using HPD.Agent.Evaluations.Evaluators;
+using HPD.Agent.Evaluations.Evaluators.LlmJudge;
 using HPD.Agent.Evaluations.Storage;
 using HPD.Agent.Evaluations.Tracing;
 using HPD.Agent.Evaluations.Integration;
@@ -33,8 +36,11 @@ internal sealed record EvaluatorRegistration(
 /// </summary>
 public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
 {
+    private const int MaxStoredConversationResponseLength = 4000;
+
     private readonly List<EvaluatorRegistration> _evaluators = new();
     private readonly Random _rng = new();
+    private readonly ConcurrentDictionary<string, TurnEventBuffer> _buffersByTraceId = new();
 
     // Turn-scoped event buffer (one per active turn, AsyncLocal for thread safety)
     private readonly AsyncLocal<TurnEventBuffer?> _buffer = new();
@@ -71,6 +77,10 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
         // Start a fresh event buffer for this turn
         var buffer = new TurnEventBuffer();
         _buffer.Value = buffer;
+        if (!string.IsNullOrWhiteSpace(context.TraceId))
+        {
+            _buffersByTraceId[context.TraceId] = buffer;
+        }
 
         return Task.CompletedTask;
     }
@@ -80,12 +90,23 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
         if (context.RunConfig.IsInternalEvalJudgeCall || context.RunConfig.DisableEvaluators)
             return;
 
-        if (_evaluators.Count == 0)
+        var registrations = BuildRegistrations(context.RunConfig);
+        if (registrations.Count == 0)
             return;
 
-        var buffer = _buffer.Value;
-        if (buffer is null)
-            return;
+        var traceId = context.TraceId;
+        TurnEventBuffer? traceBuffer = null;
+        var hasTraceBuffer = !string.IsNullOrWhiteSpace(traceId) &&
+            _buffersByTraceId.TryGetValue(traceId!, out traceBuffer);
+        var buffer = hasTraceBuffer
+            ? traceBuffer!
+            : _buffer.Value ?? new TurnEventBuffer();
+        _buffer.Value = null;
+        await WaitForObserverBufferAsync(buffer, cancellationToken).ConfigureAwait(false);
+        if (hasTraceBuffer)
+        {
+            _buffersByTraceId.TryRemove(traceId!, out _);
+        }
 
         // Capture accumulated EvalContext data before deactivating.
         // _evalData was set in BeforeMessageTurnAsync; the AsyncLocal reference is still live.
@@ -108,12 +129,28 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
             return; // Don't crash the agent if context building fails
         }
 
+        var conversationEvalState = context.GetMiddlewareState<ConversationEvalStateData>()
+            ?? new ConversationEvalStateData();
+        var conversationHistory = BuildConversationHistoryForEvaluation(turnCtx, conversationEvalState);
+
+        try
+        {
+            context.UpdateMiddlewareState<ConversationEvalStateData>(state =>
+                AdvanceConversationEvalState(state, turnCtx));
+        }
+        catch
+        {
+            // Conversation state is for evaluator quality only; never fail the agent turn.
+        }
+
         // Launch all evaluators as fire-and-forget background tasks
         // so they don't block AfterMessageTurnAsync from returning
-        foreach (var registration in _evaluators)
+        var samplingOverride = context.RunConfig.EvaluatorSamplingOverride;
+        foreach (var registration in registrations)
         {
             // Sampling check
-            if (registration.SamplingRate < 1.0 && _rng.NextDouble() > registration.SamplingRate)
+            var samplingRate = samplingOverride ?? registration.SamplingRate;
+            if (samplingRate < 1.0 && _rng.NextDouble() > samplingRate)
                 continue;
 
             var reg = registration;
@@ -122,7 +159,7 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
 
             _ = Task.Run(async () =>
             {
-                await RunEvaluatorAsync(reg, tCtx, ctx, CancellationToken.None)
+                await RunEvaluatorAsync(reg, tCtx, conversationHistory, ctx, samplingRate, CancellationToken.None)
                     .ConfigureAwait(false);
             }, CancellationToken.None);
         }
@@ -132,7 +169,13 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
 
     public Task OnEventAsync(AgentEvent evt, CancellationToken ct = default)
     {
-        var buffer = _buffer.Value;
+        TurnEventBuffer? buffer = null;
+        if (!string.IsNullOrWhiteSpace(evt.TraceId))
+        {
+            _buffersByTraceId.TryGetValue(evt.TraceId, out buffer);
+        }
+
+        buffer ??= _buffer.Value;
         if (buffer is null)
             return Task.CompletedTask;
 
@@ -175,36 +218,45 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
     private async Task RunEvaluatorAsync(
         EvaluatorRegistration registration,
         TurnEvaluationContext turnCtx,
+        IReadOnlyList<ChatMessage> conversationHistory,
         AfterMessageTurnContext hookCtx,
+        double effectiveSamplingRate,
         CancellationToken ct)
     {
         var evaluatorName = registration.Evaluator.GetType().Name;
-        var version = (registration.Evaluator as IHpdEvaluator)?.Version ?? "1.0.0";
+        var version = EvaluationExecutionHelpers.ResolveEvaluatorVersion(registration.Evaluator);
 
         // Build additional context including TurnEvaluationContextWrapper
         var additionalContext = new List<EvaluationContext>
         {
             new TurnEvaluationContextWrapper(turnCtx),
         };
+        if (conversationHistory.Count > 0)
+        {
+            additionalContext.Add(new ConversationHistoryContext(conversationHistory));
+        }
 
         // Resolve judge ChatConfiguration if needed
         ChatConfiguration? chatConfig = null;
         if (registration.Evaluator is not HpdDeterministicEvaluatorBase &&
             registration.Evaluator is not TaskOracleEvaluator)
         {
-            var judgeConfig = registration.JudgeConfig ?? GlobalJudgeConfig;
-            if (judgeConfig?.OverrideChatClient is not null)
-                chatConfig = new ChatConfiguration(judgeConfig.OverrideChatClient);
+            var judgeConfig = registration.JudgeConfig ??
+                hookCtx.RunConfig.GetEvalJudgeConfigOverride() ??
+                GlobalJudgeConfig;
+            chatConfig = EvaluationExecutionHelpers.BuildChatConfiguration(judgeConfig);
         }
 
         // Build timeout CTS
-        var judgeConfig2 = registration.JudgeConfig ?? GlobalJudgeConfig;
+        var judgeConfig2 = registration.JudgeConfig ??
+            hookCtx.RunConfig.GetEvalJudgeConfigOverride() ??
+            GlobalJudgeConfig;
         int timeoutSeconds = judgeConfig2?.TimeoutSeconds ?? 30;
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
 
         EvaluationResult result;
-        bool timedOut = false;
-        string? errorMessage = null;
+        var evaluatorStart = DateTimeOffset.UtcNow;
+        using var traceScope = EvalTraceContext.Activate(evaluatorName);
 
         try
         {
@@ -217,8 +269,7 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            timedOut = true;
-            errorMessage = $"Evaluator '{evaluatorName}' timed out after {timeoutSeconds}s.";
+            var errorMessage = $"Evaluator '{evaluatorName}' timed out after {timeoutSeconds}s.";
 
             hookCtx.Emit(new EvalFailedEvent
             {
@@ -233,7 +284,7 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
         }
         catch (Exception ex)
         {
-            errorMessage = ex.Message;
+            var errorMessage = ex.Message;
             hookCtx.Emit(new EvalFailedEvent
             {
                 EvaluatorName = evaluatorName,
@@ -246,6 +297,11 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
             });
             return;
         }
+
+        var evaluatorDuration = DateTimeOffset.UtcNow - evaluatorStart;
+        var judgeCalls = traceScope.Snapshot();
+        var (judgeModelId, judgeUsage, judgeDuration) =
+            EvaluationExecutionHelpers.ExtractJudgeMetadata(result);
 
         // Persist to IScoreStore
         if (ScoreStore is not null)
@@ -266,7 +322,11 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
                 TurnDuration = turnCtx.Duration,
                 Attributes = turnCtx.Attributes,
                 Metrics = turnCtx.Metrics,
-                SamplingRate = registration.SamplingRate,
+                JudgeModelId = judgeModelId,
+                JudgeUsage = judgeUsage,
+                JudgeDuration = judgeDuration ?? evaluatorDuration,
+                JudgeCalls = judgeCalls,
+                SamplingRate = effectiveSamplingRate,
                 Policy = registration.Policy,
                 CreatedAt = DateTimeOffset.UtcNow,
             };
@@ -288,7 +348,7 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
             SessionId = turnCtx.SessionId,
             BranchId = turnCtx.BranchId,
             TurnIndex = turnCtx.TurnIndex,
-            EvaluatorDuration = TimeSpan.Zero, // timing captured in ParseJudgeResponse for LLM judges
+            EvaluatorDuration = evaluatorDuration,
         });
 
         // Annotation queue: if a queue is configured and the score falls below the threshold,
@@ -304,6 +364,14 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
 
                 if (annotationId is not null)
                 {
+                    _ = WaitForAnnotationResponseAsync(
+                        annotationId,
+                        evaluatorName,
+                        version,
+                        turnCtx,
+                        hookCtx,
+                        CancellationToken.None);
+
                     hookCtx.Emit(new AnnotationRequestedEvent
                     {
                         AnnotationId = annotationId,
@@ -322,12 +390,7 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
         {
             foreach (var (metricName, metric) in result.Metrics)
             {
-                bool failed = metric switch
-                {
-                    BooleanMetric bm => bm.Value == false,
-                    NumericMetric nm => nm.Value.HasValue && nm.Value.Value <= 0,
-                    _ => false,
-                };
+                bool failed = EvaluationExecutionHelpers.IsFailingMetric(metric);
 
                 if (failed)
                 {
@@ -355,4 +418,205 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
             _ => null,
         };
     }
+
+    private IReadOnlyList<EvaluatorRegistration> BuildRegistrations(AgentRunConfig runConfig)
+    {
+        var registrations = new List<EvaluatorRegistration>(_evaluators);
+
+        foreach (var evaluator in runConfig.GetAdditionalEvaluators())
+        {
+            registrations.Add(new EvaluatorRegistration(
+                evaluator,
+                SamplingRate: 1.0,
+                Policy: ResolveDefaultPolicy(evaluator),
+                JudgeConfig: null));
+        }
+
+        return registrations;
+    }
+
+    private static EvalPolicy ResolveDefaultPolicy(IEvaluator evaluator)
+        => evaluator is HpdDeterministicEvaluatorBase
+            ? EvalPolicy.MustAlwaysPass
+            : EvalPolicy.TrackTrend;
+
+    private static async Task WaitForObserverBufferAsync(
+        TurnEventBuffer buffer,
+        CancellationToken cancellationToken)
+    {
+        if (buffer.HasTurnFinished)
+            return;
+
+        // Observer callbacks are dispatched through a background FIFO channel. The
+        // MessageTurnFinishedEvent is yielded immediately before AfterMessageTurnAsync,
+        // so give the observer a brief chance to populate timing data. Scoring must not
+        // depend on this; if it does not arrive promptly we continue with typed history.
+        for (int i = 0; i < 10 && !buffer.HasTurnFinished; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Delay(10, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task WaitForAnnotationResponseAsync(
+        string annotationId,
+        string triggerEvaluatorName,
+        string triggerEvaluatorVersion,
+        TurnEvaluationContext turnCtx,
+        AfterMessageTurnContext hookCtx,
+        CancellationToken ct)
+    {
+        if (AnnotationQueue is null)
+            return;
+
+        AnnotationResponseEvent response;
+        try
+        {
+            response = await hookCtx.WaitForResponseAsync<AnnotationResponseEvent>(
+                annotationId,
+                AnnotationQueue.LockTimeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            return;
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        AnnotationQueue.SubmitResponse(
+            annotationId,
+            response.ReviewerId,
+            response.Label,
+            response.Score,
+            response.Comment);
+
+        if (ScoreStore is null)
+            return;
+
+        var evaluatorName = string.IsNullOrWhiteSpace(response.EvaluatorName)
+            ? triggerEvaluatorName
+            : response.EvaluatorName!;
+        var metricName = string.IsNullOrWhiteSpace(response.MetricName)
+            ? evaluatorName
+            : response.MetricName!;
+        var result = BuildHumanAnnotationResult(annotationId, metricName, response);
+
+        var record = new ScoreRecord
+        {
+            Id = Guid.NewGuid().ToString(),
+            EvaluatorName = evaluatorName,
+            EvaluatorVersion = triggerEvaluatorVersion,
+            Result = result,
+            Source = EvaluationSource.Human,
+            SessionId = turnCtx.SessionId,
+            BranchId = turnCtx.BranchId,
+            TurnIndex = turnCtx.TurnIndex,
+            AgentName = turnCtx.AgentName,
+            ModelId = turnCtx.ModelId,
+            TurnUsage = turnCtx.TurnUsage,
+            TurnDuration = turnCtx.Duration,
+            Attributes = turnCtx.Attributes,
+            Metrics = turnCtx.Metrics,
+            SamplingRate = 1.0,
+            Policy = EvalPolicy.TrackTrend,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+
+        try
+        {
+            await ScoreStore.WriteScoreAsync(record, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Human annotation persistence should not affect the agent turn.
+        }
+    }
+
+    internal static EvaluationResult BuildHumanAnnotationResult(
+        string annotationId,
+        string metricName,
+        AnnotationResponseEvent response)
+    {
+        EvaluationMetric metric;
+        if (response.Score.HasValue)
+        {
+            metric = new NumericMetric(metricName)
+            {
+                Value = response.Score.Value,
+                Reason = response.Comment ?? response.Label,
+            };
+        }
+        else if (bool.TryParse(response.Label, out var labelAsBool))
+        {
+            metric = new BooleanMetric(metricName)
+            {
+                Value = labelAsBool,
+                Reason = response.Comment,
+            };
+        }
+        else
+        {
+            metric = new StringMetric(metricName)
+            {
+                Value = response.Label,
+                Reason = response.Comment,
+            };
+        }
+
+        metric.AddOrUpdateMetadata("annotation-id", annotationId);
+        metric.AddOrUpdateMetadata("reviewer-id", response.ReviewerId);
+        metric.AddOrUpdateMetadata("human-label", response.Label);
+        return new EvaluationResult(metric);
+    }
+
+    internal static IReadOnlyList<ChatMessage> BuildConversationHistoryForEvaluation(
+        TurnEvaluationContext turnCtx,
+        ConversationEvalStateData state)
+    {
+        var history = new List<ChatMessage>(turnCtx.ConversationHistory);
+
+        foreach (var response in state.PriorResponses)
+        {
+            if (string.IsNullOrWhiteSpace(response))
+                continue;
+
+            bool alreadyPresent = history.Any(message =>
+                message.Role == ChatRole.Assistant &&
+                string.Equals(message.Text, response, StringComparison.Ordinal));
+
+            if (!alreadyPresent)
+            {
+                history.Add(new ChatMessage(ChatRole.Assistant, response));
+            }
+        }
+
+        return history;
+    }
+
+    internal static ConversationEvalStateData AdvanceConversationEvalState(
+        ConversationEvalStateData state,
+        TurnEvaluationContext turnCtx)
+    {
+        var priorResponses = state.PriorResponses.ToList();
+        if (!string.IsNullOrWhiteSpace(turnCtx.OutputText))
+        {
+            priorResponses.Add(TrimForConversationState(turnCtx.OutputText));
+        }
+
+        return state with
+        {
+            EstablishedGoal = string.IsNullOrWhiteSpace(state.EstablishedGoal)
+                ? turnCtx.UserInput
+                : state.EstablishedGoal,
+            PriorResponses = priorResponses,
+            TurnCount = state.TurnCount + 1,
+        };
+    }
+
+    private static string TrimForConversationState(string value)
+        => value.Length <= MaxStoredConversationResponseLength
+            ? value
+            : value[..MaxStoredConversationResponseLength];
 }

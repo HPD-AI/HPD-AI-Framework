@@ -6,20 +6,20 @@ using Microsoft.Extensions.AI.Evaluation.Reporting;
 namespace HPD.Agent.Evaluations.Storage;
 
 /// <summary>
-/// Extends the MS IEvaluationResultStore with HPD-specific analytics query methods.
-/// Implementations: InMemoryScoreStore (tests/dev), SqliteScoreStore (production).
+/// Extends the MS IEvaluationResultStore with HPD-specific score analytics and
+/// HPD-native full run records.
 ///
-/// IEvaluationResultStore method mapping:
-///   DeleteResultsAsync(executionName)       → delete ScoreRecords where AgentName == executionName
-///   GetLatestExecutionNamesAsync(maxCount)  → most recent distinct AgentName values by CreatedAt
-///   GetScenarioNamesAsync(executionName)    → distinct SessionId values for that AgentName
-///   GetIterationNamesAsync(exec, scenario)  → "(BranchId)/(TurnIndex)" strings for agent+session
+/// ScoreRecord is the per-evaluator analytic row. EvaluationRunRecord is the
+/// full reporting payload for one evaluated case/turn, equivalent to MS
+/// ScenarioRunResult plus HPD provenance.
 /// </summary>
 public interface IScoreStore : IEvaluationResultStore
 {
     // ── Write ─────────────────────────────────────────────────────────────────
 
     ValueTask WriteScoreAsync(ScoreRecord record, CancellationToken ct = default);
+
+    ValueTask WriteRunAsync(EvaluationRunRecord record, CancellationToken ct = default);
 
     // ── Point queries ─────────────────────────────────────────────────────────
 
@@ -32,6 +32,31 @@ public interface IScoreStore : IEvaluationResultStore
         string evaluatorName,
         DateTimeOffset? from = null,
         DateTimeOffset? to = null,
+        CancellationToken ct = default);
+
+    IAsyncEnumerable<EvaluationRunRecord> GetRunsAsync(
+        string? executionName = null,
+        string? scenarioName = null,
+        string? iterationName = null,
+        CancellationToken ct = default);
+
+    ValueTask DeleteRunsAsync(
+        string? executionName = null,
+        string? scenarioName = null,
+        string? iterationName = null,
+        CancellationToken ct = default);
+
+    IAsyncEnumerable<string> GetLatestRunExecutionNamesAsync(
+        int? count = null,
+        CancellationToken ct = default);
+
+    IAsyncEnumerable<string> GetRunScenarioNamesAsync(
+        string executionName,
+        CancellationToken ct = default);
+
+    IAsyncEnumerable<string> GetRunIterationNamesAsync(
+        string executionName,
+        string scenarioName,
         CancellationToken ct = default);
 
     // ── Analytics ─────────────────────────────────────────────────────────────

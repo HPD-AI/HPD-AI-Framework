@@ -16,12 +16,26 @@ namespace HPD.Agent.Evaluations.Storage;
 public sealed class InMemoryScoreStore : IScoreStore
 {
     private readonly ConcurrentBag<ScoreRecord> _records = new();
+    private readonly object _runsLock = new();
+    private List<EvaluationRunRecord> _runs = [];
 
     // ── IScoreStore: Write ────────────────────────────────────────────────────
 
     public ValueTask WriteScoreAsync(ScoreRecord record, CancellationToken ct = default)
     {
         _records.Add(record);
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask WriteRunAsync(EvaluationRunRecord record, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        lock (_runsLock)
+        {
+            _runs.Add(record);
+        }
+
         return ValueTask.CompletedTask;
     }
 
@@ -67,6 +81,106 @@ public sealed class InMemoryScoreStore : IScoreStore
             if (r.EvaluatorName == evaluatorName && r.EvaluatorVersion == version)
                 yield return r;
         }
+    }
+
+    public async IAsyncEnumerable<EvaluationRunRecord> GetRunsAsync(
+        string? executionName = null,
+        string? scenarioName = null,
+        string? iterationName = null,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        List<EvaluationRunRecord> snapshot;
+        lock (_runsLock)
+        {
+            snapshot = [.. _runs];
+        }
+
+        foreach (var run in snapshot)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (executionName is not null && run.ExecutionName != executionName) continue;
+            if (scenarioName is not null && run.ScenarioName != scenarioName) continue;
+            if (iterationName is not null && run.IterationName != iterationName) continue;
+
+            yield return run;
+        }
+    }
+
+    public ValueTask DeleteRunsAsync(
+        string? executionName = null,
+        string? scenarioName = null,
+        string? iterationName = null,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        lock (_runsLock)
+        {
+            _runs = _runs
+                .Where(run => !RunMatches(run, executionName, scenarioName, iterationName))
+                .ToList();
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    public IAsyncEnumerable<string> GetLatestRunExecutionNamesAsync(
+        int? count = null,
+        CancellationToken ct = default)
+    {
+        List<EvaluationRunRecord> snapshot;
+        lock (_runsLock)
+        {
+            snapshot = [.. _runs];
+        }
+
+        var query = snapshot
+            .GroupBy(r => r.ExecutionName)
+            .OrderByDescending(g => g.Max(r => r.CreatedAt))
+            .Select(g => g.Key);
+
+        if (count.HasValue)
+            query = query.Take(count.Value);
+
+        return query.ToAsyncEnumerable(ct);
+    }
+
+    public IAsyncEnumerable<string> GetRunScenarioNamesAsync(
+        string executionName,
+        CancellationToken ct = default)
+    {
+        List<EvaluationRunRecord> snapshot;
+        lock (_runsLock)
+        {
+            snapshot = [.. _runs];
+        }
+
+        return snapshot
+            .Where(r => r.ExecutionName == executionName)
+            .OrderBy(r => r.ScenarioName, StringComparer.Ordinal)
+            .Select(r => r.ScenarioName)
+            .Distinct(StringComparer.Ordinal)
+            .ToAsyncEnumerable(ct);
+    }
+
+    public IAsyncEnumerable<string> GetRunIterationNamesAsync(
+        string executionName,
+        string scenarioName,
+        CancellationToken ct = default)
+    {
+        List<EvaluationRunRecord> snapshot;
+        lock (_runsLock)
+        {
+            snapshot = [.. _runs];
+        }
+
+        return snapshot
+            .Where(r => r.ExecutionName == executionName && r.ScenarioName == scenarioName)
+            .OrderBy(r => r.IterationName, StringComparer.Ordinal)
+            .Select(r => r.IterationName)
+            .Distinct(StringComparer.Ordinal)
+            .ToAsyncEnumerable(ct);
     }
 
     // ── IScoreStore: Analytics ────────────────────────────────────────────────
@@ -332,41 +446,68 @@ public sealed class InMemoryScoreStore : IScoreStore
 
     // ── IEvaluationResultStore (MS 9.6.0 interface) ───────────────────────────
 
-    /// <summary>
-    /// Deletes results for a specific execution/scenario/iteration combination.
-    /// All params nullable — null means "match all". InMemoryScoreStore is test-only;
-    /// ConcurrentBag doesn't support targeted removal, so this is a no-op.
-    /// </summary>
+    /// <summary>Deletes full run results for a specific execution/scenario/iteration combination.</summary>
     public ValueTask DeleteResultsAsync(string? executionName, string? scenarioName, string? iterationName, CancellationToken ct = default)
-        => ValueTask.CompletedTask;
+        => DeleteRunsAsync(executionName, scenarioName, iterationName, ct);
 
-    public IAsyncEnumerable<string> GetLatestExecutionNamesAsync(int? maxCount = null, CancellationToken ct = default)
-    {
-        var query = _records.Select(r => r.AgentName).Distinct();
-        if (maxCount.HasValue) query = query.Take(maxCount.Value);
-        return query.ToAsyncEnumerable();
-    }
+    public IAsyncEnumerable<string> GetLatestExecutionNamesAsync(int? maxCount = null, CancellationToken ct = default) =>
+        GetLatestRunExecutionNamesAsync(maxCount, ct);
 
     public IAsyncEnumerable<string> GetScenarioNamesAsync(string? executionName, CancellationToken ct = default)
-        => _records
-            .Where(r => executionName is null || r.AgentName == executionName)
-            .Select(r => r.SessionId)
-            .Distinct()
-            .ToAsyncEnumerable();
+    {
+        List<EvaluationRunRecord> snapshot;
+        lock (_runsLock)
+        {
+            snapshot = [.. _runs];
+        }
+
+        return snapshot
+            .Where(r => executionName is null || r.ExecutionName == executionName)
+            .OrderBy(r => r.ScenarioName, StringComparer.Ordinal)
+            .Select(r => r.ScenarioName)
+            .Distinct(StringComparer.Ordinal)
+            .ToAsyncEnumerable(ct);
+    }
 
     public IAsyncEnumerable<string> GetIterationNamesAsync(string? executionName, string? scenarioName, CancellationToken ct = default)
-        => _records
-            .Where(r => (executionName is null || r.AgentName == executionName) &&
-                        (scenarioName is null || r.SessionId == scenarioName))
-            .Select(r => $"{r.BranchId}/{r.TurnIndex}")
-            .Distinct()
-            .ToAsyncEnumerable();
+    {
+        List<EvaluationRunRecord> snapshot;
+        lock (_runsLock)
+        {
+            snapshot = [.. _runs];
+        }
 
-    public IAsyncEnumerable<ScenarioRunResult> ReadResultsAsync(string? executionName, string? scenarioName, string? iterationName, CancellationToken ct = default)
-        => Array.Empty<ScenarioRunResult>().ToAsyncEnumerable();
+        return snapshot
+            .Where(r => (executionName is null || r.ExecutionName == executionName) &&
+                        (scenarioName is null || r.ScenarioName == scenarioName))
+            .OrderBy(r => r.IterationName, StringComparer.Ordinal)
+            .Select(r => r.IterationName)
+            .Distinct(StringComparer.Ordinal)
+            .ToAsyncEnumerable(ct);
+    }
 
-    public ValueTask WriteResultsAsync(IEnumerable<ScenarioRunResult> results, CancellationToken ct = default)
-        => ValueTask.CompletedTask;
+    public async IAsyncEnumerable<ScenarioRunResult> ReadResultsAsync(
+        string? executionName,
+        string? scenarioName,
+        string? iterationName,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await foreach (var run in GetRunsAsync(executionName, scenarioName, iterationName, ct)
+                           .ConfigureAwait(false))
+        {
+            yield return run.ToScenarioRunResult();
+        }
+    }
+
+    public async ValueTask WriteResultsAsync(IEnumerable<ScenarioRunResult> results, CancellationToken ct = default)
+    {
+        foreach (var result in results)
+        {
+            ct.ThrowIfCancellationRequested();
+            await WriteRunAsync(EvaluationRunRecord.FromScenarioRunResult(result), ct)
+                .ConfigureAwait(false);
+        }
+    }
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
@@ -409,14 +550,28 @@ public sealed class InMemoryScoreStore : IScoreStore
             Count: list.Count,
             PassRate: (double)list.Count(r => IsPassingResult(r.Result)) / list.Count);
     }
+
+    private static bool RunMatches(
+        EvaluationRunRecord run,
+        string? executionName,
+        string? scenarioName,
+        string? iterationName) =>
+        (executionName is null || run.ExecutionName == executionName) &&
+        (scenarioName is null || run.ScenarioName == scenarioName) &&
+        (iterationName is null || run.IterationName == iterationName);
 }
 
 /// <summary>Helper to convert IEnumerable to IAsyncEnumerable for the MS interface.</summary>
 internal static class AsyncEnumerableExtensions
 {
-    internal static async IAsyncEnumerable<T> ToAsyncEnumerable<T>(this IEnumerable<T> source)
+    internal static async IAsyncEnumerable<T> ToAsyncEnumerable<T>(
+        this IEnumerable<T> source,
+        [EnumeratorCancellation] CancellationToken ct = default)
     {
         foreach (var item in source)
+        {
+            ct.ThrowIfCancellationRequested();
             yield return item;
+        }
     }
 }

@@ -17,6 +17,7 @@ public sealed class RetroactiveScorerOptions
     /// combination. Set to true to force rescoring all turns regardless.
     /// </summary>
     public bool ForceRescore { get; init; } = false;
+
 }
 
 /// <summary>
@@ -45,6 +46,9 @@ public static class RetroactiveScorer
         CancellationToken ct = default)
     {
         options ??= new();
+        chatConfiguration = chatConfiguration is not null
+            ? EvaluationExecutionHelpers.WithTracing(chatConfiguration)
+            : EvaluationExecutionHelpers.BuildChatConfiguration(judgeConfig);
 
         var branch = await sessionStore.LoadBranchAsync(sessionId, branchId, ct).ConfigureAwait(false)
             ?? throw new ArgumentException($"Branch '{branchId}' in session '{sessionId}' not found.", nameof(branchId));
@@ -70,6 +74,7 @@ public static class RetroactiveScorer
         CancellationToken ct = default)
     {
         options ??= new();
+        chatConfiguration = EvaluationExecutionHelpers.WithTracing(chatConfiguration);
 
         var branch1Task = sessionStore.LoadBranchAsync(sessionId, branchId1, ct);
         var branch2Task = sessionStore.LoadBranchAsync(sessionId, branchId2, ct);
@@ -101,6 +106,7 @@ public static class RetroactiveScorer
         ChatConfiguration? chatConfiguration = null,
         CancellationToken ct = default)
     {
+        chatConfiguration = EvaluationExecutionHelpers.WithTracing(chatConfiguration);
         var options = new RetroactiveScorerOptions();
         var scoreTasks = branchIds.Select(async branchId =>
         {
@@ -184,9 +190,11 @@ public static class RetroactiveScorer
 
                 try
                 {
+                    using var traceScope = EvalTraceContext.Activate(evaluatorName);
                     var evalResult = await evaluator.EvaluateAsync(
                         messages, turnCtx.FinalResponse, chatConfiguration,
                         additionalContext, ct).ConfigureAwait(false);
+                    var judgeCalls = traceScope.Snapshot();
 
                     evalResults.Add(evalResult);
 
@@ -204,6 +212,7 @@ public static class RetroactiveScorer
                             TurnIndex = turnCtx.TurnIndex,
                             AgentName = turnCtx.AgentName,
                             ModelId = turnCtx.ModelId,
+                            JudgeCalls = judgeCalls,
                             CreatedAt = DateTimeOffset.UtcNow,
                         }, ct).ConfigureAwait(false);
                     }

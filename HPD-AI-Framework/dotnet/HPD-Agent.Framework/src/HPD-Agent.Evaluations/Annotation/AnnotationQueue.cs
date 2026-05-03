@@ -62,6 +62,7 @@ public sealed class AnnotationItem
     public DateTimeOffset? LockedAt { get; internal set; }
     public string? LockedBy { get; internal set; }
     public string? HumanLabel { get; internal set; }
+    public double? HumanScore { get; internal set; }
     public string? HumanComment { get; internal set; }
     public DateTimeOffset? CompletedAt { get; internal set; }
 }
@@ -83,6 +84,8 @@ public sealed class AnnotationQueue
     {
         _options = options ?? new AnnotationQueueOptions();
     }
+
+    public TimeSpan LockTimeout => _options.LockTimeout;
 
     // ── Enqueue ───────────────────────────────────────────────────────────────
 
@@ -179,7 +182,12 @@ public sealed class AnnotationQueue
     /// Submit a human label for a claimed annotation item.
     /// Returns false if the item is not found or not locked by this reviewer.
     /// </summary>
-    public bool Complete(string annotationId, string reviewerId, string label, string? comment = null)
+    public bool Complete(
+        string annotationId,
+        string reviewerId,
+        string label,
+        string? comment = null,
+        double? score = null)
     {
         if (!_items.TryGetValue(annotationId, out var item))
             return false;
@@ -189,6 +197,35 @@ public sealed class AnnotationQueue
 
         item.Status = AnnotationStatus.Completed;
         item.HumanLabel = label;
+        item.HumanScore = score;
+        item.HumanComment = comment;
+        item.CompletedAt = DateTimeOffset.UtcNow;
+        return true;
+    }
+
+    /// <summary>
+    /// Submit a human response for an annotation request. Unlike <see cref="Complete"/>,
+    /// this accepts pending items because bidirectional UI flows may respond directly
+    /// to the emitted request without separately claiming the in-memory queue item first.
+    /// </summary>
+    public bool SubmitResponse(
+        string annotationId,
+        string reviewerId,
+        string label,
+        double? score = null,
+        string? comment = null)
+    {
+        if (!_items.TryGetValue(annotationId, out var item))
+            return false;
+
+        if (item.Status == AnnotationStatus.Completed)
+            return false;
+
+        item.Status = AnnotationStatus.Completed;
+        item.LockedAt ??= DateTimeOffset.UtcNow;
+        item.LockedBy ??= reviewerId;
+        item.HumanLabel = label;
+        item.HumanScore = score;
         item.HumanComment = comment;
         item.CompletedAt = DateTimeOffset.UtcNow;
         return true;

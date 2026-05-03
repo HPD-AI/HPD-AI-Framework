@@ -415,6 +415,74 @@ public class PIIMiddlewareTests
         Assert.Contains("test@test.com", processed);
     }
 
+    [Fact]
+    public async Task ApplyToOutput_WhenTrue_RedactsAssistantFinalResponseAndTurnHistory()
+    {
+        // Arrange
+        var middleware = new PIIMiddleware
+        {
+            ApplyToOutput = true,
+            EmailStrategy = PIIStrategy.Redact
+        };
+
+        var assistantMessage = new ChatMessage(ChatRole.Assistant, "Send it to agent@example.com");
+        var turnHistoryMessage = new ChatMessage(ChatRole.Assistant, "Logged agent@example.com");
+        var context = CreateAfterMessageTurnContext(
+            finalResponse: new ChatResponse(assistantMessage),
+            turnHistory: [turnHistoryMessage]);
+
+        // Act
+        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
+
+        // Assert
+        Assert.Contains("[EMAIL_REDACTED]", context.FinalResponse.Text);
+        Assert.DoesNotContain("agent@example.com", context.FinalResponse.Text);
+        Assert.Contains("[EMAIL_REDACTED]", context.TurnHistory.Single().Text);
+        Assert.DoesNotContain("agent@example.com", context.TurnHistory.Single().Text);
+    }
+
+    [Fact]
+    public async Task ApplyToOutput_WhenFalse_LeavesAssistantOutputUnchanged()
+    {
+        // Arrange
+        var middleware = new PIIMiddleware
+        {
+            ApplyToOutput = false,
+            EmailStrategy = PIIStrategy.Block
+        };
+
+        var context = CreateAfterMessageTurnContext(
+            finalResponse: new ChatResponse(new ChatMessage(ChatRole.Assistant, "Email agent@example.com")),
+            turnHistory: [new ChatMessage(ChatRole.Assistant, "Email agent@example.com")]);
+
+        // Act
+        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
+
+        // Assert
+        Assert.Contains("agent@example.com", context.FinalResponse.Text);
+        Assert.Contains("agent@example.com", context.TurnHistory.Single().Text);
+    }
+
+    [Fact]
+    public async Task ApplyToToolResults_WhenTrue_RedactsFunctionResult()
+    {
+        // Arrange
+        var middleware = new PIIMiddleware
+        {
+            ApplyToToolResults = true,
+            EmailStrategy = PIIStrategy.Redact
+        };
+
+        var result = new FunctionResultContent("call-1", "Customer email is tool@example.com");
+        var context = CreateAfterIterationContext([result]);
+
+        // Act
+        await middleware.AfterIterationAsync(context, CancellationToken.None);
+
+        // Assert
+        Assert.Equal("Customer email is [EMAIL_REDACTED]", result.Result);
+    }
+
     //      
     // LUHN VALIDATION TESTS
     //      
@@ -527,12 +595,21 @@ public class PIIMiddlewareTests
 
     private static AfterMessageTurnContext CreateAfterMessageTurnContext(
         AgentLoopState? state = null,
+        ChatResponse? finalResponse = null,
         List<ChatMessage>? turnHistory = null)
     {
         var agentContext = CreateAgentContext(state);
-        var finalResponse = new ChatResponse(new ChatMessage(ChatRole.Assistant, "Test response"));
+        finalResponse ??= new ChatResponse(new ChatMessage(ChatRole.Assistant, "Test response"));
         turnHistory ??= new List<ChatMessage>();
         return agentContext.AsAfterMessageTurn(finalResponse, turnHistory, new AgentRunConfig());
+    }
+
+    private static AfterIterationContext CreateAfterIterationContext(
+        IReadOnlyList<FunctionResultContent> toolResults,
+        AgentLoopState? state = null)
+    {
+        var agentContext = CreateAgentContext(state);
+        return agentContext.AsAfterIteration(0, toolResults, new AgentRunConfig());
     }
 
 }

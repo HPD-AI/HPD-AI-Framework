@@ -1,9 +1,13 @@
 // Copyright 2026 Einstein Essibu
 // SPDX-License-Identifier: AGPL-3.0-only
 
+using System.Diagnostics.CodeAnalysis;
+using System.Text;
 using HPD.Agent;
 using HPD.Agent.Evaluations.Annotation;
+using HPD.Agent.Evaluations.Batch;
 using HPD.Agent.Evaluations.Storage;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
 
 namespace HPD.Agent.Evaluations.Integration;
@@ -27,10 +31,7 @@ public static class AgentBuilderEvalExtensions
     /// MustAlwaysPass: failure emits EvalPolicyViolationEvent (CI gate).
     /// TrackTrend: failures are recorded in IScoreStore only (quality monitoring).
     /// </param>
-    /// <param name="judgeConfig">
-    /// Per-evaluator judge LLM override. Falls back to the global judge config
-    /// set via UseEvalJudgeConfig, then to the agent's own provider.
-    /// </param>
+    /// <param name="judgeConfig">Per-evaluator judge override.</param>
     public static AgentBuilder AddEvaluator(
         this AgentBuilder builder,
         IEvaluator evaluator,
@@ -63,6 +64,55 @@ public static class AgentBuilderEvalExtensions
         var middleware = GetOrCreateMiddleware(builder);
         middleware.GlobalJudgeConfig = config;
         return builder;
+    }
+
+    /// <summary>
+    /// Sets the global judge agent used by LLM-as-judge evaluators that do not
+    /// have a per-evaluator judge override. The judge agent should normally be
+    /// built with no tools and MaxAgenticIterations = 1.
+    /// </summary>
+    public static AgentBuilder UseEvalJudgeAgent(this AgentBuilder builder, IAgent judgeAgent)
+        => builder.UseEvalJudgeConfig(new EvalJudgeConfig { OverrideAgent = judgeAgent });
+
+    /// <summary>
+    /// Registers the middleware that captures the post-middleware judge model
+    /// request for evaluation trace storage. Register it after privacy/prompt
+    /// middleware so the captured prompt is the sanitized prompt.
+    /// </summary>
+    public static AgentBuilder WithEvalJudgeTraceCapture(this AgentBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        if (!builder.Middlewares.OfType<EvalJudgeTraceCaptureMiddleware>().Any())
+            builder.WithMiddleware(new EvalJudgeTraceCaptureMiddleware());
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Builds and registers a dedicated judge agent for LLM-as-judge evaluators.
+    /// The judge agent defaults to a single function-calling turn and no harnesses;
+    /// callers provide the chat client/provider and any required safety middleware.
+    /// </summary>
+    [RequiresUnreferencedCode("Agent building may use Harness registration methods that require reflection.")]
+    public static async Task<AgentBuilder> UseEvalJudgeAgentAsync(
+        this AgentBuilder builder,
+        Action<AgentBuilder> configureJudge,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(configureJudge);
+
+        var judgeBuilder = new AgentBuilder()
+            .WithMaxFunctionCallTurns(1);
+
+        configureJudge(judgeBuilder);
+        judgeBuilder.WithEvalJudgeTraceCapture();
+
+        var judgeAgent = await judgeBuilder.BuildAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return builder.UseEvalJudgeAgent(new BuiltAgentJudgeAdapter(judgeAgent));
     }
 
     /// <summary>
@@ -119,5 +169,57 @@ public static class AgentBuilderEvalExtensions
         }
 
         return middleware;
+    }
+
+    private sealed class BuiltAgentJudgeAdapter(Agent judgeAgent) : IAgent
+    {
+        private readonly SemaphoreSlim _gate = new(1, 1);
+
+        public async Task<Microsoft.Extensions.AI.ChatResponse> RunAsync(
+            AgentRunConfig config,
+            CancellationToken ct = default)
+        {
+            var userMessage = config.UserMessage
+                ?? throw new InvalidOperationException("Judge agent calls require AgentRunConfig.UserMessage.");
+
+            await _gate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                var text = new StringBuilder();
+                UsageDetails? usage = null;
+
+                using var subscription = judgeAgent.SubscribeAny(evt =>
+                {
+                    switch (evt)
+                    {
+                        case TextDeltaEvent delta:
+                            text.Append(delta.Text);
+                            break;
+                        case MessageTurnFinishedEvent finished:
+                            usage = finished.Usage;
+                            break;
+                    }
+                });
+
+                config.DisableEvaluators = true;
+                config.IsInternalEvalJudgeCall = true;
+                config.SkipTools = true;
+
+                await judgeAgent.RunAsync(new UserTextInputEvent(userMessage)
+                {
+                    RunConfig = config,
+                }, ct).ConfigureAwait(false);
+
+                return new Microsoft.Extensions.AI.ChatResponse(
+                    [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.Assistant, text.ToString())])
+                {
+                    Usage = usage,
+                };
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
     }
 }

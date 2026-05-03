@@ -44,11 +44,12 @@ public record ClientToolInvokeResponseEvent(
     bool Success = true,
     string? ErrorMessage = null,
     ClientToolAugmentation? Augmentation = null
-) : AgentEvent
+) : AgentEvent, IBidirectionalAgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override EventKind Kind { get; init; } = EventKind.Control;
     public override EventDirection Direction { get; init; } = EventDirection.Upstream;
+    public string SourceName => "HPD.Agent.ClientTools";
 
     /// <summary>
     /// Convenience constructor for simple text results.

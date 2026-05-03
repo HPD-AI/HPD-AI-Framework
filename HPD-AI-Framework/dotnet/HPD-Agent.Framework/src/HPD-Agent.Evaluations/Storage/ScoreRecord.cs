@@ -35,6 +35,15 @@ public sealed class ScoreRecord
     public string AgentName { get; init; } = string.Empty;
     public string? ModelId { get; init; }
 
+    // ── Dataset provenance (offline CI / benchmark governance) ───────────────
+
+    public string? DatasetId { get; init; }
+    public string? DatasetVersion { get; init; }
+    public string? CaseId { get; init; }
+    public string? CaseVersion { get; init; }
+    public DateTimeOffset? CaseValidFrom { get; init; }
+    public DateTimeOffset? CaseValidTo { get; init; }
+
     // ── Performance ───────────────────────────────────────────────────────────
 
     public UsageDetails? TurnUsage { get; init; }
@@ -50,6 +59,12 @@ public sealed class ScoreRecord
     public string? JudgeModelId { get; init; }
     public UsageDetails? JudgeUsage { get; init; }
     public TimeSpan? JudgeDuration { get; init; }
+
+    /// <summary>
+    /// Detailed judge-model calls made by this evaluator while producing Result.
+    /// These are eval traces, not user-facing branch messages.
+    /// </summary>
+    public IReadOnlyList<JudgeCallRecord> JudgeCalls { get; init; } = [];
 
     // ── Sampling ──────────────────────────────────────────────────────────────
 

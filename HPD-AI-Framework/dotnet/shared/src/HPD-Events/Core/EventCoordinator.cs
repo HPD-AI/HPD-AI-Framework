@@ -20,6 +20,10 @@ public sealed class EventCoordinator : IEventCoordinator, IDisposable
 
     internal IEventCoordinator? ParentCoordinatorForCycleDetection => _events.ParentCoordinator;
 
+    internal void RegisterChildRouter(EventChannelRouter child) => _events.RegisterChild(child);
+
+    internal void UnregisterChildRouter(EventChannelRouter child) => _events.UnregisterChild(child);
+
     /// <inheritdoc />
     public IStreamRegistry Streams => _events.Streams;
 
@@ -76,7 +80,17 @@ public sealed class EventCoordinator : IEventCoordinator, IDisposable
         Task.WhenAll(_events.RunAsync(ct), _structs.RunAsync(ct));
 
     /// <inheritdoc />
-    public void SetParent(IEventCoordinator parent) => _events.SetParent(parent, this);
+    public void SetParent(IEventCoordinator parent)
+    {
+        var previousParent = _events.ParentCoordinator;
+        _events.SetParent(parent, this);
+
+        if (previousParent is EventCoordinator previous)
+            previous.UnregisterChildRouter(_events);
+
+        if (parent is EventCoordinator next)
+            next.RegisterChildRouter(_events);
+    }
 
     /// <inheritdoc />
     public Task<TResponse> WaitForResponseAsync<TResponse>(
@@ -86,8 +100,14 @@ public sealed class EventCoordinator : IEventCoordinator, IDisposable
         _events.WaitForResponseAsync<TResponse>(requestId, timeout, ct);
 
     /// <inheritdoc />
-    public void SendResponse(string requestId, Event response) =>
-        _events.SendResponse(requestId, response);
+    public void SendResponse(string requestId, Event response)
+    {
+        if (_events.SendResponse(requestId, response))
+            return;
+
+        if (_events.ParentCoordinator is EventCoordinator parent)
+            parent.SendResponse(requestId, response);
+    }
 
     /// <inheritdoc />
     public EventCoordinatorStats GetStats() => _events.GetStats();

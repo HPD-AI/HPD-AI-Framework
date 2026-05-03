@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="PublishAot;SelfContained;RuntimeIdentifier">
 
   <PropertyGroup>
     <PackageId>HPD-Agent.SourceGenerator</PackageId>
@@ -13,6 +13,9 @@
     <IsRoslynComponent>true</IsRoslynComponent>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <NoWarn>CS8600;CS8601;CS8602;CS8604;RS2008</NoWarn>
+    <PublishAot>false</PublishAot>
+    <SelfContained>false</SelfContained>
+    <RuntimeIdentifier></RuntimeIdentifier>
 
     <!-- Prevent standalone packaging - should only be included in HPD.Agent.Framework -->
     <IsPackable>false</IsPackable>

@@ -42,6 +42,21 @@ public sealed record AnnotationRequestedEvent : AgentEvent
     public double TriggerScore { get; init; }
 }
 
+/// <summary>Human response to an annotation request.</summary>
+public sealed record AnnotationResponseEvent : AgentEvent, IBidirectionalAgentEvent
+{
+    public string AnnotationId { get; init; } = string.Empty;
+    public string ReviewerId { get; init; } = string.Empty;
+    public string Label { get; init; } = string.Empty;
+    public double? Score { get; init; }
+    public string? Comment { get; init; }
+    public string? EvaluatorName { get; init; }
+    public string? MetricName { get; init; }
+
+    public string RequestId => AnnotationId;
+    public string SourceName => "HPD.Agent.Evaluations.Annotation";
+}
+
 /// <summary>
 /// Emitted when a MustAlwaysPass evaluator returns a failing metric in online mode.
 /// Distinct from EvalFailedEvent (which signals evaluator exceptions/timeouts).

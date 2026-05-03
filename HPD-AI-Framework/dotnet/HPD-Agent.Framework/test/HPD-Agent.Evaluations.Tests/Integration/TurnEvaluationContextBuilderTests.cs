@@ -228,6 +228,28 @@ public sealed class TurnEvaluationContextBuilderTests
     }
 
     [Fact]
+    public void FromBranch_AssistantRequestsCredentials_StopKindIsRequestedCredentials()
+    {
+        var branch = new BranchBuilder()
+            .AddUserMessage("Deploy the app")
+            .AddAssistantMessage("I need an API key before I can continue.")
+            .Build();
+
+        FromBranch(branch).Single().StopKind.Should().Be(AgentStopKind.RequestedCredentials);
+    }
+
+    [Fact]
+    public void FromBranch_AssistantRequestsApproval_StopKindIsAwaitingConfirmation()
+    {
+        var branch = new BranchBuilder()
+            .AddUserMessage("Delete the staging database")
+            .AddAssistantMessage("Please confirm before I proceed.")
+            .Build();
+
+        FromBranch(branch).Single().StopKind.Should().Be(AgentStopKind.AwaitingConfirmation);
+    }
+
+    [Fact]
     public void FromBranch_AssistantNormalText_StopKindIsUnknown()
     {
         // No finish reason on retroactive path → Unknown (unless text ends with ?)

@@ -9,6 +9,16 @@ namespace HPD.Agent.Tests.Core;
 
 public class RuntimeLifecycleTests : AgentTestBase
 {
+    private sealed record CustomBidirectionalResponseEvent(
+        string RequestId,
+        string SourceName,
+        string Value) : AgentEvent, IBidirectionalAgentEvent
+    {
+        public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+        public override EventKind Kind { get; init; } = EventKind.Control;
+        public override EventDirection Direction { get; init; } = EventDirection.Upstream;
+    }
+
     private sealed class BlockingChatClient : IChatClient
     {
         public TaskCompletionSource Started { get; } =
@@ -2047,6 +2057,24 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
+    public async Task RunAsync_CustomBidirectionalEvent_RoutesByRequestId()
+    {
+        var agent = CreateAgent(client: new FakeChatClient());
+        var waitTask = agent.EventCoordinator.WaitForResponseAsync<CustomBidirectionalResponseEvent>(
+            "custom-request",
+            TimeSpan.FromSeconds(5),
+            TestCancellationToken);
+
+        await agent.RunAsync(new CustomBidirectionalResponseEvent(
+            "custom-request",
+            "custom-source",
+            "done"), TestCancellationToken);
+
+        var response = await waitTask.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        Assert.Equal("done", response.Value);
+    }
+
+    [Fact]
     public async Task StartedRuntime_ResponseEvent_BypassesQueueAndUnblocksWaiter()
     {
         var fakeClient = new FakeChatClient();
@@ -2114,7 +2142,7 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
-    public async Task RuntimeWaiter_DoesNotCompleteFromRootCoordinatorResponse()
+    public async Task RuntimeWaiter_CompletesFromRootCoordinatorResponse()
     {
         var fakeClient = new FakeChatClient();
         fakeClient.EnqueueTextResponse("after approval");
@@ -2134,14 +2162,6 @@ public class RuntimeLifecycleTests : AgentTestBase
                 PermissionWaitMiddleware.PermissionId,
                 "root",
                 Approved: true));
-
-        await Task.Delay(100, TestCancellationToken);
-        Assert.False(middleware.Completed.Task.IsCompleted);
-
-        await agent.RunAsync(new PermissionResponseEvent(
-            PermissionWaitMiddleware.PermissionId,
-            "runtime",
-            Approved: true), TestCancellationToken);
 
         var response = await middleware.Completed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);

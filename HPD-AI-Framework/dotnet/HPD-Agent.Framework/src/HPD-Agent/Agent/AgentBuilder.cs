@@ -2774,6 +2774,13 @@ public class AgentBuilder
     public AgentConfig Config => _config;
 
     /// <summary>
+    /// Gets the provider registry used by this builder.
+    /// Extension packages use this to resolve provider-backed clients through the
+    /// same registry as the core agent.
+    /// </summary>
+    public IProviderRegistry ProviderRegistry => _providerRegistry;
+
+    /// <summary>
     /// Internal access to base client for extension methods
     /// </summary>
     internal IChatClient? BaseClient
@@ -2791,7 +2798,7 @@ public class AgentBuilder
     /// <summary>
     /// Internal access to service provider for extension methods
     /// </summary>
-    internal IServiceProvider? ServiceProvider => _serviceProvider;
+    public IServiceProvider? ServiceProvider => _serviceProvider;
 
     /// <summary>
     /// Gets the logger factory for use in extension methods.

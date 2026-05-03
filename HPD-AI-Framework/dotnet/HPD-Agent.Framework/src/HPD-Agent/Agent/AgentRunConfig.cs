@@ -514,6 +514,31 @@ public class AgentRunConfig
     [JsonIgnore]
     public bool IsInternalEvalJudgeCall { get; set; } = false;
 
+    /// <summary>
+    /// Evaluation-package owned per-run evaluator additions.
+    /// Stored as object to keep HPD-Agent independent from HPD-Agent.Evaluations.
+    /// Use HPD.Agent.Evaluations.Integration.AgentRunConfigEvalExtensions for
+    /// the typed API.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<object>? AdditionalEvaluators { get; set; }
+
+    /// <summary>
+    /// Per-run sampling override for all registered evaluators.
+    /// Null means use each evaluator's registration-time sampling rate.
+    /// </summary>
+    [JsonIgnore]
+    public double? EvaluatorSamplingOverride { get; set; }
+
+    /// <summary>
+    /// Evaluation-package owned per-run judge configuration override.
+    /// Stored as object to keep HPD-Agent independent from HPD-Agent.Evaluations.
+    /// Use HPD.Agent.Evaluations.Integration.AgentRunConfigEvalExtensions for
+    /// the typed API.
+    /// </summary>
+    [JsonIgnore]
+    public object? EvalJudgeConfigOverride { get; set; }
+
     #endregion
 }
 

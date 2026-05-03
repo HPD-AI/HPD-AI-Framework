@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 using FluentAssertions;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
+using Microsoft.Extensions.AI.Evaluation.Reporting;
 using HPD.Agent.Evaluations.Storage;
 
 namespace HPD.Agent.Evaluations.Tests.Storage;
@@ -69,6 +71,29 @@ public sealed class InMemoryScoreStoreTests
             CreatedAt = createdAt ?? DateTimeOffset.UtcNow,
         };
 
+    private static EvaluationRunRecord MakeRunRecord(
+        string executionName = "exec-1",
+        string scenarioName = "scenario-1",
+        string iterationName = "1",
+        DateTimeOffset? createdAt = null) =>
+        new()
+        {
+            Id = Guid.NewGuid().ToString(),
+            ExecutionName = executionName,
+            ScenarioName = scenarioName,
+            IterationName = iterationName,
+            CreatedAt = createdAt ?? DateTimeOffset.UtcNow,
+            Messages = [new ChatMessage(ChatRole.User, "hello")],
+            ModelResponse = new ChatResponse([new ChatMessage(ChatRole.Assistant, "response")]),
+            EvaluationResult = new EvaluationResult(new BooleanMetric("Test") { Value = true }),
+            Tags = ["unit-test"],
+            Source = EvaluationSource.Test,
+            AgentName = "TestAgent",
+            SessionId = executionName,
+            BranchId = scenarioName,
+            TurnIndex = 0,
+        };
+
     // ── Write / Read ──────────────────────────────────────────────────────────
 
     [Fact]
@@ -81,6 +106,85 @@ public sealed class InMemoryScoreStoreTests
 
         var results = await store.GetScoresAsync(sessionId: "sess-abc").ToListAsync();
         results.Should().ContainSingle().Which.Id.Should().Be(record.Id);
+    }
+
+    [Fact]
+    public async Task Write_ThenGetBySession_PreservesDatasetProvenance()
+    {
+        var store = new InMemoryScoreStore();
+        var validFrom = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
+        var validTo = DateTimeOffset.Parse("2026-02-01T00:00:00Z");
+        var record = new ScoreRecord
+        {
+            Id = "score-1",
+            EvaluatorName = "E",
+            EvaluatorVersion = "1.0.0",
+            Result = new EvaluationResult(new BooleanMetric("Test") { Value = true }),
+            Source = EvaluationSource.Test,
+            SessionId = "sess-abc",
+            BranchId = "case-1",
+            TurnIndex = 0,
+            AgentName = "TestAgent",
+            DatasetId = "support-bench",
+            DatasetVersion = "2026.02",
+            CaseId = "case-001",
+            CaseVersion = "2",
+            CaseValidFrom = validFrom,
+            CaseValidTo = validTo,
+            Policy = EvalPolicy.MustAlwaysPass,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+
+        await store.WriteScoreAsync(record);
+
+        var results = await store.GetScoresAsync(sessionId: "sess-abc").ToListAsync();
+        var roundTripped = results.Should().ContainSingle().Which;
+        roundTripped.DatasetId.Should().Be("support-bench");
+        roundTripped.DatasetVersion.Should().Be("2026.02");
+        roundTripped.CaseId.Should().Be("case-001");
+        roundTripped.CaseVersion.Should().Be("2");
+        roundTripped.CaseValidFrom.Should().Be(validFrom);
+        roundTripped.CaseValidTo.Should().Be(validTo);
+    }
+
+    [Fact]
+    public async Task Write_ThenGetBySession_PreservesMultipleCaseVersions()
+    {
+        var store = new InMemoryScoreStore();
+        var v1 = WithDatasetVersion("1", validTo: DateTimeOffset.Parse("2026-02-01T00:00:00Z"));
+        var v2 = WithDatasetVersion("2", validTo: null);
+
+        await store.WriteScoreAsync(v1);
+        await store.WriteScoreAsync(v2);
+
+        var results = await store.GetScoresAsync(sessionId: "sess-1").ToListAsync();
+        results.Should().HaveCount(2);
+        results.Select(r => r.CaseId).Should().OnlyContain(id => id == "case-001");
+        results.Select(r => r.CaseVersion).Should().BeEquivalentTo(["1", "2"]);
+        results.Single(r => r.CaseVersion == "1").CaseValidTo.Should()
+            .Be(DateTimeOffset.Parse("2026-02-01T00:00:00Z"));
+        results.Single(r => r.CaseVersion == "2").CaseValidTo.Should().BeNull();
+
+        static ScoreRecord WithDatasetVersion(string version, DateTimeOffset? validTo) => new()
+        {
+            Id = Guid.NewGuid().ToString(),
+            EvaluatorName = "E",
+            EvaluatorVersion = "1.0.0",
+            Result = new EvaluationResult(new BooleanMetric("Test") { Value = true }),
+            Source = EvaluationSource.Test,
+            SessionId = "sess-1",
+            BranchId = $"case-v{version}",
+            TurnIndex = 0,
+            AgentName = "TestAgent",
+            DatasetId = "support-bench",
+            DatasetVersion = "2026.02",
+            CaseId = "case-001",
+            CaseVersion = version,
+            CaseValidFrom = DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
+            CaseValidTo = validTo,
+            Policy = EvalPolicy.MustAlwaysPass,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
     }
 
     [Fact]
@@ -352,47 +456,207 @@ public sealed class InMemoryScoreStoreTests
         points.Should().BeEmpty();
     }
 
-    // ── IEvaluationResultStore methods ────────────────────────────────────────
+    // ── EvaluationRunRecord / IEvaluationResultStore methods ─────────────────
 
     [Fact]
-    public async Task GetLatestExecutionNames_ReturnsDistinctAgentNames()
+    public async Task WriteRun_ThenGetRuns_RoundTripsFullPayload()
     {
         var store = new InMemoryScoreStore();
-        await store.WriteScoreAsync(MakeBoolRecord("E", true, agentName: "AgentA"));
-        await store.WriteScoreAsync(MakeBoolRecord("E", true, agentName: "AgentA"));
-        await store.WriteScoreAsync(MakeBoolRecord("E", true, agentName: "AgentB"));
+        var run = MakeRunRecord(
+            executionName: "nightly",
+            scenarioName: "case-1",
+            iterationName: "2");
 
-        var names = await store.GetLatestExecutionNamesAsync().ToListAsync();
-        names.Should().HaveCount(2)
-            .And.Contain("AgentA")
-            .And.Contain("AgentB");
+        await store.WriteRunAsync(run);
+
+        var results = await store.GetRunsAsync("nightly", "case-1", "2").ToListAsync();
+        var roundTripped = results.Should().ContainSingle().Which;
+        roundTripped.Id.Should().Be(run.Id);
+        roundTripped.Messages.Should().ContainSingle();
+        roundTripped.ModelResponse.Text.Should().Be("response");
+        roundTripped.EvaluationResult.Metrics.Should().ContainKey("Test");
+        roundTripped.Tags.Should().Contain("unit-test");
     }
 
     [Fact]
-    public async Task GetScenarioNames_ReturnsSessionIdsForAgent()
+    public async Task GetRuns_FiltersExecutionScenarioAndIteration()
     {
         var store = new InMemoryScoreStore();
-        await store.WriteScoreAsync(MakeBoolRecord("E", true, agentName: "AgentA", sessionId: "sess-1"));
-        await store.WriteScoreAsync(MakeBoolRecord("E", true, agentName: "AgentA", sessionId: "sess-2"));
-        await store.WriteScoreAsync(MakeBoolRecord("E", true, agentName: "AgentB", sessionId: "sess-3"));
+        await store.WriteRunAsync(MakeRunRecord("exec", "case-a", "1"));
+        await store.WriteRunAsync(MakeRunRecord("exec", "case-a", "2"));
+        await store.WriteRunAsync(MakeRunRecord("exec", "case-b", "1"));
+        await store.WriteRunAsync(MakeRunRecord("other", "case-a", "1"));
 
-        var scenarios = await store.GetScenarioNamesAsync("AgentA").ToListAsync();
+        var results = await store.GetRunsAsync("exec", "case-a", "2").ToListAsync();
+
+        results.Should().ContainSingle();
+        results[0].ExecutionName.Should().Be("exec");
+        results[0].ScenarioName.Should().Be("case-a");
+        results[0].IterationName.Should().Be("2");
+    }
+
+    [Fact]
+    public async Task DeleteRuns_RemovesMatchingRuns()
+    {
+        var store = new InMemoryScoreStore();
+        await store.WriteRunAsync(MakeRunRecord("exec", "case-a", "1"));
+        await store.WriteRunAsync(MakeRunRecord("exec", "case-a", "2"));
+        await store.WriteRunAsync(MakeRunRecord("exec", "case-b", "1"));
+
+        await store.DeleteRunsAsync("exec", "case-a", "1");
+
+        var remaining = await store.GetRunsAsync("exec").ToListAsync();
+        remaining.Should().HaveCount(2);
+        remaining.Should().NotContain(r => r.ScenarioName == "case-a" && r.IterationName == "1");
+    }
+
+    [Fact]
+    public async Task GetLatestExecutionNames_ReturnsMostRecentRunExecutions()
+    {
+        var store = new InMemoryScoreStore();
+        var now = DateTimeOffset.UtcNow;
+        await store.WriteRunAsync(MakeRunRecord("old", createdAt: now.AddDays(-1)));
+        await store.WriteRunAsync(MakeRunRecord("new", createdAt: now));
+        await store.WriteRunAsync(MakeRunRecord("old", "case-2", "1", now.AddHours(-1)));
+
+        var names = await store.GetLatestExecutionNamesAsync(maxCount: 1).ToListAsync();
+        names.Should().Equal("new");
+    }
+
+    [Fact]
+    public async Task GetScenarioNames_ReturnsScenarioNamesForExecution()
+    {
+        var store = new InMemoryScoreStore();
+        await store.WriteRunAsync(MakeRunRecord("exec", "case-a", "1"));
+        await store.WriteRunAsync(MakeRunRecord("exec", "case-b", "1"));
+        await store.WriteRunAsync(MakeRunRecord("other", "case-c", "1"));
+
+        var scenarios = await store.GetScenarioNamesAsync("exec").ToListAsync();
         scenarios.Should().HaveCount(2)
-            .And.Contain("sess-1")
-            .And.Contain("sess-2");
+            .And.Contain("case-a")
+            .And.Contain("case-b");
     }
 
     [Fact]
-    public async Task GetIterationNames_ReturnsBranchPlusTurnIndex()
+    public async Task GetIterationNames_ReturnsRunIterationNames()
     {
         var store = new InMemoryScoreStore();
-        await store.WriteScoreAsync(MakeBoolRecord("E", true,
-            agentName: "A", sessionId: "s", branchId: "b1", turnIndex: 0));
-        await store.WriteScoreAsync(MakeBoolRecord("E", true,
-            agentName: "A", sessionId: "s", branchId: "b1", turnIndex: 1));
+        await store.WriteRunAsync(MakeRunRecord("exec", "case-a", "1"));
+        await store.WriteRunAsync(MakeRunRecord("exec", "case-a", "2"));
+        await store.WriteRunAsync(MakeRunRecord("exec", "case-b", "1"));
 
-        var iterations = await store.GetIterationNamesAsync("A", "s").ToListAsync();
-        iterations.Should().Contain("b1/0").And.Contain("b1/1");
+        var iterations = await store.GetIterationNamesAsync("exec", "case-a").ToListAsync();
+        iterations.Should().Equal("1", "2");
+    }
+
+    [Fact]
+    public async Task MsWriteResults_ThenReadResults_RoundTripsScenarioRunResult()
+    {
+        var store = new InMemoryScoreStore();
+        var scenario = new ScenarioRunResult(
+            scenarioName: "case-1",
+            iterationName: "1",
+            executionName: "exec",
+            creationTime: DateTime.UtcNow,
+            messages: [new ChatMessage(ChatRole.User, "hello")],
+            modelResponse: new ChatResponse([new ChatMessage(ChatRole.Assistant, "response")]),
+            evaluationResult: new EvaluationResult(new BooleanMetric("Test") { Value = true }),
+            tags: ["ms-compat"]);
+
+        await store.WriteResultsAsync([scenario]);
+
+        var results = await store.ReadResultsAsync("exec", "case-1", "1").ToListAsync();
+        var roundTripped = results.Should().ContainSingle().Which;
+        roundTripped.ExecutionName.Should().Be("exec");
+        roundTripped.ScenarioName.Should().Be("case-1");
+        roundTripped.IterationName.Should().Be("1");
+        roundTripped.ModelResponse.Text.Should().Be("response");
+        roundTripped.Tags.Should().Contain("ms-compat");
+    }
+
+    [Fact]
+    public async Task MsReadResults_NullFilters_ReturnAllScenarioRunResults()
+    {
+        var store = new InMemoryScoreStore();
+        await store.WriteRunAsync(MakeRunRecord("exec-a", "case-1", "1"));
+        await store.WriteRunAsync(MakeRunRecord("exec-a", "case-2", "1"));
+        await store.WriteRunAsync(MakeRunRecord("exec-b", "case-1", "1"));
+
+        var results = await store.ReadResultsAsync(null, null, null).ToListAsync();
+
+        results.Should().HaveCount(3);
+        results.Select(r => r.ExecutionName).Distinct().Should().BeEquivalentTo(["exec-a", "exec-b"]);
+    }
+
+    [Fact]
+    public async Task MsDeleteResults_RemovesOnlyMatchingScenarioRunResults()
+    {
+        var store = new InMemoryScoreStore();
+        await store.WriteRunAsync(MakeRunRecord("exec", "case-a", "1"));
+        await store.WriteRunAsync(MakeRunRecord("exec", "case-a", "2"));
+        await store.WriteRunAsync(MakeRunRecord("exec", "case-b", "1"));
+        await store.WriteRunAsync(MakeRunRecord("other", "case-a", "1"));
+
+        await store.DeleteResultsAsync("exec", "case-a", null);
+
+        var remaining = await store.ReadResultsAsync(null, null, null).ToListAsync();
+        remaining.Should().HaveCount(2);
+        remaining.Should().Contain(r => r.ExecutionName == "exec" && r.ScenarioName == "case-b");
+        remaining.Should().Contain(r => r.ExecutionName == "other" && r.ScenarioName == "case-a");
+        remaining.Should().NotContain(r => r.ExecutionName == "exec" && r.ScenarioName == "case-a");
+    }
+
+    [Fact]
+    public async Task MsGetScenarioAndIterationNames_NullFilters_ReturnDistinctSortedNames()
+    {
+        var store = new InMemoryScoreStore();
+        await store.WriteRunAsync(MakeRunRecord("exec-b", "case-b", "2"));
+        await store.WriteRunAsync(MakeRunRecord("exec-a", "case-a", "1"));
+        await store.WriteRunAsync(MakeRunRecord("exec-a", "case-a", "1"));
+
+        var scenarios = await store.GetScenarioNamesAsync(null).ToListAsync();
+        var iterations = await store.GetIterationNamesAsync(null, null).ToListAsync();
+
+        scenarios.Should().Equal("case-a", "case-b");
+        iterations.Should().Equal("1", "2");
+    }
+
+    [Fact]
+    public async Task MsWriteResults_PreservesCreationTimeMessagesMetricsAndTags()
+    {
+        var store = new InMemoryScoreStore();
+        var created = new DateTime(2026, 2, 20, 12, 34, 56, DateTimeKind.Utc);
+        var scenario = new ScenarioRunResult(
+            scenarioName: "case-1",
+            iterationName: "7",
+            executionName: "exec",
+            creationTime: created,
+            messages:
+            [
+                new ChatMessage(ChatRole.System, "system"),
+                new ChatMessage(ChatRole.User, "hello"),
+            ],
+            modelResponse: new ChatResponse([new ChatMessage(ChatRole.Assistant, "response")]),
+            evaluationResult: new EvaluationResult(
+                new BooleanMetric("Pass") { Value = true },
+                new NumericMetric("Quality") { Value = 0.75 }),
+            tags: ["nightly", "smoke"]);
+
+        await store.WriteResultsAsync([scenario]);
+
+        var run = (await store.GetRunsAsync("exec", "case-1", "7").ToListAsync())
+            .Should().ContainSingle().Which;
+        run.CreatedAt.UtcDateTime.Should().Be(created);
+        run.Messages.Should().HaveCount(2);
+        run.EvaluationResult.Metrics.Should().ContainKeys("Pass", "Quality");
+        run.Tags.Should().Equal("nightly", "smoke");
+
+        var exported = (await store.ReadResultsAsync("exec", "case-1", "7").ToListAsync())
+            .Should().ContainSingle().Which;
+        exported.CreationTime.Should().Be(created);
+        exported.Messages.Should().HaveCount(2);
+        exported.EvaluationResult.Metrics.Should().ContainKeys("Pass", "Quality");
+        exported.Tags.Should().Equal("nightly", "smoke");
     }
 }
 

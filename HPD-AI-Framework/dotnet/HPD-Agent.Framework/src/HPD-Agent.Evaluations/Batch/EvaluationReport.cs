@@ -26,6 +26,21 @@ public sealed record ReportAnalysis(
     string Message,
     IDictionary<string, object>? Details = null);
 
+public sealed record ConfusionMatrix(
+    int TruePositive,
+    int FalsePositive,
+    int TrueNegative,
+    int FalseNegative)
+{
+    public int Total => TruePositive + FalsePositive + TrueNegative + FalseNegative;
+    public double Accuracy => Total == 0 ? 0.0 : (double)(TruePositive + TrueNegative) / Total;
+    public double Precision => TruePositive + FalsePositive == 0 ? 0.0 : (double)TruePositive / (TruePositive + FalsePositive);
+    public double Recall => TruePositive + FalseNegative == 0 ? 0.0 : (double)TruePositive / (TruePositive + FalseNegative);
+    public double F1 => Precision + Recall == 0.0 ? 0.0 : 2.0 * Precision * Recall / (Precision + Recall);
+}
+
+public sealed record PrecisionRecallPoint(double Threshold, double Precision, double Recall);
+
 // ── EvaluatorFailure ─────────────────────────────────────────────────────────
 
 public sealed record EvaluatorFailure(string EvaluatorName, string ErrorMessage);
@@ -426,5 +441,243 @@ public sealed class ScoreRegressionAnalyzer : IReportEvaluator
             GetType().Name,
             passed,
             $"'{_evaluatorName}' score delta {delta:+0.000;-0.000} (max allowed drop: {_maxDelta:F3})")];
+    }
+}
+
+/// <summary>
+/// Builds a binary confusion matrix by comparing a predicted metric to an expected metric.
+/// Boolean metrics are used directly; numeric metrics are thresholded; string metrics match
+/// <paramref name="positiveLabel"/> case-insensitively.
+/// </summary>
+public sealed class ConfusionMatrixAnalyzer : IReportEvaluator
+{
+    private readonly string _predictedMetricName;
+    private readonly string _expectedMetricName;
+    private readonly double _threshold;
+    private readonly string _positiveLabel;
+
+    public ConfusionMatrixAnalyzer(
+        string predictedMetricName,
+        string expectedMetricName,
+        double threshold = 0.5,
+        string positiveLabel = "true")
+    {
+        _predictedMetricName = predictedMetricName;
+        _expectedMetricName = expectedMetricName;
+        _threshold = threshold;
+        _positiveLabel = positiveLabel;
+    }
+
+    public IReadOnlyList<ReportAnalysis> Evaluate(EvaluationReport report)
+    {
+        int truePositive = 0;
+        int falsePositive = 0;
+        int trueNegative = 0;
+        int falseNegative = 0;
+        int skipped = 0;
+
+        foreach (var reportCase in report.Cases)
+        {
+            if (!TryReadBinaryMetric(reportCase.EvaluationResult, _predictedMetricName, _threshold, _positiveLabel, out bool predicted) ||
+                !TryReadBinaryMetric(reportCase.EvaluationResult, _expectedMetricName, _threshold, _positiveLabel, out bool expected))
+            {
+                skipped++;
+                continue;
+            }
+
+            if (predicted && expected) truePositive++;
+            else if (predicted) falsePositive++;
+            else if (expected) falseNegative++;
+            else trueNegative++;
+        }
+
+        var matrix = new ConfusionMatrix(truePositive, falsePositive, trueNegative, falseNegative);
+        var details = new Dictionary<string, object>
+        {
+            ["true_positive"] = matrix.TruePositive,
+            ["false_positive"] = matrix.FalsePositive,
+            ["true_negative"] = matrix.TrueNegative,
+            ["false_negative"] = matrix.FalseNegative,
+            ["total"] = matrix.Total,
+            ["skipped"] = skipped,
+            ["accuracy"] = matrix.Accuracy,
+            ["precision"] = matrix.Precision,
+            ["recall"] = matrix.Recall,
+            ["f1"] = matrix.F1,
+        };
+
+        return [new ReportAnalysis(
+            GetType().Name,
+            matrix.Total > 0,
+            $"'{_predictedMetricName}' vs '{_expectedMetricName}': " +
+            $"TP={matrix.TruePositive}, FP={matrix.FalsePositive}, " +
+            $"TN={matrix.TrueNegative}, FN={matrix.FalseNegative}, " +
+            $"precision={matrix.Precision:F3}, recall={matrix.Recall:F3}, f1={matrix.F1:F3}",
+            details)];
+    }
+
+    internal static bool TryReadBinaryMetric(
+        EvaluationResult result,
+        string metricName,
+        double threshold,
+        string positiveLabel,
+        out bool value)
+    {
+        value = false;
+        if (!result.Metrics.TryGetValue(metricName, out var metric))
+            return false;
+
+        switch (metric)
+        {
+            case BooleanMetric bm when bm.Value.HasValue:
+                value = bm.Value.Value;
+                return true;
+
+            case NumericMetric nm when nm.Value.HasValue:
+                value = nm.Value.Value >= threshold;
+                return true;
+
+            case StringMetric sm when sm.Value is not null:
+                value = string.Equals(sm.Value, positiveLabel, StringComparison.OrdinalIgnoreCase);
+                return true;
+
+            default:
+                return false;
+        }
+    }
+}
+
+/// <summary>
+/// Computes precision/recall points and area under the precision-recall curve for
+/// a numeric score metric against a binary expected metric.
+/// </summary>
+public sealed class PrecisionRecallAnalyzer : IReportEvaluator
+{
+    private readonly string _scoreMetricName;
+    private readonly string _expectedMetricName;
+    private readonly string _positiveLabel;
+
+    public PrecisionRecallAnalyzer(
+        string scoreMetricName,
+        string expectedMetricName,
+        string positiveLabel = "true")
+    {
+        _scoreMetricName = scoreMetricName;
+        _expectedMetricName = expectedMetricName;
+        _positiveLabel = positiveLabel;
+    }
+
+    public IReadOnlyList<ReportAnalysis> Evaluate(EvaluationReport report)
+    {
+        var observations = new List<(double Score, bool Expected)>();
+        int skipped = 0;
+
+        foreach (var reportCase in report.Cases)
+        {
+            if (!TryReadScore(reportCase.EvaluationResult, _scoreMetricName, out var score) ||
+                !ConfusionMatrixAnalyzer.TryReadBinaryMetric(
+                    reportCase.EvaluationResult,
+                    _expectedMetricName,
+                    threshold: 0.5,
+                    positiveLabel: _positiveLabel,
+                    out bool expected))
+            {
+                skipped++;
+                continue;
+            }
+
+            observations.Add((score, expected));
+        }
+
+        var points = BuildPoints(observations);
+        var auc = ComputeAreaUnderCurve(points, observations);
+        var details = new Dictionary<string, object>
+        {
+            ["auc"] = auc,
+            ["points"] = points,
+            ["total"] = observations.Count,
+            ["skipped"] = skipped,
+        };
+
+        return [new ReportAnalysis(
+            GetType().Name,
+            observations.Count > 0,
+            $"'{_scoreMetricName}' precision-recall AUC = {auc:F3} over {observations.Count} cases",
+            details)];
+    }
+
+    private static bool TryReadScore(EvaluationResult result, string metricName, out double score)
+    {
+        score = 0.0;
+        if (!result.Metrics.TryGetValue(metricName, out var metric))
+            return false;
+
+        switch (metric)
+        {
+            case NumericMetric nm when nm.Value.HasValue:
+                score = nm.Value.Value;
+                return true;
+
+            case BooleanMetric bm when bm.Value.HasValue:
+                score = bm.Value.Value ? 1.0 : 0.0;
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    private static IReadOnlyList<PrecisionRecallPoint> BuildPoints(
+        IReadOnlyList<(double Score, bool Expected)> observations)
+    {
+        if (observations.Count == 0)
+            return [];
+
+        int totalPositive = observations.Count(o => o.Expected);
+        if (totalPositive == 0)
+            return [new PrecisionRecallPoint(double.PositiveInfinity, 0.0, 0.0)];
+
+        var points = new List<PrecisionRecallPoint>
+        {
+            new(double.PositiveInfinity, 1.0, 0.0),
+        };
+
+        foreach (var threshold in observations.Select(o => o.Score).Distinct().OrderByDescending(s => s))
+        {
+            var predicted = observations.Where(o => o.Score >= threshold).ToList();
+            int truePositive = predicted.Count(o => o.Expected);
+            int falsePositive = predicted.Count - truePositive;
+            double precision = truePositive + falsePositive == 0
+                ? 1.0
+                : (double)truePositive / (truePositive + falsePositive);
+            double recall = (double)truePositive / totalPositive;
+            points.Add(new PrecisionRecallPoint(threshold, precision, recall));
+        }
+
+        return points;
+    }
+
+    private static double ComputeAreaUnderCurve(
+        IReadOnlyList<PrecisionRecallPoint> points,
+        IReadOnlyList<(double Score, bool Expected)> observations)
+    {
+        if (points.Count == 0 || observations.Count == 0)
+            return 0.0;
+
+        if (observations.Select(o => o.Score).Distinct().Count() <= 1)
+            return (double)observations.Count(o => o.Expected) / observations.Count;
+
+        double auc = 0.0;
+        var ordered = points.OrderBy(p => p.Recall).ThenByDescending(p => p.Precision).ToList();
+        for (int i = 1; i < ordered.Count; i++)
+        {
+            double deltaRecall = ordered[i].Recall - ordered[i - 1].Recall;
+            if (deltaRecall <= 0)
+                continue;
+
+            auc += deltaRecall * ((ordered[i - 1].Precision + ordered[i].Precision) / 2.0);
+        }
+
+        return Math.Clamp(auc, 0.0, 1.0);
     }
 }

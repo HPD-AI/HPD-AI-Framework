@@ -523,6 +523,128 @@ public class EventCoordinatorTests
     }
 
     [Fact]
+    public async Task SendResponse_RoutesToChildWaiter()
+    {
+        var parent = new EventCoordinator();
+        var child = new EventCoordinator();
+        child.SetParent(parent);
+
+        var responseTask = child.WaitForResponseAsync<TestEvent>(
+            "child-request",
+            TimeSpan.FromSeconds(5));
+
+        parent.SendResponse("child-request", new TestEvent("from-parent"));
+
+        var response = await responseTask;
+        Assert.Equal("from-parent", response.Message);
+    }
+
+    [Fact]
+    public async Task SendResponse_RoutesToGrandchildWaiter()
+    {
+        var grandparent = new EventCoordinator();
+        var parent = new EventCoordinator();
+        var child = new EventCoordinator();
+        parent.SetParent(grandparent);
+        child.SetParent(parent);
+
+        var responseTask = child.WaitForResponseAsync<TestEvent>(
+            "grandchild-request",
+            TimeSpan.FromSeconds(5));
+
+        grandparent.SendResponse("grandchild-request", new TestEvent("from-grandparent"));
+
+        var response = await responseTask;
+        Assert.Equal("from-grandparent", response.Message);
+    }
+
+    [Fact]
+    public async Task SendResponse_RoutesFromChildToParentWaiter()
+    {
+        var parent = new EventCoordinator();
+        var child = new EventCoordinator();
+        child.SetParent(parent);
+
+        var responseTask = parent.WaitForResponseAsync<TestEvent>(
+            "parent-request",
+            TimeSpan.FromSeconds(5));
+
+        child.SendResponse("parent-request", new TestEvent("from-child"));
+
+        var response = await responseTask;
+        Assert.Equal("from-child", response.Message);
+    }
+
+    [Fact]
+    public async Task SendResponse_ReparentingRemovesOldParentRoute()
+    {
+        var oldParent = new EventCoordinator();
+        var newParent = new EventCoordinator();
+        var child = new EventCoordinator();
+        child.SetParent(oldParent);
+        child.SetParent(newParent);
+
+        var responseTask = child.WaitForResponseAsync<TestEvent>(
+            "reparented-request",
+            TimeSpan.FromSeconds(5));
+
+        oldParent.SendResponse("reparented-request", new TestEvent("old-parent"));
+
+        await Task.Delay(50);
+        Assert.False(responseTask.IsCompleted);
+
+        newParent.SendResponse("reparented-request", new TestEvent("new-parent"));
+
+        var response = await responseTask;
+        Assert.Equal("new-parent", response.Message);
+    }
+
+    [Fact]
+    public async Task SendResponse_DisposedChildIsRemovedFromParentRouting()
+    {
+        var parent = new EventCoordinator();
+        var child = new EventCoordinator();
+        child.SetParent(parent);
+
+        var responseTask = child.WaitForResponseAsync<TestEvent>(
+            "disposed-child-request",
+            TimeSpan.FromSeconds(5));
+
+        child.Dispose();
+        parent.SendResponse("disposed-child-request", new TestEvent("response"));
+
+        await Assert.ThrowsAsync<TimeoutException>(async () => await responseTask);
+    }
+
+    [Fact]
+    public async Task SendResponse_ThrowsWhenRequestIdIsAmbiguousInHierarchy()
+    {
+        var parent = new EventCoordinator();
+        var left = new EventCoordinator();
+        var right = new EventCoordinator();
+        left.SetParent(parent);
+        right.SetParent(parent);
+
+        var leftWait = left.WaitForResponseAsync<TestEvent>(
+            "ambiguous-request",
+            TimeSpan.FromSeconds(5));
+        var rightWait = right.WaitForResponseAsync<TestEvent>(
+            "ambiguous-request",
+            TimeSpan.FromSeconds(5));
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => parent.SendResponse("ambiguous-request", new TestEvent("response")));
+
+        Assert.Contains("Multiple pending response waiters", ex.Message);
+
+        left.SendResponse("ambiguous-request", new TestEvent("left-response"));
+        right.SendResponse("ambiguous-request", new TestEvent("right-response"));
+
+        Assert.Equal("left-response", (await leftWait).Message);
+        Assert.Equal("right-response", (await rightWait).Message);
+    }
+
+    [Fact]
     public void SendResponse_IgnoresUnknownRequestId()
     {
         var coordinator = new EventCoordinator();

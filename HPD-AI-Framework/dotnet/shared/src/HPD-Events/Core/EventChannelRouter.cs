@@ -16,6 +16,7 @@ internal sealed class EventChannelRouter : IDisposable
 
     private readonly ConcurrentDictionary<string, (TaskCompletionSource<Event>, CancellationTokenSource)>
         _responseWaiters = new();
+    private readonly ConcurrentDictionary<EventChannelRouter, byte> _children = new();
 
     private readonly Dictionary<Type, List<Func<Event, ValueTask>>> _classHandlers = new();
     private readonly List<Func<Event, ValueTask>> _anyHandlers = new();
@@ -86,6 +87,20 @@ internal sealed class EventChannelRouter : IDisposable
     public IStreamRegistry Streams => _streamRegistry;
 
     internal IEventCoordinator? ParentCoordinator => _parentCoordinator;
+
+    internal void RegisterChild(EventChannelRouter child)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _children[child] = 0;
+    }
+
+    internal void UnregisterChild(EventChannelRouter child)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+        _children.TryRemove(child, out _);
+    }
 
     public void Emit(Event evt)
     {
@@ -256,7 +271,7 @@ internal sealed class EventChannelRouter : IDisposable
         }
     }
 
-    public void SendResponse(string requestId, Event response)
+    public bool SendResponse(string requestId, Event response)
     {
         if (string.IsNullOrWhiteSpace(requestId))
             throw new ArgumentException("Request ID cannot be null or whitespace", nameof(requestId));
@@ -264,11 +279,20 @@ internal sealed class EventChannelRouter : IDisposable
         ArgumentNullException.ThrowIfNull(response);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        if (_responseWaiters.TryRemove(requestId, out var waiter))
+        var matches = new List<EventChannelRouter>();
+        FindResponseWaiters(requestId, matches);
+
+        if (matches.Count == 0)
+            return false;
+
+        if (matches.Count > 1)
         {
-            waiter.Item1.TrySetResult(response);
-            waiter.Item2.Dispose();
+            throw new InvalidOperationException(
+                $"Multiple pending response waiters found for request ID '{requestId}' in the coordinator hierarchy.");
         }
+
+        matches[0].CompleteLocalResponse(requestId, response);
+        return true;
     }
 
     public EventCoordinatorStats GetStats() =>
@@ -364,6 +388,27 @@ internal sealed class EventChannelRouter : IDisposable
         _ => _synchronousChannel
     };
 
+    private void FindResponseWaiters(string requestId, List<EventChannelRouter> matches)
+    {
+        if (_disposed)
+            return;
+
+        if (_responseWaiters.ContainsKey(requestId))
+            matches.Add(this);
+
+        foreach (var child in _children.Keys)
+            child.FindResponseWaiters(requestId, matches);
+    }
+
+    private void CompleteLocalResponse(string requestId, Event response)
+    {
+        if (_responseWaiters.TryRemove(requestId, out var waiter))
+        {
+            waiter.Item1.TrySetResult(response);
+            waiter.Item2.Dispose();
+        }
+    }
+
     private async Task RunChannelAsync(ChannelReader<Event> reader, Action decrementDepth, CancellationToken ct)
     {
         try
@@ -420,6 +465,9 @@ internal sealed class EventChannelRouter : IDisposable
 
         _disposed = true;
 
+        if (_parentCoordinator is EventCoordinator parent)
+            parent.UnregisterChildRouter(this);
+
         _streamingChannel.Writer.TryComplete();
         _synchronousChannel.Writer.TryComplete();
         _interactiveChannel.Writer.TryComplete();
@@ -432,5 +480,6 @@ internal sealed class EventChannelRouter : IDisposable
         }
 
         _responseWaiters.Clear();
+        _children.Clear();
     }
 }

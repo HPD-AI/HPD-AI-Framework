@@ -17,6 +17,9 @@ namespace HPD.Agent.Evaluations.Tracing;
 /// </summary>
 internal sealed class TurnEventBuffer
 {
+    private int _eventCount;
+    private volatile bool _turnFinished;
+
     // ── Message-turn level ────────────────────────────────────────────────────
 
     public DateTimeOffset TurnStartedAt { get; private set; }
@@ -44,27 +47,47 @@ internal sealed class TurnEventBuffer
 
     public void RecordTurnStarted(string messageTurnId, DateTimeOffset at)
     {
+        RecordEvent();
         MessageTurnId = messageTurnId;
         TurnStartedAt = at;
     }
 
-    public void RecordTurnFinished(TimeSpan duration) =>
+    public void RecordTurnFinished(TimeSpan duration)
+    {
+        RecordEvent();
         TurnDuration = duration;
+        _turnFinished = true;
+    }
 
-    public void RecordIterationStarted(int iteration, DateTimeOffset at) =>
+    public void RecordIterationStarted(int iteration, DateTimeOffset at)
+    {
+        RecordEvent();
         _iterationStartTimes[iteration] = at;
+    }
 
-    public void RecordIterationFinished(int iteration, DateTimeOffset at) =>
+    public void RecordIterationFinished(int iteration, DateTimeOffset at)
+    {
+        RecordEvent();
         _iterationEndTimes[iteration] = at;
+    }
 
-    public void RecordToolCallStarted(string callId, string name, string? harnessName, DateTimeOffset at) =>
+    public void RecordToolCallStarted(string callId, string name, string? harnessName, DateTimeOffset at)
+    {
+        RecordEvent();
         _toolCallStarts[callId] = (name, harnessName, at);
+    }
 
-    public void RecordToolCallEnded(string callId, DateTimeOffset at) =>
+    public void RecordToolCallEnded(string callId, DateTimeOffset at)
+    {
+        RecordEvent();
         _toolCallEnds[callId] = at;
+    }
 
-    public void RecordPermissionDenied(string callId) =>
+    public void RecordPermissionDenied(string callId)
+    {
+        RecordEvent();
         _deniedCallIds[callId] = true;
+    }
 
     // ── Query methods (called from AfterMessageTurnAsync) ────────────────────
 
@@ -96,6 +119,10 @@ internal sealed class TurnEventBuffer
 
     public IReadOnlySet<string> AllStartedCallIds =>
         _toolCallStarts.Keys.ToHashSet();
+
+    public bool HasTurnFinished => _turnFinished;
+
+    public bool HasAnyEvents => Volatile.Read(ref _eventCount) > 0;
 
     /// <summary>
     /// Returns all iteration numbers recorded in the buffer, in ascending order.
@@ -129,4 +156,6 @@ internal sealed class TurnEventBuffer
             .Select(kv => kv.Key)
             .ToList();
     }
+
+    private void RecordEvent() => Interlocked.Increment(ref _eventCount);
 }

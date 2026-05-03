@@ -34,6 +34,11 @@ internal static class TurnEvaluationContextBuilder
         // StopKind from output text and finish reason
         var stopKind = InferStopKind(context.FinalResponse);
 
+        var attributes = new Dictionary<string, object>(evalData.Attributes)
+        {
+            ["tool_calls"] = toolCalls,
+        };
+
         return new TurnEvaluationContext
         {
             AgentName = context.AgentName,
@@ -54,7 +59,7 @@ internal static class TurnEvaluationContextBuilder
             Duration = buffer.TurnDuration,
             ModelId = context.RunConfig.ModelId,
             ProviderKey = context.RunConfig.ProviderKey,
-            Attributes = new Dictionary<string, object>(evalData.Attributes),
+            Attributes = attributes,
             Metrics = new Dictionary<string, double>(evalData.Metrics),
             StopKind = stopKind,
             GroundTruth = groundTruth,
@@ -269,6 +274,18 @@ internal static class TurnEvaluationContextBuilder
     private static AgentStopKind InferStopKind(ChatResponse response)
     {
         var text = response.Text ?? string.Empty;
+        var normalized = text.ToLowerInvariant();
+
+        if (ContainsAny(normalized,
+                "credential", "credentials", "api key", "token", "access key",
+                "sign in", "log in", "login", "authenticate", "authorization"))
+            return AgentStopKind.RequestedCredentials;
+
+        if (ContainsAny(normalized,
+                "confirm", "confirmation", "approve", "approval", "permission to proceed",
+                "before i continue", "before proceeding", "should i proceed",
+                "would you like me to proceed"))
+            return AgentStopKind.AwaitingConfirmation;
 
         if (text.TrimEnd().EndsWith('?'))
             return AgentStopKind.AskedClarification;
@@ -280,6 +297,9 @@ internal static class TurnEvaluationContextBuilder
 
         return AgentStopKind.Unknown;
     }
+
+    private static bool ContainsAny(string value, params string[] needles) =>
+        needles.Any(n => value.Contains(n, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Reconstructs a list of TurnEvaluationContext objects from a saved Branch's message history.

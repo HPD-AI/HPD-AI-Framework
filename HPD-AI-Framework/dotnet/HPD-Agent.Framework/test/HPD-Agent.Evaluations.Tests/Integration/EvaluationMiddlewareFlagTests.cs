@@ -5,7 +5,10 @@ using FluentAssertions;
 using Microsoft.Extensions.AI;
 using HPD.Agent;
 using HPD.Agent.Evaluations.Integration;
+using HPD.Agent.Evaluations.Evaluators.Deterministic;
+using HPD.Agent.Evaluations.Evaluators.LlmJudge;
 using HPD.Agent.Evaluations.Storage;
+using HPD.Agent.Evaluations.Tests.Infrastructure;
 using HPD.Agent.Middleware;
 using HPD.Agent.Providers;
 
@@ -79,6 +82,216 @@ public sealed class EvaluationMiddlewareFlagTests
         evaluator.Calls.Should().Be(0, "IsInternalEvalJudgeCall=true must skip all evaluators");
     }
 
+    [Fact]
+    public async Task AdditionalEvaluators_RunForSingleAgentRun()
+    {
+        var client = new StubChatClient();
+        client.EnqueueText("Done.");
+        var registered = new StubDeterministicEvaluator("Registered");
+        var additional = new StubDeterministicEvaluator("Additional");
+
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        builder.AddEvaluator(registered, samplingRate: 0.0);
+        var agent = await builder.BuildAsync(CancellationToken.None);
+
+        var runConfig = new AgentRunConfig()
+            .WithAdditionalEvaluators(additional);
+
+        await RunAgentAsync(agent, "Hello", runConfig);
+
+        await Task.Delay(200);
+        registered.Calls.Should().Be(0);
+        additional.Calls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task AdditionalEvaluators_RunAlongsideRegisteredEvaluators()
+    {
+        var client = new StubChatClient();
+        client.EnqueueText("Done.");
+        var registered = new StubDeterministicEvaluator("Registered");
+        var additional = new StubDeterministicEvaluator("Additional");
+
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        builder.AddEvaluator(registered, samplingRate: 1.0);
+        var agent = await builder.BuildAsync(CancellationToken.None);
+
+        var runConfig = new AgentRunConfig()
+            .WithAdditionalEvaluators(additional);
+
+        await RunAgentAsync(agent, "Hello", runConfig);
+
+        await Task.Delay(200);
+        registered.Calls.Should().Be(1);
+        additional.Calls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task AdditionalEvaluators_WrongObjectType_IgnoredWithoutCrashing()
+    {
+        var client = new StubChatClient();
+        client.EnqueueText("Done.");
+        var registered = new StubDeterministicEvaluator("Registered");
+
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        builder.AddEvaluator(registered, samplingRate: 0.0);
+        var agent = await builder.BuildAsync(CancellationToken.None);
+
+        await RunAgentAsync(agent, "Hello", new AgentRunConfig
+        {
+            AdditionalEvaluators = [new object()],
+        });
+
+        await Task.Delay(200);
+        registered.Calls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task EvaluatorSamplingOverride_ForcesRegisteredEvaluatorToRun()
+    {
+        var client = new StubChatClient();
+        client.EnqueueText("Done.");
+        var evaluator = new StubDeterministicEvaluator("SamplingOverride");
+
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        builder.AddEvaluator(evaluator, samplingRate: 0.0);
+        var agent = await builder.BuildAsync(CancellationToken.None);
+
+        var runConfig = new AgentRunConfig()
+            .WithEvaluatorSamplingOverride(1.0);
+
+        await RunAgentAsync(agent, "Hello", runConfig);
+
+        await Task.Delay(200);
+        evaluator.Calls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task EvaluatorSamplingOverride_ZeroSuppressesRegisteredEvaluator()
+    {
+        var client = new StubChatClient();
+        client.EnqueueText("Done.");
+        var evaluator = new StubDeterministicEvaluator("SamplingOverride");
+
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        builder.AddEvaluator(evaluator, samplingRate: 1.0);
+        var agent = await builder.BuildAsync(CancellationToken.None);
+
+        var runConfig = new AgentRunConfig()
+            .WithEvaluatorSamplingOverride(0.0);
+
+        await RunAgentAsync(agent, "Hello", runConfig);
+
+        await Task.Delay(200);
+        evaluator.Calls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task DisableEvaluators_SuppressesRegisteredAndAdditionalEvaluators()
+    {
+        var client = new StubChatClient();
+        client.EnqueueText("Done.");
+        var registered = new StubDeterministicEvaluator("Registered");
+        var additional = new StubDeterministicEvaluator("Additional");
+
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        builder.AddEvaluator(registered, samplingRate: 1.0);
+        var agent = await builder.BuildAsync(CancellationToken.None);
+
+        var runConfig = new AgentRunConfig { DisableEvaluators = true }
+            .WithAdditionalEvaluators(additional);
+
+        await RunAgentAsync(agent, "Hello", runConfig);
+
+        await Task.Delay(200);
+        registered.Calls.Should().Be(0);
+        additional.Calls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task EvalJudgeConfigOverride_OverridesGlobalJudgeForRun()
+    {
+        var client = new StubChatClient();
+        client.EnqueueText("Done.");
+        var globalJudge = new FakeJudgeChatClient();
+        var runJudge = new FakeJudgeChatClient();
+        runJudge.EnqueueResponse("<S0>ok</S0><S1>run override</S1><S2>true</S2>");
+
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        builder
+            .AddEvaluator(new AspectCriticEvaluator("passes"), policy: EvalPolicy.TrackTrend)
+            .UseEvalJudgeConfig(new EvalJudgeConfig { OverrideChatClient = globalJudge });
+        var agent = await builder.BuildAsync(CancellationToken.None);
+
+        var runConfig = new AgentRunConfig()
+            .WithEvalJudgeConfigOverride(new EvalJudgeConfig { OverrideChatClient = runJudge });
+
+        await RunAgentAsync(agent, "Hello", runConfig);
+
+        await Task.Delay(200);
+        runJudge.CallCount.Should().Be(1);
+        globalJudge.CallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PerEvaluatorJudgeConfig_WinsOverRunAndGlobalJudgeConfig()
+    {
+        var client = new StubChatClient();
+        client.EnqueueText("Done.");
+        var perEvaluatorJudge = new FakeJudgeChatClient();
+        var runJudge = new FakeJudgeChatClient();
+        var globalJudge = new FakeJudgeChatClient();
+        perEvaluatorJudge.EnqueueResponse("<S0>ok</S0><S1>per evaluator</S1><S2>true</S2>");
+
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        builder
+            .AddEvaluator(
+                new AspectCriticEvaluator("passes"),
+                policy: EvalPolicy.TrackTrend,
+                judgeConfig: new EvalJudgeConfig { OverrideChatClient = perEvaluatorJudge })
+            .UseEvalJudgeConfig(new EvalJudgeConfig { OverrideChatClient = globalJudge });
+        var agent = await builder.BuildAsync(CancellationToken.None);
+
+        var runConfig = new AgentRunConfig()
+            .WithEvalJudgeConfigOverride(new EvalJudgeConfig { OverrideChatClient = runJudge });
+
+        await RunAgentAsync(agent, "Hello", runConfig);
+
+        await Task.Delay(200);
+        perEvaluatorJudge.CallCount.Should().Be(1);
+        runJudge.CallCount.Should().Be(0);
+        globalJudge.CallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task OnlineScoring_PersistsJudgeCallsOnScoreRecord()
+    {
+        var client = new StubChatClient();
+        client.EnqueueText("Done.");
+        var store = new InMemoryScoreStore();
+        var judge = new FakeJudgeChatClient();
+        judge.EnqueueResponse("<S0>ok</S0><S1>online captured</S1><S2>true</S2>");
+
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        builder
+            .UseScoreStore(store)
+            .AddEvaluator(
+                new AspectCriticEvaluator("passes"),
+                policy: EvalPolicy.TrackTrend,
+                judgeConfig: new EvalJudgeConfig { OverrideChatClient = judge });
+        var agent = await builder.BuildAsync(CancellationToken.None);
+
+        await RunAgentAsync(agent, "Hello");
+
+        var scores = await WaitForScoresAsync(store, nameof(AspectCriticEvaluator));
+        var score = scores.Should().ContainSingle().Which;
+        var call = score.JudgeCalls.Should().ContainSingle().Which;
+        call.EvaluatorName.Should().Be(nameof(AspectCriticEvaluator));
+        call.Phase.Should().Be("judge");
+        call.Succeeded.Should().BeTrue();
+        call.Response!.Text.Should().Contain("<S2>true</S2>");
+    }
+
     // ── EvaluationMiddleware direct API ───────────────────────────────────────
 
     [Fact]
@@ -137,5 +350,25 @@ public sealed class EvaluationMiddlewareFlagTests
             .GetField("_evaluators", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
         var list = (field!.GetValue(middleware) as System.Collections.IEnumerable)!;
         return list.Cast<EvaluatorRegistration>().ToList();
+    }
+
+    private static async Task<List<ScoreRecord>> WaitForScoresAsync(
+        IScoreStore store,
+        string evaluatorName,
+        int maxAttempts = 20)
+    {
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var scores = new List<ScoreRecord>();
+            await foreach (var score in store.GetScoresAsync(evaluatorName: evaluatorName))
+                scores.Add(score);
+
+            if (scores.Count > 0)
+                return scores;
+
+            await Task.Delay(50);
+        }
+
+        return [];
     }
 }

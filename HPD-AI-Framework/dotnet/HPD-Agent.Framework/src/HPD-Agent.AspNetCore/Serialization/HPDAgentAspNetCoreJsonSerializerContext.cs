@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using HPD.Agent.AspNetCore.EndpointMapping;
 using HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
+using HPD.Agent.Evaluations.Batch;
 using HPD.Agent.Evaluations;
 using HPD.Agent.Evaluations.Storage;
 using Microsoft.Extensions.AI;
@@ -18,6 +19,13 @@ namespace HPD.Agent.AspNetCore.Serialization;
     WriteIndented = false)]
 // Endpoint request/response types
 [JsonSerializable(typeof(WriteScoreRequest))]
+[JsonSerializable(typeof(RateResponse))]
+[JsonSerializable(typeof(FailureRateResponse))]
+[JsonSerializable(typeof(RegisterStringDatasetRequest))]
+[JsonSerializable(typeof(StringEvalCaseDto))]
+[JsonSerializable(typeof(StringDatasetVersionResponse))]
+[JsonSerializable(typeof(StringDatasetDiffResponse))]
+[JsonSerializable(typeof(StringDatasetCaseChangeDto))]
 [JsonSerializable(typeof(EvaluationResult))]
 // Error response collections
 [JsonSerializable(typeof(Dictionary<string, string[]>))]
@@ -25,10 +33,45 @@ namespace HPD.Agent.AspNetCore.Serialization;
 [JsonSerializable(typeof(ScoreRecord))]
 [JsonSerializable(typeof(ScoreRecord[]))]
 [JsonSerializable(typeof(List<ScoreRecord>))]
+[JsonSerializable(typeof(EvaluationRunRecord))]
+[JsonSerializable(typeof(List<EvaluationRunRecord>))]
+[JsonSerializable(typeof(JudgeCallRecord))]
+[JsonSerializable(typeof(List<JudgeCallRecord>))]
 [JsonSerializable(typeof(EvaluationSource))]
 [JsonSerializable(typeof(EvalPolicy))]
-// Evaluation score return types (collections of objects from analytics endpoints)
-[JsonSerializable(typeof(object))]
+// Evaluation analytics endpoints
+[JsonSerializable(typeof(ScoreTrend))]
+[JsonSerializable(typeof(ScoreBucket))]
+[JsonSerializable(typeof(List<ScoreBucket>))]
+[JsonSerializable(typeof(ScoreAggregate))]
+[JsonSerializable(typeof(Dictionary<string, ScoreAggregate>))]
+[JsonSerializable(typeof(BranchComparisonResult))]
+[JsonSerializable(typeof(Dictionary<string, ToolUsageSummary>))]
+[JsonSerializable(typeof(ToolUsageSummary))]
+[JsonSerializable(typeof(List<RiskAutonomyDataPoint>))]
+[JsonSerializable(typeof(RiskAutonomyDataPoint))]
+[JsonSerializable(typeof(Dictionary<string, double>))]
+[JsonSerializable(typeof(EvaluatorSummary))]
+[JsonSerializable(typeof(List<EvaluatorSummary>))]
+[JsonSerializable(typeof(List<string>))]
+// Dataset registry endpoints
+[JsonSerializable(typeof(DatasetRecord))]
+[JsonSerializable(typeof(List<DatasetRecord>))]
+[JsonSerializable(typeof(DatasetVersionRecord))]
+[JsonSerializable(typeof(List<DatasetVersionRecord>))]
+[JsonSerializable(typeof(EvalCase<string>))]
+[JsonSerializable(typeof(List<EvalCase<string>>))]
+[JsonSerializable(typeof(Dataset<string>))]
+[JsonSerializable(typeof(DatasetVersionDiff<string>))]
+[JsonSerializable(typeof(DatasetCaseChange<string>))]
+[JsonSerializable(typeof(List<DatasetCaseChange<string>>))]
+[JsonSerializable(typeof(List<StringEvalCaseDto>))]
+[JsonSerializable(typeof(List<StringDatasetCaseChangeDto>))]
+// Microsoft.Extensions.AI payloads inside run/judge records
+[JsonSerializable(typeof(ChatMessage))]
+[JsonSerializable(typeof(List<ChatMessage>))]
+[JsonSerializable(typeof(ChatResponse))]
+[JsonSerializable(typeof(UsageDetails))]
 internal partial class HPDAgentAspNetCoreJsonSerializerContext : JsonSerializerContext
 {
 }

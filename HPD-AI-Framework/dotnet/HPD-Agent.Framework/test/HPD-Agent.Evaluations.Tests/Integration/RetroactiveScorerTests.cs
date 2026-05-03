@@ -5,8 +5,10 @@ using FluentAssertions;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
 using HPD.Agent;
+using HPD.Agent.Evaluations.Evaluators.LlmJudge;
 using HPD.Agent.Evaluations.Integration;
 using HPD.Agent.Evaluations.Storage;
+using HPD.Agent.Evaluations.Tests.Infrastructure;
 
 namespace HPD.Agent.Evaluations.Tests.Integration;
 
@@ -132,6 +134,35 @@ public sealed class RetroactiveScorerTests
         var records = await scoreStore.GetScoresAsync(sessionId: "sess-1").ToListAsync();
         records.Should().ContainSingle("one turn scored → one record written");
         records[0].Source.Should().Be(EvaluationSource.Retroactive);
+    }
+
+    [Fact]
+    public async Task ScoreBranch_WithJudgeEvaluator_WritesJudgeCallsToScoreRecord()
+    {
+        var sessionStore = new FakeSessionStore();
+        var scoreStore = new InMemoryScoreStore();
+        var judge = new FakeJudgeChatClient();
+        judge.EnqueueResponse("<S0>ok</S0><S1>retro captured</S1><S2>true</S2>");
+        var branch = new BranchBuilder("sess-1", "branch-1")
+            .AddUserMessage("Q")
+            .AddAssistantMessage("A")
+            .Build();
+        sessionStore.AddBranch("sess-1", branch);
+
+        await RetroactiveScorer.ScoreBranchAsync(
+            sessionStore,
+            "sess-1",
+            "branch-1",
+            [new AspectCriticEvaluator("passes")],
+            chatConfiguration: new ChatConfiguration(judge),
+            scoreStore: scoreStore);
+
+        var records = await scoreStore.GetScoresAsync(sessionId: "sess-1").ToListAsync();
+        var record = records.Should().ContainSingle().Which;
+        var call = record.JudgeCalls.Should().ContainSingle().Which;
+        call.EvaluatorName.Should().Be(nameof(AspectCriticEvaluator));
+        call.Succeeded.Should().BeTrue();
+        call.Response!.Text.Should().Contain("<S2>true</S2>");
     }
 
     [Fact]

@@ -25,6 +25,9 @@ public class EvalTestWebApplicationFactory : IDisposable
     /// <summary>The in-memory score store shared between all requests in this test instance.</summary>
     public InMemoryScoreStore ScoreStore { get; } = new InMemoryScoreStore();
 
+    /// <summary>The in-memory dataset store shared between all requests in this test instance.</summary>
+    public InMemoryDatasetStore DatasetStore { get; } = new InMemoryDatasetStore();
+
     public HttpClient CreateClient()
     {
         if (_client == null)
@@ -54,6 +57,7 @@ public class EvalTestWebApplicationFactory : IDisposable
                 services.AddSingleton<IAgentFactory, TestWebApplicationAgentFactory>();
                 // Register the shared score store so EvalEndpoints can resolve it
                 services.AddSingleton<IScoreStore>(ScoreStore);
+                services.AddSingleton<IDatasetStore>(DatasetStore);
                 services.AddHPDAgent("test-agent", options =>
                 {
                     options.SessionStore = new JsonSessionStore(Path.Combine(Path.GetTempPath(), $"hpd-eval-tests-{Guid.NewGuid()}"));

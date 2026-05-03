@@ -3,23 +3,19 @@
 
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
+using HPD.Agent.Evaluations.Batch;
 
 namespace HPD.Agent.Evaluations;
 
 /// <summary>
 /// Configuration for the LLM used as a judge in evaluation.
-/// Fully independent of the agent's own provider configuration.
-/// Reuses ProviderConfig and ErrorHandlingConfig from AgentConfig for consistency.
+/// Prefer <see cref="OverrideAgent"/> for production so judge calls use the normal
+/// HPD-Agent provider, retry, middleware, secrets, and observability pipeline.
+/// <see cref="OverrideChatClient"/> remains as a low-level escape hatch for tests
+/// and advanced embedding scenarios.
 /// </summary>
 public sealed class EvalJudgeConfig
 {
-    /// <summary>
-    /// Provider and model for the judge LLM. Reuses HPD.Agent.ProviderConfig —
-    /// same ProviderKey, ModelName, ApiKey, Endpoint, and ProviderOptionsJson fields.
-    /// If null, falls back to the agent's own provider.
-    /// </summary>
-    public ProviderConfig? Provider { get; init; }
-
     /// <summary>
     /// Per-judge call timeout in seconds. Cancels stuck judge LLM calls so they don't
     /// block the background evaluator task indefinitely.
@@ -28,19 +24,19 @@ public sealed class EvalJudgeConfig
     public int TimeoutSeconds { get; init; } = 30;
 
     /// <summary>
-    /// Retry configuration for HTTP 429 / 503 from the judge LLM.
-    /// Reuses HPD.Agent.ErrorHandlingConfig — same MaxRetries, BackoffMultiplier,
-    /// MaxRetryDelay, and UseProviderRetryDelays fields.
-    /// Applied only to judge LLM calls, independently of the agent's own retry settings.
-    /// If null, falls back to a sensible default (3 retries, 5s initial backoff).
-    /// </summary>
-    public ErrorHandlingConfig? RetryPolicy { get; init; }
-
-    /// <summary>
-    /// Direct IChatClient override. Takes priority over Provider.
+    /// Direct IChatClient override.
     /// Use when you already have a resolved client (e.g. in tests, or when sharing
     /// a client across evaluators).
     /// </summary>
     [JsonIgnore]
     public IChatClient? OverrideChatClient { get; init; }
+
+    /// <summary>
+    /// Direct HPD agent override for agent-as-judge scenarios.
+    /// Evaluation wraps calls to this agent in AgentRunConfig with
+    /// IsInternalEvalJudgeCall = true and DisableEvaluators = true to prevent
+    /// evaluation loops.
+    /// </summary>
+    [JsonIgnore]
+    public IAgent? OverrideAgent { get; init; }
 }

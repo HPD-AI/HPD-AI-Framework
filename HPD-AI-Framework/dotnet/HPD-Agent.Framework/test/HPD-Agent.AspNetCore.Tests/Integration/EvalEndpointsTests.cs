@@ -4,19 +4,24 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 using FluentAssertions;
+using HPD.Agent.AspNetCore.Serialization;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
+using HPD.Agent.Evaluations;
 using HPD.Agent.Evaluations.Storage;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.AI.Evaluation;
 
 namespace HPD.Agent.AspNetCore.Tests.Integration;
 
 /// <summary>
 /// Integration tests for the /evals endpoint group.
 /// Covers: 503 guard, GET /evals/scores, GET /evals/scores/by-branch,
-/// GET /evals/scores/by-version, POST /evals/scores, GET /evals/evaluators,
-/// GET /evals/trend/{name}, GET /evals/pass-rate/{name}, GET /evals/failure-rate/{name},
-/// GET /evals/agent-comparison/{name}, GET /evals/branch-comparison,
-/// GET /evals/tool-usage, GET /evals/risk-autonomy, GET /evals/cost.
+/// GET /evals/scores/by-version, POST /evals/scores, GET /evals/analytics/evaluators,
+/// GET /evals/analytics/trend/{name}, GET /evals/analytics/pass-rate/{name}, GET /evals/analytics/failure-rate/{name},
+/// GET /evals/analytics/agent-comparison/{name}, GET /evals/analytics/branch-comparison,
+/// GET /evals/analytics/tool-usage, GET /evals/analytics/risk-autonomy, GET /evals/analytics/cost.
 /// </summary>
 public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
 {
@@ -56,9 +61,17 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
         using var noStoreFactory = new TestWebApplicationFactory();
         var client = noStoreFactory.CreateClient();
 
-        var response = await client.GetAsync("/evals/evaluators");
+        var response = await client.GetAsync("/evals/analytics/evaluators");
 
         response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+    }
+
+    [Fact]
+    public async Task GET_old_evals_passRate_Returns404_AfterAnalyticsRoutesWereGrouped()
+    {
+        var response = await _client.GetAsync("/evals/pass-rate/SomeEval");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     // =========================================================================
@@ -328,7 +341,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     }
 
     // =========================================================================
-    // Category F — GET /evals/evaluators
+    // Category F — GET /evals/analytics/evaluators
     // =========================================================================
 
     [Fact]
@@ -338,7 +351,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
         await SeedAsync(ScoreRecordFactory.Make("EvalSummary_X", sessionId: "summ-s2", passing: true));
         await SeedAsync(ScoreRecordFactory.Make("EvalSummary_Y", sessionId: "summ-s3", passing: false));
 
-        var response = await _client.GetAsync("/evals/evaluators");
+        var response = await _client.GetAsync("/evals/analytics/evaluators");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var summaries = await response.Content.ReadFromJsonAsync<List<JsonElement>>();
@@ -355,7 +368,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
         using var fresh = new EvalTestWebApplicationFactory();
         var client = fresh.CreateClient();
 
-        var response = await client.GetAsync("/evals/evaluators");
+        var response = await client.GetAsync("/evals/analytics/evaluators");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadAsStringAsync();
@@ -363,7 +376,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     }
 
     // =========================================================================
-    // Category G — GET /evals/trend/{evaluatorName}
+    // Category G — GET /evals/analytics/trend/{evaluatorName}
     // =========================================================================
 
     [Fact]
@@ -375,7 +388,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
 
         var from = now.AddHours(-2).ToString("O");
         var to = now.ToString("O");
-        var url = $"/evals/trend/EvalTrend?from={Uri.EscapeDataString(from)}&to={Uri.EscapeDataString(to)}&bucketSize=PT1H";
+        var url = $"/evals/analytics/trend/EvalTrend?from={Uri.EscapeDataString(from)}&to={Uri.EscapeDataString(to)}&bucketSize=PT1H";
 
         var response = await _client.GetAsync(url);
 
@@ -392,7 +405,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
         var now = DateTimeOffset.UtcNow;
         var from = now.AddHours(-2).ToString("O");
         var to = now.ToString("O");
-        var url = $"/evals/trend/EvalTrendDefault?from={Uri.EscapeDataString(from)}&to={Uri.EscapeDataString(to)}";
+        var url = $"/evals/analytics/trend/EvalTrendDefault?from={Uri.EscapeDataString(from)}&to={Uri.EscapeDataString(to)}";
 
         var response = await _client.GetAsync(url);
 
@@ -403,13 +416,13 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     public async Task GET_evals_trend_Returns400_WhenFromMissing()
     {
         var to = DateTimeOffset.UtcNow.ToString("O");
-        var response = await _client.GetAsync($"/evals/trend/AnyEval?to={Uri.EscapeDataString(to)}");
+        var response = await _client.GetAsync($"/evals/analytics/trend/AnyEval?to={Uri.EscapeDataString(to)}");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     // =========================================================================
-    // Category H — GET /evals/pass-rate/{evaluatorName}
+    // Category H — GET /evals/analytics/pass-rate/{evaluatorName}
     // =========================================================================
 
     [Fact]
@@ -420,7 +433,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
         await SeedAsync(ScoreRecordFactory.Make("EvalPR", sessionId: "pr-s3", passing: false));
         await SeedAsync(ScoreRecordFactory.Make("EvalPR", sessionId: "pr-s4", passing: true));
 
-        var response = await _client.GetAsync("/evals/pass-rate/EvalPR");
+        var response = await _client.GetAsync("/evals/analytics/pass-rate/EvalPR");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var json = await response.Content.ReadAsStringAsync();
@@ -434,7 +447,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     [Fact]
     public async Task GET_evals_passRate_Returns200_WhenNoScores()
     {
-        var response = await _client.GetAsync("/evals/pass-rate/EvalPassRateNoScores_XYZ");
+        var response = await _client.GetAsync("/evals/analytics/pass-rate/EvalPassRateNoScores_XYZ");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
@@ -442,7 +455,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     }
 
     // =========================================================================
-    // Category I — GET /evals/failure-rate/{evaluatorName}
+    // Category I — GET /evals/analytics/failure-rate/{evaluatorName}
     // =========================================================================
 
     [Fact]
@@ -451,7 +464,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
         await SeedAsync(ScoreRecordFactory.Make("EvalFR", sessionId: "fr-s1", passing: false));
         await SeedAsync(ScoreRecordFactory.Make("EvalFR", sessionId: "fr-s2", passing: true));
 
-        var response = await _client.GetAsync("/evals/failure-rate/EvalFR");
+        var response = await _client.GetAsync("/evals/analytics/failure-rate/EvalFR");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
@@ -460,7 +473,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     }
 
     // =========================================================================
-    // Category J — GET /evals/agent-comparison/{evaluatorName}
+    // Category J — GET /evals/analytics/agent-comparison/{evaluatorName}
     // =========================================================================
 
     [Fact]
@@ -470,7 +483,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
         await SeedAsync(ScoreRecordFactory.Make("EvalAC", agentName: "agent-alpha", sessionId: "ac-s2"));
         await SeedAsync(ScoreRecordFactory.Make("EvalAC", agentName: "agent-beta", sessionId: "ac-s3"));
 
-        var response = await _client.GetAsync("/evals/agent-comparison/EvalAC?agentNames=agent-alpha,agent-beta");
+        var response = await _client.GetAsync("/evals/analytics/agent-comparison/EvalAC?agentNames=agent-alpha,agent-beta");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
@@ -483,13 +496,13 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     [Fact]
     public async Task GET_evals_agentComparison_Returns400_WhenAgentNamesMissing()
     {
-        var response = await _client.GetAsync("/evals/agent-comparison/EvalAC");
+        var response = await _client.GetAsync("/evals/analytics/agent-comparison/EvalAC");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     // =========================================================================
-    // Category K — GET /evals/branch-comparison
+    // Category K — GET /evals/analytics/branch-comparison
     // =========================================================================
 
     [Fact]
@@ -499,7 +512,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
         await SeedAsync(ScoreRecordFactory.Make("EvalBC", sessionId: sid, branchId: "bc-main", passing: true));
         await SeedAsync(ScoreRecordFactory.Make("EvalBC", sessionId: sid, branchId: "bc-fork", passing: false));
 
-        var url = $"/evals/branch-comparison?sessionId={sid}&branchId1=bc-main&branchId2=bc-fork&evaluatorNames=EvalBC";
+        var url = $"/evals/analytics/branch-comparison?sessionId={sid}&branchId1=bc-main&branchId2=bc-fork&evaluatorNames=EvalBC";
         var response = await _client.GetAsync(url);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -515,19 +528,19 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     public async Task GET_evals_branchComparison_Returns400_WhenRequiredParamMissing()
     {
         // branchId2 missing
-        var response = await _client.GetAsync("/evals/branch-comparison?sessionId=s1&branchId1=b1&evaluatorNames=E1");
+        var response = await _client.GetAsync("/evals/analytics/branch-comparison?sessionId=s1&branchId1=b1&evaluatorNames=E1");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     // =========================================================================
-    // Category L — GET /evals/tool-usage
+    // Category L — GET /evals/analytics/tool-usage
     // =========================================================================
 
     [Fact]
     public async Task GET_evals_toolUsage_Returns200_WithObjectResult()
     {
-        var response = await _client.GetAsync("/evals/tool-usage");
+        var response = await _client.GetAsync("/evals/analytics/tool-usage");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         // Empty store → empty object {} or populated object — either is valid
@@ -539,13 +552,13 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     }
 
     // =========================================================================
-    // Category M — GET /evals/risk-autonomy
+    // Category M — GET /evals/analytics/risk-autonomy
     // =========================================================================
 
     [Fact]
     public async Task GET_evals_riskAutonomy_Returns200_WithArrayResult()
     {
-        var response = await _client.GetAsync("/evals/risk-autonomy");
+        var response = await _client.GetAsync("/evals/analytics/risk-autonomy");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadAsStringAsync();
@@ -555,17 +568,499 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     }
 
     // =========================================================================
-    // Category N — GET /evals/cost
+    // Category N — GET /evals/analytics/cost
     // =========================================================================
 
     [Fact]
     public async Task GET_evals_cost_Returns200_WithObjectResult()
     {
-        var response = await _client.GetAsync("/evals/cost");
+        var response = await _client.GetAsync("/evals/analytics/cost");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadAsStringAsync();
         var doc = JsonDocument.Parse(body).RootElement;
         doc.ValueKind.Should().Be(JsonValueKind.Object);
+    }
+
+    [Fact]
+    public async Task GET_evals_analytics_passRate_Returns_SameShape_AsCanonicalAnalyticsRoute()
+    {
+        await SeedAsync(ScoreRecordFactory.Make("EvalGroupedPR", sessionId: "grp-pr-s1", passing: true));
+        await SeedAsync(ScoreRecordFactory.Make("EvalGroupedPR", sessionId: "grp-pr-s2", passing: false));
+
+        var response = await _client.GetAsync("/evals/analytics/pass-rate/EvalGroupedPR");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        doc.GetProperty("evaluatorName").GetString().Should().Be("EvalGroupedPR");
+        doc.GetProperty("passRate").GetDouble().Should().BeApproximately(0.5, 0.01);
+    }
+
+    // =========================================================================
+    // Category O — GET /evals/runs
+    // =========================================================================
+
+    [Fact]
+    public async Task GET_evals_runs_Returns_FilteredRunRecords()
+    {
+        await _factory.ScoreStore.WriteRunAsync(MakeRun("exec-runs-a", "scenario-a", "iter-1"));
+        await _factory.ScoreStore.WriteRunAsync(MakeRun("exec-runs-b", "scenario-b", "iter-1"));
+
+        var response = await _client.GetAsync("/evals/runs?executionName=exec-runs-a");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        doc.ValueKind.Should().Be(JsonValueKind.Array);
+        doc.GetArrayLength().Should().Be(1);
+        doc[0].GetProperty("executionName").GetString().Should().Be("exec-runs-a");
+        doc[0].GetProperty("scenarioName").GetString().Should().Be("scenario-a");
+    }
+
+    [Fact]
+    public async Task GET_evals_runs_Returns_AllRunRecords_WhenNoFilters()
+    {
+        await _factory.ScoreStore.WriteRunAsync(MakeRun("exec-runs-all-a", "scenario-a", "iter-1"));
+        await _factory.ScoreStore.WriteRunAsync(MakeRun("exec-runs-all-b", "scenario-b", "iter-1"));
+
+        var response = await _client.GetAsync("/evals/runs");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement
+            .EnumerateArray()
+            .Select(e => e.GetProperty("executionName").GetString())
+            .Should()
+            .Contain(["exec-runs-all-a", "exec-runs-all-b"]);
+    }
+
+    [Fact]
+    public async Task GET_evals_runs_Returns503_WhenNoScoreStoreRegistered()
+    {
+        using var noStoreFactory = new TestWebApplicationFactory();
+        var client = noStoreFactory.CreateClient();
+
+        var response = await client.GetAsync("/evals/runs");
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+    }
+
+    [Fact]
+    public async Task GET_evals_runs_executions_Returns_LatestExecutionNames()
+    {
+        await _factory.ScoreStore.WriteRunAsync(MakeRun("exec-list-a", "scenario-a", "iter-1", DateTimeOffset.UtcNow.AddMinutes(-5)));
+        await _factory.ScoreStore.WriteRunAsync(MakeRun("exec-list-b", "scenario-b", "iter-1", DateTimeOffset.UtcNow));
+
+        var response = await _client.GetAsync("/evals/runs/executions?count=20");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var names = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement
+            .EnumerateArray()
+            .Select(e => e.GetString())
+            .ToList();
+        names.Should().Contain(["exec-list-a", "exec-list-b"]);
+    }
+
+    [Fact]
+    public async Task GET_evals_runs_scenarios_Returns_ScenarioNames()
+    {
+        await _factory.ScoreStore.WriteRunAsync(MakeRun("exec-scenarios", "scenario-x", "iter-1"));
+        await _factory.ScoreStore.WriteRunAsync(MakeRun("exec-scenarios", "scenario-y", "iter-1"));
+
+        var response = await _client.GetAsync("/evals/runs/scenarios?executionName=exec-scenarios");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var names = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement
+            .EnumerateArray()
+            .Select(e => e.GetString())
+            .ToList();
+        names.Should().Contain(["scenario-x", "scenario-y"]);
+    }
+
+    [Fact]
+    public async Task GET_evals_runs_iterations_Returns_IterationNames()
+    {
+        await _factory.ScoreStore.WriteRunAsync(MakeRun("exec-iterations", "scenario-i", "iter-a"));
+        await _factory.ScoreStore.WriteRunAsync(MakeRun("exec-iterations", "scenario-i", "iter-b"));
+
+        var response = await _client.GetAsync("/evals/runs/iterations?executionName=exec-iterations&scenarioName=scenario-i");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var names = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement
+            .EnumerateArray()
+            .Select(e => e.GetString())
+            .ToList();
+        names.Should().Contain(["iter-a", "iter-b"]);
+    }
+
+    [Fact]
+    public async Task DELETE_evals_runs_RemovesMatchingRuns()
+    {
+        await _factory.ScoreStore.WriteRunAsync(MakeRun("exec-delete", "scenario-d", "iter-1"));
+
+        var delete = await _client.DeleteAsync("/evals/runs?executionName=exec-delete");
+        var get = await _client.GetAsync("/evals/runs?executionName=exec-delete");
+
+        delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        get.StatusCode.Should().Be(HttpStatusCode.OK);
+        JsonDocument.Parse(await get.Content.ReadAsStringAsync()).RootElement.GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task DELETE_evals_runs_ByScenario_OnlyRemovesMatchingScenario()
+    {
+        await _factory.ScoreStore.WriteRunAsync(MakeRun("exec-delete-scenario", "scenario-keep", "iter-1"));
+        await _factory.ScoreStore.WriteRunAsync(MakeRun("exec-delete-scenario", "scenario-delete", "iter-1"));
+
+        var delete = await _client.DeleteAsync("/evals/runs?scenarioName=scenario-delete");
+        var get = await _client.GetAsync("/evals/runs?executionName=exec-delete-scenario");
+
+        delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        var scenarios = JsonDocument.Parse(await get.Content.ReadAsStringAsync()).RootElement
+            .EnumerateArray()
+            .Select(e => e.GetProperty("scenarioName").GetString())
+            .ToList();
+        scenarios.Should().Contain("scenario-keep");
+        scenarios.Should().NotContain("scenario-delete");
+    }
+
+    [Fact]
+    public async Task DELETE_evals_runs_ByIteration_OnlyRemovesMatchingIteration()
+    {
+        await _factory.ScoreStore.WriteRunAsync(MakeRun("exec-delete-iteration", "scenario-i", "iter-keep"));
+        await _factory.ScoreStore.WriteRunAsync(MakeRun("exec-delete-iteration", "scenario-i", "iter-delete"));
+
+        var delete = await _client.DeleteAsync("/evals/runs?iterationName=iter-delete");
+        var get = await _client.GetAsync("/evals/runs?executionName=exec-delete-iteration&scenarioName=scenario-i");
+
+        delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        var iterations = JsonDocument.Parse(await get.Content.ReadAsStringAsync()).RootElement
+            .EnumerateArray()
+            .Select(e => e.GetProperty("iterationName").GetString())
+            .ToList();
+        iterations.Should().Contain("iter-keep");
+        iterations.Should().NotContain("iter-delete");
+    }
+
+    // =========================================================================
+    // Category P — /evals/datasets
+    // =========================================================================
+
+    [Fact]
+    public async Task POST_evals_datasets_RegistersStringDatasetVersion()
+    {
+        var body = new
+        {
+            datasetId = "asp-dataset-post",
+            version = "v1",
+            description = "ASP.NET dataset endpoint test",
+            registeredAt = DateTimeOffset.UtcNow,
+            cases = new[]
+            {
+                new { caseId = "case-a", name = "Case A", version = "v1", input = "hello", groundTruth = "world" }
+            }
+        };
+
+        var response = await _client.PostAsJsonAsync("/evals/datasets", body);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        doc.GetProperty("datasetId").GetString().Should().Be("asp-dataset-post");
+        doc.GetProperty("version").GetString().Should().Be("v1");
+        doc.GetProperty("caseCount").GetInt32().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GET_evals_datasets_Returns503_WhenNoDatasetStoreRegistered()
+    {
+        using var noStoreFactory = new TestWebApplicationFactory();
+        var client = noStoreFactory.CreateClient();
+
+        var response = await client.GetAsync("/evals/datasets");
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+    }
+
+    [Fact]
+    public async Task POST_evals_datasets_Returns503_WhenNoDatasetStoreRegistered()
+    {
+        using var noStoreFactory = new TestWebApplicationFactory();
+        var client = noStoreFactory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/evals/datasets", new
+        {
+            datasetId = "missing-store",
+            version = "v1",
+            cases = Array.Empty<object>(),
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+    }
+
+    [Fact]
+    public async Task POST_evals_datasets_ReturnsValidationProblem_WhenDatasetIdMissing()
+    {
+        var response = await _client.PostAsJsonAsync("/evals/datasets", new
+        {
+            version = "v1",
+            cases = new[] { new { caseId = "case-a", input = "hello" } },
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        doc.GetProperty("errors").TryGetProperty("RegisterDatasetError", out _).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task POST_evals_datasets_ReturnsValidationProblem_WhenVersionMissing()
+    {
+        var response = await _client.PostAsJsonAsync("/evals/datasets", new
+        {
+            datasetId = "missing-version",
+            cases = new[] { new { caseId = "case-a", input = "hello" } },
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        doc.GetProperty("errors").TryGetProperty("RegisterDatasetError", out _).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task POST_evals_datasets_DuplicateSameContent_IsIdempotent()
+    {
+        var registeredAt = DateTimeOffset.UtcNow;
+        var body = new
+        {
+            datasetId = "asp-dataset-idempotent",
+            version = "v1",
+            registeredAt,
+            cases = new[]
+            {
+                new { caseId = "case-a", input = "same", groundTruth = "truth" }
+            }
+        };
+
+        var first = await _client.PostAsJsonAsync("/evals/datasets", body);
+        var second = await _client.PostAsJsonAsync("/evals/datasets", body);
+
+        first.StatusCode.Should().Be(HttpStatusCode.Created);
+        second.StatusCode.Should().Be(HttpStatusCode.Created);
+    }
+
+    [Fact]
+    public async Task POST_evals_datasets_DuplicateVersionDifferentContent_ReturnsValidationProblem()
+    {
+        var registeredAt = DateTimeOffset.UtcNow;
+        var first = new
+        {
+            datasetId = "asp-dataset-conflict",
+            version = "v1",
+            registeredAt,
+            cases = new[] { new { caseId = "case-a", input = "first", groundTruth = "truth" } }
+        };
+        var second = new
+        {
+            datasetId = "asp-dataset-conflict",
+            version = "v1",
+            registeredAt,
+            cases = new[] { new { caseId = "case-a", input = "second", groundTruth = "truth" } }
+        };
+
+        var firstResponse = await _client.PostAsJsonAsync("/evals/datasets", first);
+        var secondResponse = await _client.PostAsJsonAsync("/evals/datasets", second);
+
+        firstResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        secondResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var doc = JsonDocument.Parse(await secondResponse.Content.ReadAsStringAsync()).RootElement;
+        doc.GetProperty("errors").TryGetProperty("RegisterDatasetError", out _).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task GET_evals_datasets_Returns_RegisteredDatasetMetadata()
+    {
+        await RegisterDatasetVersionAsync("asp-dataset-list", "v1", ("case-a", "hello", "world"));
+
+        var response = await _client.GetAsync("/evals/datasets");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var datasets = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        datasets.EnumerateArray()
+            .Should()
+            .Contain(e => e.GetProperty("datasetId").GetString() == "asp-dataset-list");
+    }
+
+    [Fact]
+    public async Task GET_evals_datasets_byId_Returns404_WhenUnknown()
+    {
+        var response = await _client.GetAsync("/evals/datasets/does-not-exist");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task GET_evals_dataset_versions_Returns_AllVersions()
+    {
+        await RegisterDatasetVersionAsync("asp-dataset-versions", "v1", ("case-a", "hello", "world"));
+        await RegisterDatasetVersionAsync("asp-dataset-versions", "v2", ("case-a", "hello again", "world"));
+
+        var response = await _client.GetAsync("/evals/datasets/asp-dataset-versions/versions");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var versions = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement
+            .EnumerateArray()
+            .Select(e => e.GetProperty("version").GetString())
+            .ToList();
+        versions.Should().Contain(["v1", "v2"]);
+    }
+
+    [Fact]
+    public async Task GET_evals_dataset_version_Returns_StringCases()
+    {
+        await RegisterDatasetVersionAsync("asp-dataset-version", "v1", ("case-a", "hello", "world"));
+
+        var response = await _client.GetAsync("/evals/datasets/asp-dataset-version/versions/v1");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        doc.GetProperty("datasetId").GetString().Should().Be("asp-dataset-version");
+        doc.GetProperty("cases").GetArrayLength().Should().Be(1);
+        doc.GetProperty("cases")[0].GetProperty("input").GetString().Should().Be("hello");
+    }
+
+    [Fact]
+    public async Task GET_evals_dataset_activeCases_Returns_CasesActiveAtTime()
+    {
+        var t1 = DateTimeOffset.UtcNow.AddHours(-2);
+        var t2 = DateTimeOffset.UtcNow.AddHours(-1);
+        await RegisterDatasetVersionAsync("asp-dataset-active", "v1", [("case-a", "old", "truth")], t1);
+        await RegisterDatasetVersionAsync("asp-dataset-active", "v2", [("case-a", "new", "truth")], t2);
+
+        var at = Uri.EscapeDataString(t1.AddMinutes(10).ToString("O"));
+        var response = await _client.GetAsync($"/evals/datasets/asp-dataset-active/active-cases?at={at}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var cases = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        cases.GetArrayLength().Should().Be(1);
+        cases[0].GetProperty("input").GetString().Should().Be("old");
+    }
+
+    [Fact]
+    public async Task GET_evals_dataset_caseHistory_Returns_Scd2History()
+    {
+        await RegisterDatasetVersionAsync("asp-dataset-history", "v1", [("case-a", "old", "truth")], DateTimeOffset.UtcNow.AddHours(-2));
+        await RegisterDatasetVersionAsync("asp-dataset-history", "v2", [("case-a", "new", "truth")], DateTimeOffset.UtcNow.AddHours(-1));
+
+        var response = await _client.GetAsync("/evals/datasets/asp-dataset-history/cases/case-a/history");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var history = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        history.GetArrayLength().Should().Be(2);
+        history[0].TryGetProperty("validTo", out _).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task GET_evals_dataset_diff_Returns_AddedRemovedChangedCases()
+    {
+        await RegisterDatasetVersionAsync("asp-dataset-diff", "v1",
+            ("case-a", "same", "truth"),
+            ("case-b", "remove me", "truth"));
+        await RegisterDatasetVersionAsync("asp-dataset-diff", "v2",
+            ("case-a", "changed", "truth"),
+            ("case-c", "add me", "truth"));
+
+        var response = await _client.GetAsync("/evals/datasets/asp-dataset-diff/diff?fromVersion=v1&toVersion=v2");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var diff = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        diff.GetProperty("added").GetArrayLength().Should().Be(1);
+        diff.GetProperty("removed").GetArrayLength().Should().Be(1);
+        diff.GetProperty("changed").GetArrayLength().Should().Be(1);
+    }
+
+    [Fact]
+    public void EvalEndpointJsonContext_Serializes_NewDatasetDtos_WithoutReflectionFallback()
+    {
+        var request = new RegisterStringDatasetRequest
+        {
+            DatasetId = "json-context-dataset",
+            Version = "v1",
+            Cases =
+            [
+                new StringEvalCaseDto
+                {
+                    CaseId = "case-a",
+                    Input = "hello",
+                    GroundTruth = "world",
+                }
+            ],
+        };
+
+        var json = JsonSerializer.Serialize(
+            request,
+            HPDAgentAspNetCoreJsonSerializerContext.Default.RegisterStringDatasetRequest);
+        var roundTrip = JsonSerializer.Deserialize(
+            json,
+            HPDAgentAspNetCoreJsonSerializerContext.Default.RegisterStringDatasetRequest);
+
+        roundTrip.Should().NotBeNull();
+        roundTrip!.DatasetId.Should().Be("json-context-dataset");
+        roundTrip.Cases.Should().HaveCount(1);
+    }
+
+    private static EvaluationRunRecord MakeRun(
+        string executionName,
+        string scenarioName,
+        string iterationName,
+        DateTimeOffset? createdAt = null)
+    {
+        var metric = new BooleanMetric("Pass") { Value = true };
+        return new EvaluationRunRecord
+        {
+            Id = Guid.NewGuid().ToString(),
+            ExecutionName = executionName,
+            ScenarioName = scenarioName,
+            IterationName = iterationName,
+            CreatedAt = createdAt ?? DateTimeOffset.UtcNow,
+            Messages = [new ChatMessage(ChatRole.User, "input")],
+            ModelResponse = new ChatResponse([new ChatMessage(ChatRole.Assistant, "output")]),
+            EvaluationResult = new EvaluationResult([metric]),
+            Source = EvaluationSource.Test,
+            AgentName = "test-agent",
+            SessionId = executionName,
+            BranchId = scenarioName,
+            TurnIndex = 0,
+            TaskDuration = TimeSpan.FromMilliseconds(10),
+            EvaluatorDuration = TimeSpan.FromMilliseconds(5),
+            TotalDuration = TimeSpan.FromMilliseconds(15),
+        };
+    }
+
+    private Task RegisterDatasetVersionAsync(
+        string datasetId,
+        string version,
+        params (string CaseId, string Input, string GroundTruth)[] cases)
+        => RegisterDatasetVersionAsync(datasetId, version, cases, null);
+
+    private async Task RegisterDatasetVersionAsync(
+        string datasetId,
+        string version,
+        (string CaseId, string Input, string GroundTruth)[] cases,
+        DateTimeOffset? registeredAt)
+    {
+        await _factory.DatasetStore.RegisterDatasetVersionAsync(
+            new HPD.Agent.Evaluations.Batch.Dataset<string>
+            {
+                DatasetId = datasetId,
+                Version = version,
+                Cases = cases.Select(c => new HPD.Agent.Evaluations.Batch.EvalCase<string>
+                {
+                    CaseId = c.CaseId,
+                    Version = version,
+                    Input = c.Input,
+                    GroundTruth = c.GroundTruth,
+                }).ToList(),
+            },
+            new DatasetRegistrationOptions<string>
+            {
+                RegisteredAt = registeredAt,
+            });
     }
 }

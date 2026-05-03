@@ -44,6 +44,12 @@ public abstract class HookContext
     public string? ConversationId => Base.ConversationId;
 
     /// <summary>
+    /// OTel-compatible trace ID shared by all events emitted during this turn.
+    /// Useful for correlating observer events with middleware hook execution.
+    /// </summary>
+    public string? TraceId => Base.TraceId;
+
+    /// <summary>
     /// The session metadata container.
     /// Access session.Store for infrastructure operations (asset upload, etc.).
     /// Does NOT contain messages - messages are in <see cref="Branch"/>.
