@@ -150,7 +150,7 @@ The middleware handles termination, but the outer loop is what keeps calling `Ru
 ```csharp
 var agent = await new AgentBuilder()
     .WithProvider("anthropic", "claude-sonnet-4-5")
-    .WithToolkit<CodingTools>()             // placeholder — your toolkit with file read/write tools
+    .WithHarness<CodingTools>()             // placeholder — your harness with file read/write tools
     .WithMiddleware(new RalphLoopMiddleware(
         validator: async ct =>
         {

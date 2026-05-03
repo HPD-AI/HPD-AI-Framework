@@ -8,7 +8,7 @@ namespace HPD.Agent.ClientTools;
 /// <summary>
 /// Defines a tool that executes on the Client.
 /// Mirrors the structure Clients provide: name, description, parameters (JSON Schema).
-/// Tools are always registered inside a <see cref="clientToolKitDefinition"/> (container).
+/// Tools are always registered inside a <see cref="clientHarnessDefinition"/> (container).
 /// </summary>
 /// <param name="Name">Unique name for the tool (used in function calls)</param>
 /// <param name="Description">Human-readable description shown to the LLM</param>

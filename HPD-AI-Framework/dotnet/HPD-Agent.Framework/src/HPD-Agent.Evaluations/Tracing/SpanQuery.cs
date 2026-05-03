@@ -232,7 +232,7 @@ public sealed class SpanQuery
         public bool HasAttributeKey(string key) => key switch
         {
             "callId" => true,
-            "toolkitName" => _span.ToolkitName != null,
+            "harnessName" => _span.HarnessName != null,
             "wasPermissionDenied" => true,
             _ => false,
         };
@@ -240,7 +240,7 @@ public sealed class SpanQuery
         public bool HasAttribute(string key, string value) => key switch
         {
             "callId" => _span.CallId == value,
-            "toolkitName" => _span.ToolkitName == value,
+            "harnessName" => _span.HarnessName == value,
             "wasPermissionDenied" => bool.TryParse(value, out var b) && b == _span.WasPermissionDenied,
             _ => false,
         };

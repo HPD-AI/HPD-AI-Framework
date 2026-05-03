@@ -11,7 +11,7 @@ public static class SkillFactory
     /// <param name="description">Description shown before activation (REQUIRED - becomes AIFunction description shown to agent in tools list)</param>
     /// <param name="functionResult">Instructions returned as function result when activated (ephemeral, one-time)</param>
     /// <param name="systemPrompt">Instructions injected into system prompt (persistent, every iteration)</param>
-    /// <param name="references">Function or skill references in "ToolkitName.FunctionName" format</param>
+    /// <param name="references">Function or skill references in "HarnessName.FunctionName" format</param>
     /// <returns>Skill object processed by source generator</returns>
     public static Skill Create(
         string name,
@@ -31,7 +31,7 @@ public static class SkillFactory
     /// <param name="functionResult">Instructions returned as function result when activated (ephemeral, one-time)</param>
     /// <param name="systemPrompt">Instructions injected into system prompt (persistent, every iteration)</param>
     /// <param name="options">Skill configuration options (Collapsing, documents, etc.)</param>
-    /// <param name="references">Function or skill references in "ToolkitName.FunctionName" format</param>
+    /// <param name="references">Function or skill references in "HarnessName.FunctionName" format</param>
     /// <returns>Skill object processed by source generator</returns>
     public static Skill Create(
         string name,

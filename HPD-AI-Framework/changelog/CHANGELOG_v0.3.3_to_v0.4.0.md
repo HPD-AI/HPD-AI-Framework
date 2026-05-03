@@ -8,7 +8,7 @@ This release encompasses **32 commits** and represents a major evolution of the 
 - **Evaluation & Analytics Framework**: Comprehensive evaluation scoring and result tracking
 - **RAG (Retrieval-Augmented Generation) System**: Modular retrieval and ingestion pipeline
 - **ML Framework Integration**: New HPD-ML machine learning module stack
-- **Middleware & Toolkit Scoping**: Advanced middleware composition and toolkit-scoped execution
+- **Middleware & Harness Scoping**: Advanced middleware composition and harness-scoped execution
 - **Slack Socket Mode**: Real-time WebSocket support for Slack bots
 - **Adapter → Bot Terminology**: Alignment with modern bot/chatbot nomenclature
 - **Project Restructuring**: Monorepo reorganization with HPD-AI-Framework and HPD-OS separations
@@ -338,13 +338,13 @@ public class SlackSocketModeService : AdapterWebSocketService { }
 - Message reactions
 - View submissions/closures
 
-#### Toolkit-Scoped Middleware
+#### Harness-Scoped Middleware
 
-New middleware scoping mechanism that activates per-toolkit:
+New middleware scoping mechanism that activates per-harness:
 
 ```csharp
 [Collapse(Middlewares = [typeof(CustomMiddleware)])]
-public class MyToolkit : IToolkit
+public class MyHarness : IHarness
 {
     [AIFunction]
     public string MyTool() { }
@@ -352,16 +352,16 @@ public class MyToolkit : IToolkit
 ```
 
 **Features**:
-- Per-toolkit middleware pipelines
+- Per-harness middleware pipelines
 - Activation at expansion time
 - Dual constructor support: parameterless + config-based
-- `IToolkitMiddleware` marker interface
-- `ToolkitOptions` for builder-time DI registration
+- `IHarnessMiddleware` marker interface
+- `HarnessOptions` for builder-time DI registration
 
 **Refactored Components**:
-- `ContainerMiddleware`: Now manages unified toolkit + skill collapsing with dual context (FunctionResult ephemeral + SystemPrompt persistent)
+- `ContainerMiddleware`: Now manages unified harness + skill collapsing with dual context (FunctionResult ephemeral + SystemPrompt persistent)
 - `AgentMiddlewarePipeline`: New dual Execute/Dispatch pattern with reverse-order After* hooks and error aggregation
-- `ToolkitFactory`: Enhanced metadata deserialization and toolkit-scoped middleware factory delegates
+- `HarnessFactory`: Enhanced metadata deserialization and harness-scoped middleware factory delegates
 
 #### Impact on Existing Code
 
@@ -369,7 +369,7 @@ public class MyToolkit : IToolkit
 - **NuGet updates**: Dependency updates may require API adjustments
 - **Project structure**: References to relocated `HPD-Events`, `HPD-Graph`, `HPD.OpenApi.Core` must be updated
 - **MCP integration**: Update to new `McpClient` API if using MCP servers
-- **Middleware composition**: Toolkit-scoped middleware provides new patterns and may supersede old patterns
+- **Middleware composition**: Harness-scoped middleware provides new patterns and may supersede old patterns
 
 ---
 
@@ -945,7 +945,7 @@ result.Should().BeLessThanOrEqualTo(10);
 | RAG Framework | HPD-RAG.Framework | New | LLM grounding, retrieval, embeddings ecosystem |
 | ML Framework | HPD-ML Framework | New | ML algorithms, data handling, model training |
 | Slack Socket Mode | HPD-Agent.Bots.Slack | New | Real-time WebSocket support for Slack |
-| Toolkit-Scoped Middleware | HPD-Agent Core | New | Per-toolkit middleware pipelines |
+| Harness-Scoped Middleware | HPD-Agent Core | New | Per-harness middleware pipelines |
 | Branch Sibling Navigation | HPD-Agent Core | New | Conversation UX improvements |
 | Headless UI Overhaul | hpd-agent-headless-ui | Enhanced | Better component reactivity, state management |
 | Graph Optimization | HPD-Graph | Enhanced | Performance: XxHash64, fast-path execution |
@@ -1096,13 +1096,13 @@ This release represents a fundamental evolution of the HPD-Agent Framework with 
 - RAG framework provides comprehensive retrieval capabilities
 - ML framework enables in-framework machine learning
 - Evaluation framework enables agent quality measurement
-- Middleware and toolkit scoping provide more flexible composition
+- Middleware and harness scoping provide more flexible composition
 - Project structure reorganization enables multi-framework monorepo
 
 **Recommended Review Areas** for integrators:
 - Agent management refactoring (most critical)
 - RAG framework capabilities and integration
-- Middleware scoping for toolkit composition
+- Middleware scoping for harness composition
 - Slack Socket Mode if using Slack adapter
 - New evaluation endpoints for agent monitoring
 

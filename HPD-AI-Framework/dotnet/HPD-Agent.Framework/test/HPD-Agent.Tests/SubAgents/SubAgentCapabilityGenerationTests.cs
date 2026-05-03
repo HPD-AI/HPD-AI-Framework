@@ -12,7 +12,7 @@ namespace HPD.Agent.Tests.SubAgents;
 /// </summary>
 public class SubAgentCapabilityGenerationTests
 {
-    private static ToolkitInfo MakeToolkit(string name = "MyToolkit") => new()
+    private static HarnessInfo MakeHarness(string name = "MyHarness") => new()
     {
         ClassName = name,
         Namespace = "Test.Namespace"
@@ -24,7 +24,7 @@ public class SubAgentCapabilityGenerationTests
         SubAgentName = name,
         MethodName = $"Create{name}",
         Description = "A test sub-agent",
-        ParentToolkitName = "MyToolkit",
+        ParentHarnessName = "MyHarness",
         SessionMode = SessionMode,
         IsStatic = true,
         RequiresPermission = true
@@ -38,9 +38,9 @@ public class SubAgentCapabilityGenerationTests
     public void T16_SharedSession_GeneratedCode_ContainsLoadSessionAsyncGuard()
     {
         var capability = MakeCapability("SharedSession");
-        var toolkit = MakeToolkit();
+        var harness = MakeHarness();
 
-        var code = capability.GenerateRegistrationCode(toolkit);
+        var code = capability.GenerateRegistrationCode(harness);
 
         // The guard must load the existing session before deciding to create
         code.Should().Contain("LoadSessionAsync");
@@ -56,9 +56,9 @@ public class SubAgentCapabilityGenerationTests
     public void T17_PerSession_GeneratedCode_AttachesParentStoreBeforeBuildAsync()
     {
         var capability = MakeCapability("PerSession");
-        var toolkit = MakeToolkit();
+        var harness = MakeHarness();
 
-        var code = capability.GenerateRegistrationCode(toolkit);
+        var code = capability.GenerateRegistrationCode(harness);
 
         // Store attachment must appear before BuildAsync in the generated output
         var storeAttachIndex = code.IndexOf("WithSessionStore(parentStore)", StringComparison.Ordinal);
@@ -79,9 +79,9 @@ public class SubAgentCapabilityGenerationTests
     public void T18_PerSession_GeneratedCode_DoesNotCallCreateSessionAsync_InPerSessionCase()
     {
         var capability = MakeCapability("PerSession");
-        var toolkit = MakeToolkit();
+        var harness = MakeHarness();
 
-        var code = capability.GenerateRegistrationCode(toolkit);
+        var code = capability.GenerateRegistrationCode(harness);
 
         // Locate the PerSession case block
         var perSessionCaseIndex = code.IndexOf("case SubAgentSessionMode.PerSession:", StringComparison.Ordinal);
@@ -108,9 +108,9 @@ public class SubAgentCapabilityGenerationTests
     public void T19_Stateless_GeneratedCode_AlwaysCallsCreateSessionAsyncWithNewGuid()
     {
         var capability = MakeCapability("Stateless");
-        var toolkit = MakeToolkit();
+        var harness = MakeHarness();
 
-        var code = capability.GenerateRegistrationCode(toolkit);
+        var code = capability.GenerateRegistrationCode(harness);
 
         // Locate the Stateless case block
         var statelessCaseIndex = code.IndexOf("case SubAgentSessionMode.Stateless:", StringComparison.Ordinal);

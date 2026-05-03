@@ -18,7 +18,7 @@ Each method offers distinct advantages and trade-offs.
 var agent = await new AgentBuilder()
     .WithProvider("openai", "gpt-4o")
     .WithInstructions("You are helpful...")
-    .WithToolkit<MyToolkit>()
+    .WithHarness<MyHarness>()
     .WithTelemetry()
     .BuildAsync();
 ```
@@ -44,10 +44,10 @@ var config = new AgentConfig
         ApiKey = "sk-..."
     },
     MaxAgenticIterations = 10,
-    Toolkits = new List<ToolkitReference>
+    Harneses = new List<HarnessReference>
     {
-        "CalculatorToolkit",
-        "FileToolkit"
+        "CalculatorHarness",
+        "FileHarness"
     }
 };
 
@@ -70,7 +70,7 @@ var agent = await config.BuildAsync();
         "ApiKey": "sk-..."
     },
     "MaxAgenticIterations": 10,
-    "Toolkits": ["CalculatorToolkit", "FileToolkit"]
+    "Harneses": ["CalculatorHarness", "FileHarness"]
 }
 ```
 ```csharp
@@ -113,7 +113,7 @@ var agent = await new AgentBuilder(config)
     .WithServiceProvider(services)
     .WithLogging()
     .WithTelemetry()
-    .WithToolkit<MyToolkit>()
+    .WithHarness<MyHarness>()
     .WithMiddleware<MyCustomMiddleware>()
     .BuildAsync();
 ```
@@ -143,7 +143,7 @@ var agent = await new AgentBuilder("agent-config.json")
     .WithServiceProvider(services)
     .WithLogging()
     .WithTelemetry()
-    .WithToolkit<MyToolkit>()
+    .WithHarness<MyHarness>()
     .WithMiddleware<MyCustomMiddleware>()
     .BuildAsync();
 ```
@@ -175,9 +175,9 @@ var agent1 = await new AgentBuilder()
     .WithMiddleware<MyCustomMiddleware>()
     .WithMiddleware<ErrorHandlingMiddleware>()
     .WithMiddleware<HistoryReductionMiddleware>()
-    .WithToolkit<Toolkit1>()
-    .WithToolkit<Toolkit2>()
-    .WithToolkit<Toolkit3>()
+    .WithHarness<Harness1>()
+    .WithHarness<Harness2>()
+    .WithHarness<Harness3>()
     // ... 20+ more configuration calls
     .BuildAsync();
 ```
@@ -198,7 +198,7 @@ var agent2 = await new AgentBuilder()
     .WithMiddleware<MyCustomMiddleware>()
     .WithMiddleware<ErrorHandlingMiddleware>()  
     .WithMiddleware<HistoryReductionMiddleware>()  
-    .WithToolkit<Toolkit2>()
+    .WithHarness<Harness2>()
     .BuildAsync();
 ```
 
@@ -230,10 +230,10 @@ var config = new AgentConfig
         ApiKey = "sk-..."
     },
     MaxAgenticIterations = 10,
-    Toolkits = new List<ToolkitReference>
+    Harneses = new List<HarnessReference>
     {
-        "CalculatorToolkit",
-        "FileToolkit"
+        "CalculatorHarness",
+        "FileHarness"
     },
     Middlewares = new List<MiddlewareReference>
     {
@@ -258,7 +258,7 @@ var agent1 = await new AgentBuilder(config)
 
 var agent2 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithToolkit<AdditionalTools>()  // Extend with more tools
+    .WithHarness<AdditionalTools>()  // Extend with more tools
     .BuildAsync();
 ```
 
@@ -277,7 +277,7 @@ var agent2 = await new AgentBuilder(config)
         "ApiKey": "sk-..."
     },
     "MaxAgenticIterations": 10,
-    "Toolkits": ["CalculatorToolkit", "FileToolkit"],
+    "Harneses": ["CalculatorHarness", "FileHarness"],
     "Middlewares": ["LoggingMiddleware"],
     "Caching": {
         "Enabled": true,
@@ -302,14 +302,14 @@ var agent1 = await new AgentBuilder("agent-config.json")
 
 var agent2 = await new AgentBuilder("agent-config.json")
     .WithServiceProvider(services)
-    .WithToolkit<AdditionalTools>()  // Extend with more tools
+    .WithHarness<AdditionalTools>()  // Extend with more tools
     .BuildAsync();
 ```
 
 </div>
 </div>
 
-**Key insight:** All configuration (toolkits, middlewares, caching, error handling, timeouts) is centralized once. The builder pattern lets you extend or override as needed. No repetition—just load and customize.
+**Key insight:** All configuration (harnesses, middlewares, caching, error handling, timeouts) is centralized once. The builder pattern lets you extend or override as needed. No repetition—just load and customize.
 
 ---
 
@@ -318,7 +318,7 @@ var agent2 = await new AgentBuilder("agent-config.json")
 `AgentBuilder` has three constructors:
 
 ```csharp
-// 1. Default — blank config, auto-discovers toolkits in the calling assembly
+// 1. Default — blank config, auto-discovers harnesses in the calling assembly
 new AgentBuilder()
 
 // 2. From a config object — starts with all values from the AgentConfig
@@ -337,14 +337,14 @@ var config = new AgentConfig
     SystemInstructions = "You are a support assistant.",
     Provider = new ProviderConfig { ProviderKey = "openai", ModelName = "gpt-4o" },
     MaxAgenticIterations = 15,
-    Toolkits = ["KnowledgeToolkit"],
+    Harneses = ["KnowledgeHarness"],
     Middlewares = ["LoggingMiddleware"]
 };
 
 var agent = await new AgentBuilder(config)
     // Runtime-only additions — these cannot be serialized to JSON:
     .WithServiceProvider(services)    // DI container
-    .WithToolkit<MyCompiledTool>()    // Native C# toolkit (type reference)
+    .WithHarness<MyCompiledTool>()    // Native C# harness (type reference)
     .WithMiddleware<CustomMiddleware>() // Native middleware
     .BuildAsync();
 ```
@@ -362,12 +362,12 @@ var agent = await new AgentBuilder(config)
 | `MaxAgenticIterations` | `int` | `10` | Maximum tool-calling iterations per turn |
 | `ContinuationExtensionAmount` | `int` | `3` | Extra iterations granted on continuation |
 | `Provider` | `ProviderConfig?` | `null` | LLM provider and model |
-| `Toolkits` | `List<ToolkitReference>` | `[]` | Toolkits to register |
+| `Harneses` | `List<HarnessReference>` | `[]` | Harneses to register |
 | `Middlewares` | `List<MiddlewareReference>` | `[]` | Middleware pipeline |
 | `Caching` | `CachingConfig?` | `null` | Prompt caching settings |
 | `ErrorHandling` | `ErrorHandlingConfig?` | `null` | Retry and timeout settings |
 | `HistoryReduction` | `HistoryReductionConfig?` | `null` | Conversation history summarization |
 | `AgenticLoop` | `AgenticLoopConfig?` | `null` | Loop timeout and control settings |
-| `Collapsing` | `CollapsingConfig` | enabled | Toolkit collapse/expand behaviour |
+| `Collapsing` | `CollapsingConfig` | enabled | Harness collapse/expand behaviour |
 | `Observability` | `ObservabilityConfig?` | `null` | Tracing and metrics |
 | `PreserveReasoningTokens` | `bool` | `false` | Keep extended reasoning in history |

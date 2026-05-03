@@ -1,5 +1,5 @@
 import type {
-	clientToolKitDefinition,
+	clientHarnessDefinition,
 	ClientToolInvokeResponse,
 	ClientToolInvokeRequestEvent,
 	AgentEvent,
@@ -92,7 +92,7 @@ export interface CreateWorkspaceOptions {
 	maxCachedBranches?: number;
 
 	/** Client tool groups to register on every stream */
-	clientToolKits?: clientToolKitDefinition[];
+	clientHarnesses?: clientHarnessDefinition[];
 
 	/** Handler for client tool invocations */
 	onClientToolInvoke?: (req: ClientToolInvokeRequestEvent) => Promise<ClientToolInvokeResponse>;

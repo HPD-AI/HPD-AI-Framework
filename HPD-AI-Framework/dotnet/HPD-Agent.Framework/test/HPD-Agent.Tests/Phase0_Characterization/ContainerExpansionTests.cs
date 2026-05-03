@@ -9,7 +9,7 @@ namespace HPD.Agent.Tests.Phase0_Characterization;
 /// Phase 0: Container Expansion Characterization Tests
 ///
 /// These tests capture the CURRENT behavior of container expansion before refactoring.
-/// Container expansion is the mechanism where Toolkits are lazy-loaded via two-turn flow:
+/// Container expansion is the mechanism where Harneses are lazy-loaded via two-turn flow:
 /// - Turn 1: Container function is visible and called
 /// - Turn 2: Container is hidden, individual functions become visible
 ///
@@ -34,7 +34,7 @@ public class ContainerExpansionTests : AgentTestBase
             callId: "call_container",
             args: new Dictionary<string, object?>());
 
-        // Turn 2: LLM calls an individual function from the expanded Toolkit
+        // Turn 2: LLM calls an individual function from the expanded Harness
         fakeLLM.EnqueueToolCall(
             functionName: "Add",
             callId: "call_add",
@@ -43,12 +43,12 @@ public class ContainerExpansionTests : AgentTestBase
         // Turn 3: LLM provides final response
         fakeLLM.EnqueueTextResponse("Math operation completed successfully");
 
-        // Create Collapsed Toolkit with container and members
-        var (container, members) = CollapsedToolkitTestHelper.CreateCollapsedToolkit(
+        // Create Collapsed Harness with container and members
+        var (container, members) = CollapsedHarnessTestHelper.CreateCollapsedHarness(
             "MathTools",
             "Mathematical operations",
-            CollapsedToolkitTestHelper.MemberFunc("Add", "Adds numbers", () => "Sum: 42"),
-            CollapsedToolkitTestHelper.MemberFunc("Multiply", "Multiplies numbers", () => "Product: 100"));
+            CollapsedHarnessTestHelper.MemberFunc("Add", "Adds numbers", () => "Sum: 42"),
+            CollapsedHarnessTestHelper.MemberFunc("Multiply", "Multiplies numbers", () => "Product: 100"));
 
         // Note: We need Collapsing enabled for container expansion to work
         var config = DefaultConfig();
@@ -116,7 +116,7 @@ public class ContainerExpansionTests : AgentTestBase
 
         // Turn 1: Expand container
         fakeLLM.EnqueueToolCall(
-            functionName: "StringToolkit",
+            functionName: "StringHarness",
             callId: "call_container",
             args: new Dictionary<string, object?>());
 
@@ -135,11 +135,11 @@ public class ContainerExpansionTests : AgentTestBase
         // Turn 4: Final response
         fakeLLM.EnqueueTextResponse("String operations completed");
 
-        var (container, members) = CollapsedToolkitTestHelper.CreateCollapsedToolkit(
-            "StringToolkit",
+        var (container, members) = CollapsedHarnessTestHelper.CreateCollapsedHarness(
+            "StringHarness",
             "String operations",
-            CollapsedToolkitTestHelper.MemberFunc("Uppercase", "Convert to uppercase", () => "HELLO"),
-            CollapsedToolkitTestHelper.MemberFunc("Lowercase", "Convert to lowercase", () => "hello"));
+            CollapsedHarnessTestHelper.MemberFunc("Uppercase", "Convert to uppercase", () => "HELLO"),
+            CollapsedHarnessTestHelper.MemberFunc("Lowercase", "Convert to lowercase", () => "hello"));
 
         var config = DefaultConfig();
         config.Collapsing = new CollapsingConfig { Enabled = true };
@@ -170,7 +170,7 @@ public class ContainerExpansionTests : AgentTestBase
         toolCalls.Should().HaveCountGreaterThanOrEqualTo(3, "container + 2 member functions");
 
         // Container called once
-        toolCalls.Where(e => e.Name == "StringToolkit").Should().ContainSingle("container should be called once");
+        toolCalls.Where(e => e.Name == "StringHarness").Should().ContainSingle("container should be called once");
 
         // Both members called
         toolCalls.Should().Contain(e => e.Name == "Uppercase", "Uppercase member should be called");
@@ -179,7 +179,7 @@ public class ContainerExpansionTests : AgentTestBase
 
     /// <summary>
     /// Test 3: Non-Collapsed functions remain visible alongside containers.
-    /// Verifies that regular (non-Collapsed) functions coexist with Collapsed Toolkits.
+    /// Verifies that regular (non-Collapsed) functions coexist with Collapsed Harneses.
     /// </summary>
     [Fact]
     public async Task CurrentBehavior_ContainerExpansion_MixedCollapsedAndNonCollapsed()
@@ -195,11 +195,11 @@ public class ContainerExpansionTests : AgentTestBase
 
         // Then expand a container
         fakeLLM.EnqueueToolCall(
-            functionName: "UtilsToolkit",
+            functionName: "UtilsHarness",
             callId: "call_container",
             args: new Dictionary<string, object?>());
 
-        // Then call a member from the expanded Toolkit
+        // Then call a member from the expanded Harness
         fakeLLM.EnqueueToolCall(
             functionName: "Echo",
             callId: "call_echo",
@@ -209,16 +209,16 @@ public class ContainerExpansionTests : AgentTestBase
         fakeLLM.EnqueueTextResponse("Operations completed");
 
         // Create non-Collapsed function
-        var getTime = CollapsedToolkitTestHelper.CreateSimpleFunction(
+        var getTime = CollapsedHarnessTestHelper.CreateSimpleFunction(
             "GetTime",
             "Gets current time",
             () => DateTime.UtcNow.ToString("O"));
 
-        // Create Collapsed Toolkit
-        var (container, members) = CollapsedToolkitTestHelper.CreateCollapsedToolkit(
-            "UtilsToolkit",
+        // Create Collapsed Harness
+        var (container, members) = CollapsedHarnessTestHelper.CreateCollapsedHarness(
+            "UtilsHarness",
             "Utility functions",
-            CollapsedToolkitTestHelper.MemberFunc("Echo", "Echoes input", () => "Echo: test"));
+            CollapsedHarnessTestHelper.MemberFunc("Echo", "Echoes input", () => "Echo: test"));
 
         var config = DefaultConfig();
         config.Collapsing = new CollapsingConfig { Enabled = true };
@@ -249,7 +249,7 @@ public class ContainerExpansionTests : AgentTestBase
         toolCalls.Should().HaveCountGreaterThanOrEqualTo(3, "non-Collapsed + container + member");
 
         toolCalls.Should().Contain(e => e.Name == "GetTime", "non-Collapsed function should be callable");
-        toolCalls.Should().Contain(e => e.Name == "UtilsToolkit", "container should be callable");
+        toolCalls.Should().Contain(e => e.Name == "UtilsHarness", "container should be callable");
         toolCalls.Should().Contain(e => e.Name == "Echo", "member should be callable after expansion");
     }
 }

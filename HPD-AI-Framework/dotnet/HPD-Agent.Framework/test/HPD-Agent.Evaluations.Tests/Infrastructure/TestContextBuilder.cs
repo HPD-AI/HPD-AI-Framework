@@ -45,12 +45,12 @@ internal sealed class TestContextBuilder
 
     public TestContextBuilder WithToolCall(string name, string callId = "call-1",
         string argsJson = "{}", string result = "ok", bool permissionDenied = false,
-        TimeSpan? duration = null, string? toolkitName = null)
+        TimeSpan? duration = null, string? harnessName = null)
     {
         _toolCalls.Add(new ToolCallRecord(
             CallId: callId,
             Name: name,
-            ToolkitName: toolkitName,
+            HarnessName: harnessName,
             ArgumentsJson: argsJson,
             Result: result,
             Duration: duration ?? TimeSpan.FromMilliseconds(50),

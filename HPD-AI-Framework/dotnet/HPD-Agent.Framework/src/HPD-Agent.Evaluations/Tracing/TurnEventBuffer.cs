@@ -32,7 +32,7 @@ internal sealed class TurnEventBuffer
     // ── Tool call timing ──────────────────────────────────────────────────────
 
     // Key = callId
-    private readonly ConcurrentDictionary<string, (string Name, string? ToolkitName, DateTimeOffset StartedAt)> _toolCallStarts = new();
+    private readonly ConcurrentDictionary<string, (string Name, string? HarnessName, DateTimeOffset StartedAt)> _toolCallStarts = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _toolCallEnds = new();
 
     // ── Permission denials ─────────────────────────────────────────────────────
@@ -57,8 +57,8 @@ internal sealed class TurnEventBuffer
     public void RecordIterationFinished(int iteration, DateTimeOffset at) =>
         _iterationEndTimes[iteration] = at;
 
-    public void RecordToolCallStarted(string callId, string name, string? toolkitName, DateTimeOffset at) =>
-        _toolCallStarts[callId] = (name, toolkitName, at);
+    public void RecordToolCallStarted(string callId, string name, string? harnessName, DateTimeOffset at) =>
+        _toolCallStarts[callId] = (name, harnessName, at);
 
     public void RecordToolCallEnded(string callId, DateTimeOffset at) =>
         _toolCallEnds[callId] = at;
@@ -84,10 +84,10 @@ internal sealed class TurnEventBuffer
         return TimeSpan.Zero;
     }
 
-    public (string Name, string? ToolkitName)? GetToolCallInfo(string callId)
+    public (string Name, string? HarnessName)? GetToolCallInfo(string callId)
     {
         if (_toolCallStarts.TryGetValue(callId, out var entry))
-            return (entry.Name, entry.ToolkitName);
+            return (entry.Name, entry.HarnessName);
         return null;
     }
 

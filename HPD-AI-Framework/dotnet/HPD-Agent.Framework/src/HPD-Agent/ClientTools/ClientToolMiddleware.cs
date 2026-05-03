@@ -42,11 +42,11 @@ public class ClientToolMiddleware : IAgentMiddleware
     // ============================================
 
     /// <summary>
-    /// Process initial Toolkit registration from AgentClientInput.
-    /// Tools are always inside Toolkits - this is the only way to register Client tools.
+    /// Process initial Harness registration from AgentClientInput.
+    /// Tools are always inside Harneses - this is the only way to register Client tools.
     ///
-    /// Registration is ATOMIC: if any Toolkit fails validation (including cross-Toolkit
-    /// skill references), NO Toolkits are registered. This prevents partial state.
+    /// Registration is ATOMIC: if any Harness fails validation (including cross-Harness
+    /// skill references), NO Harneses are registered. This prevents partial state.
     /// </summary>
     public Task BeforeMessageTurnAsync(BeforeMessageTurnContext context, CancellationToken ct)
     {
@@ -63,43 +63,43 @@ public class ClientToolMiddleware : IAgentMiddleware
             : existingState;
 
         // =============================================
-        // PHASE 1: Register all Toolkits (tools only)
+        // PHASE 1: Register all Harneses (tools only)
         // Build pending list without committing to state
         // =============================================
-        var pendingToolkits = new List<clientToolKitDefinition>();
+        var pendingHarneses = new List<clientHarnessDefinition>();
 
-        if (clientinput.clientToolKits != null)
+        if (clientinput.clientHarnesses != null)
         {
-            foreach (var Toolkit in clientinput.clientToolKits)
+            foreach (var Harness in clientinput.clientHarnesses)
             {
-                // Validate Toolkit structure (name, description, tools)
-                Toolkit.Validate();
+                // Validate Harness structure (name, description, tools)
+                Harness.Validate();
 
                 // Validate JSON Schema if configured
                 if (_config.ValidateSchemaOnRegistration)
                 {
-                    foreach (var tool in Toolkit.Tools)
+                    foreach (var tool in Harness.Tools)
                     {
                         ValidateToolSchema(tool);
                     }
                 }
 
-                pendingToolkits.Add(Toolkit);
-                state = state.WithRegisteredToolkit(Toolkit);
+                pendingHarneses.Add(Harness);
+                state = state.WithRegisteredHarness(Harness);
             }
         }
 
         // =============================================
-        // PHASE 2: Validate ALL cross-Toolkit references
+        // PHASE 2: Validate ALL cross-Harness references
         // If any skill references a non-existent tool, fail here
         // =============================================
-        foreach (var Toolkit in pendingToolkits)
+        foreach (var Harness in pendingHarneses)
         {
-            if (Toolkit.Skills == null) continue;
+            if (Harness.Skills == null) continue;
 
-            foreach (var skill in Toolkit.Skills)
+            foreach (var skill in Harness.Skills)
             {
-                skill.ValidateReferences(Toolkit.Name, state.RegisteredToolKits);
+                skill.ValidateReferences(Harness.Name, state.RegisteredHarnesses);
             }
         }
 
@@ -107,12 +107,12 @@ public class ClientToolMiddleware : IAgentMiddleware
         // PHASE 3: All validations passed - apply settings
         // =============================================
 
-        // Set initial expanded Toolkits
+        // Set initial expanded Harneses
         if (clientinput.ExpandedContainers != null)
         {
             foreach (var toolName in clientinput.ExpandedContainers)
             {
-                state = state.WithExpandedToolkit(toolName);
+                state = state.WithExpandedHarness(toolName);
             }
         }
 
@@ -146,9 +146,9 @@ public class ClientToolMiddleware : IAgentMiddleware
         });
 
         // Emit registration confirmation (optional - works without EventCoordinator)
-        context.TryEmit(new clientToolKitsRegisteredEvent(
-           RegisteredToolKits: state.RegisteredToolKits.Keys.ToList(),
-            TotalTools: state.RegisteredToolKits.Values.Sum(p => p.Tools.Count),
+        context.TryEmit(new clientHarnessesRegisteredEvent(
+           RegisteredHarnesses: state.RegisteredHarnesses.Keys.ToList(),
+            TotalTools: state.RegisteredHarnesses.Values.Sum(p => p.Tools.Count),
             Timestamp: DateTimeOffset.UtcNow));
 
         return Task.CompletedTask;
@@ -190,7 +190,7 @@ public class ClientToolMiddleware : IAgentMiddleware
     public Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken ct)
     {
         var state = context.Analyze(s => s.MiddlewareState.ClientTool());
-        if (state == null || state.RegisteredToolKits.Count == 0)
+        if (state == null || state.RegisteredHarnesses.Count == 0)
             return Task.CompletedTask;
 
         // Apply any pending augmentation from previous iteration
@@ -206,8 +206,8 @@ public class ClientToolMiddleware : IAgentMiddleware
             });
         }
 
-        // Convert Toolkits to AIFunctions
-        var visibleAIFunctions = ConvertToolkitsToAIFunctions(state);
+        // Convert Harneses to AIFunctions
+        var visibleAIFunctions = ConvertHarnesesToAIFunctions(state);
 
         // Clone options and add Client tools
         if (context.Options != null)
@@ -248,40 +248,40 @@ public class ClientToolMiddleware : IAgentMiddleware
         var aug = state.PendingAugmentation;
         if (aug == null) return state;
 
-        // Remove Toolkits
-        if (aug.RemoveToolkits != null)
+        // Remove Harneses
+        if (aug.RemoveHarneses != null)
         {
-            foreach (var toolName in aug.RemoveToolkits)
+            foreach (var toolName in aug.RemoveHarneses)
             {
-                state = state.WithoutRegisteredToolkit(toolName);
+                state = state.WithoutRegisteredHarness(toolName);
             }
         }
 
-        // Inject Toolkits
-        if (aug.InjectToolkits != null)
+        // Inject Harneses
+        if (aug.InjectHarneses != null)
         {
-            foreach (var Toolkit in aug.InjectToolkits)
+            foreach (var Harness in aug.InjectHarneses)
             {
-                Toolkit.Validate();
-                state = state.WithRegisteredToolkit(Toolkit);
+                Harness.Validate();
+                state = state.WithRegisteredHarness(Harness);
             }
         }
 
-        // Expand Toolkits
-        if (aug.ExpandToolkits != null)
+        // Expand Harneses
+        if (aug.ExpandHarneses != null)
         {
-            foreach (var toolName in aug.ExpandToolkits)
+            foreach (var toolName in aug.ExpandHarneses)
             {
-                state = state.WithExpandedToolkit(toolName);
+                state = state.WithExpandedHarness(toolName);
             }
         }
 
-        // Collapse Toolkits
-        if (aug.CollapseToolkits != null)
+        // Collapse Harneses
+        if (aug.CollapseHarneses != null)
         {
-            foreach (var toolName in aug.CollapseToolkits)
+            foreach (var toolName in aug.CollapseHarneses)
             {
-                state = state.WithCollapsedToolkit(toolName);
+                state = state.WithCollapsedHarness(toolName);
             }
         }
 
@@ -334,44 +334,44 @@ public class ClientToolMiddleware : IAgentMiddleware
     }
 
     /// <summary>
-    /// Converts Client Toolkits to AIFunctions using ExternalToolCollapsingWrapper.
+    /// Converts Client Harneses to AIFunctions using ExternalToolCollapsingWrapper.
     /// </summary>
-    private List<AIFunction> ConvertToolkitsToAIFunctions(ClientToolStateData state)
+    private List<AIFunction> ConvertHarnesesToAIFunctions(ClientToolStateData state)
     {
         var allFunctions = new List<AIFunction>();
 
-        foreach (var (toolName, Toolkit) in state.RegisteredToolKits)
+        foreach (var (toolName, Harness) in state.RegisteredHarnesses)
         {
             // Convert ClientToolDefinitions to AIFunctions
-            var toolAIFunctions = Toolkit.Tools
+            var toolAIFunctions = Harness.Tools
                 .Where(t => !state.HiddenTools.Contains(t.Name))
                 .Select(t => ConvertToolToAIFunction(t, toolName))
                 .ToList();
 
             // Convert skills to AIFunctions (if any)
             var skillAIFunctions = new List<AIFunction>();
-            if (Toolkit.Skills != null)
+            if (Harness.Skills != null)
             {
-                foreach (var skill in Toolkit.Skills)
+                foreach (var skill in Harness.Skills)
                 {
                     var skillFunction = ConvertSkillToAIFunction(skill, toolName);
                     skillAIFunctions.Add(skillFunction);
                 }
             }
 
-            // Determine if this Toolkit should be collapsed
-            var shouldCollapse = Toolkit.StartCollapsed && !state.ExpandedToolkits.Contains(toolName);
+            // Determine if this Harness should be collapsed
+            var shouldCollapse = Harness.StartCollapsed && !state.ExpandedHarneses.Contains(toolName);
 
             if (shouldCollapse)
             {
                 // Use ExternalToolCollapsingWrapper pattern - creates container + Collapsed tools
-                var (container, CollapsedTools) = ExternalToolCollapsingWrapper.WrapclientToolKit(
+                var (container, CollapsedTools) = ExternalToolCollapsingWrapper.WrapclientHarness(
                     toolName,
-                    Toolkit.Description!,  // Validated to exist for collapsed Toolkits
+                    Harness.Description!,  // Validated to exist for collapsed Harneses
                     toolAIFunctions,
                     maxFunctionNamesInDescription: 10,
-                    FunctionResult: Toolkit.FunctionResult,
-                   SystemPrompt: Toolkit.SystemPrompt);
+                    FunctionResult: Harness.FunctionResult,
+                   SystemPrompt: Harness.SystemPrompt);
 
                 allFunctions.Add(container);
                 allFunctions.AddRange(CollapsedTools);
@@ -414,8 +414,8 @@ public class ClientToolMiddleware : IAgentMiddleware
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsClientTool"] = true,
-                    ["clientToolKitName"] = toolName,
-                    ["SourceType"] = "clientToolKit"
+                    ["clientHarnessName"] = toolName,
+                    ["SourceType"] = "clientHarness"
                 }
             });
     }
@@ -444,27 +444,27 @@ public class ClientToolMiddleware : IAgentMiddleware
 
         // Build referenced function names for ToolVisibilityManager
         var referencedFunctions = Array.Empty<string>();
-        var referencedToolkits = Array.Empty<string>();
+        var referencedHarneses = Array.Empty<string>();
         if (skill.References != null && skill.References.Count > 0)
         {
             var funcList = new List<string>();
-            var ToolkitSet = new HashSet<string>();
+            var HARNESSet = new HashSet<string>();
             foreach (var reference in skill.References)
             {
                 // Build qualified function name
                 var qualifiedName = string.IsNullOrEmpty(reference.ToolsetName)
                     ? reference.ToolName  // Local reference
-                    : $"{reference.ToolsetName}.{reference.ToolName}";  // Cross-Toolkit reference
+                    : $"{reference.ToolsetName}.{reference.ToolName}";  // Cross-Harness reference
                 funcList.Add(qualifiedName);
 
-                // Track referenced Toolkits for visibility
+                // Track referenced Harneses for visibility
                 if (!string.IsNullOrEmpty(reference.ToolsetName))
                 {
-                    ToolkitSet.Add(reference.ToolsetName);
+                    HARNESSet.Add(reference.ToolsetName);
                 }
             }
             referencedFunctions = funcList.ToArray();
-            referencedToolkits = ToolkitSet.ToArray();
+            referencedHarneses = HARNESSet.ToArray();
         }
 
         return HPDAIFunctionFactory.Create(
@@ -484,8 +484,8 @@ public class ClientToolMiddleware : IAgentMiddleware
                     ["IsSkill"] = true,
                     ["IsContainer"] = true,  // Skills are containers (for ToolVisibilityManager)
                     ["IsClientSkill"] = true,
-                    ["clientToolKitName"] = toolName,
-                    ["SourceType"] = "clientToolKit",
+                    ["clientHarnessName"] = toolName,
+                    ["SourceType"] = "clientHarness",
                     // Dual-context architecture: FunctionResult for ephemeral, SystemPrompt for persistent
                     ["FunctionResult"] = skill.FunctionResult,
                     ["SystemPrompt"] = skill.SystemPrompt,
@@ -493,7 +493,7 @@ public class ClientToolMiddleware : IAgentMiddleware
                     ["Instructions"] = skill.SystemPrompt,
                     // These are used by ToolVisibilityManager for visibility rules
                     ["ReferencedFunctions"] = referencedFunctions,
-                    ["ReferencedToolkits"] = referencedToolkits
+                    ["ReferencedHarneses"] = referencedHarneses
                 }
             });
     }

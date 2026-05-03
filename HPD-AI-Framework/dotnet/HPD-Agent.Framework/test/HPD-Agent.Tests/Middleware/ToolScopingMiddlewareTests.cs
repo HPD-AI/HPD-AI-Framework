@@ -23,7 +23,7 @@ public class ContainerMiddlewareTests
     public async Task BeforeIteration_WhenDisabled_DoesNotFilterTools()
     {
         // Arrange
-        var (container, members) = CreateCollapsedToolkit("TestToolkit", "Test Toolkit", "Add", "Subtract");
+        var (container, members) = CreateCollapsedHarness("TestHarness", "Test Harness", "Add", "Subtract");
         var allTools = new List<AITool> { container, members[0], members[1] };
 
         var middleware = new ContainerMiddleware(
@@ -44,7 +44,7 @@ public class ContainerMiddlewareTests
     public async Task BeforeIteration_WhenEnabled_FiltersToVisibleTools()
     {
         // Arrange
-        var (container, members) = CreateCollapsedToolkit("TestToolkit", "Test Toolkit", "Add", "Subtract");
+        var (container, members) = CreateCollapsedHarness("TestHarness", "Test Harness", "Add", "Subtract");
         var nonCollapsed = CreateNonCollapsedFunction("Echo");
         var allTools = new List<AITool> { container, members[0], members[1], nonCollapsed };
 
@@ -60,17 +60,17 @@ public class ContainerMiddlewareTests
 
         // Assert - only container and non-Collapsed functions visible (members hidden)
         var toolNames = context.Options.Tools.OfType<AIFunction>().Select(f => f.Name).ToList();
-        Assert.Contains("TestToolkit", toolNames);
+        Assert.Contains("TestHarness", toolNames);
         Assert.Contains("Echo", toolNames);
         Assert.DoesNotContain("Add", toolNames);
         Assert.DoesNotContain("Subtract", toolNames);
     }
 
     [Fact]
-    public async Task BeforeIteration_WhenToolkitExpanded_ShowsMemberFunctions()
+    public async Task BeforeIteration_WhenHarnessExpanded_ShowsMemberFunctions()
     {
         // Arrange
-        var (container, members) = CreateCollapsedToolkit("TestToolkit", "Test Toolkit", "Add", "Subtract");
+        var (container, members) = CreateCollapsedHarness("TestHarness", "Test Harness", "Add", "Subtract");
         var allTools = new List<AITool> { container, members[0], members[1] };
 
         var middleware = new ContainerMiddleware(
@@ -78,9 +78,9 @@ public class ContainerMiddlewareTests
             ImmutableHashSet<string>.Empty,
             null, null, null, new CollapsingConfig { Enabled = true });
 
-        // State with expanded Toolkit
+        // State with expanded Harness
         var state = CreateEmptyState();
-        var CollapsingState = new CollapsingStateData().WithExpandedContainer("TestToolkit");
+        var CollapsingState = new CollapsingStateData().WithExpandedContainer("TestHarness");
         state = state with { MiddlewareState = state.MiddlewareState.SetState("HPD.Agent.ContainerMiddlewareState", CollapsingState) };
 
         var context = CreateContext(state: state, options: new ChatOptions { Tools = allTools });
@@ -88,7 +88,7 @@ public class ContainerMiddlewareTests
         // Act
         await middleware.BeforeIterationAsync(context, CancellationToken.None);
 
-        // Assert - all functions visible when Toolkit is expanded
+        // Assert - all functions visible when Harness is expanded
         var toolNames = context.Options.Tools.OfType<AIFunction>().Select(f => f.Name).ToList();
         Assert.Contains("Add", toolNames);
         Assert.Contains("Subtract", toolNames);
@@ -149,7 +149,7 @@ public class ContainerMiddlewareTests
     public async Task BeforeToolExecution_WhenDisabled_DoesNotDetectContainers()
     {
         // Arrange
-        var (container, _) = CreateCollapsedToolkit("TestToolkit", "Test Toolkit", "Add");
+        var (container, _) = CreateCollapsedHarness("TestHarness", "Test Harness", "Add");
         var allTools = new List<AITool> { container };
 
         var middleware = new ContainerMiddleware(
@@ -157,7 +157,7 @@ public class ContainerMiddlewareTests
             ImmutableHashSet<string>.Empty,
             null, null, null, new CollapsingConfig { Enabled = false });
 
-        var toolCalls = new List<FunctionCallContent> { CreateToolCall("TestToolkit") };
+        var toolCalls = new List<FunctionCallContent> { CreateToolCall("TestHarness") };
         var context = CreateBeforeToolExecutionContext(toolCalls: toolCalls);
 
         // Act
@@ -189,10 +189,10 @@ public class ContainerMiddlewareTests
     }
 
     [Fact]
-    public async Task BeforeToolExecution_DetectsToolkitContainer_UpdatesState()
+    public async Task BeforeToolExecution_DetectsHarnessContainer_UpdatesState()
     {
         // Arrange
-        var (container, members) = CreateCollapsedToolkit("FinancialToolkit", "Financial tools", "Add", "Subtract");
+        var (container, members) = CreateCollapsedHarness("FinancialHarness", "Financial tools", "Add", "Subtract");
         var allTools = new List<AITool> { container, members[0], members[1] };
 
         var middleware = new ContainerMiddleware(
@@ -200,20 +200,20 @@ public class ContainerMiddlewareTests
             ImmutableHashSet<string>.Empty);
 
         // Create tool calls that invoke the container
-        var toolCalls = new List<FunctionCallContent> { CreateToolCall("FinancialToolkit") };
+        var toolCalls = new List<FunctionCallContent> { CreateToolCall("FinancialHarness") };
         var context = CreateBeforeToolExecutionContext(toolCalls: toolCalls);
 
         // Act
         await middleware.BeforeToolExecutionAsync(context, CancellationToken.None);
 
-        // Assert - state updated with expanded Toolkit
+        // Assert - state updated with expanded Harness
         // State is immediately updated in V2
         var pendingState = context.State;
         Assert.NotNull(pendingState);
 
         // Check Collapsing state
         var containerState = pendingState.MiddlewareState.GetState<ContainerMiddlewareState>("HPD.Agent.ContainerMiddlewareState");
-        Assert.Contains("FinancialToolkit", containerState?.ExpandedContainers ?? ImmutableHashSet<string>.Empty);
+        Assert.Contains("FinancialHarness", containerState?.ExpandedContainers ?? ImmutableHashSet<string>.Empty);
     }
 
     [Fact]
@@ -302,10 +302,10 @@ public class ContainerMiddlewareTests
     public async Task BeforeToolExecution_MultipleContainers_ExpandsAll()
     {
         // Arrange
-        var (Toolkit1, _) = CreateCollapsedToolkit("Toolkit1", "First Toolkit", "A");
-        var (Toolkit2, _) = CreateCollapsedToolkit("Toolkit2", "Second Toolkit", "B");
+        var (Harness1, _) = CreateCollapsedHarness("Harness1", "First Harness", "A");
+        var (Harness2, _) = CreateCollapsedHarness("Harness2", "Second Harness", "B");
         var skill = CreateSkillContainer("Skill1", "First skill");
-        var allTools = new List<AITool> { Toolkit1, Toolkit2, skill };
+        var allTools = new List<AITool> { Harness1, Harness2, skill };
 
         var middleware = new ContainerMiddleware(
             allTools,
@@ -314,8 +314,8 @@ public class ContainerMiddlewareTests
         // Create tool calls that invoke all three containers
         var toolCalls = new List<FunctionCallContent>
         {
-            CreateToolCall("Toolkit1"),
-            CreateToolCall("Toolkit2"),
+            CreateToolCall("Harness1"),
+            CreateToolCall("Harness2"),
             CreateToolCall("Skill1")
         };
         var context = CreateBeforeToolExecutionContext(toolCalls: toolCalls);
@@ -329,8 +329,8 @@ public class ContainerMiddlewareTests
 
         var CollapsingState = pendingState.MiddlewareState.GetState<ContainerMiddlewareState>("HPD.Agent.ContainerMiddlewareState");
         Assert.NotNull(CollapsingState);
-        Assert.Contains("Toolkit1", CollapsingState!.ExpandedContainers);
-        Assert.Contains("Toolkit2", CollapsingState.ExpandedContainers);
+        Assert.Contains("Harness1", CollapsingState!.ExpandedContainers);
+        Assert.Contains("Harness2", CollapsingState.ExpandedContainers);
         Assert.Contains("Skill1", CollapsingState.ExpandedContainers);
     }
 
@@ -339,32 +339,32 @@ public class ContainerMiddlewareTests
     //      
 
     [Fact]
-    public async Task FullLifecycle_ExpandToolkit_NextIterationShowsFunctions()
+    public async Task FullLifecycle_ExpandHarness_NextIterationShowsFunctions()
     {
         // Arrange
-        var (container, members) = CreateCollapsedToolkit("TestToolkit", "Test Toolkit", "Add", "Subtract");
+        var (container, members) = CreateCollapsedHarness("TestHarness", "Test Harness", "Add", "Subtract");
         var allTools = new List<AITool> { container, members[0], members[1] };
 
         var middleware = new ContainerMiddleware(
             allTools,
             ImmutableHashSet<string>.Empty);
 
-        // Iteration 1: Toolkit not expanded
+        // Iteration 1: Harness not expanded
         var beforeIter1 = CreateIterationContext(options: new ChatOptions { Tools = allTools });
 
         await middleware.BeforeIterationAsync(beforeIter1, CancellationToken.None);
 
         var visibleIter1 = beforeIter1.Options.Tools.OfType<AIFunction>().Select(f => f.Name).ToList();
-        Assert.Contains("TestToolkit", visibleIter1);
+        Assert.Contains("TestHarness", visibleIter1);
         Assert.DoesNotContain("Add", visibleIter1);
 
         // Simulate LLM calling the container
         var toolExecContext = CreateBeforeToolExecutionContext(
-            toolCalls: new List<FunctionCallContent> { CreateToolCall("TestToolkit") },
+            toolCalls: new List<FunctionCallContent> { CreateToolCall("TestHarness") },
             state: beforeIter1.State);
         await middleware.BeforeToolExecutionAsync(toolExecContext, CancellationToken.None);
 
-        // Iteration 2: Toolkit now expanded
+        // Iteration 2: Harness now expanded
         var expandedState = toolExecContext.State!;
         var beforeIter2 = CreateIterationContext(state: expandedState, options: new ChatOptions { Tools = allTools });
 
@@ -385,10 +385,10 @@ public class ContainerMiddlewareTests
     {
         var state = new CollapsingStateData();
 
-        var updated = state.WithExpandedContainer("Toolkit1");
+        var updated = state.WithExpandedContainer("Harness1");
 
-        Assert.Contains("Toolkit1", updated.ExpandedContainers);
-        Assert.DoesNotContain("Toolkit1", state.ExpandedContainers); // Original unchanged
+        Assert.Contains("Harness1", updated.ExpandedContainers);
+        Assert.DoesNotContain("Harness1", state.ExpandedContainers); // Original unchanged
     }
 
     [Fact]
@@ -490,8 +490,8 @@ public class ContainerMiddlewareTests
             (object? args, CancellationToken ct) => Task.FromResult<object?>("expanded"),
             new AIFunctionFactoryOptions
             {
-                Name = "ExpandToolkit",
-                Description = "Expands Toolkit",
+                Name = "ExpandHarness",
+                Description = "Expands Harness",
                 AdditionalProperties = new Dictionary<string, object?> { ["IsContainer"] = true }
             });
 
@@ -511,22 +511,22 @@ public class ContainerMiddlewareTests
             // Assistant message with function calls
             new(ChatRole.Assistant, new List<AIContent>
             {
-                new FunctionCallContent("call1", "ExpandToolkit"),  // Container call
+                new FunctionCallContent("call1", "ExpandHarness"),  // Container call
                 new FunctionCallContent("call2", "Calculate"),     // Regular call
                 new FunctionCallContent("call3", "GetGreeting")    // Regular call
             }),
             // Tool message with results
             new(ChatRole.Tool, new List<AIContent>
             {
-                new FunctionResultContent("call1", result: "ToolkitExpanded"),  // Container
+                new FunctionResultContent("call1", result: "HarnessExpanded"),  // Container
                 new FunctionResultContent("call2", result: "42"),              // Regular
                 new FunctionResultContent("call3", result: "Hello")            // Regular
             })
         };
 
-        // Create state with ExpandToolkit in ContainersExpandedThisTurn
+        // Create state with ExpandHarness in ContainersExpandedThisTurn
         var state = CreateEmptyState();
-        var collapsingState = new CollapsingStateData().WithExpandedContainer("ExpandToolkit");
+        var collapsingState = new CollapsingStateData().WithExpandedContainer("ExpandHarness");
         state = state with { MiddlewareState = state.MiddlewareState.SetState("HPD.Agent.ContainerMiddlewareState", collapsingState) };
 
         var context = CreateAfterMessageTurnContext(state: state, turnHistory: turnHistory);
@@ -608,7 +608,7 @@ public class ContainerMiddlewareTests
             (object? args, CancellationToken ct) => Task.FromResult<object?>("expanded"),
             new AIFunctionFactoryOptions
             {
-                Name = "ExpandToolkitA",
+                Name = "ExpandHarnessA",
                 Description = "Expands A",
                 AdditionalProperties = new Dictionary<string, object?> { ["IsContainer"] = true }
             });
@@ -617,7 +617,7 @@ public class ContainerMiddlewareTests
             (object? args, CancellationToken ct) => Task.FromResult<object?>("expanded"),
             new AIFunctionFactoryOptions
             {
-                Name = "ExpandToolkitB",
+                Name = "ExpandHarnessB",
                 Description = "Expands B",
                 AdditionalProperties = new Dictionary<string, object?> { ["IsContainer"] = true }
             });
@@ -634,15 +634,15 @@ public class ContainerMiddlewareTests
             // Assistant message with function calls
             new(ChatRole.Assistant, new List<AIContent>
             {
-                new FunctionCallContent("call1", "ExpandToolkitA"),
-                new FunctionCallContent("call2", "ExpandToolkitB"),
+                new FunctionCallContent("call1", "ExpandHarnessA"),
+                new FunctionCallContent("call2", "ExpandHarnessB"),
                 new FunctionCallContent("call3", "DoWork")
             }),
             // Tool message with results
             new(ChatRole.Tool, new List<AIContent>
             {
-                new FunctionResultContent("call1", "ToolkitA expanded"),
-                new FunctionResultContent("call2", "ToolkitB expanded"),
+                new FunctionResultContent("call1", "HarnessA expanded"),
+                new FunctionResultContent("call2", "HarnessB expanded"),
                 new FunctionResultContent("call3", "Actual result")
             })
         };
@@ -650,8 +650,8 @@ public class ContainerMiddlewareTests
         // Create state with both containers in ContainersExpandedThisTurn
         var state = CreateEmptyState();
         var collapsingState = new CollapsingStateData()
-            .WithExpandedContainer("ExpandToolkitA")
-            .WithExpandedContainer("ExpandToolkitB");
+            .WithExpandedContainer("ExpandHarnessA")
+            .WithExpandedContainer("ExpandHarnessB");
         state = state with { MiddlewareState = state.MiddlewareState.SetState("HPD.Agent.ContainerMiddlewareState", collapsingState) };
 
         var context = CreateAfterMessageTurnContext(state: state, turnHistory: turnHistory);
@@ -687,7 +687,7 @@ public class ContainerMiddlewareTests
             (object? args, CancellationToken ct) => Task.FromResult<object?>("expanded"),
             new AIFunctionFactoryOptions
             {
-                Name = "ExpandToolkit",
+                Name = "ExpandHarness",
                 Description = "Expands",
                 AdditionalProperties = new Dictionary<string, object?> { ["IsContainer"] = true }
             });
@@ -699,15 +699,15 @@ public class ContainerMiddlewareTests
         {
             new(ChatRole.User, new List<AIContent> { new TextContent("Hello") }),
             // Assistant message with only container call
-            new(ChatRole.Assistant, new List<AIContent> { new FunctionCallContent("call1", "ExpandToolkit") }),
+            new(ChatRole.Assistant, new List<AIContent> { new FunctionCallContent("call1", "ExpandHarness") }),
             // Tool message with only container result
             new(ChatRole.Tool, new List<AIContent> { new FunctionResultContent("call1", "Container expanded") }),
             new(ChatRole.Assistant, new List<AIContent> { new TextContent("Done") })
         };
 
-        // Create state with ExpandToolkit in ContainersExpandedThisTurn
+        // Create state with ExpandHarness in ContainersExpandedThisTurn
         var state = CreateEmptyState();
-        var collapsingState = new CollapsingStateData().WithExpandedContainer("ExpandToolkit");
+        var collapsingState = new CollapsingStateData().WithExpandedContainer("ExpandHarness");
         state = state with { MiddlewareState = state.MiddlewareState.SetState("HPD.Agent.ContainerMiddlewareState", collapsingState) };
 
         var context = CreateAfterMessageTurnContext(state: state, turnHistory: turnHistory);
@@ -736,15 +736,15 @@ public class ContainerMiddlewareTests
     }
 
     [Fact]
-    public async Task AfterMessageTurn_MixedSkillAndToolkitContainers()
+    public async Task AfterMessageTurn_MixedSkillAndHarnessContainers()
     {
         // Arrange
-        var CollapsedToolkitContainer = AIFunctionFactory.Create(
-            (object? args, CancellationToken ct) => Task.FromResult<object?>("Toolkit expanded"),
+        var CollapsedHarnessContainer = AIFunctionFactory.Create(
+            (object? args, CancellationToken ct) => Task.FromResult<object?>("Harness expanded"),
             new AIFunctionFactoryOptions
             {
                 Name = "MathTools",
-                Description = "Math Toolkit",
+                Description = "Math Harness",
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true
@@ -768,7 +768,7 @@ public class ContainerMiddlewareTests
             (object? args, CancellationToken ct) => Task.FromResult<object?>("Result"),
             new AIFunctionFactoryOptions { Name = "Calculate", Description = "Calculates" });
 
-        var allTools = new List<AITool> { CollapsedToolkitContainer, skillContainer, regularFunc };
+        var allTools = new List<AITool> { CollapsedHarnessContainer, skillContainer, regularFunc };
         var middleware = new ContainerMiddleware(allTools, ImmutableHashSet<string>.Empty);
 
         var turnHistory = new List<ChatMessage>
@@ -783,7 +783,7 @@ public class ContainerMiddlewareTests
             // Tool message with results
             new(ChatRole.Tool, new List<AIContent>
             {
-                new FunctionResultContent("call1", "Toolkit expanded"),
+                new FunctionResultContent("call1", "Harness expanded"),
                 new FunctionResultContent("call2", "Skill expanded"),
                 new FunctionResultContent("call3", "Result")
             })
@@ -923,27 +923,27 @@ public class ContainerMiddlewareTests
         return agentContext.AsAfterMessageTurn(finalResponse, turnHistory, new AgentRunConfig());
     }
 
-    private static (AIFunction Container, AIFunction[] Members) CreateCollapsedToolkit(
+    private static (AIFunction Container, AIFunction[] Members) CreateCollapsedHarness(
         string toolName,
         string description,
         params string[] memberNames)
     {
         var members = memberNames.Select(name =>
-            CollapsedToolkitTestHelper.CreateToolkitMemberFunction(
+            CollapsedHarnessTestHelper.CreateHarnessMemberFunction(
                 name,
                 $"{name} function",
                 (args, ct) => Task.FromResult<object?>($"{name} result"),
                 toolName)
         ).ToArray();
 
-        var container = CollapsedToolkitTestHelper.CreateContainerFunction(toolName, description, members);
+        var container = CollapsedHarnessTestHelper.CreateContainerFunction(toolName, description, members);
 
         return (container, members);
     }
 
     private static AIFunction CreateNonCollapsedFunction(string name)
     {
-        return CollapsedToolkitTestHelper.CreateNonCollapsedFunction(
+        return CollapsedHarnessTestHelper.CreateNonCollapsedFunction(
             name,
             $"{name} function",
             (args, ct) => Task.FromResult<object?>($"{name} result"));

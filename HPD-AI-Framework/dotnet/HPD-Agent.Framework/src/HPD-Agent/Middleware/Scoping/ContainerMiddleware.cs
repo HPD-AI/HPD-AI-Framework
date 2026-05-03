@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 namespace HPD.Agent;
 
 /// <summary>
-/// Unified middleware for all container operations (Toolkits and skills).
+/// Unified middleware for all container operations (Harneses and skills).
 /// Handles tool visibility, instruction injection, expansion detection, and cleanup.
 /// </summary>
 /// <remarks>
@@ -30,7 +30,7 @@ namespace HPD.Agent;
 ///
 /// <para><b>Container Unification (V2):</b></para>
 /// <para>
-/// Treats Toolkits and skills uniformly as "containers" with dual-context support:
+/// Treats Harneses and skills uniformly as "containers" with dual-context support:
 /// - <b>FunctionResult</b>: Ephemeral instructions returned in function result
 /// - <b>SystemPrompt</b>: Persistent instructions injected into system prompt
 /// </para>
@@ -73,14 +73,14 @@ public class ContainerMiddleware : IAgentMiddleware
     private readonly Dictionary<string, string> _itemToContainerMap;
     private readonly HashSet<string> _knownContainerNames;
 
-    // Toolkit-scoped middleware (015): factory registry for building scoped pipelines at expansion time
-    private readonly IReadOnlyDictionary<string, ToolkitFactory>? _toolkitFactories;
+    // Harness-scoped middleware (015): factory registry for building scoped pipelines at expansion time
+    private readonly IReadOnlyDictionary<string, HarnessFactory>? _harnessFactories;
 
-    // Toolkit-scoped middleware (015 §5B): builder-time DI instances, merged at expansion
-    private readonly IReadOnlyDictionary<string, List<IAgentMiddleware>>? _toolkitScopedMiddlewares;
+    // Harness-scoped middleware (015 §5B): builder-time DI instances, merged at expansion
+    private readonly IReadOnlyDictionary<string, List<IAgentMiddleware>>? _HARNESScopedMiddlewares;
 
-    // Toolkit-scoped middleware (015 §5A): per-toolkit middleware config overrides from ToolkitReference.MiddlewareConfigs
-    // Key: toolkit name → (middleware type name → JsonElement config)
+    // Harness-scoped middleware (015 §5A): per-harness middleware config overrides from HarnessReference.MiddlewareConfigs
+    // Key: harness name → (middleware type name → JsonElement config)
     private readonly IReadOnlyDictionary<string, Dictionary<string, System.Text.Json.JsonElement>>? _middlewareConfigs;
 
     //═════════════════════════════════════════════════════════════════════════════════════════════════
@@ -91,25 +91,25 @@ public class ContainerMiddleware : IAgentMiddleware
     /// Creates a new ContainerMiddleware instance.
     /// </summary>
     /// <param name="initialTools">All available tools for the agent</param>
-    /// <param name="explicitlyRegisteredToolKits">Toolkits explicitly registered via WithTools (always visible)</param>
-    /// <param name="toolkitFactories">Toolkit factory registry for building scoped middleware pipelines at expansion time . Pass null to disable scoped middleware.</param>
-    /// <param name="toolkitScopedMiddlewares">Builder-time DI middleware instances per toolkit . Merged with factory-declared instances at expansion time.</param>
-    /// <param name="middlewareConfigs">Per-toolkit middleware config overrides from ToolkitReference.MiddlewareConfigs . Used with config-constructor middleware factories.</param>
+    /// <param name="explicitlyRegisteredHarnesses">Harneses explicitly registered via WithTools (always visible)</param>
+    /// <param name="harnessFactories">Harness factory registry for building scoped middleware pipelines at expansion time . Pass null to disable scoped middleware.</param>
+    /// <param name="HARNESScopedMiddlewares">Builder-time DI middleware instances per harness . Merged with factory-declared instances at expansion time.</param>
+    /// <param name="middlewareConfigs">Per-harness middleware config overrides from HarnessReference.MiddlewareConfigs . Used with config-constructor middleware factories.</param>
     /// <param name="config">Container configuration (optional, defaults to enabled)</param>
     /// <param name="logger">Optional logger for diagnostics</param>
     public ContainerMiddleware(
         IList<AITool> initialTools,
-        ImmutableHashSet<string> explicitlyRegisteredToolKits,
-        IReadOnlyDictionary<string, ToolkitFactory>? toolkitFactories = null,
-        IReadOnlyDictionary<string, List<IAgentMiddleware>>? toolkitScopedMiddlewares = null,
+        ImmutableHashSet<string> explicitlyRegisteredHarnesses,
+        IReadOnlyDictionary<string, HarnessFactory>? harnessFactories = null,
+        IReadOnlyDictionary<string, List<IAgentMiddleware>>? HARNESScopedMiddlewares = null,
         IReadOnlyDictionary<string, Dictionary<string, System.Text.Json.JsonElement>>? middlewareConfigs = null,
         CollapsingConfig? config = null,
         Microsoft.Extensions.Logging.ILogger<ContainerMiddleware>? logger = null)
     {
         if (initialTools == null)
             throw new ArgumentNullException(nameof(initialTools));
-        if (explicitlyRegisteredToolKits == null)
-            throw new ArgumentNullException(nameof(explicitlyRegisteredToolKits));
+        if (explicitlyRegisteredHarnesses == null)
+            throw new ArgumentNullException(nameof(explicitlyRegisteredHarnesses));
 
         // Extract AIFunctions from tools
         var aiFunctions = initialTools.OfType<AIFunction>().ToList();
@@ -119,12 +119,12 @@ public class ContainerMiddleware : IAgentMiddleware
         // Create ToolVisibilityManager for filtering, passing NeverCollapse config
         _visibilityManager = new ToolVisibilityManager(
             aiFunctions,
-            explicitlyRegisteredToolKits,
+            explicitlyRegisteredHarnesses,
             _config.NeverCollapse);
         _logger = logger;
         _initialTools = initialTools; // V2: Store for container detection
-        _toolkitFactories = toolkitFactories;
-        _toolkitScopedMiddlewares = toolkitScopedMiddlewares;
+        _harnessFactories = harnessFactories;
+        _HARNESScopedMiddlewares = HARNESScopedMiddlewares;
         _middlewareConfigs = middlewareConfigs;
 
         // Initialize Smart Recovery maps for hidden items and qualified names
@@ -237,7 +237,7 @@ public class ContainerMiddleware : IAgentMiddleware
         // STEP 2: InjectSystemPrompt for active containers
         //─────────────────────────────────────────────────────────────────────────────────────────────
 
-        // Use ActiveContainerInstructions (supports both Toolkits and skills)
+        // Use ActiveContainerInstructions (supports both Harneses and skills)
         var activeContainers = collapsingState.ActiveContainerInstructions;
 
         if (!activeContainers.IsEmpty && context.Options != null)
@@ -255,8 +255,8 @@ public class ContainerMiddleware : IAgentMiddleware
             }
         }
 
-        // Toolkit-scoped middleware (015): dispatch BeforeIterationAsync to all active toolkit pipelines
-        var activePipelines = collapsingState.ToolkitPipelines;
+        // Harness-scoped middleware (015): dispatch BeforeIterationAsync to all active harness pipelines
+        var activePipelines = collapsingState.HarnessPipelines;
         if (!activePipelines.IsEmpty)
         {
             foreach (var pipeline in activePipelines.Values)
@@ -320,7 +320,7 @@ public class ContainerMiddleware : IAgentMiddleware
                 continue; // Found a match, move to next tool
             }
 
-            // 2. Recovery Check A: Hidden Item? (e.g., "Add" -> "MathToolkit")
+            // 2. Recovery Check A: Hidden Item? (e.g., "Add" -> "MathHarness")
             if (_itemToContainerMap.TryGetValue(toolCall.Name, out var parentContainer))
             {
                 // Check if container is already expanded - if so, this is a VALID call, not a recovery
@@ -339,7 +339,7 @@ public class ContainerMiddleware : IAgentMiddleware
                 continue;
             }
 
-            // 3. Recovery Check B: Qualified Name? (e.g., "MathToolkit.Add", "MathToolkit:Add", "Add-MathToolkit")
+            // 3. Recovery Check B: Qualified Name? (e.g., "MathHarness.Add", "MathHarness:Add", "Add-MathHarness")
             // Check all known containers to see if any appear in the tool call name with word boundaries
             foreach (var containerName in _knownContainerNames)
             {
@@ -375,20 +375,20 @@ public class ContainerMiddleware : IAgentMiddleware
                 state = state.WithRecoveredFunction(callId, recovery);
             }
 
-            // Toolkit-scoped middleware (015): instantiate a scoped pipeline for each newly expanded
+            // Harness-scoped middleware (015): instantiate a scoped pipeline for each newly expanded
             // container that declares middleware via [Collapse(Middlewares = ...)] (§ factory path)
-            // or builder-time DI instances via WithToolkit<T>(opts => opts.AddScopedMiddleware(...)) (§5B).
-            // Only build if not already in state (skip re-expansions of already-pipelined toolkits).
+            // or builder-time DI instances via WithHarness<T>(opts => opts.AddScopedMiddleware(...)) (§5B).
+            // Only build if not already in state (skip re-expansions of already-pipelined harnesses).
             foreach (var containerName in containersToExpand)
             {
-                if (state.ToolkitPipelines.ContainsKey(containerName))
+                if (state.HarnessPipelines.ContainsKey(containerName))
                     continue; // already wired (persistent container across turns)
 
                 var instances = new List<IAgentMiddleware>();
 
                 // §factory path: attribute-declared parameterless factories
-                if (_toolkitFactories != null
-                    && _toolkitFactories.TryGetValue(containerName, out var factory)
+                if (_harnessFactories != null
+                    && _harnessFactories.TryGetValue(containerName, out var factory)
                     && factory.CollapseMiddlewareFactories is { Count: > 0 } attrFactories)
                 {
                     foreach (var f in attrFactories)
@@ -396,8 +396,8 @@ public class ContainerMiddleware : IAgentMiddleware
                 }
 
                 // §5A: config-constructor factories (resolved from MiddlewareConfigs at build time — see §5A fields)
-                if (_toolkitFactories != null
-                    && _toolkitFactories.TryGetValue(containerName, out var factory5a)
+                if (_harnessFactories != null
+                    && _harnessFactories.TryGetValue(containerName, out var factory5a)
                     && factory5a.CollapseMiddlewareConfigFactories is { Count: > 0 } configFactories
                     && _middlewareConfigs != null
                     && _middlewareConfigs.TryGetValue(containerName, out var configMap))
@@ -414,14 +414,14 @@ public class ContainerMiddleware : IAgentMiddleware
                 }
 
                 // §5B: builder-time DI instances (appended after attribute-declared ones)
-                if (_toolkitScopedMiddlewares != null
-                    && _toolkitScopedMiddlewares.TryGetValue(containerName, out var diInstances))
+                if (_HARNESScopedMiddlewares != null
+                    && _HARNESScopedMiddlewares.TryGetValue(containerName, out var diInstances))
                 {
                     instances.AddRange(diInstances);
                 }
 
                 if (instances.Count > 0)
-                    state = state.WithToolkitPipeline(containerName, new AgentMiddlewarePipeline(instances));
+                    state = state.WithHarnessPipeline(containerName, new AgentMiddlewarePipeline(instances));
             }
 
             return state;
@@ -430,15 +430,15 @@ public class ContainerMiddleware : IAgentMiddleware
         // Note: History rewriting happens in AfterMessageTurnAsync, not here
         // We want to teach the LLM the correct pattern for NEXT turn, not this iteration
 
-        // Toolkit-scoped middleware (015): dispatch BeforeToolExecutionAsync to newly-activated pipelines
-        if (_toolkitFactories != null && containersToExpand.Count > 0)
+        // Harness-scoped middleware (015): dispatch BeforeToolExecutionAsync to newly-activated pipelines
+        if (_harnessFactories != null && containersToExpand.Count > 0)
         {
             var updatedState = context.GetMiddlewareState<ContainerMiddlewareState>();
             if (updatedState != null)
             {
                 foreach (var containerName in containersToExpand)
                 {
-                    if (updatedState.ToolkitPipelines.TryGetValue(containerName, out var pipeline) && !pipeline.IsEmpty)
+                    if (updatedState.HarnessPipelines.TryGetValue(containerName, out var pipeline) && !pipeline.IsEmpty)
                         await pipeline.DispatchBeforeToolExecutionAsync(context, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -446,32 +446,32 @@ public class ContainerMiddleware : IAgentMiddleware
     }
 
     //═════════════════════════════════════════════════════════════════════════════════════════════════
-    // BEFORE PARALLEL BATCH: Dispatch to toolkit-scoped pipelines for functions in the batch
+    // BEFORE PARALLEL BATCH: Dispatch to harness-scoped pipelines for functions in the batch
     //═════════════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// Called before a batch of parallel function calls executes.
-    /// Routes <c>BeforeParallelBatchAsync</c> to the toolkit-scoped pipeline of every toolkit
+    /// Routes <c>BeforeParallelBatchAsync</c> to the harness-scoped pipeline of every harness
     /// represented in the batch .
     /// </summary>
     public async Task BeforeParallelBatchAsync(
         BeforeParallelBatchContext context,
         CancellationToken cancellationToken)
     {
-        if (_toolkitFactories == null)
+        if (_harnessFactories == null)
             return;
 
         var state = context.GetMiddlewareState<ContainerMiddlewareState>();
-        if (state == null || state.ToolkitPipelines.IsEmpty)
+        if (state == null || state.HarnessPipelines.IsEmpty)
             return;
 
-        // Collect the distinct toolkit pipelines that own at least one function in this batch
+        // Collect the distinct harness pipelines that own at least one function in this batch
         HashSet<AgentMiddlewarePipeline>? seen = null;
         foreach (var fn in context.ParallelFunctions)
         {
-            if (!_itemToContainerMap.TryGetValue(fn.FunctionName, out var toolkitName))
+            if (!_itemToContainerMap.TryGetValue(fn.FunctionName, out var harnessName))
                 continue;
-            if (!state.ToolkitPipelines.TryGetValue(toolkitName, out var pipeline) || pipeline.IsEmpty)
+            if (!state.HarnessPipelines.TryGetValue(harnessName, out var pipeline) || pipeline.IsEmpty)
                 continue;
 
             seen ??= new HashSet<AgentMiddlewarePipeline>(ReferenceEqualityComparer.Instance);
@@ -486,8 +486,8 @@ public class ContainerMiddleware : IAgentMiddleware
 
     /// <summary>
     /// Called before each function executes.
-    /// For recovered qualified name calls (e.g., "MathToolkit:Add"), the function lookup will fail
-    /// because no function is literally named "MathToolkit:Add". We need to look up the actual
+    /// For recovered qualified name calls (e.g., "MathHarness:Add"), the function lookup will fail
+    /// because no function is literally named "MathHarness:Add". We need to look up the actual
     /// function (e.g., "Add") and provide guidance.
     /// Transparently informs user that error recovery occurred.
     /// </summary>
@@ -501,13 +501,13 @@ public class ContainerMiddleware : IAgentMiddleware
         // Only handle cases where function is null (lookup failed)
         if (context.Function != null)
         {
-            // Toolkit-scoped middleware (015): dispatch to the owning toolkit's pipeline
+            // Harness-scoped middleware (015): dispatch to the owning harness's pipeline
             var dispatchState = context.GetMiddlewareState<ContainerMiddlewareState>();
             var fnName = context.Function.Name;
             if (dispatchState != null
                 && fnName != null
-                && _itemToContainerMap.TryGetValue(fnName, out var owningToolkit)
-                && dispatchState.ToolkitPipelines.TryGetValue(owningToolkit, out var pipeline)
+                && _itemToContainerMap.TryGetValue(fnName, out var owningHarness)
+                && dispatchState.HarnessPipelines.TryGetValue(owningHarness, out var pipeline)
                 && !pipeline.IsEmpty)
             {
                 await pipeline.DispatchBeforeFunctionAsync(context, cancellationToken).ConfigureAwait(false);
@@ -540,15 +540,15 @@ public class ContainerMiddleware : IAgentMiddleware
         AfterFunctionContext context,
         CancellationToken cancellationToken)
     {
-        // Toolkit-scoped middleware (015): dispatch to the owning toolkit's pipeline (reverse order)
+        // Harness-scoped middleware (015): dispatch to the owning harness's pipeline (reverse order)
         if (context.Function != null)
         {
             var dispatchState = context.GetMiddlewareState<ContainerMiddlewareState>();
             var fnName = context.Function.Name;
             if (dispatchState != null
                 && fnName != null
-                && _itemToContainerMap.TryGetValue(fnName, out var owningToolkit)
-                && dispatchState.ToolkitPipelines.TryGetValue(owningToolkit, out var pipeline)
+                && _itemToContainerMap.TryGetValue(fnName, out var owningHarness)
+                && dispatchState.HarnessPipelines.TryGetValue(owningHarness, out var pipeline)
                 && !pipeline.IsEmpty)
             {
                 await pipeline.DispatchAfterFunctionAsync(context, cancellationToken).ConfigureAwait(false);
@@ -617,12 +617,12 @@ public class ContainerMiddleware : IAgentMiddleware
     {
         // Container filtering moved to BeforeIterationAsync for immediate transparency
 
-        // Toolkit-scoped middleware (015): dispatch AfterIterationAsync to all active toolkit pipelines (reverse order)
+        // Harness-scoped middleware (015): dispatch AfterIterationAsync to all active harness pipelines (reverse order)
         var state = context.GetMiddlewareState<ContainerMiddlewareState>();
-        if (state != null && !state.ToolkitPipelines.IsEmpty)
+        if (state != null && !state.HarnessPipelines.IsEmpty)
         {
             // Dispatch in reverse registration order (values() order is insertion order in ImmutableDictionary)
-            foreach (var pipeline in state.ToolkitPipelines.Values.Reverse())
+            foreach (var pipeline in state.HarnessPipelines.Values.Reverse())
             {
                 if (!pipeline.IsEmpty)
                     await pipeline.DispatchAfterIterationAsync(context, cancellationToken).ConfigureAwait(false);
@@ -642,7 +642,7 @@ public class ContainerMiddleware : IAgentMiddleware
     /// NOTE: We intentionally DO NOT remove container calls from TurnHistory.
     /// Container calls need to remain in permanent history so the LLM knows it expanded
     /// the container in previous turns. Without this context, the LLM will try to call
-    /// hidden functions directly (e.g., "Add" instead of "MathToolkit" → "Add").
+    /// hidden functions directly (e.g., "Add" instead of "MathHarness" → "Add").
     ///
     /// Filtering happens in BeforeIterationAsync for within-turn transparency only.
     /// </remarks>
@@ -658,8 +658,8 @@ public class ContainerMiddleware : IAgentMiddleware
         //─────────────────────────────────────────────────────────────────────────────────────────────
 
         // DISABLED: Removing containers from TurnHistory breaks cross-turn context.
-        // The LLM needs to see that it called "MathToolkit" in Turn 1 to understand
-        // that it needs to call "MathToolkit" again in Turn 2 before using "Multiply".
+        // The LLM needs to see that it called "MathHarness" in Turn 1 to understand
+        // that it needs to call "MathHarness" again in Turn 2 before using "Multiply".
         //
         // var collapsingState = context.GetMiddlewareState<ContainerMiddlewareState>() ?? new ContainerMiddlewareState();
         //
@@ -717,16 +717,16 @@ public class ContainerMiddleware : IAgentMiddleware
         if (collapsingState.ContainersExpandedThisTurn.Count > 0 ||
             !collapsingState.ActiveContainerInstructions.IsEmpty ||
             !collapsingState.RecoveredFunctionCalls.IsEmpty ||
-            !collapsingState.ToolkitPipelines.IsEmpty)
+            !collapsingState.HarnessPipelines.IsEmpty)
         {
             context.UpdateMiddlewareState<ContainerMiddlewareState>(_ => updatedCollapsing);
         }
 
-        // Toolkit-scoped middleware (015): dispatch AfterMessageTurnAsync to active pipelines (reverse order)
+        // Harness-scoped middleware (015): dispatch AfterMessageTurnAsync to active pipelines (reverse order)
         // Done AFTER state update so pipelines see the final state for the turn.
-        if (!collapsingState.ToolkitPipelines.IsEmpty)
+        if (!collapsingState.HarnessPipelines.IsEmpty)
         {
-            foreach (var pipeline in collapsingState.ToolkitPipelines.Values.Reverse())
+            foreach (var pipeline in collapsingState.HarnessPipelines.Values.Reverse())
             {
                 if (!pipeline.IsEmpty)
                     await pipeline.DispatchAfterMessageTurnAsync(context, cancellationToken).ConfigureAwait(false);
@@ -735,18 +735,18 @@ public class ContainerMiddleware : IAgentMiddleware
     }
 
     //═════════════════════════════════════════════════════════════════════════════════════════════════
-    // ON ERROR: Route to toolkit-scoped pipelines
+    // ON ERROR: Route to harness-scoped pipelines
     //═════════════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Routes OnErrorAsync to active toolkit-scoped pipelines .
+    /// Routes OnErrorAsync to active harness-scoped pipelines .
     /// <para>
     /// <b>Dispatch strategy:</b> <c>ErrorContext</c> does not carry a function name, so we cannot
-    /// identify which specific toolkit owns the erroring call. For <c>ErrorSource.ToolCall</c>
-    /// errors we dispatch to all active toolkit pipelines in reverse order — consistent with the
+    /// identify which specific harness owns the erroring call. For <c>ErrorSource.ToolCall</c>
+    /// errors we dispatch to all active harness pipelines in reverse order — consistent with the
     /// After*-style unwinding model. For non-tool errors (model call, iteration, message turn)
     /// we still dispatch to all active pipelines so scoped middleware can do cross-cutting error
-    /// handling (e.g. circuit breakers, per-toolkit telemetry).
+    /// handling (e.g. circuit breakers, per-harness telemetry).
     /// </para>
     /// </summary>
     public async Task OnErrorAsync(
@@ -754,11 +754,11 @@ public class ContainerMiddleware : IAgentMiddleware
         CancellationToken cancellationToken)
     {
         var state = context.GetMiddlewareState<ContainerMiddlewareState>();
-        if (state == null || state.ToolkitPipelines.IsEmpty)
+        if (state == null || state.HarnessPipelines.IsEmpty)
             return;
 
-        // Dispatch to all active toolkit pipelines in reverse order (error unwinding)
-        foreach (var pipeline in state.ToolkitPipelines.Values.Reverse())
+        // Dispatch to all active harness pipelines in reverse order (error unwinding)
+        foreach (var pipeline in state.HarnessPipelines.Values.Reverse())
         {
             if (!pipeline.IsEmpty)
                 await pipeline.DispatchOnErrorAsync(context, cancellationToken).ConfigureAwait(false);
@@ -766,12 +766,12 @@ public class ContainerMiddleware : IAgentMiddleware
     }
 
     //═════════════════════════════════════════════════════════════════════════════════════════════════
-    // WRAP FUNCTION CALL: Route to toolkit-scoped pipeline (innermost wrapper)
+    // WRAP FUNCTION CALL: Route to harness-scoped pipeline (innermost wrapper)
     //═════════════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Routes WrapFunctionCallAsync to the owning toolkit's scoped pipeline .
-    /// The toolkit pipeline wraps innermost — closest to the actual function call.
+    /// Routes WrapFunctionCallAsync to the owning harness's scoped pipeline .
+    /// The harness pipeline wraps innermost — closest to the actual function call.
     /// ExecuteFunctionCallAsync is chain-based and does NOT call SetMiddlewareExecuting,
     /// so delegating to it here is safe even though we are inside the global pipeline's Execute*() call.
     /// </summary>
@@ -780,7 +780,7 @@ public class ContainerMiddleware : IAgentMiddleware
         Func<FunctionRequest, Task<object?>> handler,
         CancellationToken cancellationToken)
     {
-        if (_toolkitFactories == null)
+        if (_harnessFactories == null)
             return handler(request);
 
         var stateKey = typeof(ContainerMiddlewareState).FullName!;
@@ -788,14 +788,14 @@ public class ContainerMiddleware : IAgentMiddleware
         if (state == null)
             return handler(request);
 
-        if (!_itemToContainerMap.TryGetValue(request.FunctionName, out var toolkitName))
+        if (!_itemToContainerMap.TryGetValue(request.FunctionName, out var harnessName))
             return handler(request);
 
-        if (!state.ToolkitPipelines.TryGetValue(toolkitName, out var toolkitPipeline) || toolkitPipeline.IsEmpty)
+        if (!state.HarnessPipelines.TryGetValue(harnessName, out var harnessPipeline) || harnessPipeline.IsEmpty)
             return handler(request);
 
-        // Toolkit pipeline wraps the original handler — toolkit is innermost
-        return toolkitPipeline.ExecuteFunctionCallAsync(request, handler, cancellationToken);
+        // Harness pipeline wraps the original handler — harness is innermost
+        return harnessPipeline.ExecuteFunctionCallAsync(request, handler, cancellationToken);
     }
 
     //═════════════════════════════════════════════════════════════════════════════════════════════════
@@ -837,7 +837,7 @@ public class ContainerMiddleware : IAgentMiddleware
     }
 
     /// <summary>
-    /// Detects containers from tool calls (unified for Toolkits and skills).
+    /// Detects containers from tool calls (unified for Harneses and skills).
     /// Extracts both FunctionResult and SystemPrompt.
     /// </summary>
     private static (
@@ -874,9 +874,9 @@ public class ContainerMiddleware : IAgentMiddleware
             }
             else
             {
-                // Toolkit container - use ToolkitName metadata or function name
+                // Harness container - use HarnessName metadata or function name
                 containerName = function.AdditionalProperties
-                    ?.TryGetValue("ToolkitName", out var pnVal) == true && pnVal is string pn
+                    ?.TryGetValue("HarnessName", out var pnVal) == true && pnVal is string pn
                     ? pn
                     : toolCall.Name;
             }
@@ -905,7 +905,7 @@ public class ContainerMiddleware : IAgentMiddleware
 
     /// <summary>
     /// Builds a rich, formatted container protocols section with metadata.
-    /// Injects SystemPrompt for all containers (Toolkits + skills).
+    /// Injects SystemPrompt for all containers (Harneses + skills).
     /// </summary>
     private static string BuildContainerProtocolsSection(
         ImmutableDictionary<string, ContainerInstructionSet> activeContainers,
@@ -1121,7 +1121,7 @@ public class ContainerMiddleware : IAgentMiddleware
 
     /// <summary>
     /// Finds a container function by name in the initial tools list.
-    /// Checks both Name and ToolkitName metadata.
+    /// Checks both Name and HarnessName metadata.
     /// </summary>
     private AIFunction? FindContainerInInitialTools(string containerName)
     {
@@ -1140,14 +1140,14 @@ public class ContainerMiddleware : IAgentMiddleware
             if (!isContainer)
                 continue;
 
-            // Check if name matches (either function name or ToolkitName)
+            // Check if name matches (either function name or HarnessName)
             if (af.Name == containerName)
                 return af;
 
-            var ToolkitName = af.AdditionalProperties?.TryGetValue("ToolkitName", out var pnVal) == true
+            var HarnessName = af.AdditionalProperties?.TryGetValue("HarnessName", out var pnVal) == true
                 && pnVal is string pn ? pn : null;
 
-            if (ToolkitName == containerName)
+            if (HarnessName == containerName)
                 return af;
         }
 
@@ -1183,8 +1183,8 @@ public class ContainerMiddleware : IAgentMiddleware
     /// <summary>
     /// Checks if a function call IS a container (not a child function).
     /// Only matches:
-    /// 1. Exact match: "MathToolkit" is in targetContainers
-    /// 2. Qualified name: "MathToolkit.Add", "MathToolkit:Add", etc. (for cleanup of qualified calls)
+    /// 1. Exact match: "MathHarness" is in targetContainers
+    /// 2. Qualified name: "MathHarness.Add", "MathHarness:Add", etc. (for cleanup of qualified calls)
     ///
     /// Does NOT match hidden items like "Add" - those should stay in history!
     /// </summary>
@@ -1195,7 +1195,7 @@ public class ContainerMiddleware : IAgentMiddleware
             return true;
 
         // 2. Qualified Match - Container name appears with word boundaries
-        // Matches "MathToolkit.Add", "MathToolkit:Add", "Add-MathToolkit", etc.
+        // Matches "MathHarness.Add", "MathHarness:Add", "Add-MathHarness", etc.
         // but NOT bare "Add" (which should stay in history)
         foreach (var containerName in targetContainers)
         {
@@ -1205,14 +1205,14 @@ public class ContainerMiddleware : IAgentMiddleware
 
         // NOTE: We deliberately DO NOT check _itemToContainerMap here.
         // Hidden items like "Add" should remain in history after expansion.
-        // Only the container call itself ("MathToolkit") should be removed.
+        // Only the container call itself ("MathHarness") should be removed.
 
         return false;
     }
 
     /// <summary>
     /// Builds a map from item name to [Collapse] container name.
-    /// Enables recovery for hidden items: maps "Add" to "MathToolkit".
+    /// Enables recovery for hidden items: maps "Add" to "MathHarness".
     /// </summary>
     private static Dictionary<string, string> BuildItemToContainerMap(IList<AITool> tools)
     {
@@ -1235,7 +1235,7 @@ public class ContainerMiddleware : IAgentMiddleware
             {
                 foreach (var child in children)
                 {
-                    // Handle "Toolkit.Child" -> Map "Child" to "Toolkit"
+                    // Handle "Harness.Child" -> Map "Child" to "Harness"
                     var simpleName = child.Contains('.') 
                         ? child.Substring(child.LastIndexOf('.') + 1) 
                         : child;
@@ -1277,8 +1277,8 @@ public class ContainerMiddleware : IAgentMiddleware
 
     /// <summary>
     /// Rewrites container calls in TurnHistory to show the correct container pattern.
-    /// Changes "MathToolkit:Add(args)" → "MathToolkit()" in history so LLM learns the correct behavior.
-    /// Also handles "MathToolkit(args)" → "MathToolkit()" for containers called with arguments.
+    /// Changes "MathHarness:Add(args)" → "MathHarness()" in history so LLM learns the correct behavior.
+    /// Also handles "MathHarness(args)" → "MathHarness()" for containers called with arguments.
     /// </summary>
     /// <param name="turnHistory">The mutable TurnHistory list to modify</param>
     /// <param name="collapsingState">State containing recovered function calls</param>
@@ -1321,8 +1321,8 @@ public class ContainerMiddleware : IAgentMiddleware
             {
                 if (content is FunctionCallContent fcc && recoveriesNeedingRewrite.TryGetValue(fcc.CallId, out var recovery))
                 {
-                    // Rewrite: "MathToolkit:Add" with args → "MathToolkit" with no args
-                    // Or: "MathToolkit" with args → "MathToolkit" with no args
+                    // Rewrite: "MathHarness:Add" with args → "MathHarness" with no args
+                    // Or: "MathHarness" with args → "MathHarness" with no args
                     newContents.Add(new FunctionCallContent(
                         callId: fcc.CallId,
                         name: recovery.ContainerName,  // Just the container name
@@ -1454,7 +1454,7 @@ public class ContainerMiddleware : IAgentMiddleware
 
 /// <summary>
 /// State for ContainerMiddleware. Tracks container expansions, instructions, and recovery operations.
-/// Handles both Toolkits and Skills uniformly as "containers".
+/// Handles both Harneses and Skills uniformly as "containers".
 /// </summary>
 /// <remarks>
 /// <para><b>Thread Safety:</b></para>
@@ -1468,11 +1468,11 @@ public class ContainerMiddleware : IAgentMiddleware
 /// <code>
 /// // Read state
 /// var state = context.GetMiddlewareState&lt;ContainerMiddlewareState&gt;() ?? new();
-/// var isExpanded = state.ExpandedContainers.Contains("FinancialToolkit");
+/// var isExpanded = state.ExpandedContainers.Contains("FinancialHarness");
 ///
 /// // Update state
 /// context.UpdateMiddlewareState&lt;ContainerMiddlewareState&gt;(s =>
-///     s.WithExpandedContainer("FinancialToolkit"));
+///     s.WithExpandedContainer("FinancialHarness"));
 /// </code>
 ///
 /// <para><b>Lifecycle:</b></para>
@@ -1487,7 +1487,7 @@ public class ContainerMiddleware : IAgentMiddleware
 public sealed record ContainerMiddlewareState
 {
     /// <summary>
-    /// All expanded containers (Toolkits AND skills) across the entire session.
+    /// All expanded containers (Harneses AND skills) across the entire session.
     /// Containers in this set have their member functions visible.
     /// Persists across message turns.
     /// </summary>
@@ -1519,19 +1519,19 @@ public sealed record ContainerMiddlewareState
         = ImmutableDictionary<string, RecoveryInfo>.Empty;
 
     /// <summary>
-    /// Active scoped middleware pipelines for expanded toolkits .
-    /// Key: toolkit name (same keys as <see cref="ExpandedContainers"/>).
+    /// Active scoped middleware pipelines for expanded harnesses .
+    /// Key: harness name (same keys as <see cref="ExpandedContainers"/>).
     /// Value: pipeline containing middleware instances declared via <c>[Collapse(Middlewares = ...)]</c>
-    ///        plus any builder-time additions from <c>WithToolkit&lt;T&gt;(opts =&gt; opts.AddScopedMiddleware(...))</c>.
+    ///        plus any builder-time additions from <c>WithHarness&lt;T&gt;(opts =&gt; opts.AddScopedMiddleware(...))</c>.
     /// Populated at container expansion time in <c>BeforeToolExecutionAsync</c>.
     /// Cleared at turn end (when <c>PersistSystemPromptInjections = false</c>) or retained across
     /// turns (when <c>PersistSystemPromptInjections = true</c>).
     /// </summary>
-    public ImmutableDictionary<string, AgentMiddlewarePipeline> ToolkitPipelines { get; init; }
+    public ImmutableDictionary<string, AgentMiddlewarePipeline> HarnessPipelines { get; init; }
         = ImmutableDictionary<string, AgentMiddlewarePipeline>.Empty;
 
     /// <summary>
-    /// Records a container expansion (Toolkit or skill).
+    /// Records a container expansion (Harness or skill).
     /// Adds to both session-level ExpandedContainers and turn-level ContainersExpandedThisTurn.
     /// </summary>
     /// <param name="containerName">Name of the container being expanded</param>
@@ -1574,16 +1574,16 @@ public sealed record ContainerMiddlewareState
     }
 
     /// <summary>
-    /// Stores an active scoped middleware pipeline for an expanded toolkit.
+    /// Stores an active scoped middleware pipeline for an expanded harness.
     /// </summary>
-    public ContainerMiddlewareState WithToolkitPipeline(string toolkitName, AgentMiddlewarePipeline pipeline)
-        => this with { ToolkitPipelines = ToolkitPipelines.SetItem(toolkitName, pipeline) };
+    public ContainerMiddlewareState WithHarnessPipeline(string harnessName, AgentMiddlewarePipeline pipeline)
+        => this with { HarnessPipelines = HarnessPipelines.SetItem(harnessName, pipeline) };
 
     /// <summary>
-    /// Removes the scoped middleware pipeline for a toolkit (called at turn cleanup).
+    /// Removes the scoped middleware pipeline for a harness (called at turn cleanup).
     /// </summary>
-    public ContainerMiddlewareState WithoutToolkitPipeline(string toolkitName)
-        => this with { ToolkitPipelines = ToolkitPipelines.Remove(toolkitName) };
+    public ContainerMiddlewareState WithoutHarnessPipeline(string harnessName)
+        => this with { HarnessPipelines = HarnessPipelines.Remove(harnessName) };
 
     /// <summary>
     /// Clears all active container instructions (typically at end of message turn).
@@ -1610,13 +1610,13 @@ public sealed record ContainerMiddlewareState
             ExpandedContainers = ImmutableHashSet<string>.Empty,
             ContainersExpandedThisTurn = ImmutableHashSet<string>.Empty,
             RecoveredFunctionCalls = ImmutableDictionary<string, RecoveryInfo>.Empty,
-            ToolkitPipelines = ImmutableDictionary<string, AgentMiddlewarePipeline>.Empty
+            HarnessPipelines = ImmutableDictionary<string, AgentMiddlewarePipeline>.Empty
         };
     }
 }
 
 /// <summary>
-/// Instruction contexts for a container (Toolkit or skill).
+/// Instruction contexts for a container (Harness or skill).
 /// Supports dual-injection: function result (ephemeral) + system prompt (persistent).
 /// </summary>
 public sealed record ContainerInstructionSet(
@@ -1644,8 +1644,8 @@ public enum RecoveryType
 {
     /// <summary>Hidden item call (e.g., "Add" when container not expanded)</summary>
     HiddenItem,
-    /// <summary>Qualified name call (e.g., "MathToolkit:Add", "MathToolkit.Add")</summary>
+    /// <summary>Qualified name call (e.g., "MathHarness:Add", "MathHarness.Add")</summary>
     QualifiedName,
-    /// <summary>Container called with arguments (e.g., "MathToolkit(a: 5, b: 10)" should be "MathToolkit()")</summary>
+    /// <summary>Container called with arguments (e.g., "MathHarness(a: 5, b: 10)" should be "MathHarness()")</summary>
     ContainerWithArguments
 }

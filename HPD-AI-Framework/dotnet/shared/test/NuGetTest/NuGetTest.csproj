@@ -29,9 +29,9 @@
     <PackageReference Include="HPD-Agent.Memory" Version="0.2.0" />
     <PackageReference Include="HPD-Agent.TextExtraction" Version="0.2.0" />
 
-    <!-- Toolkit packages -->
-    <PackageReference Include="HPD-Agent.Toolkit.FileSystem" Version="0.2.0" />
-    <PackageReference Include="HPD-Agent.Toolkit.WebSearch" Version="0.2.0" />
+    <!-- Harness packages -->
+    <PackageReference Include="HPD-Agent.Harness.FileSystem" Version="0.2.0" />
+    <PackageReference Include="HPD-Agent.Harness.WebSearch" Version="0.2.0" />
 
     <!-- Provider packages (Anthropic and OpenAI as examples) -->
     <PackageReference Include="HPD-Agent.Providers.Anthropic" Version="0.2.0" />

@@ -3,12 +3,12 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.AI;
 using Xunit;
 using HPD.Agent;
-using HPD.Agent.Tests.TestToolkits;
+using HPD.Agent.Tests.TestHarneses;
 
 namespace HPD.Agent.Tests.SourceGenerator;
 
 /// <summary>
-/// Phase 3 Combinatorial Validation Tests: Test all possible Toolkit configurations.
+/// Phase 3 Combinatorial Validation Tests: Test all possible Harness configurations.
 /// Ensures that every combination of Functions, Skills, SubAgents generates correctly
 /// and produces functionally identical behavior to the old generation path.
 ///
@@ -17,19 +17,19 @@ namespace HPD.Agent.Tests.SourceGenerator;
 public class Phase3CombinatorialValidationTests
 {
     /// <summary>
-    /// Test: Toolkit with Functions only (CombinedCapabilitiesTools has all 3 AIFunctions)
+    /// Test: Harness with Functions only (CombinedCapabilitiesTools has all 3 AIFunctions)
     /// </summary>
     [Fact]
     public void Combination_FunctionsOnly()
     {
         // CombinedCapabilitiesTools has functions
-        var Toolkit = CombinedCapabilitiesToolsRegistration.CreateToolkit(new CombinedCapabilitiesTools(), null);
+        var Harness = CombinedCapabilitiesToolsRegistration.CreateHarness(new CombinedCapabilitiesTools(), null);
 
-        Assert.NotNull(Toolkit);
-        Assert.NotEmpty(Toolkit);
+        Assert.NotNull(Harness);
+        Assert.NotEmpty(Harness);
 
         // Should have AIFunctions
-        var regularFunctions = Toolkit.Where(f =>
+        var regularFunctions = Harness.Where(f =>
         {
             var isContainer = f.AdditionalProperties?.TryGetValue("IsContainer", out var val) == true
                 && val is bool b && b;
@@ -46,27 +46,27 @@ public class Phase3CombinatorialValidationTests
             Assert.NotNull(func.Name);
             Assert.NotNull(func.Description);
 
-            // Should have ParentToolkit metadata
-            object? parentToolkit = null;
-            var hasParentToolkit = func.AdditionalProperties?.TryGetValue("ParentToolkit", out parentToolkit) == true;
-            Assert.True(hasParentToolkit);
-            Assert.Equal("CombinedCapabilitiesTools", parentToolkit as string);
+            // Should have ParentHarness metadata
+            object? parentHarness = null;
+            var hasParentHarness = func.AdditionalProperties?.TryGetValue("ParentHarness", out parentHarness) == true;
+            Assert.True(hasParentHarness);
+            Assert.Equal("CombinedCapabilitiesTools", parentHarness as string);
         }
     }
 
     /// <summary>
-    /// Test: Toolkit with Skills (CombinedCapabilitiesTools has 2 Skills)
+    /// Test: Harness with Skills (CombinedCapabilitiesTools has 2 Skills)
     /// </summary>
     [Fact]
     public void Combination_Skills()
     {
-        var Toolkit = CombinedCapabilitiesToolsRegistration.CreateToolkit(new CombinedCapabilitiesTools(), null);
+        var Harness = CombinedCapabilitiesToolsRegistration.CreateHarness(new CombinedCapabilitiesTools(), null);
 
-        Assert.NotNull(Toolkit);
-        Assert.NotEmpty(Toolkit);
+        Assert.NotNull(Harness);
+        Assert.NotEmpty(Harness);
 
         // Should have skill containers
-        var skillContainers = Toolkit.Where(f =>
+        var skillContainers = Harness.Where(f =>
             f.AdditionalProperties?.TryGetValue("IsSkill", out var val) == true
             && val is bool b && b).ToList();
 
@@ -92,28 +92,28 @@ public class Phase3CombinatorialValidationTests
             Assert.True(hasReferencedFunctions, $"Skill {skill.Name} should have ReferencedFunctions");
             Assert.NotNull(funcArray);
 
-            // Should have ReferencedToolkits array
-            object? ToolkitArray = null;
-            var hasReferencedToolkits = skill.AdditionalProperties?
-                .TryGetValue("ReferencedToolkits", out ToolkitArray) == true;
-            Assert.True(hasReferencedToolkits, $"Skill {skill.Name} should have ReferencedToolkits");
-            Assert.NotNull(ToolkitArray);
+            // Should have ReferencedHarneses array
+            object? HarnessArray = null;
+            var hasReferencedHarneses = skill.AdditionalProperties?
+                .TryGetValue("ReferencedHarneses", out HarnessArray) == true;
+            Assert.True(hasReferencedHarneses, $"Skill {skill.Name} should have ReferencedHarneses");
+            Assert.NotNull(HarnessArray);
         }
     }
 
     /// <summary>
-    /// Test: Toolkit with SubAgents (CombinedCapabilitiesTools has 2 SubAgents)
+    /// Test: Harness with SubAgents (CombinedCapabilitiesTools has 2 SubAgents)
     /// </summary>
     [Fact]
     public void Combination_SubAgents()
     {
-        var Toolkit = CombinedCapabilitiesToolsRegistration.CreateToolkit(new CombinedCapabilitiesTools(), null);
+        var Harness = CombinedCapabilitiesToolsRegistration.CreateHarness(new CombinedCapabilitiesTools(), null);
 
-        Assert.NotNull(Toolkit);
-        Assert.NotEmpty(Toolkit);
+        Assert.NotNull(Harness);
+        Assert.NotEmpty(Harness);
 
         // Should have subagent wrappers
-        var subAgents = Toolkit.Where(f =>
+        var subAgents = Harness.Where(f =>
             f.AdditionalProperties?.TryGetValue("IsSubAgent", out var val) == true
             && val is bool b && b).ToList();
 
@@ -133,38 +133,38 @@ public class Phase3CombinatorialValidationTests
             Assert.True(hasSessionMode, $"SubAgent {subAgent.Name} should have SessionMode");
             Assert.True(SessionMode is string);
 
-            // Should have ParentToolkit
+            // Should have ParentHarness
             object? toolName = null;
-            var hasParentToolkit = subAgent.AdditionalProperties?.TryGetValue("ParentToolkit", out toolName) == true;
-            Assert.True(hasParentToolkit, $"SubAgent {subAgent.Name} should have ParentToolkit");
+            var hasParentHarness = subAgent.AdditionalProperties?.TryGetValue("ParentHarness", out toolName) == true;
+            Assert.True(hasParentHarness, $"SubAgent {subAgent.Name} should have ParentHarness");
             Assert.Equal("CombinedCapabilitiesTools", toolName as string);
         }
     }
 
     /// <summary>
-    /// Test: Toolkit with all three types (Functions + Skills + SubAgents)
+    /// Test: Harness with all three types (Functions + Skills + SubAgents)
     /// </summary>
     [Fact]
     public void Combination_All_Three_Types()
     {
-        var Toolkit = CombinedCapabilitiesToolsRegistration.CreateToolkit(new CombinedCapabilitiesTools(), null);
+        var Harness = CombinedCapabilitiesToolsRegistration.CreateHarness(new CombinedCapabilitiesTools(), null);
 
-        Assert.NotNull(Toolkit);
-        Assert.NotEmpty(Toolkit);
+        Assert.NotNull(Harness);
+        Assert.NotEmpty(Harness);
 
         // Count each type
-        var functions = Toolkit.Where(f =>
+        var functions = Harness.Where(f =>
         {
             var isSkill = f.AdditionalProperties?.TryGetValue("IsSkill", out var v1) == true && v1 is bool b1 && b1;
             var isSubAgent = f.AdditionalProperties?.TryGetValue("IsSubAgent", out var v2) == true && v2 is bool b2 && b2;
             return !isSkill && !isSubAgent;
         }).ToList();
 
-        var skills = Toolkit.Where(f =>
+        var skills = Harness.Where(f =>
             f.AdditionalProperties?.TryGetValue("IsSkill", out var val) == true
             && val is bool b && b).ToList();
 
-        var subAgents = Toolkit.Where(f =>
+        var subAgents = Harness.Where(f =>
             f.AdditionalProperties?.TryGetValue("IsSubAgent", out var val) == true
             && val is bool b && b).ToList();
 
@@ -174,7 +174,7 @@ public class Phase3CombinatorialValidationTests
         Assert.NotEmpty(subAgents);
 
         // Total should be sum of all three
-        Assert.Equal(functions.Count + skills.Count + subAgents.Count, Toolkit.Count);
+        Assert.Equal(functions.Count + skills.Count + subAgents.Count, Harness.Count);
     }
 
     /// <summary>
@@ -183,24 +183,24 @@ public class Phase3CombinatorialValidationTests
     [Fact]
     public void Combination_Functions_SubAgents()
     {
-        var Toolkit = FunctionsAndSubAgentsToolkitRegistration.CreateToolkit(new FunctionsAndSubAgentsToolkit(), null);
+        var Harness = FunctionsAndSubAgentsHarnessRegistration.CreateHarness(new FunctionsAndSubAgentsHarness(), null);
 
-        Assert.NotNull(Toolkit);
-        Assert.NotEmpty(Toolkit);
+        Assert.NotNull(Harness);
+        Assert.NotEmpty(Harness);
 
         // Should have functions
-        var functions = Toolkit.Where(f =>
+        var functions = Harness.Where(f =>
             f.AdditionalProperties?.TryGetValue("IsSubAgent", out var val) != true).ToList();
         Assert.NotEmpty(functions);
 
         // Should have subagents
-        var subAgents = Toolkit.Where(f =>
+        var subAgents = Harness.Where(f =>
             f.AdditionalProperties?.TryGetValue("IsSubAgent", out var val) == true
             && val is bool b && b).ToList();
         Assert.NotEmpty(subAgents);
 
         // Should NOT have skills
-        var skills = Toolkit.Where(f =>
+        var skills = Harness.Where(f =>
             f.AdditionalProperties?.TryGetValue("IsSkill", out var val) == true
             && val is bool b && b).ToList();
         Assert.Empty(skills);
@@ -212,19 +212,19 @@ public class Phase3CombinatorialValidationTests
     [Fact]
     public void Combination_Skills_SubAgents()
     {
-        var Toolkit = SkillsAndSubAgentsToolkitRegistration.CreateToolkit(new SkillsAndSubAgentsToolkit(), null);
+        var Harness = SkillsAndSubAgentsHarnessRegistration.CreateHarness(new SkillsAndSubAgentsHarness(), null);
 
-        Assert.NotNull(Toolkit);
-        Assert.NotEmpty(Toolkit);
+        Assert.NotNull(Harness);
+        Assert.NotEmpty(Harness);
 
         // Should have skills
-        var skills = Toolkit.Where(f =>
+        var skills = Harness.Where(f =>
             f.AdditionalProperties?.TryGetValue("IsSkill", out var val) == true
             && val is bool b && b).ToList();
         Assert.NotEmpty(skills);
 
         // Should have subagents
-        var subAgents = Toolkit.Where(f =>
+        var subAgents = Harness.Where(f =>
             f.AdditionalProperties?.TryGetValue("IsSubAgent", out var val) == true
             && val is bool b && b).ToList();
         Assert.NotEmpty(subAgents);
@@ -237,10 +237,10 @@ public class Phase3CombinatorialValidationTests
     [Fact]
     public void EmptyArrays_HaveExplicitTypes()
     {
-        var Toolkit = CombinedCapabilitiesToolsRegistration.CreateToolkit(new CombinedCapabilitiesTools(), null);
+        var Harness = CombinedCapabilitiesToolsRegistration.CreateHarness(new CombinedCapabilitiesTools(), null);
 
-        // All skills should have ReferencedFunctions and ReferencedToolkits arrays
-        var skills = Toolkit.Where(f =>
+        // All skills should have ReferencedFunctions and ReferencedHarneses arrays
+        var skills = Harness.Where(f =>
             f.AdditionalProperties?.TryGetValue("IsSkill", out var val) == true
             && val is bool b && b).ToList();
 
@@ -259,16 +259,16 @@ public class Phase3CombinatorialValidationTests
             Assert.True(funcArray is string[] || funcArray is object[],
                 $"ReferencedFunctions should be an array, got {funcArray?.GetType().Name}");
 
-            // ReferencedToolkits should be an array (possibly empty)
-            object? ToolkitArray = null;
-            var hasReferencedToolkits = skill.AdditionalProperties?
-                .TryGetValue("ReferencedToolkits", out ToolkitArray) == true;
-            Assert.True(hasReferencedToolkits, $"Skill {skill.Name} should have ReferencedToolkits");
+            // ReferencedHarneses should be an array (possibly empty)
+            object? HarnessArray = null;
+            var hasReferencedHarneses = skill.AdditionalProperties?
+                .TryGetValue("ReferencedHarneses", out HarnessArray) == true;
+            Assert.True(hasReferencedHarneses, $"Skill {skill.Name} should have ReferencedHarneses");
 
             // Should be a proper array type, not null
-            Assert.NotNull(ToolkitArray);
-            Assert.True(ToolkitArray is string[] || ToolkitArray is object[],
-                $"ReferencedToolkits should be an array, got {ToolkitArray?.GetType().Name}");
+            Assert.NotNull(HarnessArray);
+            Assert.True(HarnessArray is string[] || HarnessArray is object[],
+                $"ReferencedHarneses should be an array, got {HarnessArray?.GetType().Name}");
         }
     }
 
@@ -278,8 +278,8 @@ public class Phase3CombinatorialValidationTests
     [Fact]
     public async Task Skill_ActivatesCorrectly()
     {
-        var Toolkit = CombinedCapabilitiesToolsRegistration.CreateToolkit(new CombinedCapabilitiesTools(), null);
-        var skill = Toolkit.FirstOrDefault(f =>
+        var Harness = CombinedCapabilitiesToolsRegistration.CreateHarness(new CombinedCapabilitiesTools(), null);
+        var skill = Harness.FirstOrDefault(f =>
             f.AdditionalProperties?.TryGetValue("IsSkill", out var val) == true
             && val is bool b && b);
 
@@ -311,9 +311,9 @@ public class Phase3CombinatorialValidationTests
         //  All three types together
         //
         // METADATA VALIDATION:
-        //  Function metadata (ParentToolkit, IsContainer = false)
-        //  Skill metadata (IsContainer = true, IsSkill = true, ReferencedFunctions, ReferencedToolkits)
-        //  SubAgent metadata (IsSubAgent = true, SessionMode, ToolkitName)
+        //  Function metadata (ParentHarness, IsContainer = false)
+        //  Skill metadata (IsContainer = true, IsSkill = true, ReferencedFunctions, ReferencedHarneses)
+        //  SubAgent metadata (IsSubAgent = true, SessionMode, HarnessName)
         //  Empty array types (new string[] { } instead of new[] { })
         //
         // FUNCTIONAL VALIDATION:

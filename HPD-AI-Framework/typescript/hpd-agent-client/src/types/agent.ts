@@ -39,7 +39,7 @@ export interface AgentConfig {
   systemInstructions?: string;
   maxAgenticIterations?: number;
   provider?: ProviderConfig;
-  toolkits?: ToolkitReference[];
+  harnesses?: HarnessReference[];
   [key: string]: unknown;
 }
 
@@ -49,7 +49,7 @@ export interface ProviderConfig {
   [key: string]: unknown;
 }
 
-export interface ToolkitReference {
+export interface HarnessReference {
   name: string;
   [key: string]: unknown;
 }

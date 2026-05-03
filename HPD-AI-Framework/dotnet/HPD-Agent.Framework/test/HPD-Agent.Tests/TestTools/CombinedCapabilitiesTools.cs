@@ -1,11 +1,11 @@
 using HPD.Agent;
 using HPD.Agent;
 
-namespace HPD.Agent.Tests.TestToolkits;
+namespace HPD.Agent.Tests.TestHarneses;
 
 /// <summary>
-/// Test Toolkit that combines all three capability types: AIFunctions, Skills, and SubAgents.
-/// Used to verify the source generator correctly handles Toolkits with mixed capabilities.
+/// Test Harness that combines all three capability types: AIFunctions, Skills, and SubAgents.
+/// Used to verify the source generator correctly handles Harneses with mixed capabilities.
 /// </summary>
 public partial class CombinedCapabilitiesTools
 {
@@ -87,9 +87,9 @@ public partial class CombinedCapabilitiesTools
 }
 
 /// <summary>
-/// Toolkit with only AIFunctions and SubAgents (no Skills)
+/// Harness with only AIFunctions and SubAgents (no Skills)
 /// </summary>
-public partial class FunctionsAndSubAgentsToolkit
+public partial class FunctionsAndSubAgentsHarness
 {
     // AI Functions
     [AIFunction, AIDescription("Search for items")]
@@ -120,10 +120,10 @@ public partial class FunctionsAndSubAgentsToolkit
 }
 
 /// <summary>
-/// Toolkit with only Skills and SubAgents (no direct AIFunctions)
-/// Note: Skills reference functions from other Toolkits
+/// Harness with only Skills and SubAgents (no direct AIFunctions)
+/// Note: Skills reference functions from other Harneses
 /// </summary>
-public partial class SkillsAndSubAgentsToolkit
+public partial class SkillsAndSubAgentsHarness
 {
     // Skill that references functions from MockFileSystemTools
     [Skill]

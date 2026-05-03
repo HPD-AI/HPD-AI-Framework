@@ -10,7 +10,7 @@
 	import { providers } from '../../providers.svelte.js';
 	import { toolRegistry } from './tools/toolRegistry.js';
 	import ArtifactToolCall from './tools/ArtifactToolCall.svelte';
-	import { buildAppSystemInstructions } from '../../apps/appToolkit.js';
+	import { buildAppSystemInstructions } from '../../apps/appHarness.js';
 
 	// Register specialized tool renderers (idempotent — safe to call multiple times)
 	toolRegistry.register('upsert_artifact', ArtifactToolCall);

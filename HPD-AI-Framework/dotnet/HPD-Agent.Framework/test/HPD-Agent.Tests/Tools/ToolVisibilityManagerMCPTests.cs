@@ -18,7 +18,7 @@ public class ToolVisibilityManagerMCPTests
     #region Helper Methods
 
     /// <summary>
-    /// Creates a collapse/toolkit container function with the given properties.
+    /// Creates a collapse/harness container function with the given properties.
     /// </summary>
     private static AIFunction CreateCollapseContainer(
         string name,
@@ -37,8 +37,8 @@ public class ToolVisibilityManagerMCPTests
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
-                    ["IsToolkitContainer"] = true,
-                    ["ToolkitName"] = name,
+                    ["IsHarnessContainer"] = true,
+                    ["HarnessName"] = name,
                     ["FunctionNames"] = functionNames,
                     ["FunctionCount"] = functionNames.Length,
                     ["SourceType"] = "CSharp",
@@ -50,7 +50,7 @@ public class ToolVisibilityManagerMCPTests
     }
 
     /// <summary>
-    /// Creates an MCP container function nested under a parent toolkit.
+    /// Creates an MCP container function nested under a parent harness.
     /// </summary>
     private static AIFunction CreateMCPContainer(
         string serverName,
@@ -67,7 +67,7 @@ public class ToolVisibilityManagerMCPTests
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
-                    ["ToolkitName"] = containerName,
+                    ["HarnessName"] = containerName,
                     ["FunctionNames"] = functionNames,
                     ["FunctionCount"] = functionNames.Length,
                     ["SourceType"] = "MCP",
@@ -78,11 +78,11 @@ public class ToolVisibilityManagerMCPTests
     }
 
     /// <summary>
-    /// Creates a toolkit member function with ParentToolkit and optional ParentContainer.
+    /// Creates a harness member function with ParentHarness and optional ParentContainer.
     /// </summary>
-    private static AIFunction CreateToolkitFunction(
+    private static AIFunction CreateHarnessFunction(
         string name,
-        string parentToolkit,
+        string parentHarness,
         string? parentContainer = null,
         string sourceType = "CSharp")
     {
@@ -94,8 +94,8 @@ public class ToolVisibilityManagerMCPTests
                 Description = $"Function {name}",
                 AdditionalProperties = new Dictionary<string, object?>
                 {
-                    ["ParentToolkit"] = parentToolkit,
-                    ["ToolkitName"] = parentToolkit,
+                    ["ParentHarness"] = parentHarness,
+                    ["HarnessName"] = parentHarness,
                     ["ParentContainer"] = parentContainer,
                     ["IsContainer"] = false,
                     ["SourceType"] = sourceType,
@@ -108,7 +108,7 @@ public class ToolVisibilityManagerMCPTests
     /// </summary>
     private static AIFunction CreateStandaloneFunction(string name)
     {
-        return CollapsedToolkitTestHelper.CreateSimpleFunction(name, $"Standalone {name}", () => $"{name} result");
+        return CollapsedHarnessTestHelper.CreateSimpleFunction(name, $"Standalone {name}", () => $"{name} result");
     }
 
     private static List<string> GetVisibleNames(List<AIFunction> tools) =>
@@ -122,51 +122,51 @@ public class ToolVisibilityManagerMCPTests
     public void NestedMCPContainer_ParentNotExpanded_Hidden()
     {
         // Arrange
-        var searchToolkitContainer = CreateCollapseContainer(
-            "SearchToolkit", "Search tools",
+        var searchHarnessContainer = CreateCollapseContainer(
+            "SearchHarness", "Search tools",
             new[] { "WebSearch", "ImageSearch" });
 
         var mcpContainer = CreateMCPContainer(
             "wolfram",
             new[] { "calculate", "plot" },
-            parentContainer: "SearchToolkit");
+            parentContainer: "SearchHarness");
 
-        var allTools = new List<AIFunction> { searchToolkitContainer, mcpContainer };
+        var allTools = new List<AIFunction> { searchHarnessContainer, mcpContainer };
         var manager = new ToolVisibilityManager(allTools);
 
         // Act — nothing expanded
         var visible = manager.GetToolsForAgentTurn(allTools, ImmutableHashSet<string>.Empty);
 
-        // Assert — only SearchToolkit container visible, MCP container hidden
+        // Assert — only SearchHarness container visible, MCP container hidden
         var names = GetVisibleNames(visible);
-        names.Should().Contain("SearchToolkit");
-        names.Should().NotContain("MCP_wolfram", "MCP container is hidden because parent SearchToolkit is not expanded");
+        names.Should().Contain("SearchHarness");
+        names.Should().NotContain("MCP_wolfram", "MCP container is hidden because parent SearchHarness is not expanded");
     }
 
     [Fact]
     public void NestedMCPContainer_ParentExpanded_Visible()
     {
         // Arrange
-        var searchToolkitContainer = CreateCollapseContainer(
-            "SearchToolkit", "Search tools",
+        var searchHarnessContainer = CreateCollapseContainer(
+            "SearchHarness", "Search tools",
             new[] { "WebSearch", "ImageSearch" });
 
-        var webSearch = CreateToolkitFunction("WebSearch", "SearchToolkit");
-        var imageSearch = CreateToolkitFunction("ImageSearch", "SearchToolkit");
+        var webSearch = CreateHarnessFunction("WebSearch", "SearchHarness");
+        var imageSearch = CreateHarnessFunction("ImageSearch", "SearchHarness");
 
         var mcpContainer = CreateMCPContainer(
             "wolfram",
             new[] { "calculate", "plot" },
-            parentContainer: "SearchToolkit");
+            parentContainer: "SearchHarness");
 
         var allTools = new List<AIFunction>
         {
-            searchToolkitContainer, webSearch, imageSearch, mcpContainer
+            searchHarnessContainer, webSearch, imageSearch, mcpContainer
         };
         var manager = new ToolVisibilityManager(allTools);
 
-        // Act — expand SearchToolkit
-        var expanded = ImmutableHashSet.Create("SearchToolkit");
+        // Act — expand SearchHarness
+        var expanded = ImmutableHashSet.Create("SearchHarness");
         var visible = manager.GetToolsForAgentTurn(allTools, expanded);
 
         // Assert — MCP container visible alongside native functions
@@ -174,35 +174,35 @@ public class ToolVisibilityManagerMCPTests
         names.Should().Contain("MCP_wolfram", "MCP container visible when parent expanded");
         names.Should().Contain("WebSearch");
         names.Should().Contain("ImageSearch");
-        names.Should().NotContain("SearchToolkit", "SearchToolkit container is hidden when expanded");
+        names.Should().NotContain("SearchHarness", "SearchHarness container is hidden when expanded");
     }
 
     [Fact]
     public void NestedMCPContainer_MCPExpanded_MCPToolsVisible()
     {
         // Arrange
-        var searchToolkitContainer = CreateCollapseContainer(
-            "SearchToolkit", "Search tools",
+        var searchHarnessContainer = CreateCollapseContainer(
+            "SearchHarness", "Search tools",
             new[] { "WebSearch" });
 
-        var webSearch = CreateToolkitFunction("WebSearch", "SearchToolkit");
+        var webSearch = CreateHarnessFunction("WebSearch", "SearchHarness");
 
         var mcpContainer = CreateMCPContainer(
             "wolfram",
             new[] { "calculate", "plot" },
-            parentContainer: "SearchToolkit");
+            parentContainer: "SearchHarness");
 
-        var calculate = CreateToolkitFunction("calculate", "MCP_wolfram", sourceType: "MCP");
-        var plot = CreateToolkitFunction("plot", "MCP_wolfram", sourceType: "MCP");
+        var calculate = CreateHarnessFunction("calculate", "MCP_wolfram", sourceType: "MCP");
+        var plot = CreateHarnessFunction("plot", "MCP_wolfram", sourceType: "MCP");
 
         var allTools = new List<AIFunction>
         {
-            searchToolkitContainer, webSearch, mcpContainer, calculate, plot
+            searchHarnessContainer, webSearch, mcpContainer, calculate, plot
         };
         var manager = new ToolVisibilityManager(allTools);
 
-        // Act — expand both SearchToolkit and MCP_wolfram
-        var expanded = ImmutableHashSet.Create("SearchToolkit", "MCP_wolfram");
+        // Act — expand both SearchHarness and MCP_wolfram
+        var expanded = ImmutableHashSet.Create("SearchHarness", "MCP_wolfram");
         var visible = manager.GetToolsForAgentTurn(allTools, expanded);
 
         // Assert — MCP tools visible
@@ -211,7 +211,7 @@ public class ToolVisibilityManagerMCPTests
         names.Should().Contain("plot");
         names.Should().Contain("WebSearch");
         names.Should().NotContain("MCP_wolfram", "MCP container hidden when itself expanded");
-        names.Should().NotContain("SearchToolkit", "SearchToolkit container hidden when expanded");
+        names.Should().NotContain("SearchHarness", "SearchHarness container hidden when expanded");
     }
 
     [Fact]
@@ -239,22 +239,22 @@ public class ToolVisibilityManagerMCPTests
     #region Flat MCP Tool Visibility
 
     [Fact]
-    public void FlatMCPTool_ParentCollapsedToolkit_NotExpanded_Hidden()
+    public void FlatMCPTool_ParentCollapsedHarness_NotExpanded_Hidden()
     {
-        // Arrange — flat MCP tools under a collapsed toolkit
-        var devToolkitContainer = CreateCollapseContainer(
-            "DevToolkit", "Dev tools",
+        // Arrange — flat MCP tools under a collapsed harness
+        var devHarnessContainer = CreateCollapseContainer(
+            "DevHarness", "Dev tools",
             new[] { "ReadFile", "git_status", "git_diff" });
 
-        var readFile = CreateToolkitFunction("ReadFile", "DevToolkit");
-        var gitStatus = CreateToolkitFunction("git_status", "DevToolkit",
-            parentContainer: "DevToolkit", sourceType: "MCP");
-        var gitDiff = CreateToolkitFunction("git_diff", "DevToolkit",
-            parentContainer: "DevToolkit", sourceType: "MCP");
+        var readFile = CreateHarnessFunction("ReadFile", "DevHarness");
+        var gitStatus = CreateHarnessFunction("git_status", "DevHarness",
+            parentContainer: "DevHarness", sourceType: "MCP");
+        var gitDiff = CreateHarnessFunction("git_diff", "DevHarness",
+            parentContainer: "DevHarness", sourceType: "MCP");
 
         var allTools = new List<AIFunction>
         {
-            devToolkitContainer, readFile, gitStatus, gitDiff
+            devHarnessContainer, readFile, gitStatus, gitDiff
         };
         var manager = new ToolVisibilityManager(allTools);
 
@@ -263,34 +263,34 @@ public class ToolVisibilityManagerMCPTests
 
         // Assert — only container visible
         var names = GetVisibleNames(visible);
-        names.Should().Contain("DevToolkit");
+        names.Should().Contain("DevHarness");
         names.Should().NotContain("git_status");
         names.Should().NotContain("git_diff");
         names.Should().NotContain("ReadFile");
     }
 
     [Fact]
-    public void FlatMCPTool_ParentCollapsedToolkit_Expanded_Visible()
+    public void FlatMCPTool_ParentCollapsedHarness_Expanded_Visible()
     {
-        // Arrange — flat MCP tools under a collapsed toolkit
-        var devToolkitContainer = CreateCollapseContainer(
-            "DevToolkit", "Dev tools",
+        // Arrange — flat MCP tools under a collapsed harness
+        var devHarnessContainer = CreateCollapseContainer(
+            "DevHarness", "Dev tools",
             new[] { "ReadFile", "git_status", "git_diff" });
 
-        var readFile = CreateToolkitFunction("ReadFile", "DevToolkit");
-        var gitStatus = CreateToolkitFunction("git_status", "DevToolkit",
-            parentContainer: "DevToolkit", sourceType: "MCP");
-        var gitDiff = CreateToolkitFunction("git_diff", "DevToolkit",
-            parentContainer: "DevToolkit", sourceType: "MCP");
+        var readFile = CreateHarnessFunction("ReadFile", "DevHarness");
+        var gitStatus = CreateHarnessFunction("git_status", "DevHarness",
+            parentContainer: "DevHarness", sourceType: "MCP");
+        var gitDiff = CreateHarnessFunction("git_diff", "DevHarness",
+            parentContainer: "DevHarness", sourceType: "MCP");
 
         var allTools = new List<AIFunction>
         {
-            devToolkitContainer, readFile, gitStatus, gitDiff
+            devHarnessContainer, readFile, gitStatus, gitDiff
         };
         var manager = new ToolVisibilityManager(allTools);
 
-        // Act — expand DevToolkit
-        var expanded = ImmutableHashSet.Create("DevToolkit");
+        // Act — expand DevHarness
+        var expanded = ImmutableHashSet.Create("DevHarness");
         var visible = manager.GetToolsForAgentTurn(allTools, expanded);
 
         // Assert — all functions visible
@@ -298,7 +298,7 @@ public class ToolVisibilityManagerMCPTests
         names.Should().Contain("ReadFile");
         names.Should().Contain("git_status");
         names.Should().Contain("git_diff");
-        names.Should().NotContain("DevToolkit", "container hidden when expanded");
+        names.Should().NotContain("DevHarness", "container hidden when expanded");
     }
 
     [Fact]
@@ -323,15 +323,15 @@ public class ToolVisibilityManagerMCPTests
     #region Regression - Existing Behavior Unchanged
 
     [Fact]
-    public void ExistingCollapseToolkit_BehaviorUnchanged()
+    public void ExistingCollapseHarness_BehaviorUnchanged()
     {
-        // Arrange — standard collapsed toolkit without MCP
+        // Arrange — standard collapsed harness without MCP
         var container = CreateCollapseContainer(
-            "MathToolkit", "Math functions",
+            "MathHarness", "Math functions",
             new[] { "Add", "Multiply" });
 
-        var add = CreateToolkitFunction("Add", "MathToolkit");
-        var multiply = CreateToolkitFunction("Multiply", "MathToolkit");
+        var add = CreateHarnessFunction("Add", "MathHarness");
+        var multiply = CreateHarnessFunction("Multiply", "MathHarness");
 
         var allTools = new List<AIFunction> { container, add, multiply };
         var manager = new ToolVisibilityManager(allTools);
@@ -339,15 +339,15 @@ public class ToolVisibilityManagerMCPTests
         // Act — not expanded
         var visibleCollapsed = manager.GetToolsForAgentTurn(allTools, ImmutableHashSet<string>.Empty);
         var namesCollapsed = GetVisibleNames(visibleCollapsed);
-        namesCollapsed.Should().Contain("MathToolkit");
+        namesCollapsed.Should().Contain("MathHarness");
         namesCollapsed.Should().NotContain("Add");
         namesCollapsed.Should().NotContain("Multiply");
 
         // Act — expanded
-        var expanded = ImmutableHashSet.Create("MathToolkit");
+        var expanded = ImmutableHashSet.Create("MathHarness");
         var visibleExpanded = manager.GetToolsForAgentTurn(allTools, expanded);
         var namesExpanded = GetVisibleNames(visibleExpanded);
-        namesExpanded.Should().NotContain("MathToolkit", "container hidden when expanded");
+        namesExpanded.Should().NotContain("MathHarness", "container hidden when expanded");
         namesExpanded.Should().Contain("Add");
         namesExpanded.Should().Contain("Multiply");
     }
@@ -361,8 +361,8 @@ public class ToolVisibilityManagerMCPTests
             new[] { "create_pr", "list_issues" },
             parentContainer: null);
 
-        var createPr = CreateToolkitFunction("create_pr", "MCP_github", sourceType: "MCP");
-        var listIssues = CreateToolkitFunction("list_issues", "MCP_github", sourceType: "MCP");
+        var createPr = CreateHarnessFunction("create_pr", "MCP_github", sourceType: "MCP");
+        var listIssues = CreateHarnessFunction("list_issues", "MCP_github", sourceType: "MCP");
 
         var allTools = new List<AIFunction> { mcpContainer, createPr, listIssues };
         var manager = new ToolVisibilityManager(allTools);
@@ -388,22 +388,22 @@ public class ToolVisibilityManagerMCPTests
     #region Integration: Two-Level Expand Scenario
 
     [Fact]
-    public void TwoLevelExpand_ToolkitThenMCP_FullExpansionChain()
+    public void TwoLevelExpand_HarnessThenMCP_FullExpansionChain()
     {
-        // Arrange: SearchToolkit with native functions + nested MCP_wolfram
+        // Arrange: SearchHarness with native functions + nested MCP_wolfram
         var searchContainer = CreateCollapseContainer(
-            "SearchToolkit", "Search capabilities",
+            "SearchHarness", "Search capabilities",
             new[] { "WebSearch" });
 
-        var webSearch = CreateToolkitFunction("WebSearch", "SearchToolkit");
+        var webSearch = CreateHarnessFunction("WebSearch", "SearchHarness");
 
         var wolframContainer = CreateMCPContainer(
             "wolfram",
             new[] { "calculate", "plot" },
-            parentContainer: "SearchToolkit");
+            parentContainer: "SearchHarness");
 
-        var calculate = CreateToolkitFunction("calculate", "MCP_wolfram", sourceType: "MCP");
-        var plot = CreateToolkitFunction("plot", "MCP_wolfram", sourceType: "MCP");
+        var calculate = CreateHarnessFunction("calculate", "MCP_wolfram", sourceType: "MCP");
+        var plot = CreateHarnessFunction("plot", "MCP_wolfram", sourceType: "MCP");
 
         var allTools = new List<AIFunction>
         {
@@ -411,30 +411,30 @@ public class ToolVisibilityManagerMCPTests
         };
         var manager = new ToolVisibilityManager(allTools);
 
-        // Step 1: Nothing expanded — only SearchToolkit visible
+        // Step 1: Nothing expanded — only SearchHarness visible
         var step1 = manager.GetToolsForAgentTurn(allTools, ImmutableHashSet<string>.Empty);
         var names1 = GetVisibleNames(step1);
-        names1.Should().Contain("SearchToolkit");
+        names1.Should().Contain("SearchHarness");
         names1.Should().HaveCount(1, "only the top-level container is visible initially");
 
-        // Step 2: Expand SearchToolkit — WebSearch + MCP_wolfram visible
-        var step2Expanded = ImmutableHashSet.Create("SearchToolkit");
+        // Step 2: Expand SearchHarness — WebSearch + MCP_wolfram visible
+        var step2Expanded = ImmutableHashSet.Create("SearchHarness");
         var step2 = manager.GetToolsForAgentTurn(allTools, step2Expanded);
         var names2 = GetVisibleNames(step2);
         names2.Should().Contain("WebSearch");
         names2.Should().Contain("MCP_wolfram");
-        names2.Should().NotContain("SearchToolkit");
+        names2.Should().NotContain("SearchHarness");
         names2.Should().NotContain("calculate");
         names2.Should().NotContain("plot");
 
-        // Step 3: Expand both SearchToolkit + MCP_wolfram — all tools visible
-        var step3Expanded = ImmutableHashSet.Create("SearchToolkit", "MCP_wolfram");
+        // Step 3: Expand both SearchHarness + MCP_wolfram — all tools visible
+        var step3Expanded = ImmutableHashSet.Create("SearchHarness", "MCP_wolfram");
         var step3 = manager.GetToolsForAgentTurn(allTools, step3Expanded);
         var names3 = GetVisibleNames(step3);
         names3.Should().Contain("WebSearch");
         names3.Should().Contain("calculate");
         names3.Should().Contain("plot");
-        names3.Should().NotContain("SearchToolkit");
+        names3.Should().NotContain("SearchHarness");
         names3.Should().NotContain("MCP_wolfram");
     }
 

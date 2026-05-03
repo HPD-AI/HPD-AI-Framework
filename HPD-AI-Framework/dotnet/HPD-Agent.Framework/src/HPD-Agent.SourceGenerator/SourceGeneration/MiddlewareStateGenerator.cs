@@ -14,7 +14,7 @@ namespace HPD.Agent.SourceGenerator;
 /// <summary>
 /// Incremental source generator for middleware state.
 /// Generates per-assembly MiddlewareStateRegistry.g.cs and MiddlewareStateExtensions.g.cs.
-/// Follows the ToolkitRegistry pattern for cross-assembly state discovery.
+/// Follows the HarnessRegistry pattern for cross-assembly state discovery.
 /// </summary>
 [Generator]
 public class MiddlewareStateGenerator : IIncrementalGenerator
@@ -278,7 +278,7 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
 
     /// <summary>
     /// Generates MiddlewareStateRegistry.g.cs with factory array.
-    /// This follows the ToolkitRegistry pattern for cross-assembly discovery.
+    /// This follows the HarnessRegistry pattern for cross-assembly discovery.
     /// </summary>
     private void GenerateRegistry(
         SourceProductionContext context,

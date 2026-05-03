@@ -66,33 +66,33 @@ See [Providers](Providers/00%20Providers%20Overview.md) for per-provider configu
 
 ---
 
-## Toolkits
+## Harneses
 
-Register toolkits by class name (string shorthand) or rich reference object:
+Register harnesses by class name (string shorthand) or rich reference object:
 
 ```csharp
 // String shorthand
-Toolkits = ["CalculatorToolkit", "FileToolkit"]
+Harneses = ["CalculatorHarness", "FileHarness"]
 
-// Rich reference — restrict which functions are exposed, or pass toolkit config
-Toolkits =
+// Rich reference — restrict which functions are exposed, or pass harness config
+Harneses =
 [
-    new ToolkitReference { Name = "FileToolkit", Functions = ["ReadFile", "WriteFile"] },
-    new ToolkitReference { Name = "SearchToolkit", Config = mySearchConfig }
+    new HarnessReference { Name = "FileHarness", Functions = ["ReadFile", "WriteFile"] },
+    new HarnessReference { Name = "SearchHarness", Config = mySearchConfig }
 ]
 ```
 
 In JSON:
 ```json
 {
-    "Toolkits": [
-        "CalculatorToolkit",
-        { "Name": "FileToolkit", "Functions": ["ReadFile", "WriteFile"] }
+    "Harneses": [
+        "CalculatorHarness",
+        { "Name": "FileHarness", "Functions": ["ReadFile", "WriteFile"] }
     ]
 }
 ```
 
-Native C# toolkits (type references) must be registered via `.WithToolkit<T>()` on the builder.
+Native C# harnesses (type references) must be registered via `.WithHarness<T>()` on the builder.
 
 ---
 
@@ -118,7 +118,7 @@ Each section is an optional nullable config class. All default to `null` (framew
 | `HistoryReduction` | `HistoryReductionConfig?` | Conversation history summarization/trimming |
 | `AgenticLoop` | `AgenticLoopConfig?` | Turn duration limits and parallel function caps |
 | `Caching` | `CachingConfig?` | LLM response caching |
-| `Collapsing` | `CollapsingConfig` | Toolkit hierarchical collapse/expand (default: `new CollapsingConfig { Enabled = true }`) |
+| `Collapsing` | `CollapsingConfig` | Harness hierarchical collapse/expand (default: `new CollapsingConfig { Enabled = true }`) |
 | `Observability` | `ObservabilityConfig?` | Event sampling and circuit breaker |
 | `BackgroundResponses` | `BackgroundResponsesConfig?` | Long-running / async provider support |
 | `DocumentHandling` | `DocumentHandlingConfig?` | File attachment extraction settings |
@@ -203,7 +203,7 @@ var agent = await AgentConfig.BuildFromFileAsync("agent-config.json");
 // Or use the builder for runtime additions
 var agent = await new AgentBuilder("agent-config.json")
     .WithServiceProvider(services)
-    .WithToolkit<MyToolkit>()
+    .WithHarness<MyHarness>()
     .BuildAsync();
 ```
 

@@ -16,7 +16,7 @@ public class MCPServerRegistrationTests
         var reg = new MCPServerRegistration
         {
             Name = "wolfram",
-            ParentToolkit = "SearchToolkit",
+            ParentHarness = "SearchHarness",
             StaticConfigProvider = () => new MCPServerConfig
             {
                 Name = "wolfram",
@@ -39,7 +39,7 @@ public class MCPServerRegistrationTests
         var reg = new MCPServerRegistration
         {
             Name = "custom",
-            ParentToolkit = "DevToolkit",
+            ParentHarness = "DevHarness",
             InstanceConfigProvider = (instance) => new MCPServerConfig
             {
                 Name = "custom",
@@ -62,7 +62,7 @@ public class MCPServerRegistrationTests
         var reg = new MCPServerRegistration
         {
             Name = "filesystem",
-            ParentToolkit = "FileToolkit",
+            ParentHarness = "FileHarness",
             FromManifest = "mcp.json",
             ManifestServerName = "filesystem"
         };
@@ -77,7 +77,7 @@ public class MCPServerRegistrationTests
         var reg = new MCPServerRegistration
         {
             Name = "test",
-            ParentToolkit = "TestToolkit"
+            ParentHarness = "TestHarness"
         };
 
         reg.RequiresPermissionOverride.Should().BeNull();
@@ -90,7 +90,7 @@ public class MCPServerRegistrationTests
         var reg = new MCPServerRegistration
         {
             Name = "test",
-            ParentToolkit = "TestToolkit",
+            ParentHarness = "TestHarness",
             RequiresPermissionOverride = true
         };
 
@@ -98,28 +98,28 @@ public class MCPServerRegistrationTests
     }
 
     [Fact]
-    public void CollapseWithinToolkit_Default_IsFalse()
+    public void CollapseWithinHarness_Default_IsFalse()
     {
         var reg = new MCPServerRegistration
         {
             Name = "test",
-            ParentToolkit = "TestToolkit"
+            ParentHarness = "TestHarness"
         };
 
-        reg.CollapseWithinToolkit.Should().BeFalse();
+        reg.CollapseWithinHarness.Should().BeFalse();
     }
 
     [Fact]
-    public void CollapseWithinToolkit_True_NestedMode()
+    public void CollapseWithinHarness_True_NestedMode()
     {
         var reg = new MCPServerRegistration
         {
             Name = "wolfram",
-            ParentToolkit = "SearchToolkit",
-            CollapseWithinToolkit = true
+            ParentHarness = "SearchHarness",
+            CollapseWithinHarness = true
         };
 
-        reg.CollapseWithinToolkit.Should().BeTrue();
+        reg.CollapseWithinHarness.Should().BeTrue();
     }
 
     [Fact]
@@ -129,7 +129,7 @@ public class MCPServerRegistrationTests
 
         reg.Name.Should().Be(string.Empty);
         reg.Description.Should().Be(string.Empty);
-        reg.ParentToolkit.Should().Be(string.Empty);
+        reg.ParentHarness.Should().Be(string.Empty);
         reg.FromManifest.Should().BeNull();
         reg.ManifestServerName.Should().BeNull();
     }

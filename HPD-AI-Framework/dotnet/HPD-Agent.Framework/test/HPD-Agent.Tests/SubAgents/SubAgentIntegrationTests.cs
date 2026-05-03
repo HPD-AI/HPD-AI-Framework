@@ -18,7 +18,7 @@ public class SubAgentIntegrationTests
         string name,
         string description,
         string SessionMode = "Stateless",
-        string? parentToolkit = null)
+        string? parentHarness = null)
     {
         var additionalProps = new Dictionary<string, object>
         {
@@ -26,10 +26,10 @@ public class SubAgentIntegrationTests
             ["SessionMode"] = SessionMode
         };
 
-        // Add ParentToolkit if specified (not ToolkitName - that was the bug!)
-        if (parentToolkit != null)
+        // Add ParentHarness if specified (not HarnessName - that was the bug!)
+        if (parentHarness != null)
         {
-            additionalProps["ParentToolkit"] = parentToolkit;
+            additionalProps["ParentHarness"] = parentHarness;
         }
 
         return AIFunctionFactory.Create(
@@ -46,29 +46,29 @@ public class SubAgentIntegrationTests
             });
     }
 
-    // ===== P0: Toolkit Registration =====
+    // ===== P0: Harness Registration =====
 
     [Fact]
-    public void CrossAssemblyToolkitLoading_LoadsRegistryFromToolkitAssembly()
+    public void CrossAssemblyHarnessLoading_LoadsRegistryFromHarnessAssembly()
     {
-        // This test verifies that the cross-assembly Toolkit loading mechanism works.
-        // When WithToolkit<T>() is called, it should load the ToolRegistry from T's assembly
+        // This test verifies that the cross-assembly Harness loading mechanism works.
+        // When WithHarness<T>() is called, it should load the ToolRegistry from T's assembly
         // if not already loaded.
 
         // Arrange - Create a builder
         var builder = new AgentBuilder();
 
-        // Act - Attempt to load a Toolkit registry from the test assembly
-        // Even though there's no Toolkit, it should not throw - just find nothing
+        // Act - Attempt to load a Harness registry from the test assembly
+        // Even though there's no Harness, it should not throw - just find nothing
         builder.LoadToolRegistryFromAssembly(typeof(TestIntegrationSubAgents).Assembly);
 
-        // Assert - The assembly was tracked as loaded (even if no Toolkits found)
+        // Assert - The assembly was tracked as loaded (even if no Harneses found)
         // This verifies the cross-assembly loading mechanism is working
         Assert.Contains(typeof(TestIntegrationSubAgents).Assembly, builder._loadedAssemblies);
     }
 
     [Fact]
-    public void SubAgentToolkit_GeneratesAIFunctions_WithCorrectStructure()
+    public void SubAgentHarness_GeneratesAIFunctions_WithCorrectStructure()
     {
         // Arrange - Simulate what source generator would create
         var functions = new List<AIFunction>

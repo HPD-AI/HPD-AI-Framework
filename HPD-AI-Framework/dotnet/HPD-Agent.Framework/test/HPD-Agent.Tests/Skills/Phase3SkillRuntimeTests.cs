@@ -36,10 +36,10 @@ public class Phase3SkillRuntimeTests
     public void SkillAttribute_OnMethod_CompilesSuccessfully()
     {
         // Arrange
-        var Toolkit = new TestSkillToolkit();
+        var Harness = new TestSkillHarness();
 
         // Act - Call skill method
-        var skill = Toolkit.CategorizedSkill();
+        var skill = Harness.CategorizedSkill();
 
         // Assert
         Assert.NotNull(skill);
@@ -52,34 +52,34 @@ public class Phase3SkillRuntimeTests
     public void SourceGenerator_ParsesStringReferences_CorrectFormat()
     {
         // Arrange
-        var Toolkit = new TestSkillToolkit();
+        var Harness = new TestSkillHarness();
 
         // Act
-        var skill = Toolkit.SkillWithFunctionReferences();
+        var skill = Harness.SkillWithFunctionReferences();
 
         // Assert
         Assert.NotNull(skill);
         Assert.NotNull(skill.References);
-        Assert.Contains("TestToolkit.TestFunction1", skill.References);
-        Assert.Contains("TestToolkit.TestFunction2", skill.References);
+        Assert.Contains("TestHarness.TestFunction1", skill.References);
+        Assert.Contains("TestHarness.TestFunction2", skill.References);
     }
 
     [Fact]
     public void SourceGenerator_HandlesMultipleReferences_InVarArgs()
     {
         // Arrange
-        var Toolkit = new TestSkillToolkit();
+        var Harness = new TestSkillHarness();
 
         // Act
-        var skill = Toolkit.SkillWithMultipleReferences();
+        var skill = Harness.SkillWithMultipleReferences();
 
         // Assert
         Assert.NotNull(skill);
         Assert.NotNull(skill.References);
         Assert.Equal(3, skill.References.Length);
-        Assert.Contains("ToolkitA.Function1", skill.References);
-        Assert.Contains("ToolkitB.Function2", skill.References);
-        Assert.Contains("ToolkitC.Function3", skill.References);
+        Assert.Contains("HarnessA.Function1", skill.References);
+        Assert.Contains("HarnessB.Function2", skill.References);
+        Assert.Contains("HarnessC.Function3", skill.References);
     }
 
     // ===== P0: SkillOptions Fluent API =====
@@ -88,10 +88,10 @@ public class Phase3SkillRuntimeTests
     public void SourceGenerator_ExtractsAddDocument_FromFluentAPI()
     {
         // Arrange
-        var Toolkit = new TestSkillToolkit();
+        var Harness = new TestSkillHarness();
 
         // Act
-        var skill = Toolkit.SkillWithDocumentReference();
+        var skill = Harness.SkillWithDocumentReference();
 
         // Assert
         Assert.NotNull(skill);
@@ -107,10 +107,10 @@ public class Phase3SkillRuntimeTests
     public void SourceGenerator_ExtractsAddDocumentFromFile_FromFluentAPI()
     {
         // Arrange
-        var Toolkit = new TestSkillToolkit();
+        var Harness = new TestSkillHarness();
 
         // Act
-        var skill = Toolkit.SkillWithDocumentUpload();
+        var skill = Harness.SkillWithDocumentUpload();
 
         // Assert
         Assert.NotNull(skill);
@@ -127,10 +127,10 @@ public class Phase3SkillRuntimeTests
     public void SourceGenerator_HandlesChainedFluentAPI_MultipleDocuments()
     {
         // Arrange
-        var Toolkit = new TestSkillToolkit();
+        var Harness = new TestSkillHarness();
 
         // Act
-        var skill = Toolkit.SkillWithMultipleDocuments();
+        var skill = Harness.SkillWithMultipleDocuments();
 
         // Assert
         Assert.NotNull(skill);
@@ -150,8 +150,8 @@ public class Phase3SkillRuntimeTests
         // If a method has [Skill] but doesn't return Skill, it won't compile
 
         // Arrange & Act
-        var Toolkit = new TestSkillToolkit();
-        var skill = Toolkit.ValidSkillMethod();
+        var Harness = new TestSkillHarness();
+        var skill = Harness.ValidSkillMethod();
 
         // Assert
         Assert.IsType<Skill>(skill);
@@ -161,10 +161,10 @@ public class Phase3SkillRuntimeTests
     public void SkillMethod_CanBeInstanceMethod()
     {
         // Arrange
-        var Toolkit = new TestSkillToolkit();
+        var Harness = new TestSkillHarness();
 
         // Act
-        var skill = Toolkit.InstanceSkillMethod();
+        var skill = Harness.InstanceSkillMethod();
 
         // Assert
         Assert.NotNull(skill);
@@ -175,7 +175,7 @@ public class Phase3SkillRuntimeTests
     public void SkillMethod_CanBeStaticMethod()
     {
         // Arrange & Act
-        var skill = TestSkillToolkit.StaticSkillMethod();
+        var skill = TestSkillHarness.StaticSkillMethod();
 
         // Assert
         Assert.NotNull(skill);
@@ -192,10 +192,10 @@ public class Phase3SkillRuntimeTests
         // the source generator won't generate registration code
 
         // Arrange
-        var Toolkit = new TestSkillToolkit();
+        var Harness = new TestSkillHarness();
 
         // Act
-        var skill = Toolkit.ValidSkillMethod();
+        var skill = Harness.ValidSkillMethod();
 
         // Assert - SkillFactory.Create() was called
         Assert.NotNull(skill.Name);
@@ -211,18 +211,18 @@ public class Phase3SkillRuntimeTests
         // The source generator creates skill containers for classes with [Skill] methods
         // These containers are AIFunctions with IsContainer=true
 
-        // This is tested implicitly by the Toolkit registration system
-        // If we can register a Toolkit and its skills are discovered, generation worked
+        // This is tested implicitly by the Harness registration system
+        // If we can register a Harness and its skills are discovered, generation worked
 
         Assert.True(true); // Placeholder - actual test requires AgentBuilder integration
     }
 
-    // ===== Helper Test Toolkit =====
+    // ===== Helper Test Harness =====
 
     /// <summary>
-    /// Test Toolkit with various skill patterns for Phase 3 validation
+    /// Test Harness with various skill patterns for Phase 3 validation
     /// </summary>
-    private class TestSkillToolkit
+    private class TestSkillHarness
     {
         [Skill]
         public Skill ValidSkillMethod()
@@ -252,8 +252,8 @@ public class Phase3SkillRuntimeTests
                 "Skill with function references",
                 functionResult: "Skill activated",
                 systemPrompt: "Instructions",
-                "TestToolkit.TestFunction1",
-                "TestToolkit.TestFunction2");
+                "TestHarness.TestFunction1",
+                "TestHarness.TestFunction2");
         }
 
         [Skill]
@@ -264,9 +264,9 @@ public class Phase3SkillRuntimeTests
                 "Multiple references",
                 functionResult: "Skill activated",
                 systemPrompt: "Instructions",
-                "ToolkitA.Function1",
-                "ToolkitB.Function2",
-                "ToolkitC.Function3");
+                "HarnessA.Function1",
+                "HarnessB.Function2",
+                "HarnessC.Function3");
         }
 
         [Skill]

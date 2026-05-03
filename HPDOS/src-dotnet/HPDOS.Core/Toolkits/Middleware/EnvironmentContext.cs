@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace HPDOS.Toolkits.Middleware;
+namespace HPDOS.Harneses.Middleware;
 
 /// <summary>
 /// Captures the execution environment context for the agent.

@@ -54,9 +54,9 @@ using HPD.Agent;
 [JsonSerializable(typeof(HPD.Agent.ReasoningEffort))]
 [JsonSerializable(typeof(HPD.Agent.ReasoningOutput))]
 
-// --- Toolkit and Middleware reference types (Config Serialization) ---
-[JsonSerializable(typeof(ToolkitReference))]
-[JsonSerializable(typeof(List<ToolkitReference>))]
+// --- Harness and Middleware reference types (Config Serialization) ---
+[JsonSerializable(typeof(HarnessReference))]
+[JsonSerializable(typeof(List<HarnessReference>))]
 [JsonSerializable(typeof(MiddlewareReference))]
 [JsonSerializable(typeof(List<MiddlewareReference>))]
 
@@ -76,8 +76,8 @@ using HPD.Agent;
 [JsonSerializable(typeof(CachedReduction))]
 
 // --- Client Tools types ---
-[JsonSerializable(typeof(HPD.Agent.ClientTools.clientToolKitDefinition))]
-[JsonSerializable(typeof(HPD.Agent.ClientTools.clientToolKitDefinition[]))]
+[JsonSerializable(typeof(HPD.Agent.ClientTools.clientHarnessDefinition))]
+[JsonSerializable(typeof(HPD.Agent.ClientTools.clientHarnessDefinition[]))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolDefinition))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolDefinition[]))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientSkillDefinition))]
@@ -103,7 +103,7 @@ using HPD.Agent;
 
 // --- Additional utility types for generic serialization ---
 [JsonSerializable(typeof(object[]))]  // For dynamic object arrays in logging
-[JsonSerializable(typeof(string[]))]  // For toolkit parameters that accept string arrays (e.g. glob patterns)
+[JsonSerializable(typeof(string[]))]  // For harness parameters that accept string arrays (e.g. glob patterns)
 
 public partial class HPDJsonContext : JsonSerializerContext
 {

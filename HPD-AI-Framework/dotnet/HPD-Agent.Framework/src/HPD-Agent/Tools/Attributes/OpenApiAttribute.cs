@@ -1,17 +1,17 @@
 namespace HPD.Agent;
 
 /// <summary>
-/// Marks a method in a toolkit class as an OpenAPI spec provider.
+/// Marks a method in a harness class as an OpenAPI spec provider.
 /// The method must return <c>OpenApiConfig</c> (from HPD-Agent.OpenApi) and must be parameterless.
 /// Each operation in the spec becomes an <c>AIFunction</c> at runtime during <c>Build()</c>.
 ///
 /// <c>ISecretResolver</c> is available via constructor injection — declare it as a constructor
-/// parameter on the toolkit class and AgentBuilder wires it automatically through
+/// parameter on the harness class and AgentBuilder wires it automatically through
 /// CompositeServiceProvider. Secrets are resolved inside the AuthCallback closure at
 /// request time, so vault rotation and OAuth refresh work without rebuilding:
 ///
 /// <code>
-/// public class StripeToolkit(ISecretResolver secrets)
+/// public class StripeHarness(ISecretResolver secrets)
 /// {
 ///     [OpenApi(Prefix = "stripe")]
 ///     public OpenApiConfig Stripe() => new()

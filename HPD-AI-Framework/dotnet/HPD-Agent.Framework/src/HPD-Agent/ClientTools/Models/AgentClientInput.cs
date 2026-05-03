@@ -7,21 +7,21 @@ namespace HPD.Agent.ClientTools;
 
 /// <summary>
 /// Input configuration for agent execution with Client tool support.
-/// Tools are always registered via Toolkits (containers), matching HPD's C# Toolkit model.
-/// For "standalone" tools without grouping, use a default Toolkit with StartCollapsed=false.
+/// Tools are always registered via Harneses (containers), matching HPD's C# Harness model.
+/// For "standalone" tools without grouping, use a default Harness with StartCollapsed=false.
 /// </summary>
 public record AgentClientInput
 {
     /// <summary>
-    /// Client Toolkit containers to register for this message turn.
-    /// Each Toolkit contains tools that can be collapsed/expanded together.
-    /// This is the ONLY way to register Client tools - matching HPD's Toolkit-centric model.
+    /// Client Harness containers to register for this message turn.
+    /// Each Harness contains tools that can be collapsed/expanded together.
+    /// This is the ONLY way to register Client tools - matching HPD's Harness-centric model.
     /// </summary>
-    public IReadOnlyList<clientToolKitDefinition>? clientToolKits { get; init; }
+    public IReadOnlyList<clientHarnessDefinition>? clientHarnesses { get; init; }
 
     /// <summary>
     /// Containers that should start in expanded state.
-    /// By default, Toolkits with StartCollapsed=true are collapsed.
+    /// By default, Harneses with StartCollapsed=true are collapsed.
     /// </summary>
     public IReadOnlySet<string>? ExpandedContainers { get; init; }
 

@@ -24,11 +24,11 @@ namespace HPD.Agent.ClientTools;
 /// <code>
 /// var registrar = new ClientSkillDocumentRegistrar(contentStore, logger);
 ///
-/// // Register all documents from a toolkit
-/// await registrar.RegisterToolkitDocumentsAsync(ecommerceToolkit, ct);
+/// // Register all documents from a harness
+/// await registrar.RegisterHarnessDocumentsAsync(ecommerceHarness, ct);
 ///
-/// // Later, when toolkit is removed
-/// await registrar.UnregisterToolkitDocumentsAsync(ecommerceToolkit, ct);
+/// // Later, when harness is removed
+/// await registrar.UnregisterHarnessDocumentsAsync(ecommerceHarness, ct);
 /// </code>
 /// </remarks>
 public class ClientSkillDocumentRegistrar
@@ -53,22 +53,22 @@ public class ClientSkillDocumentRegistrar
     }
 
     /// <summary>
-    /// Registers all documents from all skills in a toolkit.
+    /// Registers all documents from all skills in a harness.
     /// Uses named upsert semantics — idempotent, safe to call on reconnect.
     /// </summary>
-    public async Task<int> RegisterToolkitDocumentsAsync(
-        clientToolKitDefinition toolkit,
+    public async Task<int> RegisterHarnessDocumentsAsync(
+        clientHarnessDefinition harness,
         CancellationToken ct = default)
     {
-        if (toolkit.Skills == null || toolkit.Skills.Count == 0)
+        if (harness.Skills == null || harness.Skills.Count == 0)
         {
-            _logger.LogDebug("Toolkit '{ToolkitName}' has no skills, skipping document registration", toolkit.Name);
+            _logger.LogDebug("Harness '{HarnessName}' has no skills, skipping document registration", harness.Name);
             return 0;
         }
 
         var registeredCount = 0;
 
-        foreach (var skill in toolkit.Skills)
+        foreach (var skill in harness.Skills)
         {
             if (skill.Documents == null || skill.Documents.Count == 0)
                 continue;
@@ -77,39 +77,39 @@ public class ClientSkillDocumentRegistrar
             {
                 try
                 {
-                    await RegisterDocumentAsync(toolkit.Name, skill.Name, document, ct);
+                    await RegisterDocumentAsync(harness.Name, skill.Name, document, ct);
                     registeredCount++;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex,
-                        "Failed to register document '{DocumentId}' from skill '{SkillName}' in toolkit '{ToolkitName}'",
-                        document.DocumentId, skill.Name, toolkit.Name);
+                        "Failed to register document '{DocumentId}' from skill '{SkillName}' in harness '{HarnessName}'",
+                        document.DocumentId, skill.Name, harness.Name);
                     throw;
                 }
             }
         }
 
         _logger.LogInformation(
-            "Registered {Count} documents from toolkit '{ToolkitName}'",
-            registeredCount, toolkit.Name);
+            "Registered {Count} documents from harness '{HarnessName}'",
+            registeredCount, harness.Name);
 
         return registeredCount;
     }
 
     /// <summary>
-    /// Unregisters all documents from all skills in a toolkit.
+    /// Unregisters all documents from all skills in a harness.
     /// </summary>
-    public async Task<int> UnregisterToolkitDocumentsAsync(
-        clientToolKitDefinition toolkit,
+    public async Task<int> UnregisterHarnessDocumentsAsync(
+        clientHarnessDefinition harness,
         CancellationToken ct = default)
     {
-        if (toolkit.Skills == null || toolkit.Skills.Count == 0)
+        if (harness.Skills == null || harness.Skills.Count == 0)
             return 0;
 
         var unregisteredCount = 0;
 
-        foreach (var skill in toolkit.Skills)
+        foreach (var skill in harness.Skills)
         {
             if (skill.Documents == null || skill.Documents.Count == 0)
                 continue;
@@ -137,8 +137,8 @@ public class ClientSkillDocumentRegistrar
         }
 
         _logger.LogInformation(
-            "Unregistered {Count} documents from toolkit '{ToolkitName}'",
-            unregisteredCount, toolkit.Name);
+            "Unregistered {Count} documents from harness '{HarnessName}'",
+            unregisteredCount, harness.Name);
 
         return unregisteredCount;
     }
@@ -162,7 +162,7 @@ public class ClientSkillDocumentRegistrar
             cancellationToken: ct);
 
         _logger.LogDebug(
-            "Registered client document '{StoreId}' from skill '{SkillName}' in toolkit '{ToolkitName}'",
+            "Registered client document '{StoreId}' from skill '{SkillName}' in harness '{HarnessName}'",
             storeId, skillName, toolName);
     }
 

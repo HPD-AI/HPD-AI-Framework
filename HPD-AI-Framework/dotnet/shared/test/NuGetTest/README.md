@@ -37,9 +37,9 @@ dotnet add package HPD-Agent.MCP -v 0.2.0
 dotnet add package HPD-Agent.Memory -v 0.2.0
 dotnet add package HPD-Agent.TextExtraction -v 0.2.0
 
-# Toolkit packages
-dotnet add package HPD-Agent.Toolkit.FileSystem -v 0.2.0
-dotnet add package HPD-Agent.Toolkit.WebSearch -v 0.2.0
+# Harness packages
+dotnet add package HPD-Agent.Harness.FileSystem -v 0.2.0
+dotnet add package HPD-Agent.Harness.WebSearch -v 0.2.0
 
 # Provider packages
 dotnet add package HPD-Agent.Providers.Anthropic -v 0.2.0
@@ -88,9 +88,9 @@ The following packages will be packed (same as the publish workflow):
 - HPD-Agent.Memory
 - HPD-Agent.TextExtraction
 
-**Toolkits:**
-- HPD-Agent.Toolkit.FileSystem
-- HPD-Agent.Toolkit.WebSearch
+**Harneses:**
+- HPD-Agent.Harness.FileSystem
+- HPD-Agent.Harness.WebSearch
 
 **Providers:**
 - HPD-Agent.Providers.Anthropic

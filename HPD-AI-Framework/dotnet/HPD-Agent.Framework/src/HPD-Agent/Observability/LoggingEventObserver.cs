@@ -215,8 +215,8 @@ public class LoggingEventObserver : IAgentEventObserver
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
                     _logger.LogDebug(
-                        "Agent '{AgentName}' iteration {Iteration}: Collapsing(ExpandedToolkits={Toolkits}, ExpandedSkills={Skills})",
-                        e.AgentName, e.Iteration, e.ExpandedToolkitsCount, e.ExpandedSkillsCount);
+                        "Agent '{AgentName}' iteration {Iteration}: Collapsing(ExpandedHarneses={Harneses}, ExpandedSkills={Skills})",
+                        e.AgentName, e.Iteration, e.ExpandedHarnesesCount, e.ExpandedSkillsCount);
                 }
                 break;
 

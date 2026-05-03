@@ -17,11 +17,11 @@ internal class ToolRenderer
 {
     private readonly ToolRenderContext _context;
     private readonly ConcurrentDictionary<string, ToolMessage> _toolComponents = new();
-    private readonly ConcurrentDictionary<string, string?> _callIdToToolkit = new();
+    private readonly ConcurrentDictionary<string, string?> _callIdToHarness = new();
     private readonly ConcurrentDictionary<string, string?> _callIdToRenderedLine = new();
 
-    // CodingToolkit tools (for fallback detection when ToolkitName is null)
-    private static readonly HashSet<string> CodingToolkitTools = new(StringComparer.OrdinalIgnoreCase)
+    // CodingHarness tools (for fallback detection when HarnessName is null)
+    private static readonly HashSet<string> CodingHarnessTools = new(StringComparer.OrdinalIgnoreCase)
     {
         "ReadFile", "read_file", "ReadManyFiles", "read_many_files",
         "EditFile", "edit_file", "WriteFile", "write_file",
@@ -35,7 +35,7 @@ internal class ToolRenderer
     {
         "CreatePlanAsync", "create_plan_async", "CreatePlan", "create_plan",
         "UpdatePlanStepAsync", "update_plan_step_async", "UpdatePlanStep", "update_plan_step",
-        "CodingToolkit", "MathToolkit"
+        "CodingHarness", "MathHarness"
     };
 
     public ToolRenderer(ToolRenderContext context)
@@ -49,7 +49,7 @@ internal class ToolRenderer
     public void Clear()
     {
         _toolComponents.Clear();
-        _callIdToToolkit.Clear();
+        _callIdToHarness.Clear();
         _callIdToRenderedLine.Clear();
     }
 
@@ -62,7 +62,7 @@ internal class ToolRenderer
         if (string.IsNullOrEmpty(argsJson))
             argsJson = "{}";
 
-        var displayLine = BuildCodingToolkitDisplayLine(toolName, argsJson);
+        var displayLine = BuildCodingHarnessDisplayLine(toolName, argsJson);
         // All history is completed — colour gear green
         var doneLine = displayLine.Replace("[dim]⚙", "[green]⚙");
         _context.Session.WriteLine();
@@ -83,23 +83,23 @@ internal class ToolRenderer
             Status = ToolCallStatus.Executing
         };
         _toolComponents[evt.CallId] = toolMessage;
-        _callIdToToolkit[evt.CallId] = evt.ToolkitName;
+        _callIdToHarness[evt.CallId] = evt.HarnessName;
 
-        // Hide toolkit containers and tools with dedicated event rendering
-        if (evt.Name.EndsWith("Toolkit") || HiddenResultTools.Contains(evt.Name))
+        // Hide harness containers and tools with dedicated event rendering
+        if (evt.Name.EndsWith("Harness") || HiddenResultTools.Contains(evt.Name))
         {
             _context.StartSpinner($"{evt.Name}...");
             return;
         }
 
-        // CodingToolkit tools: don't show anything on start - we'll show inline with result
-        if (IsCodingToolkitTool(evt.Name, evt.ToolkitName))
+        // CodingHarness tools: don't show anything on start - we'll show inline with result
+        if (IsCodingHarnessTool(evt.Name, evt.HarnessName))
         {
             _context.StartSpinner($"{evt.Name}...");
             return;
         }
 
-        // Default: show full tool call info for non-CodingToolkit tools
+        // Default: show full tool call info for non-CodingHarness tools
         _context.Session.WriteLine();
         _context.WriteThread(new Markup($"[yellow]⚙ Calling:[/] [bold]{Markup.Escape(evt.Name)}[/]"));
         _context.SetShowMarkerOnNext();
@@ -115,12 +115,12 @@ internal class ToolRenderer
             return;
 
         tool.Args = evt.ArgsJson;
-        _callIdToToolkit.TryGetValue(evt.CallId, out var toolkit);
+        _callIdToHarness.TryGetValue(evt.CallId, out var harness);
 
-        // For CodingToolkit tools: buffer the display line (will be shown with result)
-        if (IsCodingToolkitTool(tool.Name, toolkit))
+        // For CodingHarness tools: buffer the display line (will be shown with result)
+        if (IsCodingHarnessTool(tool.Name, harness))
         {
-            var displayLine = BuildCodingToolkitDisplayLine(tool.Name, evt.ArgsJson);
+            var displayLine = BuildCodingHarnessDisplayLine(tool.Name, evt.ArgsJson);
             _callIdToRenderedLine[evt.CallId] = displayLine;
         }
     }
@@ -141,30 +141,30 @@ internal class ToolRenderer
         var isError = ResultDetector.IsError(evt.Result);
         tool.Status = isError ? ToolCallStatus.Error : ToolCallStatus.Completed;
 
-        // Get toolkit name (from event or cached from start event)
-        var toolkitName = evt.ToolkitName ?? (_callIdToToolkit.TryGetValue(evt.CallId, out var cached) ? cached : null);
+        // Get harness name (from event or cached from start event)
+        var harnessName = evt.HarnessName ?? (_callIdToHarness.TryGetValue(evt.CallId, out var cached) ? cached : null);
 
         // Hide results for tools with dedicated event rendering
-        if (HiddenResultTools.Contains(tool.Name) || tool.Name.EndsWith("Toolkit"))
+        if (HiddenResultTools.Contains(tool.Name) || tool.Name.EndsWith("Harness"))
         {
             _toolComponents.TryRemove(evt.CallId, out _);
-            _callIdToToolkit.TryRemove(evt.CallId, out _);
+            _callIdToHarness.TryRemove(evt.CallId, out _);
             _callIdToRenderedLine.TryRemove(evt.CallId, out _);
             return;
         }
 
-        // CodingToolkit tools: show inline with colored gear
-        if (IsCodingToolkitTool(tool.Name, toolkitName))
+        // CodingHarness tools: show inline with colored gear
+        if (IsCodingHarnessTool(tool.Name, harnessName))
         {
-            RenderCodingToolkitResult(tool, evt.Result, isError, evt.CallId);
+            RenderCodingHarnessResult(tool, evt.Result, isError, evt.CallId);
             _context.SetShowMarkerOnNext();
             _toolComponents.TryRemove(evt.CallId, out _);
-            _callIdToToolkit.TryRemove(evt.CallId, out _);
+            _callIdToHarness.TryRemove(evt.CallId, out _);
             _callIdToRenderedLine.TryRemove(evt.CallId, out _);
             return;
         }
 
-        // Default: show full result for non-CodingToolkit tools
+        // Default: show full result for non-CodingHarness tools
         _context.WriteThread(tool.Render());
         if (!isError)
         {
@@ -174,23 +174,23 @@ internal class ToolRenderer
         _context.SetShowMarkerOnNext();
 
         _toolComponents.TryRemove(evt.CallId, out _);
-        _callIdToToolkit.TryRemove(evt.CallId, out _);
+        _callIdToHarness.TryRemove(evt.CallId, out _);
     }
 
     /// <summary>
-    /// Detects if a tool belongs to CodingToolkit (by name or explicit ToolkitName)
+    /// Detects if a tool belongs to CodingHarness (by name or explicit HarnessName)
     /// </summary>
-    private static bool IsCodingToolkitTool(string toolName, string? toolkitName)
+    private static bool IsCodingHarnessTool(string toolName, string? harnessName)
     {
-        if (toolkitName == "CodingToolkit") return true;
-        if (CodingToolkitTools.Contains(toolName)) return true;
+        if (harnessName == "CodingHarness") return true;
+        if (CodingHarnessTools.Contains(toolName)) return true;
         return false;
     }
 
     /// <summary>
-    /// Renders a CodingToolkit tool result with inline display and optional diff.
+    /// Renders a CodingHarness tool result with inline display and optional diff.
     /// </summary>
-    private void RenderCodingToolkitResult(ToolMessage tool, string result, bool isError, string callId)
+    private void RenderCodingHarnessResult(ToolMessage tool, string result, bool isError, string callId)
     {
         // Get buffered display line and colorize gear based on result
         _callIdToRenderedLine.TryRemove(callId, out var displayLine);
@@ -283,9 +283,9 @@ internal class ToolRenderer
     }
 
     /// <summary>
-    /// Builds the display line for a CodingToolkit tool call (returned as markup string)
+    /// Builds the display line for a CodingHarness tool call (returned as markup string)
     /// </summary>
-    private static string BuildCodingToolkitDisplayLine(string toolName, string argsJson)
+    private static string BuildCodingHarnessDisplayLine(string toolName, string argsJson)
     {
         try
         {

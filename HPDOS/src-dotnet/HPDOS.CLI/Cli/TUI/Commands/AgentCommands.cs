@@ -15,12 +15,12 @@ namespace HPDOS.Shell.Cli.TUI.Commands;
 /// </summary>
 public static class AgentCommands
 {
-    // Known toolkits exposed in the wizard.
-    private static readonly (string Display, string Reference)[] KnownToolkits =
+    // Known harnesses exposed in the wizard.
+    private static readonly (string Display, string Reference)[] KnownHarneses =
     [
-        ("Coding (files, commands, grep, glob)", "CodingToolkit"),
-        ("Web Search",                           "WebSearchToolkit"),
-        ("Math",                                 "MathToolkit"),
+        ("Coding (files, commands, grep, glob)", "CodingHarness"),
+        ("Web Search",                           "WebSearchHarness"),
+        ("Math",                                 "MathHarness"),
     ];
 
     // Known middlewares exposed in the wizard.
@@ -224,7 +224,7 @@ public static class AgentCommands
 
         // Behaviour gate
         bool configureBehaviour = false;
-        try { configureBehaviour = await new ConfirmationPrompt("Configure behaviour (toolkits, middlewares)?")
+        try { configureBehaviour = await new ConfirmationPrompt("Configure behaviour (harnesses, middlewares)?")
             { DefaultValue = false }.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
         catch (OperationCanceledException) { return CommandResult.Ok(); }
 
@@ -290,7 +290,7 @@ public static class AgentCommands
         var fieldPrompt = new SelectionPrompt<string>()
             .Title($"[white]Edit \"{Markup.Escape(stored.Name)}\"[/]")
             .AddChoices("Name", "Model", "System instructions", "Max iterations",
-                        "Toolkits", "Behaviours", "Open full config in editor");
+                        "Harneses", "Behaviours", "Open full config in editor");
 
         string field;
         try { field = await fieldPrompt.ShowAsync(ctx.Session.Console, ctx.CancellationToken); }
@@ -329,12 +329,12 @@ public static class AgentCommands
                 catch (OperationCanceledException) { return CommandResult.Ok(); }
                 break;
 
-            case "Toolkits":
-                await ConfigureBehaviourAsync(ctx, config, ctx.CancellationToken, onlyToolkits: true);
+            case "Harneses":
+                await ConfigureBehaviourAsync(ctx, config, ctx.CancellationToken, onlyHarneses: true);
                 break;
 
             case "Behaviours":
-                await ConfigureBehaviourAsync(ctx, config, ctx.CancellationToken, onlyToolkits: false);
+                await ConfigureBehaviourAsync(ctx, config, ctx.CancellationToken, onlyHarneses: false);
                 break;
 
             case "Open full config in editor":
@@ -424,29 +424,29 @@ public static class AgentCommands
         finally { try { File.Delete(tmpFile); } catch { } }
     }
 
-    private static async Task ConfigureBehaviourAsync(CommandContext ctx, AgentConfig config, CancellationToken ct, bool onlyToolkits = false)
+    private static async Task ConfigureBehaviourAsync(CommandContext ctx, AgentConfig config, CancellationToken ct, bool onlyHarneses = false)
     {
-        var currentToolkits = config.Toolkits.Select(t => t.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var currentHarneses = config.Harneses.Select(t => t.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var toolkitPrompt = new MultiSelectionPrompt<string>()
-            .Title("Select [cyan]toolkits[/]:").NotRequired().UseConverter(d => d);
+        var harnessPrompt = new MultiSelectionPrompt<string>()
+            .Title("Select [cyan]harnesses[/]:").NotRequired().UseConverter(d => d);
 
-        foreach (var (display, reference) in KnownToolkits)
+        foreach (var (display, reference) in KnownHarneses)
         {
-            toolkitPrompt.AddChoice(display);
-            if (currentToolkits.Contains(reference)) toolkitPrompt.Select(display);
+            harnessPrompt.AddChoice(display);
+            if (currentHarneses.Contains(reference)) harnessPrompt.Select(display);
         }
 
-        List<string> selectedToolkits;
-        try { selectedToolkits = await toolkitPrompt.ShowAsync(ctx.Session.Console, ct); }
+        List<string> selectedHarneses;
+        try { selectedHarneses = await harnessPrompt.ShowAsync(ctx.Session.Console, ct); }
         catch (OperationCanceledException) { return; }
 
-        config.Toolkits = selectedToolkits
-            .Select(d => KnownToolkits.First(k => k.Display == d).Reference)
-            .Select(r => new ToolkitReference { Name = r })
+        config.Harneses = selectedHarneses
+            .Select(d => KnownHarneses.First(k => k.Display == d).Reference)
+            .Select(r => new HarnessReference { Name = r })
             .ToList();
 
-        if (onlyToolkits) return;
+        if (onlyHarneses) return;
 
         var currentMiddlewares = config.Middlewares.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -517,7 +517,7 @@ public static class AgentCommands
                 config.MaxAgenticIterations        = parsed.MaxAgenticIterations;
                 config.ContinuationExtensionAmount = parsed.ContinuationExtensionAmount;
                 config.Provider                    = parsed.Provider;
-                config.Toolkits                    = parsed.Toolkits;
+                config.Harneses                    = parsed.Harneses;
                 config.Middlewares                 = parsed.Middlewares;
                 config.HistoryReduction            = parsed.HistoryReduction;
                 config.ErrorHandling               = parsed.ErrorHandling;

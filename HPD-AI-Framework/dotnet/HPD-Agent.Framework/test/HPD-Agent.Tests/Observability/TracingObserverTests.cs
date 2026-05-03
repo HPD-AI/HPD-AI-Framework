@@ -80,7 +80,7 @@ public class TracingObserverTests : IDisposable
         };
 
     private static ToolCallStartEvent ToolStarted(string callId = ToolCallId) =>
-        new ToolCallStartEvent(callId, "MyTool", "msg-1", "MyToolkit")
+        new ToolCallStartEvent(callId, "MyTool", "msg-1", "MyHarness")
         {
             TraceId = TraceId,
             SpanId = "eeee5555ffff6666",
@@ -94,7 +94,7 @@ public class TracingObserverTests : IDisposable
         };
 
     private static ToolCallResultEvent ToolResult(string callId = ToolCallId) =>
-        new ToolCallResultEvent(callId, """{"result": "success"}""", "MyToolkit")
+        new ToolCallResultEvent(callId, """{"result": "success"}""", "MyHarness")
         {
             TraceId = TraceId
         };
@@ -235,7 +235,7 @@ public class TracingObserverTests : IDisposable
     }
 
     [Fact]
-    public async Task ToolCallStarted_SetsToolkitTag()
+    public async Task ToolCallStarted_SetsHarnessTag()
     {
         await EmitAsync(TurnStarted());
         await EmitAsync(IterStarted());
@@ -245,7 +245,7 @@ public class TracingObserverTests : IDisposable
         await EmitAsync(TurnFinished());
 
         var toolSpan = _completed.Single(a => a.OperationName == "agent.tool_call");
-        toolSpan.GetTagItem("tool.toolkit").Should().Be("MyToolkit");
+        toolSpan.GetTagItem("tool.harness").Should().Be("MyHarness");
     }
 
     [Fact]

@@ -131,7 +131,7 @@ builder.Services.AddHPDAgent(options =>
     // Agent setup
     options.ConfigureAgent = agent => agent
         .WithProvider("openai", "gpt-4o")
-        .WithToolkit<MyTools>();
+        .WithHarness<MyTools>();
 
     // Session lifecycle
     options.AgentIdleTimeout = TimeSpan.FromMinutes(30);  // default
@@ -149,22 +149,22 @@ builder.Services.AddHPDAgent(options =>
 | `PersistAfterTurn` | `bool` | `false` | Auto-save conversation history after each completed turn. Only meaningful with a durable `SessionStore`. |
 | `AgentConfig` | `AgentConfig?` | `null` | Serializable agent configuration applied to every new agent. Takes priority over `AgentConfigPath`. |
 | `AgentConfigPath` | `string?` | `null` | Path to a JSON file containing an `AgentConfig`. Loaded once at startup. Ignored if `AgentConfig` is set. |
-| `ConfigureAgent` | `Action<AgentBuilder>?` | `null` | Callback to configure the `AgentBuilder` for each new session. Called after `AgentConfig`/`AgentConfigPath` are applied. Use for runtime-only concerns: compiled type references, DI services, native toolkits. |
+| `ConfigureAgent` | `Action<AgentBuilder>?` | `null` | Callback to configure the `AgentBuilder` for each new session. Called after `AgentConfig`/`AgentConfigPath` are applied. Use for runtime-only concerns: compiled type references, DI services, native harnesses. |
 | `AgentIdleTimeout` | `TimeSpan` | 30 minutes | How long an agent can sit idle before being evicted from the in-process cache. |
 | `AllowRecursiveBranchDelete` | `bool` | `false` | Whether `DELETE /branches/{id}?recursive=true` is allowed. When `false`, you must delete leaf branches manually before deleting their parents. |
 
-**Separation of concerns:** `AgentConfig` / `AgentConfigPath` define serializable agent settings (provider, system instructions, toolkits by name). `ConfigureAgent` handles what cannot be serialized: compiled `Type` references, dependency-injected services, and runtime state.
+**Separation of concerns:** `AgentConfig` / `AgentConfigPath` define serializable agent settings (provider, system instructions, harnesses by name). `ConfigureAgent` handles what cannot be serialized: compiled `Type` references, dependency-injected services, and runtime state.
 
 ```csharp
 builder.Services.AddHPDAgent(options =>
 {
-    // Serializable config from file (provider, instructions, named toolkits)
+    // Serializable config from file (provider, instructions, named harnesses)
     options.AgentConfigPath = "./agent-config.json";
 
     // Runtime additions (compiled types, DI services) — not in JSON
     options.ConfigureAgent = agent => agent
         .WithServiceProvider(serviceProvider)
-        .WithToolkit<MyNativeToolkit>();
+        .WithHarness<MyNativeHarness>();
 });
 ```
 

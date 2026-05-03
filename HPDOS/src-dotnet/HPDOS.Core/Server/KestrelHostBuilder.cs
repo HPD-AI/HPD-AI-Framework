@@ -3,7 +3,7 @@ using HPD.Agent.AspNetCore;
 using HPD.Agent.Planning;
 using HPD.Agent.Secrets;
 using HPDOS.Core.Auth;
-using HPDOS.Toolkits;
+using HPDOS.Harneses;
 using HPDOS.Core.Auth.Providers;
 using HPDOS.Core.Shell;
 using HPDOS.Core.Shell.ExternalApps;
@@ -122,9 +122,9 @@ public static class KestrelHostBuilder
                 if (sp != null)
                     agentBuilder.WithServiceProvider(sp);
 
-                agentBuilder.WithToolkit<MathToolkit>();
-                agentBuilder.WithToolkit<PingToolkit>();
-                agentBuilder.WithToolkit<CodingToolkit>();
+                agentBuilder.WithHarness<MathHarness>();
+                agentBuilder.WithHarness<PingHarness>();
+                agentBuilder.WithHarness<CodingHarness>();
                 agentBuilder.WithPermissions();
                 agentBuilder.WithPlanMode();
                 agentBuilder.WithLogging();

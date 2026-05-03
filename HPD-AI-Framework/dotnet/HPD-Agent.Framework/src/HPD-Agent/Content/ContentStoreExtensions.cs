@@ -32,7 +32,7 @@ public static class ContentStoreExtensions
     /// Register a named folder in this content store.
     /// Folders are virtual — content is organized by a ["folder"] tag on each stored item.
     /// Registering a folder makes it visible via FolderDiscoveryMiddleware and
-    /// enables permission enforcement in ContentStoreToolkit.
+    /// enables permission enforcement in ContentStoreHarness.
     /// </summary>
     /// <param name="store">The content store.</param>
     /// <param name="name">Folder name (e.g., "knowledge"). No leading slash.</param>

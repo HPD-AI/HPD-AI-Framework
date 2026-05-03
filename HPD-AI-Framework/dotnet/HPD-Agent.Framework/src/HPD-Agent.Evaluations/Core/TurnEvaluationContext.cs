@@ -119,7 +119,7 @@ public enum AgentStopKind
 public sealed record ToolCallRecord(
     string CallId,
     string Name,
-    string? ToolkitName,
+    string? HarnessName,
     string ArgumentsJson,
     string Result,
     TimeSpan Duration,

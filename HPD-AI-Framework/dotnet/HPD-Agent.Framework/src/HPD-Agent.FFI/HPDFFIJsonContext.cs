@@ -11,7 +11,7 @@ namespace HPD.Agent.FFI;
 
 /// <summary>
 /// JSON serialization context for HPD-Agent FFI exports (AOT-compatible).
-/// Includes all core types plus FFI-specific types like RustFunctionInfo, ToolkitRegistry, etc.
+/// Includes all core types plus FFI-specific types like RustFunctionInfo, HarnessRegistry, etc.
 /// </summary>
 [JsonSourceGenerationOptions(
     WriteIndented = true, 
@@ -87,15 +87,15 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(IList<ChatMessage>))]
 [JsonSerializable(typeof(IEnumerable<ChatMessage>))]
 
-// --- FFI-specific native Toolkit types (language-agnostic) ---
+// --- FFI-specific native Harness types (language-agnostic) ---
 [JsonSerializable(typeof(NativeFunctionInfo))]
 [JsonSerializable(typeof(List<NativeFunctionInfo>))]
-[JsonSerializable(typeof(ToolkitRegistry))]
-[JsonSerializable(typeof(ToolkitInfo))]
+[JsonSerializable(typeof(HarnessRegistry))]
+[JsonSerializable(typeof(HarnessInfo))]
 [JsonSerializable(typeof(FunctionInfo))]
-[JsonSerializable(typeof(ToolkitStats))]
-[JsonSerializable(typeof(ToolkitSummary))]
-[JsonSerializable(typeof(ToolkitExecutionResult))]
+[JsonSerializable(typeof(HARNESStats))]
+[JsonSerializable(typeof(HARNESSummary))]
+[JsonSerializable(typeof(HarnessExecutionResult))]
 
 // --- Internal Agent Event Types (for protocol adapters) ---
 [JsonSerializable(typeof(AgentEvent))]

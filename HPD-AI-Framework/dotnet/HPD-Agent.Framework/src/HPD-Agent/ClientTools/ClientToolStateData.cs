@@ -8,7 +8,7 @@ using HPD.Agent.ClientTools;
 namespace HPD.Agent;
 
 /// <summary>
-/// State for Client tool middleware. Tracks registered Toolkits, visibility,
+/// State for Client tool middleware. Tracks registered Harneses, visibility,
 /// and pending augmentations during the current message turn.
 /// </summary>
 /// <remarks>
@@ -23,20 +23,20 @@ namespace HPD.Agent;
 /// <code>
 /// // Read state
 /// var ftState = context.State.MiddlewareState.ClientTool ?? new();
-/// var isExpanded = ftState.ExpandedToolkits.Contains("ECommerceToolkit");
+/// var isExpanded = ftState.ExpandedHarneses.Contains("ECommerceHarness");
 ///
 /// // Update state
 /// context.UpdateState(s => s with
 /// {
 ///     MiddlewareState = s.MiddlewareState.WithClientTool(
-///         ftState.WithExpandedToolkit("ECommerceToolkit"))
+///         ftState.WithExpandedHarness("ECommerceHarness"))
 /// });
 /// </code>
 ///
 /// <para><b>Lifecycle:</b></para>
 /// <para>
-/// - RegisteredToolKits persist across message turns (unless ResetClientState=true)
-/// - ExpandedToolkits and HiddenTools can be modified via augmentation
+/// - RegisteredHarnesses persist across message turns (unless ResetClientState=true)
+/// - ExpandedHarneses and HiddenTools can be modified via augmentation
 /// - PendingAugmentation is applied at the start of each iteration
 /// </para>
 /// </remarks>
@@ -44,16 +44,16 @@ namespace HPD.Agent;
 public sealed record ClientToolStateData
 {
     /// <summary>
-    /// Registered Toolkits (source of truth for tools).
-    /// Key is Toolkit name, value is the Toolkit definition.
+    /// Registered Harneses (source of truth for tools).
+    /// Key is Harness name, value is the Harness definition.
     /// </summary>
-    public ImmutableDictionary<string, clientToolKitDefinition> RegisteredToolKits { get; init; }
-        = ImmutableDictionary<string, clientToolKitDefinition>.Empty;
+    public ImmutableDictionary<string, clientHarnessDefinition> RegisteredHarnesses { get; init; }
+        = ImmutableDictionary<string, clientHarnessDefinition>.Empty;
 
     /// <summary>
-    /// Toolkits that are currently expanded (showing their tools).
+    /// Harneses that are currently expanded (showing their tools).
     /// </summary>
-    public ImmutableHashSet<string> ExpandedToolkits { get; init; }
+    public ImmutableHashSet<string> ExpandedHarneses { get; init; }
         = ImmutableHashSet<string>.Empty;
 
     /// <summary>
@@ -81,50 +81,50 @@ public sealed record ClientToolStateData
     /// </summary>
     public ClientToolAugmentation? PendingAugmentation { get; init; }
 
-    // ========== Toolkit METHODS ==========
+    // ========== Harness METHODS ==========
 
     /// <summary>
-    /// Registers a new Toolkit.
+    /// Registers a new Harness.
     /// </summary>
-    public ClientToolStateData WithRegisteredToolkit(clientToolKitDefinition Toolkit)
+    public ClientToolStateData WithRegisteredHarness(clientHarnessDefinition Harness)
     {
         return this with
         {
-            RegisteredToolKits = RegisteredToolKits.SetItem(Toolkit.Name, Toolkit)
+            RegisteredHarnesses = RegisteredHarnesses.SetItem(Harness.Name, Harness)
         };
     }
 
     /// <summary>
-    /// Removes a registered Toolkit.
+    /// Removes a registered Harness.
     /// </summary>
-    public ClientToolStateData WithoutRegisteredToolkit(string toolName)
+    public ClientToolStateData WithoutRegisteredHarness(string toolName)
     {
         return this with
         {
-            RegisteredToolKits = RegisteredToolKits.Remove(toolName),
-            ExpandedToolkits = ExpandedToolkits.Remove(toolName)
+            RegisteredHarnesses = RegisteredHarnesses.Remove(toolName),
+            ExpandedHarneses = ExpandedHarneses.Remove(toolName)
         };
     }
 
     /// <summary>
-    /// Marks a Toolkit as expanded.
+    /// Marks a Harness as expanded.
     /// </summary>
-    public ClientToolStateData WithExpandedToolkit(string toolName)
+    public ClientToolStateData WithExpandedHarness(string toolName)
     {
         return this with
         {
-            ExpandedToolkits = ExpandedToolkits.Add(toolName)
+            ExpandedHarneses = ExpandedHarneses.Add(toolName)
         };
     }
 
     /// <summary>
-    /// Marks a Toolkit as collapsed.
+    /// Marks a Harness as collapsed.
     /// </summary>
-    public ClientToolStateData WithCollapsedToolkit(string toolName)
+    public ClientToolStateData WithCollapsedHarness(string toolName)
     {
         return this with
         {
-            ExpandedToolkits = ExpandedToolkits.Remove(toolName)
+            ExpandedHarneses = ExpandedHarneses.Remove(toolName)
         };
     }
 

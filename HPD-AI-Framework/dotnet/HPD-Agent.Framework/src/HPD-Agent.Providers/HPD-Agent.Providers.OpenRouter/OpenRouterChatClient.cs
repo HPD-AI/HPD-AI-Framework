@@ -712,12 +712,12 @@ internal sealed class OpenRouterChatClient : IChatClient
             };
         }
 
-        // ✨ PERFORMANCE: Only add PDF Toolkit if we detected PDF content
+        // ✨ PERFORMANCE: Only add PDF Harness if we detected PDF content
         if (hasPdfContent)
         {
-            request.Toolkits = new List<OpenRouterToolkit>
+            request.Harneses = new List<OpenRouterHarness>
             {
-                new OpenRouterToolkit
+                new OpenRouterHarness
                 {
                     Id = "file-parser",
                     Pdf = new OpenRouterPdfConfig
@@ -900,20 +900,20 @@ internal sealed class OpenRouterChatClient : IChatClient
                 // Support PDF engine configuration
                 if (options.AdditionalProperties.TryGetValue("pdf_engine", out var pdfEngine) && pdfEngine is string pdfEngineVal && hasPdfContent)
                 {
-                    if (request.Toolkits == null)
+                    if (request.Harneses == null)
                     {
-                        request.Toolkits = new List<OpenRouterToolkit>();
+                        request.Harneses = new List<OpenRouterHarness>();
                     }
                     
-                    // Update or add PDF Toolkit
-                    var existingToolkit = request.Toolkits.FirstOrDefault(p => p.Id == "file-parser");
-                    if (existingToolkit != null)
+                    // Update or add PDF Harness
+                    var existingHarness = request.Harneses.FirstOrDefault(p => p.Id == "file-parser");
+                    if (existingHarness != null)
                     {
-                        existingToolkit.Pdf = new OpenRouterPdfConfig { Engine = pdfEngineVal };
+                        existingHarness.Pdf = new OpenRouterPdfConfig { Engine = pdfEngineVal };
                     }
                     else
                     {
-                        request.Toolkits.Add(new OpenRouterToolkit
+                        request.Harneses.Add(new OpenRouterHarness
                         {
                             Id = "file-parser",
                             Pdf = new OpenRouterPdfConfig { Engine = pdfEngineVal }

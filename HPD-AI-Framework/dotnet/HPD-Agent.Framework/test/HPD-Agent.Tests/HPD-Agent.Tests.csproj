@@ -36,7 +36,7 @@
     <ProjectReference Include="../../src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="true" />
-    <ProjectReference Include="../../src/HPD-Agent.Toolkit/HPD-Agent.Toolkit.FileSystem/HPD-Agent.Toolkit.FileSystem.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/HPD-Agent.Harness.FileSystem.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.MCP/HPD-Agent.MCP.csproj" />
   </ItemGroup>

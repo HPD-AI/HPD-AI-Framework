@@ -2,7 +2,7 @@ using System;
 
 /// <summary>
 /// Marks a skill as conditionally available based on metadata properties.
-/// The skill will only be included in the Toolkit when the condition evaluates to true.
+/// The skill will only be included in the Harness when the condition evaluates to true.
 /// The metadata type is determined by the Skill&lt;TMetadata&gt; attribute on the method.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]

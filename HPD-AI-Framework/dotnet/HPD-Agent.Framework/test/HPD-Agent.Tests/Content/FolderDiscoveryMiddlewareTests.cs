@@ -184,11 +184,11 @@ public class FolderDiscoveryMiddlewareTests
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // FDM-7: SetToolkit → SetSessionId is called each turn
+    // FDM-7: SetHarness → SetSessionId is called each turn
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task SetToolkit_PropagatesSessionIdEachTurn()
+    public async Task SetHarness_PropagatesSessionIdEachTurn()
     {
         var store = CreateStoreWithFolders();
         store.CreateFolder("artifacts", new FolderOptions
@@ -198,15 +198,15 @@ public class FolderDiscoveryMiddlewareTests
         });
 
         var middleware = new FolderDiscoveryMiddleware(store, AgentName);
-        var toolkit = new ContentStoreToolkit(store, AgentName);
-        middleware.SetToolkit(toolkit);
+        var harness = new ContentStoreHarness(store, AgentName);
+        middleware.SetHarness(harness);
 
         // First turn with session ID
         var ctx1 = CreateContext(sessionId: "session-001");
         await middleware.BeforeMessageTurnAsync(ctx1, CancellationToken.None);
 
-        // Write via toolkit — should use session-001 scope
-        await toolkit.WriteAsync("/artifacts/turn1.txt", "output from turn 1");
+        // Write via harness — should use session-001 scope
+        await harness.WriteAsync("/artifacts/turn1.txt", "output from turn 1");
 
         var items = await store.QueryAsync("session-001", new ContentQuery
         {
@@ -214,11 +214,11 @@ public class FolderDiscoveryMiddlewareTests
         });
         Assert.Single(items);
 
-        // Second turn with a different session — toolkit session ID updates
+        // Second turn with a different session — harness session ID updates
         var ctx2 = CreateContext(sessionId: "session-002");
         await middleware.BeforeMessageTurnAsync(ctx2, CancellationToken.None);
 
-        await toolkit.WriteAsync("/artifacts/turn2.txt", "output from turn 2");
+        await harness.WriteAsync("/artifacts/turn2.txt", "output from turn 2");
 
         var items2 = await store.QueryAsync("session-002", new ContentQuery
         {

@@ -152,12 +152,12 @@ config.Provider.SetTypedProviderConfig(ollamaOpts);
 // Reuse with different runtime customizations
 var agent1 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithToolkit<MathToolkit>()
+    .WithHarness<MathHarness>()
     .BuildAsync();
 
 var agent2 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithToolkit<FileToolkit>()
+    .WithHarness<FileHarness>()
     .BuildAsync();
 ```
 
@@ -553,7 +553,7 @@ var agent = await new AgentBuilder()
 Enable function calling for compatible models:
 
 ```csharp
-public class WeatherToolkit
+public class WeatherHarness
 {
     [Function("Get current weather for a location")]
     public string GetWeather(string location)
@@ -564,7 +564,7 @@ public class WeatherToolkit
 
 var agent = await new AgentBuilder()
     .WithOllama(model: "llama3.1:8b") // Function calling support
-    .WithToolkit<WeatherToolkit>()
+    .WithHarness<WeatherHarness>()
     .BuildAsync();
 
 var response = await agent.RunAsync("What's the weather in Seattle?");

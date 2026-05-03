@@ -153,12 +153,12 @@ config.Provider.SetTypedProviderConfig(openAIOpts);
 // Reuse with different runtime customizations
 var agent1 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithToolkit<MathToolkit>()
+    .WithHarness<MathHarness>()
     .BuildAsync();
 
 var agent2 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithToolkit<FileToolkit>()
+    .WithHarness<FileHarness>()
     .BuildAsync();
 ```
 
@@ -717,7 +717,7 @@ Console.WriteLine(response);
 ### Example 2: Function Calling with Tools
 
 ```csharp
-public class WeatherToolkit
+public class WeatherHarness
 {
     [Function("Get current weather for a location")]
     public string GetWeather(string location)
@@ -738,7 +738,7 @@ var agent = await new AgentBuilder()
         model: "gpt-4o",
         apiKey: "sk-...",
         configure: opts => opts.ToolChoice = "auto")
-    .WithToolkit<WeatherToolkit>()
+    .WithHarness<WeatherHarness>()
     .BuildAsync();
 
 var response = await agent.RunAsync("What's the weather in Seattle? Also get the 5-day forecast.");

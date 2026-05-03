@@ -30,7 +30,7 @@ public sealed class SpanQueryTests
         {
             CallId = callId,
             Name = name,
-            ToolkitName = null,
+            HarnessName = null,
             ArgumentsJson = argsJson,
             Result = result,
             Duration = duration ?? TimeSpan.FromMilliseconds(100),

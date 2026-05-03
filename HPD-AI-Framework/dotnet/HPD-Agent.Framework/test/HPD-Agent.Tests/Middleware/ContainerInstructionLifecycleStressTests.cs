@@ -18,14 +18,14 @@ public class ContainerInstructionLifecycleStressTests
     [Fact]
     public async Task Instructions_ClearedBetweenTurns_SingleContainer()
     {
-        // Scenario: Turn 1 expands CodingToolkit, Turn 2 should have clean prompt
+        // Scenario: Turn 1 expands CodingHarness, Turn 2 should have clean prompt
         var middleware = CreateContainerMiddleware();
 
-        // Turn 1: Expand CodingToolkit
+        // Turn 1: Expand CodingHarness
         var turn1State = new ContainerMiddlewareState()
-            .WithExpandedContainer("CodingToolkit")
-            .WithContainerInstructions("CodingToolkit", new ContainerInstructionSet(
-                FunctionResult: "CodingToolkit expanded",
+            .WithExpandedContainer("CodingHarness")
+            .WithContainerInstructions("CodingHarness", new ContainerInstructionSet(
+                FunctionResult: "CodingHarness expanded",
                 SystemPrompt: "CODING RULES: Always validate paths"));
 
         var turn1Context = CreateBeforeIterationContext(turn1State, iteration: 0);
@@ -61,12 +61,12 @@ public class ContainerInstructionLifecycleStressTests
 
         // Turn 1: Expand multiple containers
         var turn1State = new ContainerMiddlewareState()
-            .WithExpandedContainer("CodingToolkit")
-            .WithExpandedContainer("MathToolkit")
-            .WithContainerInstructions("CodingToolkit", new ContainerInstructionSet(
+            .WithExpandedContainer("CodingHarness")
+            .WithExpandedContainer("MathHarness")
+            .WithContainerInstructions("CodingHarness", new ContainerInstructionSet(
                 FunctionResult: null,
                 SystemPrompt: "CODING: Validate paths"))
-            .WithContainerInstructions("MathToolkit", new ContainerInstructionSet(
+            .WithContainerInstructions("MathHarness", new ContainerInstructionSet(
                 FunctionResult: null,
                 SystemPrompt: "MATH: Always round to 2 decimals"));
 
@@ -109,7 +109,7 @@ public class ContainerInstructionLifecycleStressTests
              ACTIVE CONTAINER PROTOCOLS (Execute ALL steps completely)
             ═════════════════════════════════════════════════════════════════════════════════════════════════
 
-            ## CodingToolkit:
+            ## CodingHarness:
 
             STALE INSTRUCTIONS: This should be removed
             """;
@@ -133,8 +133,8 @@ public class ContainerInstructionLifecycleStressTests
         var middleware = CreateContainerMiddleware();
 
         var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("MathToolkit")
-            .WithContainerInstructions("MathToolkit", new ContainerInstructionSet(
+            .WithExpandedContainer("MathHarness")
+            .WithContainerInstructions("MathHarness", new ContainerInstructionSet(
                 FunctionResult: null,
                 SystemPrompt: "MATH RULES: Use SI units"));
 
@@ -233,24 +233,24 @@ public class ContainerInstructionLifecycleStressTests
         var middleware = CreateContainerMiddleware();
 
         var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("ZebraToolkit")
-            .WithExpandedContainer("AlphaToolkit")
-            .WithExpandedContainer("MidToolkit")
-            .WithContainerInstructions("ZebraToolkit", new ContainerInstructionSet(null, "Zebra rules"))
-            .WithContainerInstructions("AlphaToolkit", new ContainerInstructionSet(null, "Alpha rules"))
-            .WithContainerInstructions("MidToolkit", new ContainerInstructionSet(null, "Mid rules"));
+            .WithExpandedContainer("ZebraHarness")
+            .WithExpandedContainer("AlphaHarness")
+            .WithExpandedContainer("MidHarness")
+            .WithContainerInstructions("ZebraHarness", new ContainerInstructionSet(null, "Zebra rules"))
+            .WithContainerInstructions("AlphaHarness", new ContainerInstructionSet(null, "Alpha rules"))
+            .WithContainerInstructions("MidHarness", new ContainerInstructionSet(null, "Mid rules"));
 
         var context = CreateBeforeIterationContext(state, iteration: 1);
         await middleware.BeforeIterationAsync(context, CancellationToken.None);
 
         var instructions = context.Options!.Instructions!;
-        var alphaIndex = instructions.IndexOf("## AlphaToolkit:");
-        var midIndex = instructions.IndexOf("## MidToolkit:");
-        var zebraIndex = instructions.IndexOf("## ZebraToolkit:");
+        var alphaIndex = instructions.IndexOf("## AlphaHarness:");
+        var midIndex = instructions.IndexOf("## MidHarness:");
+        var zebraIndex = instructions.IndexOf("## ZebraHarness:");
 
         // Verify alphabetical order
-        Assert.True(alphaIndex < midIndex, "AlphaToolkit should appear before MidToolkit");
-        Assert.True(midIndex < zebraIndex, "MidToolkit should appear before ZebraToolkit");
+        Assert.True(alphaIndex < midIndex, "AlphaHarness should appear before MidHarness");
+        Assert.True(midIndex < zebraIndex, "MidHarness should appear before ZebraHarness");
     }
 
     #endregion
@@ -260,13 +260,13 @@ public class ContainerInstructionLifecycleStressTests
     [Fact]
     public async Task ThreeTurnsSequential_InstructionsClearedBetweenEach()
     {
-        // Scenario: Turn 1 → CodingToolkit, Turn 2 → MathToolkit, Turn 3 → Both cleared
+        // Scenario: Turn 1 → CodingHarness, Turn 2 → MathHarness, Turn 3 → Both cleared
         var middleware = CreateContainerMiddleware();
 
-        // Turn 1: CodingToolkit
+        // Turn 1: CodingHarness
         var turn1State = new ContainerMiddlewareState()
-            .WithExpandedContainer("CodingToolkit")
-            .WithContainerInstructions("CodingToolkit", new ContainerInstructionSet(null, "CODING INSTRUCTIONS"));
+            .WithExpandedContainer("CodingHarness")
+            .WithContainerInstructions("CodingHarness", new ContainerInstructionSet(null, "CODING INSTRUCTIONS"));
 
         var turn1Context = CreateBeforeIterationContext(turn1State, iteration: 0);
         await middleware.BeforeIterationAsync(turn1Context, CancellationToken.None);
@@ -275,10 +275,10 @@ public class ContainerInstructionLifecycleStressTests
         var afterTurn1 = CreateAfterMessageTurnContext(turn1State);
         await middleware.AfterMessageTurnAsync(afterTurn1, CancellationToken.None);
 
-        // Turn 2: MathToolkit (CodingToolkit cleared)
+        // Turn 2: MathHarness (CodingHarness cleared)
         var turn2State = new ContainerMiddlewareState() // Fresh state
-            .WithExpandedContainer("MathToolkit")
-            .WithContainerInstructions("MathToolkit", new ContainerInstructionSet(null, "MATH INSTRUCTIONS"));
+            .WithExpandedContainer("MathHarness")
+            .WithContainerInstructions("MathHarness", new ContainerInstructionSet(null, "MATH INSTRUCTIONS"));
 
         var turn2Context = CreateBeforeIterationContext(turn2State, iteration: 0);
         turn2Context.Options!.Instructions = "You are a helpful AI assistant."; // Fresh options
@@ -322,8 +322,8 @@ public class ContainerInstructionLifecycleStressTests
     {
         var middleware = CreateContainerMiddleware();
         var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("TestToolkit")
-            .WithContainerInstructions("TestToolkit", new ContainerInstructionSet(
+            .WithExpandedContainer("TestHarness")
+            .WithContainerInstructions("TestHarness", new ContainerInstructionSet(
                 FunctionResult: "Some result",
                 SystemPrompt: null)); // Null system prompt
 
@@ -332,7 +332,7 @@ public class ContainerInstructionLifecycleStressTests
 
         // Header present but no container content since SystemPrompt is null
         Assert.Contains(" ACTIVE CONTAINER PROTOCOLS", context.Options!.Instructions!);
-        Assert.DoesNotContain("TestToolkit", context.Options.Instructions);
+        Assert.DoesNotContain("TestHarness", context.Options.Instructions);
     }
 
     [Fact]

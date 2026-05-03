@@ -114,10 +114,10 @@ public class OpenApiFunctionFactoryTests
     {
         var spec = MakeSpec(MakeOp("listPets"), MakeOp("createPet", method: HttpMethod.Post));
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, new OpenApiConfig(), MakeRunner(),
-            namePrefix: "pet", parentContainer: "PetToolkit", collapseWithinToolkit: false);
+            namePrefix: "pet", parentContainer: "PetHarness", collapseWithinHarness: false);
 
         functions.Should().AllSatisfy(f =>
-            ReadProp(f.AdditionalProperties, "ParentContainer").Should().Be("PetToolkit"));
+            ReadProp(f.AdditionalProperties, "ParentContainer").Should().Be("PetHarness"));
     }
 
     [Fact]
@@ -186,15 +186,15 @@ public class OpenApiFunctionFactoryTests
     }
 
     // ────────────────────────────────────────────────────────────
-    // CollapseWithinToolkit
+    // CollapseWithinHarness
     // ────────────────────────────────────────────────────────────
 
     [Fact]
-    public void CreateFunctions_CollapseWithinToolkitFalse_NoContainerFunction()
+    public void CreateFunctions_CollapseWithinHarnessFalse_NoContainerFunction()
     {
         var spec = MakeSpec(MakeOp("a"), MakeOp("b", "/b"));
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, new OpenApiConfig(), MakeRunner(),
-            namePrefix: "api", parentContainer: "MyToolkit", collapseWithinToolkit: false);
+            namePrefix: "api", parentContainer: "MyHarness", collapseWithinHarness: false);
 
         // All functions, none are containers
         functions.Should().HaveCount(2);
@@ -203,11 +203,11 @@ public class OpenApiFunctionFactoryTests
     }
 
     [Fact]
-    public void CreateFunctions_CollapseWithinToolkitTrue_ContainerFunctionEmitted()
+    public void CreateFunctions_CollapseWithinHarnessTrue_ContainerFunctionEmitted()
     {
         var spec = MakeSpec(MakeOp("a"), MakeOp("b", "/b"));
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, new OpenApiConfig(), MakeRunner(),
-            namePrefix: "api", parentContainer: "MyToolkit", collapseWithinToolkit: true);
+            namePrefix: "api", parentContainer: "MyHarness", collapseWithinHarness: true);
 
         // Should have container + 2 collapsed functions
         functions.Should().HaveCount(3);
@@ -217,21 +217,21 @@ public class OpenApiFunctionFactoryTests
     }
 
     [Fact]
-    public void CreateFunctions_CollapseWithinToolkitTrue_ContainerHasToolkitParentAndIndividualFunctionsHaveContainerParentToolkit()
+    public void CreateFunctions_CollapseWithinHarnessTrue_ContainerHasHarnessParentAndIndividualFunctionsHaveContainerParentHarness()
     {
         var spec = MakeSpec(MakeOp("a"), MakeOp("b", "/b"));
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, new OpenApiConfig(), MakeRunner(),
-            namePrefix: "api", parentContainer: "MyToolkit", collapseWithinToolkit: true);
+            namePrefix: "api", parentContainer: "MyHarness", collapseWithinHarness: true);
 
-        // The container gets ParentContainer = "MyToolkit" (the toolkit name)
+        // The container gets ParentContainer = "MyHarness" (the harness name)
         var container = functions.Single(f => ReadProp(f.AdditionalProperties, "IsContainer") is true);
-        ReadProp(container.AdditionalProperties, "ParentContainer").Should().Be("MyToolkit");
+        ReadProp(container.AdditionalProperties, "ParentContainer").Should().Be("MyHarness");
 
-        // Individual collapsed functions get ParentToolkit = container name, ParentContainer = null
+        // Individual collapsed functions get ParentHarness = container name, ParentContainer = null
         var nonContainers = functions.Where(f =>
             ReadProp(f.AdditionalProperties, "IsContainer") is not true).ToList();
         nonContainers.Should().AllSatisfy(f =>
-            ReadProp(f.AdditionalProperties, "ParentToolkit").Should().NotBeNull());
+            ReadProp(f.AdditionalProperties, "ParentHarness").Should().NotBeNull());
     }
 
     // ────────────────────────────────────────────────────────────

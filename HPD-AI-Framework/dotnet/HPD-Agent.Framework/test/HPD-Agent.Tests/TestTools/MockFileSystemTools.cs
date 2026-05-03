@@ -1,8 +1,8 @@
-namespace HPD.Agent.Tests.TestToolkits;
+namespace HPD.Agent.Tests.TestHarneses;
 
 /// <summary>
-/// Mock Toolkit with multiple functions for testing selective registration
-/// This Toolkit must be in its own file so the source generator can process it
+/// Mock Harness with multiple functions for testing selective registration
+/// This Harness must be in its own file so the source generator can process it
 /// </summary>
 public class MockFileSystemTools
 {
@@ -23,9 +23,9 @@ public class MockFileSystemTools
 }
 
 /// <summary>
-/// Mock debugging Toolkit with skills that reference MockFileSystemTools functions
+/// Mock debugging Harness with skills that reference MockFileSystemTools functions
 /// </summary>
-public class MockDebuggingToolkit
+public class MockDebuggingHarness
 {
     [Skill]
     public static Skill FileDebugging() => SkillFactory.Create(

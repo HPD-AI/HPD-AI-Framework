@@ -87,7 +87,7 @@ internal static class TurnEvaluationContextBuilder
                 records.Add(new ToolCallRecord(
                     CallId: content.CallId,
                     Name: content.Name,
-                    ToolkitName: info?.ToolkitName,
+                    HarnessName: info?.HarnessName,
                     ArgumentsJson: content.Arguments?.ToString() ?? "{}",
                     Result: result,
                     Duration: buffer.GetToolCallDuration(content.CallId),
@@ -120,7 +120,7 @@ internal static class TurnEvaluationContextBuilder
             {
                 CallId = tc.CallId,
                 Name = tc.Name,
-                ToolkitName = tc.ToolkitName,
+                HarnessName = tc.HarnessName,
                 ArgumentsJson = tc.ArgumentsJson,
                 Result = tc.Result,
                 Duration = tc.Duration,
@@ -165,7 +165,7 @@ internal static class TurnEvaluationContextBuilder
                         {
                             CallId = tc.CallId,
                             Name = tc.Name,
-                            ToolkitName = tc.ToolkitName,
+                            HarnessName = tc.HarnessName,
                             ArgumentsJson = tc.ArgumentsJson,
                             Result = tc.Result,
                             Duration = tc.Duration,
@@ -400,7 +400,7 @@ internal static class TurnEvaluationContextBuilder
                 records.Add(new ToolCallRecord(
                     CallId: content.CallId,
                     Name: content.Name,
-                    ToolkitName: null,
+                    HarnessName: null,
                     ArgumentsJson: content.Arguments?.ToString() ?? "{}",
                     Result: result,
                     Duration: TimeSpan.Zero,

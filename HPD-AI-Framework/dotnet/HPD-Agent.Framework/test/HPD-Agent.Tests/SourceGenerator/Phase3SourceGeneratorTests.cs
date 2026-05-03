@@ -69,13 +69,13 @@ public class Phase3SourceGeneratorTests
     public void SourceGenerator_AddDocumentFromFile_ExtractsArgumentsInCorrectOrder()
     {
         // Arrange
-        var ToolkitSource = @"
+        var HARNESSource = @"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -92,7 +92,7 @@ namespace TestToolkits
 }";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Assert: No compilation errors
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
@@ -115,13 +115,13 @@ namespace TestToolkits
     public void SourceGenerator_AddDocumentFromFile_UsesExplicitDocumentId()
     {
         // Arrange
-        var ToolkitSource = @"
+        var HARNESSource = @"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -138,7 +138,7 @@ namespace TestToolkits
 }";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Assert
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
@@ -160,13 +160,13 @@ namespace TestToolkits
     public void SourceGenerator_AddDocumentFromFile_AutoDerivesDocumentId()
     {
         // Arrange
-        var ToolkitSource = @"
+        var HARNESSource = @"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -183,7 +183,7 @@ namespace TestToolkits
 }";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Assert
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
@@ -208,13 +208,13 @@ namespace TestToolkits
     public void SourceGenerator_AddDocumentFromUrl_ExtractsArgumentsInCorrectOrder()
     {
         // Arrange
-        var ToolkitSource = @"
+        var HARNESSource = @"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -233,7 +233,7 @@ namespace TestToolkits
 }";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Assert
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
@@ -256,13 +256,13 @@ namespace TestToolkits
     public void SourceGenerator_AddDocumentFromUrl_AutoDerivesDocumentIdFromUrl()
     {
         // Arrange
-        var ToolkitSource = @"
+        var HARNESSource = @"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -281,7 +281,7 @@ namespace TestToolkits
 }";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Assert
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
@@ -303,13 +303,13 @@ namespace TestToolkits
     public void SourceGenerator_MultipleDocuments_ExtractsAllCorrectly()
     {
         // Arrange
-        var ToolkitSource = @"
+        var HARNESSource = @"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [Skill]
         public Skill FinancialAnalysis()
@@ -336,7 +336,7 @@ namespace TestToolkits
 }";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Assert: No errors
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
@@ -369,13 +369,13 @@ namespace TestToolkits
     public void SourceGenerator_AddDocumentFromUrl_NoFilename_DerivesFromHost()
     {
         // Arrange
-        var ToolkitSource = @"
+        var HARNESSource = @"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -394,7 +394,7 @@ namespace TestToolkits
 }";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Assert
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
@@ -419,13 +419,13 @@ namespace TestToolkits
     public void SourceGenerator_AddDocument_ExtractsDocumentReference()
     {
         // Arrange
-        var ToolkitSource = @"
+        var HARNESSource = @"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -442,7 +442,7 @@ namespace TestToolkits
 }";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Assert
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
@@ -465,13 +465,13 @@ namespace TestToolkits
     public void SourceGenerator_AddDocument_WithoutDescription_UsesNull()
     {
         // Arrange
-        var ToolkitSource = @"
+        var HARNESSource = @"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -488,7 +488,7 @@ namespace TestToolkits
 }";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Assert
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
@@ -509,13 +509,13 @@ namespace TestToolkits
     public void SourceGenerator_MixedDocumentTypes_ExtractsAllCorrectly()
     {
         // Arrange
-        var ToolkitSource = @"
+        var HARNESSource = @"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [Skill]
         public Skill ComplexSkill()
@@ -534,7 +534,7 @@ namespace TestToolkits
 }";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Assert
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
@@ -564,13 +564,13 @@ namespace TestToolkits
     public void SourceGenerator_Skill_SupportsAIDescriptionAttribute()
     {
         // Arrange
-        var ToolkitSource = @"
+        var HARNESSource = @"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [Skill]
         [AIDescription(""Enhanced debugging skill with advanced features"")]
@@ -585,7 +585,7 @@ namespace TestToolkits
 }";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Assert: No compilation errors
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
@@ -598,7 +598,7 @@ namespace TestToolkits
         Assert.Contains("Enhanced debugging skill with advanced features", generatedCode);
 
         // Assert: Skill container accepts context parameter
-        Assert.Contains("private static AIFunction CreateFileDebuggingSkill(TestToolkit instance, IToolMetadata? context)", generatedCode);
+        Assert.Contains("private static AIFunction CreateFileDebuggingSkill(TestHarness instance, IToolMetadata? context)", generatedCode);
     }
 
     /// <summary>
@@ -608,13 +608,13 @@ namespace TestToolkits
     public void SourceGenerator_Skill_WithoutDynamicDescription_UsesFactoryDescription()
     {
         // Arrange
-        var ToolkitSource = @"
+        var HARNESSource = @"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [Skill]
         public Skill BasicSkill()
@@ -628,7 +628,7 @@ namespace TestToolkits
 }";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Assert
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
@@ -638,7 +638,7 @@ namespace TestToolkits
         Assert.Contains("Description = \"A basic skill without dynamic description.", generatedCode);
 
         // Assert: Still accepts context for consistency
-        Assert.Contains("private static AIFunction CreateBasicSkillSkill(TestToolkit instance, IToolMetadata? context)", generatedCode);
+        Assert.Contains("private static AIFunction CreateBasicSkillSkill(TestHarness instance, IToolMetadata? context)", generatedCode);
 
         // Assert: No resolver method generated
         Assert.DoesNotContain("ResolveBasicSkillDescription", generatedCode);
@@ -656,7 +656,7 @@ namespace TestToolkits
     /// This is a test infrastructure limitation, not a source generator bug.
     ///
     /// To verify this feature works:
-    /// 1. Add a [Skill&lt;TMetadata&gt;] to test/AgentConsoleTest/FinancialAnalysisToolkit.cs
+    /// 1. Add a [Skill&lt;TMetadata&gt;] to test/AgentConsoleTest/FinancialAnalysisHarness.cs
     /// 2. Run: dotnet build test/AgentConsoleTest/AgentConsoleTest.csproj
     /// 3. Check the generated code for resolver methods
     /// </summary>
@@ -664,11 +664,11 @@ namespace TestToolkits
     public void SourceGenerator_SkillWithContext_SupportsDynamicDescriptions()
     {
         // Arrange
-        var ToolkitSource = @"
+        var HARNESSource = @"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {
     public class TestMetadata : IToolMetadata
     {
@@ -676,7 +676,7 @@ namespace TestToolkits
         public string UserRole { get; set; } = ""admin"";
     }
 
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [Skill<TestMetadata>]
         [AIDescription(""Debug files in {metadata.Environment} environment with {metadata.UserRole} access"")]
@@ -691,7 +691,7 @@ namespace TestToolkits
 }";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Debug: Write generated code to file for inspection
         System.IO.File.WriteAllText("/tmp/skill-context-generated.cs", generatedCode ?? "NULL");
@@ -746,7 +746,7 @@ namespace TestToolkits
     /// This is a test infrastructure limitation, not a source generator bug.
     ///
     /// To verify this feature works:
-    /// 1. Add a [Skill&lt;TMetadata&gt;] with [ConditionalSkill] to test/AgentConsoleTest/FinancialAnalysisToolkit.cs
+    /// 1. Add a [Skill&lt;TMetadata&gt;] with [ConditionalSkill] to test/AgentConsoleTest/FinancialAnalysisHarness.cs
     /// 2. Run: dotnet build test/AgentConsoleTest/AgentConsoleTest.csproj
     /// 3. Check the generated code for conditional evaluator methods
     /// </summary>
@@ -754,18 +754,18 @@ namespace TestToolkits
     public void SourceGenerator_SkillWithContext_SupportsConditionalEvaluation()
     {
         // Arrange
-        var ToolkitSource = @"
+        var HARNESSource = @"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {
     public class TestMetadata : IToolMetadata
     {
         public bool HasFileSystemAccess { get; set; } = true;
     }
 
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [Skill<TestMetadata>]
         [ConditionalSkill(""HasFileSystemAccess"")]
@@ -781,7 +781,7 @@ namespace TestToolkits
 }";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Assert: No compilation errors
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));

@@ -382,7 +382,7 @@ public static class ChatCommand
 
         var body = new StreamRequest(
             Messages: [new StreamMessage(userMessage, "user")],
-            clientToolKits: null,
+            clientHarnesses: null,
             Context: null,
             State: null,
             ExpandedContainers: null,

@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Xunit;
 using Microsoft.Extensions.AI; // For AIFunction
-using HPD.Agent; // For ToolkitAttribute
+using HPD.Agent; // For HarnessAttribute
 
 
 namespace HPD.Agent.Tests.SourceGenerator;
@@ -51,26 +51,26 @@ public class HPDToolSourceGeneratorTests
     }
 
     [Fact]
-    public void GeneratedToolkit_WithDynamicCollapseInstructions_ContainsCorrectCode()
+    public void GeneratedHarness_WithDynamicCollapseInstructions_ContainsCorrectCode()
     {
         // Arrange - Using an expression (method call) as attribute value
         // The source generator detects this as an expression rather than a literal string
-        var ToolkitSource = @$"
+        var HARNESSource = @$"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {{
     public static class DynamicInstructionsProvider
     {{
         public static string GetInstructions()
         {{
-            return ""Dynamic instructions for the collapsed Toolkit."";
+            return ""Dynamic instructions for the collapsed Harness."";
         }}
     }}
 
-    [Collapse(""Test collapsed Toolkit"",   FunctionResult = DynamicInstructionsProvider.GetInstructions())]
-    public partial class CollapsedTestToolkit
+    [Collapse(""Test collapsed Harness"",   FunctionResult = DynamicInstructionsProvider.GetInstructions())]
+    public partial class CollapsedTestHarness
     {{
         [AIFunction]
         public string HelloWorld() => ""Hello!"";
@@ -79,7 +79,7 @@ namespace TestToolkits
 ";
 
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Assert
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
@@ -89,17 +89,17 @@ namespace TestToolkits
     }
     
     [Fact]
-    public void GeneratedToolkit_WithStaticCollapseInstructions_ContainsCorrectCode()
+    public void GeneratedHarness_WithStaticCollapseInstructions_ContainsCorrectCode()
     {
         // Arrange
-        var ToolkitSource = @$"
+        var HARNESSource = @$"
 using HPD.Agent;
 using System;
 
-namespace TestToolkits
+namespace TestHarneses
 {{
-    [Collapse(""Test static collapsed Toolkit"",   FunctionResult = ""Static instructions here."")]
-    public partial class StaticCollapsedTestToolkit
+    [Collapse(""Test static collapsed Harness"",   FunctionResult = ""Static instructions here."")]
+    public partial class StaticCollapsedTestHarness
     {{
         [AIFunction]
         public string HelloStatic() => ""Hello Static!"";
@@ -107,7 +107,7 @@ namespace TestToolkits
 }}
 ";
         // Act
-        var (generatedCode, diagnostics) = RunGenerator(ToolkitSource);
+        var (generatedCode, diagnostics) = RunGenerator(HARNESSource);
 
         // Assert
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
@@ -131,14 +131,14 @@ namespace Ns
 {
     public class MyConfig { }
 
-    public class ConfigCtorMiddleware : IToolkitMiddleware
+    public class ConfigCtorMiddleware : IHarnessMiddleware
     {
         public ConfigCtorMiddleware(MyConfig config) { }
     }
 
-    [Collapse(""ConfigCtor toolkit"", FunctionResult = ""ok"",
+    [Collapse(""ConfigCtor harness"", FunctionResult = ""ok"",
         Middlewares = [typeof(ConfigCtorMiddleware)])]
-    public partial class ConfigCtorToolkit
+    public partial class ConfigCtorHarness
     {
         [AIFunction]
         public string Ping() => ""pong"";
@@ -171,14 +171,14 @@ using System;
 
 namespace Ns
 {
-    public class ParamlessMiddleware : IToolkitMiddleware
+    public class ParamlessMiddleware : IHarnessMiddleware
     {
         public ParamlessMiddleware() { }
     }
 
-    [Collapse(""Paramless toolkit"", FunctionResult = ""ok"",
+    [Collapse(""Paramless harness"", FunctionResult = ""ok"",
         Middlewares = [typeof(ParamlessMiddleware)])]
-    public partial class ParamlessToolkit
+    public partial class ParamlessHarness
     {
         [AIFunction]
         public string Ping() => ""pong"";
@@ -214,9 +214,9 @@ namespace Ns
         public MultiParamMiddleware(string a, int b) { }
     }
 
-    [Collapse(""MultiParam toolkit"", FunctionResult = ""ok"",
+    [Collapse(""MultiParam harness"", FunctionResult = ""ok"",
         Middlewares = [typeof(MultiParamMiddleware)])]
-    public partial class MultiParamToolkit
+    public partial class MultiParamHarness
     {
         [AIFunction]
         public string Ping() => ""pong"";

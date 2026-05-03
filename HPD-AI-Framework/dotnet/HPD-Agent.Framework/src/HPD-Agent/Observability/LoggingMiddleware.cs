@@ -61,10 +61,10 @@ public class LoggingMiddlewareOptions
     public int MaxStringLength { get; set; } = 1000;
 
     /// <summary>
-    /// Log toolkit expansion and collapse events (when a [Collapse] toolkit is called by the LLM).
-    /// Includes: toolkit name, functions being expanded into scope, timing.
+    /// Log harness expansion and collapse events (when a [Collapse] harness is called by the LLM).
+    /// Includes: harness name, functions being expanded into scope, timing.
     /// </summary>
-    public bool LogToolkitExpansion { get; set; } = true;
+    public bool LogHarnessExpansion { get; set; } = true;
 
     /// <summary>
     /// Prefix for all log messages.
@@ -321,7 +321,7 @@ public class LoggingMiddleware : IAgentMiddleware
     /// <inheritdoc/>
     public Task BeforeFunctionAsync(BeforeFunctionContext context, CancellationToken cancellationToken)
     {
-        if (!_options.LogFunction && !_options.LogToolkitExpansion) return Task.CompletedTask;
+        if (!_options.LogFunction && !_options.LogHarnessExpansion) return Task.CompletedTask;
 
         var functionName = context.Function?.Name ?? "<unknown>";
         var callId = context.FunctionCallId ?? Guid.NewGuid().ToString();
@@ -336,15 +336,15 @@ public class LoggingMiddleware : IAgentMiddleware
         var sb = new StringBuilder();
         sb.AppendLine("─────────────────────────────────────────────────────────────────────────────────────────────────");
 
-        // Detect toolkit expansion (collapsed toolkit being called by the LLM)
+        // Detect harness expansion (collapsed harness being called by the LLM)
         var props = context.Function?.AdditionalProperties;
         var isContainer = props?.TryGetValue("IsContainer", out var icVal) == true && icVal is true;
         var isCollapse = props?.TryGetValue("IsCollapse", out var colVal) == true && colVal is true;
 
-        if (isContainer && isCollapse && _options.LogToolkitExpansion)
+        if (isContainer && isCollapse && _options.LogHarnessExpansion)
         {
-            var toolkitName = props?.TryGetValue("ToolkitName", out var tnVal) == true && tnVal is string tn ? tn : functionName;
-            sb.AppendLine($"{_options.LogPrefix}[TOOLKIT EXPAND] {toolkitName}");
+            var harnessName = props?.TryGetValue("HarnessName", out var tnVal) == true && tnVal is string tn ? tn : functionName;
+            sb.AppendLine($"{_options.LogPrefix}[HARNESS EXPAND] {harnessName}");
 
             // List child functions being expanded into scope
             if (props?.TryGetValue("FunctionNames", out var fnVal) == true && fnVal is System.Collections.Generic.IEnumerable<string> fnNames)
@@ -377,7 +377,7 @@ public class LoggingMiddleware : IAgentMiddleware
     /// <inheritdoc/>
     public Task AfterFunctionAsync(AfterFunctionContext context, CancellationToken cancellationToken)
     {
-        if (!_options.LogFunction && !_options.LogToolkitExpansion) return Task.CompletedTask;
+        if (!_options.LogFunction && !_options.LogHarnessExpansion) return Task.CompletedTask;
 
         var functionName = context.Function?.Name ?? "<unknown>";
         var callId = context.FunctionCallId ?? "";
@@ -397,24 +397,24 @@ public class LoggingMiddleware : IAgentMiddleware
         var isContainer = props?.TryGetValue("IsContainer", out var icVal) == true && icVal is true;
         var isCollapse = props?.TryGetValue("IsCollapse", out var colVal) == true && colVal is true;
 
-        if (isContainer && isCollapse && _options.LogToolkitExpansion)
+        if (isContainer && isCollapse && _options.LogHarnessExpansion)
         {
-            var toolkitName = props?.TryGetValue("ToolkitName", out var tnVal) == true && tnVal is string tn ? tn : functionName;
+            var harnessName = props?.TryGetValue("HarnessName", out var tnVal) == true && tnVal is string tn ? tn : functionName;
             if (exception != null)
             {
-                sb.Append($"{_options.LogPrefix}[TOOLKIT EXPAND FAILED] {toolkitName}");
+                sb.Append($"{_options.LogPrefix}[HARNESS EXPAND FAILED] {harnessName}");
                 if (_options.IncludeTiming) sb.Append($" ({elapsedMs}ms)");
                 sb.Append($" | Error: {exception.Message}");
             }
             else
             {
-                sb.Append($"{_options.LogPrefix}[TOOLKIT COLLAPSE] {toolkitName}");
+                sb.Append($"{_options.LogPrefix}[HARNESS COLLAPSE] {harnessName}");
                 if (_options.IncludeTiming) sb.Append($" ({elapsedMs}ms)");
 
-                // Show which toolkit-scoped middlewares are active for this toolkit
+                // Show which harness-scoped middlewares are active for this harness
                 var containerState = context.GetMiddlewareState<ContainerMiddlewareState>();
                 if (containerState != null
-                    && containerState.ToolkitPipelines.TryGetValue(toolkitName, out var pipeline)
+                    && containerState.HarnessPipelines.TryGetValue(harnessName, out var pipeline)
                     && !pipeline.IsEmpty)
                 {
                     sb.AppendLine();

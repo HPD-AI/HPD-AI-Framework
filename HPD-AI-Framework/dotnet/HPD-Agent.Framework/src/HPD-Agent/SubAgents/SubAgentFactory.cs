@@ -9,18 +9,18 @@ public static class SubAgentFactory
 {
     /// <summary>
     /// Creates a sub-agent that can be invoked as a tool/function by parent agents.
-    /// The sub-agent is configured using AgentConfig which defines its behavior, provider, Toolkits, etc.
+    /// The sub-agent is configured using AgentConfig which defines its behavior, provider, Harneses, etc.
     /// </summary>
     /// <param name="name">Sub-agent name (REQUIRED - becomes AIFunction name shown to parent agent)</param>
     /// <param name="description">Description shown in tool list (REQUIRED - becomes AIFunction description)</param>
     /// <param name="agentConfig">Agent configuration defining the sub-agent's behavior</param>
-    /// <param name="Toolkits">Optional Toolkit types to register with the sub-agent (e.g., typeof(FileSystemToolkit))</param>
+    /// <param name="Harneses">Optional Harness types to register with the sub-agent (e.g., typeof(FileSystemHarness))</param>
     /// <returns>SubAgent object processed by source generator and converted to AIFunction at runtime</returns>
     public static SubAgent Create(
         string name,
         string description,
         AgentConfig agentConfig,
-        params Type[] Toolkits)
+        params Type[] Harneses)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Sub-agent name cannot be empty", nameof(name));
@@ -37,7 +37,7 @@ public static class SubAgentFactory
             Description = description,
             AgentConfig = agentConfig,
             SessionMode = SubAgentSessionMode.Stateless,  // Default to stateless
-            ToolkitTypes = Toolkits ?? Array.Empty<Type>()
+            HarnessTypes = Harneses ?? Array.Empty<Type>()
         };
     }
 
@@ -49,7 +49,7 @@ public static class SubAgentFactory
     /// <param name="name">Sub-agent name (REQUIRED - becomes AIFunction name shown to parent agent)</param>
     /// <param name="description">Description shown in tool list (REQUIRED - becomes AIFunction description)</param>
     /// <param name="agentConfig">Agent configuration defining the sub-agent's behavior</param>
-    /// <param name="toolTypes">Optional Toolkit types to register with the sub-agent (e.g., typeof(FileSystemToolkit))</param>
+    /// <param name="toolTypes">Optional Harness types to register with the sub-agent (e.g., typeof(FileSystemHarness))</param>
     /// <returns>SubAgent object configured with shared session</returns>
     public static SubAgent CreateStateful(
         string name,
@@ -71,7 +71,7 @@ public static class SubAgentFactory
     /// <param name="name">Sub-agent name (REQUIRED - becomes AIFunction name shown to parent agent)</param>
     /// <param name="description">Description shown in tool list (REQUIRED - becomes AIFunction description)</param>
     /// <param name="agentConfig">Agent configuration defining the sub-agent's behavior</param>
-    /// <param name="toolTypes">Optional Toolkit types to register with the sub-agent (e.g., typeof(FileSystemToolkit))</param>
+    /// <param name="toolTypes">Optional Harness types to register with the sub-agent (e.g., typeof(FileSystemHarness))</param>
     /// <returns>SubAgent object configured for parent-context inheritance</returns>
     public static SubAgent CreatePerSession(
         string name,

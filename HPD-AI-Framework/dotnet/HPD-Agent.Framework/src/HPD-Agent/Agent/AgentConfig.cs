@@ -89,30 +89,30 @@ public class AgentConfig
     public CollapsingConfig Collapsing { get; set; } = new CollapsingConfig { Enabled = true };
 
     /// <summary>
-    /// Toolkits to include. Supports both simple string names and rich references.
+    /// Harneses to include. Supports both simple string names and rich references.
     /// Resolved via source-generated registry at Build() time.
     /// </summary>
     /// <remarks>
     /// <para>
     /// <b>Simple syntax:</b>
     /// <code>
-    /// { "toolkits": ["MathToolkit", "SearchToolkit"] }
+    /// { "harnesses": ["MathHarness", "SearchHarness"] }
     /// </code>
     /// </para>
     /// <para>
     /// <b>Rich syntax:</b>
     /// <code>
     /// {
-    ///   "toolkits": [
-    ///     "MathToolkit",
-    ///     { "name": "FileToolkit", "functions": ["ReadFile", "WriteFile"] },
-    ///     { "name": "ApiToolkit", "config": { "apiKey": "${API_KEY}" } }
+    ///   "harnesses": [
+    ///     "MathHarness",
+    ///     { "name": "FileHarness", "functions": ["ReadFile", "WriteFile"] },
+    ///     { "name": "ApiHarness", "config": { "apiKey": "${API_KEY}" } }
     ///   ]
     /// }
     /// </code>
     /// </para>
     /// </remarks>
-    public List<ToolkitReference> Toolkits { get; set; } = new();
+    public List<HarnessReference> Harneses { get; set; } = new();
 
     /// <summary>
     /// Middleware names to include (in order). Supports both simple string names and rich references.
@@ -144,11 +144,11 @@ public class AgentConfig
     public List<MiddlewareReference> Middlewares { get; set; } = new();
 
     /// <summary>
-    /// Internal: Set of explicitly registered Toolkit names (for Collapsing manager).
-    /// This is set by the builder and used to distinguish explicit vs implicit Toolkit registration.
+    /// Internal: Set of explicitly registered Harness names (for Collapsing manager).
+    /// This is set by the builder and used to distinguish explicit vs implicit Harness registration.
     /// </summary>
     [JsonIgnore]
-    public ImmutableHashSet<string> explicitlyRegisteredToolkits { get; set; } = ImmutableHashSet<string>.Empty;
+    public ImmutableHashSet<string> explicitlyRegisteredHarneses { get; set; } = ImmutableHashSet<string>.Empty;
 
     /// <summary>
     /// Configuration for distributed caching of LLM responses.
@@ -1071,8 +1071,8 @@ public enum SkillInstructionMode
 public class CollapsingConfig
 {
     /// <summary>
-    /// Enable Collapsing for C# Toolkits. When true, Toolkit functions are hidden behind container functions.
-    /// Default: true (enabled - Toolkits with [Collapse] attribute are collapsed).
+    /// Enable Collapsing for C# Harneses. When true, Harness functions are hidden behind container functions.
+    /// Default: true (enabled - Harneses with [Collapse] attribute are collapsed).
     /// </summary>
     public bool Enabled { get; set; } = true;
 
@@ -1132,10 +1132,10 @@ public class CollapsingConfig
     public string? ClientToolsInstructions { get; set; }
 
     /// <summary>
-    /// List of toolkit names that should never be collapsed, even if they have containers.
-    /// This is a runtime override that works even if the toolkit was compiled with collapse support.
-    /// Use this to force specific toolkits to always show their functions directly.
-    /// Example: new HashSet&lt;string&gt; { "MathToolkit", "CoreTools" }
+    /// List of harness names that should never be collapsed, even if they have containers.
+    /// This is a runtime override that works even if the harness was compiled with collapse support.
+    /// Use this to force specific harnesses to always show their functions directly.
+    /// Example: new HashSet&lt;string&gt; { "MathHarness", "CoreTools" }
     /// </summary>
     public HashSet<string>? NeverCollapse { get; set; }
 

@@ -6,7 +6,7 @@ using System.Collections.Generic;
 namespace HPD.Agent.FFI
 {
     /// <summary>
-    /// Language-agnostic FFI bindings for external Toolkit systems.
+    /// Language-agnostic FFI bindings for external Harness systems.
     /// Supports any language that exports C-compatible functions (Rust, C++, Zig, Go, Swift, etc.)
     ///
     /// Protocol: JSON over C ABI
@@ -23,20 +23,20 @@ namespace HPD.Agent.FFI
     /// - Python (with ctypes/cffi)
     /// - Node.js (with Node-API/NAPI)
     /// </summary>
-    public static class NativeToolkitFFI
+    public static class NativeHarnessFFI
     {
         //    
         // CONFIGURATION: Native library name
         //
         // Customize per platform/language:
         // - Rust:   "hpd_rust_agent" or "libhpd_rust_agent.so"
-        // - C++:    "hpd_cpp_Toolkits" or "hpd_cpp_Toolkits.dll"
-        // - Zig:    "hpd_zig_Toolkits"
-        // - Go:     "hpd_go_Toolkits"
-        // - Swift:  "hpd_swift_Toolkits"
-        // - Multi:  "hpd_native_Toolkits" (any language)
+        // - C++:    "hpd_cpp_Harneses" or "hpd_cpp_Harneses.dll"
+        // - Zig:    "hpd_zig_Harneses"
+        // - Go:     "hpd_go_Harneses"
+        // - Swift:  "hpd_swift_Harneses"
+        // - Multi:  "hpd_native_Harneses" (any language)
         //    
-        private const string LibraryName = "hpd_native_Toolkits";
+        private const string LibraryName = "hpd_native_Harneses";
 
         //    
         // FFI IMPORTS: C ABI functions (language-agnostic)
@@ -46,25 +46,25 @@ namespace HPD.Agent.FFI
         //    
 
         /// <summary>
-        /// Get Toolkit registry as JSON string.
-        /// Native signature: const char* get_Toolkit_registry()
+        /// Get Harness registry as JSON string.
+        /// Native signature: const char* get_Harness_registry()
         /// </summary>
-        [DllImport(LibraryName, EntryPoint = "get_Toolkit_registry", CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr GetToolkitRegistryNative();
+        [DllImport(LibraryName, EntryPoint = "get_Harness_registry", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr GetHarnessRegistryNative();
 
         /// <summary>
-        /// Get Toolkit schemas as JSON string.
-        /// Native signature: const char* get_Toolkit_schemas()
+        /// Get Harness schemas as JSON string.
+        /// Native signature: const char* get_Harness_schemas()
         /// </summary>
-        [DllImport(LibraryName, EntryPoint = "get_Toolkit_schemas", CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr GetToolkitSchemasNative();
+        [DllImport(LibraryName, EntryPoint = "get_Harness_schemas", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr GetHARNESSchemasNative();
 
         /// <summary>
-        /// Get Toolkit statistics as JSON string.
-        /// Native signature: const char* get_Toolkit_stats()
+        /// Get Harness statistics as JSON string.
+        /// Native signature: const char* get_Harness_stats()
         /// </summary>
-        [DllImport(LibraryName, EntryPoint = "get_Toolkit_stats", CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr GetToolkitStatsNative();
+        [DllImport(LibraryName, EntryPoint = "get_Harness_stats", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr GetHARNESStatsNative();
 
         /// <summary>
         /// Get list of function names as JSON array.
@@ -74,65 +74,65 @@ namespace HPD.Agent.FFI
         private static extern IntPtr GetFunctionListNative();
 
         /// <summary>
-        /// Execute a Toolkit function with JSON arguments, returns JSON result.
-        /// Native signature: const char* execute_Toolkit_function(const char* function_name, const char* args_json)
+        /// Execute a Harness function with JSON arguments, returns JSON result.
+        /// Native signature: const char* execute_Harness_function(const char* function_name, const char* args_json)
         /// </summary>
-        [DllImport(LibraryName, EntryPoint = "execute_Toolkit_function", CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr ExecuteToolkitFunctionNative(
+        [DllImport(LibraryName, EntryPoint = "execute_Harness_function", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr ExecuteHarnessFunctionNative(
             [MarshalAs(UnmanagedType.LPStr)] string functionName,
             [MarshalAs(UnmanagedType.LPStr)] string argsJson);
 
         /// <summary>
-        /// Free a string allocated by the native Toolkit runtime.
+        /// Free a string allocated by the native Harness runtime.
         /// Native signature: void free_string(char* ptr)
         /// </summary>
         [DllImport(LibraryName, EntryPoint = "free_string", CallingConvention = CallingConvention.Cdecl)]
         private static extern void FreeStringNative(IntPtr ptr);
 
         /// <summary>
-        /// Register Toolkit executors in the native runtime.
-        /// Native signature: bool register_Toolkit_executors(const char* Toolkit_name)
+        /// Register Harness executors in the native runtime.
+        /// Native signature: bool register_Harness_executors(const char* Harness_name)
         /// </summary>
-        [DllImport(LibraryName, EntryPoint = "register_Toolkit_executors", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(LibraryName, EntryPoint = "register_Harness_executors", CallingConvention = CallingConvention.Cdecl)]
         [return: MarshalAs(UnmanagedType.I1)]
-        private static extern bool RegisterToolkitExecutorsNative(
-            [MarshalAs(UnmanagedType.LPStr)] string ToolkitName);
+        private static extern bool RegisterHarnessExecutorsNative(
+            [MarshalAs(UnmanagedType.LPStr)] string HarnessName);
 
         //    
         // PUBLIC API: Language-agnostic wrapper methods
         //    
 
         /// <summary>
-        /// Register Toolkit executors in the native Toolkit runtime.
-        /// This MUST be called after loading Toolkit info to populate the function registry.
+        /// Register Harness executors in the native Harness runtime.
+        /// This MUST be called after loading Harness info to populate the function registry.
         /// Works with any language that implements the C ABI.
         /// </summary>
-        /// <param name="ToolkitName">Name of the Toolkit to register</param>
+        /// <param name="HarnessName">Name of the Harness to register</param>
         /// <returns>True if registration succeeded</returns>
-        public static bool RegisterToolkitExecutors(string ToolkitName)
+        public static bool RegisterHarnessExecutors(string HarnessName)
         {
-            return RegisterToolkitExecutorsNative(ToolkitName);
+            return RegisterHarnessExecutorsNative(HarnessName);
         }
 
         /// <summary>
-        /// Get all registered Toolkits from the native runtime.
-        /// Returns JSON data from Rust, C++, Zig, Go, Swift, or any C-compatible Toolkit system.
+        /// Get all registered Harneses from the native runtime.
+        /// Returns JSON data from Rust, C++, Zig, Go, Swift, or any C-compatible Harness system.
         /// </summary>
-        /// <returns>Toolkit registry containing all registered Toolkits</returns>
-        public static ToolkitRegistry GetToolkitRegistry()
+        /// <returns>Harness registry containing all registered Harneses</returns>
+        public static HarnessRegistry GetHarnessRegistry()
         {
-            var ptr = GetToolkitRegistryNative();
+            var ptr = GetHarnessRegistryNative();
             if (ptr == IntPtr.Zero)
-                return new ToolkitRegistry { Toolkits = new List<ToolkitInfo>() };
+                return new HarnessRegistry { Harneses = new List<HarnessInfo>() };
 
             try
             {
                 var json = Marshal.PtrToStringAnsi(ptr);
                 if (string.IsNullOrEmpty(json))
-                    return new ToolkitRegistry { Toolkits = new List<ToolkitInfo>() };
+                    return new HarnessRegistry { Harneses = new List<HarnessInfo>() };
 
-                return JsonSerializer.Deserialize(json, HPDFFIJsonContext.Default.ToolkitRegistry) ??
-                       new ToolkitRegistry { Toolkits = new List<ToolkitInfo>() };
+                return JsonSerializer.Deserialize(json, HPDFFIJsonContext.Default.HarnessRegistry) ??
+                       new HarnessRegistry { Harneses = new List<HarnessInfo>() };
             }
             finally
             {
@@ -145,9 +145,9 @@ namespace HPD.Agent.FFI
         /// Schemas describe function parameters, return types, and documentation.
         /// </summary>
         /// <returns>JSON document containing all function schemas</returns>
-        public static JsonDocument GetToolkitSchemas()
+        public static JsonDocument GetHARNESSchemas()
         {
-            var ptr = GetToolkitSchemasNative();
+            var ptr = GetHARNESSchemasNative();
             if (ptr == IntPtr.Zero)
                 return JsonDocument.Parse("{}");
 
@@ -163,22 +163,22 @@ namespace HPD.Agent.FFI
         }
 
         /// <summary>
-        /// Get Toolkit statistics (counts, performance metrics, etc.).
+        /// Get Harness statistics (counts, performance metrics, etc.).
         /// </summary>
-        /// <returns>Toolkit statistics from the native runtime</returns>
-        public static ToolkitStats GetToolkitStats()
+        /// <returns>Harness statistics from the native runtime</returns>
+        public static HARNESStats GetHARNESStats()
         {
-            var ptr = GetToolkitStatsNative();
+            var ptr = GetHARNESStatsNative();
             if (ptr == IntPtr.Zero)
-                return new ToolkitStats();
+                return new HARNESStats();
 
             try
             {
                 var json = Marshal.PtrToStringAnsi(ptr);
                 if (string.IsNullOrEmpty(json))
-                    return new ToolkitStats();
+                    return new HARNESStats();
 
-                return JsonSerializer.Deserialize(json, HPDFFIJsonContext.Default.ToolkitStats) ?? new ToolkitStats();
+                return JsonSerializer.Deserialize(json, HPDFFIJsonContext.Default.HARNESStats) ?? new HARNESStats();
             }
             finally
             {
@@ -211,20 +211,20 @@ namespace HPD.Agent.FFI
         }
 
         /// <summary>
-        /// Execute a Toolkit function in the native runtime.
+        /// Execute a Harness function in the native runtime.
         /// Communicates via JSON - works with any language.
         /// </summary>
         /// <param name="functionName">Name of the function to execute</param>
         /// <param name="arguments">Function arguments as a dictionary (will be serialized to JSON)</param>
         /// <returns>Execution result containing success status, result data, or error message</returns>
-        public static ToolkitExecutionResult ExecuteFunction(string functionName, Dictionary<string, object> arguments)
+        public static HarnessExecutionResult ExecuteFunction(string functionName, Dictionary<string, object> arguments)
         {
             var argsJson = JsonSerializer.Serialize(arguments, HPDFFIJsonContext.Default.DictionaryStringObject);
-            var ptr = ExecuteToolkitFunctionNative(functionName, argsJson);
+            var ptr = ExecuteHarnessFunctionNative(functionName, argsJson);
 
             if (ptr == IntPtr.Zero)
             {
-                return new ToolkitExecutionResult
+                return new HarnessExecutionResult
                 {
                     Success = false,
                     Error = "Failed to execute function"
@@ -236,7 +236,7 @@ namespace HPD.Agent.FFI
                 var json = Marshal.PtrToStringAnsi(ptr);
                 if (string.IsNullOrEmpty(json))
                 {
-                    return new ToolkitExecutionResult
+                    return new HarnessExecutionResult
                     {
                         Success = false,
                         Error = "Empty response from function"
@@ -244,7 +244,7 @@ namespace HPD.Agent.FFI
                 }
 
                 var response = JsonDocument.Parse(json);
-                return new ToolkitExecutionResult
+                return new HarnessExecutionResult
                 {
                     Success = true,
                     Result = response
@@ -252,7 +252,7 @@ namespace HPD.Agent.FFI
             }
             catch (Exception ex)
             {
-                return new ToolkitExecutionResult
+                return new HarnessExecutionResult
                 {
                     Success = false,
                     Error = ex.Message
@@ -273,18 +273,18 @@ namespace HPD.Agent.FFI
     //    
 
     /// <summary>
-    /// Toolkit registry information from native runtime.
+    /// Harness registry information from native runtime.
     /// Language-agnostic: works with JSON from Rust, C++, Zig, Go, Swift, etc.
     /// </summary>
-    public class ToolkitRegistry
+    public class HarnessRegistry
     {
-        public List<ToolkitInfo> Toolkits { get; set; } = new();
+        public List<HarnessInfo> Harneses { get; set; } = new();
     }
 
     /// <summary>
-    /// Information about a single Toolkit.
+    /// Information about a single Harness.
     /// </summary>
-    public class ToolkitInfo
+    public class HarnessInfo
     {
         public string Name { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
@@ -292,7 +292,7 @@ namespace HPD.Agent.FFI
     }
 
     /// <summary>
-    /// Information about a Toolkit function.
+    /// Information about a Harness function.
     /// </summary>
     public class FunctionInfo
     {
@@ -301,19 +301,19 @@ namespace HPD.Agent.FFI
     }
 
     /// <summary>
-    /// Toolkit statistics from native runtime.
+    /// Harness statistics from native runtime.
     /// </summary>
-    public class ToolkitStats
+    public class HARNESStats
     {
-        public int TotalToolkits { get; set; }
+        public int TotalHarneses { get; set; }
         public int TotalFunctions { get; set; }
-        public List<ToolkitSummary> Toolkits { get; set; } = new();
+        public List<HARNESSummary> Harneses { get; set; } = new();
     }
 
     /// <summary>
-    /// Summary information about a Toolkit.
+    /// Summary information about a Harness.
     /// </summary>
-    public class ToolkitSummary
+    public class HARNESSummary
     {
         public string Name { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
@@ -321,10 +321,10 @@ namespace HPD.Agent.FFI
     }
 
     /// <summary>
-    /// Result of executing a Toolkit function.
+    /// Result of executing a Harness function.
     /// Language-agnostic: success/error pattern works across all languages.
     /// </summary>
-    public class ToolkitExecutionResult
+    public class HarnessExecutionResult
     {
         public bool Success { get; set; }
         public JsonDocument? Result { get; set; }

@@ -83,7 +83,7 @@ public class ImmutableRequestTests
             CallId = "call123",
             Arguments = originalArgs,
             State = CreateTestState(),
-            ToolkitName = "TestToolkit",
+            HarnessName = "TestHarness",
             SkillName = null
         };
 
@@ -151,18 +151,18 @@ public class ImmutableRequestTests
             CallId = "call1",
             Arguments = new Dictionary<string, object?>(),
             State = CreateTestState(),
-            ToolkitName = "MyToolkit",
+            HarnessName = "MyHarness",
             SkillName = "MySkill"
         };
 
         // Assert
         Assert.Equal("MyFunc", request.FunctionName);
-        Assert.True(request.IsToolkitFunction);
+        Assert.True(request.IsHarnessFunction);
         Assert.True(request.IsSkillFunction);
     }
 
     [Fact]
-    public void FunctionRequest_NoToolkitOrSkill()
+    public void FunctionRequest_NoHarnessOrSkill()
     {
         // Arrange
         var function = AIFunctionFactory.Create(() => "test", "StandaloneFunc");
@@ -173,12 +173,12 @@ public class ImmutableRequestTests
             CallId = "call1",
             Arguments = new Dictionary<string, object?>(),
             State = CreateTestState(),
-            ToolkitName = null,
+            HarnessName = null,
             SkillName = null
         };
 
         // Assert
-        Assert.False(request.IsToolkitFunction);
+        Assert.False(request.IsHarnessFunction);
         Assert.False(request.IsSkillFunction);
     }
 

@@ -255,7 +255,7 @@ public sealed class Agent
         AgentConfig config,
         IChatClient baseClient,
         ChatOptions? mergedOptions,
-        IReadOnlyDictionary<string, string>? functionToToolkitMap = null,
+        IReadOnlyDictionary<string, string>? functionToHarnessMap = null,
         IReadOnlyDictionary<string, string>? functionToSkillMap = null,
         IReadOnlyList<IAgentMiddleware>? middlewares = null,
         IServiceProvider? serviceProvider = null,
@@ -1963,15 +1963,15 @@ public sealed class Agent
                     var CollapsedOptions = beforeIterationContext.Options;
 
 
-                    // Helper for toolkit name lookup in events
+                    // Helper for harness name lookup in events
                     // Try collapsed tools first, then fall back to original (pre-collapse) tools
-                    string? LookupToolkit(string? functionName)
+                    string? LookupHarness(string? functionName)
                     {
-                        var result = _functionCallProcessor.LookupToolkitName(functionName, CollapsedOptions?.Tools);
+                        var result = _functionCallProcessor.LookupHarnessName(functionName, CollapsedOptions?.Tools);
                         if (result == null)
                         {
                             // Function not found in collapsed view - try original tools
-                            result = _functionCallProcessor.LookupToolkitName(functionName, effectiveOptions?.Tools);
+                            result = _functionCallProcessor.LookupHarnessName(functionName, effectiveOptions?.Tools);
                         }
                         return result;
                     }
@@ -2024,7 +2024,7 @@ public sealed class Agent
                                         functionCall.CallId,
                                         functionCall.Name ?? string.Empty,
                                         assistantMessageId,
-                                        LookupToolkit(functionCall.Name),
+                                        LookupHarness(functionCall.Name),
                                         LookupCallType(functionCall.Name))
                                     {
                                         TraceId      = traceId,
@@ -2217,7 +2217,7 @@ public sealed class Agent
                                         functionCall.CallId,
                                         functionCall.Name ?? string.Empty,
                                         assistantMessageId,
-                                        LookupToolkit(functionCall.Name),
+                                        LookupHarness(functionCall.Name),
                                         LookupCallType(functionCall.Name))
                                     {
                                         TraceId      = traceId,
@@ -2337,7 +2337,7 @@ public sealed class Agent
                                                 functionCall.CallId,
                                                 functionCall.Name ?? string.Empty,
                                                 assistantMessageId,
-                                                LookupToolkit(functionCall.Name),
+                                                LookupHarness(functionCall.Name),
                                                 LookupCallType(functionCall.Name))
                                             {
                                                 TraceId      = traceId,
@@ -2629,10 +2629,10 @@ public sealed class Agent
                         // Add all results to turnHistory (middleware will filter ephemeral results in AfterMessageTurnAsync)
                         turnHistory.Add(toolResultMessage);
 
-                        // Build callId → toolkitName / callType mappings for result events
-                        var callIdToToolkit = toolRequests.ToDictionary(
+                        // Build callId → harnessName / callType mappings for result events
+                        var callIdToHarness = toolRequests.ToDictionary(
                             tr => tr.CallId,
-                            tr => LookupToolkit(tr.Name));
+                            tr => LookupHarness(tr.Name));
                         var callIdToCallType = toolRequests.ToDictionary(
                             tr => tr.CallId,
                             tr => LookupCallType(tr.Name));
@@ -2643,9 +2643,9 @@ public sealed class Agent
                             if (content is FunctionResultContent result)
                             {
                                 yield return new ToolCallEndEvent(result.CallId) { TraceId = traceId };
-                                callIdToToolkit.TryGetValue(result.CallId, out var toolkitName);
+                                callIdToHarness.TryGetValue(result.CallId, out var harnessName);
                                 callIdToCallType.TryGetValue(result.CallId, out var callType);
-                                yield return new ToolCallResultEvent(result.CallId, result.Result?.ToString() ?? "null", toolkitName, callType) { TraceId = traceId };
+                                yield return new ToolCallResultEvent(result.CallId, result.Result?.ToString() ?? "null", harnessName, callType) { TraceId = traceId };
                             }
                         }
                         // Shared reference: state.CurrentMessages already sees the changes via MessagesRef
@@ -6424,10 +6424,10 @@ internal class FunctionCallProcessor
     }
 
     /// <summary>
-    /// Gets the toolkit name for a function from its metadata.
+    /// Gets the harness name for a function from its metadata.
     /// Used by Agent class for event emission.
     /// </summary>
-    public string? LookupToolkitName(string? functionName, IList<AITool>? tools)
+    public string? LookupHarnessName(string? functionName, IList<AITool>? tools)
     {
         if (string.IsNullOrEmpty(functionName))
             return null;
@@ -6437,16 +6437,16 @@ internal class FunctionCallProcessor
         if (function == null)
             return null;
 
-        // Check ParentToolkit first (for nested functions from source generator)
-        if (function.AdditionalProperties?.TryGetValue("ParentToolkit", out var parentToolkit) == true
-            && parentToolkit is string pt)
+        // Check ParentHarness first (for nested functions from source generator)
+        if (function.AdditionalProperties?.TryGetValue("ParentHarness", out var parentHarness) == true
+            && parentHarness is string pt)
         {
             return pt;
         }
 
-        // Fall back to ToolkitName (for container functions)
-        if (function.AdditionalProperties?.TryGetValue("ToolkitName", out var toolkitName) == true
-            && toolkitName is string tn)
+        // Fall back to HarnessName (for container functions)
+        if (function.AdditionalProperties?.TryGetValue("HarnessName", out var harnessName) == true
+            && harnessName is string tn)
         {
             return tn;
         }
@@ -6585,13 +6585,13 @@ internal class FunctionCallProcessor
             if (function == null)
                 continue;
 
-            // Extract Toolkit/skill metadata (same logic as ProcessFunctionCallsAsync)
+            // Extract Harness/skill metadata (same logic as ProcessFunctionCallsAsync)
             string? toolTypeName = null;
-            if (function.AdditionalProperties?.TryGetValue("ParentToolkit", out var parentToolkitCtx) == true)
+            if (function.AdditionalProperties?.TryGetValue("ParentHarness", out var parentHarnessCtx) == true)
             {
-                toolTypeName = parentToolkitCtx as string;
+                toolTypeName = parentHarnessCtx as string;
             }
-            else if (function.AdditionalProperties?.TryGetValue("ToolkitName", out var toolNameProp) == true)
+            else if (function.AdditionalProperties?.TryGetValue("HarnessName", out var toolNameProp) == true)
             {
                 toolTypeName = toolNameProp as string;
             }
@@ -6813,20 +6813,20 @@ internal class FunctionCallProcessor
 
             // Extract Collapse information for middleware Collapsing
             string? toolTypeName = null;
-            if (function?.AdditionalProperties?.TryGetValue("ParentToolkit", out var parentToolkitCtx) == true)
+            if (function?.AdditionalProperties?.TryGetValue("ParentHarness", out var parentHarnessCtx) == true)
             {
-                toolTypeName = parentToolkitCtx as string;
+                toolTypeName = parentHarnessCtx as string;
             }
-            else if (function?.AdditionalProperties?.TryGetValue("ToolkitName", out var toolNameProp) == true)
+            else if (function?.AdditionalProperties?.TryGetValue("HarnessName", out var toolNameProp) == true)
             {
-                // For container functions, ToolkitName IS the Toolkit type
+                // For container functions, HarnessName IS the Harness type
                 toolTypeName = toolNameProp as string;
             }
 
-            // Fallback: Try function-to-Toolkit mapping
+            // Fallback: Try function-to-Harness mapping
             if (string.IsNullOrEmpty(toolTypeName) && functionCall.Name != null)
             {
-                // Toolkit metadata comes from AIFunction.AdditionalProperties (set by source generator)
+                // Harness metadata comes from AIFunction.AdditionalProperties (set by source generator)
             }
 
             // Extract skill metadata
@@ -6863,7 +6863,7 @@ internal class FunctionCallProcessor
                 callId: functionCall.CallId,
                 arguments: (IReadOnlyDictionary<string, object?>?)(functionCall.Arguments ?? new Dictionary<string, object?>()),
                 runConfig: runConfig,
-                toolkitName: toolTypeName,
+                harnessName: toolTypeName,
                 skillName: skillName);
 
             // Execute BeforeFunctionAsync middleware hooks (permission check happens here)
@@ -6967,7 +6967,7 @@ internal class FunctionCallProcessor
                 result: executionResult,
                 exception: executionException,
                 runConfig: runConfig,
-                toolkitName: toolTypeName,
+                harnessName: toolTypeName,
                 skillName: skillName);
 
             try

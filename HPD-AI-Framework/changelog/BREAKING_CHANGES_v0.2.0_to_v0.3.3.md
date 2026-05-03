@@ -471,7 +471,7 @@ public class Node
 
 ## MCP & Capabilities
 
-### Toolkit MCP Support Added
+### Harness MCP Support Added
 
 **New APIs (Non-Breaking Additions):**
 ```csharp
@@ -806,7 +806,7 @@ public bool IsInternalEvalJudgeCall { get; set; }
 - `e4f256f` - SubAgents: branch-aware thread modes
 - `8e99dfc` - Advanced graph features
 - `b6f585d` - Port-based routing
-- `5ad570e` - Toolkit MCP support
+- `5ad570e` - Harness MCP support
 - `0416e97` - HPD-Agent.Memory removal
 - `04c0a1f` - Observability layer (OTel)
 - `6c65e90` - Core API refactoring (AgentRunConfig)

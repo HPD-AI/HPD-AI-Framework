@@ -454,7 +454,7 @@ public record ToolCallStartEvent(
     string CallId,
     string Name,
     string MessageId,
-    string? ToolkitName = null,
+    string? HarnessName = null,
     ToolCallType? CallType = null) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
@@ -482,7 +482,7 @@ public record ToolCallEndEvent(string CallId) : AgentEvent
 public record ToolCallResultEvent(
     string CallId,
     string Result,
-    string? ToolkitName = null,
+    string? HarnessName = null,
     ToolCallType? CallType = null) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
@@ -639,7 +639,7 @@ public record ContinuationResponseEvent(
 
 /// <summary>
 /// Marker interface for clarification-related events.
-/// Clarification events enable agents/Toolkits to ask the user for additional information
+/// Clarification events enable agents/Harneses to ask the user for additional information
 /// during execution, supporting human-in-the-loop workflows beyond just permissions.
 /// </summary>
 public interface IClarificationEvent : IBidirectionalAgentEvent
@@ -657,7 +657,7 @@ public interface IClarificationEvent : IBidirectionalAgentEvent
 }
 
 /// <summary>
-/// Agent/Toolkit requests user clarification or additional input.
+/// Agent/Harness requests user clarification or additional input.
 /// Handler should prompt user and send ClarificationResponseEvent.
 /// </summary>
 public record ClarificationRequestEvent(
@@ -673,7 +673,7 @@ public record ClarificationRequestEvent(
 
 /// <summary>
 /// Response to clarification request.
-/// Sent by external handler back to waiting agent/Toolkit.
+/// Sent by external handler back to waiting agent/Harness.
 /// </summary>
 public record ClarificationResponseEvent(
     string RequestId,
@@ -749,7 +749,7 @@ public record CollapsedToolsVisibleEvent(
     string AgentName,
     int Iteration,
     IReadOnlyList<string> VisibleToolNames,
-    ImmutableHashSet<string> ExpandedToolkits,
+    ImmutableHashSet<string> ExpandedHarneses,
     ImmutableHashSet<string> ExpandedSkills,
     int TotalToolCount,
     DateTimeOffset Timestamp
@@ -759,7 +759,7 @@ public record CollapsedToolsVisibleEvent(
 }
 
 /// <summary>
-/// Emitted when a Toolkit or skill container is expanded.
+/// Emitted when a Harness or skill container is expanded.
 /// </summary>
 public record ContainerExpandedEvent(
     string ContainerName,
@@ -772,7 +772,7 @@ public record ContainerExpandedEvent(
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
 
-public enum ContainerType { Toolkit, Skill }
+public enum ContainerType { Harness, Skill }
 
 
 /// <summary>
@@ -1350,12 +1350,12 @@ public record SchemaChangedEvent(
 
 /// <summary>
 /// Emitted by ToolCollapsingMiddleware at iteration start to report Collapsing state.
-/// Tracks how many Toolkits and skills have been expanded.
+/// Tracks how many Harneses and skills have been expanded.
 /// </summary>
 public record CollapsingStateEvent(
     string AgentName,
     int Iteration,
-    int ExpandedToolkitsCount,
+    int ExpandedHarnesesCount,
     int ExpandedSkillsCount,
     DateTimeOffset Timestamp
 ) : AgentEvent, IObservabilityEvent

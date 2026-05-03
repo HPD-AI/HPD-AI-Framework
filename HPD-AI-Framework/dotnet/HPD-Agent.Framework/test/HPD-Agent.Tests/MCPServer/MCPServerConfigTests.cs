@@ -6,43 +6,43 @@ using HPD.Agent.MCP;
 namespace HPD.Agent.Tests.MCPServer;
 
 /// <summary>
-/// Unit tests for MCPServerConfig toolkit-awareness fields:
-/// - ParentToolkit and CollapseWithinToolkit have [JsonIgnore]
+/// Unit tests for MCPServerConfig harness-awareness fields:
+/// - ParentHarness and CollapseWithinHarness have [JsonIgnore]
 /// - Existing JSON deserialization is unchanged
 /// </summary>
 public class MCPServerConfigTests
 {
     [Fact]
-    public void ParentToolkit_HasJsonIgnore_NotSerialized()
+    public void ParentHarness_HasJsonIgnore_NotSerialized()
     {
         var config = new MCPServerConfig
         {
             Name = "test",
             Command = "node",
             Arguments = new List<string> { "test.js" },
-            ParentToolkit = "MyToolkit"
+            ParentHarness = "MyHarness"
         };
 
         var json = JsonSerializer.Serialize(config, MCPJsonSerializerContext.Default.MCPServerConfig);
 
-        json.Should().NotContain("ParentToolkit");
-        json.Should().NotContain("MyToolkit");
+        json.Should().NotContain("ParentHarness");
+        json.Should().NotContain("MyHarness");
     }
 
     [Fact]
-    public void CollapseWithinToolkit_HasJsonIgnore_NotSerialized()
+    public void CollapseWithinHarness_HasJsonIgnore_NotSerialized()
     {
         var config = new MCPServerConfig
         {
             Name = "test",
             Command = "node",
             Arguments = new List<string> { "test.js" },
-            CollapseWithinToolkit = true
+            CollapseWithinHarness = true
         };
 
         var json = JsonSerializer.Serialize(config, MCPJsonSerializerContext.Default.MCPServerConfig);
 
-        json.Should().NotContain("CollapseWithinToolkit");
+        json.Should().NotContain("CollapseWithinHarness");
     }
 
     [Fact]
@@ -65,13 +65,13 @@ public class MCPServerConfigTests
         config.TimeoutMs.Should().Be(60000);
         config.RetryAttempts.Should().Be(5);
 
-        // Toolkit-awareness fields should have defaults
-        config.ParentToolkit.Should().BeNull();
-        config.CollapseWithinToolkit.Should().BeFalse();
+        // Harness-awareness fields should have defaults
+        config.ParentHarness.Should().BeNull();
+        config.CollapseWithinHarness.Should().BeFalse();
     }
 
     [Fact]
-    public void ParentToolkit_DefaultNull()
+    public void ParentHarness_DefaultNull()
     {
         var config = new MCPServerConfig
         {
@@ -79,11 +79,11 @@ public class MCPServerConfigTests
             Command = "node"
         };
 
-        config.ParentToolkit.Should().BeNull();
+        config.ParentHarness.Should().BeNull();
     }
 
     [Fact]
-    public void CollapseWithinToolkit_DefaultFalse()
+    public void CollapseWithinHarness_DefaultFalse()
     {
         var config = new MCPServerConfig
         {
@@ -91,7 +91,7 @@ public class MCPServerConfigTests
             Command = "node"
         };
 
-        config.CollapseWithinToolkit.Should().BeFalse();
+        config.CollapseWithinHarness.Should().BeFalse();
     }
 
     [Fact]
@@ -143,22 +143,22 @@ public class MCPServerConfigTests
             Name = "wolfram",
             Command = "npx",
             Arguments = new List<string> { "wolfram-mcp" },
-            ParentToolkit = "SearchToolkit",
-            CollapseWithinToolkit = true
+            ParentHarness = "SearchHarness",
+            CollapseWithinHarness = true
         };
 
         // Verify the fields are set
-        config.ParentToolkit.Should().Be("SearchToolkit");
-        config.CollapseWithinToolkit.Should().BeTrue();
+        config.ParentHarness.Should().Be("SearchHarness");
+        config.CollapseWithinHarness.Should().BeTrue();
 
         // Serialize and verify they're excluded
         var json = JsonSerializer.Serialize(config, MCPJsonSerializerContext.Default.MCPServerConfig);
-        json.Should().NotContain("ParentToolkit");
-        json.Should().NotContain("CollapseWithinToolkit");
+        json.Should().NotContain("ParentHarness");
+        json.Should().NotContain("CollapseWithinHarness");
 
         // Deserialize back — fields have defaults
         var deserialized = JsonSerializer.Deserialize<MCPServerConfig>(json, MCPJsonSerializerContext.Default.MCPServerConfig);
-        deserialized!.ParentToolkit.Should().BeNull();
-        deserialized.CollapseWithinToolkit.Should().BeFalse();
+        deserialized!.ParentHarness.Should().BeNull();
+        deserialized.CollapseWithinHarness.Should().BeFalse();
     }
 }

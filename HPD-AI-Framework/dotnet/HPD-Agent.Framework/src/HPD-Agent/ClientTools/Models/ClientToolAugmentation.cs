@@ -7,50 +7,50 @@ namespace HPD.Agent.ClientTools;
 
 /// <summary>
 /// Augmentation data that modifies tool state for the next iteration.
-/// All tool changes happen at the Toolkit level - tools are always inside Toolkits.
+/// All tool changes happen at the Harness level - tools are always inside Harneses.
 /// </summary>
 /// <remarks>
 /// <para>This enables dynamic scenarios like page navigation:</para>
 /// <code>
-/// Iteration 1: Agent has [PageA Toolkit with tools]
+/// Iteration 1: Agent has [PageA Harness with tools]
 ///     -> Agent calls navigate_to_page("settings")
 ///     -> Client responds with:
 ///        {
 ///          result: "Navigated to settings",
 ///          augmentation: {
-///            removeToolkits: ["PageA"],
-///            injectToolkits: [{ name: "Settings", tools: [...] }]
+///            removeHarneses: ["PageA"],
+///            injectHarneses: [{ name: "Settings", tools: [...] }]
 ///          }
 ///        }
 ///
-/// Iteration 2: Agent now has [Settings Toolkit with tools]
-///     -> Toolkits changed mid-turn!
+/// Iteration 2: Agent now has [Settings Harness with tools]
+///     -> Harneses changed mid-turn!
 /// </code>
 /// </remarks>
 public record ClientToolAugmentation
 {
-    // ========== Toolkit CHANGES ==========
+    // ========== Harness CHANGES ==========
 
     /// <summary>
-    /// New Toolkits to inject (with their tools).
-    /// This is the ONLY way to add new tools - they must be inside a Toolkit.
+    /// New Harneses to inject (with their tools).
+    /// This is the ONLY way to add new tools - they must be inside a Harness.
     /// </summary>
-    public IReadOnlyList<clientToolKitDefinition>? InjectToolkits { get; init; }
+    public IReadOnlyList<clientHarnessDefinition>? InjectHarneses { get; init; }
 
     /// <summary>
-    /// Toolkit names to remove entirely (removes Toolkit and all its tools).
+    /// Harness names to remove entirely (removes Harness and all its tools).
     /// </summary>
-    public IReadOnlySet<string>? RemoveToolkits { get; init; }
+    public IReadOnlySet<string>? RemoveHarneses { get; init; }
 
     /// <summary>
-    /// Toolkit names to expand (show their tools).
+    /// Harness names to expand (show their tools).
     /// </summary>
-    public IReadOnlySet<string>? ExpandToolkits { get; init; }
+    public IReadOnlySet<string>? ExpandHarneses { get; init; }
 
     /// <summary>
-    /// Toolkit names to collapse (hide their tools, show container function).
+    /// Harness names to collapse (hide their tools, show container function).
     /// </summary>
-    public IReadOnlySet<string>? CollapseToolkits { get; init; }
+    public IReadOnlySet<string>? CollapseHarneses { get; init; }
 
     // ========== TOOL VISIBILITY ==========
 
@@ -95,10 +95,10 @@ public record ClientToolAugmentation
     /// Returns true if this augmentation contains any changes.
     /// </summary>
     public bool HasChanges =>
-        (InjectToolkits?.Count ?? 0) > 0 ||
-        (RemoveToolkits?.Count ?? 0) > 0 ||
-        (ExpandToolkits?.Count ?? 0) > 0 ||
-        (CollapseToolkits?.Count ?? 0) > 0 ||
+        (InjectHarneses?.Count ?? 0) > 0 ||
+        (RemoveHarneses?.Count ?? 0) > 0 ||
+        (ExpandHarneses?.Count ?? 0) > 0 ||
+        (CollapseHarneses?.Count ?? 0) > 0 ||
         (HideTools?.Count ?? 0) > 0 ||
         (ShowTools?.Count ?? 0) > 0 ||
         (AddContext?.Count ?? 0) > 0 ||

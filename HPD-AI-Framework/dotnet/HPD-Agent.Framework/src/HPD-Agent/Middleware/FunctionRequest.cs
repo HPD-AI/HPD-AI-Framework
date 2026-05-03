@@ -71,10 +71,10 @@ public sealed record FunctionRequest
     public required AgentLoopState State { get; init; }
 
     /// <summary>
-    /// Name of the Toolkit that contains this function, if any.
-    /// May be NULL if function is not part of a Toolkit.
+    /// Name of the Harness that contains this function, if any.
+    /// May be NULL if function is not part of a Harness.
     /// </summary>
-    public string? ToolkitName { get; init; }
+    public string? HarnessName { get; init; }
 
     /// <summary>
     /// Name of the skill that referenced this function, if any.
@@ -160,9 +160,9 @@ public sealed record FunctionRequest
     public string FunctionName => Function.Name;
 
     /// <summary>
-    /// True if this function is part of a Toolkit.
+    /// True if this function is part of a Harness.
     /// </summary>
-    public bool IsToolkitFunction => ToolkitName != null;
+    public bool IsHarnessFunction => HarnessName != null;
 
     /// <summary>
     /// True if this function is part of a skill.

@@ -55,11 +55,11 @@ internal class MultiAgentCapability : BaseCapability
     /// Generates the registration code for this multi-agent workflow.
     /// Creates an AIFunction wrapper that builds and invokes the workflow.
     /// </summary>
-    /// <param name="parent">The parent Toolkit that contains this multi-agent (ToolkitInfo).</param>
+    /// <param name="parent">The parent Harness that contains this multi-agent (HarnessInfo).</param>
     /// <returns>The generated registration code as a string.</returns>
     public override string GenerateRegistrationCode(object parent)
     {
-        var toolkit = (ToolkitInfo)parent;
+        var harness = (HarnessInfo)parent;
         var sb = new StringBuilder();
 
         sb.AppendLine("HPDAIFunctionFactory.Create(");
@@ -71,11 +71,11 @@ internal class MultiAgentCapability : BaseCapability
         {
             if (IsAsync)
             {
-                sb.AppendLine($"        var workflow = await {toolkit.Name}.{MethodName}();");
+                sb.AppendLine($"        var workflow = await {harness.Name}.{MethodName}();");
             }
             else
             {
-                sb.AppendLine($"        var workflow = {toolkit.Name}.{MethodName}();");
+                sb.AppendLine($"        var workflow = {harness.Name}.{MethodName}();");
             }
         }
         else
@@ -149,7 +149,7 @@ internal class MultiAgentCapability : BaseCapability
         sb.AppendLine("        {");
         sb.AppendLine("            var options = new global::Microsoft.Extensions.AI.AIJsonSchemaCreateOptions { IncludeSchemaKeyword = false };");
         sb.AppendLine($"            return global::Microsoft.Extensions.AI.AIJsonUtilities.CreateJsonSchema(");
-        sb.AppendLine($"                typeof({toolkit.Name}MultiAgentInputArgs),");
+        sb.AppendLine($"                typeof({harness.Name}MultiAgentInputArgs),");
         sb.AppendLine("                serializerOptions: global::Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions,");
         sb.AppendLine("                inferenceOptions: options");
         sb.AppendLine("            );");
@@ -159,7 +159,7 @@ internal class MultiAgentCapability : BaseCapability
         sb.AppendLine("            [\"CapabilityType\"] = \"MultiAgent\",");
         sb.AppendLine("            [\"IsMultiAgent\"] = true,");
         sb.AppendLine("            [\"IsContainer\"] = false,");  // NOT a container - same as SubAgent
-        sb.AppendLine($"            [\"ParentToolkit\"] = \"{toolkit.Name}\",");  // Required for collapsing visibility
+        sb.AppendLine($"            [\"ParentHarness\"] = \"{harness.Name}\",");  // Required for collapsing visibility
         sb.AppendLine($"            [\"StreamEvents\"] = {StreamEvents.ToString().ToLower()},");
         sb.AppendLine($"            [\"TimeoutSeconds\"] = {TimeoutSeconds}");
         sb.AppendLine("        }");
@@ -190,7 +190,7 @@ internal class MultiAgentCapability : BaseCapability
         // MultiAgents are function wrappers that delegate to workflows, not containers
         props["IsContainer"] = false;
         props["IsMultiAgent"] = true;
-        props["ParentToolkit"] = ParentToolkitName;  // Required for collapsing visibility
+        props["ParentHarness"] = ParentHarnessName;  // Required for collapsing visibility
         props["StreamEvents"] = StreamEvents;
         props["TimeoutSeconds"] = TimeoutSeconds;
         props["RequiresPermission"] = RequiresPermission;

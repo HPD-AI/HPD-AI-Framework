@@ -60,8 +60,8 @@ public class NativeFunctionInfo
     [JsonPropertyName("requiredPermissions")]
     public List<string> RequiredPermissions { get; set; } = new();
     
-    [JsonPropertyName("Toolkit_name")]
-    public string ToolkitName { get; set; } = string.Empty;
+    [JsonPropertyName("Harness_name")]
+    public string HarnessName { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -118,15 +118,15 @@ public static partial class NativeExports
     }
 
     /// <summary>
-    /// Creates an agent with the given configuration and Toolkits.
+    /// Creates an agent with the given configuration and Harneses.
     /// </summary>
     /// <param name="configJsonPtr">Pointer to JSON string containing AgentConfig</param>
-    /// <param name="ToolkitsJsonPtr">Pointer to JSON string containing Toolkit definitions</param>
+    /// <param name="HarnesesJsonPtr">Pointer to JSON string containing Harness definitions</param>
     /// <returns>Handle to the created Agent, or IntPtr.Zero on failure</returns>
-    [UnmanagedCallersOnly(EntryPoint = "create_agent_with_Toolkits")]
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "FFI boundary - AgentBuilder uses reflection for C# Toolkit discovery, but FFI only adds native functions manually")]
-    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "FFI boundary - AgentBuilder uses reflection for C# Toolkit discovery, but FFI only adds native functions manually")]
-    public static IntPtr CreateAgentWithToolkits(IntPtr configJsonPtr, IntPtr ToolkitsJsonPtr)
+    [UnmanagedCallersOnly(EntryPoint = "create_agent_with_Harneses")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "FFI boundary - AgentBuilder uses reflection for C# Harness discovery, but FFI only adds native functions manually")]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "FFI boundary - AgentBuilder uses reflection for C# Harness discovery, but FFI only adds native functions manually")]
+    public static IntPtr CreateAgentWithHarneses(IntPtr configJsonPtr, IntPtr HarnesesJsonPtr)
     {
         try
         {
@@ -138,21 +138,21 @@ public static partial class NativeExports
 
             var builder = new AgentBuilder(agentConfig);
 
-            // Parse and add native Toolkits (Rust, C++, Zig, Go, etc.)
-            string? ToolkitsJson = Marshal.PtrToStringUTF8(ToolkitsJsonPtr);
-            Console.WriteLine($"[FFI] Received Toolkits JSON: {ToolkitsJson}");
+            // Parse and add native Harneses (Rust, C++, Zig, Go, etc.)
+            string? HarnesesJson = Marshal.PtrToStringUTF8(HarnesesJsonPtr);
+            Console.WriteLine($"[FFI] Received Harneses JSON: {HarnesesJson}");
 
-            if (!string.IsNullOrEmpty(ToolkitsJson))
+            if (!string.IsNullOrEmpty(HarnesesJson))
             {
                 try
                 {
-                    var nativeFunctions = JsonSerializer.Deserialize(ToolkitsJson, HPDFFIJsonContext.Default.ListNativeFunctionInfo);
+                    var nativeFunctions = JsonSerializer.Deserialize(HarnesesJson, HPDFFIJsonContext.Default.ListNativeFunctionInfo);
                     Console.WriteLine($"[FFI] Deserialized {nativeFunctions?.Count ?? 0} native functions");
 
                     if (nativeFunctions != null && nativeFunctions.Count > 0)
                     {
-                        // Track unique Toolkit names
-                        var ToolkitNames = new HashSet<string>();
+                        // Track unique Harness names
+                        var HarnessNames = new HashSet<string>();
 
                         foreach (var nativeFunc in nativeFunctions)
                         {
@@ -160,19 +160,19 @@ public static partial class NativeExports
                             var aiFunction = CreateNativeFunctionWrapper(nativeFunc);
                             builder.WithNativeFunction(aiFunction);
 
-                            // Track Toolkit name for registration
-                            if (!string.IsNullOrEmpty(nativeFunc.ToolkitName))
+                            // Track Harness name for registration
+                            if (!string.IsNullOrEmpty(nativeFunc.HarnessName))
                             {
-                                ToolkitNames.Add(nativeFunc.ToolkitName);
+                                HarnessNames.Add(nativeFunc.HarnessName);
                             }
                         }
 
-                        // Register Toolkit executors in native runtime
-                        foreach (var ToolkitName in ToolkitNames)
+                        // Register Harness executors in native runtime
+                        foreach (var HarnessName in HarnessNames)
                         {
-                            Console.WriteLine($"[FFI] Registering executors for Toolkit: {ToolkitName}");
-                            bool success = NativeToolkitFFI.RegisterToolkitExecutors(ToolkitName);
-                            Console.WriteLine($"[FFI] Registration result for {ToolkitName}: {success}");
+                            Console.WriteLine($"[FFI] Registering executors for Harness: {HarnessName}");
+                            bool success = NativeHarnessFFI.RegisterHarnessExecutors(HarnessName);
+                            Console.WriteLine($"[FFI] Registration result for {HarnessName}: {success}");
                         }
 
                         Console.WriteLine($"[FFI] Successfully added {nativeFunctions.Count} native functions to agent");
@@ -180,8 +180,8 @@ public static partial class NativeExports
                 }
                 catch (Exception ex)
                 {
-                    // Log but don't fail - agent can still work without native Toolkits
-                    Console.WriteLine($"Failed to parse native Toolkits: {ex.Message}");
+                    // Log but don't fail - agent can still work without native Harneses
+                    Console.WriteLine($"Failed to parse native Harneses: {ex.Message}");
                     Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 }
             }
@@ -199,7 +199,7 @@ public static partial class NativeExports
 
     /// <summary>
     /// Creates an AIFunction wrapper that calls back to native code via FFI.
-    /// Supports Toolkits written in Rust, C++, Zig, Go, Swift, or any C-compatible language.
+    /// Supports Harneses written in Rust, C++, Zig, Go, Swift, or any C-compatible language.
     /// </summary>
     private static AIFunction CreateNativeFunctionWrapper(NativeFunctionInfo nativeFunc)
     {
@@ -217,7 +217,7 @@ public static partial class NativeExports
                 }
 
                 // Execute the native function via FFI
-                var result = NativeToolkitFFI.ExecuteFunction(nativeFunc.Name, argsDict);
+                var result = NativeHarnessFFI.ExecuteFunction(nativeFunc.Name, argsDict);
                 
                 if (!result.Success)
                 {

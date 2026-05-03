@@ -234,7 +234,7 @@ public sealed class TracingObserver : IAgentEventObserver, IDisposable
 
         activity.SetTag("tool.name", e.Name);
         activity.SetTag("tool.call_id", e.CallId);
-        activity.SetTag("tool.toolkit", e.ToolkitName ?? "");
+        activity.SetTag("tool.harness", e.HarnessName ?? "");
         activity.SetTag("hpd.trace_id", e.TraceId);
 
         // Key by CallId so ToolCallEndEvent (which has CallId, not SpanId) can close it.
@@ -262,7 +262,7 @@ public sealed class TracingObserver : IAgentEventObserver, IDisposable
                 tags: new ActivityTagsCollection
                 {
                     ["tool.call_id"] = e.CallId,
-                    ["tool.toolkit"] = e.ToolkitName ?? "",
+                    ["tool.harness"] = e.HarnessName ?? "",
                     ["tool.result"] = sanitizedResult,
                 }));
         }

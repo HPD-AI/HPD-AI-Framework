@@ -163,7 +163,7 @@ public sealed class AgentContext
     /// </para>
     /// <para>
     /// Includes: ActiveSkillInstructions, CompletedFunctions, MiddlewareStates,
-    /// ExpandedSkillContainers, expandedCollapsedToolkitContainers, etc.
+    /// ExpandedSkillContainers, expandedCollapsedHarnessContainers, etc.
     /// </para>
     /// </remarks>
     public AgentLoopState State => _state;
@@ -456,9 +456,9 @@ public sealed class AgentContext
         string callId,
         IReadOnlyDictionary<string, object?> arguments,
         AgentRunConfig runConfig,
-        string? toolkitName = null,
+        string? harnessName = null,
         string? skillName = null)
-        => new(this, function, callId, arguments, toolkitName, skillName, runConfig);
+        => new(this, function, callId, arguments, harnessName, skillName, runConfig);
 
     /// <summary>
     /// Creates a typed context for AfterFunction hook.
@@ -469,9 +469,9 @@ public sealed class AgentContext
         object? result,
         Exception? exception,
         AgentRunConfig runConfig,
-        string? toolkitName = null,
+        string? harnessName = null,
         string? skillName = null)
-        => new(this, function, callId, result, exception, runConfig, toolkitName, skillName);
+        => new(this, function, callId, result, exception, runConfig, harnessName, skillName);
 
     /// <summary>
     /// Creates a typed context for OnError hook.

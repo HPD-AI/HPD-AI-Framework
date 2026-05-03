@@ -5,7 +5,7 @@
 ```csharp
 var agent = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithToolkit<MyToolkit>()
+    .WithHarness<MyHarness>()
     .WithLogging(LogLevel.Information)
     .BuildAsync();
 ```
@@ -100,7 +100,7 @@ See [Providers](Providers/00%20Providers%20Overview.md) for full signatures and 
 ## Service Provider (Dependency Injection)
 
 ```csharp
-.WithServiceProvider(services)   // IServiceProvider — required for DI-based toolkits and middleware
+.WithServiceProvider(services)   // IServiceProvider — required for DI-based harnesses and middleware
 ```
 
 ---
@@ -108,23 +108,23 @@ See [Providers](Providers/00%20Providers%20Overview.md) for full signatures and 
 ## Tools
 
 ```csharp
-// Register a native C# toolkit by type (cannot be in JSON)
-.WithToolkit<MyToolkit>()
-.WithToolkit<MyToolkit>(contextMetadata)
+// Register a native C# harness by type (cannot be in JSON)
+.WithHarness<MyHarness>()
+.WithHarness<MyHarness>(contextMetadata)
 
-// Register a toolkit with an existing instance
-.WithToolkit<MyToolkit>(instance)
-.WithToolkit<MyToolkit>(instance, contextMetadata)
+// Register a harness with an existing instance
+.WithHarness<MyHarness>(instance)
+.WithHarness<MyHarness>(instance, contextMetadata)
 
 // Register by Type object (dynamic / reflection)
-.WithToolkit(typeof(MyToolkit))
+.WithHarness(typeof(MyHarness))
 
-// Aliases — identical behaviour to WithToolkit
-.WithTools<MyToolkit>()
-.WithTools<MyToolkit>(instance)
-.WithTools(typeof(MyToolkit))
+// Aliases — identical behaviour to WithHarness
+.WithTools<MyHarness>()
+.WithTools<MyHarness>(instance)
+.WithTools(typeof(MyHarness))
 
-// Register state assemblies (for state-machine toolkits)
+// Register state assemblies (for state-machine harnesses)
 .WithStateAssembly<TMarker>()
 .WithStateAssembly(assembly)
 ```
@@ -224,7 +224,7 @@ agent.OnAny(e => { /* forward to diagnostics or a websocket */ return ValueTask.
 
 ---
 
-## Collapsing (Toolkit Hierarchy)
+## Collapsing (Harness Hierarchy)
 
 ```csharp
 // Enable collapsing with default config
@@ -233,7 +233,7 @@ agent.OnAny(e => { /* forward to diagnostics or a websocket */ return ValueTask.
 // Customise
 .WithToolCollapsing(cfg =>
 {
-    cfg.NeverCollapse = new HashSet<string> { "FileToolkit" };
+    cfg.NeverCollapse = new HashSet<string> { "FileHarness" };
     cfg.MaxFunctionNamesInDescription = 5;
 })
 

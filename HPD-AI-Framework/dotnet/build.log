@@ -31,7 +31,7 @@
   HPD-Agent -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent/bin/Debug/net9.0/HPD-Agent.dll
   HPD-Graph.Core -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/shared/HPD-Graph/HPD-Graph.Core/bin/Debug/net10.0/HPDAgent.Graph.Core.dll
   HPD-Agent.Hosting -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Hosting/bin/Debug/net9.0/HPD-Agent.Hosting.dll
-  HPD-Agent.Toolkit.WebSearch -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Toolkit/HPD-Agent.Toolkit.WebSearch/bin/Debug/net9.0/HPD-Agent.Toolkit.WebSearch.dll
+  HPD-Agent.Harness.WebSearch -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/bin/Debug/net9.0/HPD-Agent.Harness.WebSearch.dll
   HPD-Agent.MCP -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.MCP/bin/Debug/net9.0/HPD-Agent.MCP.dll
   HPD-Agent.Providers.GoogleAI -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/bin/Debug/net9.0/HPD-Agent.Providers.GoogleAI.dll
   HPD-Agent.Providers.AzureAI -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/bin/Debug/net9.0/HPD-Agent.Providers.AzureAI.dll
@@ -45,18 +45,18 @@
   HPD-Agent.Providers.Bedrock -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Bedrock/bin/Debug/net10.0/HPD-Agent.Providers.Bedrock.dll
   HPD-Agent.Providers.Ollama -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/bin/Debug/net10.0/HPD-Agent.Providers.Ollama.dll
   HPD-Agent.Audio -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Audio/HPD-Agent.Audio/bin/Debug/net10.0/HPD-Agent.Audio.dll
-  HPD-Agent.Toolkit.WebSearch -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Toolkit/HPD-Agent.Toolkit.WebSearch/bin/Debug/net10.0/HPD-Agent.Toolkit.WebSearch.dll
+  HPD-Agent.Harness.WebSearch -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/bin/Debug/net10.0/HPD-Agent.Harness.WebSearch.dll
   HPD-Agent.Providers.AzureAI -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/bin/Debug/net10.0/HPD-Agent.Providers.AzureAI.dll
   HPD-Agent.Evaluations -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Evaluations/bin/Debug/net10.0/HPD-Agent.Evaluations.dll
   HPD-Agent.Sandbox.Local -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Sandbox.Local/bin/Debug/net9.0/HPD-Agent.Sandbox.Local.dll
   HPD-Agent.Providers.Mistral -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/bin/Debug/net9.0/HPD-Agent.Providers.Mistral.dll
-  HPD-Agent.Toolkit.FileSystem -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Toolkit/HPD-Agent.Toolkit.FileSystem/bin/Debug/net10.0/HPD-Agent.Toolkit.FileSystem.dll
+  HPD-Agent.Harness.FileSystem -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/bin/Debug/net10.0/HPD-Agent.Harness.FileSystem.dll
   HPD-Agent.Providers.OnnxRuntime -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.OnnxRuntime/bin/Debug/net10.0/HPD-Agent.Providers.OnnxRuntime.dll
   HPD-Agent.MCP -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.MCP/bin/Debug/net10.0/HPD-Agent.MCP.dll
   Helium.Algebra -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/shared/Helium/src/Helium.Algebra/bin/Debug/net10.0/Helium.Algebra.dll
   HPD-Agent.Providers.Bedrock -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Bedrock/bin/Debug/net9.0/HPD-Agent.Providers.Bedrock.dll
   HPD-Agent.OpenApi -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.OpenApi/bin/Debug/net10.0/HPD-Agent.OpenApi.dll
-  HPD-Agent.Toolkit.FileSystem -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Toolkit/HPD-Agent.Toolkit.FileSystem/bin/Debug/net9.0/HPD-Agent.Toolkit.FileSystem.dll
+  HPD-Agent.Harness.FileSystem -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/bin/Debug/net9.0/HPD-Agent.Harness.FileSystem.dll
   HPD-Agent.Providers.Anthropic -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/bin/Debug/net9.0/HPD-Agent.Providers.Anthropic.dll
   HPD-Agent.Providers.OnnxRuntime -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.OnnxRuntime/bin/Debug/net9.0/HPD-Agent.Providers.OnnxRuntime.dll
   HPD-Agent.Providers.OpenRouter -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/bin/Debug/net10.0/HPD-Agent.Providers.OpenRouter.dll
@@ -96,7 +96,7 @@
   HPD-RAG.Core -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-RAG.Framework/HPD-RAG.Core/bin/Debug/net9.0/HPD-RAG.Core.dll
   Helium.Algorithms -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/shared/Helium/src/Helium.Algorithms/bin/Debug/net10.0/Helium.Algorithms.dll
   HPD-Agent.AudioProviders.OpenAI -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Audio/HPD-Agent.AudioProviders.OpenAI/bin/Debug/net9.0/HPD-Agent.AudioProviders.OpenAI.dll
-  HPD-Agent.Toolkit.FileSystem -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Toolkit/HPD-Agent.Toolkit.FileSystem/bin/Debug/net8.0/HPD-Agent.Toolkit.FileSystem.dll
+  HPD-Agent.Harness.FileSystem -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/bin/Debug/net8.0/HPD-Agent.Harness.FileSystem.dll
   HPD.ML.Core -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-ML.Framework/HPD.ML.Core/bin/Debug/net10.0/HPD.ML.Core.dll
   HPD-Agent.AudioProviders.Silero -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Audio/HPD-Agent.AudioProviders.Silero/bin/Debug/net10.0/HPD-Agent.AudioProviders.Silero.dll
   HPD-Agent.AudioProviders.ElevenLabs -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Audio/HPD-Agent.AudioProviders.ElevenLabs/bin/Debug/net9.0/HPD-Agent.AudioProviders.ElevenLabs.dll
@@ -110,7 +110,7 @@
   HPD-Agent.Providers.Ollama -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/bin/Debug/net8.0/HPD-Agent.Providers.Ollama.dll
   HPD-Agent.Providers.AzureAI -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/bin/Debug/net8.0/HPD-Agent.Providers.AzureAI.dll
   HPD-Agent.Sandbox.Local -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Sandbox.Local/bin/Debug/net8.0/HPD-Agent.Sandbox.Local.dll
-  HPD-Agent.Toolkit.WebSearch -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Toolkit/HPD-Agent.Toolkit.WebSearch/bin/Debug/net8.0/HPD-Agent.Toolkit.WebSearch.dll
+  HPD-Agent.Harness.WebSearch -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/bin/Debug/net8.0/HPD-Agent.Harness.WebSearch.dll
   HPD-Agent.Providers.AzureAIInference -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Providers/HPD-Agent.Providers.AzureAIInference/bin/Debug/net8.0/HPD-Agent.Providers.AzureAIInference.dll
   HPD-Agent.MultiAgent -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.MultiAgent/bin/Debug/net9.0/HPD-Agent.MultiAgent.dll
   HPD-Agent.Evaluations -> /Users/einsteinessibu/Documents/HPD-Agent-Framework/dotnet/src/HPD-Agent.Framework/HPD-Agent.Evaluations/bin/Debug/net8.0/HPD-Agent.Evaluations.dll

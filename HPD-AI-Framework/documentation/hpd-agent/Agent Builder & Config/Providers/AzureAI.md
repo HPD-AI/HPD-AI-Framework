@@ -167,12 +167,12 @@ config.Provider.SetTypedProviderConfig(azureOpts);
 // Reuse with different runtime customizations
 var agent1 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithToolkit<MathToolkit>()
+    .WithHarness<MathHarness>()
     .BuildAsync();
 
 var agent2 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithToolkit<FileToolkit>()
+    .WithHarness<FileHarness>()
     .BuildAsync();
 ```
 
@@ -562,7 +562,7 @@ var response = await agent.RunAsync(
 ### Function Calling with Tools
 
 ```csharp
-public class WeatherToolkit
+public class WeatherHarness
 {
     [AIFunction("Get current weather for a location")]
     public string GetWeather(string location)
@@ -576,7 +576,7 @@ var agent = await new AgentBuilder()
         endpoint: "https://my-resource.openai.azure.com",
         model: "gpt-4",
         configure: opts => opts.ToolChoice = "auto")
-    .WithToolkit<WeatherToolkit>()
+    .WithHarness<WeatherHarness>()
     .BuildAsync();
 
 var response = await agent.RunAsync("What's the weather in Paris?");
@@ -671,7 +671,7 @@ await foreach (var chunk in agent.RunAsync("Write a story about AI."))
 ### Example 3: Function Calling
 
 ```csharp
-public class CalculatorToolkit
+public class CalculatorHarness
 {
     [AIFunction("Add two numbers")]
     public double Add(double a, double b) => a + b;
@@ -685,7 +685,7 @@ var agent = await new AgentBuilder()
         endpoint: "https://my-resource.openai.azure.com",
         model: "gpt-4",
         configure: opts => opts.ToolChoice = "auto")
-    .WithToolkit<CalculatorToolkit>()
+    .WithHarness<CalculatorHarness>()
     .BuildAsync();
 
 var response = await agent.RunAsync("What is 25 * 4 + 10?");

@@ -1,4 +1,4 @@
-import { createExpandedToolKit } from '@hpd/hpd-agent-headless-ui';
+import { createExpandedHarness } from '@hpd/hpd-agent-headless-ui';
 import { appRegistry } from './registry';
 
 // ── Tool definitions ───────────────────────────────────────────────────────
@@ -28,10 +28,10 @@ const CLOSE_APP = {
     },
 } as const;
 
-// ── buildAppToolKit ────────────────────────────────────────────────────────
+// ── buildAppHarness ────────────────────────────────────────────────────────
 
 /**
- * Builds the app shell toolkit. Called at workspace init so the system prompt
+ * Builds the app shell harness. Called at workspace init so the system prompt
  * reflects whatever apps are registered at that point.
  *
  * Adding a new AppManifest to the registry automatically makes it visible here —
@@ -59,6 +59,6 @@ Guidelines:
 - Do not open an app unless the user clearly requests it or it is directly needed for the task.`;
 }
 
-export function buildAppToolKit() {
-    return createExpandedToolKit('app-shell', [OPEN_APP, CLOSE_APP]);
+export function buildAppHarness() {
+    return createExpandedHarness('app-shell', [OPEN_APP, CLOSE_APP]);
 }

@@ -245,7 +245,7 @@ Register it:
 ```csharp
 var agent = await new AgentBuilder()
     .WithProvider("anthropic", "claude-sonnet-4-5")
-    .WithToolkit<MyTools>()
+    .WithHarness<MyTools>()
     .WithMiddleware(new ErrorTrackerMiddleware(maxFailures: 3))
     .BuildAsync();
 ```

@@ -65,15 +65,15 @@ public class MCPServerSourceGeneratorTests
     #region Attribute Detection (IsToolClass)
 
     [Fact]
-    public void IsToolClass_MethodWithMCPServer_ClassDetectedAsToolkit()
+    public void IsToolClass_MethodWithMCPServer_ClassDetectedAsHarness()
     {
         var source = @"
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class MyToolkit
+    public partial class MyHarness
     {
         [MCPServer]
         public MCPServerConfig WolframServer() => new MCPServerConfig
@@ -90,21 +90,21 @@ namespace TestToolkits
         // Should be detected and have generated code
         Assert.NotNull(generatedCode);
         Assert.NotEmpty(generatedCode!);
-        // Should contain the toolkit registration
-        Assert.Contains("MyToolkit", generatedCode);
+        // Should contain the harness registration
+        Assert.Contains("MyHarness", generatedCode);
     }
 
     [Fact]
-    public void IsToolClass_OnlyMCPServerMethods_StillDetectedAsToolkit()
+    public void IsToolClass_OnlyMCPServerMethods_StillDetectedAsHarness()
     {
         // Class with ONLY [MCPServer] methods (no [AIFunction]) should still be detected
         var source = @"
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class MCPOnlyToolkit
+    public partial class MCPOnlyHarness
     {
         [MCPServer]
         public MCPServerConfig Server1() => new MCPServerConfig
@@ -128,7 +128,7 @@ namespace TestToolkits
 
         Assert.NotNull(generatedCode);
         Assert.NotEmpty(generatedCode!);
-        Assert.Contains("MCPOnlyToolkit", generatedCode);
+        Assert.Contains("MCPOnlyHarness", generatedCode);
     }
 
     #endregion
@@ -142,9 +142,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer]
         public MCPServerConfig MyServer() => new MCPServerConfig
@@ -170,9 +170,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer(""filesystem"", FromManifest = ""mcp.json"")]
         public MCPServerConfig? FileSystem() => null;
@@ -195,9 +195,9 @@ namespace TestToolkits
         var source = @"
 using HPD.Agent;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer]
         public string BadServer() => ""not a config"";
@@ -220,9 +220,9 @@ namespace TestToolkits
         var source = @"
 using HPD.Agent;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer]
         public int BadServer() => 42;
@@ -249,9 +249,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer]
         [AIFunction]
@@ -282,9 +282,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer]
         [Skill]
@@ -316,9 +316,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer]
         [SubAgent]
@@ -349,9 +349,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer]
         [MultiAgent]
@@ -384,9 +384,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer]
         public MCPServerConfig WolframServer() => new MCPServerConfig
@@ -412,9 +412,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer(""filesystem"", FromManifest = ""mcp.json"")]
         public MCPServerConfig? FileSystem() => null;
@@ -435,9 +435,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer(Name = ""CustomName"")]
         public MCPServerConfig MyServer() => new MCPServerConfig
@@ -461,9 +461,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer(Description = ""A test MCP server"")]
         public MCPServerConfig MyServer() => new MCPServerConfig
@@ -481,17 +481,17 @@ namespace TestToolkits
     }
 
     [Fact]
-    public void AttributeExtraction_CollapseWithinToolkit_True()
+    public void AttributeExtraction_CollapseWithinHarness_True()
     {
         var source = @"
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
-        [MCPServer(CollapseWithinToolkit = true)]
+        [MCPServer(CollapseWithinHarness = true)]
         public MCPServerConfig MyServer() => new MCPServerConfig
         {
             Name = ""test"",
@@ -503,7 +503,7 @@ namespace TestToolkits
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("CollapseWithinToolkit = true", generatedCode!);
+        Assert.Contains("CollapseWithinHarness = true", generatedCode!);
     }
 
     [Fact]
@@ -513,9 +513,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer]
         [RequiresPermission]
@@ -540,9 +540,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer]
         public MCPServerConfig MyServer() => new MCPServerConfig
@@ -570,9 +570,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer]
         public static MCPServerConfig StaticServer() => new MCPServerConfig
@@ -587,7 +587,7 @@ namespace TestToolkits
 
         Assert.NotNull(generatedCode);
         Assert.Contains("StaticConfigProvider", generatedCode!);
-        Assert.Contains("TestToolkit.StaticServer()", generatedCode!);
+        Assert.Contains("TestHarness.StaticServer()", generatedCode!);
     }
 
     [Fact]
@@ -597,9 +597,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer]
         public MCPServerConfig InstanceServer() => new MCPServerConfig
@@ -614,23 +614,23 @@ namespace TestToolkits
 
         Assert.NotNull(generatedCode);
         Assert.Contains("InstanceConfigProvider", generatedCode!);
-        Assert.Contains("((TestToolkit)instance).InstanceServer()", generatedCode!);
+        Assert.Contains("((TestHarness)instance).InstanceServer()", generatedCode!);
     }
 
     #endregion
 
-    #region Code Generation - ToolkitRegistry
+    #region Code Generation - HarnessRegistry
 
     [Fact]
-    public void ToolkitRegistry_WithMCPServers_HasMCPServersTrue()
+    public void HarnessRegistry_WithMCPServers_HasMCPServersTrue()
     {
         var source = @"
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer]
         public MCPServerConfig MyServer() => new MCPServerConfig
@@ -651,14 +651,14 @@ namespace TestToolkits
     }
 
     [Fact]
-    public void ToolkitRegistry_WithoutMCPServers_HasMCPServersFalse()
+    public void HarnessRegistry_WithoutMCPServers_HasMCPServersFalse()
     {
         var source = @"
 using HPD.Agent;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [AIFunction]
         public string Helper() => ""help"";
@@ -682,9 +682,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [AIFunction]
         public string Func1() => ""1"";
@@ -720,9 +720,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer]
         public MCPServerConfig Server1() => new MCPServerConfig
@@ -747,23 +747,23 @@ namespace TestToolkits
         Assert.Contains("MCPServerRegistration", generatedCode!);
         Assert.Contains("MCPServers", generatedCode!);
         // Should contain both server registrations
-        Assert.Contains("ParentToolkit = \"TestToolkit\"", generatedCode!);
+        Assert.Contains("ParentHarness = \"TestHarness\"", generatedCode!);
     }
 
     #endregion
 
-    #region Code Generation - ParentToolkit Always Set
+    #region Code Generation - ParentHarness Always Set
 
     [Fact]
-    public void MCPServerRegistration_ParentToolkit_AlwaysSetToClassName()
+    public void MCPServerRegistration_ParentHarness_AlwaysSetToClassName()
     {
         var source = @"
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class SearchToolkit
+    public partial class SearchHarness
     {
         [MCPServer]
         public MCPServerConfig BraveSearch() => new MCPServerConfig
@@ -777,7 +777,7 @@ namespace TestToolkits
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("ParentToolkit = \"SearchToolkit\"", generatedCode!);
+        Assert.Contains("ParentHarness = \"SearchHarness\"", generatedCode!);
     }
 
     #endregion
@@ -785,17 +785,17 @@ namespace TestToolkits
     #region ParentContainer Rename Verification
 
     [Fact]
-    public void ParentContainer_NotEmittedForToolkitContainer()
+    public void ParentContainer_NotEmittedForHarnessContainer()
     {
-        // Toolkit containers (from [Collapse]) do NOT have ParentContainer key.
-        // ParentContainer is only emitted for skill containers inside collapsed toolkits.
+        // Harness containers (from [Collapse]) do NOT have ParentContainer key.
+        // ParentContainer is only emitted for skill containers inside collapsed harnesses.
         var source = @"
 using HPD.Agent;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    [Collapse(""Test toolkit"")]
-    public partial class CollapsedToolkit
+    [Collapse(""Test harness"")]
+    public partial class CollapsedHarness
     {
         [AIFunction]
         public string Func1() => ""1"";
@@ -819,15 +819,15 @@ namespace TestToolkits
     [Fact]
     public void FiveCapabilities_AllDetectedNoConflicts()
     {
-        // Toolkit with all 5 types should all be detected without conflicts
+        // Harness with all 5 types should all be detected without conflicts
         // Note: Each capability must be on a SEPARATE method (no multi-attribute on same method)
         var source = @"
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class MegaToolkit
+    public partial class MegaHarness
     {
         [AIFunction]
         public string Function1() => ""func"";
@@ -865,9 +865,9 @@ using HPD.Agent;
 using HPD.Agent.MCP;
 using System.ComponentModel;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [MCPServer]
         [System.ComponentModel.Description(""Override description"")]
@@ -887,20 +887,20 @@ namespace TestToolkits
 
     #endregion
 
-    #region Integration: Full Toolkit with MCPServer + Collapse + AIFunction
+    #region Integration: Full Harness with MCPServer + Collapse + AIFunction
 
     [Fact]
-    public void Integration_ToolkitWithCollapseAndMCPServer_AllGenerated()
+    public void Integration_HarnessWithCollapseAndMCPServer_AllGenerated()
     {
         var source = @"
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    [Collapse(""Dev toolkit with MCP servers"",
-        FunctionResult = ""Dev toolkit expanded."")]
-    public partial class DevToolkit
+    [Collapse(""Dev harness with MCP servers"",
+        FunctionResult = ""Dev harness expanded."")]
+    public partial class DevHarness
     {
         [AIFunction]
         public string ReadFile(string path) => ""content"";
@@ -908,7 +908,7 @@ namespace TestToolkits
         [AIFunction]
         public string WriteFile(string path, string content) => ""ok"";
 
-        [MCPServer(CollapseWithinToolkit = true)]
+        [MCPServer(CollapseWithinHarness = true)]
         public MCPServerConfig GitServer() => new MCPServerConfig
         {
             Name = ""git"",
@@ -926,12 +926,12 @@ namespace TestToolkits
         Assert.NotNull(generatedCode);
 
         // Container generated for [Collapse]
-        Assert.Contains("CreateDevToolkitContainer", generatedCode!);
+        Assert.Contains("CreateDevHarnessContainer", generatedCode!);
 
         // MCPServer registration generated
         Assert.Contains("MCPServerRegistration", generatedCode!);
-        Assert.Contains("ParentToolkit = \"DevToolkit\"", generatedCode!);
-        Assert.Contains("CollapseWithinToolkit = true", generatedCode!);
+        Assert.Contains("ParentHarness = \"DevHarness\"", generatedCode!);
+        Assert.Contains("CollapseWithinHarness = true", generatedCode!);
 
         // HasMCPServers flag set
         Assert.Contains("HasMCPServers: true", generatedCode!);
@@ -954,9 +954,9 @@ namespace TestToolkits
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
-    public partial class TestToolkit
+    public partial class TestHarness
     {
         [AIFunction]
         public string Helper() => ""help"";
@@ -989,16 +989,16 @@ namespace TestToolkits
     [Fact]
     public void MCPServerWithCollapse_DispatchedCorrectly()
     {
-        // Collapsed toolkit with AIFunctions + MCPServer: functions go to CreateTools,
+        // Collapsed harness with AIFunctions + MCPServer: functions go to CreateTools,
         // MCPServer goes to MCPServers property — never mixed.
         var source = @"
 using HPD.Agent;
 using HPD.Agent.MCP;
 
-namespace TestToolkits
+namespace TestHarneses
 {
     [Collapse(""Dev tools"")]
-    public partial class DevToolkit
+    public partial class DevHarness
     {
         [AIFunction]
         public string ReadFile(string path) => ""content"";

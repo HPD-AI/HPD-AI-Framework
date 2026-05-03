@@ -1,7 +1,7 @@
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
-namespace HPDOS.Toolkits.Middleware;
+namespace HPDOS.Harneses.Middleware;
 
 /// <summary>
 /// Config for <see cref="EnvironmentContextMiddleware"/>.
@@ -16,11 +16,11 @@ public class EnvironmentContextConfig
 }
 
 /// <summary>
-/// Toolkit-scoped middleware that injects environment context (cwd, shell, platform,
+/// Harness-scoped middleware that injects environment context (cwd, shell, platform,
 /// git status, writable roots) as XML into the conversation at the start of each turn.
 /// On subsequent turns, re-injects only if the working directory has changed.
 /// </summary>
-public class EnvironmentContextMiddleware : IToolkitMiddleware
+public class EnvironmentContextMiddleware : IHarnessMiddleware
 {
     private readonly IReadOnlyList<string>? _writableRoots;
     private EnvironmentContext? _lastContext;

@@ -11,7 +11,7 @@ namespace HPD.Agent.Tests.MultiAgents;
 /// 1. Detects [MultiAgent] attribute
 /// 2. Validates return type is AgentWorkflowInstance or Task&lt;AgentWorkflowInstance&gt;
 /// 3. Extracts description, name, and other properties
-/// 4. Generates wrapper code for toolkit registration
+/// 4. Generates wrapper code for harness registration
 /// </summary>
 public class MultiAgentSourceGeneratorTests
 {
@@ -32,10 +32,10 @@ public class MultiAgentSourceGeneratorTests
     public async Task MultiAgentAttribute_OnMethod_ReturnsWorkflowInstance()
     {
         // Arrange
-        var toolkit = new TestMultiAgentToolkit();
+        var harness = new TestMultiAgentHarness();
 
         // Act - Call multi-agent method
-        var workflow = await toolkit.SimpleWorkflow();
+        var workflow = await harness.SimpleWorkflow();
 
         // Assert
         Assert.NotNull(workflow);
@@ -46,7 +46,7 @@ public class MultiAgentSourceGeneratorTests
     public void MultiAgentAttribute_WithDescription_ExtractsDescription()
     {
         // Arrange
-        var methodInfo = typeof(TestMultiAgentToolkit).GetMethod(nameof(TestMultiAgentToolkit.SimpleWorkflow));
+        var methodInfo = typeof(TestMultiAgentHarness).GetMethod(nameof(TestMultiAgentHarness.SimpleWorkflow));
 
         // Act
         var attrs = methodInfo?.GetCustomAttributes(typeof(MultiAgentAttribute), false);
@@ -64,10 +64,10 @@ public class MultiAgentSourceGeneratorTests
     public async Task MultiAgentAttribute_SyncMethod_ReturnsAgentWorkflowInstance()
     {
         // Arrange
-        var toolkit = new TestMultiAgentToolkit();
+        var harness = new TestMultiAgentHarness();
 
         // Act
-        var workflow = await toolkit.SimpleWorkflow();
+        var workflow = await harness.SimpleWorkflow();
 
         // Assert
         Assert.NotNull(workflow);
@@ -77,10 +77,10 @@ public class MultiAgentSourceGeneratorTests
     public async Task MultiAgentAttribute_AsyncMethod_ReturnsTaskOfAgentWorkflowInstance()
     {
         // Arrange
-        var toolkit = new TestMultiAgentToolkit();
+        var harness = new TestMultiAgentHarness();
 
         // Act
-        var workflow = await toolkit.AsyncWorkflow();
+        var workflow = await harness.AsyncWorkflow();
 
         // Assert
         Assert.NotNull(workflow);
@@ -92,7 +92,7 @@ public class MultiAgentSourceGeneratorTests
     public void MultiAgentAttribute_CustomName_IsExtracted()
     {
         // Arrange
-        var methodInfo = typeof(TestMultiAgentToolkit).GetMethod(nameof(TestMultiAgentToolkit.NamedWorkflow));
+        var methodInfo = typeof(TestMultiAgentHarness).GetMethod(nameof(TestMultiAgentHarness.NamedWorkflow));
 
         // Act
         var attrs = methodInfo?.GetCustomAttributes(typeof(MultiAgentAttribute), false);
@@ -107,7 +107,7 @@ public class MultiAgentSourceGeneratorTests
     public void MultiAgentAttribute_StreamEventsDisabled_IsExtracted()
     {
         // Arrange
-        var methodInfo = typeof(TestMultiAgentToolkit).GetMethod(nameof(TestMultiAgentToolkit.NonStreamingWorkflow));
+        var methodInfo = typeof(TestMultiAgentHarness).GetMethod(nameof(TestMultiAgentHarness.NonStreamingWorkflow));
 
         // Act
         var attrs = methodInfo?.GetCustomAttributes(typeof(MultiAgentAttribute), false);
@@ -122,7 +122,7 @@ public class MultiAgentSourceGeneratorTests
     public void MultiAgentAttribute_CustomTimeout_IsExtracted()
     {
         // Arrange
-        var methodInfo = typeof(TestMultiAgentToolkit).GetMethod(nameof(TestMultiAgentToolkit.TimeoutWorkflow));
+        var methodInfo = typeof(TestMultiAgentHarness).GetMethod(nameof(TestMultiAgentHarness.TimeoutWorkflow));
 
         // Act
         var attrs = methodInfo?.GetCustomAttributes(typeof(MultiAgentAttribute), false);
@@ -139,7 +139,7 @@ public class MultiAgentSourceGeneratorTests
     public async Task MultiAgentAttribute_StaticMethod_Works()
     {
         // Act
-        var workflow = await TestMultiAgentToolkit.StaticWorkflow();
+        var workflow = await TestMultiAgentHarness.StaticWorkflow();
 
         // Assert
         Assert.NotNull(workflow);
@@ -149,10 +149,10 @@ public class MultiAgentSourceGeneratorTests
     public async Task MultiAgentAttribute_InstanceMethod_Works()
     {
         // Arrange
-        var toolkit = new TestMultiAgentToolkit();
+        var harness = new TestMultiAgentHarness();
 
         // Act
-        var workflow = await toolkit.SimpleWorkflow();
+        var workflow = await harness.SimpleWorkflow();
 
         // Assert
         Assert.NotNull(workflow);
@@ -164,8 +164,8 @@ public class MultiAgentSourceGeneratorTests
     public async Task MultiAgentWorkflow_CanBeExecuted()
     {
         // Arrange
-        var toolkit = new TestMultiAgentToolkit();
-        var workflow = await toolkit.SimpleWorkflow();
+        var harness = new TestMultiAgentHarness();
+        var workflow = await harness.SimpleWorkflow();
 
         // Act
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -195,8 +195,8 @@ public class MultiAgentSourceGeneratorTests
     public async Task MultiAgentWorkflow_WithParentCoordinator_ExecutesWithEventBubbling()
     {
         // Arrange
-        var toolkit = new TestMultiAgentToolkit();
-        var workflow = await toolkit.SimpleWorkflow();
+        var harness = new TestMultiAgentHarness();
+        var workflow = await harness.SimpleWorkflow();
         var parentCoordinator = new HPD.Events.Core.EventCoordinator();
 
         // Act
@@ -224,11 +224,11 @@ public class MultiAgentSourceGeneratorTests
 }
 
 /// <summary>
-/// Test toolkit with [MultiAgent] methods for source generator validation.
+/// Test harness with [MultiAgent] methods for source generator validation.
 /// Uses TestAgentFactory to create agents with test provider registry.
 /// </summary>
 [Collapse("Test multi-agent capabilities")]
-public class TestMultiAgentToolkit
+public class TestMultiAgentHarness
 {
     private static HPD.Agent.Agent CreateTestAgent(string name)
     {

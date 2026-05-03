@@ -36,14 +36,14 @@ public static class PlanModeBuilderExtensions
             CustomInstructions = options.CustomInstructions
         };
 
-        var toolkit = new AgentPlanToolkit(builder.Logger?.CreateLogger<AgentPlanToolkit>());
+        var harness = new AgentPlanHarness(builder.Logger?.CreateLogger<AgentPlanHarness>());
         var middleware = new AgentPlanAgentMiddleware(
             config,
             builder.Logger?.CreateLogger<AgentPlanAgentMiddleware>());
 
-        // WithToolkit loads the MiddlewareStateRegistry from this assembly,
+        // WithHarness loads the MiddlewareStateRegistry from this assembly,
         // registering PlanModePersistentStateData for session persistence.
-        builder.WithToolkit(toolkit);
+        builder.WithHarness(harness);
         builder.Middlewares.Add(middleware);
 
         return builder;

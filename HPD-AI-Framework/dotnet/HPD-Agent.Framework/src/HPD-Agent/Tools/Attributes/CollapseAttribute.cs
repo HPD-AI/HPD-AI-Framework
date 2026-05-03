@@ -7,8 +7,8 @@ namespace HPD.Agent;
 /// <remarks>
 /// <para><b>Terminology:</b></para>
 /// <list type="bullet">
-/// <item><b>Toolkit</b>: A class containing [AIFunction], [Skill], and/or [SubAgent] methods</item>
-/// <item><b>Tool</b>: An individual AI function within a toolkit</item>
+/// <item><b>Harness</b>: A class containing [AIFunction], [Skill], and/or [SubAgent] methods</item>
+/// <item><b>Tool</b>: An individual AI function within a harness</item>
 /// <item><b>Collapsing</b>: Hiding tools behind a container that must be activated first</item>
 /// </list>
 ///
@@ -21,14 +21,14 @@ namespace HPD.Agent;
 /// <para><b>Usage Patterns:</b></para>
 /// <code>
 /// // No attribute - auto-discovered, all functions visible
-/// public class MathToolkit
+/// public class MathHarness
 /// {
 ///     [AIFunction] public int Add(int a, int b) => a + b;
 /// }
 ///
-/// // Collapsed toolkit (functions hidden behind container)
+/// // Collapsed harness (functions hidden behind container)
 /// [Collapse("Search operations across web and code")]
-/// public class SearchToolkit
+/// public class SearchHarness
 /// {
 ///     [AIFunction] public Task&lt;string&gt; WebSearch(string query) { ... }
 /// }
@@ -39,16 +39,16 @@ namespace HPD.Agent;
 ///     FunctionResult = "Transaction functions available",
 ///     SystemPrompt = "Always use transactions for data modifications"
 /// )]
-/// public class DatabaseToolkit { ... }
+/// public class DatabaseHarness { ... }
 /// </code>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false)]
 public sealed class CollapseAttribute : Attribute
 {
     /// <summary>
-    /// Description shown when toolkit is collapsed into a container.
+    /// Description shown when harness is collapsed into a container.
     /// Providing a description enables collapsing (based on CollapsingConfig.Enabled).
-    /// To prevent specific toolkits from collapsing at runtime, use CollapsingConfig.NeverCollapse.
+    /// To prevent specific harnesses from collapsing at runtime, use CollapsingConfig.NeverCollapse.
     /// </summary>
     public string Description { get; }
 
@@ -72,19 +72,19 @@ public sealed class CollapseAttribute : Attribute
     /// parameterless constructor (or a single-parameter config constructor — see proposal §5A).
     /// Instances are created at expansion time and disposed at turn end (or session end if
     /// <c>CollapsingConfig.PersistSystemPromptInjections = true</c>).
-    /// For middleware requiring DI, use <c>WithToolkit&lt;T&gt;(opts =&gt; opts.AddScopedMiddleware(...))</c> instead.
+    /// For middleware requiring DI, use <c>WithHarness&lt;T&gt;(opts =&gt; opts.AddScopedMiddleware(...))</c> instead.
     /// </summary>
     /// <example>
     /// <code>
     /// [Collapse("Database operations",
     ///     Middlewares = [typeof(DbAuditMiddleware), typeof(DbRateLimitMiddleware)])]
-    /// public class DatabaseToolkit { ... }
+    /// public class DatabaseHarness { ... }
     /// </code>
     /// </example>
     public Type[]? Middlewares { get; set; }
 
     /// <summary>
-    /// Constructor for collapsible toolkits.
+    /// Constructor for collapsible harnesses.
     /// Providing a description enables collapsing (based on CollapsingConfig.Enabled).
     /// </summary>
     /// <param name="description">Description shown in the container tool</param>
@@ -95,7 +95,7 @@ public sealed class CollapseAttribute : Attribute
     }
 
     /// <summary>
-    /// Constructor for collapsible toolkits with dual-context instruction injection.
+    /// Constructor for collapsible harnesses with dual-context instruction injection.
     /// </summary>
     /// <param name="description">Brief description of container capabilities</param>
     /// <param name="FunctionResult">Optional instructions returned as function result (ephemeral, one-time)</param>

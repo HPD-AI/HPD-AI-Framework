@@ -4,7 +4,7 @@ import type { AcpWriter } from './acp/writer.js';
 import type { SessionRegistry } from './bridge/session.js';
 import { hpdEventToAcpUpdate } from './bridge/events.js';
 import { handlePermissionRequest } from './bridge/permissions.js';
-import { handleClientToolInvoke, capsToToolKits } from './bridge/client-tools.js';
+import { handleClientToolInvoke, capsToHarnesses } from './bridge/client-tools.js';
 import { handleClarificationRequest, tryResolveClarification } from './bridge/clarification.js';
 import type {
   InboundMessage,
@@ -228,7 +228,7 @@ export function createBridge(
             session.streamAbort = null;
           },
         },
-        { signal: session.streamAbort.signal, clientToolKits: capsToToolKits(clientCapabilities), resetClientState: true },
+        { signal: session.streamAbort.signal, clientHarnesses: capsToHarnesses(clientCapabilities), resetClientState: true },
       );
     } catch (caught) {
       const isAbort = caught instanceof Error && caught.name === 'AbortError';

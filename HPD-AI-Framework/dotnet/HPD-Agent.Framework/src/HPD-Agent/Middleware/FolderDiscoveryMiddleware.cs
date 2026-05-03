@@ -25,7 +25,7 @@ public class FolderDiscoveryMiddleware : IAgentMiddleware
     private readonly IContentStore _store;
     private readonly string? _agentName;
     private FolderStructureSnapshot? _lastSnapshot;
-    private ContentStoreToolkit? _toolkit; // Set via SetToolkit for session ID threading
+    private ContentStoreHarness? _harness; // Set via SetHarness for session ID threading
 
     public FolderDiscoveryMiddleware(IContentStore store, string? agentName = null)
     {
@@ -34,12 +34,12 @@ public class FolderDiscoveryMiddleware : IAgentMiddleware
     }
 
     /// <summary>
-    /// Link the ContentStoreToolkit so FolderDiscoveryMiddleware can share session ID state.
-    /// Called by AgentBuilder when registering both middleware and toolkit.
+    /// Link the ContentStoreHarness so FolderDiscoveryMiddleware can share session ID state.
+    /// Called by AgentBuilder when registering both middleware and harness.
     /// </summary>
-    internal void SetToolkit(ContentStoreToolkit toolkit)
+    internal void SetHarness(ContentStoreHarness harness)
     {
-        _toolkit = toolkit;
+        _harness = harness;
     }
 
     public async Task BeforeMessageTurnAsync(
@@ -47,8 +47,8 @@ public class FolderDiscoveryMiddleware : IAgentMiddleware
         CancellationToken ct)
     {
         var sessionId = context.Session?.Id;
-        // Propagate session ID to toolkit so session-scoped tools (/uploads, /artifacts) work
-        _toolkit?.SetSessionId(sessionId);
+        // Propagate session ID to harness so session-scoped tools (/uploads, /artifacts) work
+        _harness?.SetSessionId(sessionId);
         var current = await BuildSnapshotAsync(sessionId, ct);
 
         string? contextXml = null;

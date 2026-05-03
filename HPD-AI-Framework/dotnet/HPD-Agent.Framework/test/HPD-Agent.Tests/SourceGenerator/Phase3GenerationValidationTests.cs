@@ -53,7 +53,7 @@ public class Phase3GenerationValidationTests
         // - Name property
         // - Description property
         // - Correct parameter schema
-        // - ParentToolkit metadata (for ToolkitReferences)
+        // - ParentHarness metadata (for HarnessReferences)
 
         // This is verified by the 650 passing tests which exercise
         // all function generation scenarios extensively.
@@ -72,7 +72,7 @@ public class Phase3GenerationValidationTests
         // - IsContainer = true
         // - IsSkill = true
         // - ReferencedFunctions array (string[])
-        // - ReferencedToolkits array (string[])
+        // - ReferencedHarneses array (string[])
         // - Instructions (if present)
 
         // The fix for empty arrays (new string[] { } instead of new[] { })
@@ -92,7 +92,7 @@ public class Phase3GenerationValidationTests
         // - IsContainer = false (SubAgents are wrappers, NOT containers)
         // - IsSubAgent = true
         // - SessionMode (Stateless, SharedSession, or PerSession)
-        // - ToolkitName (parent Toolkit name)
+        // - HarnessName (parent Harness name)
 
         // Event bubbling and execution context setup happens in the
         // generated invocation code, not in metadata.
@@ -111,7 +111,7 @@ public class Phase3GenerationValidationTests
         // if (func.IsConditional) {
         //     sb.AppendLine($"if (Evaluate{func.Name}Condition(context))");
         //     sb.AppendLine("{");
-        //     sb.AppendLine($"    functions.Add({func.GenerateRegistrationCode(Toolkit)});");
+        //     sb.AppendLine($"    functions.Add({func.GenerateRegistrationCode(Harness)});");
         //     sb.AppendLine("}");
         // }
 
@@ -130,9 +130,9 @@ public class Phase3GenerationValidationTests
     public void NewGeneration_TypeSpecificGeneration_WorksCorrectly()
     {
         // The new generation uses:
-        // - Functions: functions.Add(func.GenerateRegistrationCode(Toolkit))
-        // - Skills: sb.Append(skill.GenerateRegistrationCode(Toolkit))
-        // - SubAgents: sb.Append(subAgent.GenerateRegistrationCode(Toolkit))
+        // - Functions: functions.Add(func.GenerateRegistrationCode(Harness))
+        // - Skills: sb.Append(skill.GenerateRegistrationCode(Harness))
+        // - SubAgents: sb.Append(subAgent.GenerateRegistrationCode(Harness))
 
         // This type-specific handling ensures each capability type
         // generates code in the correct format.
@@ -148,11 +148,11 @@ public class Phase3GenerationValidationTests
     public void NewGeneration_UsesPolymorphicArchitecture()
     {
         // Evidence:
-        // 1. GenerateCreateToolkitMethodNew() iterates over Toolkit.Capabilities
+        // 1. GenerateCreateHarnessMethodNew() iterates over Harness.Capabilities
         // 2. Uses .OfType<FunctionCapability>(), .OfType<SkillCapability>(), etc.
         // 3. Calls GenerateRegistrationCode() on each capability polymorphically
 
-        // The old path (GenerateCreateToolkitMethodOld) is preserved but not used.
+        // The old path (GenerateCreateHarnessMethodOld) is preserved but not used.
 
         Assert.True(true, "Polymorphic architecture verified by code inspection");
     }
@@ -176,19 +176,19 @@ public class Phase3GenerationValidationTests
 
     /// <summary>
     /// Integration test: All capability types work together.
-    /// Complex Toolkits with Functions + Skills + SubAgents generate correctly.
+    /// Complex Harneses with Functions + Skills + SubAgents generate correctly.
     /// </summary>
     [Fact]
-    public void NewGeneration_ComplexToolkits_GenerateCorrectly()
+    public void NewGeneration_ComplexHarneses_GenerateCorrectly()
     {
-        // Complex Toolkits with all three types:
+        // Complex Harneses with all three types:
         // - MathTools (functions + skills)
         // - TestSubAgentTools (functions + subagents)
         // - FinancialAnalysisSkills (functions + multiple skills)
 
         // All generate correctly and pass their tests.
 
-        Assert.True(true, "Complex Toolkit generation verified by existing tests");
+        Assert.True(true, "Complex Harness generation verified by existing tests");
     }
 
     /// <summary>

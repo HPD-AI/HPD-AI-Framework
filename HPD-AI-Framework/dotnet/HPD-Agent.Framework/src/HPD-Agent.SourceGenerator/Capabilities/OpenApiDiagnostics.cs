@@ -37,7 +37,7 @@ internal static class OpenApiDiagnostics
 
     /// <summary>
     /// HPDAG0403: [OpenApi] method must be parameterless.
-    /// ISecretResolver and other dependencies must be injected via the toolkit constructor.
+    /// ISecretResolver and other dependencies must be injected via the harness constructor.
     /// </summary>
     public static readonly DiagnosticDescriptor MethodMustBeParameterless = new(
         id: "HPDAG0403",
@@ -47,7 +47,7 @@ internal static class OpenApiDiagnostics
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
         description: "Methods marked with [OpenApi] must be parameterless. " +
-                    "Dependencies like ISecretResolver should be declared as constructor parameters on the toolkit class. " +
+                    "Dependencies like ISecretResolver should be declared as constructor parameters on the harness class. " +
                     "AgentBuilder wires them automatically through dependency injection. " +
                     "Secrets are resolved inside the AuthCallback closure at request time, enabling vault rotation without rebuilding.");
 }

@@ -266,8 +266,8 @@ internal class OpenRouterChatRequest
     [JsonPropertyName("top_logprobs")]
     public int? TopLogprobs { get; set; }
 
-    [JsonPropertyName("Toolkits")]
-    public List<OpenRouterToolkit>? Toolkits { get; set; }
+    [JsonPropertyName("Harneses")]
+    public List<OpenRouterHarness>? Harneses { get; set; }
 
     [JsonPropertyName("provider")]
     public OpenRouterProviderPreferences? Provider { get; set; }
@@ -357,7 +357,7 @@ internal class OpenRouterRequestToolFunction
     public JsonElement Parameters { get; set; }
 }
 
-internal class OpenRouterToolkit
+internal class OpenRouterHarness
 {
     [JsonPropertyName("id")]
     public string Id { get; set; } = string.Empty;

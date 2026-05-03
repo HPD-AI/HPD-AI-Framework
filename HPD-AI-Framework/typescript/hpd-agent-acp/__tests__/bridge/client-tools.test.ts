@@ -2,7 +2,7 @@
  * Unit tests for bridge/client-tools.ts — CLIENT_TOOL_INVOKE_REQUEST handling.
  *
  * What these tests cover:
- *   capsToToolKits builds the correct clientToolKits array from ACP clientCapabilities.
+ *   capsToHarnesses builds the correct clientHarnesses array from ACP clientCapabilities.
  *   handleClientToolInvoke routes editor_read_file / editor_write_file /
  *   editor_run_command to the correct ACP fs/* or terminal/* requests, relays
  *   results back to HPD, handles capability-not-declared errors, and resolves
@@ -14,7 +14,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { PassThrough } from 'node:stream';
-import { capsToToolKits, handleClientToolInvoke } from '../../src/bridge/client-tools.js';
+import { capsToHarnesses, handleClientToolInvoke } from '../../src/bridge/client-tools.js';
 import { AcpWriter } from '../../src/acp/writer.js';
 import { SessionRegistry } from '../../src/bridge/session.js';
 import type { AcpClientCapabilities } from '../../src/types/acp.js';
@@ -56,47 +56,47 @@ function resolveLastOutbound(
 }
 
 // ---------------------------------------------------------------------------
-// capsToToolKits
+// capsToHarnesses
 // ---------------------------------------------------------------------------
 
-describe('capsToToolKits', () => {
+describe('capsToHarnesses', () => {
   it('empty caps → empty array', () => {
-    expect(capsToToolKits({})).toEqual([]);
+    expect(capsToHarnesses({})).toEqual([]);
   });
 
-  it('fs.readTextFile only → toolkit with editor_read_file', () => {
-    const kits = capsToToolKits({ fs: { readTextFile: true } });
+  it('fs.readTextFile only → harness with editor_read_file', () => {
+    const kits = capsToHarnesses({ fs: { readTextFile: true } });
 
     expect(kits).toHaveLength(1);
     expect(kits[0]!.tools.some((t) => t.name === 'editor_read_file')).toBe(true);
   });
 
-  it('fs.writeTextFile only → toolkit with editor_write_file', () => {
-    const kits = capsToToolKits({ fs: { writeTextFile: true } });
+  it('fs.writeTextFile only → harness with editor_write_file', () => {
+    const kits = capsToHarnesses({ fs: { writeTextFile: true } });
 
     expect(kits[0]!.tools.some((t) => t.name === 'editor_write_file')).toBe(true);
   });
 
-  it('terminal only → toolkit with editor_run_command', () => {
-    const kits = capsToToolKits({ terminal: true });
+  it('terminal only → harness with editor_run_command', () => {
+    const kits = capsToHarnesses({ terminal: true });
 
     expect(kits[0]!.tools.some((t) => t.name === 'editor_run_command')).toBe(true);
   });
 
-  it('all caps → toolkit with three tools', () => {
-    const kits = capsToToolKits({ fs: { readTextFile: true, writeTextFile: true }, terminal: true });
+  it('all caps → harness with three tools', () => {
+    const kits = capsToHarnesses({ fs: { readTextFile: true, writeTextFile: true }, terminal: true });
 
     expect(kits[0]!.tools).toHaveLength(3);
   });
 
   it('startCollapsed is always false', () => {
-    const kits = capsToToolKits({ fs: { readTextFile: true } });
+    const kits = capsToHarnesses({ fs: { readTextFile: true } });
 
     expect(kits[0]!.startCollapsed).toBe(false);
   });
 
-  it('toolkit name is "editor"', () => {
-    const kits = capsToToolKits({ terminal: true });
+  it('harness name is "editor"', () => {
+    const kits = capsToHarnesses({ terminal: true });
 
     expect(kits[0]!.name).toBe('editor');
   });

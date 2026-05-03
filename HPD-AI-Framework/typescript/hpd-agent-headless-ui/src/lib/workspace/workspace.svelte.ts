@@ -244,7 +244,7 @@ class WorkspaceImpl implements Workspace {
 			baseUrl: options.baseUrl,
 			transport: options.transport ?? 'sse',
 			headers: options.headers,
-			clientToolKits: options.clientToolKits,
+			clientHarnesses: options.clientHarnesses,
 			onClientToolInvoke: options.onClientToolInvoke
 		});
 		this.#registerClientHandlers();
@@ -436,8 +436,8 @@ class WorkspaceImpl implements Workspace {
 		});
 
 		this.#client.on(EventTypes.CLIENT_TOOL_GROUPS_REGISTERED, (event) => {
-			this.#activeState()?.onclientToolKitsRegistered(
-				event.registeredToolKits,
+			this.#activeState()?.onclientHarnessesRegistered(
+				event.registeredHarnesses,
 				event.totalTools,
 				event.timestamp
 			);

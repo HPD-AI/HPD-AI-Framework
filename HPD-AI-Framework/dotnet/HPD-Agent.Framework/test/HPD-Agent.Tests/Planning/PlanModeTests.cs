@@ -10,7 +10,7 @@ namespace HPD.Agent.Tests.Planning;
 /// Tests for the Plan Mode system:
 /// - PlanModePersistentStateData (immutable state model)
 /// - AgentPlanData / PlanStepData (plan domain model)
-/// - AgentPlanToolkit (agent-callable functions)
+/// - AgentPlanHarness (agent-callable functions)
 /// - AgentPlanAgentMiddleware (context injection)
 /// - PlanModeBuilderExtensions (builder integration)
 /// </summary>

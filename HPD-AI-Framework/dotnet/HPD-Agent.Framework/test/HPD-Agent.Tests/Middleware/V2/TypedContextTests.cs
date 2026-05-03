@@ -100,13 +100,13 @@ public class TypedContextTests
             "call1",
             args,
             new AgentRunConfig(),
-            "Toolkit1",
+            "Harness1",
             "Skill1");
 
         // Assert
         Assert.Equal("TestFunc", funcContext.Function.Name);
         Assert.Equal("call1", funcContext.FunctionCallId);
-        Assert.Equal("Toolkit1", funcContext.ToolkitName);
+        Assert.Equal("Harness1", funcContext.HarnessName);
         Assert.Equal("Skill1", funcContext.SkillName);
         Assert.Single(funcContext.Arguments);
     }

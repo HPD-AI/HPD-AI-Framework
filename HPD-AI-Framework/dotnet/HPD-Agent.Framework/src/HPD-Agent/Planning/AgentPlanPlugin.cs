@@ -5,7 +5,7 @@ using HPD.Agent;
 namespace HPD.Agent.Planning;
 
 /// <summary>
-/// HPD-Agent AI Toolkit for Plan Mode management.
+/// HPD-Agent AI Harness for Plan Mode management.
 /// Provides functions for agents to create and manage execution plans.
 /// Uses MiddlewareState (PlanModePersistentStateData) for session-persistent plan storage.
 /// </summary>
@@ -30,11 +30,11 @@ namespace HPD.Agent.Planning;
 /// - ConversationId for plan scoping
 /// </para>
 /// </remarks>
-public class AgentPlanToolkit
+public class AgentPlanHarness
 {
-    private readonly ILogger<AgentPlanToolkit>? _logger;
+    private readonly ILogger<AgentPlanHarness>? _logger;
 
-    public AgentPlanToolkit(ILogger<AgentPlanToolkit>? logger = null)
+    public AgentPlanHarness(ILogger<AgentPlanHarness>? logger = null)
     {
         _logger = logger;
     }

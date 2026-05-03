@@ -17,7 +17,7 @@ public class ExternalToolCollapsingWrapperMCPTests
     private static List<AIFunction> CreateMockTools(params string[] names)
     {
         return names.Select(name =>
-            CollapsedToolkitTestHelper.CreateSimpleFunction(name, $"Description for {name}", () => $"{name} result")
+            CollapsedHarnessTestHelper.CreateSimpleFunction(name, $"Description for {name}", () => $"{name} result")
         ).ToList();
     }
 
@@ -66,11 +66,11 @@ public class ExternalToolCollapsingWrapperMCPTests
         var (container, collapsedTools) = ExternalToolCollapsingWrapper.WrapMCPServerTools(
             serverName: "wolfram",
             tools: tools,
-            parentContainer: "SearchToolkit");
+            parentContainer: "SearchHarness");
 
         // Assert
         var parentContainer = GetAdditionalProperty(container, "ParentContainer");
-        parentContainer.Should().Be("SearchToolkit", "container should be nested under SearchToolkit");
+        parentContainer.Should().Be("SearchHarness", "container should be nested under SearchHarness");
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public class ExternalToolCollapsingWrapperMCPTests
     }
 
     [Fact]
-    public void WrapMCPServerTools_CollapsedTools_HaveParentToolkitSetToContainerName()
+    public void WrapMCPServerTools_CollapsedTools_HaveParentHARNESSetToContainerName()
     {
         // Arrange
         var tools = CreateMockTools("read", "write");
@@ -98,13 +98,13 @@ public class ExternalToolCollapsingWrapperMCPTests
         var (container, collapsedTools) = ExternalToolCollapsingWrapper.WrapMCPServerTools(
             serverName: "fs",
             tools: tools,
-            parentContainer: "DevToolkit");
+            parentContainer: "DevHarness");
 
-        // Assert — collapsed tools have ParentToolkit = "MCP_fs" (the container name), not "DevToolkit"
+        // Assert — collapsed tools have ParentHarness = "MCP_fs" (the container name), not "DevHarness"
         foreach (var tool in collapsedTools)
         {
-            var parentToolkit = GetAdditionalProperty(tool, "ParentToolkit");
-            parentToolkit.Should().Be("MCP_fs", "collapsed tools are children of the MCP container");
+            var parentHarness = GetAdditionalProperty(tool, "ParentHarness");
+            parentHarness.Should().Be("MCP_fs", "collapsed tools are children of the MCP container");
         }
     }
 
@@ -121,17 +121,17 @@ public class ExternalToolCollapsingWrapperMCPTests
             FunctionResult: "Web tools activated",
             SystemPrompt: "Use web tools carefully",
             customDescription: "Web server tools",
-            parentContainer: "SearchToolkit");
+            parentContainer: "SearchHarness");
 
         // Assert
         var props = container.AdditionalProperties!;
         props["IsContainer"].Should().Be(true);
-        props["ToolkitName"].Should().Be("MCP_web");
+        props["HarnessName"].Should().Be("MCP_web");
         props["MCPServerName"].Should().Be("web");
         props["SourceType"].Should().Be("MCP");
         props["FunctionResult"].Should().Be("Web tools activated");
         props["SystemPrompt"].Should().Be("Use web tools carefully");
-        props["ParentContainer"].Should().Be("SearchToolkit");
+        props["ParentContainer"].Should().Be("SearchHarness");
         (props["FunctionNames"] as string[]).Should().Contain("search", "fetch");
         props["FunctionCount"].Should().Be(2);
     }
@@ -144,7 +144,7 @@ public class ExternalToolCollapsingWrapperMCPTests
     public void AddParentToolMetadata_ParentContainerNull_NoParentContainer()
     {
         // Arrange
-        var tool = CollapsedToolkitTestHelper.CreateSimpleFunction("myTool", "desc", () => "result");
+        var tool = CollapsedHarnessTestHelper.CreateSimpleFunction("myTool", "desc", () => "result");
 
         // Act
         var wrapped = ExternalToolCollapsingWrapper.AddParentToolMetadata(
@@ -159,28 +159,28 @@ public class ExternalToolCollapsingWrapperMCPTests
     public void AddParentToolMetadata_ParentContainerSet_StampsKey()
     {
         // Arrange
-        var tool = CollapsedToolkitTestHelper.CreateSimpleFunction("myTool", "desc", () => "result");
+        var tool = CollapsedHarnessTestHelper.CreateSimpleFunction("myTool", "desc", () => "result");
 
         // Act
         var wrapped = ExternalToolCollapsingWrapper.AddParentToolMetadata(
-            tool, "MCP_server", "MCP", parentContainer: "DevToolkit");
+            tool, "MCP_server", "MCP", parentContainer: "DevHarness");
 
         // Assert
         var parentContainer = GetAdditionalProperty(wrapped, "ParentContainer");
-        parentContainer.Should().Be("DevToolkit");
+        parentContainer.Should().Be("DevHarness");
     }
 
     [Fact]
-    public void AddParentToolMetadata_DoubleWrapPrevention_ExistingParentToolkit()
+    public void AddParentToolMetadata_DoubleWrapPrevention_ExistingParentHarness()
     {
-        // Arrange — tool already has ParentToolkit metadata
+        // Arrange — tool already has ParentHarness metadata
         var opts = new HPDAIFunctionFactoryOptions
         {
             Name = "existing",
             Description = "already wrapped",
             AdditionalProperties = new Dictionary<string, object?>
             {
-                ["ParentToolkit"] = "OldToolkit"
+                ["ParentHarness"] = "OldHarness"
             }
         };
         var existingTool = HPDAIFunctionFactory.Create(
@@ -188,22 +188,22 @@ public class ExternalToolCollapsingWrapperMCPTests
 
         // Act
         var result = ExternalToolCollapsingWrapper.AddParentToolMetadata(
-            existingTool, "NewToolkit", "MCP", parentContainer: "NewParent");
+            existingTool, "NewHarness", "MCP", parentContainer: "NewParent");
 
         // Assert — should return unchanged (double-wrap prevention)
-        var parentToolkit = GetAdditionalProperty(result, "ParentToolkit");
-        parentToolkit.Should().Be("OldToolkit", "double-wrap prevention should keep original");
+        var parentHarness = GetAdditionalProperty(result, "ParentHarness");
+        parentHarness.Should().Be("OldHarness", "double-wrap prevention should keep original");
     }
 
     [Fact]
     public void AddParentToolMetadata_SetsSourceType()
     {
         // Arrange
-        var tool = CollapsedToolkitTestHelper.CreateSimpleFunction("myTool", "desc", () => "result");
+        var tool = CollapsedHarnessTestHelper.CreateSimpleFunction("myTool", "desc", () => "result");
 
         // Act
         var wrapped = ExternalToolCollapsingWrapper.AddParentToolMetadata(
-            tool, "MCP_server", "MCP", parentContainer: "TestToolkit");
+            tool, "MCP_server", "MCP", parentContainer: "TestHarness");
 
         // Assert
         var sourceType = GetAdditionalProperty(wrapped, "SourceType");

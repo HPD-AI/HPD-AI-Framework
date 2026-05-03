@@ -155,7 +155,7 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
                 break;
 
             case ToolCallStartEvent e:
-                buffer.RecordToolCallStarted(e.CallId, e.Name, e.ToolkitName, e.Timestamp);
+                buffer.RecordToolCallStarted(e.CallId, e.Name, e.HarnessName, e.Timestamp);
                 break;
 
             case ToolCallEndEvent e:

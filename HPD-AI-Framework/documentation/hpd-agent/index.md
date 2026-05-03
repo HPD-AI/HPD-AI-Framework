@@ -74,7 +74,7 @@ features:
 
   - icon:
       src: /icons/wrench.svg
-    title: Modular Toolkits
+    title: Modular Harneses
     details: Organize capabilities in C# classes. Collapsible containers reduce context usage. Type-safe and AOT-ready.
 ---
 

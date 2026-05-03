@@ -275,7 +275,7 @@ public enum HistoryItemType
 {
     UserMessage,
     AssistantMessage,
-    ToolKit,
+    Harness,
     Error,
     Info
 }

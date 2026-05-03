@@ -5,8 +5,8 @@
  * Owns session list, branch management, and streaming state.
  */
 
-import { createWorkspace, createExpandedToolKit, createSuccessResponse, createErrorResponse } from '@hpd/hpd-agent-headless-ui';
-import { buildAppToolKit } from './apps/appToolkit';
+import { createWorkspace, createExpandedHarness, createSuccessResponse, createErrorResponse } from '@hpd/hpd-agent-headless-ui';
+import { buildAppHarness } from './apps/appHarness';
 import { appShellState } from './appShellState.svelte';
 
 const STORAGE_KEY = 'hpdos:last-location';
@@ -39,7 +39,7 @@ function saveLocation(sessionId: string | null, branchId: string | null) {
 
 const saved = readSavedLocation();
 
-const artifactToolKit = createExpandedToolKit('artifacts', [
+const artifactHarness = createExpandedHarness('artifacts', [
 	{
 		name: 'upsert_artifact',
 		description: 'Create or update an artifact (code, HTML, or markdown) that renders inline in the chat.',
@@ -88,7 +88,7 @@ export const workspace = createWorkspace({
 	transport: 'sse',
 	sessionId: saved.sessionId,
 	initialBranchId: saved.branchId,
-	clientToolKits: [artifactToolKit, buildAppToolKit()],
+	clientHarnesses: [artifactHarness, buildAppHarness()],
 	onClientToolInvoke: async (request) => {
 		if (request.toolName === 'upsert_artifact') {
 			return createSuccessResponse(request.requestId, [{ type: 'text', text: 'Artifact created.' }]) as any;

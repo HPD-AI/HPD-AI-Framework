@@ -92,9 +92,9 @@ jobs:
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj"
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj"
             "HPD-AI-Framework/dotnet/shared/src/HPD.OpenApi.Core/HPD.OpenApi.Core.csproj"
-            # Toolkits
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Toolkit/HPD-Agent.Toolkit.FileSystem/HPD-Agent.Toolkit.FileSystem.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Toolkit/HPD-Agent.Toolkit.WebSearch/HPD-Agent.Toolkit.WebSearch.csproj"
+            # Harneses
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/HPD-Agent.Harness.FileSystem.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj"
             # Audio (not ready for release)
             # "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj"
             # "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.AudioProviders.OpenAI/HPD-Agent.AudioProviders.OpenAI.csproj"

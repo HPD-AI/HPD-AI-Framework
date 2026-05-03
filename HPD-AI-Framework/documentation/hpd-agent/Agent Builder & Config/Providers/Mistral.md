@@ -150,12 +150,12 @@ config.Provider.SetTypedProviderConfig(mistralOpts);
 // Reuse with different runtime customizations
 var agent1 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithToolkit<MathToolkit>()
+    .WithHarness<MathHarness>()
     .BuildAsync();
 
 var agent2 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithToolkit<FileToolkit>()
+    .WithHarness<FileHarness>()
     .BuildAsync();
 ```
 
@@ -416,8 +416,8 @@ var agent = await new AgentBuilder()
             opts.ToolChoice = "auto";
             opts.ParallelToolCalls = true; // Call multiple tools at once
         })
-    .WithToolkit<WeatherToolkit>()
-    .WithToolkit<CalculatorToolkit>()
+    .WithHarness<WeatherHarness>()
+    .WithHarness<CalculatorHarness>()
     .BuildAsync();
 ```
 
@@ -514,7 +514,7 @@ Console.WriteLine(response);
 ### Example 2: Function Calling with Tools
 
 ```csharp
-public class WeatherToolkit
+public class WeatherHarness
 {
     [Function("Get current weather for a location")]
     public string GetWeather(string location)
@@ -528,7 +528,7 @@ var agent = await new AgentBuilder()
         model: "mistral-large-latest",
         apiKey: "your-api-key",
         configure: opts => opts.ToolChoice = "auto")
-    .WithToolkit<WeatherToolkit>()
+    .WithHarness<WeatherHarness>()
     .BuildAsync();
 
 var response = await agent.RunAsync("What's the weather in Seattle?");
@@ -649,7 +649,7 @@ var response = await agent.RunAsync("Generate a story for children.");
 ### Example 9: Parallel Tool Execution
 
 ```csharp
-public class MathToolkit
+public class MathHarness
 {
     [Function("Add two numbers")]
     public int Add(int a, int b) => a + b;
@@ -666,7 +666,7 @@ var agent = await new AgentBuilder()
         {
             opts.ParallelToolCalls = true; // Execute tools in parallel
         })
-    .WithToolkit<MathToolkit>()
+    .WithHarness<MathHarness>()
     .BuildAsync();
 
 var response = await agent.RunAsync("What is 5+3 and 4*7?");

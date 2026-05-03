@@ -1,0 +1,232 @@
+using System;
+using System.Threading.Tasks;
+using Microsoft.Extensions.AI;
+
+namespace HPD.Agent.Harneses.FileSystem.Examples;
+
+/// <summary>
+/// Example usage of the FileSystemHarness with HPD-Agent
+/// </summary>
+public static class FileSystemHarnessExamples
+{
+    /// <summary>
+    /// Example 1: Basic setup and registration
+    /// </summary>
+    public static async Task BasicSetupExample()
+    {
+        // 1. Create a context for your workspace
+        var context = new FileSystemContext(
+            workspaceRoot: "/path/to/your/project",
+            allowOutsideWorkspace: false,      // Keep operations safe
+            respectGitIgnore: true,
+            maxFileSize: 10_000_000,           // 10 MB max
+            enableSearch: true
+        );
+
+        // 2. Create Harness manager and register the Harness
+        var HarnessManager = new HarnessManager(context);
+        HarnessManager.RegisterHarness<FileSystemHarness>();
+
+        // 3. Create AI functions
+        var functions = HarnessManager.CreateAllFunctions(context);
+
+        Console.WriteLine($"Registered {functions.Count} AI functions:");
+        foreach (var func in functions)
+        {
+            Console.WriteLine($"  - {func.Metadata.Name}");
+        }
+
+        // 4. Use with your AI chat client
+        // chatClient.Tools = functions;
+        // var response = await chatClient.CompleteAsync("Read the README.md file");
+    }
+
+    /// <summary>
+    /// Example 2: Code search and refactoring
+    /// </summary>
+    public static async Task CodeSearchExample()
+    {
+        var context = new FileSystemContext("/workspace");
+        var Harness = new FileSystemHarness(context);
+
+        // Find all C# files
+        Console.WriteLine("Finding all C# files...");
+        var files = await Harness.FindFiles("**/*.cs");
+        Console.WriteLine(files);
+
+        // Search for TODO comments
+        Console.WriteLine("\nSearching for TODO comments...");
+        var todos = await Harness.SearchContent("TODO", filePattern: "*.cs");
+        Console.WriteLine(todos);
+
+        // Search for specific pattern with regex
+        Console.WriteLine("\nSearching for class definitions...");
+        var classes = await Harness.SearchContent(@"public class \w+", filePattern: "**/*.cs");
+        Console.WriteLine(classes);
+    }
+
+    /// <summary>
+    /// Example 3: File editing with diff preview
+    /// </summary>
+    public static async Task FileEditingExample()
+    {
+        var context = new FileSystemContext("/workspace");
+        var Harness = new FileSystemHarness(context);
+
+        // Read a file
+        var content = await Harness.ReadFile("/workspace/src/Program.cs");
+        Console.WriteLine("Original content:");
+        Console.WriteLine(content);
+
+        // Edit the file (requires permission)
+        var result = await Harness.EditFile(
+            filePath: "/workspace/src/Program.cs",
+            oldString: "var oldVariable = 123;",
+            newString: "var newVariable = 456;"
+        );
+
+        Console.WriteLine("\nEdit result with diff:");
+        Console.WriteLine(result);
+    }
+
+    /// <summary>
+    /// Example 4: Directory browsing and file operations
+    /// </summary>
+    public static async Task DirectoryBrowsingExample()
+    {
+        var context = new FileSystemContext("/workspace");
+        var Harness = new FileSystemHarness(context);
+
+        // List directory contents
+        var listing = await Harness.ListDirectory("/workspace/src", recursive: false);
+        Console.WriteLine(listing);
+
+        // List recursively
+        var recursiveListing = await Harness.ListDirectory("/workspace", recursive: true);
+        Console.WriteLine(recursiveListing);
+
+        // Read a file with line range (for large files)
+        var partialContent = await Harness.ReadFile(
+            absolutePath: "/workspace/logs/app.log",
+            offset: 100,    // Start at line 100
+            limit: 50       // Read 50 lines
+        );
+        Console.WriteLine(partialContent);
+    }
+
+    /// <summary>
+    /// Example 5: Agent-powered documentation generator
+    /// </summary>
+    public static async Task DocumentationGeneratorExample(IChatClient chatClient)
+    {
+        var context = new FileSystemContext("/workspace");
+        var HarnessManager = new HarnessManager(context);
+        HarnessManager.RegisterHarness<FileSystemHarness>();
+
+        var functions = HarnessManager.CreateAllFunctions(context);
+
+        // Configure chat client with tools
+        var chatOptions = new ChatOptions
+        {
+            Tools = functions
+        };
+
+        // Agent can now use file system operations
+        var messages = new[]
+        {
+            new ChatMessage(ChatRole.User,
+                "Generate API documentation by reading all files in src/Controllers/ and create a docs/API.md file")
+        };
+
+        var response = await chatClient.CompleteAsync(messages, chatOptions);
+        Console.WriteLine(response);
+
+        // The agent will:
+        // 1. Call FindFiles("src/Controllers/**/*.cs")
+        // 2. Call ReadFile for each controller
+        // 3. Generate documentation
+        // 4. Call WriteFile("docs/API.md", content)
+    }
+
+    /// <summary>
+    /// Example 6: Context-aware Harness (disable search for security)
+    /// </summary>
+    public static void ContextAwareExample()
+    {
+        // Production context - search disabled for security
+        var prodContext = new FileSystemContext(
+            workspaceRoot: "/production/app",
+            allowOutsideWorkspace: false,
+            enableSearch: false  // FindFiles and SearchContent won't be available
+        );
+
+        var HarnessManager = new HarnessManager(prodContext);
+        HarnessManager.RegisterHarness<FileSystemHarness>();
+
+        var functions = HarnessManager.CreateAllFunctions(prodContext);
+
+        // FindFiles and SearchContent won't be in the function list
+        Console.WriteLine($"Available functions: {string.Join(", ", functions.Select(f => f.Metadata.Name))}");
+        // Output: ReadFile, WriteFile, ListDirectory, EditFile (no FindFiles, no SearchContent)
+    }
+
+    /// <summary>
+    /// Example 7: Custom workspace validation
+    /// </summary>
+    public static async Task WorkspaceValidationExample()
+    {
+        var context = new FileSystemContext(
+            workspaceRoot: "/safe/workspace",
+            allowOutsideWorkspace: false  // Enforce workspace boundaries
+        );
+
+        var Harness = new FileSystemHarness(context);
+
+        //  Allowed: Inside workspace
+        var result1 = await Harness.ReadFile("/safe/workspace/file.txt");
+        Console.WriteLine(result1);
+
+        //    Blocked: Outside workspace
+        var result2 = await Harness.ReadFile("/etc/passwd");
+        Console.WriteLine(result2);  // Error: File path must be within workspace
+
+        //    Blocked: Path traversal attempt
+        var result3 = await Harness.ReadFile("/safe/workspace/../../etc/passwd");
+        Console.WriteLine(result3);  // Error: File path must be within workspace
+    }
+}
+
+/// <summary>
+/// Integration example with a complete agent setup
+/// </summary>
+public class CompleteAgentExample
+{
+    public static async Task RunAgent()
+    {
+        // 1. Setup workspace context
+        var fsContext = new FileSystemContext(
+            workspaceRoot: Directory.GetCurrentDirectory(),
+            enableSearch: true
+        );
+
+        // 2. Register all Harneses
+        var HarnessManager = new HarnessManager(fsContext);
+        HarnessManager.RegisterHarness<FileSystemHarness>();
+        // HarnessManager.RegisterHarness<WebSearchHarness>(); // Add other Harneses
+
+        // 3. Create functions
+        var tools = HarnessManager.CreateAllFunctions(fsContext);
+
+        // 4. Setup AI client (example with your agent)
+        // var chatClient = new YourChatClient(...);
+
+        // 5. Run agent with tools
+        // var options = new ChatOptions { Tools = tools };
+        // var response = await chatClient.CompleteAsync(
+        //     "Analyze all TypeScript files and create a summary in ANALYSIS.md",
+        //     options
+        // );
+
+        Console.WriteLine($"Agent configured with {tools.Count} file system tools");
+    }
+}

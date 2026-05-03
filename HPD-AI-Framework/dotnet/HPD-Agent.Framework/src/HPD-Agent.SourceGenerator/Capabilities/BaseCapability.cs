@@ -30,14 +30,14 @@ internal abstract class BaseCapability : ICapability
     public abstract CapabilityType Type { get; }
 
     /// <summary>
-    /// The namespace of the parent Toolkit class.
+    /// The namespace of the parent Harness class.
     /// </summary>
     public string ParentNamespace { get; set; } = string.Empty;
 
     /// <summary>
-    /// The name of the parent Toolkit class.
+    /// The name of the parent Harness class.
     /// </summary>
-    public string ParentToolkitName { get; set; } = string.Empty;
+    public string ParentHarnessName { get; set; } = string.Empty;
 
     // ========== Context & Conditionals (AIFunction-related attributes) ==========
 
@@ -141,7 +141,7 @@ internal abstract class BaseCapability : ICapability
     /// This creates the HPDAIFunctionFactory.Create(...) call with all necessary metadata.
     /// Must be implemented by concrete capability classes.
     /// </summary>
-    /// <param name="parent">The parent Toolkit that contains this capability.</param>
+    /// <param name="parent">The parent Harness that contains this capability.</param>
     /// <returns>The generated registration code as a string.</returns>
     public abstract string GenerateRegistrationCode(object parent);
 
@@ -172,7 +172,7 @@ internal abstract class BaseCapability : ICapability
     /// Default implementation does nothing (most capabilities don't need reference resolution).
     /// Skills override this to resolve function references.
     /// </summary>
-    /// <param name="allCapabilities">All capabilities from all Toolkits in the compilation.</param>
+    /// <param name="allCapabilities">All capabilities from all Harneses in the compilation.</param>
     public virtual void ResolveReferences(List<ICapability> allCapabilities)
     {
         // Default: no-op (most capabilities don't need reference resolution)
@@ -244,6 +244,6 @@ internal abstract class BaseCapability : ICapability
     /// Gets the full qualified name of this capability (namespace.toolName.capabilityName).
     /// </summary>
     public string FullName => string.IsNullOrEmpty(ParentNamespace)
-        ? $"{ParentToolkitName}.{Name}"
-        : $"{ParentNamespace}.{ParentToolkitName}.{Name}";
+        ? $"{ParentHarnessName}.{Name}"
+        : $"{ParentNamespace}.{ParentHarnessName}.{Name}";
 }

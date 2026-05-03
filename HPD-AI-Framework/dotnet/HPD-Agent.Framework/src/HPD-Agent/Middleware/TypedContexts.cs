@@ -341,7 +341,7 @@ public sealed class BeforeParallelBatchContext : HookContext
 
 /// <summary>
 /// Context for BeforeFunction hook.
-/// Available properties: Function, FunctionCallId, Arguments, ToolkitName, SkillName, RunConfig
+/// Available properties: Function, FunctionCallId, Arguments, HarnessName, SkillName, RunConfig
 /// </summary>
 public sealed class BeforeFunctionContext : HookContext
 {
@@ -364,10 +364,10 @@ public sealed class BeforeFunctionContext : HookContext
     public IReadOnlyDictionary<string, object?> Arguments { get; }
 
     /// <summary>
-    /// Name of the Toolkit that contains this function, if any.
-    /// May be NULL if function is not part of a Toolkit.
+    /// Name of the Harness that contains this function, if any.
+    /// May be NULL if function is not part of a Harness.
     /// </summary>
-    public string? ToolkitName { get; }
+    public string? HarnessName { get; }
 
     /// <summary>
     /// Name of the skill that referenced this function, if any.
@@ -408,16 +408,16 @@ public sealed class BeforeFunctionContext : HookContext
     public bool IsSkillFunction => SkillName != null;
 
     /// <summary>
-    /// True if this function is part of a Toolkit.
+    /// True if this function is part of a Harness.
     /// </summary>
-    public bool IsToolkitFunction => ToolkitName != null;
+    public bool IsHarnessFunction => HarnessName != null;
 
     internal BeforeFunctionContext(
         AgentContext baseContext,
         AIFunction? function,
         string callId,
         IReadOnlyDictionary<string, object?> arguments,
-        string? toolkitName,
+        string? harnessName,
         string? skillName,
         AgentRunConfig runConfig)
         : base(baseContext)
@@ -425,7 +425,7 @@ public sealed class BeforeFunctionContext : HookContext
         Function = function; // Can be null for unknown functions
         FunctionCallId = callId ?? throw new ArgumentNullException(nameof(callId));
         Arguments = arguments ?? throw new ArgumentNullException(nameof(arguments));
-        ToolkitName = toolkitName;
+        HarnessName = harnessName;
         SkillName = skillName;
         RunConfig = runConfig ?? throw new ArgumentNullException(nameof(runConfig));
     }
@@ -433,7 +433,7 @@ public sealed class BeforeFunctionContext : HookContext
 
 /// <summary>
 /// Context for AfterFunction hook.
-/// Available properties: Function, FunctionCallId, Result, Exception, ToolkitName, SkillName, RunConfig
+/// Available properties: Function, FunctionCallId, Result, Exception, HarnessName, SkillName, RunConfig
 /// </summary>
 public sealed class AfterFunctionContext : HookContext
 {
@@ -464,10 +464,10 @@ public sealed class AfterFunctionContext : HookContext
     public Exception? Exception { get; set; }
 
     /// <summary>
-    /// Name of the Toolkit that contains this function, if any.
-    /// May be NULL if function is not part of a Toolkit.
+    /// Name of the Harness that contains this function, if any.
+    /// May be NULL if function is not part of a Harness.
     /// </summary>
-    public string? ToolkitName { get; }
+    public string? HarnessName { get; }
 
     /// <summary>
     /// Name of the skill that referenced this function, if any.
@@ -503,9 +503,9 @@ public sealed class AfterFunctionContext : HookContext
     public bool IsSkillFunction => SkillName != null;
 
     /// <summary>
-    /// True if this function is part of a Toolkit.
+    /// True if this function is part of a Harness.
     /// </summary>
-    public bool IsToolkitFunction => ToolkitName != null;
+    public bool IsHarnessFunction => HarnessName != null;
 
     internal AfterFunctionContext(
         AgentContext baseContext,
@@ -514,7 +514,7 @@ public sealed class AfterFunctionContext : HookContext
         object? result,
         Exception? exception,
         AgentRunConfig runConfig,
-        string? toolkitName = null,
+        string? harnessName = null,
         string? skillName = null)
         : base(baseContext)
     {
@@ -522,7 +522,7 @@ public sealed class AfterFunctionContext : HookContext
         FunctionCallId = callId ?? throw new ArgumentNullException(nameof(callId));
         Result = result;
         Exception = exception;
-        ToolkitName = toolkitName;
+        HarnessName = harnessName;
         SkillName = skillName;
         RunConfig = runConfig ?? throw new ArgumentNullException(nameof(runConfig));
     }

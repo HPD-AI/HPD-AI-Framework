@@ -1,8 +1,8 @@
-# Building a Toolkit
+# Building a Harness
 
-> Six ways to give your agent capabilities — using a math toolkit as the example.
+> Six ways to give your agent capabilities — using a math harness as the example.
 
-A **toolkit** is a class that groups related capabilities. HPD-Agent supports six capability types, each suited for a different level of complexity and autonomy. This cookbook walks through all of them using math as the domain — building up a single `MathToolkit` class one step at a time.
+A **harness** is a class that groups related capabilities. HPD-Agent supports six capability types, each suited for a different level of complexity and autonomy. This cookbook walks through all of them using math as the domain — building up a single `MathHarness` class one step at a time.
 
 ---
 
@@ -13,7 +13,7 @@ The simplest capability. Mark a method with `[AIFunction]` and describe it so th
 ```csharp
 using HPD.Agent;
 
-public partial class MathToolkit
+public partial class MathHarness
 {
     [AIFunction]
     [AIDescription("Add two numbers and return the sum")]
@@ -59,12 +59,12 @@ public partial class MathToolkit
 
 **Why `[AIDescription]`?** The agent uses descriptions to decide which function to call and how to fill in the parameters. Without them, it has to guess from the method and parameter names alone — descriptions make it reliable.
 
-Register the toolkit:
+Register the harness:
 
 ```csharp
 var agent = await new AgentBuilder()
     .WithProvider("anthropic", "claude-sonnet-4-5")
-    .WithToolkit<MathToolkit>()
+    .WithHarness<MathHarness>()
     .BuildAsync();
 ```
 
@@ -77,7 +77,7 @@ A **Skill** groups existing functions and gives the agent a workflow to follow w
 Use a skill when the steps are known upfront but you want the agent to execute them flexibly.
 
 ```csharp
-public partial class MathToolkit
+public partial class MathHarness
 {
     // ... AIFunctions from Step 1 ...
 
@@ -95,17 +95,17 @@ public partial class MathToolkit
                 3. Use the result of each step as input to the next
                 4. Show your working at each step
                 5. State the final answer clearly",
-            "MathToolkit.Add",
-            "MathToolkit.Subtract",
-            "MathToolkit.Multiply",
-            "MathToolkit.Divide",
-            "MathToolkit.SquareRoot"
+            "MathHarness.Add",
+            "MathHarness.Subtract",
+            "MathHarness.Multiply",
+            "MathHarness.Divide",
+            "MathHarness.SquareRoot"
         );
     }
 }
 ```
 
-When the agent activates the `Solve Equation` skill, the referenced functions become visible and the workflow instructions are injected. The functions must already exist in a registered toolkit — the skill doesn't bring them in, it references them. Since `MathToolkit` is registered and the skill lives in the same class, the references resolve automatically.
+When the agent activates the `Solve Equation` skill, the referenced functions become visible and the workflow instructions are injected. The functions must already exist in a registered harness — the skill doesn't bring them in, it references them. Since `MathHarness` is registered and the skill lives in the same class, the references resolve automatically.
 
 ---
 
@@ -118,7 +118,7 @@ Use a SubAgent when the path isn't predictable upfront — or when you want to k
 **Math use case: Proof Checker.** Given a mathematical proof, verify each step is logically valid. The path varies wildly depending on the proof — the sub-agent needs to reason autonomously.
 
 ```csharp
-public partial class MathToolkit
+public partial class MathHarness
 {
     // ... AIFunctions and Skill from above ...
 
@@ -141,13 +141,13 @@ public partial class MathToolkit
             name: "Check Proof",
             description: "Verifies a mathematical proof step by step",
             agentConfig: config,
-            typeof(MathToolkit)  // fresh instance — not circular, SubAgent gets its own isolated MathToolkit
+            typeof(MathHarness)  // fresh instance — not circular, SubAgent gets its own isolated MathHarness
         );
     }
 }
 ```
 
-The SubAgent has its own isolated reasoning loop. It uses the `MathToolkit` functions to check individual arithmetic steps, but its overall reasoning path — which steps to examine, what questions to ask — is fully autonomous. All that intermediate work is discarded when it's done; the parent only receives the final verdict.
+The SubAgent has its own isolated reasoning loop. It uses the `MathHarness` functions to check individual arithmetic steps, but its overall reasoning path — which steps to examine, what questions to ask — is fully autonomous. All that intermediate work is discarded when it's done; the parent only receives the final verdict.
 
 ---
 
@@ -192,8 +192,8 @@ var verifierConfig = new AgentConfig
 // Build the workflow
 var workflow = await AgentWorkflow.Create()
     .AddAgent("decomposer", decomposerConfig)
-    .AddAgent("solver", solverConfig, typeof(MathToolkit))
-    .AddAgent("verifier", verifierConfig, typeof(MathToolkit))
+    .AddAgent("solver", solverConfig, typeof(MathHarness))
+    .AddAgent("verifier", verifierConfig, typeof(MathHarness))
     .From("decomposer").To("solver")
     .From("solver").To("verifier")
     .BuildAsync();
@@ -216,10 +216,10 @@ Each agent only sees what it needs — the decomposer sees the original problem,
 
 **Math use case:** Connect to Brave Search so the agent can look up math formulas, theorems, and proofs on demand.
 
-Add `[MCPServer]` directly to `MathToolkit`. Declare `ISecretResolver` as a primary constructor parameter — the source generator detects it and handles the wiring automatically:
+Add `[MCPServer]` directly to `MathHarness`. Declare `ISecretResolver` as a primary constructor parameter — the source generator detects it and handles the wiring automatically:
 
 ```csharp
-public partial class MathToolkit(ISecretResolver secrets)
+public partial class MathHarness(ISecretResolver secrets)
 {
     // ... AIFunctions, Skill, SubAgent from above ...
 
@@ -239,7 +239,7 @@ public partial class MathToolkit(ISecretResolver secrets)
 }
 ```
 
-The MCP server is part of the toolkit — no separate registration needed.
+The MCP server is part of the harness — no separate registration needed.
 
 ---
 
@@ -250,7 +250,7 @@ The MCP server is part of the toolkit — no separate registration needed.
 **Math use case:** [Wolfram Alpha](https://products.wolframalpha.com/api/) has a public API for computational math — symbolic solving, calculus, number theory, unit conversion, and more. Every operation in the spec becomes a callable function.
 
 ```csharp
-public partial class MathToolkit(ISecretResolver secrets)
+public partial class MathHarness(ISecretResolver secrets)
 {
     // ... AIFunctions, Skill, SubAgent, MCP from above ...
 
@@ -287,7 +287,7 @@ All six capability types live in one class. Register it once:
 var agent = await new AgentBuilder()
     .WithProvider("anthropic", "claude-sonnet-4-5")
     .WithInstructions("You are a math assistant. Use your tools to solve problems accurately.")
-    .WithToolkit<MathToolkit>()
+    .WithHarness<MathHarness>()
     .BuildAsync();
 
 var sessionId = await agent.CreateSessionAsync();
@@ -301,12 +301,12 @@ await foreach (var evt in agent.RunAsync(
 }
 ```
 
-**They don't have to be in one class.** Grouping them in `MathToolkit` makes sense here because they're all math-related. In practice you might split them  Register as many toolkits as you need:
+**They don't have to be in one class.** Grouping them in `MathHarness` makes sense here because they're all math-related. In practice you might split them  Register as many harnesses as you need:
 Ex. 
 ```csharp
 var agent = await new AgentBuilder()
-    .WithToolkit<CoreMathToolkit>()
-    .WithToolkit<MathSearchToolkit>()
+    .WithHarness<CoreMathHarness>()
+    .WithHarness<MathSearchHarness>()
     .BuildAsync();
 ```
 

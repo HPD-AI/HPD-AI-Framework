@@ -40,9 +40,9 @@
     <Project Path="src/HPD-Agent.Audio/HPD-Agent.AudioProviders.ElevenLabs/HPD-Agent.AudioProviders.ElevenLabs.csproj" />
     <Project Path="src/HPD-Agent.Audio/HPD-Agent.AudioProviders.Silero/HPD-Agent.AudioProviders.Silero.csproj" />
   </Folder>
-  <Folder Name="/Toolkits/">
-    <Project Path="src/HPD-Agent.Toolkit/HPD-Agent.Toolkit.FileSystem/HPD-Agent.Toolkit.FileSystem.csproj" />
-    <Project Path="src/HPD-Agent.Toolkit/HPD-Agent.Toolkit.WebSearch/HPD-Agent.Toolkit.WebSearch.csproj" />
+  <Folder Name="/Harneses/">
+    <Project Path="src/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/HPD-Agent.Harness.FileSystem.csproj" />
+    <Project Path="src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj" />
   </Folder>
   <Folder Name="/Specialized/">
     <Project Path="src/HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj" />

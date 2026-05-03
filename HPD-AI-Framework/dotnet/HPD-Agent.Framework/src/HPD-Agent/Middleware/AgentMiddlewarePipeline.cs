@@ -428,7 +428,7 @@ public class AgentMiddlewarePipeline
     }
 
     //
-    // INTERNAL DISPATCH METHODS (toolkit-scoped middleware — )
+    // INTERNAL DISPATCH METHODS (harness-scoped middleware — )
     //
     // These are raw loops that do NOT touch SetMiddlewareExecuting.
     // They are called from ContainerMiddleware hooks, which already run inside an outer

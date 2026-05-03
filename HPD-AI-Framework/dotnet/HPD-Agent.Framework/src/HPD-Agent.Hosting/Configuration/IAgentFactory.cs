@@ -10,7 +10,7 @@ namespace HPD.Agent.Hosting.Configuration;
 /// Use this for advanced scenarios like:
 /// - Multi-tenant (different API keys per tenant)
 /// - Per-user model selection
-/// - Dynamic toolkit loading based on session metadata
+/// - Dynamic harness loading based on session metadata
 ///
 /// Resolution priority (highest to lowest):
 /// 1. IAgentFactory from DI

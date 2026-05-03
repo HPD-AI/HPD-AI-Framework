@@ -250,7 +250,7 @@ interface AgentClientConfig {
   baseUrl: string;
   transport?: 'sse' | 'websocket' | 'maui';
   headers?: Record<string, string>;
-  clientToolKits?: clientToolKitDefinition[];
+  clientHarnesses?: clientHarnessDefinition[];
   onClientToolInvoke?: (
     request: ClientToolInvokeRequestEvent
   ) => Promise<ClientToolInvokeResponse>;

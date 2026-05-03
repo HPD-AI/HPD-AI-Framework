@@ -20,12 +20,12 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Test Toolkit"",
+    ""Test Harness"",
      
-    FunctionResult = ""Toolkit activated with features A, B, C"",
+    FunctionResult = ""Harness activated with features A, B, C"",
     SystemPrompt = ""Always validate inputs and show your work""
 )]
-public class TestToolkit
+public class TestHarness
 {
     [AIFunction]
     public string TestFunction() => ""result"";
@@ -39,7 +39,7 @@ public class TestToolkit
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
 
         // Assert - FunctionResult appears in function result
-        Assert.Contains("Toolkit activated with features A, B, C", generatedCode!);
+        Assert.Contains("Harness activated with features A, B, C", generatedCode!);
 
         // Assert -SystemPrompt appears in AdditionalProperties
         Assert.Contains("[\"SystemPrompt\"]", generatedCode);
@@ -55,11 +55,11 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Test Toolkit"",
+    ""Test Harness"",
      
     SystemPrompt = ""System-level rules only""
 )]
-public class TestToolkit
+public class TestHarness
 {
     [AIFunction]
     public string TestFunction() => ""result"";
@@ -84,11 +84,11 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Test Toolkit"",
+    ""Test Harness"",
      
     FunctionResult = ""One-time activation message""
 )]
-public class TestToolkit
+public class TestHarness
 {
     [AIFunction]
     public string TestFunction() => ""result"";
@@ -113,14 +113,14 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Financial Toolkit"",
+    ""Financial Harness"",
      
     SystemPrompt = @""# RULES
 - Rule 1: Validate equations
 - Rule 2: Show calculations
 - Rule 3: Use decimal precision""
 )]
-public class FinancialToolkit
+public class FinancialHarness
 {
     [AIFunction]
     public decimal Calculate(decimal x) => x;
@@ -147,11 +147,11 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Test Toolkit"",
+    ""Test Harness"",
      
     SystemPrompt = @""Use """"quotes"""" properly""
 )]
-public class TestToolkit
+public class TestHarness
 {
     [AIFunction]
     public string TestFunction() => ""result"";
@@ -182,12 +182,12 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Test Toolkit"",
+    ""Test Harness"",
      
     FunctionResult = ""Uses $, €, ¥ symbols"",
     SystemPrompt = ""Math: x > y, a + b = c""
 )]
-public class TestToolkit
+public class TestHarness
 {
     [AIFunction]
     public string TestFunction() => ""result"";
@@ -213,12 +213,12 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Test Toolkit"",
+    ""Test Harness"",
      
     FunctionResult = """",
     SystemPrompt = """"
 )]
-public class TestToolkit
+public class TestHarness
 {
     [AIFunction]
     public string TestFunction() => ""result"";
@@ -243,18 +243,18 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Test Toolkit"",
+    ""Test Harness"",
      
-    FunctionResult = ""Toolkit activated"",
-    SystemPrompt = ""Toolkit rules""
+    FunctionResult = ""Harness activated"",
+    SystemPrompt = ""Harness rules""
 )]
-public partial class TestToolkit
+public partial class TestHarness
 {
     [AIFunction]
     public string Function1() => ""result1"";
 }
 
-public partial class TestToolkit
+public partial class TestHarness
 {
     [AIFunction]
     public string Function2() => ""result2"";
@@ -268,8 +268,8 @@ public partial class TestToolkit
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
 
         // Both contexts should be preserved after partial class merging
-        Assert.Contains("Toolkit activated", generatedCode!);
-        Assert.Contains("Toolkit rules", generatedCode);
+        Assert.Contains("Harness activated", generatedCode!);
+        Assert.Contains("Harness rules", generatedCode);
         Assert.Contains("[\"SystemPrompt\"]", generatedCode);
         Assert.Contains("[\"FunctionResult\"]", generatedCode);
     }
@@ -283,11 +283,11 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Legacy Toolkit"",
+    ""Legacy Harness"",
      
     FunctionResult = ""Legacy instructions""
 )]
-public class LegacyToolkit
+public class LegacyHarness
 {
     [AIFunction]
     public string TestFunction() => ""result"";
@@ -314,11 +314,11 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Test Toolkit"",
+    ""Test Harness"",
      
     SystemPrompt = @""{longRules}""
 )]
-public class TestToolkit
+public class TestHarness
 {{
     [AIFunction]
     public string TestFunction() => ""result"";
@@ -343,8 +343,8 @@ public class TestToolkit
 using Microsoft.Extensions.AI;
 using HPD.Agent;
 
-[Collapse(""Test Toolkit"", Collapsed = true)]
-public class TestToolkit
+[Collapse(""Test Harness"", Collapsed = true)]
+public class TestHarness
 {
     [AIFunction]
     public string TestFunction() => ""result"";
@@ -359,7 +359,7 @@ public class TestToolkit
 
         // When contexts are not specified, they should not appear in AdditionalProperties
         // The container function should still be generated
-        Assert.Contains("TestToolkit", generatedCode!);
+        Assert.Contains("TestHarness", generatedCode!);
     }
 
     [Fact]
@@ -370,8 +370,8 @@ public class TestToolkit
 using Microsoft.Extensions.AI;
 using HPD.Agent;
 
-[Collapse(""Test Toolkit"",   FunctionResult = ""Positional function context"", SystemPrompt = ""Positional system context"")]
-public class TestToolkit
+[Collapse(""Test Harness"",   FunctionResult = ""Positional function context"", SystemPrompt = ""Positional system context"")]
+public class TestHarness
 {
     [AIFunction]
     public string TestFunction() => ""result"";

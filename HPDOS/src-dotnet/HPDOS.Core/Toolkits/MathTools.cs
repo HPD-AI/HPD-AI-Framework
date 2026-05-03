@@ -1,7 +1,7 @@
 using HPD.Agent;
 
-[Collapse("A toolkit providing basic mathematical operations")]
-public class MathToolkit
+[Collapse("A harness providing basic mathematical operations")]
+public class MathHarness
 {
     [AIFunction]
     [AIDescription("Adds two numbers and returns the sum.")]

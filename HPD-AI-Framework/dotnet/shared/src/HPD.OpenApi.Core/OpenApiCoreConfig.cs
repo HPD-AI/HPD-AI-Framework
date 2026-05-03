@@ -5,7 +5,7 @@ namespace HPD.OpenApi.Core;
 /// Framework-agnostic: zero references to HPD-Agent, Microsoft.Extensions.AI, or HPD.Graph.
 ///
 /// HPD-Agent.OpenApi extends this with OpenApiConfig, adding agent-specific fields
-/// (RequiresPermission, CollapseWithinToolkit, SchemaTransformOptions, ResponseOptimization).
+/// (RequiresPermission, CollapseWithinHarness, SchemaTransformOptions, ResponseOptimization).
 /// </summary>
 public class OpenApiCoreConfig
 {

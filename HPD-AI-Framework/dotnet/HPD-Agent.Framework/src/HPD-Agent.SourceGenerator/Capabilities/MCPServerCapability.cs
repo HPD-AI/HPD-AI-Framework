@@ -5,7 +5,7 @@ namespace HPD.Agent.SourceGenerator.Capabilities;
 
 /// <summary>
 /// Represents an MCP server capability — a method that returns MCPServerConfig
-/// to register an MCP server connection when the toolkit is loaded.
+/// to register an MCP server connection when the harness is loaded.
 /// Decorated with [MCPServer] attribute.
 /// </summary>
 internal class MCPServerCapability : BaseCapability
@@ -39,10 +39,10 @@ internal class MCPServerCapability : BaseCapability
     public string? ManifestServerName { get; set; }
 
     /// <summary>
-    /// When true, MCP tools sit behind their own container nested inside the parent toolkit.
-    /// When false (default), MCP tools appear directly under the parent toolkit on expansion.
+    /// When true, MCP tools sit behind their own container nested inside the parent harness.
+    /// When false (default), MCP tools appear directly under the parent harness on expansion.
     /// </summary>
-    public bool CollapseWithinToolkit { get; set; }
+    public bool CollapseWithinHarness { get; set; }
 
     /// <summary>
     /// Whether [RequiresPermission] attribute is present on the method.
@@ -60,15 +60,15 @@ internal class MCPServerCapability : BaseCapability
     /// </summary>
     public override string GenerateRegistrationCode(object parent)
     {
-        var toolkit = (ToolkitInfo)parent;
+        var harness = (HarnessInfo)parent;
         var sb = new StringBuilder();
 
         sb.AppendLine("new HPD.Agent.MCP.MCPServerRegistration");
         sb.AppendLine("{");
         sb.AppendLine($"    Name = \"{EscapeString(Name)}\",");
         sb.AppendLine($"    Description = \"{EscapeString(Description)}\",");
-        sb.AppendLine($"    ParentToolkit = \"{toolkit.Name}\",");
-        sb.AppendLine($"    CollapseWithinToolkit = {CollapseWithinToolkit.ToString().ToLower()},");
+        sb.AppendLine($"    ParentHarness = \"{harness.Name}\",");
+        sb.AppendLine($"    CollapseWithinHarness = {CollapseWithinHarness.ToString().ToLower()},");
 
         if (FromManifest != null)
         {
@@ -81,11 +81,11 @@ internal class MCPServerCapability : BaseCapability
 
         if (IsStatic)
         {
-            sb.AppendLine($"    StaticConfigProvider = () => {toolkit.Name}.{MethodName}()");
+            sb.AppendLine($"    StaticConfigProvider = () => {harness.Name}.{MethodName}()");
         }
         else
         {
-            sb.AppendLine($"    InstanceConfigProvider = (instance) => (({toolkit.Name})instance).{MethodName}()");
+            sb.AppendLine($"    InstanceConfigProvider = (instance) => (({harness.Name})instance).{MethodName}()");
         }
 
         sb.AppendLine("}");
@@ -106,8 +106,8 @@ internal class MCPServerCapability : BaseCapability
         var props = base.GetAdditionalProperties();
         props["IsMCPServer"] = true;
         props["IsContainer"] = false;
-        props["ParentToolkit"] = ParentToolkitName;
-        props["CollapseWithinToolkit"] = CollapseWithinToolkit;
+        props["ParentHarness"] = ParentHarnessName;
+        props["CollapseWithinHarness"] = CollapseWithinHarness;
 
         if (FromManifest != null)
         {

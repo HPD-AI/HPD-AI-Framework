@@ -269,8 +269,8 @@ export interface ToolCallStartEvent extends BaseEvent {
   callId: string;
   name: string;
   messageId: string;
-  /** The toolkit that owns this tool, if any. */
-  toolkitName?: string;
+  /** The harness that owns this tool, if any. */
+  harnessName?: string;
   /** The kind of capability (AIFunction, Skill, SubAgent, etc.). */
   callType?: ToolCallType;
 }
@@ -290,8 +290,8 @@ export interface ToolCallResultEvent extends BaseEvent {
   type: typeof EventTypes.TOOL_CALL_RESULT;
   callId: string;
   result: string;
-  /** The toolkit that owns this tool, if any. */
-  toolkitName?: string;
+  /** The harness that owns this tool, if any. */
+  harnessName?: string;
   /** The kind of capability (AIFunction, Skill, SubAgent, etc.). */
   callType?: ToolCallType;
 }
@@ -426,9 +426,9 @@ export interface InterruptionRequestEvent extends BaseEvent {
   source: InterruptionSource;
 }
 
-export interface clientToolKitsRegisteredEvent extends BaseEvent {
+export interface clientHarnessesRegisteredEvent extends BaseEvent {
   type: typeof EventTypes.CLIENT_TOOL_GROUPS_REGISTERED;
-  registeredToolKits: string[];
+  registeredHarnesses: string[];
   totalTools: number;
   timestamp: string;
 }
@@ -627,7 +627,7 @@ export type AgentEvent =
   // Client Tool Events
   | ClientToolInvokeRequestEvent
   | ClientToolInvokeResponseEvent
-  | clientToolKitsRegisteredEvent
+  | clientHarnessesRegisteredEvent
   // Control Events
   | InterruptionRequestEvent
   // Audio Events (TTS)
@@ -714,9 +714,9 @@ export function isClientToolInvokeRequestEvent(
   return event.type === EventTypes.CLIENT_TOOL_INVOKE_REQUEST;
 }
 
-export function isclientToolKitsRegisteredEvent(
+export function isclientHarnessesRegisteredEvent(
   event: BaseEvent
-): event is clientToolKitsRegisteredEvent {
+): event is clientHarnessesRegisteredEvent {
   return event.type === EventTypes.CLIENT_TOOL_GROUPS_REGISTERED;
 }
 

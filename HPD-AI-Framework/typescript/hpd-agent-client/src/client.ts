@@ -7,7 +7,7 @@ import type {
 import { EventTypes } from './types/events.js';
 import type { AgentTransport, RuntimeScope, RunTransportOptions } from './types/transport.js';
 import type {
-  clientToolKitDefinition,
+  clientHarnessDefinition,
   ClientToolInvokeResponse,
 } from './types/client-tools.js';
 import type {
@@ -70,7 +70,7 @@ export interface AgentClientConfig {
   headers?: Record<string, string>;
 
   /** Client tool groups registered locally for browser-side invocation */
-  clientToolKits?: clientToolKitDefinition[];
+  clientHarnesses?: clientHarnessDefinition[];
 
   /** Handler for client tool invocations */
   onClientToolInvoke?: (request: ClientToolInvokeRequestEvent) => Promise<ClientToolInvokeResponse>;
@@ -223,36 +223,36 @@ export class AgentClient {
   /**
    * Register a client tool group. It will be automatically included in all future streams.
    */
-  registerToolKit(ToolKit: clientToolKitDefinition): void {
-    if (!this.config.clientToolKits) {
-      this.config.clientToolKits = [];
+  registerHarness(Harness: clientHarnessDefinition): void {
+    if (!this.config.clientHarnesses) {
+      this.config.clientHarnesses = [];
     }
     // Remove existing tool group with same name (update)
-    this.config.clientToolKits = this.config.clientToolKits.filter(g => g.name !== ToolKit.name);
-    this.config.clientToolKits.push(ToolKit);
+    this.config.clientHarnesses = this.config.clientHarnesses.filter(g => g.name !== Harness.name);
+    this.config.clientHarnesses.push(Harness);
   }
 
   /**
    * Register multiple client tool groups.
    */
-  registerToolKits(ToolKits: clientToolKitDefinition[]): void {
-    ToolKits.forEach(g => this.registerToolKit(g));
+  registerHarnesses(Harnesses: clientHarnessDefinition[]): void {
+    Harnesses.forEach(g => this.registerHarness(g));
   }
 
   /**
    * Unregister a client tool group by name.
    */
-  unregisterToolKit(ToolKitName: string): void {
-    if (this.config.clientToolKits) {
-      this.config.clientToolKits = this.config.clientToolKits.filter(g => g.name !== ToolKitName);
+  unregisterHarness(HarnessName: string): void {
+    if (this.config.clientHarnesses) {
+      this.config.clientHarnesses = this.config.clientHarnesses.filter(g => g.name !== HarnessName);
     }
   }
 
   /**
    * Get all registered tool groups.
    */
-  get ToolKits(): clientToolKitDefinition[] {
-    return this.config.clientToolKits ?? [];
+  get Harnesses(): clientHarnessDefinition[] {
+    return this.config.clientHarnesses ?? [];
   }
 
   /**

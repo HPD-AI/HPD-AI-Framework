@@ -6,7 +6,7 @@ using DiffPlex;
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
 using HPD.Agent;
-using HPDOS.Toolkits.Middleware;
+using HPDOS.Harneses.Middleware;
 using MAB.DotIgnore;
 using Microsoft.Extensions.FileSystemGlobbing.Abstractions;
 using Ude;
@@ -14,13 +14,13 @@ using Ude;
 using Matcher = Microsoft.Extensions.FileSystemGlobbing.Matcher;
 
 /// <summary>
-/// CodingToolkit - Comprehensive coding assistant with file operations, search, execution, and analysis.
+/// CodingHarness - Comprehensive coding assistant with file operations, search, execution, and analysis.
 /// Features: Line-based reading, smart diff-based editing, glob patterns, .gitignore support, grep search, shell execution.
 /// </summary>
 [Collapse(
     "Contains tools for coding operations: file operations, code search, shell execution, and code analysis.",
     Middlewares = [typeof(EnvironmentContextMiddleware)])]
-public class CodingToolkit
+public class CodingHarness
 {
     private readonly IgnoreList? _gitIgnoreList = File.Exists(Path.Combine(Directory.GetCurrentDirectory(), ".gitignore"))
         ? new IgnoreList(Path.Combine(Directory.GetCurrentDirectory(), ".gitignore"))
@@ -1211,7 +1211,7 @@ public class CodingToolkit
     // {
     //     SpecUri = new Uri("https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json"),
     //     IgnoreNonCompliantErrors = true,
-    //     CollapseWithinToolkit = true,
+    //     CollapseWithinHarness = true,
     //     ResponseOptimization = new ResponseOptimizationConfig { MaxLength = 4000 },
     //     // Keep only the most commonly useful GitHub operations
     //     OperationSelectionPredicate = ctx => ctx.Id is
@@ -1245,7 +1245,7 @@ public class CodingToolkit
 
     // ========== MCP Servers ==========
 
-    // [MCPServer(CollapseWithinToolkit = true)]
+    // [MCPServer(CollapseWithinHarness = true)]
     // public static MCPServerConfig Context7Server() => new MCPServerConfig
     // {
     //     Name = "context7",
