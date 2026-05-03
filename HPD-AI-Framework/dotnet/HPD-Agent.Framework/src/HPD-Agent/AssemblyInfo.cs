@@ -12,6 +12,9 @@ using System.Runtime.CompilerServices;
 // Make internals visible to the OpenAPI layer (needed for IOpenApiLoader, OpenApiSourceRegistration, OpenApiLoadResult)
 [assembly: InternalsVisibleTo("HPD-Agent.OpenApi")]
 
+// Make internals visible to the Audio layer (needed for realtime function execution core integration)
+[assembly: InternalsVisibleTo("HPD-Agent.Audio")]
+
 // Make internals visible to the OpenAPI test project (needed for AgentContext helpers)
 [assembly: InternalsVisibleTo("HPD-Agent.OpenApi.Tests")]
 

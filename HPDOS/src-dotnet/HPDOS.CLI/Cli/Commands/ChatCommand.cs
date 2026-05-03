@@ -350,53 +350,52 @@ public static class ChatCommand
 
         renderer.ShowUserMessage(userMessage);
 
-        // Build Chat config — merge provider-specific options + session run config.
+        // Build per-run config and send the current AgentEvent envelope expected by the
+        // streaming endpoint.
         var hasChat = providerAdditional is { Count: > 0 } || sessionRunConfig is { IsEmpty: false };
-        ChatRunConfigDto? chatConfig = hasChat
-            ? new ChatRunConfigDto(
-                Temperature:      sessionRunConfig?.Temperature,
-                MaxOutputTokens:  sessionRunConfig?.MaxOutputTokens,
-                TopP:             sessionRunConfig?.TopP,
-                FrequencyPenalty: sessionRunConfig?.FrequencyPenalty,
-                PresencePenalty:  sessionRunConfig?.PresencePenalty,
-                AdditionalProperties: providerAdditional is { Count: > 0 } ? providerAdditional : null,
-                Reasoning: sessionRunConfig?.ReasoningEffort is { } eff ? BuildReasoningOptions(eff) : null)
+        ChatRunConfig? chatConfig = hasChat
+            ? new ChatRunConfig
+            {
+                Temperature = sessionRunConfig?.Temperature,
+                MaxOutputTokens = sessionRunConfig?.MaxOutputTokens,
+                TopP = sessionRunConfig?.TopP,
+                FrequencyPenalty = sessionRunConfig?.FrequencyPenalty,
+                PresencePenalty = sessionRunConfig?.PresencePenalty,
+                AdditionalProperties = providerAdditional is { Count: > 0 } ? providerAdditional : null,
+                Reasoning = sessionRunConfig?.ReasoningEffort is { } eff ? BuildReasoningOptions(eff) : null
+            }
             : null;
 
-        StreamRunConfigDto? runConfig = null;
+        AgentRunConfig? runConfig = null;
         if (providerKey != null || modelId != null || hasChat ||
             sessionRunConfig?.AdditionalSystemInstructions != null ||
             sessionRunConfig?.SkipTools == true)
         {
-            runConfig = new StreamRunConfigDto(
-                Chat: chatConfig,
-                ProviderKey: providerKey,
-                ModelId: modelId,
-                AdditionalSystemInstructions: sessionRunConfig?.AdditionalSystemInstructions,
-                ContextOverrides: null,
-                PermissionOverrides: null,
-                CoalesceDeltas: null,
-                SkipTools: sessionRunConfig?.SkipTools == true ? true : null,
-                RunTimeout: null);
+            runConfig = new AgentRunConfig
+            {
+                Chat = chatConfig,
+                ProviderKey = providerKey,
+                ModelId = modelId,
+                AdditionalSystemInstructions = sessionRunConfig?.AdditionalSystemInstructions,
+                SkipTools = sessionRunConfig?.SkipTools == true
+            };
         }
 
-        var body = new StreamRequest(
-            Messages: [new StreamMessage(userMessage, "user")],
-            clientHarnesses: null,
-            Context: null,
-            State: null,
-            ExpandedContainers: null,
-            HiddenTools: null,
-            ResetClientState: false,
-            RunConfig: runConfig,
-            AgentId: agentId == "default" ? null : agentId);
+        var input = new UserTextInputEvent(userMessage)
+        {
+            RunConfig = runConfig,
+            AgentId = agentId == "default" ? null : agentId
+        };
 
         HttpResponseMessage response;
         try
         {
             var request = new HttpRequestMessage(HttpMethod.Post, $"/sessions/{sessionId}/branches/{branchId}/stream")
             {
-                Content = JsonContent.Create(body, options: HpdosJsonOptions.Http)
+                Content = new StringContent(
+                    AgentEventSerializer.ToJson(input),
+                    Encoding.UTF8,
+                    "application/json")
             };
             response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token);
         }

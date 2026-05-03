@@ -6326,36 +6326,54 @@ internal static class ContentExtractor
 
 #endregion
 
-#region FunctionCallProcessor
+#region FunctionExecutionCore
 
-/// <summary>
-/// Handles all function calling logic, including multi-turn execution and Middleware pipelines.
-/// </summary>
-internal class FunctionCallProcessor
+internal sealed record FunctionExecutionOutcome(
+    string CallId,
+    string? FunctionName,
+    AIFunction? Function,
+    object? Result,
+    Exception? Exception,
+    bool WasBlocked,
+    bool WasUnknown,
+    bool WasOutputTool,
+    bool ShouldTerminate,
+    string? HarnessName,
+    ToolCallType? CallType);
+
+internal interface IFunctionExecutionCore
 {
-    private readonly HPD.Events.IEventCoordinator _eventCoordinator;
+    Task<FunctionExecutionOutcome> ExecuteFunctionAsync(
+        FunctionCallContent functionCall,
+        ChatOptions? options,
+        AgentRunConfig runConfig,
+        AgentContext agentContext,
+        CancellationToken cancellationToken);
+}
+
+internal sealed class FunctionExecutionCore : IFunctionExecutionCore
+{
     private readonly AgentMiddlewarePipeline _middlewarePipeline;
     private readonly ErrorHandlingConfig? _errorHandlingConfig;
     private readonly IList<AITool>? _serverConfiguredTools;
     private readonly AgenticLoopConfig? _agenticLoopConfig;
 
-    public FunctionCallProcessor(
-        HPD.Events.IEventCoordinator eventCoordinator,
+    public FunctionExecutionCore(
         AgentMiddlewarePipeline middlewarePipeline,
-        int maxFunctionCalls,
         ErrorHandlingConfig? errorHandlingConfig = null,
         IList<AITool>? serverConfiguredTools = null,
         AgenticLoopConfig? agenticLoopConfig = null)
     {
-        _eventCoordinator = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
         _middlewarePipeline = middlewarePipeline ?? throw new ArgumentNullException(nameof(middlewarePipeline));
         _errorHandlingConfig = errorHandlingConfig;
         _serverConfiguredTools = serverConfiguredTools;
         _agenticLoopConfig = agenticLoopConfig;
     }
 
-    // Helpers moved here from FunctionMapBuilder to keep lookup logic next to caller
-    private static Dictionary<string, AIFunction>? BuildMergedMap(
+    public Dictionary<string, AIFunction>? BuildMergedMap(IList<AITool>? requestTools) =>
+        BuildMergedMap(_serverConfiguredTools, requestTools);
+
+    internal static Dictionary<string, AIFunction>? BuildMergedMap(
         IList<AITool>? serverTools,
         IList<AITool>? requestTools)
     {
@@ -6367,7 +6385,6 @@ internal class FunctionCallProcessor
 
         var map = new Dictionary<string, AIFunction>(StringComparer.Ordinal);
 
-        // Add server-configured tools first (lower priority)
         if (serverTools is { Count: > 0 })
         {
             for (int i = 0; i < serverTools.Count; i++)
@@ -6379,14 +6396,13 @@ internal class FunctionCallProcessor
             }
         }
 
-        // Add request tools second (higher priority, can override server-configured)
         if (requestTools is { Count: > 0 })
         {
             for (int i = 0; i < requestTools.Count; i++)
             {
                 if (requestTools[i] is AIFunction af)
                 {
-                    map[af.Name] = af; // Overwrites if exists
+                    map[af.Name] = af;
                 }
             }
         }
@@ -6394,57 +6410,50 @@ internal class FunctionCallProcessor
         return map.Count > 0 ? map : null;
     }
 
-    private static AIFunction? FindFunction(
+    public static AIFunction? FindFunction(
         string name,
         Dictionary<string, AIFunction>? map)
     {
         return map?.TryGetValue(name, out var func) == true ? func : null;
     }
 
-    /// <summary>
-    /// Checks if a function by name is an output tool (structured output tool mode).
-    /// </summary>
     public bool IsOutputToolByName(string? functionName, IList<AITool>? tools)
     {
         if (string.IsNullOrEmpty(functionName))
             return false;
-        var functionMap = BuildMergedMap(_serverConfiguredTools, tools);
+
+        var functionMap = BuildMergedMap(tools);
         var function = FindFunction(functionName, functionMap);
         return IsOutputTool(function);
     }
 
-    /// <summary>
-    /// Checks if a function is an output tool (structured output tool mode).
-    /// Output tools are never executed - their arguments ARE the structured output.
-    /// </summary>
-    private static bool IsOutputTool(AIFunction? function)
+    public static bool IsOutputTool(AIFunction? function)
     {
         return function?.AdditionalProperties?.TryGetValue("Kind", out var kind) == true
                && kind?.ToString() == "Output";
     }
 
-    /// <summary>
-    /// Gets the harness name for a function from its metadata.
-    /// Used by Agent class for event emission.
-    /// </summary>
     public string? LookupHarnessName(string? functionName, IList<AITool>? tools)
     {
         if (string.IsNullOrEmpty(functionName))
             return null;
 
-        var functionMap = BuildMergedMap(_serverConfiguredTools, tools);
+        var functionMap = BuildMergedMap(tools);
         var function = FindFunction(functionName, functionMap);
+        return LookupHarnessName(function);
+    }
+
+    public static string? LookupHarnessName(AIFunction? function)
+    {
         if (function == null)
             return null;
 
-        // Check ParentHarness first (for nested functions from source generator)
         if (function.AdditionalProperties?.TryGetValue("ParentHarness", out var parentHarness) == true
             && parentHarness is string pt)
         {
             return pt;
         }
 
-        // Fall back to HarnessName (for container functions)
         if (function.AdditionalProperties?.TryGetValue("HarnessName", out var harnessName) == true
             && harnessName is string tn)
         {
@@ -6454,17 +6463,18 @@ internal class FunctionCallProcessor
         return null;
     }
 
-    /// <summary>
-    /// Gets the ToolCallType for a function from its AdditionalProperties["CapabilityType"].
-    /// Used by Agent class for event emission.
-    /// </summary>
     public ToolCallType? LookupToolCallType(string? functionName, IList<AITool>? tools)
     {
         if (string.IsNullOrEmpty(functionName))
             return null;
 
-        var functionMap = BuildMergedMap(_serverConfiguredTools, tools);
+        var functionMap = BuildMergedMap(tools);
         var function = FindFunction(functionName, functionMap);
+        return LookupToolCallType(function);
+    }
+
+    public static ToolCallType? LookupToolCallType(AIFunction? function)
+    {
         if (function?.AdditionalProperties?.TryGetValue("CapabilityType", out var capType) != true
             || capType is not string capTypeStr)
             return null;
@@ -6479,6 +6489,297 @@ internal class FunctionCallProcessor
             "OpenApi"    => ToolCallType.OpenApi,
             _            => null,
         };
+    }
+
+    public async Task<FunctionExecutionOutcome> ExecuteFunctionAsync(
+        FunctionCallContent functionCall,
+        ChatOptions? options,
+        AgentRunConfig runConfig,
+        AgentContext agentContext,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(functionCall.Name))
+        {
+            return new FunctionExecutionOutcome(
+                functionCall.CallId,
+                functionCall.Name,
+                Function: null,
+                Result: null,
+                Exception: null,
+                WasBlocked: false,
+                WasUnknown: false,
+                WasOutputTool: false,
+                ShouldTerminate: false,
+                HarnessName: null,
+                CallType: null);
+        }
+
+        var functionMap = BuildMergedMap(options?.Tools);
+        var function = FindFunction(functionCall.Name, functionMap);
+        var harnessName = LookupHarnessName(function);
+        var callType = LookupToolCallType(function);
+
+        if (IsOutputTool(function))
+        {
+            return new FunctionExecutionOutcome(
+                functionCall.CallId,
+                functionCall.Name,
+                function,
+                Result: null,
+                Exception: null,
+                WasBlocked: false,
+                WasUnknown: false,
+                WasOutputTool: true,
+                ShouldTerminate: false,
+                HarnessName: harnessName,
+                CallType: callType);
+        }
+
+        if (function == null && _agenticLoopConfig?.TerminateOnUnknownCalls == true)
+        {
+            agentContext.UpdateState(s => s with { IsTerminated = true });
+
+            return new FunctionExecutionOutcome(
+                functionCall.CallId,
+                functionCall.Name,
+                Function: null,
+                Result: null,
+                Exception: null,
+                WasBlocked: false,
+                WasUnknown: true,
+                WasOutputTool: false,
+                ShouldTerminate: true,
+                HarnessName: null,
+                CallType: null);
+        }
+
+        var arguments = (IReadOnlyDictionary<string, object?>?)(functionCall.Arguments ?? new Dictionary<string, object?>())
+            ?? new Dictionary<string, object?>();
+
+        var beforeFunctionContext = agentContext.AsBeforeFunction(
+            function: function!,
+            callId: functionCall.CallId,
+            arguments: arguments,
+            runConfig: runConfig,
+            harnessName: harnessName,
+            skillName: null);
+
+        await _middlewarePipeline.ExecuteBeforeFunctionAsync(
+            beforeFunctionContext, cancellationToken).ConfigureAwait(false);
+
+        if (beforeFunctionContext.BlockExecution)
+        {
+            return new FunctionExecutionOutcome(
+                functionCall.CallId,
+                functionCall.Name,
+                function,
+                Result: beforeFunctionContext.OverrideResult ?? "Permission denied",
+                Exception: null,
+                WasBlocked: true,
+                WasUnknown: function == null,
+                WasOutputTool: false,
+                ShouldTerminate: false,
+                HarnessName: harnessName,
+                CallType: callType);
+        }
+
+        object? executionResult = null;
+        Exception? executionException = null;
+
+        try
+        {
+            if (function is null)
+            {
+                executionResult = beforeFunctionContext.OverrideResult
+                    ?? $"Function '{functionCall.Name ?? "Unknown"}' not found.";
+            }
+            else
+            {
+                var functionRequest = new Middleware.FunctionRequest
+                {
+                    Function = function,
+                    CallId = functionCall.CallId,
+                    Arguments = arguments,
+                    State = agentContext.State
+                };
+
+                executionResult = await _middlewarePipeline.ExecuteFunctionCallAsync(
+                    functionRequest,
+                    coreHandler: async (req) =>
+                    {
+                        Agent.CurrentFunctionContext = beforeFunctionContext;
+                        try
+                        {
+                            var args = new AIFunctionArguments(new Dictionary<string, object?>(req.Arguments));
+                            return await req.Function.InvokeAsync(args, cancellationToken).ConfigureAwait(false);
+                        }
+                        finally
+                        {
+                            Agent.CurrentFunctionContext = null;
+                        }
+                    },
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            agentContext.Emit(new MiddlewareErrorEvent(
+                "FunctionExecution",
+                $"Error executing function '{functionCall.Name}': {ex.Message}") { Exception = ex });
+
+            var errorContext = agentContext.AsError(
+                error: ex,
+                source: ErrorSource.ToolCall,
+                iteration: agentContext.State.Iteration);
+
+            try
+            {
+                await _middlewarePipeline.ExecuteOnErrorAsync(errorContext, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                // Preserve the original function exception if error handlers fail.
+            }
+
+            executionResult = $"Error executing function '{functionCall.Name}': {ex.Message}";
+            executionException = ex;
+        }
+
+        var afterFunctionContext = agentContext.AsAfterFunction(
+            function: function!,
+            callId: functionCall.CallId,
+            result: executionResult,
+            exception: executionException,
+            runConfig: runConfig,
+            harnessName: harnessName,
+            skillName: null);
+
+        try
+        {
+            await _middlewarePipeline.ExecuteAfterFunctionAsync(
+                afterFunctionContext, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception afterEx)
+        {
+            agentContext.Emit(new MiddlewareErrorEvent(
+                "AfterFunctionMiddleware",
+                $"Error in AfterFunction middleware: {afterEx.Message}") { Exception = afterEx });
+        }
+
+        return new FunctionExecutionOutcome(
+            functionCall.CallId,
+            functionCall.Name,
+            function,
+            Result: afterFunctionContext.Result,
+            Exception: afterFunctionContext.Exception,
+            WasBlocked: false,
+            WasUnknown: function == null,
+            WasOutputTool: false,
+            ShouldTerminate: false,
+            HarnessName: harnessName,
+            CallType: callType);
+    }
+
+    public static FunctionResultContent ToFunctionResultContent(FunctionExecutionOutcome outcome)
+    {
+        return new FunctionResultContent(outcome.CallId, outcome.Result)
+        {
+            Exception = outcome.Exception
+        };
+    }
+
+    private string FormatErrorForLLM(Exception exception, string functionName)
+    {
+        if (_errorHandlingConfig?.IncludeDetailedErrorsInChat == true)
+        {
+            return $"Error invoking function '{functionName}': {exception.Message}";
+        }
+
+        return $"Error: Function '{functionName}' failed.";
+    }
+}
+
+#endregion
+
+#region FunctionCallProcessor
+
+/// <summary>
+/// Handles all function calling logic, including multi-turn execution and Middleware pipelines.
+/// </summary>
+internal class FunctionCallProcessor
+{
+    private readonly HPD.Events.IEventCoordinator _eventCoordinator;
+    private readonly AgentMiddlewarePipeline _middlewarePipeline;
+    private readonly ErrorHandlingConfig? _errorHandlingConfig;
+    private readonly IList<AITool>? _serverConfiguredTools;
+    private readonly AgenticLoopConfig? _agenticLoopConfig;
+    private readonly FunctionExecutionCore _functionExecutionCore;
+
+    public FunctionCallProcessor(
+        HPD.Events.IEventCoordinator eventCoordinator,
+        AgentMiddlewarePipeline middlewarePipeline,
+        int maxFunctionCalls,
+        ErrorHandlingConfig? errorHandlingConfig = null,
+        IList<AITool>? serverConfiguredTools = null,
+        AgenticLoopConfig? agenticLoopConfig = null)
+    {
+        _eventCoordinator = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
+        _middlewarePipeline = middlewarePipeline ?? throw new ArgumentNullException(nameof(middlewarePipeline));
+        _errorHandlingConfig = errorHandlingConfig;
+        _serverConfiguredTools = serverConfiguredTools;
+        _agenticLoopConfig = agenticLoopConfig;
+        _functionExecutionCore = new FunctionExecutionCore(
+            _middlewarePipeline,
+            _errorHandlingConfig,
+            _serverConfiguredTools,
+            _agenticLoopConfig);
+    }
+
+    // Helpers moved here from FunctionMapBuilder to keep lookup logic next to caller
+    private static Dictionary<string, AIFunction>? BuildMergedMap(
+        IList<AITool>? serverTools,
+        IList<AITool>? requestTools) =>
+        FunctionExecutionCore.BuildMergedMap(serverTools, requestTools);
+
+    private static AIFunction? FindFunction(
+        string name,
+        Dictionary<string, AIFunction>? map) =>
+        FunctionExecutionCore.FindFunction(name, map);
+
+    /// <summary>
+    /// Checks if a function by name is an output tool (structured output tool mode).
+    /// </summary>
+    public bool IsOutputToolByName(string? functionName, IList<AITool>? tools)
+    {
+        return _functionExecutionCore.IsOutputToolByName(functionName, tools);
+    }
+
+    /// <summary>
+    /// Checks if a function is an output tool (structured output tool mode).
+    /// Output tools are never executed - their arguments ARE the structured output.
+    /// </summary>
+    private static bool IsOutputTool(AIFunction? function)
+    {
+        return FunctionExecutionCore.IsOutputTool(function);
+    }
+
+    /// <summary>
+    /// Gets the harness name for a function from its metadata.
+    /// Used by Agent class for event emission.
+    /// </summary>
+    public string? LookupHarnessName(string? functionName, IList<AITool>? tools)
+    {
+        return _functionExecutionCore.LookupHarnessName(functionName, tools);
+    }
+
+    /// <summary>
+    /// Gets the ToolCallType for a function from its AdditionalProperties["CapabilityType"].
+    /// Used by Agent class for event emission.
+    /// </summary>
+    public ToolCallType? LookupToolCallType(string? functionName, IList<AITool>? tools)
+    {
+        return _functionExecutionCore.LookupToolCallType(functionName, tools);
     }
 
     /// <summary>
@@ -6784,212 +7085,25 @@ internal class FunctionCallProcessor
     {
         var resultMessages = new List<ChatMessage>();
 
-        // Build function map per execution (Microsoft pattern for session-safety)
-        // This avoids shared mutable state and stale cache issues
-        // Merge server-configured tools with request tools (request tools take precedence)
-        var functionMap = BuildMergedMap(_serverConfiguredTools, options?.Tools);
-
-        // Process each function call through the unified middleware pipeline
         foreach (var functionCall in functionCallContents)
         {
-            // Skip functions without names (safety check)
             if (string.IsNullOrEmpty(functionCall.Name))
                 continue;
 
-            // Resolve the function from the merged function map
-            var function = FindFunction(functionCall.Name, functionMap);
+            var outcome = await _functionExecutionCore.ExecuteFunctionAsync(
+                functionCall,
+                options,
+                runConfig,
+                agentContext,
+                cancellationToken).ConfigureAwait(false);
 
-            // ═══════════════════════════════════════════════════════════════
-            // OUTPUT TOOL CHECK (structured output tool mode)
-            // Output tools don't execute - their args ARE the structured output
-            // RunStructuredStreamAsync handles parsing via ToolCallArgsEvent
-            // ═══════════════════════════════════════════════════════════════
-            if (IsOutputTool(function))
-            {
-                // Skip execution - args are captured by RunStructuredStreamAsync
-                // Still emits ToolCallEndEvent so RunStructuredStreamAsync knows args are complete
-                continue;
-            }
-
-            // Extract Collapse information for middleware Collapsing
-            string? toolTypeName = null;
-            if (function?.AdditionalProperties?.TryGetValue("ParentHarness", out var parentHarnessCtx) == true)
-            {
-                toolTypeName = parentHarnessCtx as string;
-            }
-            else if (function?.AdditionalProperties?.TryGetValue("HarnessName", out var toolNameProp) == true)
-            {
-                // For container functions, HarnessName IS the Harness type
-                toolTypeName = toolNameProp as string;
-            }
-
-            // Fallback: Try function-to-Harness mapping
-            if (string.IsNullOrEmpty(toolTypeName) && functionCall.Name != null)
-            {
-                // Harness metadata comes from AIFunction.AdditionalProperties (set by source generator)
-            }
-
-            // Extract skill metadata
-            string? skillName = null;
-            bool isSkillContainer = false;
-
-            // Check if this function IS a skill container
-            if (function?.AdditionalProperties?.TryGetValue("IsSkill", out var isSkillValueCtx) == true
-                && isSkillValueCtx is bool isSCtx && isSCtx)
-            {
-                isSkillContainer = true;
-                // Note: When invoking a skill container, skillName remains null
-                // The container IS the skill, it doesn't have a "parent skill"
-            }
-
-            // Reuse the turn's AgentContext for consistent state tracking
-            // This ensures error tracking and other middleware state persists across function calls
-            var functionAgentContext = agentContext;
-
-            // Check if function is unknown and TerminateOnUnknownCalls is enabled
-            if (function == null && _agenticLoopConfig?.TerminateOnUnknownCalls == true)
-            {
-                // Terminate the loop - don't process this or any remaining functions
-                // The function call will be returned to the caller for handling (e.g., multi-agent handoff)
-                functionAgentContext.UpdateState(s => s with { IsTerminated = true });
-
-                // Don't add any result message - let the caller handle the unknown function
+            if (outcome.ShouldTerminate)
                 break;
-            }
 
-            // Create typed BeforeFunction context
-            var beforeFunctionContext = functionAgentContext.AsBeforeFunction(
-                function: function!,  // Will be null for unknown functions
-                callId: functionCall.CallId,
-                arguments: (IReadOnlyDictionary<string, object?>?)(functionCall.Arguments ?? new Dictionary<string, object?>()),
-                runConfig: runConfig,
-                harnessName: toolTypeName,
-                skillName: skillName);
+            if (outcome.WasOutputTool)
+                continue;
 
-            // Execute BeforeFunctionAsync middleware hooks (permission check happens here)
-            await _middlewarePipeline.ExecuteBeforeFunctionAsync(
-                beforeFunctionContext, cancellationToken).ConfigureAwait(false);
-
-            // If middleware blocked execution (permission denied), record the denial and skip execution
-            if (beforeFunctionContext.BlockExecution)
-            {
-                var denialResult = beforeFunctionContext.OverrideResult ?? "Permission denied";
-
-                // Note: Function completion tracking is handled by caller using state updates
-
-                var denialResultContent = new FunctionResultContent(functionCall.CallId, denialResult);
-                var denialMessage = new ChatMessage(ChatRole.Tool, new AIContent[] { denialResultContent });
-                resultMessages.Add(denialMessage);
-                continue; // Skip to next function call
-            }
-
-            // Permission approved - proceed with function execution
-            object? executionResult = null;
-            Exception? executionException = null;
-
-            try
-            {
-                // Handle function not found case
-                if (function is null)
-                {
-                    // Generate basic error message
-                    // Note: ToolCollapsingMiddleware may have already set a more detailed message in BeforeToolExecutionAsync
-                    executionResult = beforeFunctionContext.OverrideResult
-                        ?? $"Function '{functionCall.Name ?? "Unknown"}' not found.";
-                }
-                else
-                {
-                    // Create FunctionRequest for V2 pipeline
-                    var functionRequest = new Middleware.FunctionRequest
-                    {
-                        Function = function,
-                        CallId = functionCall.CallId,
-                        Arguments = (IReadOnlyDictionary<string, object?>?)(functionCall.Arguments ?? new Dictionary<string, object?>()) ?? new Dictionary<string, object?>(),
-                        State = functionAgentContext.State
-                    };
-
-                    // Execute the function through V2 middleware pipeline (retry, timeout, etc.)
-                    executionResult = await _middlewarePipeline.ExecuteFunctionCallAsync(
-                        functionRequest,
-                        coreHandler: async (req) =>
-                        {
-                            // V2: Set CurrentFunctionContext so AIFunctions can access context
-                            // (e.g., ClarificationFunction needs Emit/WaitForResponseAsync)
-                            Agent.CurrentFunctionContext = beforeFunctionContext;
-                            try
-                            {
-                                // THIS IS THE ACTUAL FUNCTION EXECUTION (innermost call)
-                                var args = new AIFunctionArguments(new Dictionary<string, object?>(req.Arguments));
-                                return await req.Function.InvokeAsync(args, cancellationToken).ConfigureAwait(false);
-                            }
-                            finally
-                            {
-                                // V2: Clear context after function execution
-                                Agent.CurrentFunctionContext = null;
-                            }
-                        },
-                        cancellationToken).ConfigureAwait(false);
-                }
-            }
-            catch (Exception ex)
-            {
-                // Emit error event
-                functionAgentContext.Emit(new MiddlewareErrorEvent(
-                    "FunctionExecution",
-                    $"Error executing function '{functionCall.Name}': {ex.Message}") { Exception = ex });
-
-                // Notify error tracking middleware (V2 error hooks)
-                var errorContext = functionAgentContext.AsError(
-                    error: ex,
-                    source: ErrorSource.ToolCall,
-                    iteration: functionAgentContext.State.Iteration);
-
-                try
-                {
-                    await _middlewarePipeline.ExecuteOnErrorAsync(errorContext, cancellationToken)
-                        .ConfigureAwait(false);
-                }
-                catch
-                {
-                    // Swallow errors in error handlers to preserve original error
-                }
-
-                // Don't automatically terminate on error - let error tracking middleware decide
-                // The middleware (e.g., ErrorTrackingMiddleware) will set IsTerminated if threshold exceeded
-                executionResult = $"Error executing function '{functionCall.Name}': {ex.Message}";
-                executionException = ex;
-            }
-
-            // Create AfterFunction context
-            var afterFunctionContext = functionAgentContext.AsAfterFunction(
-                function: function!,
-                callId: functionCall.CallId,
-                result: executionResult,
-                exception: executionException,
-                runConfig: runConfig,
-                harnessName: toolTypeName,
-                skillName: skillName);
-
-            try
-            {
-                await _middlewarePipeline.ExecuteAfterFunctionAsync(
-                    afterFunctionContext, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception afterEx)
-            {
-                // Log AfterFunction errors but don't fail the function execution
-                functionAgentContext.Emit(new MiddlewareErrorEvent(
-                    "AfterFunctionMiddleware",
-                    $"Error in AfterFunction middleware: {afterEx.Message}") { Exception = afterEx });
-            }
-
-            // Note: Function completion tracking is handled by caller using state updates
-
-            // CRITICAL: Use afterFunctionContext.Result (middleware may have transformed it)
-            var functionResult = new FunctionResultContent(functionCall.CallId, afterFunctionContext.Result)
-            {
-                Exception = afterFunctionContext.Exception
-            };
+            var functionResult = FunctionExecutionCore.ToFunctionResultContent(outcome);
             var functionMessage = new ChatMessage(ChatRole.Tool, new AIContent[] { functionResult });
             resultMessages.Add(functionMessage);
         }
