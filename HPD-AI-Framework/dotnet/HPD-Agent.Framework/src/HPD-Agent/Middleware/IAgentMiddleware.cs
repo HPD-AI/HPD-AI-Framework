@@ -44,6 +44,46 @@ namespace HPD.Agent.Middleware;
 public interface IAgentMiddleware
 {
     //
+    // RUNTIME LEVEL (once per StartAsync/StopAsync runtime instance)
+    //
+
+    /// <summary>
+    /// Called before the agent runtime input loop starts.
+    /// Use for: runtime resource allocation, audio/realtime setup, startup validation.
+    /// </summary>
+    Task BeforeStartAsync(
+        BeforeStartContext context,
+        CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    /// <summary>
+    /// Called after the agent runtime input loop has started.
+    /// Use for: runtime availability diagnostics and background work that depends on the loop.
+    /// </summary>
+    Task AfterStartedAsync(
+        AfterStartedContext context,
+        CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    /// <summary>
+    /// Called before the agent runtime input loop stops.
+    /// Use for: graceful drain choices, buffer flushing, shutdown diagnostics.
+    /// </summary>
+    Task BeforeStopAsync(
+        BeforeStopContext context,
+        CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    /// <summary>
+    /// Called after the agent runtime input loop has stopped and registered resources were disposed.
+    /// Use for: final telemetry and cleanup confirmation.
+    /// </summary>
+    Task AfterStoppedAsync(
+        AfterStoppedContext context,
+        CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    //
     // TURN LEVEL (once per user message)
     //
 

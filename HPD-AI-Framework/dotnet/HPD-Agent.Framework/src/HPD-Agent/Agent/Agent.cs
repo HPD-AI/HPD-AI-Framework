@@ -55,6 +55,9 @@ public sealed class Agent
     private Channel<AgentEvent>? _runtimeInbox;
     private CancellationTokenSource? _runtimeCts;
     private Task? _runtimeLoopTask;
+    private Middleware.AgentRuntimeContext? _runtimeContext;
+    private HPD.Events.IEventCoordinator? _runtimeEventCoordinator;
+    private bool _runtimeStarting;
     private bool _runtimeStopping;
     private readonly List<CancellationTokenSource> _activeRuntimeTurnCts = new();
     private readonly ObserverHealthTracker? _observerHealthTracker;
@@ -160,20 +163,28 @@ public sealed class Agent
     public HPD.Events.IEventCoordinator EventCoordinator => _eventCoordinator;
 
     private async IAsyncEnumerable<AgentEvent> DrainMiddlewareEventsAsync(
+        HPD.Events.IEventCoordinator eventCoordinator,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        await foreach (var evt in DrainAvailableChannelAsync(_eventCoordinator.ReadControlAsync, cancellationToken).ConfigureAwait(false))
+        await foreach (var evt in DrainAvailableChannelAsync(eventCoordinator.ReadControlAsync, cancellationToken).ConfigureAwait(false))
             yield return evt;
 
-        await foreach (var evt in DrainAvailableChannelAsync(_eventCoordinator.ReadInteractiveAsync, cancellationToken).ConfigureAwait(false))
+        await foreach (var evt in DrainAvailableChannelAsync(eventCoordinator.ReadInteractiveAsync, cancellationToken).ConfigureAwait(false))
             yield return evt;
 
-        await foreach (var evt in DrainAvailableChannelAsync(_eventCoordinator.ReadStreamingAsync, cancellationToken).ConfigureAwait(false))
+        await foreach (var evt in DrainAvailableChannelAsync(eventCoordinator.ReadStreamingAsync, cancellationToken).ConfigureAwait(false))
             yield return evt;
 
-        await foreach (var evt in DrainAvailableChannelAsync(_eventCoordinator.ReadSynchronousAsync, cancellationToken).ConfigureAwait(false))
+        await foreach (var evt in DrainAvailableChannelAsync(eventCoordinator.ReadSynchronousAsync, cancellationToken).ConfigureAwait(false))
             yield return evt;
+
+        if (!ReferenceEquals(eventCoordinator, _eventCoordinator))
+            await DiscardDrainedRootEventsAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    private IAsyncEnumerable<AgentEvent> DrainMiddlewareEventsAsync(
+        CancellationToken cancellationToken)
+        => DrainMiddlewareEventsAsync(_eventCoordinator, cancellationToken);
 
     private static async IAsyncEnumerable<AgentEvent> DrainAvailableChannelAsync(
         Func<CancellationToken, IAsyncEnumerable<Event>> readChannel,
@@ -200,6 +211,20 @@ public sealed class Agent
 
             if (enumerator.Current is AgentEvent agentEvent)
                 yield return agentEvent;
+        }
+    }
+
+    private async Task DiscardDrainedRootEventsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var _ in DrainMiddlewareEventsAsync(_eventCoordinator, cancellationToken).ConfigureAwait(false))
+            {
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Empty-channel probe timed out while checking for bubbled runtime copies.
         }
     }
 
@@ -857,37 +882,26 @@ public sealed class Agent
 
     private async Task HandleInterruptionAsync(InterruptionRequestEvent interruption, CancellationToken cancellationToken)
     {
+        var eventCoordinator = GetActiveEventCoordinator();
+
         if (!string.IsNullOrWhiteSpace(interruption.StreamId))
         {
-            _eventCoordinator.Streams.InterruptStream(interruption.StreamId);
+            eventCoordinator.Streams.InterruptStream(interruption.StreamId);
         }
         else
         {
-            _eventCoordinator.Streams.InterruptAll();
+            eventCoordinator.Streams.InterruptAll();
         }
 
-        List<CancellationTokenSource> activeTurnCts;
-        lock (_runtimeLock)
-        {
-            activeTurnCts = _activeRuntimeTurnCts.ToList();
-        }
-
-        foreach (var turnCts in activeTurnCts)
-        {
-            try
-            {
-                turnCts.Cancel();
-            }
-            catch (ObjectDisposedException)
-            {
-                // Turn completed concurrently.
-            }
-        }
+        CancelActiveRuntimeTurns();
 
         await HandleOutputEventAsync(interruption, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task RunTextInputAsync(UserTextInputEvent input, CancellationToken cancellationToken)
+    private async Task RunTextInputAsync(
+        UserTextInputEvent input,
+        HPD.Events.IEventCoordinator eventCoordinator,
+        CancellationToken cancellationToken)
     {
         var message = new ChatMessage(ChatRole.User, input.Text);
         var messagesInput = new UserMessagesInputEvent([message])
@@ -898,10 +912,13 @@ public sealed class Agent
             RunConfig = input.RunConfig
         };
 
-        await RunMessagesInputAsync(messagesInput, cancellationToken).ConfigureAwait(false);
+        await RunMessagesInputAsync(messagesInput, eventCoordinator, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task RunMessagesInputAsync(UserMessagesInputEvent input, CancellationToken cancellationToken)
+    private async Task RunMessagesInputAsync(
+        UserMessagesInputEvent input,
+        HPD.Events.IEventCoordinator eventCoordinator,
+        CancellationToken cancellationToken)
     {
         if (input.Session != null || input.Branch != null)
         {
@@ -913,6 +930,7 @@ public sealed class Agent
                 input.Session,
                 input.Branch,
                 input.RunConfig,
+                eventCoordinator,
                 cancellationToken).ConfigureAwait(false))
             {
             }
@@ -932,6 +950,7 @@ public sealed class Agent
                 session,
                 branch,
                 input.RunConfig,
+                eventCoordinator,
                 cancellationToken).ConfigureAwait(false))
             {
             }
@@ -946,9 +965,10 @@ public sealed class Agent
 
         await foreach (var _ in RunTurnStreamAsync(
             input.Messages,
-            session: null,
-            branch: null,
+            null,
+            null,
             input.RunConfig,
+            eventCoordinator,
             cancellationToken).ConfigureAwait(false))
         {
         }
@@ -957,43 +977,54 @@ public sealed class Agent
     private static bool ShouldEnqueueToRuntime(AgentEvent input) =>
         input is UserTextInputEvent or UserMessagesInputEvent;
 
-    private ChannelWriter<AgentEvent>? GetRuntimeWriter()
+    private HPD.Events.IEventCoordinator GetActiveEventCoordinator()
     {
         lock (_runtimeLock)
         {
-            if (_runtimeStopping || _runtimeInbox == null || _runtimeLoopTask is not { IsCompleted: false })
-                return null;
-
-            return _runtimeInbox.Writer;
+            if (!_runtimeStopping &&
+                _runtimeInbox != null &&
+                _runtimeLoopTask is { IsCompleted: false } &&
+                _runtimeEventCoordinator != null)
+            {
+                return _runtimeEventCoordinator;
+            }
         }
+
+        return _eventCoordinator;
     }
 
     private async Task RunInputDirectAsync(AgentEvent input, CancellationToken cancellationToken)
+        => await RunInputDirectAsync(input, GetActiveEventCoordinator(), cancellationToken).ConfigureAwait(false);
+
+    private async Task RunInputDirectAsync(
+        AgentEvent input,
+        HPD.Events.IEventCoordinator eventCoordinator,
+        CancellationToken cancellationToken)
     {
         switch (input)
         {
             case UserTextInputEvent text:
-                await RunTextInputAsync(text, cancellationToken).ConfigureAwait(false);
+                await RunTextInputAsync(text, eventCoordinator, cancellationToken).ConfigureAwait(false);
                 break;
 
             case UserMessagesInputEvent messages:
-                await RunMessagesInputAsync(messages, cancellationToken).ConfigureAwait(false);
+                await RunMessagesInputAsync(messages, eventCoordinator, cancellationToken).ConfigureAwait(false);
                 break;
 
             case PermissionResponseEvent response:
-                _eventCoordinator.SendResponse(response.PermissionId, response);
+                eventCoordinator.SendResponse(response.PermissionId, response);
                 break;
 
             case ContinuationResponseEvent response:
-                _eventCoordinator.SendResponse(response.ContinuationId, response);
+                eventCoordinator.SendResponse(response.ContinuationId, response);
                 break;
 
             case ClarificationResponseEvent response:
-                _eventCoordinator.SendResponse(response.RequestId, response);
+                eventCoordinator.SendResponse(response.RequestId, response);
                 break;
 
             case ClientTools.ClientToolInvokeResponseEvent response:
-                _eventCoordinator.SendResponse(response.RequestId, response);
+                eventCoordinator.SendResponse(response.RequestId, response);
                 break;
 
             case InterruptionRequestEvent interruption:
@@ -1008,6 +1039,7 @@ public sealed class Agent
 
     private async Task RunRuntimeLoopAsync(
         ChannelReader<AgentEvent> reader,
+        HPD.Events.IEventCoordinator eventCoordinator,
         CancellationToken cancellationToken)
     {
         try
@@ -1022,7 +1054,7 @@ public sealed class Agent
 
                 try
                 {
-                    await RunInputDirectAsync(input, activeTurnCts.Token).ConfigureAwait(false);
+                    await RunInputDirectAsync(input, eventCoordinator, activeTurnCts.Token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -1056,30 +1088,91 @@ public sealed class Agent
     /// <summary>
     /// Starts the agent's continuous runtime input loop.
     /// </summary>
-    public Task StartAsync(CancellationToken cancellationToken = default)
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        Middleware.AgentRuntimeContext runtimeContext;
+        HPD.Events.IEventCoordinator runtimeCoordinator;
+        CancellationTokenSource runtimeCts;
+        Channel<AgentEvent> runtimeInbox;
+
         lock (_runtimeLock)
         {
-            if (!_runtimeStopping && _runtimeLoopTask is { IsCompleted: false })
-                return Task.CompletedTask;
+            if (_runtimeStarting || (!_runtimeStopping && _runtimeLoopTask is { IsCompleted: false }))
+                return;
 
+            _runtimeStarting = true;
             _runtimeCts?.Dispose();
-            _runtimeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            _runtimeInbox = Channel.CreateUnbounded<AgentEvent>(new UnboundedChannelOptions
+            runtimeCts = new CancellationTokenSource();
+            runtimeCoordinator = new HPD.Events.Core.EventCoordinator();
+            runtimeCoordinator.SetParent(_eventCoordinator);
+            runtimeContext = new Middleware.AgentRuntimeContext(
+                _name,
+                Config ?? throw new InvalidOperationException("Agent configuration is not available."),
+                _serviceProvider,
+                runtimeCoordinator,
+                runtimeCts.Token);
+            runtimeInbox = Channel.CreateUnbounded<AgentEvent>(new UnboundedChannelOptions
             {
                 SingleReader = true,
                 SingleWriter = false,
                 AllowSynchronousContinuations = false
             });
+
+            _runtimeCts = runtimeCts;
+            _runtimeEventCoordinator = runtimeCoordinator;
+            _runtimeContext = runtimeContext;
+            _runtimeInbox = null;
             _runtimeStopping = false;
-            _runtimeLoopTask = Task.Run(
-                () => RunRuntimeLoopAsync(_runtimeInbox.Reader, _runtimeCts.Token),
-                CancellationToken.None);
         }
 
-        return Task.CompletedTask;
+        try
+        {
+            var beforeStart = runtimeContext.AsBeforeStart();
+            await _middlewarePipeline.ExecuteBeforeStartAsync(beforeStart, cancellationToken).ConfigureAwait(false);
+            await DispatchDrainedRootEventsAsync(cancellationToken).ConfigureAwait(false);
+
+            if (beforeStart.CancelStart)
+            {
+                throw new InvalidOperationException(
+                    beforeStart.CancelReason ?? "Agent runtime start was cancelled by middleware.");
+            }
+
+            Task runtimeLoopTask;
+            lock (_runtimeLock)
+            {
+                _runtimeInbox = runtimeInbox;
+                runtimeLoopTask = Task.Run(
+                    () => RunRuntimeLoopAsync(runtimeInbox.Reader, runtimeCoordinator, runtimeCts.Token),
+                    CancellationToken.None);
+                _runtimeLoopTask = runtimeLoopTask;
+            }
+
+            runtimeContext.MarkStarted();
+
+            await _middlewarePipeline.ExecuteAfterStartedAsync(
+                runtimeContext.AsAfterStarted(),
+                cancellationToken).ConfigureAwait(false);
+            await DispatchDrainedRootEventsAsync(cancellationToken).ConfigureAwait(false);
+
+            lock (_runtimeLock)
+            {
+                if (ReferenceEquals(_runtimeContext, runtimeContext))
+                    _runtimeStarting = false;
+            }
+        }
+        catch
+        {
+            await StopRuntimeAsync(
+                runtimeContext,
+                runtimeCoordinator,
+                runtimeCts,
+                RuntimeStopReason.Faulted,
+                runBeforeStop: false,
+                cancellationToken).ConfigureAwait(false);
+            throw;
+        }
     }
 
     /// <summary>
@@ -1087,39 +1180,194 @@ public sealed class Agent
     /// </summary>
     public async Task StopAsync(CancellationToken cancellationToken = default)
     {
-        Task? runtimeTask;
+        Middleware.AgentRuntimeContext? runtimeContext;
+        HPD.Events.IEventCoordinator? runtimeCoordinator;
         CancellationTokenSource? runtimeCts;
 
         lock (_runtimeLock)
         {
-            runtimeTask = _runtimeLoopTask;
+            runtimeContext = _runtimeContext;
+            runtimeCoordinator = _runtimeEventCoordinator;
             runtimeCts = _runtimeCts;
 
-            if (_runtimeInbox == null || runtimeTask == null)
+            if (_runtimeStopping || runtimeContext == null || runtimeCoordinator == null || runtimeCts == null)
                 return;
 
             _runtimeStopping = true;
-            _runtimeInbox.Writer.TryComplete();
+        }
+
+        await StopRuntimeAsync(
+            runtimeContext,
+            runtimeCoordinator,
+            runtimeCts,
+            RuntimeStopReason.UserRequested,
+            runBeforeStop: true,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task StopRuntimeAsync(
+        Middleware.AgentRuntimeContext runtimeContext,
+        HPD.Events.IEventCoordinator runtimeCoordinator,
+        CancellationTokenSource runtimeCts,
+        RuntimeStopReason reason,
+        bool runBeforeStop,
+        CancellationToken cancellationToken)
+    {
+        Task? runtimeTask;
+        Channel<AgentEvent>? runtimeInbox;
+        var drainPendingInputs = true;
+        TimeSpan? drainTimeout = null;
+        Exception? stopError = null;
+        List<Exception>? exceptions = null;
+
+        try
+        {
+            if (runBeforeStop)
+            {
+                var beforeStop = runtimeContext.AsBeforeStop(reason);
+                await _middlewarePipeline.ExecuteBeforeStopAsync(beforeStop, cancellationToken).ConfigureAwait(false);
+                await DispatchDrainedRootEventsAsync(cancellationToken).ConfigureAwait(false);
+
+                drainPendingInputs = beforeStop.DrainPendingInputs;
+                drainTimeout = beforeStop.DrainTimeout;
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            stopError = ex;
+            exceptions ??= new List<Exception>();
+            exceptions.Add(ex);
+        }
+
+        lock (_runtimeLock)
+        {
+            runtimeTask = _runtimeLoopTask;
+            runtimeInbox = _runtimeInbox;
+            _runtimeStopping = true;
+            runtimeInbox?.Writer.TryComplete();
+        }
+
+        if (!drainPendingInputs)
+        {
+            runtimeCts.Cancel();
+            CancelActiveRuntimeTurns();
+        }
+
+        if (runtimeTask != null)
+        {
+            try
+            {
+                var waitTask = runtimeTask;
+                if (drainTimeout is { } timeout)
+                    waitTask = waitTask.WaitAsync(timeout, cancellationToken);
+                else
+                    waitTask = waitTask.WaitAsync(cancellationToken);
+
+                await waitTask.ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
+            {
+                runtimeCts.Cancel();
+                CancelActiveRuntimeTurns();
+
+                try
+                {
+                    await runtimeTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception innerEx) when (innerEx is not OperationCanceledException)
+                {
+                    stopError ??= innerEx;
+                    exceptions ??= new List<Exception>();
+                    exceptions.Add(innerEx);
+                }
+            }
+            catch (Exception ex)
+            {
+                stopError ??= ex;
+                exceptions ??= new List<Exception>();
+                exceptions.Add(ex);
+            }
+        }
+
+        runtimeCts.Cancel();
+        runtimeContext.MarkStopped();
+
+        try
+        {
+            await runtimeContext.DisposeRegisteredResourcesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            stopError ??= ex;
+            exceptions ??= new List<Exception>();
+            exceptions.Add(ex);
         }
 
         try
         {
-            await runtimeTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await _middlewarePipeline.ExecuteAfterStoppedAsync(
+                runtimeContext.AsAfterStopped(reason, stopError),
+                cancellationToken).ConfigureAwait(false);
+            await DispatchDrainedRootEventsAsync(cancellationToken).ConfigureAwait(false);
         }
-        finally
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            lock (_runtimeLock)
-            {
-                if (ReferenceEquals(_runtimeLoopTask, runtimeTask))
-                {
-                    _runtimeInbox = null;
-                    _runtimeLoopTask = null;
-                    _runtimeCts = null;
-                    _runtimeStopping = false;
-                }
-            }
+            exceptions ??= new List<Exception>();
+            exceptions.Add(ex);
+        }
 
-            runtimeCts?.Dispose();
+        lock (_runtimeLock)
+        {
+            if (ReferenceEquals(_runtimeContext, runtimeContext))
+            {
+                _runtimeInbox = null;
+                _runtimeLoopTask = null;
+                _runtimeCts = null;
+                _runtimeContext = null;
+                _runtimeEventCoordinator = null;
+                _runtimeStarting = false;
+                _runtimeStopping = false;
+            }
+        }
+
+        runtimeCts.Dispose();
+        (runtimeCoordinator as IDisposable)?.Dispose();
+
+        if (exceptions is { Count: > 0 })
+            throw new AggregateException("One or more runtime stop operations failed.", exceptions);
+    }
+
+    private void CancelActiveRuntimeTurns()
+    {
+        List<CancellationTokenSource> activeTurnCts;
+        lock (_runtimeLock)
+        {
+            activeTurnCts = _activeRuntimeTurnCts.ToList();
+        }
+
+        foreach (var turnCts in activeTurnCts)
+        {
+            try
+            {
+                turnCts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Turn completed concurrently.
+            }
+        }
+    }
+
+    private async Task DispatchDrainedRootEventsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var evt in DrainMiddlewareEventsAsync(_eventCoordinator, cancellationToken).ConfigureAwait(false))
+                await HandleOutputEventAsync(evt, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Empty-channel probe timed out while checking lifecycle-emitted events.
         }
     }
 
@@ -1130,10 +1378,29 @@ public sealed class Agent
     {
         ArgumentNullException.ThrowIfNull(input);
 
-        if (ShouldEnqueueToRuntime(input) && GetRuntimeWriter() is { } runtimeWriter)
+        if (ShouldEnqueueToRuntime(input))
         {
-            await runtimeWriter.WriteAsync(input, cancellationToken).ConfigureAwait(false);
-            return;
+            ChannelWriter<AgentEvent>? runtimeWriter;
+            bool runtimeTransitioning;
+
+            lock (_runtimeLock)
+            {
+                runtimeTransitioning = _runtimeStarting || _runtimeStopping;
+                runtimeWriter = !_runtimeStopping &&
+                    _runtimeInbox != null &&
+                    _runtimeLoopTask is { IsCompleted: false }
+                        ? _runtimeInbox.Writer
+                        : null;
+            }
+
+            if (runtimeWriter is not null)
+            {
+                await runtimeWriter.WriteAsync(input, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            if (runtimeTransitioning)
+                throw new InvalidOperationException("Agent runtime is starting or stopping and cannot accept user input.");
         }
 
         await RunInputDirectAsync(input, cancellationToken).ConfigureAwait(false);
@@ -1147,7 +1414,21 @@ public sealed class Agent
         CancellationToken cancellationToken = default)
         where TEvent : struct, IStructEvent
     {
-        return _eventCoordinator.EmitStructAsync(input, cancellationToken);
+        var eventCoordinator = GetActiveEventCoordinator();
+        if (ReferenceEquals(eventCoordinator, _eventCoordinator))
+            return _eventCoordinator.EmitStructAsync(input, cancellationToken);
+
+        return EmitRuntimeStructAndMirrorToRootAsync(eventCoordinator, input, cancellationToken);
+    }
+
+    private async ValueTask EmitRuntimeStructAndMirrorToRootAsync<TEvent>(
+        HPD.Events.IEventCoordinator runtimeCoordinator,
+        TEvent input,
+        CancellationToken cancellationToken)
+        where TEvent : struct, IStructEvent
+    {
+        await runtimeCoordinator.EmitStructAsync(input, cancellationToken).ConfigureAwait(false);
+        await _eventCoordinator.EmitStructAsync(input, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -1184,8 +1465,10 @@ public sealed class Agent
         Branch? branch = null,
         Dictionary<string, object>? initialContextProperties = null,
         AgentRunConfig? runConfig = null,
+        HPD.Events.IEventCoordinator? eventCoordinator = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        eventCoordinator ??= _eventCoordinator;
         var orchestrationStartTime = DateTime.UtcNow;
 
         // Create orchestration activity to group all agent turns and function calls
@@ -1425,7 +1708,7 @@ public sealed class Agent
                 agentName: _name,
                 conversationId: conversationId,
                 initialState: state,
-                eventCoordinator: _eventCoordinator,
+                eventCoordinator: eventCoordinator,
                 session: session,
                 branch: branch,
                 cancellationToken: effectiveCancellationToken,
@@ -1475,7 +1758,7 @@ public sealed class Agent
             effectiveMessages = sharedMessages;
 
             // Drain middleware events
-            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
                 yield return middlewareEvt;
 
 
@@ -1510,7 +1793,7 @@ public sealed class Agent
                 { TraceId = traceId };
 
                 // Drain middleware events before decision
-                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
                 yield return middlewareEvt;
 
                 //      
@@ -1548,7 +1831,7 @@ public sealed class Agent
 
                 // Drain middleware events after decision-making, before execution
                 // CRITICAL: Ensures events emitted during decision logic are yielded before LLM streaming starts
-                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
                 yield return middlewareEvt;
 
                 //     
@@ -1661,7 +1944,7 @@ public sealed class Agent
                         var delayTask = Task.Delay(10, effectiveCancellationToken);
                         await Task.WhenAny(beforeIterationTask, delayTask).ConfigureAwait(false);
 
-                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
                         yield return middlewareEvt;
                     }
 
@@ -1669,7 +1952,7 @@ public sealed class Agent
                     await beforeIterationTask.ConfigureAwait(false);
 
                     // Final drain of events from middleware
-                    await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                    await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
                         yield return middlewareEvt;
 
                     // V2: State updates are immediate - no GetPendingState() needed!
@@ -1784,9 +2067,9 @@ public sealed class Agent
                             Options = CollapsedOptions,
                             State = agentContext.State,
                             Iteration = state.Iteration,
-                            Streams = _eventCoordinator.Streams,
+                            Streams = eventCoordinator.Streams,
                             RunConfig = effectiveRunConfig,
-                            EventCoordinator = _eventCoordinator,
+                            EventCoordinator = eventCoordinator,
                             Session = agentContext.Session
                         };
 
@@ -1875,7 +2158,7 @@ public sealed class Agent
                                 }
 
                                 // Still emit middleware events immediately
-                                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
                         yield return middlewareEvt;
                             }
 
@@ -2078,7 +2361,7 @@ public sealed class Agent
                                 }
 
                                 // Periodically yield Middleware events during LLM streaming
-                                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
                         yield return middlewareEvt;
 
                                 // Check for stream completion
@@ -2177,7 +2460,7 @@ public sealed class Agent
                         var effectiveOptionsForTools = beforeIterationContext.Options;
 
                         // Yield Middleware events before tool execution
-                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
                         yield return middlewareEvt;
 
                         // UPDATE AGENT CONTEXT STATE before tool execution hook
@@ -2197,7 +2480,7 @@ public sealed class Agent
                             effectiveCancellationToken).ConfigureAwait(false);
 
                         // Drain events from middleware
-                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
                         yield return middlewareEvt;
 
                         // V2: Sync state after middleware
@@ -2210,7 +2493,7 @@ public sealed class Agent
                             if (state.IsTerminated)
                             {
                                 // Drain any final events from middleware (e.g., TextDeltaEvent from circuit breaker)
-                                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
                         yield return middlewareEvt;
                                 break; // Exit the main loop WITHOUT executing tools
                             }
@@ -2235,7 +2518,7 @@ public sealed class Agent
                             var delayTask = Task.Delay(10, effectiveCancellationToken);
                             await Task.WhenAny(executeTask, delayTask).ConfigureAwait(false);
 
-                            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
                         yield return middlewareEvt;
                         }
 
@@ -2246,7 +2529,7 @@ public sealed class Agent
                         var successfulFunctions = executionResult.SuccessfulFunctions;
 
                         // Final drain
-                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
                         yield return middlewareEvt;
 
                         // ═══════════════════════════════════════════════════════════════
@@ -2292,7 +2575,7 @@ public sealed class Agent
                         if (state.IsTerminated)
                         {
                             // Drain any events emitted during termination (e.g., StateSnapshotEvent from ErrorTrackingMiddleware)
-                            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+                            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
                         yield return middlewareEvt;
                             break;
                         }
@@ -2491,7 +2774,7 @@ public sealed class Agent
             }
 
             // Final drain of middleware events after loop
-            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
                 yield return middlewareEvt;
 
             // Emit MESSAGE TURN finished event
@@ -2576,7 +2859,7 @@ public sealed class Agent
             // The turnHistory variable is passed by reference and may have been updated
 
             // Drain middleware events
-            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(effectiveCancellationToken).ConfigureAwait(false))
+            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
                 yield return middlewareEvt;
 
             // PERSISTENCE: Save complete turn history to branch
@@ -3127,6 +3410,26 @@ public sealed class Agent
         AgentRunConfig? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        await foreach (var evt in RunTurnStreamAsync(
+            messages,
+            session,
+            branch,
+            options,
+            _eventCoordinator,
+            cancellationToken).ConfigureAwait(false))
+        {
+            yield return evt;
+        }
+    }
+
+    private async IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
+        IEnumerable<ChatMessage> messages,
+        Session? session,
+        Branch? branch,
+        AgentRunConfig? options,
+        HPD.Events.IEventCoordinator eventCoordinator,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         // Validation
         if (branch != null)
         {
@@ -3195,6 +3498,7 @@ public sealed class Agent
             branch: branch,
             initialContextProperties: initialProperties,
             runConfig: options,
+            eventCoordinator: eventCoordinator,
             cancellationToken: cancellationToken);
 
         await foreach (var evt in internalStream.WithCancellation(cancellationToken))
@@ -6313,7 +6617,7 @@ internal class FunctionCallProcessor
             agentName: agentLoopState.AgentName,
             conversationId: agentLoopState.ConversationId,
             initialState: agentLoopState,
-            eventCoordinator: _eventCoordinator,
+            eventCoordinator: agentContext.EventCoordinator,
             session: agentContext.Session,
             branch: agentContext.Branch,
             cancellationToken: cancellationToken,

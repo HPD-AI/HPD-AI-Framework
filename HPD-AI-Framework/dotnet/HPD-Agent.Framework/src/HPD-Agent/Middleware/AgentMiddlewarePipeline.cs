@@ -45,6 +45,78 @@ public class AgentMiddlewarePipeline
     public IReadOnlyList<IAgentMiddleware> Middlewares => _middlewares;
 
     //
+    // RUNTIME LEVEL
+    //
+
+    public async Task ExecuteBeforeStartAsync(
+        BeforeStartContext context,
+        CancellationToken cancellationToken)
+    {
+        foreach (var middleware in _middlewares)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await middleware.BeforeStartAsync(context, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async Task ExecuteAfterStartedAsync(
+        AfterStartedContext context,
+        CancellationToken cancellationToken)
+    {
+        foreach (var middleware in _reversedMiddlewares)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await middleware.AfterStartedAsync(context, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async Task ExecuteBeforeStopAsync(
+        BeforeStopContext context,
+        CancellationToken cancellationToken)
+    {
+        List<Exception>? exceptions = null;
+
+        foreach (var middleware in _reversedMiddlewares)
+        {
+            try
+            {
+                await middleware.BeforeStopAsync(context, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                exceptions ??= new List<Exception>();
+                exceptions.Add(ex);
+            }
+        }
+
+        if (exceptions != null)
+            throw new AggregateException("One or more BeforeStop hooks failed", exceptions);
+    }
+
+    public async Task ExecuteAfterStoppedAsync(
+        AfterStoppedContext context,
+        CancellationToken cancellationToken)
+    {
+        List<Exception>? exceptions = null;
+
+        foreach (var middleware in _reversedMiddlewares)
+        {
+            try
+            {
+                await middleware.AfterStoppedAsync(context, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                exceptions ??= new List<Exception>();
+                exceptions.Add(ex);
+            }
+        }
+
+        if (exceptions != null)
+            throw new AggregateException("One or more AfterStopped hooks failed", exceptions);
+    }
+
+    //
     // TURN LEVEL
     //
 
