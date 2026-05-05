@@ -17,6 +17,14 @@ public class RegistrationGeneratorTests
         public partial class SlackBot { }
         """;
 
+    private static readonly string SlackBotWithStreaming = """
+        using HPD.Agent.Bots;
+        namespace My.Bots;
+        [HpdBot("slack")]
+        [HpdStreaming(StreamingStrategy.PostAndEdit, DebounceMs = 250)]
+        public partial class SlackBot { }
+        """;
+
     // ── File names ────────────────────────────────────────────────────
 
     [Fact]
@@ -77,6 +85,49 @@ public class RegistrationGeneratorTests
         source!.Should().Contain("services.Configure(configure)");
     }
 
+    [Fact]
+    public void Registration_WithStreaming_RegistersNamedStreamingOptions()
+    {
+        var result = SourceGenHelper.RunGenerator(SlackBotWithStreaming, out _);
+        var source = SourceGenHelper.GetGeneratedFile(result, "SlackBotRegistration.g.cs");
+
+        source.Should().NotBeNull();
+        source!.Should().Contain("services.Configure<BotStreamingOptions>(\"slack\"");
+        source.Should().Contain("options.Strategy = StreamingStrategy.PostAndEdit");
+        source.Should().Contain("options.DebounceMs = 250");
+    }
+
+    [Theory]
+    [InlineData("PostAndEdit")]
+    [InlineData("BufferAndPost")]
+    [InlineData("Native")]
+    public void Registration_WithStreaming_EmitsConfiguredStrategy(string strategy)
+    {
+        var sourceText = $$"""
+            using HPD.Agent.Bots;
+            namespace My.Bots;
+            [HpdBot("slack")]
+            [HpdStreaming(StreamingStrategy.{{strategy}}, DebounceMs = 250)]
+            public partial class SlackBot { }
+            """;
+
+        var result = SourceGenHelper.RunGenerator(sourceText, out _);
+        var source = SourceGenHelper.GetGeneratedFile(result, "SlackBotRegistration.g.cs");
+
+        source.Should().NotBeNull();
+        source!.Should().Contain($"options.Strategy = StreamingStrategy.{strategy}");
+    }
+
+    [Fact]
+    public void Registration_WithoutStreaming_DoesNotRegisterStreamingOptions()
+    {
+        var result = SourceGenHelper.RunGenerator(MinimalSlackBot, out _);
+        var source = SourceGenHelper.GetGeneratedFile(result, "SlackBotRegistration.g.cs");
+
+        source.Should().NotBeNull();
+        source!.Should().NotContain("Configure<BotStreamingOptions>");
+    }
+
     // ── Endpoint extension ────────────────────────────────────────────
 
     [Fact]
@@ -104,6 +155,44 @@ public class RegistrationGeneratorTests
         var source = SourceGenHelper.GetGeneratedFile(result, "SlackBotRegistration.g.cs");
 
         source!.Should().Contain("MapPost(");
+    }
+
+    [Fact]
+    public void Registration_WithWebhookMethods_CallsMapMethods()
+    {
+        var sourceText = """
+            using HPD.Agent.Bots;
+            namespace My.Bots;
+            [HpdBot("whatsapp")]
+            [HpdWebhookMethods("GET", "POST")]
+            public partial class WhatsAppBot { }
+            """;
+
+        var result = SourceGenHelper.RunGenerator(sourceText, out _);
+        var source = SourceGenHelper.GetGeneratedFile(result, "WhatsAppBotRegistration.g.cs");
+
+        source.Should().NotBeNull();
+        source!.Should().Contain("MapMethods(");
+        source.Should().Contain("\"GET\", \"POST\"");
+        source.Should().NotContain("MapPost(");
+    }
+
+    [Fact]
+    public void Registration_WithWebhookMethods_NormalizesAndDeduplicatesMethods()
+    {
+        var sourceText = """
+            using HPD.Agent.Bots;
+            namespace My.Bots;
+            [HpdBot("whatsapp")]
+            [HpdWebhookMethods("get", "POST", "GET")]
+            public partial class WhatsAppBot { }
+            """;
+
+        var result = SourceGenHelper.RunGenerator(sourceText, out _);
+        var source = SourceGenHelper.GetGeneratedFile(result, "WhatsAppBotRegistration.g.cs");
+
+        source.Should().NotBeNull();
+        source!.Should().Contain("\"GET\", \"POST\"");
     }
 
     [Fact]

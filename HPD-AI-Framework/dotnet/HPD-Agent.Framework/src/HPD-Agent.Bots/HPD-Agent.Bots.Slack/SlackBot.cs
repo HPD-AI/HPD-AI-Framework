@@ -8,6 +8,7 @@ using HPD.Agent.Bots.AspNetCore.Verification;
 using HPD.Agent.Bots.Session;
 using HPD.Agent.Bots.Slack.Payloads;
 using HPD.Agent.Bots.Slack.SocketMode;
+using HPD.Agent.Bots.Streaming;
 using HPD.Agent.Hosting.Lifecycle;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
@@ -71,45 +72,6 @@ public record SlackAssistantContextChangedReceivedEvent(
 public record SlackAppHomeOpenedReceivedEvent(
     SlackAppHomeOpenedPayload Payload);
 
-// ── Debounce timer ─────────────────────────────────────────────────────────────
-
-/// <summary>
-/// Schedules a callback after a debounce window. Cancels any pending scheduled call
-/// when <see cref="Schedule"/> is called again before the window elapses.
-/// </summary>
-internal sealed class DebounceTimer(int debounceMs) : IDisposable
-{
-    private CancellationTokenSource? _cts;
-    private readonly object _lock = new();
-
-    public void Schedule(Func<Task> callback)
-    {
-        CancellationTokenSource? old;
-        CancellationTokenSource next = new();
-        lock (_lock)
-        {
-            old = _cts;
-            _cts = next;
-        }
-        old?.Cancel();
-        old?.Dispose();
-
-        _ = Task.Delay(debounceMs, next.Token)
-            .ContinueWith(t => { if (!t.IsCanceled) return callback(); return Task.CompletedTask; },
-                next.Token, TaskContinuationOptions.NotOnCanceled, TaskScheduler.Default);
-    }
-
-    public void Cancel()
-    {
-        CancellationTokenSource? old;
-        lock (_lock) { old = _cts; _cts = null; }
-        old?.Cancel();
-        old?.Dispose();
-    }
-
-    public void Dispose() => Cancel();
-}
-
 // ── Main adapter class ─────────────────────────────────────────────────────────
 
 /// <summary>
@@ -128,7 +90,8 @@ public partial class SlackBot(
     PlatformSessionMapper sessionMapper,
     SlackApiClient api,
     SlackFormatConverter formatter,
-    SlackUserCache userCache)
+    SlackUserCache userCache,
+    IOptionsMonitor<BotStreamingOptions>? streamingOptions = null)
 {
     private readonly SlackBotConfig _config = options.Value;
 
@@ -415,115 +378,135 @@ public partial class SlackBot(
         string channel, string threadTs,
         CancellationToken ct)
     {
-        // Drop silently if another stream is already running on this branch.
-        // Slack requires 200 within 3s — queueing is not viable.
-        if (!sessionManager.TryAcquireStreamLock(sessionId, branchId))
-        {
-            Console.WriteLine($"[SLACK] StreamToSlackAsync: stream lock already held for session={sessionId} branch={branchId}, dropping");
-            return;
-        }
-
         try
         {
-            Console.WriteLine($"[SLACK] StreamToSlackAsync: starting for session={sessionId} channel={channel} threadTs={threadTs}");
+            var context = new SlackStreamContext(
+                SessionId: sessionId,
+                Input: input,
+                Channel: channel,
+                ThreadTs: threadTs);
 
-            // UseNativeStreaming: chat.startStream → chat.appendStream → chat.stopStream.
-            // Only available when recipientUserId is known (Assistants threads only).
-            // PostAndEdit: post placeholder → chat.update per debounce tick → final update.
-            var useNative = _config.UseNativeStreaming
-                && input.RecipientUserId is not null
-                && input.RecipientTeamId is not null;
-
-            string placeholderTs;
-            if (useNative)
-            {
-                placeholderTs = await api.StartStreamAsync(
-                    channel, threadTs, input.RecipientUserId, input.RecipientTeamId, ct);
-            }
-            else
-            {
-                Console.WriteLine($"[SLACK] StreamToSlackAsync: posting placeholder message...");
-                placeholderTs = await api.PostMessageAsync(channel, threadTs, "...", ct);
-                Console.WriteLine($"[SLACK] StreamToSlackAsync: placeholder posted ts={placeholderTs}");
-                await api.TrySetAssistantStatusAsync(channel, threadTs, "Typing...", ct);
-            }
-
-            var agent = await agentManager.GetOrBuildAgentAsync(_config.AgentName ?? "default", ct);
-
-            var buffer  = new StringBuilder();
-            var debounce = new DebounceTimer(_config.StreamingDebounceMs);
-
-            Console.WriteLine($"[SLACK] StreamToSlackAsync: running agent with input={input.Text}");
-            using var subscription = agent.SubscribeAny((Func<AgentEvent, Task>)(async evt =>
-            {
-                Console.WriteLine($"[SLACK] AgentEvent: {evt.GetType().Name}");
-                switch (evt)
+            var runner = new BotStreamingRunner(sessionManager, agentManager);
+            var streaming = ResolveStreamingOptions();
+            var started = await runner.RunAsync(
+                new BotStreamingRequest<SlackStreamContext>(
+                    AgentName: _config.AgentName ?? "default",
+                    SessionId: sessionId,
+                    BranchId: branchId,
+                    Text: input.Text,
+                    Context: context,
+                    Strategy: streaming.Strategy,
+                    DebounceMs: streaming.DebounceMs),
+                new BotStreamingCallbacks<SlackStreamContext>
                 {
-                    case TextDeltaEvent delta:
-                        buffer.Append(delta.Text);
-                        if (useNative)
-                        {
-                            debounce.Schedule(async () =>
-                                await api.AppendStreamAsync(channel, placeholderTs,
-                                    formatter.ToMrkdwn(buffer.ToString()), ct));
-                        }
-                        else
-                        {
-                            debounce.Schedule(async () =>
-                                await api.UpdateMessageAsync(channel, placeholderTs,
-                                    formatter.ToMrkdwn(buffer.ToString()), ct));
-                        }
-                        break;
+                    InitializeAsync = InitializeSlackStreamAsync,
+                    UpdateTextAsync = UpdateSlackTextAsync,
+                    CompleteTextAsync = CompleteSlackTextAsync,
+                    CompleteCardAsync = CompleteSlackCardAsync,
+                    HandlePermissionAsync = async (ctx, _, req, token) =>
+                        await RenderPermissionAsync(
+                            req,
+                            new SlackPermissionContext(
+                                ctx.Channel,
+                                ctx.ThreadTs,
+                                ctx.SessionId,
+                                token)),
+                },
+                ct);
 
-                    case PermissionRequestEvent req:
-                        // Post Block Kit approve/deny buttons. block_id = sessionId for routing.
-                        var permCtx = new SlackPermissionContext(channel, threadTs, sessionId, ct);
-                        await RenderPermissionAsync(req, permCtx);
-                        // agent.RunAsync(PermissionResponseEvent) is called by HandleBlockActionsAsync
-                        // when the user clicks a button — the agent loop is already waiting.
-                        break;
-
-                    case TextMessageEndEvent:
-                        debounce.Cancel();
-                        var finalMrkdwn = formatter.ToMrkdwn(buffer.ToString());
-                        Console.WriteLine($"[SLACK] StreamToSlackAsync: TextMessageEnd, posting final update len={finalMrkdwn.Length}");
-                        if (useNative)
-                            await api.StopStreamAsync(channel, placeholderTs, finalMrkdwn, null, ct);
-                        else
-                        {
-                            await api.UpdateMessageAsync(channel, placeholderTs, finalMrkdwn, ct);
-                            await api.TryClearAssistantStatusAsync(channel, threadTs, ct);
-                        }
-                        buffer.Clear();
-                        break;
-
-                    case CardContentEvent card:
-                        debounce.Cancel();
-                        var cardBlocks  = new SlackCardRenderer().RenderCard(card.Card);
-                        var cardFallback = CardFallbackText.From(card.Card);
-                        if (useNative)
-                            await api.StopStreamAsync(channel, placeholderTs, cardFallback, cardBlocks, ct);
-                        else
-                            await api.UpdateMessageAsync(channel, placeholderTs, cardFallback, cardBlocks, ct);
-                        break;
-                }
-            }));
-
-            await agent.RunAsync(new UserTextInputEvent(input.Text)
-            {
-                SessionId = sessionId,
-                BranchId = branchId
-            }, ct);
-            Console.WriteLine($"[SLACK] StreamToSlackAsync: agent stream complete");
+            if (!started)
+                Console.WriteLine($"[SLACK] StreamToSlackAsync: stream lock already held for session={sessionId} branch={branchId}, dropping");
+            else
+                Console.WriteLine("[SLACK] StreamToSlackAsync: agent stream complete");
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[SLACK] StreamToSlackAsync EXCEPTION: {ex}");
         }
-        finally
+    }
+
+    private BotStreamingOptions ResolveStreamingOptions()
+    {
+        var defaults = streamingOptions?.Get("slack")
+            ?? new BotStreamingOptions { DebounceMs = 500 };
+
+        return new BotStreamingOptions
         {
-            sessionManager.ReleaseStreamLock(sessionId, branchId);
+            Strategy = defaults.Strategy,
+            DebounceMs = _config.StreamingDebounceMs is > 0
+                ? _config.StreamingDebounceMs.Value
+                : defaults.DebounceMs,
+        };
+    }
+
+    private async Task InitializeSlackStreamAsync(SlackStreamContext context, CancellationToken ct)
+    {
+        Console.WriteLine($"[SLACK] StreamToSlackAsync: starting for session={context.SessionId} channel={context.Channel} threadTs={context.ThreadTs}");
+
+        // UseNativeStreaming: chat.startStream -> chat.appendStream -> chat.stopStream.
+        // Only available when recipientUserId is known (Assistants threads only).
+        // PostAndEdit: post placeholder -> chat.update per debounce tick -> final update.
+        context.UseNative = _config.UseNativeStreaming
+            && context.Input.RecipientUserId is not null
+            && context.Input.RecipientTeamId is not null;
+
+        if (context.UseNative)
+        {
+            context.PlaceholderTs = await api.StartStreamAsync(
+                context.Channel,
+                context.ThreadTs,
+                context.Input.RecipientUserId!,
+                context.Input.RecipientTeamId!,
+                ct);
+            return;
         }
+
+        Console.WriteLine("[SLACK] StreamToSlackAsync: posting placeholder message...");
+        context.PlaceholderTs = await api.PostMessageAsync(context.Channel, context.ThreadTs, "...", ct);
+        Console.WriteLine($"[SLACK] StreamToSlackAsync: placeholder posted ts={context.PlaceholderTs}");
+        await api.TrySetAssistantStatusAsync(context.Channel, context.ThreadTs, "Typing...", ct);
+    }
+
+    private async Task UpdateSlackTextAsync(SlackStreamContext context, string content, CancellationToken ct)
+    {
+        if (context.PlaceholderTs is null)
+            return;
+
+        var mrkdwn = formatter.ToMrkdwn(content);
+        if (context.UseNative)
+            await api.AppendStreamAsync(context.Channel, context.PlaceholderTs, mrkdwn, ct);
+        else
+            await api.UpdateMessageAsync(context.Channel, context.PlaceholderTs, mrkdwn, ct);
+    }
+
+    private async Task CompleteSlackTextAsync(SlackStreamContext context, string content, CancellationToken ct)
+    {
+        if (context.PlaceholderTs is null)
+            return;
+
+        var finalMrkdwn = formatter.ToMrkdwn(content);
+        Console.WriteLine($"[SLACK] StreamToSlackAsync: TextMessageEnd, posting final update len={finalMrkdwn.Length}");
+        if (context.UseNative)
+        {
+            await api.StopStreamAsync(context.Channel, context.PlaceholderTs, finalMrkdwn, null, ct);
+            return;
+        }
+
+        await api.UpdateMessageAsync(context.Channel, context.PlaceholderTs, finalMrkdwn, ct);
+        await api.TryClearAssistantStatusAsync(context.Channel, context.ThreadTs, ct);
+    }
+
+    private async Task CompleteSlackCardAsync(SlackStreamContext context, CardElement card, CancellationToken ct)
+    {
+        if (context.PlaceholderTs is null)
+            return;
+
+        var cardBlocks = new SlackCardRenderer().RenderCard(card);
+        var cardFallback = CardFallbackText.From(card);
+        if (context.UseNative)
+            await api.StopStreamAsync(context.Channel, context.PlaceholderTs, cardFallback, cardBlocks, ct);
+        else
+            await api.UpdateMessageAsync(context.Channel, context.PlaceholderTs, cardFallback, cardBlocks, ct);
     }
 
     // ── Private helpers ────────────────────────────────────────────────────────
@@ -735,14 +718,24 @@ public partial class SlackBot(
         string? RecipientUserId = null,
         string? RecipientTeamId = null,
         IReadOnlyDictionary<string, string>? Extensions = null);
+
+    private sealed record SlackStreamContext(
+        string SessionId,
+        AgentInput Input,
+        string Channel,
+        string ThreadTs)
+    {
+        public bool UseNative { get; set; }
+        public string? PlaceholderTs { get; set; }
+    }
 }
 
 // ── JSON serializer context ────────────────────────────────────────────────────
 
 /// <summary>
 /// AOT-safe source-generated JSON context for all Slack payload types.
-/// The source generator populates this with <c>[JsonSerializable]</c> entries
-/// for every <c>[WebhookPayload]</c> record in the assembly.
+/// Keep this list explicit because the bot source generator intentionally does
+/// not emit <c>JsonSerializerContext</c> subclasses.
 /// </summary>
 // Socket Mode envelope
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackSocketEnvelope))]

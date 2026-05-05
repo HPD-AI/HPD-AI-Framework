@@ -1,4 +1,5 @@
 using FluentAssertions;
+using HPD.Agent.Bots.Streaming;
 using HPD.Agent.Bots.Session;
 using HPD.Agent.Bots.Slack;
 using HPD.Agent.Bots.Tests.TestInfrastructure;
@@ -131,6 +132,18 @@ public class SlackBotRegistrationTests
 
         opts.SigningSecret.Should().Be("test-signing-secret");
         opts.BotToken.Should().Be("xoxb-test-token");
+    }
+
+    [Fact]
+    public void AddSlackBot_RegistersStreamingOptionsFromAttribute()
+    {
+        using var sp = BuildProvider();
+
+        var opts = sp.GetRequiredService<IOptionsMonitor<BotStreamingOptions>>()
+            .Get("slack");
+
+        opts.Strategy.Should().Be(StreamingStrategy.PostAndEdit);
+        opts.DebounceMs.Should().Be(500);
     }
 
     // ── 8. Null services guard ────────────────────────────────────────────────

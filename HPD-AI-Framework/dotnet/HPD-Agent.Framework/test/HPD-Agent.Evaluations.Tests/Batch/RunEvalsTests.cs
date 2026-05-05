@@ -6,6 +6,7 @@ using HPD.Agent.Evaluations.Batch;
 using HPD.Agent.Evaluations.Evaluators;
 using HPD.Agent.Evaluations.Evaluators.Deterministic;
 using HPD.Agent.Evaluations.Evaluators.LlmJudge;
+using HPD.Agent.Evaluations.RedTeam;
 using HPD.Agent.Evaluations.Storage;
 using HPD.Agent.Evaluations.Tests.Infrastructure;
 using HPD.Agent.Evaluations.Tests.Integration;
@@ -369,6 +370,51 @@ public sealed class RunEvalsTests
         records.Select(r => r.CaseVersion).Should().BeEquivalentTo(["1", "2"]);
         records.Single(r => r.CaseVersion == "1").CaseValidTo.Should().Be(v1To);
         records.Single(r => r.CaseVersion == "2").CaseValidTo.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PersistResults_RedTeamCase_PersistsAttackMetadataAndSuccess()
+    {
+        var agent = new CapturingAgent();
+        var store = new InMemoryScoreStore();
+        var redTeamCase = (await new PromptInjectionPlugin().GenerateAsync(new RedTeamGenerationContext
+        {
+            CasesPerPlugin = 1,
+        })).Single();
+
+        var strategyCase = (await new BasicStrategy().ApplyAsync([redTeamCase], new RedTeamStrategyContext()))
+            .Single();
+
+        await RunEvals.ExecuteAsync(
+            agent,
+            new Dataset<string>
+            {
+                DatasetId = "redteam",
+                Version = "1",
+                Cases = [strategyCase.ToEvalCase()],
+            },
+            [new OutputContainsEvaluator("this string will not appear")],
+            new RunEvalsOptions<string>
+            {
+                PersistResults = true,
+                ScoreStore = store,
+            },
+            experimentName: "redteam-run");
+
+        var records = new List<ScoreRecord>();
+        await foreach (var record in store.GetScoresAsync(sessionId: "redteam-run"))
+            records.Add(record);
+
+        var score = records.Should().ContainSingle().Which;
+        score.RedTeamPluginId.Should().Be("prompt-injection");
+        score.RedTeamStrategyId.Should().Be("basic");
+        score.RedTeamCategory.Should().Be("PromptInjection");
+        score.RedTeamSeverity.Should().Be("High");
+        score.AttackGoal.Should().Be("Override the agent's active instructions.");
+        score.AttackSucceeded.Should().BeTrue();
+
+        var attackSuccessRate = await store.GetAttackSuccessRateAsync();
+        attackSuccessRate.Should().Be(1.0);
     }
 
     [Fact]

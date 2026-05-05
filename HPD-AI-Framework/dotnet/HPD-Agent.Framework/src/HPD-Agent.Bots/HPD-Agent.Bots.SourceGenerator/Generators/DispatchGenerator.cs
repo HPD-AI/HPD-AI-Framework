@@ -44,7 +44,6 @@ internal static class DispatchGenerator
         sb.AppendLine("using HPD.Agent.Bots;");
         sb.AppendLine("using HPD.Agent.Bots.Contracts;");
         sb.AppendLine("using System.Text.Json;");
-        sb.AppendLine("using System.Text.Json.Serialization.Metadata;");
         sb.AppendLine();
         sb.AppendLine($"namespace {adapter.Namespace};");
         sb.AppendLine();
@@ -67,17 +66,17 @@ internal static class DispatchGenerator
         sb.AppendLine();
 
         // ── Pre-dispatch hook ─────────────────────────────────────────────────
-        if (adapter.HasPreDispatch)
+        if (adapter.PreDispatchMethodName is not null)
         {
-            sb.AppendLine("        var preResult = await PreDispatchAsync(ctx, bodyBytes);");
+            sb.AppendLine($"        var preResult = await {adapter.PreDispatchMethodName}(ctx, bodyBytes);");
             sb.AppendLine("        if (preResult is not null) return preResult;");
             sb.AppendLine();
         }
 
         // ── Body extraction ───────────────────────────────────────────────────
-        if (adapter.HasBodyExtractor)
+        if (adapter.BodyExtractorMethodName is not null)
         {
-            sb.AppendLine("        var (eventType, dispatchBytes) = ExtractDispatch(ctx, bodyBytes);");
+            sb.AppendLine($"        var (eventType, dispatchBytes) = {adapter.BodyExtractorMethodName}(ctx, bodyBytes);");
         }
         else
         {
@@ -91,6 +90,7 @@ internal static class DispatchGenerator
         sb.AppendLine("        {");
         sb.AppendLine("            return await DispatchByTypeAsync(ctx, dispatchBytes, eventType, ct);");
         sb.AppendLine("        }");
+        sb.AppendLine("        catch (BotValidationException)      { return Results.BadRequest(); }");
         sb.AppendLine("        catch (BotAuthenticationException)  { return Results.Unauthorized(); }");
         sb.AppendLine("        catch (BotRateLimitException)       { return Results.StatusCode(429); }");
         sb.AppendLine("        catch (BotPermissionException)      { return Results.Forbid(); }");
@@ -99,7 +99,7 @@ internal static class DispatchGenerator
         sb.AppendLine();
 
         // ── Default ExtractEventType helper (only when no body extractor) ─────
-        if (!adapter.HasBodyExtractor)
+        if (adapter.BodyExtractorMethodName is null)
         {
             sb.AppendLine("    private static string? ExtractEventType(byte[] bodyBytes)");
             sb.AppendLine("    {");
@@ -109,14 +109,7 @@ internal static class DispatchGenerator
             sb.AppendLine("            var root = doc.RootElement;");
             sb.AppendLine("            if (root.TryGetProperty(\"type\", out var outerType))");
             sb.AppendLine("            {");
-            sb.AppendLine("                var outer = outerType.GetString();");
-            sb.AppendLine("                if (outer == \"event_callback\" &&");
-            sb.AppendLine("                    root.TryGetProperty(\"event\", out var evt) &&");
-            sb.AppendLine("                    evt.TryGetProperty(\"type\", out var innerType))");
-            sb.AppendLine("                {");
-            sb.AppendLine("                    return innerType.GetString();");
-            sb.AppendLine("                }");
-            sb.AppendLine("                return outer;");
+            sb.AppendLine("                return outerType.GetString();");
             sb.AppendLine("            }");
             sb.AppendLine("        }");
             sb.AppendLine("        catch { }");
@@ -139,7 +132,7 @@ internal static class DispatchGenerator
                 sb.AppendLine($"            case \"{eventType}\":");
             }
             sb.AppendLine("            {");
-            sb.AppendLine($"                var payload = JsonSerializer.Deserialize<{handler.PayloadTypeFqn}>(bodyBytes, _jsonOptions);");
+            sb.AppendLine($"                var payload = JsonSerializer.Deserialize(bodyBytes, {adapter.ClassName}JsonContext.Default.{handler.PayloadJsonTypeInfoProperty});");
             sb.AppendLine($"                if (payload is null) return Results.Ok();");
             sb.AppendLine($"                return await {handler.MethodName}(ctx, payload);");
             sb.AppendLine("            }");
@@ -148,12 +141,6 @@ internal static class DispatchGenerator
         sb.AppendLine("            default: return Results.Ok(); // unknown event types → ACK and ignore");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
-        sb.AppendLine();
-        sb.AppendLine("    private static readonly JsonSerializerOptions _jsonOptions = new()");
-        sb.AppendLine("    {");
-        sb.AppendLine("        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,");
-        sb.AppendLine("        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,");
-        sb.AppendLine("    };");
         sb.AppendLine("}");
 
         return sb.ToString();

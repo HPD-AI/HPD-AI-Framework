@@ -135,6 +135,35 @@ public interface IScoreStore : IEvaluationResultStore
         DateTimeOffset? from = null,
         DateTimeOffset? to = null,
         CancellationToken ct = default);
+
+    // ── Red-team analytics ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns the fraction of red-team score records where AttackSucceeded is true.
+    /// Records without AttackSucceeded are ignored.
+    /// </summary>
+    ValueTask<double> GetAttackSuccessRateAsync(
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        CancellationToken ct = default);
+
+    /// <summary>Returns attack success rate grouped by RedTeamPluginId.</summary>
+    ValueTask<IDictionary<string, double>> GetAttackSuccessRateByPluginAsync(
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        CancellationToken ct = default);
+
+    /// <summary>Returns attack success rate grouped by RedTeamStrategyId.</summary>
+    ValueTask<IDictionary<string, double>> GetAttackSuccessRateByStrategyAsync(
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        CancellationToken ct = default);
+
+    /// <summary>Returns red-team findings for records where AttackSucceeded is true.</summary>
+    ValueTask<IReadOnlyList<RedTeamFinding>> GetRedTeamFindingsAsync(
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        CancellationToken ct = default);
 }
 
 // ── Supporting value types ────────────────────────────────────────────────────
@@ -151,6 +180,21 @@ public sealed record RiskAutonomyDataPoint(
     double RiskScore,
     /// <summary>Score from TurnAutonomyEvaluator (1–10). Higher = more autonomous.</summary>
     double AutonomyScore,
+    DateTimeOffset CreatedAt);
+
+/// <summary>Persisted attack finding derived from a red-team score record.</summary>
+public sealed record RedTeamFinding(
+    string ScoreRecordId,
+    string? PluginId,
+    string? StrategyId,
+    string? Category,
+    string? Severity,
+    string? AttackGoal,
+    bool AttackSucceeded,
+    string EvaluatorName,
+    string SessionId,
+    string BranchId,
+    int TurnIndex,
     DateTimeOffset CreatedAt);
 
 /// <summary>Aggregated tool usage statistics across stored turns.</summary>

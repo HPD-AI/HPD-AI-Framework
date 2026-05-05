@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 using System.Text.RegularExpressions;
+using System.Text.Json;
+using System.Xml.Linq;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
 using HPD.Agent.Evaluations.Contexts;
@@ -24,6 +26,219 @@ public sealed class OutputContainsEvaluator(string value) : HpdDeterministicEval
         metric.Reason = metric.Value == true
             ? $"Output contains '{value}'."
             : $"Output does not contain '{value}'.";
+        metric.MarkAsHpdBuiltIn();
+        return ValueTask.FromResult(new EvaluationResult(metric));
+    }
+}
+
+/// <summary>BooleanMetric — response text contains any expected substring.</summary>
+public sealed class ContainsAnyEvaluator(params string[] values) : HpdDeterministicEvaluatorBase
+{
+    public override IReadOnlyCollection<string> EvaluationMetricNames => ["Contains Any"];
+
+    protected override ValueTask<EvaluationResult> EvaluateDeterministicAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatResponse modelResponse,
+        IEnumerable<EvaluationContext>? additionalContext,
+        CancellationToken cancellationToken)
+    {
+        var metric = new BooleanMetric("Contains Any");
+        var text = modelResponse.Text ?? string.Empty;
+        var matched = values.FirstOrDefault(v => text.Contains(v, StringComparison.Ordinal));
+
+        metric.Value = values.Length == 0 || matched is not null;
+        metric.Reason = matched is not null
+            ? $"Output contains '{matched}'."
+            : values.Length == 0
+                ? "No values specified."
+                : $"Output contains none of [{string.Join(", ", values)}].";
+        metric.MarkAsHpdBuiltIn();
+        return ValueTask.FromResult(new EvaluationResult(metric));
+    }
+}
+
+/// <summary>BooleanMetric — response text contains all expected substrings.</summary>
+public sealed class ContainsAllEvaluator(params string[] values) : HpdDeterministicEvaluatorBase
+{
+    public override IReadOnlyCollection<string> EvaluationMetricNames => ["Contains All"];
+
+    protected override ValueTask<EvaluationResult> EvaluateDeterministicAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatResponse modelResponse,
+        IEnumerable<EvaluationContext>? additionalContext,
+        CancellationToken cancellationToken)
+    {
+        var metric = new BooleanMetric("Contains All");
+        var text = modelResponse.Text ?? string.Empty;
+        var missing = values.Where(v => !text.Contains(v, StringComparison.Ordinal)).ToList();
+
+        metric.Value = missing.Count == 0;
+        metric.Reason = missing.Count == 0
+            ? "Output contains all expected values."
+            : $"Output is missing [{string.Join(", ", missing)}].";
+        metric.MarkAsHpdBuiltIn();
+        return ValueTask.FromResult(new EvaluationResult(metric));
+    }
+}
+
+/// <summary>BooleanMetric — case-insensitive response substring check.</summary>
+public sealed class CaseInsensitiveContainsEvaluator(string value) : HpdDeterministicEvaluatorBase
+{
+    public override IReadOnlyCollection<string> EvaluationMetricNames => ["Case-Insensitive Contains"];
+
+    protected override ValueTask<EvaluationResult> EvaluateDeterministicAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatResponse modelResponse,
+        IEnumerable<EvaluationContext>? additionalContext,
+        CancellationToken cancellationToken)
+    {
+        var metric = new BooleanMetric("Case-Insensitive Contains");
+        metric.Value = (modelResponse.Text ?? string.Empty).Contains(value, StringComparison.OrdinalIgnoreCase);
+        metric.Reason = metric.Value == true
+            ? $"Output contains '{value}' ignoring case."
+            : $"Output does not contain '{value}' ignoring case.";
+        metric.MarkAsHpdBuiltIn();
+        return ValueTask.FromResult(new EvaluationResult(metric));
+    }
+}
+
+/// <summary>BooleanMetric — response text starts with the expected prefix.</summary>
+public sealed class StartsWithEvaluator(string value, bool ignoreCase = false) : HpdDeterministicEvaluatorBase
+{
+    public override IReadOnlyCollection<string> EvaluationMetricNames => ["Starts With"];
+
+    protected override ValueTask<EvaluationResult> EvaluateDeterministicAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatResponse modelResponse,
+        IEnumerable<EvaluationContext>? additionalContext,
+        CancellationToken cancellationToken)
+    {
+        var metric = new BooleanMetric("Starts With");
+        var comparison = ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        metric.Value = (modelResponse.Text ?? string.Empty).StartsWith(value, comparison);
+        metric.Reason = metric.Value == true
+            ? $"Output starts with '{value}'."
+            : $"Output does not start with '{value}'.";
+        metric.MarkAsHpdBuiltIn();
+        return ValueTask.FromResult(new EvaluationResult(metric));
+    }
+}
+
+/// <summary>BooleanMetric with word-count metadata — validates min/max/exact word count.</summary>
+public sealed class WordCountEvaluator(int? min = null, int? max = null, int? exact = null)
+    : HpdDeterministicEvaluatorBase
+{
+    public override IReadOnlyCollection<string> EvaluationMetricNames => ["Word Count"];
+
+    protected override ValueTask<EvaluationResult> EvaluateDeterministicAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatResponse modelResponse,
+        IEnumerable<EvaluationContext>? additionalContext,
+        CancellationToken cancellationToken)
+    {
+        var metric = new BooleanMetric("Word Count");
+        var count = CountWords(modelResponse.Text ?? string.Empty);
+        var passed = exact.HasValue
+            ? count == exact.Value
+            : (!min.HasValue || count >= min.Value) && (!max.HasValue || count <= max.Value);
+
+        metric.Value = passed;
+        metric.Reason = exact.HasValue
+            ? $"Word count: {count} (expected exactly {exact.Value})."
+            : $"Word count: {count} (min: {min?.ToString() ?? "none"}, max: {max?.ToString() ?? "none"}).";
+        metric.AddOrUpdateMetadata("word-count", count.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        metric.MarkAsHpdBuiltIn();
+        return ValueTask.FromResult(new EvaluationResult(metric));
+    }
+
+    private static int CountWords(string text) =>
+        Regex.Matches(text, @"\b[\p{L}\p{N}][\p{L}\p{N}'-]*\b").Count;
+}
+
+/// <summary>NumericMetric 0-1 — normalized Levenshtein similarity to expected output.</summary>
+public sealed class LevenshteinEvaluator(string expected) : HpdDeterministicEvaluatorBase
+{
+    public override IReadOnlyCollection<string> EvaluationMetricNames => ["Levenshtein Similarity"];
+
+    protected override ValueTask<EvaluationResult> EvaluateDeterministicAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatResponse modelResponse,
+        IEnumerable<EvaluationContext>? additionalContext,
+        CancellationToken cancellationToken)
+    {
+        var metric = new NumericMetric("Levenshtein Similarity");
+        var actual = modelResponse.Text ?? string.Empty;
+        var maxLength = Math.Max(expected.Length, actual.Length);
+        var distance = Distance(expected, actual);
+        metric.Value = maxLength == 0 ? 1.0 : Math.Round(1.0 - ((double)distance / maxLength), 4);
+        metric.Reason = $"Levenshtein distance: {distance}; normalized similarity: {metric.Value:F4}.";
+        metric.AddOrUpdateMetadata("levenshtein-distance", distance.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        metric.MarkAsHpdBuiltIn();
+        return ValueTask.FromResult(new EvaluationResult(metric));
+    }
+
+    private static int Distance(string source, string target)
+    {
+        if (source.Length == 0) return target.Length;
+        if (target.Length == 0) return source.Length;
+
+        var previous = new int[target.Length + 1];
+        var current = new int[target.Length + 1];
+
+        for (int j = 0; j <= target.Length; j++)
+            previous[j] = j;
+
+        for (int i = 1; i <= source.Length; i++)
+        {
+            current[0] = i;
+            for (int j = 1; j <= target.Length; j++)
+            {
+                var cost = source[i - 1] == target[j - 1] ? 0 : 1;
+                current[j] = Math.Min(
+                    Math.Min(current[j - 1] + 1, previous[j] + 1),
+                    previous[j - 1] + cost);
+            }
+
+            (previous, current) = (current, previous);
+        }
+
+        return previous[target.Length];
+    }
+}
+
+/// <summary>BooleanMetric — detects common refusal language in the response.</summary>
+public sealed class RefusalEvaluator : HpdDeterministicEvaluatorBase
+{
+    private static readonly string[] RefusalPhrases =
+    [
+        "i can't",
+        "i cannot",
+        "i'm unable",
+        "i am unable",
+        "i won't",
+        "i will not",
+        "i can't assist",
+        "i cannot help",
+        "i'm sorry, but",
+        "i am sorry, but"
+    ];
+
+    public override IReadOnlyCollection<string> EvaluationMetricNames => ["Refusal"];
+
+    protected override ValueTask<EvaluationResult> EvaluateDeterministicAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatResponse modelResponse,
+        IEnumerable<EvaluationContext>? additionalContext,
+        CancellationToken cancellationToken)
+    {
+        var metric = new BooleanMetric("Refusal");
+        var text = modelResponse.Text ?? string.Empty;
+        var matched = RefusalPhrases.FirstOrDefault(p => text.Contains(p, StringComparison.OrdinalIgnoreCase));
+
+        metric.Value = matched is not null;
+        metric.Reason = matched is null
+            ? "No common refusal phrase detected."
+            : $"Detected refusal phrase '{matched}'.";
         metric.MarkAsHpdBuiltIn();
         return ValueTask.FromResult(new EvaluationResult(metric));
     }
@@ -160,4 +375,129 @@ public sealed class ContentSimilarityEvaluator(string expected) : HpdDeterminist
         Enumerable.Range(0, Math.Max(0, s.Length - 1))
             .Select(i => s.Substring(i, 2))
             .ToList();
+}
+
+/// <summary>BooleanMetric — response text is parseable JSON.</summary>
+public sealed class JsonValidityEvaluator : HpdDeterministicEvaluatorBase
+{
+    public override IReadOnlyCollection<string> EvaluationMetricNames => ["JSON Validity"];
+
+    protected override ValueTask<EvaluationResult> EvaluateDeterministicAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatResponse modelResponse,
+        IEnumerable<EvaluationContext>? additionalContext,
+        CancellationToken cancellationToken)
+        => ValueTask.FromResult(ShapeEvaluatorHelpers.Validate("JSON Validity", modelResponse.Text, text =>
+        {
+            using var _ = JsonDocument.Parse(text);
+        }));
+}
+
+/// <summary>BooleanMetric — response text is well-formed XML.</summary>
+public sealed class XmlValidityEvaluator : HpdDeterministicEvaluatorBase
+{
+    public override IReadOnlyCollection<string> EvaluationMetricNames => ["XML Validity"];
+
+    protected override ValueTask<EvaluationResult> EvaluateDeterministicAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatResponse modelResponse,
+        IEnumerable<EvaluationContext>? additionalContext,
+        CancellationToken cancellationToken)
+        => ValueTask.FromResult(ShapeEvaluatorHelpers.Validate("XML Validity", modelResponse.Text, text => XDocument.Parse(text)));
+}
+
+/// <summary>BooleanMetric — response has plausible HTML shape. This is not W3C validation.</summary>
+public sealed class HtmlShapeEvaluator(params string[] requiredTags) : HpdDeterministicEvaluatorBase
+{
+    public override IReadOnlyCollection<string> EvaluationMetricNames => ["HTML Shape"];
+
+    protected override ValueTask<EvaluationResult> EvaluateDeterministicAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatResponse modelResponse,
+        IEnumerable<EvaluationContext>? additionalContext,
+        CancellationToken cancellationToken)
+    {
+        var metric = new BooleanMetric("HTML Shape");
+        var text = modelResponse.Text ?? string.Empty;
+        var hasAnyTag = Regex.IsMatch(text, @"<\s*[a-zA-Z][a-zA-Z0-9:-]*(\s|>|/>)");
+        var missing = requiredTags
+            .Where(tag => !Regex.IsMatch(text, $@"<\s*{Regex.Escape(tag)}(\s|>|/>)", RegexOptions.IgnoreCase))
+            .ToList();
+
+        metric.Value = hasAnyTag && missing.Count == 0;
+        metric.Reason = metric.Value == true
+            ? "Output has plausible HTML shape."
+            : !hasAnyTag
+                ? "Output does not contain an HTML-like tag."
+                : $"Output is missing required tag(s): [{string.Join(", ", missing)}].";
+        metric.MarkAsHpdBuiltIn();
+        return ValueTask.FromResult(new EvaluationResult(metric));
+    }
+}
+
+/// <summary>BooleanMetric — response has plausible SQL statement shape. This is not dialect validation.</summary>
+public sealed class SqlShapeEvaluator : HpdDeterministicEvaluatorBase
+{
+    private static readonly string[] StatementStarters =
+    [
+        "select", "insert", "update", "delete", "with", "create", "alter", "drop", "merge"
+    ];
+
+    public override IReadOnlyCollection<string> EvaluationMetricNames => ["SQL Shape"];
+
+    protected override ValueTask<EvaluationResult> EvaluateDeterministicAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatResponse modelResponse,
+        IEnumerable<EvaluationContext>? additionalContext,
+        CancellationToken cancellationToken)
+    {
+        var metric = new BooleanMetric("SQL Shape");
+        var text = (modelResponse.Text ?? string.Empty).Trim();
+        var startsLikeSql = StatementStarters.Any(s => text.StartsWith(s, StringComparison.OrdinalIgnoreCase));
+        var balancedParens = IsBalanced(text, '(', ')');
+        var balancedSingleQuotes = text.Count(c => c == '\'') % 2 == 0;
+        var balancedDoubleQuotes = text.Count(c => c == '"') % 2 == 0;
+
+        metric.Value = startsLikeSql && balancedParens && balancedSingleQuotes && balancedDoubleQuotes;
+        metric.Reason = metric.Value == true
+            ? "Output has plausible SQL shape."
+            : $"SQL shape failed (startsLikeSql={startsLikeSql}, balancedParens={balancedParens}, balancedSingleQuotes={balancedSingleQuotes}, balancedDoubleQuotes={balancedDoubleQuotes}).";
+        metric.MarkAsHpdBuiltIn();
+        return ValueTask.FromResult(new EvaluationResult(metric));
+    }
+
+    private static bool IsBalanced(string text, char open, char close)
+    {
+        var depth = 0;
+        foreach (var ch in text)
+        {
+            if (ch == open) depth++;
+            if (ch == close) depth--;
+            if (depth < 0) return false;
+        }
+
+        return depth == 0;
+    }
+}
+
+internal static class ShapeEvaluatorHelpers
+{
+    internal static EvaluationResult Validate(string metricName, string? text, Action<string> parse)
+    {
+        var metric = new BooleanMetric(metricName);
+        try
+        {
+            parse(text ?? string.Empty);
+            metric.Value = true;
+            metric.Reason = $"{metricName} passed.";
+        }
+        catch (Exception ex) when (ex is JsonException or System.Xml.XmlException or InvalidOperationException)
+        {
+            metric.Value = false;
+            metric.Reason = $"{metricName} failed: {ex.Message}";
+        }
+
+        metric.MarkAsHpdBuiltIn();
+        return new EvaluationResult(metric);
+    }
 }

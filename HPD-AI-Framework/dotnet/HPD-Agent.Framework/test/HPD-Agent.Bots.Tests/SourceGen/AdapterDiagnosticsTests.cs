@@ -429,4 +429,285 @@ public class BotDiagnosticsTests
 
         d.GetMessage().Should().Contain("BadService");
     }
+
+    // ── HPDA009: [HpdPreDispatch] method signature ─────────────────────
+
+    [Fact]
+    public void HPDA009_ValidPreDispatch_NoDiagnostic()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            using System.Threading.Tasks;
+            using Microsoft.AspNetCore.Http;
+            namespace Test;
+            [HpdBot("test")]
+            public partial class MyBot
+            {
+                [HpdPreDispatch]
+                private async Task<IResult?> VerifyAsync(HttpContext ctx, byte[] bodyBytes)
+                    => null;
+            }
+            """;
+
+        var diagnostics = SourceGenHelper.GetDiagnostics(source);
+
+        diagnostics.Should().NotContain(d => d.Id == "HPDA009");
+    }
+
+    [Fact]
+    public void HPDA009_PublicPreDispatch_EmitsError()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            using System.Threading.Tasks;
+            using Microsoft.AspNetCore.Http;
+            namespace Test;
+            [HpdBot("test")]
+            public partial class MyBot
+            {
+                [HpdPreDispatch]
+                public async Task<IResult?> VerifyAsync(HttpContext ctx, byte[] bodyBytes)
+                    => null;
+            }
+            """;
+
+        var diagnostics = SourceGenHelper.GetDiagnostics(source);
+
+        diagnostics.Should().Contain(d => d.Id == "HPDA009" && d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void HPDA009_PreDispatchWithoutAsync_EmitsError()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            using System.Threading.Tasks;
+            using Microsoft.AspNetCore.Http;
+            namespace Test;
+            [HpdBot("test")]
+            public partial class MyBot
+            {
+                [HpdPreDispatch]
+                private Task<IResult?> VerifyAsync(HttpContext ctx, byte[] bodyBytes)
+                    => Task.FromResult<IResult?>(null);
+            }
+            """;
+
+        var diagnostics = SourceGenHelper.GetDiagnostics(source);
+
+        diagnostics.Should().Contain(d => d.Id == "HPDA009" && d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void HPDA009_PreDispatchWrongReturnType_EmitsError()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            using System.Threading.Tasks;
+            using Microsoft.AspNetCore.Http;
+            namespace Test;
+            [HpdBot("test")]
+            public partial class MyBot
+            {
+                [HpdPreDispatch]
+                private async Task<bool> VerifyAsync(HttpContext ctx, byte[] bodyBytes)
+                    => true;
+            }
+            """;
+
+        var diagnostics = SourceGenHelper.GetDiagnostics(source);
+
+        diagnostics.Should().Contain(d => d.Id == "HPDA009" && d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void HPDA009_PreDispatchWrongParameterTypes_EmitsError()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            using System.Threading.Tasks;
+            using Microsoft.AspNetCore.Http;
+            namespace Test;
+            [HpdBot("test")]
+            public partial class MyBot
+            {
+                [HpdPreDispatch]
+                private async Task<IResult?> VerifyAsync(byte[] bodyBytes, HttpContext ctx)
+                    => null;
+            }
+            """;
+
+        var diagnostics = SourceGenHelper.GetDiagnostics(source);
+
+        diagnostics.Should().Contain(d => d.Id == "HPDA009" && d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void HPDA009_DuplicatePreDispatch_EmitsError()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            using System.Threading.Tasks;
+            using Microsoft.AspNetCore.Http;
+            namespace Test;
+            [HpdBot("test")]
+            public partial class MyBot
+            {
+                [HpdPreDispatch]
+                private async Task<IResult?> VerifyAAsync(HttpContext ctx, byte[] bodyBytes)
+                    => null;
+
+                [HpdPreDispatch]
+                private async Task<IResult?> VerifyBAsync(HttpContext ctx, byte[] bodyBytes)
+                    => null;
+            }
+            """;
+
+        var diagnostics = SourceGenHelper.GetDiagnostics(source);
+
+        diagnostics.Should().Contain(d => d.Id == "HPDA009" && d.Severity == DiagnosticSeverity.Error);
+    }
+
+    // ── HPDA010: [HpdBodyExtractor] method signature ───────────────────
+
+    [Fact]
+    public void HPDA010_ValidBodyExtractor_NoDiagnostic()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            using Microsoft.AspNetCore.Http;
+            namespace Test;
+            [HpdBot("test")]
+            public partial class MyBot
+            {
+                [HpdBodyExtractor]
+                private (string? eventType, byte[] dispatchBytes) Extract(HttpContext ctx, byte[] bodyBytes)
+                    => (null, bodyBytes);
+            }
+            """;
+
+        var diagnostics = SourceGenHelper.GetDiagnostics(source);
+
+        diagnostics.Should().NotContain(d => d.Id == "HPDA010");
+    }
+
+    [Fact]
+    public void HPDA010_PublicBodyExtractor_EmitsError()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            using Microsoft.AspNetCore.Http;
+            namespace Test;
+            [HpdBot("test")]
+            public partial class MyBot
+            {
+                [HpdBodyExtractor]
+                public (string? eventType, byte[] dispatchBytes) Extract(HttpContext ctx, byte[] bodyBytes)
+                    => (null, bodyBytes);
+            }
+            """;
+
+        var diagnostics = SourceGenHelper.GetDiagnostics(source);
+
+        diagnostics.Should().Contain(d => d.Id == "HPDA010" && d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void HPDA010_BodyExtractorWrongReturnType_EmitsError()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            using Microsoft.AspNetCore.Http;
+            namespace Test;
+            [HpdBot("test")]
+            public partial class MyBot
+            {
+                [HpdBodyExtractor]
+                private string? Extract(HttpContext ctx, byte[] bodyBytes)
+                    => null;
+            }
+            """;
+
+        var diagnostics = SourceGenHelper.GetDiagnostics(source);
+
+        diagnostics.Should().Contain(d => d.Id == "HPDA010" && d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void HPDA010_BodyExtractorWrongParameterTypes_EmitsError()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            using Microsoft.AspNetCore.Http;
+            namespace Test;
+            [HpdBot("test")]
+            public partial class MyBot
+            {
+                [HpdBodyExtractor]
+                private (string? eventType, byte[] dispatchBytes) Extract(byte[] bodyBytes, HttpContext ctx)
+                    => (null, bodyBytes);
+            }
+            """;
+
+        var diagnostics = SourceGenHelper.GetDiagnostics(source);
+
+        diagnostics.Should().Contain(d => d.Id == "HPDA010" && d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void HPDA010_DuplicateBodyExtractor_EmitsError()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            using Microsoft.AspNetCore.Http;
+            namespace Test;
+            [HpdBot("test")]
+            public partial class MyBot
+            {
+                [HpdBodyExtractor]
+                private (string? eventType, byte[] dispatchBytes) ExtractA(HttpContext ctx, byte[] bodyBytes)
+                    => (null, bodyBytes);
+
+                [HpdBodyExtractor]
+                private (string? eventType, byte[] dispatchBytes) ExtractB(HttpContext ctx, byte[] bodyBytes)
+                    => (null, bodyBytes);
+            }
+            """;
+
+        var diagnostics = SourceGenHelper.GetDiagnostics(source);
+
+        diagnostics.Should().Contain(d => d.Id == "HPDA010" && d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void HPDA011_EmptyWebhookMethods_EmitsError()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            namespace Test;
+            [HpdBot("test")]
+            [HpdWebhookMethods()]
+            public partial class MyBot { }
+            """;
+
+        var diagnostics = SourceGenHelper.GetDiagnostics(source);
+
+        diagnostics.Should().Contain(d => d.Id == "HPDA011" && d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void HPDA011_BlankWebhookMethod_EmitsError()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            namespace Test;
+            [HpdBot("test")]
+            [HpdWebhookMethods("GET", " ")]
+            public partial class MyBot { }
+            """;
+
+        var diagnostics = SourceGenHelper.GetDiagnostics(source);
+
+        diagnostics.Should().Contain(d => d.Id == "HPDA011" && d.Severity == DiagnosticSeverity.Error);
+    }
 }

@@ -14,7 +14,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.15" Condition="'$(TargetFramework)' == 'net8.0'" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="9.0.5" Condition="'$(TargetFramework)' == 'net9.0'" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.3" Condition="'$(TargetFramework)' == 'net10.0'" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.7" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
@@ -45,6 +45,14 @@
     <ProjectReference Include="../../src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
     <!-- Slack adapter: SlackBlockKit, SlackModalConverter, SlackThreadId, SlackBotConfig, etc. -->
     <ProjectReference Include="../../src/HPD-Agent.Bots/HPD-Agent.Bots.Slack/HPD-Agent.Bots.Slack.csproj" />
+    <!-- Discord adapter: DiscordBot hooks, payloads, and thread ID codec. -->
+    <ProjectReference Include="../../src/HPD-Agent.Bots/HPD-Agent.Bots.Discord/HPD-Agent.Bots.Discord.csproj" />
+    <!-- Teams bot: M365 Agents SDK bridge and thread ID codec. -->
+    <ProjectReference Include="../../src/HPD-Agent.Bots/HPD-Agent.Bots.Teams/HPD-Agent.Bots.Teams.csproj" />
+    <!-- Telegram bot: Telegram.Bot bridge, cards, callbacks, and thread ID codec. -->
+    <ProjectReference Include="../../src/HPD-Agent.Bots/HPD-Agent.Bots.Telegram/HPD-Agent.Bots.Telegram.csproj" />
+    <!-- WhatsApp bot: Cloud API webhooks, cards, markdown, and payload mapping. -->
+    <ProjectReference Include="../../src/HPD-Agent.Bots/HPD-Agent.Bots.WhatsApp/HPD-Agent.Bots.WhatsApp.csproj" />
   </ItemGroup>
 
 </Project>

@@ -46,11 +46,10 @@ public class SlackBotConfig
     public string? AgentName { get; set; }
 
     /// <summary>
-    /// Minimum milliseconds between consecutive <c>chat.update</c> calls during streaming.
-    /// Prevents hitting Slack's ~1 update/second rate limit.
-    /// Default: 500ms.
+    /// Overrides the generated streaming debounce interval when set.
+    /// When <c>null</c>, the value from <see cref="HpdStreamingAttribute"/> is used.
     /// </summary>
-    public int StreamingDebounceMs { get; set; } = 500;
+    public int? StreamingDebounceMs { get; set; }
 
     /// <summary>
     /// Maximum time to wait for a user to click Approve/Deny on a permission request.

@@ -74,6 +74,36 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task GET_evals_evaluatorCatalog_ReturnsSafetyEvaluators_WithoutScoreStore()
+    {
+        using var noStoreFactory = new TestWebApplicationFactory();
+        var client = noStoreFactory.CreateClient();
+
+        var response = await client.GetAsync("/evals/evaluators/catalog");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var items = await response.Content.ReadFromJsonAsync<List<JsonElement>>();
+        items.Should().NotBeNull();
+        items!.Should().Contain(i =>
+            i.GetProperty("name").GetString() == "Prompt Injection" &&
+            i.GetProperty("category").GetString() == "Safety");
+        items.Should().Contain(i =>
+            i.GetProperty("name").GetString() == "Sensitive Data Leak" &&
+            i.GetProperty("requiresJudge").GetBoolean());
+    }
+
+    [Fact]
+    public async Task GET_evals_safetyAnalytics_Returns503_WhenNoStoreRegistered()
+    {
+        using var noStoreFactory = new TestWebApplicationFactory();
+        var client = noStoreFactory.CreateClient();
+
+        var response = await client.GetAsync("/evals/analytics/safety");
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+    }
+
     // =========================================================================
     // Category B — GET /evals/scores
     // =========================================================================
@@ -596,6 +626,180 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
         doc.GetProperty("passRate").GetDouble().Should().BeApproximately(0.5, 0.01);
     }
 
+    [Fact]
+    public async Task GET_evals_safetyAnalytics_AggregatesSafetyMetadata()
+    {
+        var now = DateTimeOffset.UtcNow.AddYears(10);
+        await SeedAsync(MakeSafetyScore(
+            "Prompt Injection",
+            "prompt_injection",
+            "none",
+            "allow",
+            passed: true,
+            score: 0.5,
+            createdAt: now.AddMinutes(-10)));
+        await SeedAsync(MakeSafetyScore(
+            "Sensitive Data Leak",
+            "sensitive_data_leak",
+            "critical",
+            "block",
+            passed: false,
+            score: 6.5,
+            createdAt: now.AddMinutes(-5)));
+        await SeedAsync(ScoreRecordFactory.MakeNumeric(
+            "NotSafety",
+            sessionId: "safety-noise",
+            score: 10,
+            createdAt: now.AddMinutes(-3)));
+
+        var from = Uri.EscapeDataString(now.AddMinutes(-30).ToString("O"));
+        var to = Uri.EscapeDataString(now.AddMinutes(30).ToString("O"));
+        var response = await _client.GetAsync($"/evals/analytics/safety?from={from}&to={to}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("totalCount").GetInt32().Should().Be(2);
+        body.GetProperty("passedCount").GetInt32().Should().Be(1);
+        body.GetProperty("failedCount").GetInt32().Should().Be(1);
+        body.GetProperty("passRate").GetDouble().Should().BeApproximately(0.5, 0.0001);
+        body.GetProperty("averageSafetyScore").GetDouble().Should().BeApproximately(3.5, 0.0001);
+        body.GetProperty("byCategory").GetProperty("prompt_injection").GetInt32().Should().Be(1);
+        body.GetProperty("byCategory").GetProperty("sensitive_data_leak").GetInt32().Should().Be(1);
+        body.GetProperty("bySeverity").GetProperty("critical").GetInt32().Should().Be(1);
+        body.GetProperty("byRecommendedAction").GetProperty("block").GetInt32().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GET_evals_safetyAnalytics_RespectsDateRange()
+    {
+        var now = DateTimeOffset.UtcNow.AddYears(11);
+        await SeedAsync(MakeSafetyScore(
+            "Code Security Risk",
+            "code_security",
+            "high",
+            "warn",
+            passed: false,
+            score: 5.5,
+            createdAt: now.AddHours(-3)));
+        await SeedAsync(MakeSafetyScore(
+            "Content Harm",
+            "content_harm",
+            "low",
+            "allow",
+            passed: true,
+            score: 1.0,
+            createdAt: now.AddMinutes(-5)));
+
+        var from = Uri.EscapeDataString(now.AddHours(-1).ToString("O"));
+        var to = Uri.EscapeDataString(now.AddHours(1).ToString("O"));
+        var response = await _client.GetAsync($"/evals/analytics/safety?from={from}&to={to}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("totalCount").GetInt32().Should().Be(1);
+        body.GetProperty("byCategory").GetProperty("content_harm").GetInt32().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GET_evals_redTeamCatalog_ReturnsPluginsAndStrategies()
+    {
+        var pluginsResponse = await _client.GetAsync("/evals/red-team/plugins");
+        var strategiesResponse = await _client.GetAsync("/evals/red-team/strategies");
+
+        pluginsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        strategiesResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var plugins = await pluginsResponse.Content.ReadFromJsonAsync<List<JsonElement>>();
+        var strategies = await strategiesResponse.Content.ReadFromJsonAsync<List<JsonElement>>();
+
+        plugins.Should().NotBeNull();
+        plugins!.Should().Contain(p =>
+            p.GetProperty("id").GetString() == "prompt-injection" &&
+            p.GetProperty("category").GetString() == "PromptInjection");
+        plugins.Should().Contain(p => p.GetProperty("id").GetString() == "secret-leak");
+
+        strategies.Should().NotBeNull();
+        strategies!.Should().Contain(s => s.GetProperty("id").GetString() == "base64");
+        strategies.Should().Contain(s => s.GetProperty("id").GetString() == "jailbreak-composite");
+    }
+
+    [Fact]
+    public async Task GET_evals_redTeamAnalytics_AggregatesAttackSuccess()
+    {
+        var now = DateTimeOffset.UtcNow.AddYears(12);
+        await SeedAsync(MakeRedTeamScore(
+            pluginId: "prompt-injection",
+            strategyId: "base64",
+            attackSucceeded: true,
+            createdAt: now.AddMinutes(-10)));
+        await SeedAsync(MakeRedTeamScore(
+            pluginId: "prompt-injection",
+            strategyId: "base64",
+            attackSucceeded: false,
+            createdAt: now.AddMinutes(-5)));
+        await SeedAsync(MakeRedTeamScore(
+            pluginId: "secret-leak",
+            strategyId: "rot13",
+            attackSucceeded: true,
+            createdAt: now.AddMinutes(-3)));
+
+        var from = Uri.EscapeDataString(now.AddMinutes(-30).ToString("O"));
+        var to = Uri.EscapeDataString(now.AddMinutes(30).ToString("O"));
+        var response = await _client.GetAsync($"/evals/analytics/red-team?from={from}&to={to}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("attackSuccessRate").GetDouble().Should().BeApproximately(2.0 / 3.0, 0.0001);
+        body.GetProperty("findingCount").GetInt32().Should().Be(2);
+        body.GetProperty("attackSuccessRateByPlugin").GetProperty("prompt-injection").GetDouble()
+            .Should().BeApproximately(0.5, 0.0001);
+        body.GetProperty("attackSuccessRateByPlugin").GetProperty("secret-leak").GetDouble()
+            .Should().BeApproximately(1.0, 0.0001);
+        body.GetProperty("attackSuccessRateByStrategy").GetProperty("base64").GetDouble()
+            .Should().BeApproximately(0.5, 0.0001);
+    }
+
+    [Fact]
+    public async Task GET_evals_redTeamAnalytics_Findings_ReturnsSucceededAttacks()
+    {
+        var now = DateTimeOffset.UtcNow.AddYears(13);
+        await SeedAsync(MakeRedTeamScore(
+            pluginId: "tool-abuse",
+            strategyId: "fake-system-message",
+            attackGoal: "Call restricted tool",
+            attackSucceeded: true,
+            createdAt: now.AddMinutes(-1)));
+        await SeedAsync(MakeRedTeamScore(
+            pluginId: "tool-abuse",
+            strategyId: "fake-system-message",
+            attackGoal: "Ignored",
+            attackSucceeded: false,
+            createdAt: now.AddMinutes(-2)));
+
+        var from = Uri.EscapeDataString(now.AddMinutes(-30).ToString("O"));
+        var to = Uri.EscapeDataString(now.AddMinutes(30).ToString("O"));
+        var response = await _client.GetAsync($"/evals/analytics/red-team/findings?from={from}&to={to}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var findings = await response.Content.ReadFromJsonAsync<List<JsonElement>>();
+        findings.Should().NotBeNull();
+        findings!.Should().ContainSingle();
+        findings[0].GetProperty("pluginId").GetString().Should().Be("tool-abuse");
+        findings[0].GetProperty("strategyId").GetString().Should().Be("fake-system-message");
+        findings[0].GetProperty("attackGoal").GetString().Should().Be("Call restricted tool");
+    }
+
+    [Fact]
+    public async Task GET_evals_redTeamAnalytics_Returns503_WhenNoStoreRegistered()
+    {
+        using var noStoreFactory = new TestWebApplicationFactory();
+        var client = noStoreFactory.CreateClient();
+
+        var response = await client.GetAsync("/evals/analytics/red-team");
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+    }
+
     // =========================================================================
     // Category O — GET /evals/runs
     // =========================================================================
@@ -1030,6 +1234,96 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
             TaskDuration = TimeSpan.FromMilliseconds(10),
             EvaluatorDuration = TimeSpan.FromMilliseconds(5),
             TotalDuration = TimeSpan.FromMilliseconds(15),
+        };
+    }
+
+    private static ScoreRecord MakeSafetyScore(
+        string evaluatorName,
+        string category,
+        string severity,
+        string action,
+        bool passed,
+        double score,
+        DateTimeOffset createdAt)
+    {
+        var scoreMetric = new NumericMetric(evaluatorName)
+        {
+            Value = score,
+            Interpretation = new EvaluationMetricInterpretation(
+                passed ? EvaluationRating.Good : EvaluationRating.Unacceptable,
+                failed: !passed),
+        };
+        scoreMetric.AddOrUpdateMetadata("safety-category", category);
+        scoreMetric.AddOrUpdateMetadata("safety-severity", severity);
+        scoreMetric.AddOrUpdateMetadata("safety-recommended-action", action);
+        scoreMetric.AddOrUpdateMetadata("safety-passed", passed.ToString());
+
+        var passedMetric = new BooleanMetric($"{evaluatorName} Passed")
+        {
+            Value = passed,
+            Interpretation = new EvaluationMetricInterpretation(
+                passed ? EvaluationRating.Good : EvaluationRating.Unacceptable,
+                failed: !passed),
+        };
+        passedMetric.AddOrUpdateMetadata("safety-category", category);
+        passedMetric.AddOrUpdateMetadata("safety-severity", severity);
+        passedMetric.AddOrUpdateMetadata("safety-recommended-action", action);
+        passedMetric.AddOrUpdateMetadata("safety-passed", passed.ToString());
+
+        return new ScoreRecord
+        {
+            Id = Guid.NewGuid().ToString(),
+            EvaluatorName = evaluatorName,
+            EvaluatorVersion = "1.0",
+            Result = new EvaluationResult([scoreMetric, passedMetric]),
+            Source = EvaluationSource.Test,
+            SessionId = $"safety-{Guid.NewGuid():N}",
+            BranchId = "main",
+            TurnIndex = 0,
+            AgentName = "safety-agent",
+            TurnDuration = TimeSpan.FromMilliseconds(50),
+            SamplingRate = 1.0,
+            Policy = EvalPolicy.TrackTrend,
+            CreatedAt = createdAt,
+        };
+    }
+
+    private static ScoreRecord MakeRedTeamScore(
+        string pluginId,
+        string strategyId,
+        bool attackSucceeded,
+        DateTimeOffset createdAt,
+        string attackGoal = "Bypass policy")
+    {
+        var metric = new BooleanMetric("Red Team Passed")
+        {
+            Value = !attackSucceeded,
+            Interpretation = new EvaluationMetricInterpretation(
+                attackSucceeded ? EvaluationRating.Unacceptable : EvaluationRating.Good,
+                failed: attackSucceeded),
+        };
+
+        return new ScoreRecord
+        {
+            Id = Guid.NewGuid().ToString(),
+            EvaluatorName = "Red Team Passed",
+            EvaluatorVersion = "1.0",
+            Result = new EvaluationResult([metric]),
+            Source = EvaluationSource.Test,
+            SessionId = $"redteam-{Guid.NewGuid():N}",
+            BranchId = "main",
+            TurnIndex = 0,
+            AgentName = "redteam-agent",
+            TurnDuration = TimeSpan.FromMilliseconds(50),
+            SamplingRate = 1.0,
+            Policy = EvalPolicy.MustAlwaysPass,
+            CreatedAt = createdAt,
+            RedTeamPluginId = pluginId,
+            RedTeamStrategyId = strategyId,
+            RedTeamCategory = "PromptInjection",
+            RedTeamSeverity = "High",
+            AttackGoal = attackGoal,
+            AttackSucceeded = attackSucceeded,
         };
     }
 

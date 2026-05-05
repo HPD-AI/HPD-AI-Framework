@@ -33,6 +33,12 @@ public static class CardFallbackText
                 foreach (var field in f.Fields)
                     sb.AppendLine($"{field.Label}: {field.Value}");
                 break;
+            case CardTable table:
+                if (table.Columns.Count > 0)
+                    sb.AppendLine(string.Join(" | ", table.Columns));
+                foreach (var row in table.Rows)
+                    sb.AppendLine(string.Join(" | ", row));
+                break;
             case CardLink l:
                 sb.AppendLine($"{l.Label} ({l.Url})");
                 break;

@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <RootNamespace>HPD.Agent.Bots.Teams</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)Generated</CompilerGeneratedFilesOutputPath>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.Bots.Teams</PackageId>
+    <Description>Microsoft Teams bot bridge for HPD agents using the Microsoft 365 Agents SDK.</Description>
+    <PackageTags>ai;agent;bots;teams;microsoft365;adaptive-cards</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Agent.Bots.Abstractions/HPD-Agent.Bots.Abstractions.csproj" />
+    <ProjectReference Include="../HPD-Agent.Bots.AspNetCore/HPD-Agent.Bots.AspNetCore.csproj" />
+    <ProjectReference Include="../../HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
+    <ProjectReference Include="../HPD-Agent.Bots.SourceGenerator/HPD-Agent.Bots.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AdaptiveCards" Version="3.1.*" />
+    <PackageReference Include="Azure.Identity" Version="1.*" />
+    <PackageReference Include="Microsoft.Agents.Authentication.Msal" Version="1.5.*" />
+    <PackageReference Include="Microsoft.Agents.Hosting.AspNetCore" Version="1.5.*" />
+    <PackageReference Include="Microsoft.Graph" Version="5.*" />
+  </ItemGroup>
+
+  <Target Name="IncludeBotAnalyzers" BeforeTargets="_GetPackageFiles">
+    <ItemGroup>
+      <None Include="../HPD-Agent.Bots.SourceGenerator/bin/$(Configuration)/netstandard2.0/HPD-Agent.Bots.SourceGenerator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+      <None Include="../HPD-Agent.Bots.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Agent.Bots.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll')" />
+      <None Include="../HPD-Agent.Bots.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Agent.Bots.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll')" />
+    </ItemGroup>
+  </Target>
+
+</Project>

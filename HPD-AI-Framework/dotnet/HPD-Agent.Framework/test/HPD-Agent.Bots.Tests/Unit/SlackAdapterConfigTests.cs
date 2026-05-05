@@ -72,7 +72,7 @@ public class SlackBotConfigTests
             BotToken      = "t",
         };
 
-        config.StreamingDebounceMs.Should().Be(500);
+        config.StreamingDebounceMs.Should().BeNull();
         config.PermissionTimeout.Should().Be(TimeSpan.FromMinutes(5));
         config.UseNativeStreaming.Should().BeFalse();
         config.BotUserId.Should().BeNull();

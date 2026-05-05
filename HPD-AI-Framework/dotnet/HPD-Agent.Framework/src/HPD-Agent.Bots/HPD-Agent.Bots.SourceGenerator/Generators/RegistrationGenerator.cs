@@ -40,6 +40,7 @@ internal static class RegistrationGenerator
         sb.AppendLine("using Microsoft.Extensions.Options;");
         sb.AppendLine("using HPD.Agent.Bots;");
         sb.AppendLine("using HPD.Agent.Bots.Session;");
+        sb.AppendLine("using HPD.Agent.Bots.Streaming;");
         sb.AppendLine();
 
         var adapterName = adapter.Name; // e.g. "slack"
@@ -78,6 +79,15 @@ internal static class RegistrationGenerator
             sb.AppendLine($"        services.Configure(configure);");
         }
 
+        if (adapter.Streaming is not null)
+        {
+            sb.AppendLine($"        services.Configure<BotStreamingOptions>(\"{adapterName}\", options =>");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            options.Strategy = StreamingStrategy.{adapter.Streaming.Strategy};");
+            sb.AppendLine($"            options.DebounceMs = {adapter.Streaming.DebounceMs};");
+            sb.AppendLine("        });");
+        }
+
         sb.AppendLine($"        services.TryAddSingleton<{className}>();");
         sb.AppendLine($"        services.TryAddSingleton<HPD.Agent.Bots.Session.PlatformSessionMapper>();");
         sb.AppendLine("        return services;");
@@ -94,7 +104,15 @@ internal static class RegistrationGenerator
         sb.AppendLine($"        string path = \"/webhooks/{adapterName}\")");
         sb.AppendLine("    {");
         sb.AppendLine($"        var adapter = app.ServiceProvider.GetRequiredService<{className}>();");
-        sb.AppendLine($"        return app.MapPost(path, (HttpContext ctx) => adapter.HandleWebhookAsync(ctx));");
+        if (adapter.WebhookMethods.Count > 0)
+        {
+            var methods = string.Join(", ", adapter.WebhookMethods.Select(m => $"\"{m}\""));
+            sb.AppendLine($"        return app.MapMethods(path, [{methods}], (HttpContext ctx) => adapter.HandleWebhookAsync(ctx));");
+        }
+        else
+        {
+            sb.AppendLine($"        return app.MapPost(path, (HttpContext ctx) => adapter.HandleWebhookAsync(ctx));");
+        }
         sb.AppendLine("    }");
         sb.AppendLine("}");
 

@@ -26,6 +26,7 @@ namespace HPD.Agent.Bots.Session;
 public sealed class PlatformSessionMapper
 {
     private const string PlatformKeyMetadataField = "platformKey";
+    private const string PlatformKeyAliasesMetadataField = "platformKeyAliases";
 
     private readonly SessionManager _manager;
 
@@ -59,9 +60,7 @@ public sealed class PlatformSessionMapper
         foreach (var sessionId in sessionIds)
         {
             var session = await _manager.Store.LoadSessionAsync(sessionId, ct);
-            if (session?.Metadata != null &&
-                session.Metadata.TryGetValue(PlatformKeyMetadataField, out var storedKey) &&
-                storedKey is string sk && sk == platformKey)
+            if (session?.Metadata != null && MetadataContainsPlatformKey(session.Metadata, platformKey))
             {
                 // Return the first branch (always "main" for adapter-created sessions)
                 var branchIds = await _manager.Store.ListBranchIdsAsync(sessionId, ct);
@@ -77,6 +76,37 @@ public sealed class PlatformSessionMapper
         };
 
         return await _manager.CreateSessionAsync(metadata: metadata, ct: ct);
+    }
+
+    /// <summary>
+    /// Associates an additional platform key with an existing session.
+    /// </summary>
+    /// <remarks>
+    /// Use this when a platform creates a new thread/channel identity after the
+    /// initial inbound message, but future messages in that thread should keep
+    /// routing to the same HPD session and branch.
+    /// </remarks>
+    public async Task BindThreadAsync(
+        string platformKey,
+        string sessionId,
+        string branchId,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(platformKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+
+        var session = await _manager.Store.LoadSessionAsync(sessionId, ct)
+            ?? throw new InvalidOperationException($"Session '{sessionId}' was not found.");
+
+        if (MetadataContainsPlatformKey(session.Metadata, platformKey))
+            return;
+
+        var aliases = GetPlatformKeyAliases(session.Metadata).ToList();
+        aliases.Add(platformKey);
+        session.Metadata[PlatformKeyAliasesMetadataField] = aliases.Distinct(StringComparer.Ordinal).ToArray();
+
+        await _manager.Store.SaveSessionAsync(session, ct);
     }
 
     /// <summary>
@@ -97,9 +127,7 @@ public sealed class PlatformSessionMapper
         foreach (var sessionId in sessionIds)
         {
             var session = await _manager.Store.LoadSessionAsync(sessionId, ct);
-            if (session?.Metadata != null &&
-                session.Metadata.TryGetValue(PlatformKeyMetadataField, out var storedKey) &&
-                storedKey is string sk && sk == platformKey)
+            if (session?.Metadata != null && MetadataContainsPlatformKey(session.Metadata, platformKey))
             {
                 await _manager.Store.DeleteSessionAsync(sessionId, ct);
                 _manager.RemoveSession(sessionId);
@@ -115,4 +143,51 @@ public sealed class PlatformSessionMapper
 
         return await _manager.CreateSessionAsync(metadata: metadata, ct: ct);
     }
+
+    private static bool MetadataContainsPlatformKey(
+        IReadOnlyDictionary<string, object> metadata,
+        string platformKey)
+    {
+        if (metadata.TryGetValue(PlatformKeyMetadataField, out var primary) &&
+            MetadataValueContains(primary, platformKey))
+        {
+            return true;
+        }
+
+        return metadata.TryGetValue(PlatformKeyAliasesMetadataField, out var aliases) &&
+            MetadataValueContains(aliases, platformKey);
+    }
+
+    private static IEnumerable<string> GetPlatformKeyAliases(
+        IReadOnlyDictionary<string, object> metadata)
+    {
+        if (!metadata.TryGetValue(PlatformKeyAliasesMetadataField, out var aliases))
+            return [];
+
+        return aliases switch
+        {
+            string value => [value],
+            IEnumerable<string> values => values,
+            System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.Array } element =>
+                element.EnumerateArray()
+                    .Where(item => item.ValueKind == System.Text.Json.JsonValueKind.String)
+                    .Select(item => item.GetString()!)
+                    .Where(value => !string.IsNullOrWhiteSpace(value)),
+            _ => [],
+        };
+    }
+
+    private static bool MetadataValueContains(object value, string platformKey)
+        => value switch
+        {
+            string stored => stored == platformKey,
+            IEnumerable<string> values => values.Contains(platformKey, StringComparer.Ordinal),
+            System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.String } element =>
+                element.GetString() == platformKey,
+            System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.Array } element =>
+                element.EnumerateArray().Any(item =>
+                    item.ValueKind == System.Text.Json.JsonValueKind.String &&
+                    item.GetString() == platformKey),
+            _ => false,
+        };
 }

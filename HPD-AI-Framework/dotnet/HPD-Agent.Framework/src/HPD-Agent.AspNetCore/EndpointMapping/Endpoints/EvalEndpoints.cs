@@ -1,12 +1,14 @@
 using HPD.Agent.AspNetCore.EndpointMapping;
 using HPD.Agent.Evaluations.Batch;
 using HPD.Agent.Evaluations;
+using HPD.Agent.Evaluations.RedTeam;
 using HPD.Agent.Evaluations.Storage;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.AI.Evaluation;
 
 namespace HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 
@@ -21,6 +23,7 @@ internal static class EvalEndpoints
         var analytics = group.MapGroup("/analytics");
         var runs = group.MapGroup("/runs");
         var datasets = group.MapGroup("/datasets");
+        var redTeam = group.MapGroup("/red-team");
 
         // Score queries
         group.MapGet("/scores", (string evaluatorName, DateTimeOffset? from, DateTimeOffset? to, CancellationToken ct)
@@ -46,6 +49,10 @@ internal static class EvalEndpoints
             .WithSummary("Write a score record");
 
         // Analytics
+        group.MapGet("/evaluators/catalog", () => GetEvaluatorCatalog())
+            .WithName("GetEvaluatorCatalog")
+            .WithSummary("Get built-in evaluator catalog metadata");
+
         analytics.MapGet("/evaluators", (DateTimeOffset? from, DateTimeOffset? to, CancellationToken ct)
             => GetEvaluatorSummary(from, to, scoreStore, ct))
             .WithName("GetEvaluatorSummary")
@@ -95,6 +102,39 @@ internal static class EvalEndpoints
             => GetCost(from, to, scoreStore, ct))
             .WithName("GetCost")
             .WithSummary("Get cost breakdown");
+
+        analytics.MapGet("/safety", (DateTimeOffset? from, DateTimeOffset? to, CancellationToken ct)
+            => GetSafetyAnalytics(from, to, scoreStore, ct))
+            .WithName("GetSafetyAnalytics")
+            .WithSummary("Get safety evaluator summary analytics");
+
+        analytics.MapGet("/red-team", (DateTimeOffset? from, DateTimeOffset? to, CancellationToken ct)
+            => GetRedTeamAnalytics(from, to, scoreStore, ct))
+            .WithName("GetRedTeamAnalytics")
+            .WithSummary("Get red-team attack success analytics");
+
+        analytics.MapGet("/red-team/by-plugin", (DateTimeOffset? from, DateTimeOffset? to, CancellationToken ct)
+            => GetRedTeamAttackSuccessByPlugin(from, to, scoreStore, ct))
+            .WithName("GetRedTeamAttackSuccessByPlugin")
+            .WithSummary("Get red-team attack success rate grouped by plugin");
+
+        analytics.MapGet("/red-team/by-strategy", (DateTimeOffset? from, DateTimeOffset? to, CancellationToken ct)
+            => GetRedTeamAttackSuccessByStrategy(from, to, scoreStore, ct))
+            .WithName("GetRedTeamAttackSuccessByStrategy")
+            .WithSummary("Get red-team attack success rate grouped by strategy");
+
+        analytics.MapGet("/red-team/findings", (DateTimeOffset? from, DateTimeOffset? to, CancellationToken ct)
+            => GetRedTeamFindings(from, to, scoreStore, ct))
+            .WithName("GetRedTeamFindings")
+            .WithSummary("Get persisted red-team findings");
+
+        redTeam.MapGet("/plugins", () => GetRedTeamPluginCatalog())
+            .WithName("GetRedTeamPluginCatalog")
+            .WithSummary("Get built-in red-team plugin catalog metadata");
+
+        redTeam.MapGet("/strategies", () => GetRedTeamStrategyCatalog())
+            .WithName("GetRedTeamStrategyCatalog")
+            .WithSummary("Get built-in red-team strategy catalog metadata");
 
         // Full run reporting
         runs.MapGet("/", (string? executionName, string? scenarioName, string? iterationName, CancellationToken ct)
@@ -286,6 +326,9 @@ internal static class EvalEndpoints
     }
 
     // ── Analytics ─────────────────────────────────────────────────────────────
+
+    private static Ok<List<EvaluatorCatalogItem>> GetEvaluatorCatalog()
+        => TypedResults.Ok(EvaluatorCatalog.Items);
 
     private static async Task<Results<Ok<List<EvaluatorSummary>>, ContentHttpResult, ValidationProblem>> GetEvaluatorSummary(
         DateTimeOffset? from,
@@ -488,6 +531,205 @@ internal static class EvalEndpoints
             });
         }
     }
+
+    private static async Task<Results<Ok<SafetyAnalyticsSummary>, ContentHttpResult, ValidationProblem>> GetSafetyAnalytics(
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        IScoreStore? scoreStore,
+        CancellationToken ct)
+    {
+        if (scoreStore is null) return NoStore();
+        try
+        {
+            var records = new List<ScoreRecord>();
+            foreach (var item in EvaluatorCatalog.Items.Where(i => i.Category == "Safety"))
+            {
+                await foreach (var record in scoreStore.GetScoresAsync(item.Name, from, to, ct))
+                    records.Add(record);
+            }
+
+            var total = 0;
+            var passed = 0;
+            var failed = 0;
+            var scoreSum = 0.0;
+            var scoredCount = 0;
+            var byCategory = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var bySeverity = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var byRecommendedAction = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var record in records)
+            {
+                var metric = FindSafetyMetric(record);
+                if (metric is null)
+                    continue;
+
+                total++;
+                if (TryGetMetadata(metric, "safety-passed") is { } passedText &&
+                    bool.TryParse(passedText, out var metricPassed))
+                {
+                    if (metricPassed) passed++;
+                    else failed++;
+                }
+                else if (metric.Interpretation?.Failed == true)
+                {
+                    failed++;
+                }
+                else
+                {
+                    passed++;
+                }
+
+                if (record.Result.Metrics.Values.OfType<NumericMetric>().FirstOrDefault(m => m.Metadata?.ContainsKey("safety-category") == true) is { Value: { } score })
+                {
+                    scoreSum += score;
+                    scoredCount++;
+                }
+
+                Increment(byCategory, TryGetMetadata(metric, "safety-category") ?? "unknown");
+                Increment(bySeverity, TryGetMetadata(metric, "safety-severity") ?? "unknown");
+                Increment(byRecommendedAction, TryGetMetadata(metric, "safety-recommended-action") ?? "unknown");
+            }
+
+            return TypedResults.Ok(new SafetyAnalyticsSummary(
+                total,
+                passed,
+                failed,
+                total == 0 ? 0.0 : (double)passed / total,
+                scoredCount == 0 ? 0.0 : scoreSum / scoredCount,
+                byCategory,
+                bySeverity,
+                byRecommendedAction));
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["GetSafetyAnalyticsError"] = [ex.Message]
+            });
+        }
+    }
+
+    private static EvaluationMetric? FindSafetyMetric(ScoreRecord record)
+    {
+        foreach (var metric in record.Result.Metrics.Values)
+        {
+            if (metric.Metadata?.ContainsKey("safety-category") == true)
+                return metric;
+        }
+
+        return null;
+    }
+
+    private static string? TryGetMetadata(EvaluationMetric metric, string key)
+    {
+        if (metric.Metadata?.TryGetValue(key, out var value) != true)
+            return null;
+
+        return value?.ToString();
+    }
+
+    private static void Increment(IDictionary<string, int> counts, string key)
+    {
+        counts[key] = counts.TryGetValue(key, out var current) ? current + 1 : 1;
+    }
+
+    private static async Task<Results<Ok<RedTeamAnalyticsSummary>, ContentHttpResult, ValidationProblem>> GetRedTeamAnalytics(
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        IScoreStore? scoreStore,
+        CancellationToken ct)
+    {
+        if (scoreStore is null) return NoStore();
+        try
+        {
+            var attackSuccessRate = await scoreStore.GetAttackSuccessRateAsync(from, to, ct);
+            var byPlugin = await scoreStore.GetAttackSuccessRateByPluginAsync(from, to, ct);
+            var byStrategy = await scoreStore.GetAttackSuccessRateByStrategyAsync(from, to, ct);
+            var findings = await scoreStore.GetRedTeamFindingsAsync(from, to, ct);
+
+            return TypedResults.Ok(new RedTeamAnalyticsSummary(
+                attackSuccessRate,
+                byPlugin.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal),
+                byStrategy.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal),
+                findings.Count));
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["GetRedTeamAnalyticsError"] = [ex.Message]
+            });
+        }
+    }
+
+    private static async Task<Results<Ok<Dictionary<string, double>>, ContentHttpResult, ValidationProblem>> GetRedTeamAttackSuccessByPlugin(
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        IScoreStore? scoreStore,
+        CancellationToken ct)
+    {
+        if (scoreStore is null) return NoStore();
+        try
+        {
+            var result = await scoreStore.GetAttackSuccessRateByPluginAsync(from, to, ct);
+            return TypedResults.Ok(result.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal));
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["GetRedTeamAttackSuccessByPluginError"] = [ex.Message]
+            });
+        }
+    }
+
+    private static async Task<Results<Ok<Dictionary<string, double>>, ContentHttpResult, ValidationProblem>> GetRedTeamAttackSuccessByStrategy(
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        IScoreStore? scoreStore,
+        CancellationToken ct)
+    {
+        if (scoreStore is null) return NoStore();
+        try
+        {
+            var result = await scoreStore.GetAttackSuccessRateByStrategyAsync(from, to, ct);
+            return TypedResults.Ok(result.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal));
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["GetRedTeamAttackSuccessByStrategyError"] = [ex.Message]
+            });
+        }
+    }
+
+    private static async Task<Results<Ok<List<RedTeamFinding>>, ContentHttpResult, ValidationProblem>> GetRedTeamFindings(
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        IScoreStore? scoreStore,
+        CancellationToken ct)
+    {
+        if (scoreStore is null) return NoStore();
+        try
+        {
+            var findings = await scoreStore.GetRedTeamFindingsAsync(from, to, ct);
+            return TypedResults.Ok(findings.ToList());
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["GetRedTeamFindingsError"] = [ex.Message]
+            });
+        }
+    }
+
+    private static Ok<List<RedTeamPluginCatalogItem>> GetRedTeamPluginCatalog()
+        => TypedResults.Ok(RedTeamCatalog.Plugins);
+
+    private static Ok<List<RedTeamStrategyCatalogItem>> GetRedTeamStrategyCatalog()
+        => TypedResults.Ok(RedTeamCatalog.Strategies);
 
     // ── Full run reporting ───────────────────────────────────────────────────
 
@@ -808,6 +1050,165 @@ internal static class EvalEndpoints
 internal sealed record RateResponse(string EvaluatorName, double PassRate);
 
 internal sealed record FailureRateResponse(string EvaluatorName, double FailureRate);
+
+internal sealed record EvaluatorCatalogItem(
+    string Name,
+    string Category,
+    string Kind,
+    IReadOnlyList<string> MetricNames,
+    string DefaultPolicy,
+    bool RequiresJudge,
+    string Description);
+
+internal sealed record SafetyAnalyticsSummary(
+    int TotalCount,
+    int PassedCount,
+    int FailedCount,
+    double PassRate,
+    double AverageSafetyScore,
+    IReadOnlyDictionary<string, int> ByCategory,
+    IReadOnlyDictionary<string, int> BySeverity,
+    IReadOnlyDictionary<string, int> ByRecommendedAction);
+
+internal sealed record RedTeamAnalyticsSummary(
+    double AttackSuccessRate,
+    IReadOnlyDictionary<string, double> AttackSuccessRateByPlugin,
+    IReadOnlyDictionary<string, double> AttackSuccessRateByStrategy,
+    int FindingCount);
+
+internal sealed record RedTeamPluginCatalogItem(
+    string Id,
+    string DisplayName,
+    string Category);
+
+internal sealed record RedTeamStrategyCatalogItem(
+    string Id,
+    string DisplayName);
+
+internal static class EvaluatorCatalog
+{
+    internal static readonly List<EvaluatorCatalogItem> Items =
+    [
+        new("Contains Any", "Assertion", "Deterministic", ["Contains Any"], "MustAlwaysPass", false, "Passes when the output contains at least one expected substring."),
+        new("Contains All", "Assertion", "Deterministic", ["Contains All"], "MustAlwaysPass", false, "Passes when the output contains all expected substrings."),
+        new("Case-Insensitive Contains", "Assertion", "Deterministic", ["Case-Insensitive Contains"], "MustAlwaysPass", false, "Passes when the output contains a substring ignoring case."),
+        new("Starts With", "Assertion", "Deterministic", ["Starts With"], "MustAlwaysPass", false, "Passes when the output starts with the expected prefix."),
+        new("Word Count", "Assertion", "Deterministic", ["Word Count"], "MustAlwaysPass", false, "Checks exact, minimum, or maximum output word count."),
+        new("Levenshtein Similarity", "Assertion", "Deterministic", ["Levenshtein Similarity"], "MustAlwaysPass", false, "Reports normalized Levenshtein similarity to expected text."),
+        new("Refusal", "Assertion", "Deterministic", ["Refusal"], "MustAlwaysPass", false, "Detects common refusal language in the response."),
+        new("JSON Validity", "Structured Output", "Deterministic", ["JSON Validity"], "MustAlwaysPass", false, "Passes when the output is parseable JSON."),
+        new("XML Validity", "Structured Output", "Deterministic", ["XML Validity"], "MustAlwaysPass", false, "Passes when the output is well-formed XML."),
+        new("HTML Shape", "Structured Output", "Deterministic", ["HTML Shape"], "MustAlwaysPass", false, "Checks that the output has plausible HTML shape and optional required tags."),
+        new("SQL Shape", "Structured Output", "Deterministic", ["SQL Shape"], "MustAlwaysPass", false, "Checks that the output has plausible SQL statement shape."),
+        new("Latency", "Performance", "Deterministic", ["Latency"], "TrackTrend", false, "Reports turn latency in seconds."),
+        new("Max Cost", "Performance", "Deterministic", ["Max Cost"], "MustAlwaysPass", false, "Checks estimated turn cost from EvalContext metrics."),
+        new("Tool Call F1", "Tool Behavior", "Deterministic", ["Tool Call F1"], "MustAlwaysPass", false, "Reports unordered tool-call precision, recall, and F1."),
+        new("Not", "Composition", "Deterministic", ["Not (...)"], "MustAlwaysPass", false, "Inverts the primary metric of another evaluator."),
+        new("BLEU", "NLP", "Deterministic", ["BLEU"], "MustAlwaysPass", false, "Computes BLEU overlap against one or more reference responses using Microsoft's NLP evaluator."),
+        new("GLEU", "NLP", "Deterministic", ["GLEU"], "MustAlwaysPass", false, "Computes GLEU overlap against one or more reference responses using Microsoft's NLP evaluator."),
+        new("Text F1", "NLP", "Deterministic", ["F1"], "MustAlwaysPass", false, "Computes word-overlap F1 against a ground-truth response using Microsoft's NLP evaluator."),
+        new("ROUGE", "NLP", "Deterministic", ["ROUGE"], "MustAlwaysPass", false, "Computes HPD-native ROUGE-1, ROUGE-2, ROUGE-L, or ROUGE-S text overlap."),
+        new("METEOR", "NLP", "Deterministic", ["METEOR"], "MustAlwaysPass", false, "Computes a lightweight HPD-native METEOR-style alignment score with multiple references and fragmentation penalty."),
+        new("Content Harm", "Safety", "LLM Judge", ["Content Harm", "Content Harm Passed"], "TrackTrend", true, "Detect unsafe or harmful response content and agent actions."),
+        new("Hate/Harassment", "Safety", "LLM Judge", ["Hate/Harassment", "Hate/Harassment Passed"], "TrackTrend", true, "Detect hateful, discriminatory, abusive, or targeted harassment content."),
+        new("Violence Safety", "Safety", "LLM Judge", ["Violence Safety", "Violence Safety Passed"], "TrackTrend", true, "Detect violent threats, weaponization guidance, or encouragement of violence."),
+        new("Self-Harm Safety", "Safety", "LLM Judge", ["Self-Harm Safety", "Self-Harm Safety Passed"], "TrackTrend", true, "Detect unsafe self-harm handling while allowing supportive safe responses."),
+        new("Sexual Content Safety", "Safety", "LLM Judge", ["Sexual Content Safety", "Sexual Content Safety Passed"], "TrackTrend", true, "Detect sexual content policy risk."),
+        new("Prompt Injection", "Safety", "LLM Judge", ["Prompt Injection", "Prompt Injection Passed"], "TrackTrend", true, "Detect attempts to override instructions, exfiltrate hidden context, or manipulate tools."),
+        new("Jailbreak Attempt", "Safety", "LLM Judge", ["Jailbreak Attempt", "Jailbreak Attempt Passed"], "TrackTrend", true, "Detect roleplay bypasses, policy bypasses, and attempts to disable constraints."),
+        new("Sensitive Data Leak", "Safety", "LLM Judge", ["Sensitive Data Leak", "Sensitive Data Leak Passed"], "TrackTrend", true, "Detect leakage of secrets, credentials, private data, system prompts, or hidden reasoning."),
+        new("Protected Material", "Safety", "LLM Judge", ["Protected Material", "Protected Material Passed"], "TrackTrend", true, "Detect likely reproduction of protected or copyrighted material."),
+        new("Code Security Risk", "Safety", "LLM Judge", ["Code Security Risk", "Code Security Risk Passed"], "TrackTrend", true, "Detect code, commands, or tool actions that introduce security risk."),
+        new("Ungrounded Sensitive Attributes", "Safety", "LLM Judge", ["Ungrounded Sensitive Attributes", "Ungrounded Sensitive Attributes Passed"], "TrackTrend", true, "Detect unsupported inferences about protected or sensitive human attributes."),
+        new("Policy Compliance", "Safety", "LLM Judge", ["Policy Compliance", "Policy Compliance Passed"], "TrackTrend", true, "Evaluate the response and agent actions against a caller-supplied safety policy."),
+    ];
+}
+
+internal static class RedTeamCatalog
+{
+    internal static readonly List<RedTeamPluginCatalogItem> Plugins =
+    [
+        .. BuildPluginItems(
+            new PromptInjectionPlugin(),
+            new IndirectPromptInjectionPlugin(),
+            new SystemPromptExtractionPlugin(),
+            new JailbreakPlugin(),
+            new ToolDiscoveryPlugin(),
+            new ToolAbusePlugin(),
+            new UnauthorizedActionPlugin(),
+            new DataExfiltrationPlugin(),
+            new CrossSessionLeakPlugin(),
+            new PiiLeakPlugin(),
+            new SecretLeakPlugin(),
+            new ShellInjectionPlugin(),
+            new SqlInjectionPlugin(),
+            new SsrfPlugin(),
+            new RbacViolationPlugin(),
+            new ObjectAccessViolationPlugin(),
+            new ExcessiveAgencyPlugin(),
+            new OverreliancePlugin(),
+            new UnverifiableClaimsPlugin(),
+            new PolicyBypassPlugin(),
+            new OffTopicHijackingPlugin(),
+            new AsciiSmugglingPlugin(),
+            new SpecialTokenInjectionPlugin(),
+            new DebugAccessPlugin(),
+            new ModelIdentificationPlugin(),
+            new ReasoningDosPlugin(),
+            new DivergentRepetitionPlugin(),
+            new ImitationPlugin(),
+            new CompetitorMentionPlugin(),
+            new GoalMisalignmentPlugin(),
+            new ContractsPlugin(),
+            new BflaPlugin(),
+            new McpToolAbusePlugin(),
+            new MemoryPoisoningPlugin(),
+            new ContextComplianceAttackPlugin(),
+            new MaliciousCodePlugin(),
+            new HarmfulContentPlugin(),
+            new BiasPlugin()),
+    ];
+
+    internal static readonly List<RedTeamStrategyCatalogItem> Strategies =
+    [
+        .. BuildStrategyItems(
+            new BasicStrategy(),
+            new Base64Strategy(),
+            new HexStrategy(),
+            new Rot13Strategy(),
+            new LeetspeakStrategy(),
+            new CamelCaseStrategy(),
+            new MorseStrategy(),
+            new PigLatinStrategy(),
+            new EmojiStrategy(),
+            new HomoglyphStrategy(),
+            new UnicodeSmugglingStrategy(),
+            new MarkdownAuthorityStrategy(),
+            new AuthoritativeMarkupInjectionStrategy(),
+            new FakeSystemMessageStrategy(),
+            new RoleplayJailbreakStrategy(),
+            new JailbreakTemplateStrategy(),
+            new CompositeJailbreakStrategy(),
+            new TreeJailbreakStrategy(),
+            new LikertJailbreakStrategy(),
+            new MathPromptStrategy(),
+            new CitationStrategy(),
+            new MischievousUserStrategy(),
+            new MultiTurnEscalationStrategy(),
+            new CrescendoStrategy(),
+            new BestOfNStrategy(),
+            new RetryMutationStrategy(),
+            new LayeredStrategy([new BasicStrategy()]),
+            new IndirectContentStrategy(),
+            new CustomDelegateStrategy("custom", "Custom", static (redTeamCase, _) => redTeamCase)),
+    ];
+
+    private static IEnumerable<RedTeamPluginCatalogItem> BuildPluginItems(params IRedTeamPlugin[] plugins)
+        => plugins.Select(p => new RedTeamPluginCatalogItem(p.Id, p.DisplayName, p.Category.ToString()));
+
+    private static IEnumerable<RedTeamStrategyCatalogItem> BuildStrategyItems(params IRedTeamStrategy[] strategies)
+        => strategies.Select(s => new RedTeamStrategyCatalogItem(s.Id, s.DisplayName));
+}
 
 /// <summary>
 /// Flat DTO for POST /evals/scores. Uses string for enum fields so external callers

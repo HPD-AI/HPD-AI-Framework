@@ -60,6 +60,26 @@ public class AttributeTests
         usage.ValidOn.Should().HaveFlag(AttributeTargets.Method);
     }
 
+    // ── HpdWebhookMethodsAttribute ────────────────────────────────────
+
+    [Fact]
+    public void HpdWebhookMethodsAttribute_StoresMethods()
+    {
+        var attr = new HpdWebhookMethodsAttribute("GET", "POST");
+
+        attr.Methods.Should().Equal("GET", "POST");
+    }
+
+    [Fact]
+    public void HpdWebhookMethodsAttribute_TargetsClass()
+    {
+        var usage = (AttributeUsageAttribute)typeof(HpdWebhookMethodsAttribute)
+            .GetCustomAttributes(typeof(AttributeUsageAttribute), false)
+            .Single();
+
+        usage.ValidOn.Should().HaveFlag(AttributeTargets.Class);
+    }
+
     // ── HpdPreDispatchAttribute ───────────────────────────────────────
 
     [Fact]

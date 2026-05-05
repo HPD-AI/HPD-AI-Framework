@@ -189,6 +189,73 @@ public sealed class ThresholdGate : HpdEvaluatorBase
     }
 }
 
+// ── NotEvaluator ────────────────────────────────────────────────────────────
+
+/// <summary>
+/// Wraps any evaluator and passes when the wrapped evaluator's primary metric fails.
+/// Useful for config-level inverse assertions such as "not contains" or "tool not used".
+/// </summary>
+public sealed class NotEvaluator : HpdEvaluatorBase
+{
+    private readonly IEvaluator _inner;
+    private readonly string _metricName;
+
+    public NotEvaluator(IEvaluator inner)
+    {
+        _inner = inner;
+        _metricName = $"Not ({inner.EvaluationMetricNames.FirstOrDefault() ?? inner.GetType().Name})";
+    }
+
+    public override IReadOnlyCollection<string> EvaluationMetricNames => [_metricName];
+
+    public override async ValueTask<EvaluationResult> EvaluateAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatResponse modelResponse,
+        ChatConfiguration? chatConfiguration = null,
+        IEnumerable<EvaluationContext>? additionalContext = null,
+        CancellationToken cancellationToken = default)
+    {
+        var metric = new BooleanMetric(_metricName);
+        var result = new EvaluationResult(metric);
+
+        EvaluationResult innerResult;
+        try
+        {
+            innerResult = await _inner.EvaluateAsync(
+                messages, modelResponse, chatConfiguration, additionalContext, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            metric.AddDiagnostics(EvaluationDiagnostic.Error($"Inner evaluator threw: {ex.Message}"));
+            return result;
+        }
+
+        var innerMetric = innerResult.Metrics.Values.FirstOrDefault();
+        if (innerMetric is null)
+        {
+            metric.AddDiagnostics(EvaluationDiagnostic.Warning("Inner evaluator returned no metrics."));
+            return result;
+        }
+
+        var innerPassed = IsPassing(innerMetric);
+        metric.Value = !innerPassed;
+        metric.Reason = $"Inner metric '{innerMetric.Name}' {(innerPassed ? "passed" : "failed")}; inverted result is {metric.Value}. {innerMetric.Reason}";
+        metric.MarkAsHpdBuiltIn();
+        return result;
+    }
+
+    private static bool IsPassing(EvaluationMetric metric) => metric switch
+    {
+        { Interpretation.Failed: false } => true,
+        { Interpretation.Failed: true } => false,
+        BooleanMetric bm => bm.Value == true,
+        NumericMetric nm => nm.Value.HasValue && nm.Value.Value > 0,
+        StringMetric sm => !string.IsNullOrWhiteSpace(sm.Value),
+        _ => false,
+    };
+}
+
 // ── SemanticFieldEqualityEvaluator ───────────────────────────────────────────
 
 /// <summary>

@@ -171,6 +171,35 @@ public class PlatformSessionMapperTests : IDisposable
         branchId.Should().Be("main");
     }
 
+    // ── BindThreadAsync ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task BindThreadAsync_NewPlatformKey_ResolvesToExistingSession()
+    {
+        var (sessionId, branchId) = await _mapper.ResolveAsync("discord:guild:channel:");
+
+        await _mapper.BindThreadAsync("discord:guild:channel:thread", sessionId, branchId);
+
+        var (resolvedSessionId, resolvedBranchId) =
+            await _mapper.ResolveAsync("discord:guild:channel:thread");
+        resolvedSessionId.Should().Be(sessionId);
+        resolvedBranchId.Should().Be(branchId);
+    }
+
+    [Fact]
+    public async Task BindThreadAsync_DuplicatePlatformKey_DoesNotDuplicateAlias()
+    {
+        var (sessionId, branchId) = await _mapper.ResolveAsync("discord:guild:channel:");
+
+        await _mapper.BindThreadAsync("discord:guild:channel:thread", sessionId, branchId);
+        await _mapper.BindThreadAsync("discord:guild:channel:thread", sessionId, branchId);
+
+        var session = await _store.LoadSessionAsync(sessionId);
+        session.Should().NotBeNull();
+        session!.Metadata["platformKeyAliases"].Should()
+            .BeEquivalentTo(new[] { "discord:guild:channel:thread" });
+    }
+
     // ── ResolveAsync — cancellation ───────────────────────────────────
 
     [Fact]

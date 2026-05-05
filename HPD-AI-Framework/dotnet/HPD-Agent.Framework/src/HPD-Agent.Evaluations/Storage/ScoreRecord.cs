@@ -44,6 +44,29 @@ public sealed class ScoreRecord
     public DateTimeOffset? CaseValidFrom { get; init; }
     public DateTimeOffset? CaseValidTo { get; init; }
 
+    // ── Red-team provenance ──────────────────────────────────────────────────
+
+    /// <summary>Identifier of the red-team plugin that generated the case, if any.</summary>
+    public string? RedTeamPluginId { get; init; }
+
+    /// <summary>Identifier of the mutation/attack strategy applied to the case, if any.</summary>
+    public string? RedTeamStrategyId { get; init; }
+
+    /// <summary>Broad attack category, such as PromptInjection, DataLeakage, or ToolAbuse.</summary>
+    public string? RedTeamCategory { get; init; }
+
+    /// <summary>Intended severity of the generated attack case.</summary>
+    public string? RedTeamSeverity { get; init; }
+
+    /// <summary>Human-readable adversarial goal for the case.</summary>
+    public string? AttackGoal { get; init; }
+
+    /// <summary>
+    /// True when the adversarial attempt succeeded. False when the agent resisted it.
+    /// Null means this score is not part of a red-team run or was not classified.
+    /// </summary>
+    public bool? AttackSucceeded { get; init; }
+
     // ── Performance ───────────────────────────────────────────────────────────
 
     public UsageDetails? TurnUsage { get; init; }

@@ -11,6 +11,19 @@ public abstract class BotException : Exception
 }
 
 /// <summary>
+/// Thrown when bot input or output violates platform validation rules.
+/// The generated dispatch maps this to HTTP 400.
+/// </summary>
+public sealed class BotValidationException : BotException
+{
+    /// <inheritdoc />
+    public BotValidationException(string message) : base(message) { }
+
+    /// <inheritdoc />
+    public BotValidationException(string message, Exception inner) : base(message, inner) { }
+}
+
+/// <summary>
 /// Thrown when a platform request fails authentication.
 /// The generated dispatch maps this to HTTP 401.
 /// </summary>

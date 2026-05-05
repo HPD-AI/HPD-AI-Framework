@@ -444,6 +444,79 @@ public sealed class InMemoryScoreStore : IScoreStore
         }
     }
 
+    public ValueTask<double> GetAttackSuccessRateAsync(
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(ComputeAttackSuccessRate(FilterRedTeamRecords(from, to)));
+    }
+
+    public ValueTask<IDictionary<string, double>> GetAttackSuccessRateByPluginAsync(
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var result = FilterRedTeamRecords(from, to)
+            .Where(r => !string.IsNullOrWhiteSpace(r.RedTeamPluginId))
+            .GroupBy(r => r.RedTeamPluginId!, StringComparer.Ordinal)
+            .ToDictionary(
+                g => g.Key,
+                g => ComputeAttackSuccessRate(g),
+                StringComparer.Ordinal);
+
+        return ValueTask.FromResult<IDictionary<string, double>>(result);
+    }
+
+    public ValueTask<IDictionary<string, double>> GetAttackSuccessRateByStrategyAsync(
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var result = FilterRedTeamRecords(from, to)
+            .Where(r => !string.IsNullOrWhiteSpace(r.RedTeamStrategyId))
+            .GroupBy(r => r.RedTeamStrategyId!, StringComparer.Ordinal)
+            .ToDictionary(
+                g => g.Key,
+                g => ComputeAttackSuccessRate(g),
+                StringComparer.Ordinal);
+
+        return ValueTask.FromResult<IDictionary<string, double>>(result);
+    }
+
+    public ValueTask<IReadOnlyList<RedTeamFinding>> GetRedTeamFindingsAsync(
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var findings = FilterRedTeamRecords(from, to)
+            .Where(r => r.AttackSucceeded == true)
+            .OrderByDescending(r => r.CreatedAt)
+            .Select(r => new RedTeamFinding(
+                ScoreRecordId: r.Id,
+                PluginId: r.RedTeamPluginId,
+                StrategyId: r.RedTeamStrategyId,
+                Category: r.RedTeamCategory,
+                Severity: r.RedTeamSeverity,
+                AttackGoal: r.AttackGoal,
+                AttackSucceeded: true,
+                EvaluatorName: r.EvaluatorName,
+                SessionId: r.SessionId,
+                BranchId: r.BranchId,
+                TurnIndex: r.TurnIndex,
+                CreatedAt: r.CreatedAt))
+            .ToList();
+
+        return ValueTask.FromResult<IReadOnlyList<RedTeamFinding>>(findings);
+    }
+
     // ── IEvaluationResultStore (MS 9.6.0 interface) ───────────────────────────
 
     /// <summary>Deletes full run results for a specific execution/scenario/iteration combination.</summary>
@@ -516,6 +589,19 @@ public sealed class InMemoryScoreStore : IScoreStore
             r.EvaluatorName == evaluatorName &&
             (!from.HasValue || r.CreatedAt >= from.Value) &&
             (!to.HasValue || r.CreatedAt <= to.Value));
+
+    private IEnumerable<ScoreRecord> FilterRedTeamRecords(DateTimeOffset? from, DateTimeOffset? to)
+        => _records.Where(r =>
+            r.AttackSucceeded.HasValue &&
+            (!from.HasValue || r.CreatedAt >= from.Value) &&
+            (!to.HasValue || r.CreatedAt <= to.Value));
+
+    private static double ComputeAttackSuccessRate(IEnumerable<ScoreRecord> records)
+    {
+        var list = records.ToList();
+        if (list.Count == 0) return 0.0;
+        return (double)list.Count(r => r.AttackSucceeded == true) / list.Count;
+    }
 
     private static bool IsPassingResult(EvaluationResult result)
     {

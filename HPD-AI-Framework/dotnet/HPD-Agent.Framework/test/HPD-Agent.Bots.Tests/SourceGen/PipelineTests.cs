@@ -84,6 +84,30 @@ public class PipelineTests
     }
 
     [Fact]
+    public void Pipeline_HasPreDispatch_UsesAttributedMethodName()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            using System.Threading.Tasks;
+            using Microsoft.AspNetCore.Http;
+            namespace Test;
+            [HpdBot("discord")]
+            public partial class DiscordBot
+            {
+                [HpdPreDispatch]
+                private async Task<IResult?> VerifyDiscordAsync(HttpContext ctx, byte[] bodyBytes)
+                    => null;
+            }
+            """;
+
+        var result   = SourceGenHelper.RunGenerator(source, out _);
+        var dispatch = SourceGenHelper.GetGeneratedFile(result, "DiscordBotDispatch.g.cs");
+
+        dispatch!.Should().Contain("await VerifyDiscordAsync(ctx, bodyBytes)");
+        dispatch.Should().NotContain("PreDispatchAsync(ctx, bodyBytes)");
+    }
+
+    [Fact]
     public void Pipeline_HasBodyExtractor_EmitsHookCallInDispatch()
     {
         var source = """
@@ -104,6 +128,29 @@ public class PipelineTests
 
         dispatch!.Should().Contain("ExtractDispatch(ctx, bodyBytes)");
         dispatch.Should().NotContain("ExtractEventType(");
+    }
+
+    [Fact]
+    public void Pipeline_HasBodyExtractor_UsesAttributedMethodName()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            using Microsoft.AspNetCore.Http;
+            namespace Test;
+            [HpdBot("github")]
+            public partial class GitHubBot
+            {
+                [HpdBodyExtractor]
+                private (string? eventType, byte[] dispatchBytes) ExtractGitHubEvent(HttpContext ctx, byte[] bodyBytes)
+                    => (ctx.Request.Headers["x-github-event"].ToString(), bodyBytes);
+            }
+            """;
+
+        var result   = SourceGenHelper.RunGenerator(source, out _);
+        var dispatch = SourceGenHelper.GetGeneratedFile(result, "GitHubBotDispatch.g.cs");
+
+        dispatch!.Should().Contain("ExtractGitHubEvent(ctx, bodyBytes)");
+        dispatch.Should().NotContain("ExtractDispatch(ctx, bodyBytes)");
     }
 
     // ── StreamingInfo extraction ──────────────────────────────────────
@@ -202,6 +249,80 @@ public class PipelineTests
         // so [WebhookPayload]-only source produces no generated files at all.
         names.Should().NotContain(n => n.Contains("Registration") || n.Contains("Dispatch") || n == "BotRegistry.g.cs");
         names.Should().NotContain("BotsJsonSerializerContext.g.cs");
+    }
+
+    // ── ThreadId extraction ───────────────────────────────────────────
+
+    [Fact]
+    public void Pipeline_ThreadId_GeneratesFormatAndParse()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            namespace Test;
+            [ThreadId("discord:{GuildId}:{ChannelId}:{ThreadId}")]
+            public partial record DiscordThreadId(string GuildId, string ChannelId, string ThreadId = "");
+            """;
+
+        var result = SourceGenHelper.RunGenerator(source, out var compilation);
+        var threadId = SourceGenHelper.GetGeneratedFile(result, "DiscordThreadIdThreadId.g.cs");
+
+        threadId.Should().NotBeNull();
+        threadId!.Should().Contain("public static string Format(");
+        threadId.Should().Contain("string threadId = @\"\"");
+        threadId.Should().Contain("public static DiscordThreadId Parse(string value)");
+        SourceGenHelper.GetCompilationErrors(compilation).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Pipeline_ThreadId_MissingSlotProperty_EmitsDiagnostic()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            namespace Test;
+            [ThreadId("discord:{Guild}:{ChannelId}")]
+            public partial record DiscordThreadId(string GuildId, string ChannelId);
+            """;
+
+        var result = SourceGenHelper.RunGenerator(source, out _);
+
+        result.Diagnostics.Should().Contain(d => d.Id == "HPDA007");
+    }
+
+    [Fact]
+    public void Pipeline_ThreadId_SlotMustBePrimaryConstructorProperty()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            namespace Test;
+            [ThreadId("sample:{Id}:{Helper}")]
+            public partial record SampleThreadId(string Id)
+            {
+                public string Helper => "derived";
+            }
+            """;
+
+        var result = SourceGenHelper.RunGenerator(source, out _);
+
+        result.Diagnostics.Should().Contain(d => d.Id == "HPDA007");
+    }
+
+    [Fact]
+    public void Pipeline_ThreadId_EscapesFormatSlotsInsideGeneratedErrors()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            namespace Test;
+            [ThreadId("discord:{GuildId}:{ChannelId}:{ThreadId}")]
+            public partial record DiscordThreadId(string GuildId, string ChannelId, string ThreadId = "");
+            """;
+
+        var result = SourceGenHelper.RunGenerator(source, out var compilation);
+        var threadId = SourceGenHelper.GetGeneratedFile(result, "DiscordThreadIdThreadId.g.cs");
+
+        threadId.Should().NotBeNull();
+        threadId!.Should().Contain("discord:{{GuildId}}:{{ChannelId}}:{{ThreadId}}");
+        threadId.Should().NotContain("format 'discord:{GuildId}:{ChannelId}:{ThreadId}'");
+        SourceGenHelper.GetCompilationErrors(compilation).Should().BeEmpty();
     }
 
     [Fact]

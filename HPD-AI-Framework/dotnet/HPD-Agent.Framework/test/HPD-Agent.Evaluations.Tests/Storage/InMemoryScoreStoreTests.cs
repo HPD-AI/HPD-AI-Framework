@@ -94,6 +94,35 @@ public sealed class InMemoryScoreStoreTests
             TurnIndex = 0,
         };
 
+    private static ScoreRecord MakeRedTeamRecord(
+        bool attackSucceeded,
+        string pluginId = "prompt-injection",
+        string strategyId = "basic",
+        string category = "PromptInjection",
+        string severity = "High",
+        string attackGoal = "Reveal hidden instructions",
+        DateTimeOffset? createdAt = null) =>
+        new()
+        {
+            Id = Guid.NewGuid().ToString(),
+            EvaluatorName = "PromptInjectionEvaluator",
+            EvaluatorVersion = "1.0.0",
+            Result = new EvaluationResult(new BooleanMetric("Prompt Injection Safe") { Value = !attackSucceeded }),
+            Source = EvaluationSource.Test,
+            SessionId = "sess-1",
+            BranchId = "branch-1",
+            TurnIndex = 0,
+            AgentName = "TestAgent",
+            Policy = EvalPolicy.MustAlwaysPass,
+            CreatedAt = createdAt ?? DateTimeOffset.UtcNow,
+            RedTeamPluginId = pluginId,
+            RedTeamStrategyId = strategyId,
+            RedTeamCategory = category,
+            RedTeamSeverity = severity,
+            AttackGoal = attackGoal,
+            AttackSucceeded = attackSucceeded,
+        };
+
     // ── Write / Read ──────────────────────────────────────────────────────────
 
     [Fact]
@@ -454,6 +483,113 @@ public sealed class InMemoryScoreStoreTests
 
         var points = await store.GetRiskAutonomyDistributionAsync();
         points.Should().BeEmpty();
+    }
+
+    // ── Red-team analytics ───────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetAttackSuccessRate_NoRedTeamScores_ReturnsZero()
+    {
+        var store = new InMemoryScoreStore();
+        await store.WriteScoreAsync(MakeBoolRecord("RegularEvaluator", passed: false));
+
+        var rate = await store.GetAttackSuccessRateAsync();
+
+        rate.Should().Be(0.0);
+    }
+
+    [Fact]
+    public async Task GetAttackSuccessRate_HalfSucceeded_ReturnsHalf()
+    {
+        var store = new InMemoryScoreStore();
+        await store.WriteScoreAsync(MakeRedTeamRecord(attackSucceeded: true));
+        await store.WriteScoreAsync(MakeRedTeamRecord(attackSucceeded: false));
+        await store.WriteScoreAsync(MakeBoolRecord("RegularEvaluator", passed: false));
+
+        var rate = await store.GetAttackSuccessRateAsync();
+
+        rate.Should().BeApproximately(0.5, 0.001);
+    }
+
+    [Fact]
+    public async Task GetAttackSuccessRate_DateRange_FiltersRedTeamScores()
+    {
+        var store = new InMemoryScoreStore();
+        var now = DateTimeOffset.UtcNow;
+        await store.WriteScoreAsync(MakeRedTeamRecord(attackSucceeded: true, createdAt: now.AddDays(-2)));
+        await store.WriteScoreAsync(MakeRedTeamRecord(attackSucceeded: true, createdAt: now.AddHours(-1)));
+        await store.WriteScoreAsync(MakeRedTeamRecord(attackSucceeded: false, createdAt: now.AddMinutes(-30)));
+
+        var rate = await store.GetAttackSuccessRateAsync(
+            from: now.AddHours(-2),
+            to: now);
+
+        rate.Should().BeApproximately(0.5, 0.001);
+    }
+
+    [Fact]
+    public async Task GetAttackSuccessRateByPlugin_GroupsByPlugin()
+    {
+        var store = new InMemoryScoreStore();
+        await store.WriteScoreAsync(MakeRedTeamRecord(attackSucceeded: true, pluginId: "prompt-injection"));
+        await store.WriteScoreAsync(MakeRedTeamRecord(attackSucceeded: false, pluginId: "prompt-injection"));
+        await store.WriteScoreAsync(MakeRedTeamRecord(attackSucceeded: true, pluginId: "data-leakage"));
+
+        var rates = await store.GetAttackSuccessRateByPluginAsync();
+
+        rates["prompt-injection"].Should().BeApproximately(0.5, 0.001);
+        rates["data-leakage"].Should().Be(1.0);
+    }
+
+    [Fact]
+    public async Task GetAttackSuccessRateByStrategy_GroupsByStrategy()
+    {
+        var store = new InMemoryScoreStore();
+        await store.WriteScoreAsync(MakeRedTeamRecord(attackSucceeded: true, strategyId: "base64"));
+        await store.WriteScoreAsync(MakeRedTeamRecord(attackSucceeded: true, strategyId: "base64"));
+        await store.WriteScoreAsync(MakeRedTeamRecord(attackSucceeded: false, strategyId: "roleplay"));
+
+        var rates = await store.GetAttackSuccessRateByStrategyAsync();
+
+        rates["base64"].Should().Be(1.0);
+        rates["roleplay"].Should().Be(0.0);
+    }
+
+    [Fact]
+    public async Task GetRedTeamFindings_ReturnsOnlySucceededAttacksNewestFirst()
+    {
+        var store = new InMemoryScoreStore();
+        var now = DateTimeOffset.UtcNow;
+        await store.WriteScoreAsync(MakeRedTeamRecord(
+            attackSucceeded: true,
+            pluginId: "data-leakage",
+            strategyId: "markdown-authority",
+            category: "DataLeakage",
+            severity: "Critical",
+            attackGoal: "Extract secrets",
+            createdAt: now.AddMinutes(-1)));
+        await store.WriteScoreAsync(MakeRedTeamRecord(
+            attackSucceeded: false,
+            pluginId: "data-leakage",
+            createdAt: now));
+        await store.WriteScoreAsync(MakeRedTeamRecord(
+            attackSucceeded: true,
+            pluginId: "tool-abuse",
+            strategyId: "fake-system-message",
+            category: "ToolAbuse",
+            severity: "Medium",
+            attackGoal: "Call restricted tool",
+            createdAt: now.AddMinutes(1)));
+
+        var findings = await store.GetRedTeamFindingsAsync();
+
+        findings.Should().HaveCount(2);
+        findings[0].PluginId.Should().Be("tool-abuse");
+        findings[0].StrategyId.Should().Be("fake-system-message");
+        findings[0].Category.Should().Be("ToolAbuse");
+        findings[0].AttackGoal.Should().Be("Call restricted tool");
+        findings[1].PluginId.Should().Be("data-leakage");
+        findings[1].Severity.Should().Be("Critical");
     }
 
     // ── EvaluationRunRecord / IEvaluationResultStore methods ─────────────────

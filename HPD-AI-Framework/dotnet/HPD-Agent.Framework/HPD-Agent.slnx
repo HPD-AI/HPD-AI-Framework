@@ -31,6 +31,10 @@
   <Folder Name="/Bots/">
     <Project Path="src/HPD-Agent.Bots/HPD-Agent.Bots.Abstractions/HPD-Agent.Bots.Abstractions.csproj" />
     <Project Path="src/HPD-Agent.Bots/HPD-Agent.Bots.Slack/HPD-Agent.Bots.Slack.csproj" />
+    <Project Path="src/HPD-Agent.Bots/HPD-Agent.Bots.Discord/HPD-Agent.Bots.Discord.csproj" />
+    <Project Path="src/HPD-Agent.Bots/HPD-Agent.Bots.Teams/HPD-Agent.Bots.Teams.csproj" />
+    <Project Path="src/HPD-Agent.Bots/HPD-Agent.Bots.Telegram/HPD-Agent.Bots.Telegram.csproj" />
+    <Project Path="src/HPD-Agent.Bots/HPD-Agent.Bots.WhatsApp/HPD-Agent.Bots.WhatsApp.csproj" />
     <Project Path="src/HPD-Agent.Bots/HPD-Agent.Bots.AspNetCore/HPD-Agent.Bots.AspNetCore.csproj" />
     <Project Path="src/HPD-Agent.Bots/HPD-Agent.Bots.SourceGenerator/HPD-Agent.Bots.SourceGenerator.csproj" />
   </Folder>

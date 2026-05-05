@@ -40,10 +40,12 @@ internal static class EvaluationExecutionHelpers
 
     internal static bool IsPassingMetric(EvaluationMetric metric) => metric switch
     {
+        { Interpretation.Failed: false } => true,
+        { Interpretation.Failed: true } => false,
         BooleanMetric bm => bm.Value == true,
         NumericMetric nm => nm.Value.HasValue && nm.Value.Value > 0,
         StringMetric sm => !string.IsNullOrWhiteSpace(sm.Value),
-        _ => metric.Interpretation?.Failed == false,
+        _ => false,
     };
 
     internal static bool IsFailingMetric(EvaluationMetric metric) =>

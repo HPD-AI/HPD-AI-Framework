@@ -7,6 +7,7 @@ using Microsoft.Extensions.AI.Evaluation;
 using HPD.Agent.Evaluations.Contexts;
 using HPD.Agent.Evaluations.Evaluators;
 using HPD.Agent.Evaluations.Integration;
+using HPD.Agent.Evaluations.RedTeam;
 using HPD.Agent.Evaluations.Storage;
 
 namespace HPD.Agent.Evaluations.Batch;
@@ -467,6 +468,14 @@ public static class RunEvals
                 CaseVersion = evalCase.Version,
                 CaseValidFrom = evalCase.ValidFrom,
                 CaseValidTo = evalCase.ValidTo,
+                RedTeamPluginId = TryGetMetadataString(evalCase.Metadata, RedTeamCaseExtensions.MetadataPluginId),
+                RedTeamStrategyId = TryGetMetadataString(evalCase.Metadata, RedTeamCaseExtensions.MetadataStrategyId),
+                RedTeamCategory = TryGetMetadataString(evalCase.Metadata, RedTeamCaseExtensions.MetadataCategory),
+                RedTeamSeverity = TryGetMetadataString(evalCase.Metadata, RedTeamCaseExtensions.MetadataSeverity),
+                AttackGoal = TryGetMetadataString(evalCase.Metadata, RedTeamCaseExtensions.MetadataGoal),
+                AttackSucceeded = IsRedTeamCase(evalCase.Metadata)
+                    ? !IsPassingResult(result)
+                    : null,
                 TurnUsage = turnCtx.TurnUsage,
                 TurnDuration = turnCtx.Duration,
                 Attributes = turnCtx.Attributes,
@@ -506,6 +515,33 @@ public static class RunEvals
         return evaluator is HpdDeterministicEvaluatorBase
             ? EvalPolicy.MustAlwaysPass
             : EvalPolicy.TrackTrend;
+    }
+
+    private static bool IsRedTeamCase(IDictionary<string, object>? metadata)
+        => !string.IsNullOrWhiteSpace(TryGetMetadataString(metadata, RedTeamCaseExtensions.MetadataPluginId));
+
+    private static string? TryGetMetadataString(IDictionary<string, object>? metadata, string key)
+    {
+        if (metadata is null || !metadata.TryGetValue(key, out var value) || value is null)
+            return null;
+
+        if (value is string text)
+            return string.IsNullOrWhiteSpace(text) ? null : text;
+
+        return value.ToString();
+    }
+
+    private static bool IsPassingResult(EvaluationResult result)
+    {
+        foreach (var (_, metric) in result.Metrics)
+        {
+            if (metric is BooleanMetric bm && bm.Value == false)
+                return false;
+            if (metric is NumericMetric nm && nm.Value.HasValue && nm.Value.Value < 0.5)
+                return false;
+        }
+
+        return true;
     }
 
     private static bool NeedsJudgeChatConfiguration(IEvaluator evaluator) =>

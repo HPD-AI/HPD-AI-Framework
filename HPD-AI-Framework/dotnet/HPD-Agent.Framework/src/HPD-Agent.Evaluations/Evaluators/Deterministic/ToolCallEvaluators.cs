@@ -177,3 +177,55 @@ public sealed class ToolCallOrderEvaluator(string[] expectedOrder) : HpdDetermin
         return ValueTask.FromResult(new EvaluationResult(metric));
     }
 }
+
+/// <summary>NumericMetric 0-1 — unordered precision/recall/F1 over expected tool calls.</summary>
+public sealed class ToolCallF1Evaluator(params string[] expectedTools) : HpdDeterministicEvaluatorBase
+{
+    public override IReadOnlyCollection<string> EvaluationMetricNames => ["Tool Call F1"];
+
+    protected override ValueTask<EvaluationResult> EvaluateDeterministicAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatResponse modelResponse,
+        IEnumerable<EvaluationContext>? additionalContext,
+        CancellationToken cancellationToken)
+    {
+        var metric = new NumericMetric("Tool Call F1");
+        var ctx = additionalContext?.OfType<TurnEvaluationContextWrapper>().FirstOrDefault()?.Context;
+
+        if (ctx is null)
+        {
+            metric.AddDiagnostics(EvaluationDiagnostic.Error("TurnEvaluationContext not available."));
+            return ValueTask.FromResult(new EvaluationResult(metric));
+        }
+
+        var expected = CountByName(expectedTools);
+        var actual = CountByName(ctx.ToolCalls.Select(t => t.Name));
+
+        var truePositives = expected.Sum(kvp =>
+            Math.Min(kvp.Value, actual.TryGetValue(kvp.Key, out var actualCount) ? actualCount : 0));
+        var actualTotal = actual.Values.Sum();
+        var expectedTotal = expected.Values.Sum();
+
+        var precision = actualTotal == 0 ? expectedTotal == 0 ? 1.0 : 0.0 : (double)truePositives / actualTotal;
+        var recall = expectedTotal == 0 ? actualTotal == 0 ? 1.0 : 0.0 : (double)truePositives / expectedTotal;
+        var f1 = precision + recall == 0 ? 0.0 : 2.0 * precision * recall / (precision + recall);
+
+        metric.Value = Math.Round(f1, 4);
+        metric.Reason = $"Tool-call precision={precision:F4}, recall={recall:F4}, F1={f1:F4}.";
+        metric.AddOrUpdateMetadata("tool-call-precision", precision.ToString("F4", System.Globalization.CultureInfo.InvariantCulture));
+        metric.AddOrUpdateMetadata("tool-call-recall", recall.ToString("F4", System.Globalization.CultureInfo.InvariantCulture));
+        metric.MarkAsHpdBuiltIn();
+        return ValueTask.FromResult(new EvaluationResult(metric));
+    }
+
+    private static Dictionary<string, int> CountByName(IEnumerable<string> names)
+    {
+        var result = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var name in names)
+        {
+            result[name] = result.TryGetValue(name, out var current) ? current + 1 : 1;
+        }
+
+        return result;
+    }
+}

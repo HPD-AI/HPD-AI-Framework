@@ -95,4 +95,13 @@ internal static class BotDiagnostics
         category:           Category,
         defaultSeverity:    DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    /// <summary>HPDA011: [HpdWebhookMethods] must contain at least one non-empty method.</summary>
+    public static readonly DiagnosticDescriptor InvalidWebhookMethods = new(
+        id:                 "HPDA011",
+        title:              "[HpdWebhookMethods] method list is invalid",
+        messageFormat:      "Bot class '{0}' has [HpdWebhookMethods] but no non-empty HTTP methods",
+        category:           Category,
+        defaultSeverity:    DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }

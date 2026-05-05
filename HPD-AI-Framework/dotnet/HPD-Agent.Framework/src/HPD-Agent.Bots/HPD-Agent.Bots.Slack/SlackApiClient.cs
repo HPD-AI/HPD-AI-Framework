@@ -167,13 +167,13 @@ public sealed class SlackApiClient(
 
     public Task AddReactionAsync(string channel, string ts, string emoji, CancellationToken ct)
     {
-        var body = new { channel, timestamp = ts, name = emoji };
+        var body = new { channel, timestamp = ts, name = BotEmojiResolver.ToSlackName(emoji) };
         return PostAsync("reactions.add", body, null, ct);
     }
 
     public Task RemoveReactionAsync(string channel, string ts, string emoji, CancellationToken ct)
     {
-        var body = new { channel, timestamp = ts, name = emoji };
+        var body = new { channel, timestamp = ts, name = BotEmojiResolver.ToSlackName(emoji) };
         return PostAsync("reactions.remove", body, null, ct);
     }
 

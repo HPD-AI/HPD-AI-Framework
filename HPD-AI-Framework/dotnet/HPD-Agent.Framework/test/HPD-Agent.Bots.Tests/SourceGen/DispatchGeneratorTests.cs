@@ -31,6 +31,20 @@ public class DispatchGeneratorTests
         }
         """;
 
+    private static readonly string BotWithNamedPreDispatch = """
+        using HPD.Agent.Bots;
+        using System.Threading.Tasks;
+        using Microsoft.AspNetCore.Http;
+        namespace Test;
+        [HpdBot("discord")]
+        public partial class DiscordBot
+        {
+            [HpdPreDispatch]
+            private async Task<IResult?> VerifyDiscordAsync(HttpContext ctx, byte[] bodyBytes)
+                => null;
+        }
+        """;
+
     private static readonly string BotWithBodyExtractor = """
         using HPD.Agent.Bots;
         using Microsoft.AspNetCore.Http;
@@ -41,6 +55,19 @@ public class DispatchGeneratorTests
             [HpdBodyExtractor]
             private (string? eventType, byte[] dispatchBytes) ExtractDispatch(HttpContext ctx, byte[] bodyBytes)
                 => (null, bodyBytes);
+        }
+        """;
+
+    private static readonly string BotWithNamedBodyExtractor = """
+        using HPD.Agent.Bots;
+        using Microsoft.AspNetCore.Http;
+        namespace Test;
+        [HpdBot("github")]
+        public partial class GitHubBot
+        {
+            [HpdBodyExtractor]
+            private (string? eventType, byte[] dispatchBytes) ExtractGitHubEvent(HttpContext ctx, byte[] bodyBytes)
+                => (ctx.Request.Headers["x-github-event"].ToString(), bodyBytes);
         }
         """;
 
@@ -148,6 +175,16 @@ public class DispatchGeneratorTests
     }
 
     [Fact]
+    public void Dispatch_WithNamedPreDispatch_EmitsAttributedMethodName()
+    {
+        var result   = SourceGenHelper.RunGenerator(BotWithNamedPreDispatch, out _);
+        var dispatch = SourceGenHelper.GetGeneratedFile(result, "DiscordBotDispatch.g.cs");
+
+        dispatch.Should().Contain("await VerifyDiscordAsync(ctx, bodyBytes)");
+        dispatch.Should().NotContain("PreDispatchAsync(ctx, bodyBytes)");
+    }
+
+    [Fact]
     public void Dispatch_WithPreDispatch_ShortCircuitsOnNonNull()
     {
         var dispatch = GetDispatch(BotWithPreDispatch);
@@ -174,6 +211,16 @@ public class DispatchGeneratorTests
     }
 
     [Fact]
+    public void Dispatch_WithNamedBodyExtractor_EmitsAttributedMethodName()
+    {
+        var result   = SourceGenHelper.RunGenerator(BotWithNamedBodyExtractor, out _);
+        var dispatch = SourceGenHelper.GetGeneratedFile(result, "GitHubBotDispatch.g.cs");
+
+        dispatch.Should().Contain("ExtractGitHubEvent(ctx, bodyBytes)");
+        dispatch.Should().NotContain("ExtractDispatch(ctx, bodyBytes)");
+    }
+
+    [Fact]
     public void Dispatch_WithBodyExtractor_OmitsDefaultExtractEventType()
     {
         var dispatch = GetDispatch(BotWithBodyExtractor);
@@ -190,11 +237,11 @@ public class DispatchGeneratorTests
     }
 
     [Fact]
-    public void Dispatch_WithoutBodyExtractor_DefaultExtractorHandlesEventCallbackEnvelope()
+    public void Dispatch_WithoutBodyExtractor_DefaultExtractorDoesNotContainEventCallbackSpecialCase()
     {
         var dispatch = GetDispatch(MinimalBot);
 
-        dispatch.Should().Contain("event_callback");
+        dispatch.Should().NotContain("event_callback");
     }
 
     [Fact]
@@ -279,6 +326,16 @@ public class DispatchGeneratorTests
 
         dispatch.Should().Contain("\"app_mention\"");
         dispatch.Should().Contain("HandleMention(");
+    }
+
+    [Fact]
+    public void Dispatch_DeserializesWithAdapterJsonContext()
+    {
+        var dispatch = GetDispatch(BotWithOneHandler);
+
+        dispatch.Should().Contain("JsonSerializer.Deserialize(bodyBytes, SlackBotJsonContext.Default.ByteArray)");
+        dispatch.Should().NotContain("JsonSerializer.Deserialize<byte[]>");
+        dispatch.Should().NotContain("_jsonOptions");
     }
 
     [Fact]

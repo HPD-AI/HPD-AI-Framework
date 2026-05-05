@@ -17,6 +17,9 @@ public record CardFields(IReadOnlyList<CardField> Fields) : CardChild;
 /// <summary>A single field in a <see cref="CardFields"/> block.</summary>
 public record CardField(string Label, string Value);
 
+/// <summary>A small tabular data block.</summary>
+public record CardTable(IReadOnlyList<string> Columns, IReadOnlyList<IReadOnlyList<string>> Rows) : CardChild;
+
 /// <summary>A hyperlink.</summary>
 public record CardLink(string Label, string Url) : CardChild;
 

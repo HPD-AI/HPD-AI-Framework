@@ -16,12 +16,13 @@ internal sealed record BotInfo(
     string ClassName,
     string Namespace,
     StreamingInfo? Streaming,
+    IReadOnlyList<string> WebhookMethods,
     IReadOnlyList<HandlerInfo> Handlers,
     bool HasPermissionHandler,
     string? SocketTransportTypeFqn,   // null if no [HpdSocketTransport]
     string? SocketConfigProperty,     // e.g. "AppToken"
-    bool HasPreDispatch,
-    bool HasBodyExtractor);
+    string? PreDispatchMethodName,
+    string? BodyExtractorMethodName);
 
 internal sealed record StreamingInfo(
     string Strategy,
@@ -30,11 +31,25 @@ internal sealed record StreamingInfo(
 internal sealed record HandlerInfo(
     string MethodName,
     IReadOnlyList<string> EventTypes,
-    string PayloadTypeFqn);
+    string PayloadTypeFqn,
+    string PayloadJsonTypeInfoProperty);
 
 internal sealed record WebhookPayloadInfo(
     string FullyQualifiedName,
     string SimpleName);
+
+internal sealed record ThreadIdInfo(
+    string RecordName,
+    string Namespace,
+    string Format,
+    IReadOnlyList<ThreadIdPropertyInfo> Properties,
+    IReadOnlyList<string> Slots);
+
+internal sealed record ThreadIdPropertyInfo(
+    string Name,
+    string TypeFqn,
+    bool HasExplicitDefaultValue,
+    string? ExplicitDefaultValue);
 
 // ── Generator entry point ─────────────────────────────────────────────────────
 
@@ -44,12 +59,14 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
     private const string HpdBotAttribute           = "HPD.Agent.Bots.HpdBotAttribute";
     private const string HpdWebhookHandlerAttribute    = "HPD.Agent.Bots.HpdWebhookHandlerAttribute";
     private const string HpdStreamingAttribute         = "HPD.Agent.Bots.HpdStreamingAttribute";
+    private const string HpdWebhookMethodsAttribute    = "HPD.Agent.Bots.HpdWebhookMethodsAttribute";
     private const string HpdPermissionHandlerAttribute = "HPD.Agent.Bots.HpdPermissionHandlerAttribute";
     private const string WebhookPayloadAttribute       = "HPD.Agent.Bots.WebhookPayloadAttribute";
     private const string HpdSocketTransportAttribute   = "HPD.Agent.Bots.HpdSocketTransportAttribute";
     private const string BotWebSocketServiceFqn    = "HPD.Agent.Bots.BotWebSocketService";
     private const string HpdPreDispatchAttribute       = "HPD.Agent.Bots.HpdPreDispatchAttribute";
     private const string HpdBodyExtractorAttribute     = "HPD.Agent.Bots.HpdBodyExtractorAttribute";
+    private const string ThreadIdAttribute             = "HPD.Agent.Bots.ThreadIdAttribute";
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -70,15 +87,24 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
             .Where(static s => s is not null)
             .Collect();
 
+        // ── Pipeline: [ThreadId] records ──────────────────────────────────────
+        var threadIdRecords = context.SyntaxProvider
+            .ForAttributeWithMetadataName(
+                ThreadIdAttribute,
+                predicate: static (node, _) => node is RecordDeclarationSyntax,
+                transform: static (ctx, _) => (RecordDeclarationSyntax)ctx.TargetNode)
+            .Collect();
+
         // ── Combine and emit ──────────────────────────────────────────────────
         var combined = adapterClasses
             .Combine(payloadRecords)
+            .Combine(threadIdRecords)
             .Combine(context.CompilationProvider);
 
         context.RegisterSourceOutput(combined, static (ctx, tuple) =>
         {
-            var ((adapterNodes, payloadSymbols), compilation) = tuple;
-            Execute(ctx, adapterNodes, payloadSymbols!, compilation);
+            var (((adapterNodes, payloadSymbols), threadIdNodes), compilation) = tuple;
+            Execute(ctx, adapterNodes, payloadSymbols!, threadIdNodes, compilation);
         });
     }
 
@@ -86,6 +112,7 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
         SourceProductionContext context,
         ImmutableArray<ClassDeclarationSyntax> adapterNodes,
         ImmutableArray<INamedTypeSymbol?> payloadSymbols,
+        ImmutableArray<RecordDeclarationSyntax> threadIdNodes,
         Compilation compilation)
     {
         // ── Resolve adapter infos ─────────────────────────────────────────────
@@ -123,11 +150,25 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
                 SimpleName: s.Name))
             .ToList();
 
+        // ── Resolve ThreadId infos ────────────────────────────────────────────
+        var threadIds = new List<ThreadIdInfo>();
+        foreach (var node in threadIdNodes)
+        {
+            var model = compilation.GetSemanticModel(node.SyntaxTree);
+            var symbol = model.GetDeclaredSymbol(node) as INamedTypeSymbol;
+            if (symbol is null) continue;
+
+            var info = ResolveThreadId(context, node, symbol);
+            if (info is not null)
+                threadIds.Add(info);
+        }
+
         // ── Emit ──────────────────────────────────────────────────────────────
         RegistrationGenerator.Generate(context, adapters);
         DispatchGenerator.Generate(context, adapters);
         RegistryGenerator.Generate(context, adapters);
         JsonContextGenerator.Generate(context, payloads);
+        ThreadIdGenerator.Generate(context, threadIds);
     }
 
     private static BotInfo? ResolveBot(
@@ -168,16 +209,20 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
         if (streamingAttrs.Count >= 1)
         {
             var sa       = streamingAttrs[0];
-            var strategy = sa.ConstructorArguments.FirstOrDefault().Value?.ToString() ?? "PostAndEdit";
+            var strategy = ResolveStreamingStrategyName(sa.ConstructorArguments.FirstOrDefault().Value);
             var debounce = (int)(sa.NamedArguments.FirstOrDefault(n => n.Key == "DebounceMs").Value.Value ?? 500);
             streaming    = new StreamingInfo(strategy, debounce);
         }
 
+        var webhookMethods = ResolveWebhookMethods(context, node, symbol);
+
         // Read [HpdWebhookHandler] methods — HPD-A002: must be private or internal
-        var handlers           = new List<HandlerInfo>();
-        var permissionHandlers = 0;
-        var hasPreDispatch     = false;
-        var hasBodyExtractor   = false;
+        var handlers                = new List<HandlerInfo>();
+        var permissionHandlers      = 0;
+        var preDispatchMethods      = new List<IMethodSymbol>();
+        var bodyExtractorMethods    = new List<IMethodSymbol>();
+        string? preDispatchMethod   = null;
+        string? bodyExtractorMethod = null;
 
         foreach (var member in symbol.GetMembers().OfType<IMethodSymbol>())
         {
@@ -186,34 +231,16 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
                 .Any(a => a.AttributeClass?.ToDisplayString() == HpdPermissionHandlerAttribute);
             if (hasPermAttr) permissionHandlers++;
 
-            // Detect [HpdPreDispatch] — HPDA009: must have exactly 2 parameters
+            // Detect [HpdPreDispatch] — HPDA009 validates the complete hook contract.
             if (member.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == HpdPreDispatchAttribute))
             {
-                if (member.Parameters.Length != 2)
-                {
-                    var loc = member.Locations.FirstOrDefault() ?? node.GetLocation();
-                    context.ReportDiagnostic(Diagnostic.Create(
-                        BotDiagnostics.PreDispatchWrongSignature, loc, member.Name));
-                }
-                else
-                {
-                    hasPreDispatch = true;
-                }
+                preDispatchMethods.Add(member);
             }
 
-            // Detect [HpdBodyExtractor] — HPDA010: must have exactly 2 parameters
+            // Detect [HpdBodyExtractor] — HPDA010 validates the complete hook contract.
             if (member.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == HpdBodyExtractorAttribute))
             {
-                if (member.Parameters.Length != 2)
-                {
-                    var loc = member.Locations.FirstOrDefault() ?? node.GetLocation();
-                    context.ReportDiagnostic(Diagnostic.Create(
-                        BotDiagnostics.BodyExtractorWrongSignature, loc, member.Name));
-                }
-                else
-                {
-                    hasBodyExtractor = true;
-                }
+                bodyExtractorMethods.Add(member);
             }
 
             var handlerAttrs = member.GetAttributes()
@@ -242,8 +269,11 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
             var payloadParam = member.Parameters.Length >= 2 ? member.Parameters[1] : null;
             var payloadFqn   = payloadParam?.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
                                ?? "global::System.Text.Json.JsonElement";
+            var payloadJsonTypeInfoProperty = payloadParam?.Type is { } payloadType
+                ? GetJsonTypeInfoPropertyName(payloadType)
+                : "JsonElement";
 
-            handlers.Add(new HandlerInfo(member.Name, eventTypes, payloadFqn));
+            handlers.Add(new HandlerInfo(member.Name, eventTypes, payloadFqn, payloadJsonTypeInfoProperty));
         }
 
         // HPD-A004
@@ -253,6 +283,38 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
                 BotDiagnostics.DuplicatePermissionHandler,
                 node.GetLocation(),
                 symbol.Name));
+        }
+
+        if (preDispatchMethods.Count > 1)
+        {
+            foreach (var method in preDispatchMethods)
+            {
+                ReportPreDispatchDiagnostic(context, node, method);
+            }
+        }
+        else if (preDispatchMethods.Count == 1)
+        {
+            var method = preDispatchMethods[0];
+            if (IsValidPreDispatchHook(method))
+                preDispatchMethod = method.Name;
+            else
+                ReportPreDispatchDiagnostic(context, node, method);
+        }
+
+        if (bodyExtractorMethods.Count > 1)
+        {
+            foreach (var method in bodyExtractorMethods)
+            {
+                ReportBodyExtractorDiagnostic(context, node, method);
+            }
+        }
+        else if (bodyExtractorMethods.Count == 1)
+        {
+            var method = bodyExtractorMethods[0];
+            if (IsValidBodyExtractorHook(method))
+                bodyExtractorMethod = method.Name;
+            else
+                ReportBodyExtractorDiagnostic(context, node, method);
         }
 
         // Read [HpdSocketTransport] — HPDA008: service type must extend BotWebSocketService
@@ -294,11 +356,258 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
             ClassName:              symbol.Name,
             Namespace:              symbol.ContainingNamespace.ToDisplayString(),
             Streaming:              streaming,
+            WebhookMethods:         webhookMethods,
             Handlers:               handlers,
             HasPermissionHandler:   permissionHandlers >= 1,
             SocketTransportTypeFqn: socketTransportTypeFqn,
             SocketConfigProperty:   socketConfigProperty,
-            HasPreDispatch:         hasPreDispatch,
-            HasBodyExtractor:       hasBodyExtractor);
+            PreDispatchMethodName:  preDispatchMethod,
+            BodyExtractorMethodName: bodyExtractorMethod);
+    }
+
+    private static IReadOnlyList<string> ResolveWebhookMethods(
+        SourceProductionContext context,
+        ClassDeclarationSyntax node,
+        INamedTypeSymbol symbol)
+    {
+        var attr = symbol.GetAttributes()
+            .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == HpdWebhookMethodsAttribute);
+        if (attr is null)
+            return Array.Empty<string>();
+
+        var methods = new List<string>();
+        foreach (var arg in attr.ConstructorArguments)
+        {
+            if (arg.Kind == TypedConstantKind.Array)
+            {
+                foreach (var value in arg.Values)
+                    AddWebhookMethod(context, node, symbol.Name, value.Value as string, methods);
+            }
+            else
+            {
+                AddWebhookMethod(context, node, symbol.Name, arg.Value as string, methods);
+            }
+        }
+
+        if (methods.Count == 0)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                BotDiagnostics.InvalidWebhookMethods,
+                node.GetLocation(),
+                symbol.Name));
+        }
+
+        return methods;
+    }
+
+    private static void AddWebhookMethod(
+        SourceProductionContext context,
+        ClassDeclarationSyntax node,
+        string botClassName,
+        string? method,
+        List<string> methods)
+    {
+        if (string.IsNullOrWhiteSpace(method))
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                BotDiagnostics.InvalidWebhookMethods,
+                node.GetLocation(),
+                botClassName));
+            return;
+        }
+
+        var normalized = method.Trim().ToUpperInvariant();
+        if (!methods.Contains(normalized, StringComparer.Ordinal))
+            methods.Add(normalized);
+    }
+
+    private static bool IsValidPreDispatchHook(IMethodSymbol method)
+    {
+        return IsPrivateOrInternal(method)
+               && method.IsAsync
+               && method.Parameters.Length == 2
+               && IsHttpContext(method.Parameters[0].Type)
+               && IsByteArray(method.Parameters[1].Type)
+               && IsTaskOfIResult(method.ReturnType);
+    }
+
+    private static bool IsValidBodyExtractorHook(IMethodSymbol method)
+    {
+        return IsPrivateOrInternal(method)
+               && method.Parameters.Length == 2
+               && IsHttpContext(method.Parameters[0].Type)
+               && IsByteArray(method.Parameters[1].Type)
+               && IsStringByteArrayTuple(method.ReturnType);
+    }
+
+    private static bool IsPrivateOrInternal(IMethodSymbol method) =>
+        method.DeclaredAccessibility == Accessibility.Private ||
+        method.DeclaredAccessibility == Accessibility.Internal;
+
+    private static bool IsHttpContext(ITypeSymbol type) =>
+        type.ToDisplayString() == "Microsoft.AspNetCore.Http.HttpContext";
+
+    private static bool IsByteArray(ITypeSymbol type) =>
+        type is IArrayTypeSymbol { ElementType.SpecialType: SpecialType.System_Byte, Rank: 1 };
+
+    private static bool IsTaskOfIResult(ITypeSymbol type)
+    {
+        if (type is not INamedTypeSymbol named || named.TypeArguments.Length != 1)
+            return false;
+
+        return named.Name == "Task" &&
+               named.ContainingNamespace.ToDisplayString() == "System.Threading.Tasks" &&
+               IsIResult(named.TypeArguments[0]);
+    }
+
+    private static bool IsIResult(ITypeSymbol type) =>
+        type.Name == "IResult" &&
+        type.ContainingNamespace.ToDisplayString() == "Microsoft.AspNetCore.Http";
+
+    private static bool IsStringByteArrayTuple(ITypeSymbol type)
+    {
+        if (type is not INamedTypeSymbol named || !named.IsTupleType || named.TupleElements.Length != 2)
+            return false;
+
+        return named.TupleElements[0].Type.SpecialType == SpecialType.System_String &&
+               IsByteArray(named.TupleElements[1].Type);
+    }
+
+    private static string GetJsonTypeInfoPropertyName(ITypeSymbol type)
+    {
+        if (type is IArrayTypeSymbol arrayType)
+        {
+            return arrayType.ElementType.SpecialType == SpecialType.System_Byte
+                ? "ByteArray"
+                : "ObjectArray";
+        }
+
+        if (type is not INamedTypeSymbol namedType)
+        {
+            return "JsonElement";
+        }
+
+        if (namedType.ContainingNamespace.ToDisplayString() == "System.Text.Json" &&
+            namedType.Name == "JsonElement")
+        {
+            return "JsonElement";
+        }
+
+        return namedType.Name;
+    }
+
+    private static ThreadIdInfo? ResolveThreadId(
+        SourceProductionContext context,
+        RecordDeclarationSyntax node,
+        INamedTypeSymbol symbol)
+    {
+        var attr = symbol.GetAttributes()
+            .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == ThreadIdAttribute);
+        if (attr is null) return null;
+
+        var format = attr.ConstructorArguments.FirstOrDefault().Value as string ?? "";
+        if (string.IsNullOrWhiteSpace(format)) return null;
+
+        var slots = ThreadIdGenerator.GetSlots(format).ToList();
+        var properties = new List<ThreadIdPropertyInfo>();
+        foreach (var slot in slots)
+        {
+            var property = symbol.GetMembers()
+                .OfType<IPropertySymbol>()
+                .FirstOrDefault(p => !p.IsStatic &&
+                                     p.DeclaredAccessibility == Accessibility.Public &&
+                                     string.Equals(p.Name, slot, StringComparison.OrdinalIgnoreCase));
+
+            if (property is null ||
+                !TryGetPrimaryConstructorParameter(symbol, property.Name, out var parameter))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    BotDiagnostics.ThreadIdSlotMissing,
+                    node.GetLocation(),
+                    slot, format, symbol.Name));
+                return null;
+            }
+
+            properties.Add(CreateThreadIdPropertyInfo(property, parameter));
+        }
+
+        return new ThreadIdInfo(
+            RecordName: symbol.Name,
+            Namespace: symbol.ContainingNamespace.ToDisplayString(),
+            Format: format,
+            Properties: properties,
+            Slots: slots);
+    }
+
+    private static ThreadIdPropertyInfo CreateThreadIdPropertyInfo(
+        IPropertySymbol property,
+        IParameterSymbol parameter)
+    {
+        var hasDefault = parameter.HasExplicitDefaultValue;
+
+        return new ThreadIdPropertyInfo(
+            Name: property.Name,
+            TypeFqn: property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            HasExplicitDefaultValue: hasDefault,
+            ExplicitDefaultValue: hasDefault ? FormatDefaultValue(parameter.ExplicitDefaultValue) : null);
+    }
+
+    private static bool TryGetPrimaryConstructorParameter(
+        INamedTypeSymbol symbol,
+        string name,
+        out IParameterSymbol parameter)
+    {
+        parameter = null!;
+        var constructor = symbol.InstanceConstructors
+            .FirstOrDefault(c => c.Parameters.Any(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)));
+        if (constructor is null) return false;
+
+        var match = constructor.Parameters
+            .FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (match is null) return false;
+
+        parameter = match;
+        return true;
+    }
+
+    private static string? FormatDefaultValue(object? value)
+        => value switch
+        {
+            null => "null",
+            string s => "@\"" + s.Replace("\"", "\"\"") + "\"",
+            bool b => b ? "true" : "false",
+            char c => "'" + c.ToString().Replace("\\", "\\\\").Replace("'", "\\'") + "'",
+            _ => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture),
+        };
+
+    private static string ResolveStreamingStrategyName(object? value)
+        => value switch
+        {
+            0 => "PostAndEdit",
+            1 => "BufferAndPost",
+            2 => "Native",
+            string name => name,
+            { } other => other.ToString() ?? "PostAndEdit",
+            _ => "PostAndEdit",
+        };
+
+    private static void ReportPreDispatchDiagnostic(
+        SourceProductionContext context,
+        ClassDeclarationSyntax node,
+        IMethodSymbol method)
+    {
+        var loc = method.Locations.FirstOrDefault() ?? node.GetLocation();
+        context.ReportDiagnostic(Diagnostic.Create(
+            BotDiagnostics.PreDispatchWrongSignature, loc, method.Name));
+    }
+
+    private static void ReportBodyExtractorDiagnostic(
+        SourceProductionContext context,
+        ClassDeclarationSyntax node,
+        IMethodSymbol method)
+    {
+        var loc = method.Locations.FirstOrDefault() ?? node.GetLocation();
+        context.ReportDiagnostic(Diagnostic.Create(
+            BotDiagnostics.BodyExtractorWrongSignature, loc, method.Name));
     }
 }
