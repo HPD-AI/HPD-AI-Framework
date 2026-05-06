@@ -384,14 +384,10 @@ public sealed class AgentWorkflowInstance
         // Set ExecutionContext on each agent in the workflow for proper event attribution
         foreach (var (agentName, agent) in agents)
         {
-            var agentRandomId = Guid.NewGuid().ToString("N")[..8];
-            var sanitizedAgentName = System.Text.RegularExpressions.Regex.Replace(
-                agentName, @"[^a-zA-Z0-9]", "_");
-
             agent.ExecutionContext = new AgentExecutionContext
             {
                 AgentName = agentName,
-                AgentId = $"{workflowContext.AgentId}-{sanitizedAgentName}-{agentRandomId}",
+                AgentId = agent.AgentId,
                 ParentAgentId = workflowContext.AgentId,
                 AgentChain = new List<string>(workflowContext.AgentChain) { agentName },
                 Depth = workflowContext.Depth + 1

@@ -10,6 +10,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using HPD.Agent.Validation;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Caching.Distributed;
@@ -1840,6 +1842,8 @@ public class AgentBuilder
     /// </summary>
     public async Task<Agent> BuildAsync(CancellationToken cancellationToken = default)
     {
+        await ResolveStoredAgentDefinitionAsync(cancellationToken).ConfigureAwait(false);
+
         // Build the secret resolver chain FIRST (before BuildDependenciesAsync)
         // Providers need ISecretResolver available in the service provider during CreateChatClient
         if (_secretResolver is null)
@@ -1876,6 +1880,115 @@ public class AgentBuilder
 
         RegisterAutoMiddleware(buildData);
         return CreateAgent(buildData);
+    }
+
+    private async Task ResolveStoredAgentDefinitionAsync(CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(_config.AgentId))
+            return;
+
+        var agentId = _config.AgentId;
+        var storeWasProvided = _config.AgentStore != null;
+        var store = _config.AgentStore ??= AgentBuilderDefaults.AgentStore;
+
+        var stored = await store.LoadAsync(agentId, cancellationToken).ConfigureAwait(false);
+        if (stored?.Config != null)
+        {
+            MergeStoredConfigIntoCurrent(stored.Config);
+        }
+
+        _config.AgentId = agentId;
+        _config.AgentStore = store;
+        if (stored != null &&
+            _config.Name == new AgentConfig().Name &&
+            !string.IsNullOrWhiteSpace(stored.Name))
+        {
+            _config.Name = stored.Name;
+        }
+
+        if (_config.Name == new AgentConfig().Name)
+            _config.Name = agentId;
+
+        var shouldPersist =
+            _config.AgentStoreOptions?.PersistOnBuild == true ||
+            (!storeWasProvided && ReferenceEquals(store, AgentBuilderDefaults.AgentStore));
+
+        if (!shouldPersist)
+            return;
+
+        var storedConfig = CloneSerializableConfig(_config);
+        await store.SaveAsync(new StoredAgent
+        {
+            Id = agentId,
+            Name = storedConfig.Name,
+            Config = storedConfig,
+            CreatedAt = stored?.CreatedAt ?? DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            Metadata = stored?.Metadata
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    private void MergeStoredConfigIntoCurrent(AgentConfig storedConfig)
+    {
+        var defaultConfig = new AgentConfig();
+        var currentJson = SerializeConfigToObject(_config);
+        var defaultJson = SerializeConfigToObject(defaultConfig);
+
+        foreach (var property in typeof(AgentConfig).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (!property.CanRead || !property.CanWrite)
+                continue;
+
+            if (property.GetCustomAttribute<JsonIgnoreAttribute>() != null)
+                continue;
+
+            var jsonName = GetJsonPropertyName(property);
+            var currentIsDefault = IsJsonPropertyDefault(currentJson, defaultJson, jsonName);
+            if (!currentIsDefault)
+                continue;
+
+            var storedValue = property.GetValue(storedConfig);
+            if (storedValue != null)
+                property.SetValue(_config, storedValue);
+        }
+    }
+
+    private static AgentConfig CloneSerializableConfig(AgentConfig config)
+    {
+        var json = JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
+        return JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentConfig)
+            ?? throw new InvalidOperationException("Failed to clone AgentConfig for agent store persistence.");
+    }
+
+    private static JsonObject SerializeConfigToObject(AgentConfig config)
+    {
+        var json = JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
+        return JsonNode.Parse(json)?.AsObject()
+            ?? throw new InvalidOperationException("Failed to serialize AgentConfig for store merge.");
+    }
+
+    private static bool IsJsonPropertyDefault(JsonObject current, JsonObject defaultConfig, string jsonName)
+    {
+        var hasCurrent = current.TryGetPropertyValue(jsonName, out var currentValue);
+        var hasDefault = defaultConfig.TryGetPropertyValue(jsonName, out var defaultValue);
+
+        if (!hasCurrent && !hasDefault)
+            return true;
+
+        if (hasCurrent != hasDefault)
+            return false;
+
+        return JsonNode.DeepEquals(currentValue, defaultValue);
+    }
+
+    private static string GetJsonPropertyName(PropertyInfo property)
+    {
+        var attr = property.GetCustomAttribute<JsonPropertyNameAttribute>();
+        if (attr != null)
+            return attr.Name;
+
+        var name = property.Name;
+        return char.ToLowerInvariant(name[0]) + name[1..];
     }
 
     /// <summary>

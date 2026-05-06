@@ -11,7 +11,7 @@ internal sealed class TestAgentManager : AgentManager
 {
     public TestAgentManager(IAgentStore agentStore) : base(agentStore) { }
 
-    protected override Task<Agent> BuildAgentAsync(StoredAgent stored, CancellationToken ct)
+    protected override Task<Agent> BuildAgentAsync(string agentId, CancellationToken ct)
         => throw new NotSupportedException("BuildAgentAsync is not used in adapter tests.");
 
     protected override TimeSpan GetIdleTimeout() => TimeSpan.FromMinutes(5);

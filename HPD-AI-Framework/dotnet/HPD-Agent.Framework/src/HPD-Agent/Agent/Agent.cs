@@ -344,6 +344,12 @@ public sealed class Agent
     }
 
     /// <summary>
+    /// Stable agent identity used for store lookup, hosted routing, and observability.
+    /// Falls back to <see cref="Name"/> for non-store-backed agents.
+    /// </summary>
+    public string AgentId => Config?.AgentId ?? _name;
+
+    /// <summary>
     /// Agent name
     /// </summary>
     public string Name => _name;
@@ -1464,6 +1470,7 @@ public sealed class Agent
             "agent.orchestration",
             ActivityKind.Internal);
 
+        orchestrationActivity?.SetTag("agent.id", AgentId);
         orchestrationActivity?.SetTag("agent.name", _name);
         orchestrationActivity?.SetTag("agent.provider", ProviderKey);
         orchestrationActivity?.SetTag("agent.model", ModelId);
@@ -1475,11 +1482,10 @@ public sealed class Agent
         // Initialize root orchestrator execution context if this is the root agent
         if (RootAgent == this && ExecutionContext == null)
         {
-            var randomId = Guid.NewGuid().ToString("N")[..8];
             ExecutionContext = new AgentExecutionContext
             {
                 AgentName = _name,
-                AgentId = $"{_name}-{randomId}",
+                AgentId = AgentId,
                 ParentAgentId = null,
                 AgentChain = new[] { _name },
                 Depth = 0
@@ -1528,6 +1534,7 @@ public sealed class Agent
             yield return new MessageTurnStartedEvent(
                 messageTurnId,
                 conversationId,
+                AgentId,
                 _name)
             {
                 TraceId      = traceId,
@@ -2770,6 +2777,7 @@ public sealed class Agent
             yield return new MessageTurnFinishedEvent(
                 messageTurnId,
                 conversationId,
+                AgentId,
                 _name,
                 turnStopwatch.Elapsed,
                 Usage: state.AccumulatedUsage)

@@ -252,8 +252,17 @@ public sealed record UserMessagesInputEvent(
 public record MessageTurnStartedEvent(
     string MessageTurnId,
     string ConversationId,
+    string AgentId,
     string AgentName) : AgentEvent
 {
+    public MessageTurnStartedEvent(
+        string MessageTurnId,
+        string ConversationId,
+        string AgentName)
+        : this(MessageTurnId, ConversationId, AgentName, AgentName)
+    {
+    }
+
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 }
 
@@ -264,10 +273,21 @@ public record MessageTurnStartedEvent(
 public record MessageTurnFinishedEvent(
     string MessageTurnId,
     string ConversationId,
+    string AgentId,
     string AgentName,
     TimeSpan Duration,
     UsageDetails? Usage = null) : AgentEvent
 {
+    public MessageTurnFinishedEvent(
+        string MessageTurnId,
+        string ConversationId,
+        string AgentName,
+        TimeSpan Duration,
+        UsageDetails? Usage = null)
+        : this(MessageTurnId, ConversationId, AgentName, AgentName, Duration, Usage)
+    {
+    }
+
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 }
 

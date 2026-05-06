@@ -42,36 +42,7 @@ internal sealed class HPDAgentRegistry
         var sessionManager = new AspNetCoreSessionManager(sessionStore, optionsMonitor, name);
         var agentManager = new AspNetCoreAgentManager(agentStore, sessionManager, optionsMonitor, name, agentFactory);
 
-        // Seed the "default" agent definition so single-agent deployments work out of the box.
-        // This is fire-and-forget at startup — failures surface on first stream request.
-        _ = SeedDefaultAgentAsync(agentManager, agentStore, options, name);
-
         return new HPDAgentPair(agentManager, sessionManager);
-    }
-
-    private static async Task SeedDefaultAgentAsync(
-        AspNetCoreAgentManager agentManager,
-        IAgentStore agentStore,
-        HPDAgentConfig options,
-        string name)
-    {
-        // If a "default" entry already exists in the store, don't overwrite it.
-        var existing = await agentStore.LoadAsync("default");
-        if (existing != null)
-            return;
-
-        // Seed a minimal StoredAgent so GetOrBuildAgentAsync("default") can succeed.
-        // The actual AgentConfig used at build time is determined by BuildAgentAsync priority logic.
-        var seed = new StoredAgent
-        {
-            Id = "default",
-            Name = name == Options.DefaultName ? "Default Agent" : name,
-            Config = options.DefaultAgentConfig ?? new AgentConfig(),
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        await agentStore.SaveAsync(seed);
     }
 }
 

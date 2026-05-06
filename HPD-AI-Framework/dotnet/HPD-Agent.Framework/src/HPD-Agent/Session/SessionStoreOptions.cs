@@ -6,8 +6,10 @@ namespace HPD.Agent;
 public class SessionStoreOptions
 {
     /// <summary>
-    /// Whether to automatically save session snapshot after each turn completes.
-    /// When false, you must call SaveSessionAsync() manually.
+    /// Whether to automatically save session metadata and the active branch
+    /// after each completed turn.
+    /// When false, callers are responsible for explicitly saving changed
+    /// session and branch state.
     /// Default: false (manual save).
     /// </summary>
     public bool PersistAfterTurn { get; set; } = false;

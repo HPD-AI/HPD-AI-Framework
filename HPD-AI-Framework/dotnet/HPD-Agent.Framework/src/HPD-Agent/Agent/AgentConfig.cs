@@ -253,6 +253,15 @@ public class AgentConfig
     public bool CoalesceDeltas { get; set; } = false;
 
     /// <summary>
+    /// Optional stable identity used by <see cref="AgentBuilder"/> to load and
+    /// persist a <see cref="StoredAgent"/> definition through <see cref="AgentStore"/>.
+    /// Ignored during JSON serialization because persisted identity lives on
+    /// <see cref="StoredAgent.Id"/>.
+    /// </summary>
+    [JsonIgnore]
+    public string? AgentId { get; set; }
+
+    /// <summary>
     /// Optional session store for durable execution and crash recovery.
     /// Use InMemorySessionStore for development/testing or JsonSessionStore for production.
     /// </summary>
@@ -278,6 +287,14 @@ public class AgentConfig
     /// </summary>
     [JsonIgnore]
     public IAgentStore? AgentStore { get; set; }
+
+    /// <summary>
+    /// Options for agent definition persistence behavior.
+    /// Controls whether <see cref="AgentBuilder.BuildAsync"/> saves the current
+    /// definition back to <see cref="AgentStore"/>.
+    /// </summary>
+    [JsonIgnore]
+    public AgentStoreOptions? AgentStoreOptions { get; set; }
 
     /// <summary>
     /// Options for session persistence behavior.

@@ -50,14 +50,14 @@ public class TracingObserverTests : IDisposable
     private const string ToolCallId = "tool-call-abc123";
 
     private static MessageTurnStartedEvent TurnStarted() =>
-        new MessageTurnStartedEvent("turn-1", "conv-1", "TestAgent")
+        new MessageTurnStartedEvent("turn-1", "conv-1", "test-agent", "TestAgent")
         {
             TraceId = TraceId,
             SpanId = TurnSpanId
         };
 
     private static MessageTurnFinishedEvent TurnFinished() =>
-        new MessageTurnFinishedEvent("turn-1", "conv-1", "TestAgent", TimeSpan.FromMilliseconds(200))
+        new MessageTurnFinishedEvent("turn-1", "conv-1", "test-agent", "TestAgent", TimeSpan.FromMilliseconds(200))
         {
             TraceId = TraceId,
             SpanId = TurnSpanId
@@ -137,6 +137,16 @@ public class TracingObserverTests : IDisposable
 
         var span = _completed.Single(a => a.OperationName == "agent.turn");
         span.GetTagItem("agent.name").Should().Be("TestAgent");
+    }
+
+    [Fact]
+    public async Task TurnStarted_SetsAgentIdTag()
+    {
+        await EmitAsync(TurnStarted());
+        await EmitAsync(TurnFinished());
+
+        var span = _completed.Single(a => a.OperationName == "agent.turn");
+        span.GetTagItem("agent.id").Should().Be("test-agent");
     }
 
     [Fact]

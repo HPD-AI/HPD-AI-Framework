@@ -152,6 +152,7 @@ public sealed class TracingObserver : IAgentEventObserver, IDisposable
 
         if (activity is null) return;  // No listener — OTel not configured, skip.
 
+        activity.SetTag("agent.id", e.AgentId);
         activity.SetTag("agent.name", e.AgentName);
         activity.SetTag("agent.conversation_id", e.ConversationId);
         activity.SetTag("agent.message_turn_id", e.MessageTurnId);

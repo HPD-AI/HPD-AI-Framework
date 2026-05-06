@@ -200,10 +200,13 @@ public class AgentManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task GetOrBuildAgentAsync_Throws_WhenDefinitionNotFound()
+    public async Task GetOrBuildAgentAsync_Builds_WhenDefinitionNotFound()
     {
-        Func<Task> act = () => _manager.GetOrBuildAgentAsync("no-such-agent");
-        await act.Should().ThrowAsync<KeyNotFoundException>().WithMessage("*no-such-agent*");
+        var agent = await _manager.GetOrBuildAgentAsync("no-such-agent");
+
+        agent.Should().NotBeNull();
+        agent.AgentId.Should().Be("no-such-agent");
+        _manager.BuildCallCount.Should().Be(1);
     }
 
     [Fact]
@@ -301,7 +304,7 @@ public class AgentManagerTests : IDisposable
 
         public TestAgentManagerImpl(IAgentStore store) : base(store) { }
 
-        protected override async Task<Agent> BuildAgentAsync(StoredAgent stored, CancellationToken ct)
+        protected override async Task<Agent> BuildAgentAsync(string agentId, CancellationToken ct)
         {
             OnBuildStarted?.Invoke();
             if (OnBuildWait != null)
@@ -309,9 +312,18 @@ public class AgentManagerTests : IDisposable
 
             BuildCallCount++;
 
+            var stored = await AgentStore.LoadAsync(agentId, ct)
+                ?? new StoredAgent
+                {
+                    Id = agentId,
+                    Name = agentId,
+                    Config = MakeConfig(agentId)
+                };
+
             var chatClient = new FakeChatClient();
             var registry = new TestProviderRegistry(chatClient);
             return await new AgentBuilder(stored.Config, registry)
+                .WithAgentId(stored.Id)
                 .WithSessionStore(new InMemorySessionStore())
                 .BuildAsync(ct);
         }

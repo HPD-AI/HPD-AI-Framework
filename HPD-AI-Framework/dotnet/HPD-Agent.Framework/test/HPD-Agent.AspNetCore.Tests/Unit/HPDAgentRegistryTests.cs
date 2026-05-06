@@ -1,6 +1,7 @@
 using FluentAssertions;
 using HPD.Agent.AspNetCore;
 using HPD.Agent;
+using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Configuration;
 using HPD.Agent.Hosting.Lifecycle;
 using Microsoft.Extensions.DependencyInjection;
@@ -125,11 +126,11 @@ public class HPDAgentRegistryTests
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // "default" StoredAgent seeded at startup
+    // "default" StoredAgent created on first build
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task AddHPDAgent_SeedsDefaultStoredAgent_InAgentStore()
+    public async Task AddHPDAgent_DoesNotSeedDefaultStoredAgent_OnRegistration()
     {
         var agentStore = new InMemoryAgentStore();
         var sp = BuildProvider(opts => opts.AgentStore = agentStore);
@@ -137,16 +138,31 @@ public class HPDAgentRegistryTests
         // Trigger pair creation by resolving AgentManager
         _ = sp.GetRequiredService<AgentManager>();
 
-        // Give the fire-and-forget seed a moment to complete
-        await Task.Delay(100);
+        var def = await agentStore.LoadAsync("default");
+        def.Should().BeNull("registration should no longer fire-and-forget seed a default definition");
+    }
+
+    [Fact]
+    public async Task AddHPDAgent_PersistsDefaultStoredAgent_OnFirstBuild()
+    {
+        var agentStore = new InMemoryAgentStore();
+        var sp = BuildProvider(opts =>
+        {
+            opts.AgentStore = agentStore;
+            opts.ConfigureAgent = InjectTestProvider;
+        });
+
+        var manager = sp.GetRequiredService<AgentManager>();
+
+        await manager.GetOrBuildAgentAsync("default");
 
         var def = await agentStore.LoadAsync("default");
-        def.Should().NotBeNull("seeding must create the 'default' StoredAgent");
+        def.Should().NotBeNull("first build should persist the synthesized default definition");
         def!.Id.Should().Be("default");
     }
 
     [Fact]
-    public async Task AddHPDAgent_DoesNotOverwrite_ExistingDefaultAgent()
+    public async Task AddHPDAgent_DoesNotOverwrite_ExistingDefaultAgent_OnFirstBuild()
     {
         var agentStore = new InMemoryAgentStore();
         var existing = new StoredAgent
@@ -159,9 +175,14 @@ public class HPDAgentRegistryTests
         };
         await agentStore.SaveAsync(existing);
 
-        var sp = BuildProvider(opts => opts.AgentStore = agentStore);
-        _ = sp.GetRequiredService<AgentManager>();
-        await Task.Delay(100);
+        var sp = BuildProvider(opts =>
+        {
+            opts.AgentStore = agentStore;
+            opts.ConfigureAgent = InjectTestProvider;
+        });
+
+        var manager = sp.GetRequiredService<AgentManager>();
+        await manager.GetOrBuildAgentAsync("default");
 
         var loaded = await agentStore.LoadAsync("default");
         loaded!.Name.Should().Be("Pre-existing");
@@ -180,6 +201,21 @@ public class HPDAgentRegistryTests
             configure?.Invoke(opts);
         });
         return services.BuildServiceProvider();
+    }
+
+    private static void InjectTestProvider(AgentBuilder builder)
+    {
+        builder.Config.Provider = new ProviderConfig
+        {
+            ProviderKey = "test",
+            ModelName = "test-model"
+        };
+
+        var chatClient = new FakeChatClient();
+        var registry = new TestProviderRegistry(chatClient);
+        var field = typeof(AgentBuilder).GetField("_providerRegistry",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        field?.SetValue(builder, registry);
     }
 
     private sealed class StubAgentFactory : IAgentFactory

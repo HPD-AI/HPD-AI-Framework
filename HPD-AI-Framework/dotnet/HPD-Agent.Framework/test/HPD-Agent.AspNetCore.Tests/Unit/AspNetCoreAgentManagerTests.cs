@@ -128,12 +128,29 @@ public class AspNetCoreAgentManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task GetOrBuildAgentAsync_Throws_WhenDefinitionMissing()
+    public async Task GetOrBuildAgentAsync_Builds_WhenDefinitionMissing()
     {
+        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
         var manager = MakeManager();
 
-        Func<Task> act = () => manager.GetOrBuildAgentAsync("no-such-agent");
-        await act.Should().ThrowAsync<KeyNotFoundException>();
+        var agent = await manager.GetOrBuildAgentAsync("no-such-agent");
+
+        agent.Should().NotBeNull();
+        agent.AgentId.Should().Be("no-such-agent");
+    }
+
+    [Fact]
+    public async Task GetOrBuildAgentAsync_DoesNotPersistMissingDefinition_WhenPersistAgentDefinitionsOnBuildFalse()
+    {
+        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+        _optionsMonitor.CurrentValue.PersistAgentDefinitionsOnBuild = false;
+        var manager = MakeManager();
+
+        var agent = await manager.GetOrBuildAgentAsync("runtime-only");
+
+        agent.Should().NotBeNull();
+        agent.AgentId.Should().Be("runtime-only");
+        (await _agentStore.LoadAsync("runtime-only")).Should().BeNull();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -179,6 +196,12 @@ public class AspNetCoreAgentManagerTests : IDisposable
 
     private static void InjectTestProvider(AgentBuilder builder)
     {
+        builder.Config.Provider = new ProviderConfig
+        {
+            ProviderKey = "test",
+            ModelName = "test-model"
+        };
+
         var chatClient = new FakeChatClient();
         var registry = new TestProviderRegistry(chatClient);
         var field = typeof(AgentBuilder).GetField("_providerRegistry",

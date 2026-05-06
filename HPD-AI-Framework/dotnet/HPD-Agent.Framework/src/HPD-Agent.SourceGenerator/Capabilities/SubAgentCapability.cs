@@ -134,15 +134,7 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("        // Build hierarchical execution context for event attribution");
         sb.AppendLine("        var currentAgent = HPD.Agent.Agent.RootAgent;");
         sb.AppendLine("        var parenTMetadata = currentAgent?.ExecutionContext;");
-        sb.AppendLine("        var randomId = System.Guid.NewGuid().ToString(\"N\")[..8];");
-        sb.AppendLine("        var sanitizedAgentName = System.Text.RegularExpressions.Regex.Replace(");
-        sb.AppendLine($"            \"{SubAgentName}\",");
-        sb.AppendLine("            @\"[^a-zA-Z0-9]\",");
-        sb.AppendLine("            \"_\");");
-        sb.AppendLine();
-        sb.AppendLine("        var agentId = parenTMetadata != null");
-        sb.AppendLine("            ? $\"{parenTMetadata.AgentId}-{sanitizedAgentName}-{randomId}\"");
-        sb.AppendLine("            : $\"{sanitizedAgentName}-{randomId}\";");
+        sb.AppendLine("        var agentId = agent.AgentId;");
         sb.AppendLine();
         sb.AppendLine("        var agentChain = parenTMetadata != null");
         sb.AppendLine($"            ? new System.Collections.Generic.List<string>(parenTMetadata.AgentChain) {{ \"{SubAgentName}\" }}");

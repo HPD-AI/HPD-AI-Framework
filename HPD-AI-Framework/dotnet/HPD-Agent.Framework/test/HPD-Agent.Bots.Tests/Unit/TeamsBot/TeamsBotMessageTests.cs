@@ -213,7 +213,7 @@ public class TeamsBotMessageTests
         public override Task<HpdAgent> GetOrBuildAgentAsync(string agentId, CancellationToken ct = default)
             => Task.FromResult(agent);
 
-        protected override Task<HpdAgent> BuildAgentAsync(StoredAgent stored, CancellationToken ct)
+        protected override Task<HpdAgent> BuildAgentAsync(string agentId, CancellationToken ct)
             => Task.FromResult(agent);
 
         protected override TimeSpan GetIdleTimeout() => TimeSpan.FromMinutes(5);

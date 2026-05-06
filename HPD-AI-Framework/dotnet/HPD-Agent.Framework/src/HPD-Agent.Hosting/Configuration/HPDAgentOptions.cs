@@ -72,6 +72,13 @@ public class HPDAgentConfig
     public IAgentStore? AgentStore { get; set; }
 
     /// <summary>
+    /// Whether hosted agent builds should persist synthesized or updated definitions back
+    /// to the configured <see cref="AgentStore"/> after a successful build.
+    /// Default: true.
+    /// </summary>
+    public bool PersistAgentDefinitionsOnBuild { get; set; } = true;
+
+    /// <summary>
     /// Callback to configure the AgentBuilder for each new session.
     /// Called after AgentConfig/AgentConfigPath are applied.
     /// Use this for runtime-only concerns (compiled type references, DI services).

@@ -33,6 +33,11 @@ public abstract class AgentManager : IDisposable
             TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
     }
 
+    /// <summary>
+    /// Store used for persisted agent definitions.
+    /// </summary>
+    protected IAgentStore AgentStore => _store;
+
     // ─── Definition CRUD ────────────────────────────────────────────────
 
     /// <summary>Create and persist a new agent definition.</summary>
@@ -145,10 +150,7 @@ public abstract class AgentManager : IDisposable
                 return entry.Agent;
             }
 
-            var stored = await _store.LoadAsync(agentId, ct)
-                ?? throw new KeyNotFoundException($"Agent definition '{agentId}' not found.");
-
-            var agent = await BuildAgentAsync(stored, ct);
+            var agent = await BuildAgentAsync(agentId, ct);
             _agents[agentId] = new AgentEntry(agent);
             return agent;
         }
@@ -188,7 +190,7 @@ public abstract class AgentManager : IDisposable
     // ─── Abstract ────────────────────────────────────────────────────────
 
     /// <summary>Platform-specific agent build logic.</summary>
-    protected abstract Task<Agent> BuildAgentAsync(StoredAgent stored, CancellationToken ct);
+    protected abstract Task<Agent> BuildAgentAsync(string agentId, CancellationToken ct);
 
     /// <summary>Idle eviction timeout from platform configuration.</summary>
     protected abstract TimeSpan GetIdleTimeout();

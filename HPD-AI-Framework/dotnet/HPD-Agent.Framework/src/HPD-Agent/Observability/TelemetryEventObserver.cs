@@ -407,6 +407,7 @@ public class TelemetryEventObserver : IAgentEventObserver, IDisposable
             // Message turn tracking
             case MessageTurnFinishedEvent e:
                 _messageTurnDuration.Record(e.Duration.TotalMilliseconds,
+                    new KeyValuePair<string, object?>("agent.id", e.AgentId),
                     new KeyValuePair<string, object?>("agent.name", e.AgentName));
                 break;
 

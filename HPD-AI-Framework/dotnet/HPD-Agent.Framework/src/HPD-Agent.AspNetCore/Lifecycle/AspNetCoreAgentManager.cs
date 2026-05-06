@@ -32,24 +32,20 @@ internal class AspNetCoreAgentManager : AgentManager
         _agentFactory = agentFactory;
     }
 
-    protected override async Task<Agent> BuildAgentAsync(StoredAgent stored, CancellationToken ct)
+    protected override async Task<Agent> BuildAgentAsync(string agentId, CancellationToken ct)
     {
         var opts = _optionsMonitor.Get(_name);
 
         // Priority 1: IAgentFactory from DI
         if (_agentFactory != null)
-            return await _agentFactory.CreateAgentAsync(stored.Id, _sessionManager.Store, ct);
+            return await _agentFactory.CreateAgentAsync(agentId, _sessionManager.Store, ct);
 
-        // Priority 2: stored.Config (user-provided definition via API)
+        // Priority 2: stored.Config loaded by AgentBuilder through IAgentStore
         // Priority 3: DefaultAgentConfig object
         // Priority 4: DefaultAgentConfigPath file
         // Priority 5: Empty builder (fallback)
         AgentBuilder builder;
-        if (stored.Config is { } config && config != new AgentConfig())
-        {
-            builder = new AgentBuilder(config);
-        }
-        else if (opts.DefaultAgentConfig != null)
+        if (opts.DefaultAgentConfig != null)
         {
             builder = new AgentBuilder(opts.DefaultAgentConfig);
         }
@@ -66,7 +62,10 @@ internal class AspNetCoreAgentManager : AgentManager
             builder = new AgentBuilder();
         }
 
-        builder.WithSessionStore(_sessionManager.Store, opts.PersistAfterTurn);
+        builder
+            .WithAgentId(agentId)
+            .WithAgentStore(AgentStore, opts.PersistAgentDefinitionsOnBuild)
+            .WithSessionStore(_sessionManager.Store, opts.PersistAfterTurn);
 
         // ConfigureAgent always runs last — server enrichment for all agents
         opts.ConfigureAgent?.Invoke(builder);
