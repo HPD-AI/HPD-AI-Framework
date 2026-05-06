@@ -39,9 +39,6 @@ public class MragPipeline
     // Node tracking — keyed by nodeId
     private readonly HashSet<string> _nodeIds = new(StringComparer.Ordinal);
 
-    // Pending edges: (from, to, fromPort?, condition?)
-    private readonly List<(string From, string To, int? FromPort, EdgeCondition? Condition)> _edges = new();
-
     // Adapters to register into the graph service provider
     // Stores: (handler name string, DI type to resolve at execution time)
     private readonly List<(string HandlerName, Type ServiceType)> _adapterRegistrations = new();
@@ -282,10 +279,33 @@ public class MragPipeline
         return new MragEdgeBuilder(this, sourceNodes);
     }
 
-    // Called by MragEdgeBuilder
-    internal void AddEdgeInternal(string from, string to, int? fromPort, EdgeCondition? condition)
+    // Called by MragEdgeBuilder. Edges are committed directly to the core graph builder
+    // so MRAG does not maintain a parallel edge model.
+    internal void AddEdgeInternal(Edge edge)
     {
-        _edges.Add((from, to, fromPort, condition));
+        _graphBuilder.AddEdge(edge.From, edge.To, eb =>
+        {
+            if (edge.FromPort.HasValue)
+                eb.FromPort(edge.FromPort.Value);
+            if (edge.ToPort.HasValue)
+                eb.ToPort(edge.ToPort.Value);
+            if (edge.Priority.HasValue)
+                eb.WithPriority(edge.Priority.Value);
+            if (edge.Condition != null)
+                eb.WithCondition(edge.Condition);
+            if (edge.CloningPolicy.HasValue)
+                eb.WithCloningPolicy(edge.CloningPolicy.Value);
+            if (edge.Delay.HasValue)
+                eb.WithDelay(edge.Delay.Value);
+            if (edge.Schedule != null)
+                eb.WithSchedule(edge.Schedule);
+            if (edge.RetryPolicy != null)
+                eb.WithRetryPolicy(edge.RetryPolicy);
+            foreach (var (key, value) in edge.Metadata)
+            {
+                eb.WithMetadata(key, value);
+            }
+        });
     }
 
     // ------------------------------------------------------------------ //
@@ -348,25 +368,6 @@ public class MragPipeline
         // them if missing, but we want to ensure they appear in the node list.
         _graphBuilder.AddStartNode();
         _graphBuilder.AddEndNode();
-
-        // Register all pending edges.
-        foreach (var (from, to, fromPort, condition) in _edges)
-        {
-            if (fromPort.HasValue || condition != null)
-            {
-                _graphBuilder.AddEdge(from, to, eb =>
-                {
-                    if (fromPort.HasValue)
-                        eb.FromPort(fromPort.Value);
-                    if (condition != null)
-                        eb.WithCondition(condition);
-                });
-            }
-            else
-            {
-                _graphBuilder.AddEdge(from, to);
-            }
-        }
 
         return _graphBuilder.Build();
     }

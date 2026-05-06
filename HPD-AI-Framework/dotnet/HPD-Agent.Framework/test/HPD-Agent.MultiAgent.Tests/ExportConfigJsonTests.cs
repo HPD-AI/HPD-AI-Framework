@@ -403,10 +403,10 @@ public class ExportConfigJsonTests
         }
     }
 
-    // ── 9.5  Predicate edge serialises as FieldEquals on synthetic key ────────
+    // ── 9.5  Predicate edge remains runtime-only in export ───────────────────
 
     [Fact]
-    public async Task ExportConfigJson_PredicateEdge_SerializesAsSyntheticFieldEquals()
+    public async Task ExportConfigJson_PredicateEdge_RemainsRuntimeOnly()
     {
         var workflow = await AgentWorkflow.Create()
             .WithName("PredFlow")
@@ -418,9 +418,8 @@ public class ExportConfigJsonTests
         var json = workflow.ExportConfigJson();
         var root = ParseJson(json);
 
-        // The edges array must contain the synthetic FieldEquals condition
-        json.Should().Contain("__predicate_a_b",
-            "predicate edge must be persisted as FieldEquals on the synthetic key");
+        json.Should().NotContain("__predicate");
+        json.Should().NotContain("Predicate");
 
         var edge = root.GetProperty("Edges").EnumerateArray()
             .FirstOrDefault(e =>
@@ -428,8 +427,7 @@ public class ExportConfigJsonTests
                 e.TryGetProperty("To", out var t) && t.GetString() == "b");
 
         edge.ValueKind.Should().NotBe(JsonValueKind.Undefined, "edge a→b must be present");
-        edge.TryGetProperty("When", out var when).Should().BeTrue();
-        when.GetProperty("Field").GetString().Should().Be("__predicate_a_b");
+        edge.TryGetProperty("When", out _).Should().BeFalse();
     }
 
     // ── 9.6  Default settings → no checkpoint store required ─────────────────

@@ -56,6 +56,9 @@ public sealed class MragEvaluationPipeline
     /// <summary>Human-readable name of this pipeline.</summary>
     public string PipelineName { get; }
 
+    /// <summary>Compiled HPD.Graph representation of this RAG pipeline.</summary>
+    public Graph Graph => _graph;
+
     internal MragEvaluationPipeline(string pipelineName, Graph graph, IServiceProvider pipelineServices)
     {
         PipelineName = pipelineName;

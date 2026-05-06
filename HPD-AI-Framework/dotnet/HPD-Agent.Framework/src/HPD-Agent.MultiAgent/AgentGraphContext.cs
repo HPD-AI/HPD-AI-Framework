@@ -1,5 +1,4 @@
 using HPD.Agent;
-using HPD.MultiAgent.Routing;
 using HPDAgent.Graph.Abstractions.Channels;
 using HPDAgent.Graph.Abstractions.Context;
 using HPDAgent.Graph.Abstractions.State;
@@ -18,7 +17,6 @@ public class AgentGraphContext : GraphContext
 {
     private readonly Dictionary<string, Agent.Agent> _agents;
     private readonly Dictionary<string, AgentNodeOptions> _agentOptions;
-    private readonly Dictionary<string, Func<EdgeConditionContext, bool>> _predicateEdges;
 
     /// <summary>
     /// The original user input that started the workflow.
@@ -54,13 +52,11 @@ public class AgentGraphContext : GraphContext
         Dictionary<string, AgentNodeOptions> agentOptions,
         IGraphChannelSet? channels = null,
         IManagedContext? managed = null,
-        string? originalInput = null,
-        Dictionary<string, Func<EdgeConditionContext, bool>>? predicateEdges = null)
+        string? originalInput = null)
         : base(executionId, graph, services, channels, managed, enableSharedData: true)
     {
         _agents = agents ?? throw new ArgumentNullException(nameof(agents));
         _agentOptions = agentOptions ?? throw new ArgumentNullException(nameof(agentOptions));
-        _predicateEdges = predicateEdges ?? new Dictionary<string, Func<EdgeConditionContext, bool>>();
 
         // Store original input in SharedData so it's available to all nodes
         if (!string.IsNullOrEmpty(originalInput) && SharedData != null)
@@ -98,34 +94,6 @@ public class AgentGraphContext : GraphContext
         return _agents.ContainsKey(nodeId);
     }
 
-    /// <summary>
-    /// Evaluates all predicate edges originating from the given node and writes
-    /// synthetic boolean output keys (e.g. "__predicate_from_to") into the outputs
-    /// dictionary so the graph's FieldEquals conditions can route correctly.
-    /// </summary>
-    public void EvaluatePredicateEdges(string fromNodeId, Dictionary<string, object> outputs)
-    {
-        foreach (var (key, predicate) in _predicateEdges)
-        {
-            // Key format is "from->to"
-            if (!key.StartsWith($"{fromNodeId}->")) continue;
-
-            var toNodeId = key.Substring(fromNodeId.Length + 2);
-            var syntheticKey = $"__predicate_{fromNodeId}_{toNodeId}";
-            var ctx = new EdgeConditionContext(outputs);
-
-            try
-            {
-                outputs[syntheticKey] = predicate(ctx);
-            }
-            catch
-            {
-                // Predicate threw — treat as false (edge not traversed)
-                outputs[syntheticKey] = false;
-            }
-        }
-    }
-
     /// <inheritdoc/>
     public override IGraphContext CreateIsolatedCopy()
     {
@@ -137,8 +105,7 @@ public class AgentGraphContext : GraphContext
             _agentOptions, // Options are shared (immutable)
             CloneChannelsInternal(),
             Managed,
-            OriginalInput, // Will be copied to SharedData in constructor
-            _predicateEdges) // Predicates are shared (immutable)
+            OriginalInput) // Will be copied to SharedData in constructor
         {
             CurrentLayerIndex = CurrentLayerIndex,
             // CRITICAL: Share the event coordinator so events from parallel nodes are streamed

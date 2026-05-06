@@ -36,6 +36,9 @@ public sealed class MragRetrievalPipeline : IMragRetriever
     /// <summary>Human-readable name of this pipeline.</summary>
     public string PipelineName { get; }
 
+    /// <summary>Compiled HPD.Graph representation of this RAG pipeline.</summary>
+    public Graph Graph => _graph;
+
     internal MragRetrievalPipeline(string pipelineName, Graph graph, IServiceProvider pipelineServices)
     {
         PipelineName = pipelineName;

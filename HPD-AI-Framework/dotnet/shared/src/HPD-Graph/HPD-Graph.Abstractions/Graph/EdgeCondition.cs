@@ -26,9 +26,19 @@ public enum ConditionType
     FieldGreaterThan,
 
     /// <summary>
+    /// Traverse if field is greater than or equal to value.
+    /// </summary>
+    FieldGreaterThanOrEqual,
+
+    /// <summary>
     /// Traverse if field is less than value.
     /// </summary>
     FieldLessThan,
+
+    /// <summary>
+    /// Traverse if field is less than or equal to value.
+    /// </summary>
+    FieldLessThanOrEqual,
 
     /// <summary>
     /// Traverse if field exists (not null).
@@ -194,7 +204,9 @@ public sealed record EdgeCondition
             ConditionType.FieldEquals => $"{Field} == {Value}",
             ConditionType.FieldNotEquals => $"{Field} != {Value}",
             ConditionType.FieldGreaterThan => $"{Field} > {Value}",
+            ConditionType.FieldGreaterThanOrEqual => $"{Field} >= {Value}",
             ConditionType.FieldLessThan => $"{Field} < {Value}",
+            ConditionType.FieldLessThanOrEqual => $"{Field} <= {Value}",
             ConditionType.FieldExists => $"{Field} exists",
             ConditionType.FieldNotExists => $"{Field} not exists",
             ConditionType.FieldContains => $"{Field} contains {Value}",

@@ -25,6 +25,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\HPD-Agent.MultiAgent\HPD-Agent.MultiAgent.csproj" />
     <ProjectReference Include="..\..\src\HPD-Agent\HPD-Agent.csproj" />
+    <ProjectReference Include="..\..\..\HPD-RAG.Framework\src\HPD-RAG.Pipeline\HPD-RAG.Pipeline.csproj" />
     <ProjectReference Include="..\..\..\..\shared\src\HPD-Graph\HPD-Graph.Core\HPD-Graph.Core.csproj" />
     <ProjectReference Include="..\..\..\..\shared\src\HPD-Events\HPD-Events.csproj" />
   </ItemGroup>

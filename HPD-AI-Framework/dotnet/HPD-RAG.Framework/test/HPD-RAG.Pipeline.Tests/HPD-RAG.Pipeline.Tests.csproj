@@ -5,14 +5,12 @@
     <IsTestProject>true</IsTestProject>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
   </ItemGroup>
@@ -21,6 +19,20 @@
     <ProjectReference Include="..\..\src\HPD-RAG.Pipeline\HPD-RAG.Pipeline.csproj" />
     <ProjectReference Include="..\..\src\HPD-RAG.Extensions\HPD-RAG.Extensions.csproj" />
     <ProjectReference Include="..\..\src\HPD-RAG.VectorStores\HPD-RAG.VectorStores.InMemory\HPD-RAG.VectorStores.InMemory.csproj" />
-    <ProjectReference Include="..\..\..\src\shared\src\HPD-Graph\HPD-Graph.Core\HPD-Graph.Core.csproj" />
+    <ProjectReference Include="..\..\..\shared\src\HPD-Graph\HPD-Graph.Core\HPD-Graph.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="$(NuGetPackageRoot)xunit.runner.visualstudio\2.8.2\build\net6.0\xunit.runner.visualstudio.testadapter.dll"
+          Link="xunit.runner.visualstudio.testadapter.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+    <None Include="$(NuGetPackageRoot)xunit.runner.visualstudio\2.8.2\build\net6.0\xunit.runner.reporters.netcoreapp10.dll"
+          Link="xunit.runner.reporters.netcoreapp10.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+    <None Include="$(NuGetPackageRoot)xunit.runner.visualstudio\2.8.2\build\net6.0\xunit.runner.utility.netcoreapp10.dll"
+          Link="xunit.runner.utility.netcoreapp10.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
   </ItemGroup>
 </Project>

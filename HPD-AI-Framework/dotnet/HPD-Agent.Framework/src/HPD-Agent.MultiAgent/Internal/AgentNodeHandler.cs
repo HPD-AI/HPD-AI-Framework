@@ -63,11 +63,6 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
                 _ => throw new InvalidOperationException($"Unknown output mode: {options.OutputMode}")
             };
 
-            // Evaluate any predicate-based edges originating from this node.
-            // Writes synthetic boolean keys (e.g. "__predicate_nodeA_nodeB") into outputs
-            // so the graph's FieldEquals conditions can route correctly.
-            context.EvaluatePredicateEdges(_nodeId, outputs);
-
             // Check if approval is required
             if (options.Approval != null)
             {

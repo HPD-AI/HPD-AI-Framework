@@ -9,7 +9,9 @@ using HPDAgent.Graph.Abstractions.Events;
 using HPDAgent.Graph.Abstractions.Execution;
 using HPDAgent.Graph.Abstractions.Graph;
 using HPDAgent.Graph.Abstractions.Handlers;
+using HPDAgent.Graph.Abstractions.Invocation;
 using HPDAgent.Graph.Abstractions.Orchestration;
+using HPDAgent.Graph.Abstractions.Storage;
 using HPDAgent.Graph.Core.Artifacts;
 using HPDAgent.Graph.Core.Channels;
 using HPDAgent.Graph.Core.State;
@@ -33,6 +35,9 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
     private readonly IAffectedNodeDetector? _affectedNodeDetector;
     private readonly IGraphSnapshotStore? _snapshotStore;
     private readonly IArtifactRegistry? _artifactRegistry;
+    private readonly IGraphHandlerRegistry? _handlerRegistry;
+    private readonly IWorkflowSuspensionSink? _suspensionSink;
+    private readonly IWorkflowExecutionStateSink? _executionStateSink;
 
     // Default suspension options for nodes that don't specify their own
     private readonly Abstractions.Execution.SuspensionOptions _defaultSuspensionOptions;
@@ -78,7 +83,8 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         IGraphSnapshotStore? snapshotStore = null,
         IArtifactRegistry? artifactRegistry = null,
         Abstractions.Registry.IGraphRegistry? graphRegistry = null,
-        int? maxLayerConcurrency = null)
+        int? maxLayerConcurrency = null,
+        IGraphHandlerRegistry? handlerRegistry = null)
     {
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _cacheStore = cacheStore;
@@ -88,6 +94,9 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         _snapshotStore = snapshotStore;
         _artifactRegistry = artifactRegistry;
         _graphRegistry = graphRegistry;
+        _handlerRegistry = handlerRegistry;
+        _executionStateSink = serviceProvider.GetService<IWorkflowExecutionStateSink>();
+        _suspensionSink = _executionStateSink ?? serviceProvider.GetService<IWorkflowSuspensionSink>();
         _defaultSuspensionOptions = defaultSuspensionOptions ?? Abstractions.Execution.SuspensionOptions.Default;
         _maxLayerConcurrency = maxLayerConcurrency ?? (Environment.ProcessorCount * 4);
 
@@ -653,8 +662,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             }
 
             // Evaluate condition (null condition = unconditional back-edge)
-            var conditionMet = backEdge.Condition == null ||
-                ConditionEvaluator.Evaluate(backEdge.Condition, outputs, context, backEdge.Edge);
+            var conditionMet = ConditionEvaluator.Evaluate(backEdge.Edge, outputs, context);
 
             if (conditionMet)
             {
@@ -1721,13 +1729,6 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 return;
             }
 
-            // Get handler for Handler/Router nodes
-            var handler = ResolveHandler(node);
-            if (handler == null)
-            {
-                throw new InvalidOperationException($"No handler found for node '{node.Id}' with handler name '{node.HandlerName}'");
-            }
-
             // Prepare inputs from upstream nodes
             var inputs = PrepareInputs(context, node);
 
@@ -1781,11 +1782,11 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             {
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 cts.CancelAfter(node.Timeout.Value);
-                result = await handler.ExecuteAsync(context, inputs, cts.Token);
+                result = await InvokeHandlerAsync(context, node, inputs, cts.Token);
             }
             else
             {
-                result = await handler.ExecuteAsync(context, inputs, cancellationToken);
+                result = await InvokeHandlerAsync(context, node, inputs, cancellationToken);
             }
 
             // Handle result using pattern matching
@@ -1848,6 +1849,30 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         // Get all registered handlers
         var handlers = _serviceProvider.GetServices<IGraphNodeHandler<TContext>>();
         return handlers.FirstOrDefault(h => h.HandlerName == node.HandlerName);
+    }
+
+    private async ValueTask<NodeExecutionResult> InvokeHandlerAsync(
+        TContext context,
+        Node node,
+        HandlerInputs inputs,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(node.HandlerName) && _handlerRegistry is not null)
+        {
+            var invoker = _handlerRegistry.GetInvoker(node.HandlerName);
+            if (invoker is not null)
+            {
+                return await invoker.ExecuteAsync(context, inputs, cancellationToken);
+            }
+        }
+
+        var handler = ResolveHandler(node);
+        if (handler is null)
+        {
+            throw new InvalidOperationException($"No handler found for node '{node.Id}' with handler name '{node.HandlerName}'");
+        }
+
+        return await handler.ExecuteAsync(context, inputs, cancellationToken);
     }
 
     private Abstractions.Routing.IMapRouter? ResolveRouter(Node node)
@@ -1990,7 +2015,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                         // Pass 1: Evaluate regular conditions
                         foreach (var edge in regularEdges)
                         {
-                            if (ConditionEvaluator.Evaluate(edge.Condition, rawOutputs, context, edge))
+                            if (ConditionEvaluator.Evaluate(edge, rawOutputs, context))
                             {
                                 // Apply cloning policy for this edge
                                 var outputs = ApplyCloningPolicy(context, rawOutputs, sourceNodeId, fromPort, edge);
@@ -2012,7 +2037,9 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                         }
 
                         // Pass 2: If no regular edges matched, try default edge
-                        if (!anyRegularEdgeMatched && defaultEdge != null)
+                        if (!anyRegularEdgeMatched &&
+                            defaultEdge != null &&
+                            ConditionEvaluator.Evaluate(defaultEdge, rawOutputs, context))
                         {
                             context.Log("Orchestrator",
                                 $"Using default edge: {defaultEdge.From}:port{fromPort} -> {defaultEdge.To}",
@@ -2634,6 +2661,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                         // Update outcome
                         context.AddTag($"suspend_outcome:{node.Id}", Abstractions.Execution.SuspensionOutcome.Denied.ToString());
 
+                        await PublishSuspensionAsync(context, node, suspended, pollingAttemptNumber: null, ct);
                         return false; // Halt execution
                     }
                 }
@@ -2656,6 +2684,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                     });
 
                     // LAYER 4: Fallback - checkpoint already saved, halt cleanly
+                    await PublishSuspensionAsync(context, node, suspended, pollingAttemptNumber: null, ct);
                     return false;
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -2683,6 +2712,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         }
 
         // Halt execution
+        await PublishSuspensionAsync(context, node, suspended, pollingAttemptNumber: null, ct);
         return false;
     }
 
@@ -2740,6 +2770,8 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 HPDAgent.Graph.Abstractions.Serialization.GraphJsonSerializerContext.Default.PollingState
             ));
 
+            await PublishSuspensionAsync(context, node, suspended, currentAttempt, ct);
+
             // CHECKPOINT FIRST (durability)
             if (_checkpointStore != null && context is Context.GraphContext ctxGraph)
             {
@@ -2792,7 +2824,16 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
                 // Handle failure through normal error propagation system
                 // This applies the node's error policy (Isolate, StopGraph, etc.)
-                await HandleFailureAsync(context, node, timeoutFailure, ct);
+                try
+                {
+                    await HandleFailureAsync(context, node, timeoutFailure, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    await PublishFailureAsync(context, node, timeoutFailure.Exception.Message, ct);
+                    throw;
+                }
+                await PublishRunningAsync(context, node, ct);
 
                 return true; // Continue execution if error policy allows it
             }
@@ -2838,7 +2879,16 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
                 // Handle failure through normal error propagation system
                 // This applies the node's error policy (Isolate, StopGraph, etc.)
-                await HandleFailureAsync(context, node, maxRetriesFailure, ct);
+                try
+                {
+                    await HandleFailureAsync(context, node, maxRetriesFailure, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    await PublishFailureAsync(context, node, maxRetriesFailure.Exception.Message, ct);
+                    throw;
+                }
+                await PublishRunningAsync(context, node, ct);
 
                 return true; // Continue execution if error policy allows it
             }
@@ -2851,15 +2901,8 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             // State back to Running for retry
             context.AddTag($"node_state:{node.Id}", Abstractions.Execution.NodeState.Running.ToString());
 
-            // Re-execute handler directly
-            var handler = ResolveHandler(node);
-            if (handler == null)
-            {
-                throw new InvalidOperationException($"No handler found for node '{node.Id}' with handler name '{node.HandlerName}'");
-            }
-
             var inputs = PrepareInputs(context, node);
-            var retryResult = await handler.ExecuteAsync(context, inputs, ct);
+            var retryResult = await InvokeHandlerAsync(context, node, inputs, ct);
 
             // Check result - loop continues if still suspended, exits otherwise
             if (retryResult is NodeExecutionResult.Suspended retrySuspended &&
@@ -2873,6 +2916,10 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             // Not suspended anymore (success, failure, or different suspension type)
             // Clear polling state BEFORE handling result (ensures cleanup happens before any checkpoint)
             context.RemoveTag($"polling_info:{node.Id}");
+            if (retryResult is NodeExecutionResult.Success)
+            {
+                await PublishRunningAsync(context, node, ct);
+            }
 
             // Handle the final result
             return await HandleNodeResultAsync(context, node, retryResult, ct);
@@ -3136,6 +3183,104 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         await _checkpointStore.SaveCheckpointAsync(checkpoint, cancellationToken);
     }
 
+    private async Task PublishSuspensionAsync(
+        TContext context,
+        Node node,
+        NodeExecutionResult.Suspended suspended,
+        int? pollingAttemptNumber,
+        CancellationToken cancellationToken)
+    {
+        if (_suspensionSink is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _suspensionSink.MarkSuspendedAsync(
+                context.Graph.Id,
+                context.ExecutionId,
+                node.Id,
+                suspended.SuspendToken,
+                suspended.Reason,
+                suspended.Message,
+                suspended.RetryAfter,
+                suspended.MaxWaitTime,
+                suspended.MaxRetries,
+                pollingAttemptNumber,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            context.Log(
+                "Orchestrator",
+                $"Failed to publish suspension state for node {node.Id}: {ex.Message}",
+                LogLevel.Warning,
+                nodeId: node.Id,
+                exception: ex);
+        }
+    }
+
+    private async Task PublishFailureAsync(
+        TContext context,
+        Node node,
+        string errorMessage,
+        CancellationToken cancellationToken)
+    {
+        if (_executionStateSink is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _executionStateSink.MarkFailedAsync(
+                context.Graph.Id,
+                context.ExecutionId,
+                node.Id,
+                errorMessage,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            context.Log(
+                "Orchestrator",
+                $"Failed to publish execution failure state for node {node.Id}: {ex.Message}",
+                LogLevel.Warning,
+                nodeId: node.Id,
+                exception: ex);
+        }
+    }
+
+    private async Task PublishRunningAsync(
+        TContext context,
+        Node node,
+        CancellationToken cancellationToken)
+    {
+        if (_executionStateSink is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _executionStateSink.MarkRunningAsync(
+                context.Graph.Id,
+                context.ExecutionId,
+                node.Id,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            context.Log(
+                "Orchestrator",
+                $"Failed to publish execution running state for node {node.Id}: {ex.Message}",
+                LogLevel.Warning,
+                nodeId: node.Id,
+                exception: ex);
+        }
+    }
+
     private void HandleCancelled(TContext context, Node node, NodeExecutionResult.Cancelled cancelled)
     {
         // Update state to Cancelled
@@ -3371,6 +3516,14 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             // Unconditional edge (no condition) = active path exists
             if (edge.Condition == null)
             {
+                var predicateMet = ConditionEvaluator.Evaluate(edge, outputs, context);
+                if (!predicateMet)
+                {
+                    evaluatedEdges.Add($"{edge.From}→{edge.To}: runtime predicate (not met)");
+                    failedEdgeSources.Add(edge.From);
+                    continue;
+                }
+
                 evaluatedEdges.Add($"{edge.From}→{edge.To}: unconditional (ACTIVE)");
 
                 // Emit edge traversed event
@@ -3388,6 +3541,14 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             // Default edge = active (fallback path)
             if (edge.Condition.Type == ConditionType.Default)
             {
+                var predicateMet = ConditionEvaluator.Evaluate(edge, outputs, context);
+                if (!predicateMet)
+                {
+                    evaluatedEdges.Add($"{edge.From}→{edge.To}: default edge runtime predicate (not met)");
+                    failedEdgeSources.Add(edge.From);
+                    continue;
+                }
+
                 evaluatedEdges.Add($"{edge.From}→{edge.To}: default edge (ACTIVE)");
 
                 // Emit edge traversed event
@@ -3404,7 +3565,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             }
 
             // Evaluate the condition (use new overload that supports upstream conditions)
-            var conditionMet = ConditionEvaluator.Evaluate(edge.Condition, outputs, context, edge);
+            var conditionMet = ConditionEvaluator.Evaluate(edge, outputs, context);
             var conditionDesc = edge.Condition.GetDescription() ?? edge.Condition.Type.ToString();
 
             // Emit condition evaluation diagnostic

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPDGraph.AspNetCore</RootNamespace>
+    <AssemblyName>HPDGraph.AspNetCore</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Graph.AspNetCore</PackageId>
+    <Description>ASP.NET Core workflow endpoints for HPD-Graph.</Description>
+    <PackageTags>graph;workflow;aspnetcore;api</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Graph.Abstractions\HPD-Graph.Abstractions.csproj" />
+    <ProjectReference Include="..\HPD-Graph.Core\HPD-Graph.Core.csproj" />
+    <ProjectReference Include="..\HPD-Graph.Hosting\HPD-Graph.Hosting.csproj" />
+  </ItemGroup>
+
+</Project>

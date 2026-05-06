@@ -20,12 +20,7 @@ public class MultiAgent
     private readonly Dictionary<string, Agent.Agent> _agents = new();
     private readonly Dictionary<string, AgentConfig> _agentConfigs = new();
     private readonly Dictionary<string, AgentNodeOptions> _options = new();
-    private readonly List<(string From, string To, EdgeCondition? Condition)> _edges = new();
 
-    // Stores predicate-based edge conditions keyed by "from->to".
-    // Predicates are evaluated by AgentNodeHandler after the source node runs and
-    // write a synthetic boolean output key that the graph routes on.
-    internal readonly Dictionary<string, Func<EdgeConditionContext, bool>> PredicateEdges = new();
     private readonly WorkflowSettingsConfig _settings;
     private string? _workflowName;
 
@@ -58,7 +53,7 @@ public class MultiAgent
         foreach (var edge in config.Edges)
         {
             var condition = edge.When != null ? MapCondition(edge.When) : null;
-            _edges.Add((edge.From, edge.To, condition));
+            AddEdgeInternal(edge.From, edge.To, condition);
         }
     }
 
@@ -278,19 +273,6 @@ public class MultiAgent
             });
         }
 
-        // Add edges
-        foreach (var (from, to, condition) in _edges)
-        {
-            if (condition != null)
-            {
-                _graphBuilder.AddEdge(from, to, e => e.WithCondition(condition));
-            }
-            else
-            {
-                _graphBuilder.AddEdge(from, to);
-            }
-        }
-
         // Build graph
         var graph = _graphBuilder.Build();
 
@@ -303,7 +285,7 @@ public class MultiAgent
             services.AddSingleton<HPDAgent.Graph.Abstractions.Handlers.IGraphNodeHandler<AgentGraphContext>>(handler);
         }
 
-        return Task.FromResult(new AgentWorkflowInstance(graph, factories, _options, services.BuildServiceProvider(), _workflowName, _settings, PredicateEdges));
+        return Task.FromResult(new AgentWorkflowInstance(graph, factories, _options, services.BuildServiceProvider(), _workflowName, _settings));
     }
 
     /// <summary>
@@ -329,43 +311,28 @@ public class MultiAgent
     // Internal methods for EdgeBuilder
     internal void AddEdgeInternal(string from, string to, EdgeCondition? condition)
     {
-        // Check if edge already exists
-        var existingIndex = _edges.FindIndex(e => e.From == from && e.To == to);
-        if (existingIndex >= 0)
+        _graphBuilder.AddOrReplaceEdge(from, to, edge =>
         {
-            _edges[existingIndex] = (from, to, condition);
-        }
-        else
-        {
-            _edges.Add((from, to, condition));
-        }
+            if (condition != null)
+            {
+                edge.WithCondition(condition);
+            }
+        });
     }
 
     internal void UpdateEdgeCondition(string from, string to, EdgeCondition? condition)
     {
-        var index = _edges.FindIndex(e => e.From == from && e.To == to);
-        if (index >= 0)
-        {
-            _edges[index] = (from, to, condition);
-        }
+        AddEdgeInternal(from, to, condition);
     }
 
-    /// <summary>
-    /// Registers a predicate-based edge. The predicate is evaluated by AgentNodeHandler
-    /// after the source node runs and writes a synthetic boolean key that the graph routes on.
-    /// The synthetic key is "__predicate_{from}_{to}".
-    /// </summary>
     internal void AddPredicateEdge(string from, string to, Func<EdgeConditionContext, bool> predicate)
     {
-        var syntheticKey = $"__predicate_{from}_{to}";
-        PredicateEdges[$"{from}->{to}"] = predicate;
-
-        // Register the edge with a FieldEquals condition on the synthetic key
-        AddEdgeInternal(from, to, new EdgeCondition
+        _graphBuilder.AddOrReplaceEdge(from, to, edge =>
         {
-            Type = ConditionType.FieldEquals,
-            Field = syntheticKey,
-            Value = true
+            edge.When(ctx => predicate(new EdgeConditionContext(
+                ctx.SourceOutputs is Dictionary<string, object> outputs
+                    ? outputs
+                    : new Dictionary<string, object>(ctx.SourceOutputs))));
         });
     }
 

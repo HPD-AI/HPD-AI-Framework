@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace HPDAgent.Graph.Abstractions.Graph;
 
 /// <summary>
@@ -41,6 +43,14 @@ public sealed record Edge
     /// If null, edge is always traversed (unconditional).
     /// </summary>
     public EdgeCondition? Condition { get; init; }
+
+    /// <summary>
+    /// Runtime-only predicate for traversing this edge.
+    /// Not serialized to JSON/config. Use declarative <see cref="Condition"/> for persisted graphs.
+    /// When both <see cref="Condition"/> and <see cref="Predicate"/> are set, both must pass.
+    /// </summary>
+    [JsonIgnore]
+    public Func<EdgePredicateContext, bool>? Predicate { get; init; }
 
     /// <summary>
     /// Override cloning policy for this specific edge.

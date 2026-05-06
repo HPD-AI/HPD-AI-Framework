@@ -56,7 +56,9 @@ public static class ConditionEvaluator
             ConditionType.FieldEquals => EvaluateFieldEquals(condition, nodeOutputs),
             ConditionType.FieldNotEquals => !EvaluateFieldEquals(condition, nodeOutputs),
             ConditionType.FieldGreaterThan => EvaluateFieldGreaterThan(condition, nodeOutputs),
+            ConditionType.FieldGreaterThanOrEqual => EvaluateFieldGreaterThanOrEqual(condition, nodeOutputs),
             ConditionType.FieldLessThan => EvaluateFieldLessThan(condition, nodeOutputs),
+            ConditionType.FieldLessThanOrEqual => EvaluateFieldLessThanOrEqual(condition, nodeOutputs),
             ConditionType.FieldExists => EvaluateFieldExists(condition, nodeOutputs),
             ConditionType.FieldNotExists => !EvaluateFieldExists(condition, nodeOutputs),
             ConditionType.FieldContains => EvaluateFieldContains(condition, nodeOutputs),
@@ -101,7 +103,9 @@ public static class ConditionEvaluator
             ConditionType.FieldEquals => EvaluateFieldEquals(condition, nodeOutputs),
             ConditionType.FieldNotEquals => !EvaluateFieldEquals(condition, nodeOutputs),
             ConditionType.FieldGreaterThan => EvaluateFieldGreaterThan(condition, nodeOutputs),
+            ConditionType.FieldGreaterThanOrEqual => EvaluateFieldGreaterThanOrEqual(condition, nodeOutputs),
             ConditionType.FieldLessThan => EvaluateFieldLessThan(condition, nodeOutputs),
+            ConditionType.FieldLessThanOrEqual => EvaluateFieldLessThanOrEqual(condition, nodeOutputs),
             ConditionType.FieldExists => EvaluateFieldExists(condition, nodeOutputs),
             ConditionType.FieldNotExists => !EvaluateFieldExists(condition, nodeOutputs),
             ConditionType.FieldContains => EvaluateFieldContains(condition, nodeOutputs),
@@ -124,6 +128,23 @@ public static class ConditionEvaluator
 
             _ => throw new InvalidOperationException($"Unknown condition type: {condition.Type}")
         };
+    }
+
+    /// <summary>
+    /// Evaluate a full edge against source outputs, including the declarative condition
+    /// and optional runtime-only predicate.
+    /// </summary>
+    public static bool Evaluate(
+        Edge edge,
+        Dictionary<string, object>? nodeOutputs,
+        IGraphContext context)
+    {
+        if (!Evaluate(edge.Condition, nodeOutputs, context, edge))
+        {
+            return false;
+        }
+
+        return edge.Predicate?.Invoke(new EdgePredicateContext(context, edge, nodeOutputs)) ?? true;
     }
 
     // ========================================
@@ -221,45 +242,38 @@ public static class ConditionEvaluator
 
     private static bool EvaluateFieldGreaterThan(EdgeCondition condition, Dictionary<string, object>? nodeOutputs)
     {
-        if (string.IsNullOrWhiteSpace(condition.Field) || nodeOutputs == null)
-            return false;
+        var comparison = CompareField(condition, nodeOutputs);
+        return comparison.HasValue && comparison.Value > 0;
+    }
 
-        if (!nodeOutputs.TryGetValue(condition.Field, out var fieldValue))
-            return false;
-
-        if (fieldValue == null || condition.Value == null)
-            return false;
-
-        var unwrapped = UnwrapScalar(fieldValue);
-
-        // Try numeric comparison
-        if (TryGetNumericValue(unwrapped, out var fieldNum) &&
-            TryGetNumericValue(condition.Value, out var conditionNum))
-        {
-            return fieldNum > conditionNum;
-        }
-
-        // Try string comparison
-        var fieldStr = unwrapped?.ToString();
-        var conditionStr = condition.Value?.ToString();
-        if (fieldStr != null && conditionStr != null)
-        {
-            return string.Compare(fieldStr, conditionStr, StringComparison.Ordinal) > 0;
-        }
-
-        return false;
+    private static bool EvaluateFieldGreaterThanOrEqual(EdgeCondition condition, Dictionary<string, object>? nodeOutputs)
+    {
+        var comparison = CompareField(condition, nodeOutputs);
+        return comparison.HasValue && comparison.Value >= 0;
     }
 
     private static bool EvaluateFieldLessThan(EdgeCondition condition, Dictionary<string, object>? nodeOutputs)
     {
+        var comparison = CompareField(condition, nodeOutputs);
+        return comparison.HasValue && comparison.Value < 0;
+    }
+
+    private static bool EvaluateFieldLessThanOrEqual(EdgeCondition condition, Dictionary<string, object>? nodeOutputs)
+    {
+        var comparison = CompareField(condition, nodeOutputs);
+        return comparison.HasValue && comparison.Value <= 0;
+    }
+
+    private static int? CompareField(EdgeCondition condition, Dictionary<string, object>? nodeOutputs)
+    {
         if (string.IsNullOrWhiteSpace(condition.Field) || nodeOutputs == null)
-            return false;
+            return null;
 
         if (!nodeOutputs.TryGetValue(condition.Field, out var fieldValue))
-            return false;
+            return null;
 
         if (fieldValue == null || condition.Value == null)
-            return false;
+            return null;
 
         var unwrapped = UnwrapScalar(fieldValue);
 
@@ -267,7 +281,7 @@ public static class ConditionEvaluator
         if (TryGetNumericValue(unwrapped, out var fieldNum) &&
             TryGetNumericValue(condition.Value, out var conditionNum))
         {
-            return fieldNum < conditionNum;
+            return fieldNum.CompareTo(conditionNum);
         }
 
         // Try string comparison
@@ -275,10 +289,10 @@ public static class ConditionEvaluator
         var conditionStr = condition.Value?.ToString();
         if (fieldStr != null && conditionStr != null)
         {
-            return string.Compare(fieldStr, conditionStr, StringComparison.Ordinal) < 0;
+            return string.Compare(fieldStr, conditionStr, StringComparison.Ordinal);
         }
 
-        return false;
+        return null;
     }
 
     private static bool EvaluateFieldExists(EdgeCondition condition, Dictionary<string, object>? nodeOutputs)

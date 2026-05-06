@@ -86,12 +86,11 @@ public sealed class MragEdgeBuilder
 
     /// <summary>
     /// Marks the edge as the default route for a router node.
-    /// Sets <c>ConditionType.Always</c> so the edge is always traversed
-    /// unless a higher-priority conditional edge fires first.
+    /// Uses <c>ConditionType.Default</c> so the edge behaves as a fallback route.
     /// </summary>
     public MragEdgeBuilder AsDefault()
     {
-        _condition = new EdgeCondition { Type = ConditionType.Always };
+        _condition = new EdgeCondition { Type = ConditionType.Default };
         return this;
     }
 
@@ -108,21 +107,40 @@ public sealed class MragEdgeBuilder
     /// </summary>
     public MragEdgeBuilder To(string targetNode)
     {
-        if (string.IsNullOrWhiteSpace(targetNode))
-            throw new ArgumentException("Target node ID cannot be empty.", nameof(targetNode));
+        return To([targetNode]);
+    }
+
+    /// <summary>
+    /// Adds edges from all current source nodes to all target nodes.
+    /// </summary>
+    public MragEdgeBuilder To(params string[] targetNodes)
+    {
+        if (targetNodes == null || targetNodes.Length == 0)
+            throw new ArgumentException("At least one target node is required.", nameof(targetNodes));
+        if (targetNodes.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("Target node IDs cannot be empty.", nameof(targetNodes));
 
         int? capturedPort = _fromPort;
         EdgeCondition? capturedCondition = _condition;
 
         foreach (var source in _sourceNodes)
         {
-            _pipeline.AddEdgeInternal(source, targetNode, capturedPort, capturedCondition);
+            foreach (var targetNode in targetNodes)
+            {
+                _pipeline.AddEdgeInternal(new Edge
+                {
+                    From = source,
+                    To = targetNode,
+                    FromPort = capturedPort,
+                    Condition = capturedCondition
+                });
+            }
         }
 
         // After adding edges, the target becomes the new source for chained .To() calls.
         // Port and condition are reset — each hop in a linear chain is unconditional
         // unless the caller calls .Port() or .WhenEquals() again.
-        _sourceNodes = new[] { targetNode };
+        _sourceNodes = targetNodes;
         _fromPort = null;
         _condition = null;
 

@@ -2,7 +2,6 @@ using System.Reflection;
 using HPD.Agent;
 using HPD.MultiAgent;
 using HPD.MultiAgent.Config;
-using HPD.MultiAgent.Routing;
 using HPDAgent.Graph.Abstractions;
 
 namespace HPD.MultiAgent.Tests;
@@ -24,15 +23,6 @@ public class MultiAgentBuildAsyncWiringTests
             .GetField("_settings", BindingFlags.NonPublic | BindingFlags.Instance);
         field.Should().NotBeNull("_settings must exist on AgentWorkflowInstance");
         return (WorkflowSettingsConfig)field!.GetValue(instance)!;
-    }
-
-    private static Dictionary<string, Func<EdgeConditionContext, bool>> GetPredicateEdges(
-        AgentWorkflowInstance instance)
-    {
-        var field = typeof(AgentWorkflowInstance)
-            .GetField("_predicateEdges", BindingFlags.NonPublic | BindingFlags.Instance);
-        field.Should().NotBeNull("_predicateEdges must exist on AgentWorkflowInstance");
-        return (Dictionary<string, Func<EdgeConditionContext, bool>>)field!.GetValue(instance)!;
     }
 
     // ── 4.1  IterationOptions forwarded when set ──────────────────────────────
@@ -115,23 +105,21 @@ public class MultiAgentBuildAsyncWiringTests
             "missing checkpoint store must be handled gracefully");
     }
 
-    // ── 4.5  PredicateEdges forwarded to instance ─────────────────────────────
+    // ── 4.5  Predicate edge forwarded to graph ────────────────────────────────
 
     [Fact]
-    public async Task BuildAsync_PassesPredicateEdgesToInstance()
+    public async Task BuildAsync_PassesPredicateEdgeToGraph()
     {
         var workflow = AgentWorkflow.Create()
             .AddAgent("a", Cfg())
             .AddAgent("b", Cfg());
 
-        Func<EdgeConditionContext, bool> pred = _ => true;
-        workflow.From("a").To("b").When(pred);
+        workflow.From("a").To("b").When(_ => true);
 
         var instance = await workflow.BuildAsync();
-        var edges = GetPredicateEdges(instance);
+        var edge = instance.Graph.Edges.Single(edge => edge.From == "a" && edge.To == "b");
 
-        edges.Should().ContainKey("a->b");
-        edges["a->b"].Should().BeSameAs(pred);
+        edge.Predicate.Should().NotBeNull();
     }
 
     // ── 4.6  Settings object forwarded to instance ────────────────────────────

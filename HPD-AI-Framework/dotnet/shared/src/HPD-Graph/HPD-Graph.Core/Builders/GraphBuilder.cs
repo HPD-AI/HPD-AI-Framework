@@ -1,5 +1,6 @@
 using HPDAgent.Graph.Abstractions.Execution;
 using HPDAgent.Graph.Abstractions.Graph;
+using HPDAgent.Graph.Abstractions.Context;
 
 // Alias for SuspensionOptions to avoid conflicts
 using SuspensionOpts = HPDAgent.Graph.Abstractions.Execution.SuspensionOptions;
@@ -24,6 +25,8 @@ public class GraphBuilder
     private TimeSpan? _executionTimeout;
     private Abstractions.Execution.CloningPolicy _cloningPolicy = Abstractions.Execution.CloningPolicy.LazyClone;
     private IterationOptions? _iterationOptions;
+    private bool _autoSequentialEdges = true;
+    private bool _autoSequentialEdgesExplicitlyConfigured;
 
     /// <summary>
     /// Creates a new GraphBuilder instance.
@@ -123,6 +126,16 @@ public class GraphBuilder
     public GraphBuilder WithIterationOptions(IterationOptions options)
     {
         _iterationOptions = options ?? throw new ArgumentNullException(nameof(options));
+        return this;
+    }
+
+    /// <summary>
+    /// Enables or disables automatic sequential edge wiring when no explicit edges are added.
+    /// </summary>
+    public GraphBuilder WithAutoSequentialEdges(bool enabled = true)
+    {
+        _autoSequentialEdges = enabled;
+        _autoSequentialEdgesExplicitlyConfigured = true;
         return this;
     }
 
@@ -227,11 +240,58 @@ public class GraphBuilder
     }
 
     /// <summary>
+    /// Starts fluent edge chaining from a source node.
+    /// </summary>
+    public NodeChainBuilder From(string sourceNodeId)
+    {
+        return From([sourceNodeId]);
+    }
+
+    /// <summary>
+    /// Starts fluent edge chaining from one or more source nodes.
+    /// </summary>
+    public NodeChainBuilder From(params string[] sourceNodeIds)
+    {
+        return new NodeChainBuilder(this, sourceNodeIds);
+    }
+
+    /// <summary>
     /// Adds an unconditional edge between two nodes.
     /// </summary>
     public GraphBuilder AddEdge(string from, string to)
     {
         return AddEdge(from, to, null);
+    }
+
+    /// <summary>
+    /// Adds an edge or replaces an existing edge with the same source, target, and ports.
+    /// Useful for DSLs that register a route before applying its final condition.
+    /// </summary>
+    public GraphBuilder AddOrReplaceEdge(
+        string from,
+        string to,
+        Action<EdgeBuilder>? configure = null)
+    {
+        var builder = new EdgeBuilder(from, to);
+        configure?.Invoke(builder);
+        var edge = builder.Build();
+
+        var index = _edges.FindIndex(existing =>
+            string.Equals(existing.From, edge.From, StringComparison.Ordinal) &&
+            string.Equals(existing.To, edge.To, StringComparison.Ordinal) &&
+            existing.FromPort == edge.FromPort &&
+            existing.ToPort == edge.ToPort);
+
+        if (index >= 0)
+        {
+            _edges[index] = edge;
+        }
+        else
+        {
+            _edges.Add(edge);
+        }
+
+        return this;
     }
 
     // ========================================
@@ -348,6 +408,11 @@ public class GraphBuilder
             AddEndNode(_exitNodeId);
         }
 
+        if (_autoSequentialEdges && _edges.Count == 0)
+        {
+            AddAutoSequentialEdges();
+        }
+
         return new Abstractions.Graph.Graph
         {
             Id = _id!,
@@ -363,6 +428,38 @@ public class GraphBuilder
             CloningPolicy = _cloningPolicy,
             IterationOptions = _iterationOptions
         };
+    }
+
+    internal void AddBuiltEdge(Edge edge)
+    {
+        _edges.Add(edge);
+    }
+
+    private void AddAutoSequentialEdges()
+    {
+        var sequence = _nodes
+            .Where(node => node.Id != _entryNodeId && node.Id != _exitNodeId)
+            .ToList();
+
+        if (sequence.Count == 0)
+        {
+            return;
+        }
+
+        var canAutoWire = sequence.All(node => node.Type == NodeType.Handler);
+        if (!canAutoWire && !_autoSequentialEdgesExplicitlyConfigured)
+        {
+            return;
+        }
+
+        var previous = _entryNodeId;
+        foreach (var node in sequence)
+        {
+            _edges.Add(new Edge { From = previous, To = node.Id });
+            previous = node.Id;
+        }
+
+        _edges.Add(new Edge { From = previous, To = _exitNodeId });
     }
 
     /// <summary>
@@ -616,11 +713,15 @@ public class EdgeBuilder
     private readonly string _from;
     private readonly string _to;
     private EdgeCondition? _condition;
+    private Func<EdgePredicateContext, bool>? _predicate;
     private readonly Dictionary<string, string> _metadata = new();
     private int? _fromPort;
     private int? _toPort;
     private int? _priority;
     private Abstractions.Execution.CloningPolicy? _cloningPolicy;
+    private TimeSpan? _delay;
+    private ScheduleConstraint? _schedule;
+    private EdgeRetryPolicy? _retryPolicy;
 
     internal EdgeBuilder(string from, string to)
     {
@@ -634,6 +735,16 @@ public class EdgeBuilder
     public EdgeBuilder WithCondition(EdgeCondition condition)
     {
         _condition = condition;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets a runtime-only predicate for this edge.
+    /// Predicates are intentionally not serialized. Use WithCondition for persisted graphs.
+    /// </summary>
+    public EdgeBuilder When(Func<EdgePredicateContext, bool> predicate)
+    {
+        _predicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
         return this;
     }
 
@@ -683,6 +794,114 @@ public class EdgeBuilder
     }
 
     /// <summary>
+    /// Sets a delay before traversing this edge.
+    /// </summary>
+    public EdgeBuilder WithDelay(TimeSpan delay)
+    {
+        if (delay < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(delay), "Delay must be non-negative");
+        _delay = delay;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets a schedule constraint for this edge.
+    /// </summary>
+    public EdgeBuilder WithSchedule(ScheduleConstraint schedule)
+    {
+        _schedule = schedule ?? throw new ArgumentNullException(nameof(schedule));
+        return this;
+    }
+
+    /// <summary>
+    /// Sets a cron schedule constraint for this edge using a timezone ID.
+    /// </summary>
+    public EdgeBuilder WithCron(
+        string cronExpression,
+        string? timeZoneId = null,
+        TimeSpan? tolerance = null,
+        Func<IGraphContext, Task<bool>>? additionalCondition = null)
+    {
+        var timeZone = string.IsNullOrWhiteSpace(timeZoneId)
+            ? null
+            : TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+
+        return WithCron(cronExpression, timeZone, tolerance, additionalCondition);
+    }
+
+    /// <summary>
+    /// Sets a cron schedule constraint for this edge.
+    /// </summary>
+    public EdgeBuilder WithCron(
+        string cronExpression,
+        TimeZoneInfo? timeZone,
+        TimeSpan? tolerance = null,
+        Func<IGraphContext, Task<bool>>? additionalCondition = null)
+    {
+        if (string.IsNullOrWhiteSpace(cronExpression))
+            throw new ArgumentException("Cron expression is required.", nameof(cronExpression));
+        if (tolerance.HasValue && tolerance.Value < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(tolerance), "Tolerance must be non-negative");
+
+        return WithSchedule(new ScheduleConstraint
+        {
+            CronExpression = cronExpression,
+            TimeZone = timeZone,
+            Tolerance = tolerance ?? TimeSpan.FromMinutes(1),
+            AdditionalCondition = additionalCondition
+        });
+    }
+
+    /// <summary>
+    /// Sets an edge-level retry policy for this edge.
+    /// </summary>
+    public EdgeBuilder WithRetryPolicy(EdgeRetryPolicy retryPolicy)
+    {
+        _retryPolicy = retryPolicy ?? throw new ArgumentNullException(nameof(retryPolicy));
+        return this;
+    }
+
+    /// <summary>
+    /// Sets an edge-level retry policy using a retry interval.
+    /// </summary>
+    public EdgeBuilder RetryEvery(
+        TimeSpan retryInterval,
+        TimeSpan? maxWaitTime = null,
+        int? maxRetries = null,
+        EdgeRetryExhaustedBehavior exhaustedBehavior = EdgeRetryExhaustedBehavior.FailGraph,
+        Func<IGraphContext, Task<bool>>? retryCondition = null)
+    {
+        if (retryInterval <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(retryInterval), "Retry interval must be positive");
+        if (maxWaitTime.HasValue && maxWaitTime.Value <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(maxWaitTime), "Max wait time must be positive");
+        if (maxRetries.HasValue && maxRetries.Value <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxRetries), "Max retries must be positive");
+
+        return WithRetryPolicy(new EdgeRetryPolicy
+        {
+            RetryInterval = retryInterval,
+            MaxWaitTime = maxWaitTime,
+            MaxRetries = maxRetries,
+            ExhaustedBehavior = exhaustedBehavior,
+            RetryCondition = retryCondition
+        });
+    }
+
+    /// <summary>
+    /// Sets an edge-level retry policy using a retry interval.
+    /// </summary>
+    public EdgeBuilder WithRetry(
+        TimeSpan retryInterval,
+        TimeSpan? maxWaitTime = null,
+        int? maxRetries = null,
+        EdgeRetryExhaustedBehavior exhaustedBehavior = EdgeRetryExhaustedBehavior.FailGraph,
+        Func<IGraphContext, Task<bool>>? retryCondition = null)
+    {
+        return RetryEvery(retryInterval, maxWaitTime, maxRetries, exhaustedBehavior, retryCondition);
+    }
+
+    /// <summary>
     /// Adds metadata.
     /// </summary>
     public EdgeBuilder WithMetadata(string key, string value)
@@ -701,8 +920,401 @@ public class EdgeBuilder
             ToPort = _toPort,
             Priority = _priority,
             Condition = _condition,
+            Predicate = _predicate,
             CloningPolicy = _cloningPolicy,
+            Delay = _delay,
+            Schedule = _schedule,
+            RetryPolicy = _retryPolicy,
             Metadata = _metadata
         };
+    }
+}
+
+/// <summary>
+/// Builder for fluent edges from one source node.
+/// </summary>
+public sealed class NodeChainBuilder
+{
+    private readonly GraphBuilder _graphBuilder;
+    private readonly IReadOnlyList<string> _sourceNodeIds;
+    private int? _sourcePort;
+
+    internal NodeChainBuilder(GraphBuilder graphBuilder, IReadOnlyList<string> sourceNodeIds)
+    {
+        _graphBuilder = graphBuilder ?? throw new ArgumentNullException(nameof(graphBuilder));
+        if (sourceNodeIds.Count == 0)
+            throw new ArgumentException("At least one source node is required.", nameof(sourceNodeIds));
+        if (sourceNodeIds.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("Source node IDs cannot be empty.", nameof(sourceNodeIds));
+
+        _sourceNodeIds = sourceNodeIds;
+    }
+
+    public NodeChainBuilder Port(int sourcePort)
+    {
+        if (sourcePort < 0)
+            throw new ArgumentOutOfRangeException(nameof(sourcePort), "Port number must be non-negative");
+        _sourcePort = sourcePort;
+        return this;
+    }
+
+    public EdgeTargetBuilder To(string targetNodeId)
+    {
+        return To([targetNodeId]);
+    }
+
+    public EdgeTargetBuilder To(params string[] targetNodeIds)
+    {
+        if (targetNodeIds.Length == 0)
+            throw new ArgumentException("At least one target node is required.", nameof(targetNodeIds));
+        if (targetNodeIds.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("Target node IDs cannot be empty.", nameof(targetNodeIds));
+
+        var edges = new List<EdgeBuilder>();
+        foreach (var sourceNodeId in _sourceNodeIds)
+        {
+            foreach (var targetNodeId in targetNodeIds)
+            {
+                var edge = new EdgeBuilder(sourceNodeId, targetNodeId);
+                if (_sourcePort.HasValue)
+                {
+                    edge.FromPort(_sourcePort.Value);
+                }
+
+                edges.Add(edge);
+            }
+        }
+
+        return new EdgeTargetBuilder(_graphBuilder, this, edges);
+    }
+
+    public FieldRouteBuilder RouteBy(string field)
+    {
+        return new FieldRouteBuilder(this, field);
+    }
+
+    public GraphBuilder Done()
+    {
+        return _graphBuilder;
+    }
+}
+
+/// <summary>
+/// Builder for configuring a fluent edge target.
+/// </summary>
+public sealed class EdgeTargetBuilder
+{
+    private readonly GraphBuilder _graphBuilder;
+    private readonly NodeChainBuilder _chainBuilder;
+    private readonly IReadOnlyList<EdgeBuilder> _edgeBuilders;
+    private readonly IReadOnlyList<string> _targetNodeIds;
+    private bool _committed;
+
+    internal EdgeTargetBuilder(GraphBuilder graphBuilder, NodeChainBuilder chainBuilder, IReadOnlyList<EdgeBuilder> edgeBuilders)
+    {
+        _graphBuilder = graphBuilder;
+        _chainBuilder = chainBuilder;
+        _edgeBuilders = edgeBuilders;
+        _targetNodeIds = edgeBuilders
+            .Select(edgeBuilder => edgeBuilder.Build().To)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    public EdgeTargetBuilder ToPort(int targetPort)
+    {
+        foreach (var edgeBuilder in _edgeBuilders)
+        {
+            edgeBuilder.ToPort(targetPort);
+        }
+        return this;
+    }
+
+    public EdgeTargetBuilder WhenEquals(string field, object? value) =>
+        WithFieldCondition(ConditionType.FieldEquals, field, value);
+
+    public EdgeTargetBuilder WhenNotEquals(string field, object? value) =>
+        WithFieldCondition(ConditionType.FieldNotEquals, field, value);
+
+    public EdgeTargetBuilder WhenGreaterThan(string field, IComparable value) =>
+        WithFieldCondition(ConditionType.FieldGreaterThan, field, value);
+
+    public EdgeTargetBuilder WhenGreaterThanOrEqual(string field, IComparable value) =>
+        WithFieldCondition(ConditionType.FieldGreaterThanOrEqual, field, value);
+
+    public EdgeTargetBuilder WhenLessThan(string field, IComparable value) =>
+        WithFieldCondition(ConditionType.FieldLessThan, field, value);
+
+    public EdgeTargetBuilder WhenLessThanOrEqual(string field, IComparable value) =>
+        WithFieldCondition(ConditionType.FieldLessThanOrEqual, field, value);
+
+    public EdgeTargetBuilder WhenContains(string field, object value) =>
+        WithFieldCondition(ConditionType.FieldContains, field, value);
+
+    public EdgeTargetBuilder WhenContainsAny(string field, params object[] values) =>
+        WithFieldCondition(ConditionType.FieldContainsAny, field, values);
+
+    public EdgeTargetBuilder WhenContainsAll(string field, params object[] values) =>
+        WithFieldCondition(ConditionType.FieldContainsAll, field, values);
+
+    public EdgeTargetBuilder WhenStartsWith(string field, string value, bool ignoreCase = false) =>
+        WithFieldCondition(ConditionType.FieldStartsWith, field, value, ignoreCase);
+
+    public EdgeTargetBuilder WhenEndsWith(string field, string value, bool ignoreCase = false) =>
+        WithFieldCondition(ConditionType.FieldEndsWith, field, value, ignoreCase);
+
+    public EdgeTargetBuilder WhenMatchesRegex(string field, string pattern) =>
+        WithFieldCondition(ConditionType.FieldMatchesRegex, field, pattern);
+
+    public EdgeTargetBuilder WhenExists(string field) =>
+        WithFieldCondition(ConditionType.FieldExists, field, null);
+
+    public EdgeTargetBuilder WhenNotExists(string field) =>
+        WithFieldCondition(ConditionType.FieldNotExists, field, null);
+
+    public EdgeTargetBuilder WhenEmpty(string field) =>
+        WithFieldCondition(ConditionType.FieldIsEmpty, field, null);
+
+    public EdgeTargetBuilder WhenNotEmpty(string field) =>
+        WithFieldCondition(ConditionType.FieldIsNotEmpty, field, null);
+
+    /// <summary>
+    /// Sets a runtime-only predicate for this edge.
+    /// Predicates are intentionally not serialized. Use declarative condition helpers for persisted graphs.
+    /// </summary>
+    public EdgeTargetBuilder When(Func<EdgePredicateContext, bool> predicate)
+    {
+        foreach (var edgeBuilder in _edgeBuilders)
+        {
+            edgeBuilder.When(predicate);
+        }
+
+        return this;
+    }
+
+    public EdgeTargetBuilder AsDefault()
+    {
+        return WithCondition(new EdgeCondition { Type = ConditionType.Default });
+    }
+
+    public EdgeTargetBuilder WithDelay(TimeSpan delay)
+    {
+        foreach (var edgeBuilder in _edgeBuilders)
+        {
+            edgeBuilder.WithDelay(delay);
+        }
+        return this;
+    }
+
+    public EdgeTargetBuilder WithSchedule(ScheduleConstraint schedule)
+    {
+        foreach (var edgeBuilder in _edgeBuilders)
+        {
+            edgeBuilder.WithSchedule(schedule);
+        }
+        return this;
+    }
+
+    public EdgeTargetBuilder WithCron(
+        string cronExpression,
+        string? timeZoneId = null,
+        TimeSpan? tolerance = null,
+        Func<IGraphContext, Task<bool>>? additionalCondition = null)
+    {
+        foreach (var edgeBuilder in _edgeBuilders)
+        {
+            edgeBuilder.WithCron(cronExpression, timeZoneId, tolerance, additionalCondition);
+        }
+        return this;
+    }
+
+    public EdgeTargetBuilder WithCron(
+        string cronExpression,
+        TimeZoneInfo? timeZone,
+        TimeSpan? tolerance = null,
+        Func<IGraphContext, Task<bool>>? additionalCondition = null)
+    {
+        foreach (var edgeBuilder in _edgeBuilders)
+        {
+            edgeBuilder.WithCron(cronExpression, timeZone, tolerance, additionalCondition);
+        }
+        return this;
+    }
+
+    public EdgeTargetBuilder WithRetryPolicy(EdgeRetryPolicy retryPolicy)
+    {
+        foreach (var edgeBuilder in _edgeBuilders)
+        {
+            edgeBuilder.WithRetryPolicy(retryPolicy);
+        }
+        return this;
+    }
+
+    public EdgeTargetBuilder RetryEvery(
+        TimeSpan retryInterval,
+        TimeSpan? maxWaitTime = null,
+        int? maxRetries = null,
+        EdgeRetryExhaustedBehavior exhaustedBehavior = EdgeRetryExhaustedBehavior.FailGraph,
+        Func<IGraphContext, Task<bool>>? retryCondition = null)
+    {
+        foreach (var edgeBuilder in _edgeBuilders)
+        {
+            edgeBuilder.RetryEvery(retryInterval, maxWaitTime, maxRetries, exhaustedBehavior, retryCondition);
+        }
+        return this;
+    }
+
+    public EdgeTargetBuilder WithRetry(
+        TimeSpan retryInterval,
+        TimeSpan? maxWaitTime = null,
+        int? maxRetries = null,
+        EdgeRetryExhaustedBehavior exhaustedBehavior = EdgeRetryExhaustedBehavior.FailGraph,
+        Func<IGraphContext, Task<bool>>? retryCondition = null)
+    {
+        foreach (var edgeBuilder in _edgeBuilders)
+        {
+            edgeBuilder.WithRetry(retryInterval, maxWaitTime, maxRetries, exhaustedBehavior, retryCondition);
+        }
+        return this;
+    }
+
+    public EdgeTargetBuilder WithPriority(int priority)
+    {
+        foreach (var edgeBuilder in _edgeBuilders)
+        {
+            edgeBuilder.WithPriority(priority);
+        }
+        return this;
+    }
+
+    public EdgeTargetBuilder WithCloningPolicy(Abstractions.Execution.CloningPolicy policy)
+    {
+        foreach (var edgeBuilder in _edgeBuilders)
+        {
+            edgeBuilder.WithCloningPolicy(policy);
+        }
+        return this;
+    }
+
+    public EdgeTargetBuilder WithMetadata(string key, string value)
+    {
+        foreach (var edgeBuilder in _edgeBuilders)
+        {
+            edgeBuilder.WithMetadata(key, value);
+        }
+        return this;
+    }
+
+    public NodeChainBuilder And()
+    {
+        Commit();
+        return _chainBuilder;
+    }
+
+    public EdgeTargetBuilder To(string nextTargetNodeId)
+    {
+        Commit();
+        return ContinueFromTargets().To(nextTargetNodeId);
+    }
+
+    public EdgeTargetBuilder To(params string[] nextTargetNodeIds)
+    {
+        Commit();
+        return ContinueFromTargets().To(nextTargetNodeIds);
+    }
+
+    public GraphBuilder Done()
+    {
+        Commit();
+        return _graphBuilder;
+    }
+
+    private EdgeTargetBuilder WithFieldCondition(ConditionType type, string field, object? value, bool ignoreCase = false)
+    {
+        if (string.IsNullOrWhiteSpace(field))
+            throw new ArgumentException("Field is required.", nameof(field));
+
+        return WithCondition(new EdgeCondition
+        {
+            Type = type,
+            Field = field,
+            Value = value,
+            RegexOptions = ignoreCase ? "IgnoreCase" : null
+        });
+    }
+
+    private EdgeTargetBuilder WithCondition(EdgeCondition condition)
+    {
+        foreach (var edgeBuilder in _edgeBuilders)
+        {
+            edgeBuilder.WithCondition(condition);
+        }
+
+        return this;
+    }
+
+    private void Commit()
+    {
+        if (_committed)
+        {
+            return;
+        }
+
+        foreach (var edgeBuilder in _edgeBuilders)
+        {
+            _graphBuilder.AddBuiltEdge(edgeBuilder.Build());
+        }
+        _committed = true;
+    }
+
+    private NodeChainBuilder ContinueFromTargets()
+    {
+        return new NodeChainBuilder(_graphBuilder, _targetNodeIds);
+    }
+}
+
+/// <summary>
+/// Builder for routing one or more source nodes to targets by a source output field.
+/// </summary>
+public sealed class FieldRouteBuilder
+{
+    private readonly NodeChainBuilder _chainBuilder;
+    private readonly string _field;
+
+    internal FieldRouteBuilder(NodeChainBuilder chainBuilder, string field)
+    {
+        _chainBuilder = chainBuilder;
+        if (string.IsNullOrWhiteSpace(field))
+            throw new ArgumentException("Field is required.", nameof(field));
+        _field = field;
+    }
+
+    public FieldRouteBuilder When(object? value, params string[] targetNodeIds)
+    {
+        _chainBuilder.To(targetNodeIds).WhenEquals(_field, value).Done();
+        return this;
+    }
+
+    public FieldRouteBuilder WhenAny(IEnumerable<object?> values, params string[] targetNodeIds)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        _chainBuilder.To(targetNodeIds).WhenContainsAny(_field, values.ToArray()).Done();
+        return this;
+    }
+
+    public FieldRouteBuilder Default(params string[] targetNodeIds)
+    {
+        _chainBuilder.To(targetNodeIds).AsDefault().Done();
+        return this;
+    }
+
+    public NodeChainBuilder And()
+    {
+        return _chainBuilder;
+    }
+
+    public GraphBuilder Done()
+    {
+        return _chainBuilder.Done();
     }
 }

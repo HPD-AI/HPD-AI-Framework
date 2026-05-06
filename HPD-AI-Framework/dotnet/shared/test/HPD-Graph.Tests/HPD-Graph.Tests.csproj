@@ -22,8 +22,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\..\shared\src\HPD-Graph\HPD-Graph.Abstractions\HPD-Graph.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\shared\src\HPD-Graph\HPD-Graph.AspNetCore\HPD-Graph.AspNetCore.csproj" />
     <ProjectReference Include="..\..\..\shared\src\HPD-Graph\HPD-Graph.Core\HPD-Graph.Core.csproj" />
+    <ProjectReference Include="..\..\..\shared\src\HPD-Graph\HPD-Graph.Hosting\HPD-Graph.Hosting.csproj" />
     <ProjectReference Include="..\..\..\HPD-Agent.Framework\src\HPD-Agent\HPD-Agent.csproj" />
 
     <!-- Source Generator Reference for testing generated code -->

@@ -131,7 +131,6 @@ public sealed class AgentWorkflowInstance
     private readonly IServiceProvider _serviceProvider;
     private readonly string _workflowName;
     private readonly WorkflowSettingsConfig _settings;
-    private readonly Dictionary<string, Func<EdgeConditionContext, bool>> _predicateEdges;
 
     // Cache of built agents (built lazily on first execution)
     private Dictionary<string, Agent.Agent>? _builtAgents;
@@ -142,8 +141,7 @@ public sealed class AgentWorkflowInstance
         Dictionary<string, AgentNodeOptions> options,
         IServiceProvider serviceProvider,
         string? workflowName = null,
-        WorkflowSettingsConfig? settings = null,
-        Dictionary<string, Func<EdgeConditionContext, bool>>? predicateEdges = null)
+        WorkflowSettingsConfig? settings = null)
     {
         _graph = graph;
         _agentFactories = agentFactories;
@@ -151,7 +149,6 @@ public sealed class AgentWorkflowInstance
         _serviceProvider = serviceProvider;
         _workflowName = workflowName ?? graph.Name ?? "Workflow";
         _settings = settings ?? new WorkflowSettingsConfig();
-        _predicateEdges = predicateEdges ?? new Dictionary<string, Func<EdgeConditionContext, bool>>();
     }
 
     // Legacy constructor for backward compatibility
@@ -401,8 +398,7 @@ public sealed class AgentWorkflowInstance
             services: _serviceProvider,
             agents: agents,
             agentOptions: _options,
-            originalInput: input,
-            predicateEdges: _predicateEdges)
+            originalInput: input)
         {
             EventCoordinator = eventCoordinator,
             FallbackChatClient = parentChatClient
