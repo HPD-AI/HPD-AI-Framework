@@ -11,6 +11,7 @@
     <IsPackable>true</IsPackable>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <IsRoslynComponent>true</IsRoslynComponent>
+    <NoWarn>$(NoWarn);NETSDK1210</NoWarn>
 
     <!-- Package metadata -->
     <PackageId>HPD-Graph.SourceGenerator</PackageId>

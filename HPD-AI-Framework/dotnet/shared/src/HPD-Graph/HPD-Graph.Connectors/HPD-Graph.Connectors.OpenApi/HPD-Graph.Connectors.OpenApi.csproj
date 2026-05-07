@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPDAgent.Graph.Connectors.OpenApi</RootNamespace>
+    <AssemblyName>HPDAgent.Graph.Connectors.OpenApi</AssemblyName>
+    <IsPackable>true</IsPackable>
+
+    <PackageId>HPD-Graph.Connectors.OpenApi</PackageId>
+    <Description>OpenAPI bridge for HPD-Graph connectors and graph handlers.</Description>
+    <PackageTags>graph;workflow;connectors;openapi;rest</PackageTags>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Graph.Connectors.Abstractions\HPD-Graph.Connectors.Abstractions.csproj" />
+    <ProjectReference Include="..\HPD-Graph.Connectors.Core\HPD-Graph.Connectors.Core.csproj" />
+    <ProjectReference Include="..\..\HPD-Graph.Abstractions\HPD-Graph.Abstractions.csproj" />
+    <ProjectReference Include="..\..\HPD-Graph.Core\HPD-Graph.Core.csproj" />
+    <ProjectReference Include="..\..\..\HPD.OpenApi.Core\HPD.OpenApi.Core.csproj" />
+  </ItemGroup>
+
+</Project>

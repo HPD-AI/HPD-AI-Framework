@@ -47,8 +47,16 @@ public sealed class PortOutputs
 
     private static Dictionary<string, object> ObjectToDictionary(object obj)
     {
-        // Use source-generated JSON serialization for performance
-        var json = JsonSerializer.Serialize(obj, GraphJsonSerializerContext.Default.Object);
-        return JsonSerializer.Deserialize(json, GraphJsonSerializerContext.Default.DictionaryStringObject)!;
+        var element = GraphJsonValue.ToJsonElement(obj, "port output");
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException("Port output must be a graph JSON object.");
+        }
+
+        return element.EnumerateObject()
+            .ToDictionary(
+                property => property.Name,
+                property => GraphJsonValue.ToObject(property.Value)!,
+                StringComparer.Ordinal);
     }
 }

@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace HPDAgent.Graph.Abstractions.Validation;
 
 /// <summary>
@@ -34,6 +36,18 @@ public interface IInputValidator
     /// <param name="value">Value to validate</param>
     /// <returns>Validation result</returns>
     ValidationResult Validate(string inputName, object? value);
+}
+
+/// <summary>
+/// Input validator with a serializable descriptor that can be exported to declarative config.
+/// </summary>
+public interface IDescribedInputValidator : IInputValidator
+{
+    /// <summary>Registry name used to resolve the validator during config compilation.</summary>
+    string DescriptorName { get; }
+
+    /// <summary>Optional descriptor arguments persisted in graph config.</summary>
+    JsonElement? DescriptorArguments { get; }
 }
 
 /// <summary>

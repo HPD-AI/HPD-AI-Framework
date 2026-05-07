@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPDAgent.Graph.Abstractions.Graph;
 
 namespace HPD.Graph.Tests.Helpers;
@@ -82,7 +83,7 @@ public class TestGraphBuilder
             Name = name ?? id,
             Type = NodeType.Handler,
             HandlerName = handlerName,
-            Config = config ?? new Dictionary<string, object>(),
+            Config = config is null ? null : JsonSerializer.SerializeToElement(config),
             SuspensionOptions = suspensionOptions
         });
         return this;

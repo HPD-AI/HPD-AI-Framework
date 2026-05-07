@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace HPDAgent.Graph.Abstractions.Serialization;
 
@@ -23,49 +22,13 @@ public static class OutputCloner
         if (outputs == null || outputs.Count == 0)
             return new Dictionary<string, object>();
 
-        try
+        var result = new Dictionary<string, object>(outputs.Count);
+        foreach (var (key, value) in outputs)
         {
-            // Serialize to JSON using source-generated context (AOT-safe)
-            var json = JsonSerializer.Serialize(
-                outputs,
-                GraphJsonSerializerContext.Default.DictionaryStringObject);
-
-            // Deserialize to JsonElement dictionary (preserves structure, AOT-safe)
-            var elementDict = JsonSerializer.Deserialize(
-                json,
-                GraphJsonSerializerContext.Default.DictionaryStringJsonElement)!;
-
-            // Convert JsonElement back to concrete types
-            var result = new Dictionary<string, object>(elementDict.Count);
-            foreach (var (key, element) in elementDict)
-            {
-                result[key] = ConvertJsonElement(element);
-            }
-
-            return result;
+            result[key] = ConvertJsonElement(GraphJsonValue.ToJsonElement(value, $"output '{key}'"));
         }
-        catch (NotSupportedException)
-        {
-            // Fallback: If source-generated context doesn't support a type (e.g., in tests),
-            // use reflection-based serialization (not AOT-compatible, but works in normal/test scenarios)
-            var options = new JsonSerializerOptions
-            {
-                TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver(),
-                ReferenceHandler = ReferenceHandler.IgnoreCycles,
-                WriteIndented = false
-            };
 
-            var json = JsonSerializer.Serialize(outputs, options);
-            var elementDict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json, options)!;
-
-            var result = new Dictionary<string, object>(elementDict.Count);
-            foreach (var (key, element) in elementDict)
-            {
-                result[key] = ConvertJsonElement(element);
-            }
-
-            return result;
-        }
+        return result;
     }
 
     /// <summary>
@@ -78,23 +41,7 @@ public static class OutputCloner
         if (outputs == null || outputs.Count == 0)
             return new Dictionary<string, object>();
 
-        // For circular refs, we need to create options at runtime (ReferenceHandler not supported in attributes)
-        var options = new JsonSerializerOptions
-        {
-            TypeInfoResolver = GraphJsonSerializerContext.Default,
-            ReferenceHandler = ReferenceHandler.IgnoreCycles
-        };
-
-        var json = JsonSerializer.Serialize(outputs, options);
-        var elementDict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json, options)!;
-
-        var result = new Dictionary<string, object>(elementDict.Count);
-        foreach (var (key, element) in elementDict)
-        {
-            result[key] = ConvertJsonElement(element);
-        }
-
-        return result;
+        return DeepClone(outputs);
     }
 
     /// <summary>

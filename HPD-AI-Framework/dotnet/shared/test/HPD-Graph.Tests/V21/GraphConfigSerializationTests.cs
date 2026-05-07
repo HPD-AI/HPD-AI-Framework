@@ -192,6 +192,13 @@ public sealed class GraphConfigSerializationTests
             CurrentNodeId = "approval",
             SuspendedNodeId = "approval",
             SuspendToken = "token",
+            ClaimedBy = "worker-a",
+            ClaimedAt = DateTimeOffset.UnixEpoch.AddSeconds(2),
+            LeaseUntil = DateTimeOffset.UnixEpoch.AddSeconds(32),
+            LastHeartbeatAt = DateTimeOffset.UnixEpoch.AddSeconds(12),
+            AttemptCount = 2,
+            LastAttemptAt = DateTimeOffset.UnixEpoch.AddSeconds(2),
+            NextAttemptAt = DateTimeOffset.UnixEpoch.AddSeconds(60),
             ErrorMessage = null
         };
 
@@ -326,10 +333,40 @@ public sealed class GraphConfigSerializationTests
                         EmitEvents = true,
                         SaveCheckpointFirst = true
                     },
+                    EnableCheckpointing = false,
                     MaxExecutions = 5,
                     MaxParallelExecutions = 2,
                     OutputPortCount = 2,
+                    Artifacts = new ArtifactDependencyConfig
+                    {
+                        ProducesArtifact = "documents/raw",
+                        RequiresArtifacts = ["inputs/manifest"]
+                    },
+                    Partitions = new PartitionDefinitionConfig
+                    {
+                        Type = PartitionKindConfig.Static,
+                        Definition = JsonDocument.Parse("""{"keys":["us","eu"]}""").RootElement.Clone()
+                    },
+                    PartitionDependencies = new PartitionDependencyConfig
+                    {
+                        Type = PartitionDependencyMappingKindConfig.MonthlyFromDaily
+                    },
+                    Cache = new CacheOptionsConfig
+                    {
+                        Strategy = "InputsCodeAndConfig",
+                        Ttl = TimeSpan.FromMinutes(10),
+                        Invalidation = "OnConfigChange"
+                    },
                     ArtifactNamespace = ["rag", "ingest"],
+                    InputSchemas = new Dictionary<string, InputSchemaConfig>
+                    {
+                        ["url"] = new()
+                        {
+                            TypeName = "string",
+                            Required = true,
+                            Constraints = JsonDocument.Parse("""{"type":"url"}""").RootElement.Clone()
+                        }
+                    },
                     Metadata = new Dictionary<string, string> { ["kind"] = "io" }
                 }
             },

@@ -49,12 +49,13 @@ public class DIRegistrationGenerator : IIncrementalGenerator
 
             if (handlerAttribute != null)
             {
-                // Find the context type from IGraphNodeHandler<TContext> interface
-                var contextType = GetContextType(classSymbol);
-                if (contextType == null)
+                var executeMethod = FindSocketExecuteAsyncMethod(classSymbol);
+                if (GetInterfaceContextType(classSymbol) == null && executeMethod == null)
+                {
                     continue;
+                }
 
-                var contextTypeName = contextType.ToDisplayString();
+                var contextTypeName = InferContextType(classSymbol, executeMethod, handlerAttribute);
 
                 if (!handlersByContext.ContainsKey(contextTypeName))
                 {
@@ -109,7 +110,7 @@ public class DIRegistrationGenerator : IIncrementalGenerator
         }
     }
 
-    private ITypeSymbol? GetContextType(INamedTypeSymbol classSymbol)
+    private ITypeSymbol? GetInterfaceContextType(INamedTypeSymbol classSymbol)
     {
         // Check if class implements IGraphNodeHandler<TContext>
         foreach (var iface in classSymbol.AllInterfaces)
@@ -120,6 +121,33 @@ public class DIRegistrationGenerator : IIncrementalGenerator
             }
         }
         return null;
+    }
+
+    private string InferContextType(
+        INamedTypeSymbol classSymbol,
+        IMethodSymbol? executeMethod,
+        AttributeData attribute)
+    {
+        var attributeContextType = GetAttributeType(attribute, "ContextType");
+        if (attributeContextType != null)
+        {
+            return attributeContextType.ToDisplayString();
+        }
+
+        var contextParam = executeMethod?.Parameters.FirstOrDefault(p =>
+            p.Name.Contains("context", System.StringComparison.OrdinalIgnoreCase));
+        if (contextParam != null)
+        {
+            return contextParam.Type.ToDisplayString();
+        }
+
+        var interfaceContextType = GetInterfaceContextType(classSymbol);
+        if (interfaceContextType != null)
+        {
+            return interfaceContextType.ToDisplayString();
+        }
+
+        return "HPDAgent.Graph.Core.Context.GraphContext";
     }
 
     private bool ImplementsIMapRouter(INamedTypeSymbol classSymbol)
@@ -221,12 +249,16 @@ public class DIRegistrationGenerator : IIncrementalGenerator
     private void AppendHandlerDescriptor(StringBuilder sb, INamedTypeSymbol handler)
     {
         var handlerName = GetHandlerName(handler);
-        var contextType = GetContextType(handler)?.ToDisplayString() ?? "unknown";
+        var handlerAttribute = handler.GetAttributes()
+            .FirstOrDefault(a => a.AttributeClass?.Name == "GraphNodeHandlerAttribute");
+        var executeMethod = FindSocketExecuteAsyncMethod(handler);
+        var contextType = handlerAttribute is null
+            ? GetInterfaceContextType(handler)?.ToDisplayString() ?? "unknown"
+            : InferContextType(handler, executeMethod, handlerAttribute);
         var displayName = handler.Name.EndsWith("Handler", System.StringComparison.Ordinal)
             ? handler.Name.Substring(0, handler.Name.Length - "Handler".Length)
             : handler.Name;
         var domain = InferDomain(handler);
-        var executeMethod = FindSocketExecuteAsyncMethod(handler);
         var configClass = handler.GetTypeMembers().FirstOrDefault(t => t.Name == "Config");
 
         sb.AppendLine($"            [\"{Escape(handlerName)}\"] = new HandlerDescriptor");
@@ -460,6 +492,12 @@ public class DIRegistrationGenerator : IIncrementalGenerator
             return value;
 
         return default;
+    }
+
+    private ITypeSymbol? GetAttributeType(AttributeData attribute, string propertyName)
+    {
+        var namedArg = attribute.NamedArguments.FirstOrDefault(a => a.Key == propertyName);
+        return namedArg.Value.Value as ITypeSymbol;
     }
 
     private string GenerateRouterRegistrationCode(List<INamedTypeSymbol> routers)

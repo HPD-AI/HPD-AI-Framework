@@ -1,8 +1,11 @@
 using FluentAssertions;
 using System.Text.Json;
+using HPDAgent.Graph.Abstractions.Artifacts;
+using HPDAgent.Graph.Abstractions.Config;
 using HPDAgent.Graph.Abstractions.Execution;
 using HPDAgent.Graph.Abstractions.Graph;
 using HPDAgent.Graph.Core.Builders;
+using HPDAgent.Graph.Core.Config;
 using HPDAgent.Graph.Core.Context;
 using HPDAgent.Graph.Core.Orchestration;
 using Microsoft.Extensions.DependencyInjection;
@@ -74,6 +77,222 @@ public sealed class GraphBuilderFluentTests
     }
 
     [Fact]
+    public void Build_WithArtifactAndPartitionFluentOptions_ConfiguresNode()
+    {
+        var produced = ArtifactKey.FromPath("warehouse", "marts", "orders");
+        var required = ArtifactKey.FromPath("warehouse", "raw", "orders");
+        var partitions = StaticPartitionDefinition.FromKeys("us", "eu");
+        var dependencyMapping = PartitionDependencyMapping.MonthlyFromDaily();
+
+        var graph = new GraphBuilder()
+            .WithName("assets")
+            .AddHandlerNode("orders", "Orders", "orders_handler", node => node
+                .WithProducesArtifact(produced)
+                .WithRequiresArtifacts(required)
+                .WithPartitions(partitions)
+                .WithPartitionDependencies(dependencyMapping)
+                .WithArtifactNamespace("warehouse", "marts"))
+            .Build();
+
+        var orders = graph.GetNode("orders");
+        orders.Should().NotBeNull();
+        orders!.ProducesArtifact.Should().Be(produced);
+        orders.RequiresArtifacts.Should().Equal(required);
+        orders.Partitions.Should().BeEquivalentTo(partitions);
+        orders.PartitionDependencies.Should().BeEquivalentTo(dependencyMapping);
+        orders.ArtifactNamespace.Should().Equal("warehouse", "marts");
+    }
+
+    [Fact]
+    public void FromConfig_Build_PreservesDeclaredGraph()
+    {
+        var config = new GraphConfig
+        {
+            GraphId = "from-config",
+            Name = "From Config",
+            Nodes = new Dictionary<string, NodeConfig>
+            {
+                ["work"] = new()
+                {
+                    Id = "work",
+                    Name = "Work",
+                    Type = NodeKindConfig.Handler,
+                    HandlerName = "work_handler"
+                }
+            },
+            Edges =
+            [
+                new EdgeConfig { From = "START", To = "work" },
+                new EdgeConfig { From = "work", To = "END" }
+            ],
+            Metadata = new Dictionary<string, string>
+            {
+                ["owner"] = "graph"
+            }
+        };
+
+        var graph = GraphBuilder.FromConfig(config).Build();
+
+        graph.Id.Should().Be("from-config");
+        graph.Name.Should().Be("From Config");
+        graph.Metadata.Should().Contain("owner", "graph");
+        graph.Nodes.Should().Contain(node => node.Id == "work" && node.HandlerName == "work_handler");
+        graph.Edges.Select(edge => (edge.From, edge.To)).Should().Equal(
+            ("START", "work"),
+            ("work", "END"));
+    }
+
+    [Fact]
+    public void FromConfig_Build_DoesNotAutoWireWhenConfigHasNoEdges()
+    {
+        var config = new GraphConfig
+        {
+            GraphId = "no-edges",
+            Name = "No Edges",
+            Nodes = new Dictionary<string, NodeConfig>
+            {
+                ["a"] = new()
+                {
+                    Id = "a",
+                    Name = "A",
+                    Type = NodeKindConfig.Handler,
+                    HandlerName = "a_handler"
+                },
+                ["b"] = new()
+                {
+                    Id = "b",
+                    Name = "B",
+                    Type = NodeKindConfig.Handler,
+                    HandlerName = "b_handler"
+                }
+            }
+        };
+
+        var graph = new GraphBuilder(config).Build();
+
+        graph.Edges.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void FromConfig_CanApplyFluentOverridesBeforeBuild()
+    {
+        var config = new GraphConfig
+        {
+            GraphId = "override",
+            Name = "Override",
+            Nodes = new Dictionary<string, NodeConfig>
+            {
+                ["a"] = new()
+                {
+                    Id = "a",
+                    Name = "A",
+                    Type = NodeKindConfig.Handler,
+                    HandlerName = "a_handler"
+                }
+            }
+        };
+
+        var graph = new GraphBuilder(config)
+            .WithName("Overridden")
+            .AddHandlerNode("b", "B", "b_handler")
+            .AddEdge("a", "b")
+            .Build();
+
+        graph.Name.Should().Be("Overridden");
+        graph.Nodes.Should().Contain(node => node.Id == "a");
+        graph.Nodes.Should().Contain(node => node.Id == "b");
+        graph.Edges.Should().Contain(edge => edge.From == "a" && edge.To == "b");
+    }
+
+    [Fact]
+    public void ToConfig_ExportsCurrentBuilderState()
+    {
+        var config = new GraphBuilder()
+            .WithId("builder-config")
+            .WithName("Builder Config")
+            .WithMetadata("owner", "builder")
+            .AddHandlerNode("work", "Work", "work_handler", node => node.WithConfig("limit", 5))
+            .From("START").To("work").To("END").Done()
+            .ToConfig();
+
+        config.GraphId.Should().Be("builder-config");
+        config.Name.Should().Be("Builder Config");
+        config.Metadata.Should().Contain("owner", "builder");
+        config.Nodes.Should().ContainKey("work");
+        config.Nodes["work"].Config!.Value.GetProperty("limit").GetInt32().Should().Be(5);
+        config.Edges.Select(edge => (edge.From, edge.To)).Should().Equal(
+            ("START", "work"),
+            ("work", "END"));
+    }
+
+    [Fact]
+    public void Build_DeclarativeGraph_RunsThroughConfigCompiler()
+    {
+        var graph = new GraphBuilder()
+            .WithId("compiled-builder")
+            .WithName("Compiled Builder")
+            .AddHandlerNode("work", "Work", "work_handler", node => node.WithConfig("limit", 5))
+            .From("START").To("work").To("END").Done()
+            .Build();
+
+        graph.Id.Should().Be("compiled-builder");
+        graph.Nodes.Should().Contain(node =>
+            node.Id == "START" &&
+            node.Type == NodeType.Start);
+        graph.Nodes.Should().Contain(node =>
+            node.Id == "END" &&
+            node.Type == NodeType.End);
+        graph.GetNode("work")!.Config!.Value.GetProperty("limit").GetInt32().Should().Be(5);
+        graph.Edges.Select(edge => (edge.From, edge.To)).Should().Equal(
+            ("START", "work"),
+            ("work", "END"));
+    }
+
+    [Fact]
+    public void Build_RuntimeOnlyPredicate_PreservesRuntimeGraph()
+    {
+        var graph = new GraphBuilder()
+            .WithName("predicate-preserved")
+            .AddHandlerNode("a", "A", "a_handler")
+            .AddHandlerNode("b", "B", "b_handler")
+            .From("a")
+                .To("b")
+                    .When(ctx => ctx.Get<bool>("approved"))
+                .Done()
+            .Build();
+
+        graph.Edges.Single().Predicate.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void ToBuilder_Extension_ReturnsConfigSeededBuilder()
+    {
+        var config = new GraphConfig
+        {
+            GraphId = "extension",
+            Name = "Extension",
+            Nodes = new Dictionary<string, NodeConfig>
+            {
+                ["work"] = new()
+                {
+                    Id = "work",
+                    Name = "Work",
+                    Type = NodeKindConfig.Handler,
+                    HandlerName = "work_handler"
+                }
+            }
+        };
+
+        var graph = config.ToBuilder()
+            .AddEdge("START", "work")
+            .AddEdge("work", "END")
+            .Build();
+
+        graph.Id.Should().Be("extension");
+        graph.Edges.Should().HaveCount(2);
+    }
+
+    [Fact]
     public void FromTo_Chaining_AddsConfiguredEdges()
     {
         var schedule = new ScheduleConstraint
@@ -123,8 +342,8 @@ public sealed class GraphBuilderFluentTests
         textEdge.Condition.Field.Should().Be("score");
         textEdge.Condition.Value.Should().Be(0.8);
         textEdge.Delay.Should().Be(TimeSpan.FromSeconds(2));
-        textEdge.Schedule.Should().BeSameAs(schedule);
-        textEdge.RetryPolicy.Should().BeSameAs(retryPolicy);
+        textEdge.Schedule.Should().BeEquivalentTo(schedule);
+        textEdge.RetryPolicy.Should().BeEquivalentTo(retryPolicy);
         textEdge.Priority.Should().Be(0);
         textEdge.CloningPolicy.Should().Be(CloningPolicy.NeverClone);
         textEdge.Metadata.Should().Contain("route", "text");
@@ -261,8 +480,8 @@ public sealed class GraphBuilderFluentTests
 
         var edge = graph.Edges.Single();
         edge.Delay.Should().Be(TimeSpan.FromSeconds(3));
-        edge.Schedule.Should().BeSameAs(schedule);
-        edge.RetryPolicy.Should().BeSameAs(retryPolicy);
+        edge.Schedule.Should().BeEquivalentTo(schedule);
+        edge.RetryPolicy.Should().BeEquivalentTo(retryPolicy);
     }
 
     [Fact]

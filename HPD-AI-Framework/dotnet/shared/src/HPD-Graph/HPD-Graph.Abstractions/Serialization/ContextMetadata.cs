@@ -30,4 +30,14 @@ public sealed record ContextMetadata
     /// Nodes pending re-execution in next iteration.
     /// </summary>
     public required List<string> PendingDirtyNodes { get; init; }
+
+    /// <summary>
+    /// Suspended node identifier, when the checkpoint captures a suspension.
+    /// </summary>
+    public string? SuspendedNodeId { get; init; }
+
+    /// <summary>
+    /// Suspension token, when the checkpoint captures a suspension.
+    /// </summary>
+    public string? SuspendToken { get; init; }
 }

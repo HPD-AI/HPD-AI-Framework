@@ -1,4 +1,5 @@
 using FluentAssertions;
+using HPD.Events.Core;
 using HPD.Graph.Tests.Helpers;
 using HPDAgent.Graph.Core.Context;
 using Xunit;
@@ -144,6 +145,25 @@ public class ContextManagementTests
         // which upstream nodes have completed in order to properly evaluate edge conditions
         isolated.IsNodeComplete("node1").Should().BeTrue();
         isolated.ExecutionId.Should().Be(original.ExecutionId);
+    }
+
+    [Fact]
+    public void GraphContext_CreateIsolatedCopy_ShouldPreserveEventCoordinator()
+    {
+        // Arrange
+        var graph = new TestGraphBuilder().AddStartNode().AddEndNode().Build();
+        var services = TestServiceProvider.Create();
+        var coordinator = new EventCoordinator();
+        var original = new GraphContext("test", graph, services)
+        {
+            EventCoordinator = coordinator
+        };
+
+        // Act
+        var isolated = original.CreateIsolatedCopy();
+
+        // Assert
+        isolated.EventCoordinator.Should().BeSameAs(coordinator);
     }
 
     [Fact]

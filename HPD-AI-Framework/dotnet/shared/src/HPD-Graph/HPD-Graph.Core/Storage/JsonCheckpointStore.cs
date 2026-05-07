@@ -227,7 +227,7 @@ public sealed class JsonCheckpointStore : IGraphCheckpointStore
     private static JsonElement ToJsonElement(object value) =>
         value is JsonElement element
             ? element.Clone()
-            : JsonSerializer.SerializeToElement(value, GraphJsonSerializerContext.Default.Object);
+            : GraphJsonValue.ToJsonElement(value, "checkpoint value");
 
     private static string EncodeFileName(string value) => Uri.EscapeDataString(value);
 }

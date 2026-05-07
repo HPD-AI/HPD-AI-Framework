@@ -1,5 +1,6 @@
 using HPDAgent.Graph.Abstractions.Validation;
 using System.Collections;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace HPDAgent.Graph.Core.Validation;
@@ -29,6 +30,10 @@ public static class InputValidators
     public static IInputValidator Enum<TEnum>() where TEnum : struct, Enum
         => new EnumValidator<TEnum>();
 
+    /// <summary>Validate value is a valid enum value.</summary>
+    public static IInputValidator Enum(Type enumType)
+        => new RuntimeEnumValidator(enumType);
+
     /// <summary>Validate string length is within bounds.</summary>
     public static IInputValidator StringLength(int minLength, int maxLength)
         => new StringLengthValidator(minLength, maxLength);
@@ -36,6 +41,10 @@ public static class InputValidators
     /// <summary>Validate collection count is within bounds.</summary>
     public static IInputValidator CollectionCount(int minCount, int maxCount)
         => new CollectionCountValidator(minCount, maxCount);
+
+    /// <summary>Wrap custom validation logic with a serializable descriptor.</summary>
+    public static IInputValidator Custom(string name, JsonElement? arguments, IInputValidator validator)
+        => new DescribedInputValidator(name, arguments, validator);
 }
 
 // ===== VALIDATOR IMPLEMENTATIONS =====
@@ -44,6 +53,9 @@ internal sealed class RangeValidator : IInputValidator
 {
     private readonly int _min;
     private readonly int _max;
+
+    public int Min => _min;
+    public int Max => _max;
 
     public RangeValidator(int min, int max)
     {
@@ -110,6 +122,8 @@ internal sealed class RegexValidator : IInputValidator
     private readonly System.Text.RegularExpressions.Regex _regex;
     private readonly string _pattern;
 
+    public string Pattern => _pattern;
+
     public RegexValidator(string pattern)
     {
         _pattern = pattern;
@@ -130,6 +144,8 @@ internal sealed class RegexValidator : IInputValidator
 
 internal sealed class EnumValidator<TEnum> : IInputValidator where TEnum : struct, Enum
 {
+    public Type EnumType => typeof(TEnum);
+
     public ValidationResult Validate(string inputName, object? value)
     {
         if (value == null)
@@ -156,10 +172,56 @@ internal sealed class EnumValidator<TEnum> : IInputValidator where TEnum : struc
     }
 }
 
+internal sealed class RuntimeEnumValidator : IInputValidator
+{
+    private readonly Type _enumType;
+    private readonly string[] _validNames;
+
+    public Type EnumType => _enumType;
+
+    public RuntimeEnumValidator(Type enumType)
+    {
+        if (!enumType.IsEnum)
+        {
+            throw new ArgumentException($"Type '{enumType.FullName}' must be an enum.", nameof(enumType));
+        }
+
+        _enumType = enumType;
+        _validNames = System.Enum.GetNames(enumType);
+    }
+
+    public ValidationResult Validate(string inputName, object? value)
+    {
+        if (value == null)
+            return ValidationResult.Failure($"{inputName} cannot be null");
+
+        if (value is string strValue)
+        {
+            if (_validNames.Any(name => string.Equals(name, strValue, StringComparison.OrdinalIgnoreCase)))
+                return ValidationResult.Success();
+
+            return ValidationResult.Failure($"{inputName} must be one of: {string.Join(", ", _validNames)}");
+        }
+
+        var comparableValue = value.GetType().IsEnum
+            ? value
+            : System.Enum.ToObject(_enumType, value);
+
+        if (System.Enum.IsDefined(_enumType, comparableValue))
+            return ValidationResult.Success();
+
+        return ValidationResult.Failure(
+            $"{inputName} must be a valid {_enumType.Name} value. Valid values: {string.Join(", ", _validNames)}");
+    }
+}
+
 internal sealed class StringLengthValidator : IInputValidator
 {
     private readonly int _minLength;
     private readonly int _maxLength;
+
+    public int MinLength => _minLength;
+    public int MaxLength => _maxLength;
 
     public StringLengthValidator(int minLength, int maxLength)
     {
@@ -184,6 +246,9 @@ internal sealed class CollectionCountValidator : IInputValidator
 {
     private readonly int _minCount;
     private readonly int _maxCount;
+
+    public int MinCount => _minCount;
+    public int MaxCount => _maxCount;
 
     public CollectionCountValidator(int minCount, int maxCount)
     {
@@ -211,4 +276,28 @@ internal sealed class CollectionCountValidator : IInputValidator
 
         return ValidationResult.Success();
     }
+}
+
+internal sealed class DescribedInputValidator : IDescribedInputValidator
+{
+    private readonly IInputValidator _inner;
+
+    public DescribedInputValidator(string name, JsonElement? arguments, IInputValidator inner)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("Custom input validator name is required.", nameof(name));
+        }
+
+        DescriptorName = name;
+        DescriptorArguments = arguments;
+        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+    }
+
+    public string DescriptorName { get; }
+
+    public JsonElement? DescriptorArguments { get; }
+
+    public ValidationResult Validate(string inputName, object? value)
+        => _inner.Validate(inputName, value);
 }

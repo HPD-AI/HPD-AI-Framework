@@ -1,7 +1,12 @@
 using System.Text.Json;
+using HPDAgent.Graph.Abstractions.Artifacts;
+using HPDAgent.Graph.Abstractions.Caching;
 using HPDAgent.Graph.Abstractions.Config;
 using HPDAgent.Graph.Abstractions.Execution;
 using HPDAgent.Graph.Abstractions.Graph;
+using HPDAgent.Graph.Abstractions.Serialization;
+using HPDAgent.Graph.Abstractions.Validation;
+using HPDAgent.Graph.Core.Validation;
 using RuntimeGraph = HPDAgent.Graph.Abstractions.Graph.Graph;
 
 namespace HPDAgent.Graph.Core.Config;
@@ -47,41 +52,41 @@ public sealed class GraphConfigExporter
             RetryPolicy = ExportRetryPolicy(node.RetryPolicy),
             ErrorPolicy = ExportErrorPolicy(node.ErrorPolicy),
             SuspensionOptions = ExportSuspensionOptions(node.SuspensionOptions),
+            EnableCheckpointing = node.EnableCheckpointing,
             MaxExecutions = node.MaxExecutions,
             MaxParallelExecutions = node.MaxParallelExecutions,
             OutputPortCount = node.OutputPortCount,
             SubGraphRef = node.SubGraphRef,
-            SubGraph = node.SubGraph is null ? null : new GraphConfigExporter().Export(node.SubGraph),
+            SubGraph = node.SubGraph is null ? null : ExportGraph(node.SubGraph),
+            MapProcessorGraph = node.MapProcessorGraph is null ? null : ExportGraph(node.MapProcessorGraph),
+            MapProcessorGraphRef = node.MapProcessorGraphRef,
+            MaxParallelMapTasks = node.MaxParallelMapTasks,
+            MapInputChannel = node.MapInputChannel,
+            MapOutputChannel = node.MapOutputChannel,
+            MapErrorMode = ExportMapErrorMode(node.MapErrorMode),
+            MapItemType = node.MapItemType,
+            MapResultType = node.MapResultType,
+            MapProcessorGraphs = node.MapProcessorGraphs?.ToDictionary(
+                kvp => kvp.Key,
+                kvp => ExportGraph(kvp.Value),
+                StringComparer.Ordinal),
+            MapRouterName = node.MapRouterName,
+            MapDefaultGraph = node.MapDefaultGraph is null ? null : ExportGraph(node.MapDefaultGraph),
+            Artifacts = ExportArtifacts(node),
+            Partitions = ExportPartitionDefinition(node.Partitions),
+            PartitionDependencies = ExportPartitionDependencies(node.PartitionDependencies),
+            Cache = ExportCacheOptions(node.Cache),
             ArtifactNamespace = node.ArtifactNamespace,
+            InputSchemas = ExportInputSchemas(node.InputSchemas),
             Metadata = node.Metadata
         };
     }
 
-    private static JsonElement? ExportNodeConfig(IReadOnlyDictionary<string, object> config)
+    private static GraphConfig ExportGraph(RuntimeGraph graph) => new GraphConfigExporter().Export(graph);
+
+    private static JsonElement? ExportNodeConfig(JsonElement? config)
     {
-        if (config.Count == 0)
-        {
-            return null;
-        }
-
-        if (config.Count == 1 && config.TryGetValue("$value", out var rawValue) && rawValue is JsonElement rawElement)
-        {
-            return rawElement.Clone();
-        }
-
-        var values = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        foreach (var pair in config)
-        {
-            if (pair.Value is JsonElement element)
-            {
-                values[pair.Key] = element.Clone();
-                continue;
-            }
-
-            values[pair.Key] = JsonSerializer.SerializeToElement(pair.Value);
-        }
-
-        return JsonSerializer.SerializeToElement(values);
+        return config?.Clone();
     }
 
     private static EdgeConfig ExportEdge(Edge edge)
@@ -134,6 +139,194 @@ public sealed class GraphConfigExporter
             },
             MaxDelay = policy.MaxDelay,
             RetryableExceptionTypeNames = policy.RetryableExceptions?.Select(type => type.AssemblyQualifiedName ?? type.FullName ?? type.Name).ToList()
+        };
+    }
+
+    private static ArtifactDependencyConfig? ExportArtifacts(Node node)
+    {
+        if (node.ProducesArtifact is null && node.RequiresArtifacts is null)
+        {
+            return null;
+        }
+
+        return new ArtifactDependencyConfig
+        {
+            ProducesArtifact = node.ProducesArtifact?.ToString(),
+            RequiresArtifacts = node.RequiresArtifacts?.Select(artifact => artifact.ToString()).ToList()
+        };
+    }
+
+    private static PartitionDefinitionConfig? ExportPartitionDefinition(PartitionDefinition? partition)
+    {
+        return partition switch
+        {
+            null => null,
+            StaticPartitionDefinition staticPartition => new PartitionDefinitionConfig
+            {
+                Type = PartitionKindConfig.Static,
+                Definition = JsonSerializer.SerializeToElement(
+                    staticPartition,
+                    GraphConfigJsonSerializerContext.Default.StaticPartitionDefinition)
+            },
+            TimePartitionDefinition timePartition => new PartitionDefinitionConfig
+            {
+                Type = PartitionKindConfig.Time,
+                Definition = JsonSerializer.SerializeToElement(
+                    timePartition,
+                    GraphConfigJsonSerializerContext.Default.TimePartitionDefinition)
+            },
+            MultiPartitionDefinition multiPartition => new PartitionDefinitionConfig
+            {
+                Type = PartitionKindConfig.Multi,
+                Definition = JsonSerializer.SerializeToElement(
+                    multiPartition,
+                    GraphConfigJsonSerializerContext.Default.MultiPartitionDefinition)
+            },
+            _ => throw new NotSupportedException($"Partition definition '{partition.GetType().FullName}' cannot be exported to GraphConfig.")
+        };
+    }
+
+    private static PartitionDependencyConfig? ExportPartitionDependencies(PartitionDependencyMapping? mapping)
+    {
+        if (mapping is null)
+        {
+            return null;
+        }
+
+        return mapping.Kind switch
+        {
+            PartitionDependencyMappingKind.WeeklyFromDaily => new PartitionDependencyConfig
+            {
+                Type = PartitionDependencyMappingKindConfig.WeeklyFromDaily
+            },
+            PartitionDependencyMappingKind.MonthlyFromDaily => new PartitionDependencyConfig
+            {
+                Type = PartitionDependencyMappingKindConfig.MonthlyFromDaily
+            },
+            PartitionDependencyMappingKind.QuarterlyFromMonthly => new PartitionDependencyConfig
+            {
+                Type = PartitionDependencyMappingKindConfig.QuarterlyFromMonthly
+            },
+            PartitionDependencyMappingKind.YearlyFromMonthly => new PartitionDependencyConfig
+            {
+                Type = PartitionDependencyMappingKindConfig.YearlyFromMonthly
+            },
+            null when mapping.CustomDescriptor is not null => new PartitionDependencyConfig
+            {
+                Custom = mapping.CustomDescriptor
+            },
+            null => throw new NotSupportedException("Custom runtime partition dependency mappings cannot be exported to GraphConfig."),
+            _ => throw new NotSupportedException($"Partition dependency mapping '{mapping.Kind}' cannot be exported to GraphConfig.")
+        };
+    }
+
+    private static CacheOptionsConfig? ExportCacheOptions(CacheOptions? cache)
+    {
+        if (cache is null)
+        {
+            return null;
+        }
+
+        return new CacheOptionsConfig
+        {
+            Enabled = true,
+            Strategy = cache.Strategy.ToString(),
+            Ttl = cache.Ttl,
+            Invalidation = cache.Invalidation.ToString()
+        };
+    }
+
+    private static IReadOnlyDictionary<string, InputSchemaConfig>? ExportInputSchemas(
+        IReadOnlyDictionary<string, InputSchema>? schemas)
+    {
+        if (schemas is null || schemas.Count == 0)
+        {
+            return null;
+        }
+
+        return schemas.ToDictionary(
+            kvp => kvp.Key,
+            kvp =>
+            {
+                return new InputSchemaConfig
+                {
+                    TypeName = kvp.Value.Type.AssemblyQualifiedName ?? kvp.Value.Type.FullName ?? kvp.Value.Type.Name,
+                    Required = kvp.Value.Required,
+                    Constraints = ExportInputValidator(kvp.Value.Validator)
+                };
+            },
+            StringComparer.Ordinal);
+    }
+
+    private static JsonElement? ExportInputValidator(IInputValidator? validator)
+    {
+        return validator switch
+        {
+            null => null,
+            UrlValidator => Constraint("""{"type":"url"}"""),
+            EmailValidator => Constraint("""{"type":"email"}"""),
+            RegexValidator regex => Constraint(
+                $$"""{"type":"regex","pattern":{{JsonSerializer.Serialize(regex.Pattern, GraphConfigJsonSerializerContext.Default.String)}}}"""),
+            RangeValidator range => Constraint($$"""{"type":"range","min":{{range.Min}},"max":{{range.Max}}}"""),
+            StringLengthValidator length => Constraint(
+                $$"""{"type":"stringLength","minLength":{{length.MinLength}},"maxLength":{{length.MaxLength}}}"""),
+            CollectionCountValidator count => Constraint(
+                $$"""{"type":"collectionCount","minCount":{{count.MinCount}},"maxCount":{{count.MaxCount}}}"""),
+            IDescribedInputValidator described => ExportDescribedInputValidator(described),
+            _ when TryExportEnumValidator(validator, out var element) => element,
+            _ => throw new NotSupportedException($"Input validator '{validator.GetType().FullName}' cannot be exported to GraphConfig.")
+        };
+    }
+
+    private static JsonElement ExportDescribedInputValidator(IDescribedInputValidator validator)
+    {
+        var arguments = validator.DescriptorArguments is { } argumentElement
+            ? $",\"arguments\":{argumentElement.GetRawText()}"
+            : string.Empty;
+
+        return Constraint(
+            $"{{\"type\":\"custom\",\"name\":{JsonSerializer.Serialize(validator.DescriptorName, GraphConfigJsonSerializerContext.Default.String)}{arguments}}}");
+    }
+
+    private static bool TryExportEnumValidator(IInputValidator validator, out JsonElement element)
+    {
+        if (validator is RuntimeEnumValidator runtimeEnumValidator)
+        {
+            element = EnumConstraint(runtimeEnumValidator.EnumType);
+            return true;
+        }
+
+        var validatorType = validator.GetType();
+        if (!validatorType.IsGenericType || validatorType.GetGenericTypeDefinition() != typeof(EnumValidator<>))
+        {
+            element = default;
+            return false;
+        }
+
+        var enumType = validatorType.GetGenericArguments()[0];
+        element = EnumConstraint(enumType);
+        return true;
+    }
+
+    private static JsonElement EnumConstraint(Type enumType)
+    {
+        var enumTypeName = enumType.AssemblyQualifiedName ?? enumType.FullName ?? enumType.Name;
+        return Constraint(
+            $$"""{"type":"enum","enumType":{{JsonSerializer.Serialize(enumTypeName, GraphConfigJsonSerializerContext.Default.String)}}}""");
+    }
+
+    private static JsonElement Constraint(string json)
+        => JsonDocument.Parse(json).RootElement.Clone();
+
+    private static MapErrorModeConfig? ExportMapErrorMode(MapErrorMode? mode)
+    {
+        return mode switch
+        {
+            null => null,
+            MapErrorMode.FailFast => MapErrorModeConfig.FailFast,
+            MapErrorMode.ContinueWithNulls => MapErrorModeConfig.ContinueWithNulls,
+            MapErrorMode.ContinueOmitFailures => MapErrorModeConfig.ContinueOmitFailures,
+            _ => MapErrorModeConfig.FailFast
         };
     }
 
@@ -199,8 +392,14 @@ public sealed class GraphConfigExporter
             ConditionType.FieldContains => FieldCondition(ConditionKindConfig.FieldContains, condition),
             ConditionType.FieldContainsAny => FieldCondition(ConditionKindConfig.FieldContainsAny, condition),
             ConditionType.FieldContainsAll => FieldCondition(ConditionKindConfig.FieldContainsAll, condition),
-            ConditionType.FieldStartsWith => FieldCondition(ConditionKindConfig.FieldStartsWith, condition),
-            ConditionType.FieldEndsWith => FieldCondition(ConditionKindConfig.FieldEndsWith, condition),
+            ConditionType.FieldStartsWith => FieldCondition(ConditionKindConfig.FieldStartsWith, condition) with
+            {
+                IgnoreCase = string.Equals(condition.RegexOptions, "IgnoreCase", StringComparison.OrdinalIgnoreCase)
+            },
+            ConditionType.FieldEndsWith => FieldCondition(ConditionKindConfig.FieldEndsWith, condition) with
+            {
+                IgnoreCase = string.Equals(condition.RegexOptions, "IgnoreCase", StringComparison.OrdinalIgnoreCase)
+            },
             ConditionType.FieldMatchesRegex => FieldCondition(ConditionKindConfig.FieldMatchesRegex, condition) with
             {
                 IgnoreCase = string.Equals(condition.RegexOptions, "IgnoreCase", StringComparison.OrdinalIgnoreCase)
@@ -237,7 +436,9 @@ public sealed class GraphConfigExporter
         {
             Type = type,
             Field = condition.Field,
-            Value = condition.Value is null ? null : JsonSerializer.SerializeToElement(condition.Value)
+            Value = condition.Value is null
+                ? null
+                : GraphJsonValue.ToJsonElement(condition.Value, $"edge condition '{condition.Field ?? condition.Type.ToString()}'")
         };
     }
 

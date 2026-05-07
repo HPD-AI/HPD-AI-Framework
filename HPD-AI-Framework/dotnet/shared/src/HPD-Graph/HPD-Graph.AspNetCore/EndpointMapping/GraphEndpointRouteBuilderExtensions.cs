@@ -95,13 +95,15 @@ public static class GraphEndpointRouteBuilderExtensions
     private static async Task<IResult> ExecuteWorkflowAsync(
         string graphId,
         ExecuteWorkflowRequest request,
-        GraphManager graphManager,
+        IWorkflowExecutionRunner executionRunner,
         CancellationToken ct)
     {
         try
         {
-            var execution = await graphManager.CreateExecutionAsync(graphId, request, ct).ConfigureAwait(false);
-            return Results.Accepted($"/workflows/{graphId}/executions/{execution.ExecutionId}", execution);
+            var execution = await executionRunner.StartAsync(graphId, request, ct).ConfigureAwait(false);
+            return request.Mode == WorkflowExecutionMode.Foreground && request.StartImmediately
+                ? Results.Ok(execution)
+                : Results.Accepted($"/workflows/{graphId}/executions/{execution.ExecutionId}", execution);
         }
         catch (InvalidOperationException ex)
         {

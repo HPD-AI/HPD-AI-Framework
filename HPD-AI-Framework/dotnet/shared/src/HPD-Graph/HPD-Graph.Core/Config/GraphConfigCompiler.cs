@@ -1,7 +1,12 @@
 using System.Text.Json;
+using HPDAgent.Graph.Abstractions.Artifacts;
+using HPDAgent.Graph.Abstractions.Caching;
 using HPDAgent.Graph.Abstractions.Config;
 using HPDAgent.Graph.Abstractions.Execution;
 using HPDAgent.Graph.Abstractions.Graph;
+using HPDAgent.Graph.Abstractions.Serialization;
+using HPDAgent.Graph.Abstractions.Validation;
+using HPDAgent.Graph.Core.Validation;
 using RuntimeGraph = HPDAgent.Graph.Abstractions.Graph.Graph;
 
 namespace HPDAgent.Graph.Core.Config;
@@ -11,6 +16,13 @@ namespace HPDAgent.Graph.Core.Config;
 /// </summary>
 public sealed class GraphConfigCompiler
 {
+    private readonly GraphConfigCompilerOptions _options;
+
+    public GraphConfigCompiler(GraphConfigCompilerOptions? options = null)
+    {
+        _options = options ?? new GraphConfigCompilerOptions();
+    }
+
     public RuntimeGraph Compile(GraphConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -104,39 +116,40 @@ public sealed class GraphConfigCompiler
             RetryPolicy = CompileRetryPolicy(config.RetryPolicy),
             ErrorPolicy = CompileErrorPolicy(config.ErrorPolicy),
             SuspensionOptions = CompileSuspensionOptions(config.SuspensionOptions),
+            EnableCheckpointing = config.EnableCheckpointing,
             MaxExecutions = config.MaxExecutions,
             MaxParallelExecutions = config.MaxParallelExecutions,
             OutputPortCount = config.OutputPortCount,
             SubGraphRef = config.SubGraphRef,
             SubGraph = config.SubGraph is null ? null : CompileSubGraph(config.SubGraph),
+            MapProcessorGraph = config.MapProcessorGraph is null ? null : CompileSubGraph(config.MapProcessorGraph),
+            MapProcessorGraphRef = config.MapProcessorGraphRef,
+            MaxParallelMapTasks = config.MaxParallelMapTasks,
+            MapInputChannel = config.MapInputChannel,
+            MapOutputChannel = config.MapOutputChannel,
+            MapErrorMode = CompileMapErrorMode(config.MapErrorMode),
+            MapItemType = config.MapItemType,
+            MapResultType = config.MapResultType,
+            MapProcessorGraphs = config.MapProcessorGraphs?.ToDictionary(
+                kvp => kvp.Key,
+                kvp => CompileSubGraph(kvp.Value),
+                StringComparer.Ordinal),
+            MapRouterName = config.MapRouterName,
+            MapDefaultGraph = config.MapDefaultGraph is null ? null : CompileSubGraph(config.MapDefaultGraph),
+            ProducesArtifact = config.Artifacts?.ProducesArtifact is null ? null : ArtifactKey.Parse(config.Artifacts.ProducesArtifact),
+            RequiresArtifacts = config.Artifacts?.RequiresArtifacts?.Select(ArtifactKey.Parse).ToList(),
+            Partitions = CompilePartitionDefinition(config.Partitions),
+            PartitionDependencies = CompilePartitionDependencies(config.PartitionDependencies),
+            Cache = CompileCacheOptions(config.Cache),
             ArtifactNamespace = config.ArtifactNamespace,
+            InputSchemas = CompileInputSchemas(config.InputSchemas),
             Metadata = config.Metadata
         };
     }
 
-    private static IReadOnlyDictionary<string, object> CompileNodeConfig(JsonElement? config)
+    private static JsonElement? CompileNodeConfig(JsonElement? config)
     {
-        if (config is null)
-        {
-            return new Dictionary<string, object>();
-        }
-
-        var element = config.Value;
-        if (element.ValueKind != JsonValueKind.Object)
-        {
-            return new Dictionary<string, object>
-            {
-                ["$value"] = element.Clone()
-            };
-        }
-
-        var values = new Dictionary<string, object>(StringComparer.Ordinal);
-        foreach (var property in element.EnumerateObject())
-        {
-            values[property.Name] = property.Value.Clone();
-        }
-
-        return values;
+        return config?.Clone();
     }
 
     private static Edge CompileEdge(EdgeConfig config)
@@ -168,7 +181,7 @@ public sealed class GraphConfigCompiler
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unsupported node type.")
     };
 
-    private static RetryPolicy? CompileRetryPolicy(RetryPolicyConfig? config)
+    private RetryPolicy? CompileRetryPolicy(RetryPolicyConfig? config)
     {
         if (config is null)
         {
@@ -187,8 +200,36 @@ public sealed class GraphConfigCompiler
                 BackoffStrategyConfig.JitteredExponential => BackoffStrategy.JitteredExponential,
                 _ => BackoffStrategy.Exponential
             },
-            MaxDelay = config.MaxDelay
+            MaxDelay = config.MaxDelay,
+            RetryableExceptions = ResolveExceptionTypes(config.RetryableExceptionTypeNames)
         };
+    }
+
+    private IReadOnlyList<Type>? ResolveExceptionTypes(IReadOnlyList<string>? typeNames)
+    {
+        if (typeNames is null || typeNames.Count == 0)
+        {
+            return null;
+        }
+
+        var types = new List<Type>(typeNames.Count);
+        foreach (var typeName in typeNames)
+        {
+            var type = ResolveType(typeName);
+            if (type is null)
+            {
+                throw new InvalidOperationException($"Retryable exception type '{typeName}' could not be resolved.");
+            }
+
+            if (!typeof(Exception).IsAssignableFrom(type))
+            {
+                throw new InvalidOperationException($"Retryable exception type '{typeName}' is not an exception type.");
+            }
+
+            types.Add(type);
+        }
+
+        return types;
     }
 
     private static ErrorPropagationPolicy? CompileErrorPolicy(ErrorPropagationPolicyConfig? config)
@@ -248,8 +289,14 @@ public sealed class GraphConfigCompiler
             ConditionKindConfig.FieldContains => FieldCondition(ConditionType.FieldContains, config),
             ConditionKindConfig.FieldContainsAny => FieldCondition(ConditionType.FieldContainsAny, config),
             ConditionKindConfig.FieldContainsAll => FieldCondition(ConditionType.FieldContainsAll, config),
-            ConditionKindConfig.FieldStartsWith => FieldCondition(ConditionType.FieldStartsWith, config),
-            ConditionKindConfig.FieldEndsWith => FieldCondition(ConditionType.FieldEndsWith, config),
+            ConditionKindConfig.FieldStartsWith => FieldCondition(ConditionType.FieldStartsWith, config) with
+            {
+                RegexOptions = config.IgnoreCase ? "IgnoreCase" : null
+            },
+            ConditionKindConfig.FieldEndsWith => FieldCondition(ConditionType.FieldEndsWith, config) with
+            {
+                RegexOptions = config.IgnoreCase ? "IgnoreCase" : null
+            },
             ConditionKindConfig.FieldMatchesRegex => FieldCondition(ConditionType.FieldMatchesRegex, config) with
             {
                 RegexOptions = config.IgnoreCase ? "IgnoreCase" : null
@@ -280,6 +327,254 @@ public sealed class GraphConfigCompiler
         };
     }
 
+    private static MapErrorMode? CompileMapErrorMode(MapErrorModeConfig? config)
+    {
+        return config switch
+        {
+            null => null,
+            MapErrorModeConfig.FailFast => MapErrorMode.FailFast,
+            MapErrorModeConfig.ContinueWithNulls => MapErrorMode.ContinueWithNulls,
+            MapErrorModeConfig.ContinueOmitFailures => MapErrorMode.ContinueOmitFailures,
+            _ => MapErrorMode.FailFast
+        };
+    }
+
+    private static PartitionDefinition? CompilePartitionDefinition(PartitionDefinitionConfig? config)
+    {
+        if (config is null)
+        {
+            return null;
+        }
+
+        if (config.Definition is null)
+        {
+            throw new InvalidOperationException("Partition definition config requires a Definition payload.");
+        }
+
+        var json = config.Definition.Value.GetRawText();
+        PartitionDefinition? definition = config.Type switch
+        {
+            PartitionKindConfig.Static => JsonSerializer.Deserialize(
+                json,
+                GraphConfigJsonSerializerContext.Default.StaticPartitionDefinition),
+            PartitionKindConfig.Time => JsonSerializer.Deserialize(
+                json,
+                GraphConfigJsonSerializerContext.Default.TimePartitionDefinition),
+            PartitionKindConfig.Multi => JsonSerializer.Deserialize(
+                json,
+                GraphConfigJsonSerializerContext.Default.MultiPartitionDefinition),
+            _ => throw new ArgumentOutOfRangeException(nameof(config), config.Type, "Unsupported partition definition type.")
+        };
+
+        return definition ?? throw new InvalidOperationException("Partition definition payload could not be deserialized.");
+    }
+
+    private PartitionDependencyMapping? CompilePartitionDependencies(PartitionDependencyConfig? config)
+    {
+        if (config is null)
+        {
+            return null;
+        }
+
+        if (config.Custom is not null)
+        {
+            var mapping = _options.ResolvePartitionDependencyMapping(config.Custom.Name, config.Custom.Arguments);
+            return mapping.CustomDescriptor is not null
+                ? mapping
+                : mapping with { CustomDescriptor = config.Custom };
+        }
+
+        var kind = config.Type ?? ReadPartitionDependencyKind(config.Mapping);
+        return kind switch
+        {
+            PartitionDependencyMappingKindConfig.WeeklyFromDaily => PartitionDependencyMapping.WeeklyFromDaily(),
+            PartitionDependencyMappingKindConfig.MonthlyFromDaily => PartitionDependencyMapping.MonthlyFromDaily(),
+            PartitionDependencyMappingKindConfig.QuarterlyFromMonthly => PartitionDependencyMapping.QuarterlyFromMonthly(),
+            PartitionDependencyMappingKindConfig.YearlyFromMonthly => PartitionDependencyMapping.YearlyFromMonthly(),
+            null => throw new InvalidOperationException("Partition dependency config requires Type or Mapping.type."),
+            _ => throw new ArgumentOutOfRangeException(nameof(config), kind, "Unsupported partition dependency mapping type.")
+        };
+    }
+
+    private static PartitionDependencyMappingKindConfig? ReadPartitionDependencyKind(JsonElement? mapping)
+    {
+        if (mapping is null || mapping.Value.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (!mapping.Value.TryGetProperty("type", out var typeElement) || typeElement.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        return Enum.TryParse<PartitionDependencyMappingKindConfig>(typeElement.GetString(), ignoreCase: true, out var kind)
+            ? kind
+            : null;
+    }
+
+    private static CacheOptions? CompileCacheOptions(CacheOptionsConfig? config)
+    {
+        if (config is null || !config.Enabled)
+        {
+            return null;
+        }
+
+        return new CacheOptions
+        {
+            Strategy = ParseEnum(config.Strategy, CacheKeyStrategy.InputsAndCode),
+            Ttl = config.Ttl,
+            Invalidation = ParseEnum(config.Invalidation, CacheInvalidation.OnCodeChange)
+        };
+    }
+
+    private IReadOnlyDictionary<string, InputSchema>? CompileInputSchemas(
+        IReadOnlyDictionary<string, InputSchemaConfig>? schemas)
+    {
+        if (schemas is null || schemas.Count == 0)
+        {
+            return null;
+        }
+
+        return schemas.ToDictionary(
+            kvp => kvp.Key,
+            kvp => CompileInputSchema(kvp.Key, kvp.Value),
+            StringComparer.Ordinal);
+    }
+
+    private InputSchema CompileInputSchema(string inputName, InputSchemaConfig config)
+    {
+        var type = ResolveType(config.TypeName)
+            ?? throw new InvalidOperationException($"Input schema type '{config.TypeName}' for '{inputName}' could not be resolved.");
+
+        return new InputSchema
+        {
+            Type = type,
+            Required = config.Required,
+            Validator = CompileInputValidator(inputName, config.Constraints)
+        };
+    }
+
+    private IInputValidator? CompileInputValidator(string inputName, JsonElement? constraints)
+    {
+        if (constraints is null || constraints.Value.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (constraints.Value.ValueKind != JsonValueKind.Object ||
+            !constraints.Value.TryGetProperty("type", out var typeElement) ||
+            typeElement.ValueKind != JsonValueKind.String)
+        {
+            throw new InvalidOperationException($"Input schema constraints for '{inputName}' must be an object with a string 'type'.");
+        }
+
+        var type = typeElement.GetString();
+        return type?.ToLowerInvariant() switch
+        {
+            "url" => InputValidators.Url(),
+            "email" => InputValidators.Email(),
+            "regex" => InputValidators.Regex(RequiredString(constraints.Value, "pattern", inputName)),
+            "range" => InputValidators.Range(RequiredInt(constraints.Value, "min", inputName), RequiredInt(constraints.Value, "max", inputName)),
+            "stringlength" => InputValidators.StringLength(RequiredInt(constraints.Value, "minLength", inputName), RequiredInt(constraints.Value, "maxLength", inputName)),
+            "collectioncount" => InputValidators.CollectionCount(RequiredInt(constraints.Value, "minCount", inputName), RequiredInt(constraints.Value, "maxCount", inputName)),
+            "enum" => CompileEnumValidator(inputName, RequiredString(constraints.Value, "enumType", inputName)),
+            "custom" => CompileCustomInputValidator(inputName, constraints.Value),
+            _ => throw new InvalidOperationException($"Input schema constraint type '{type}' for '{inputName}' is not supported.")
+        };
+    }
+
+    private IInputValidator CompileCustomInputValidator(string inputName, JsonElement constraints)
+    {
+        var name = RequiredString(constraints, "name", inputName);
+        var arguments = constraints.TryGetProperty("arguments", out var argumentsElement)
+            ? argumentsElement.Clone()
+            : (JsonElement?)null;
+
+        var validator = _options.ResolveInputValidator(name, arguments);
+        return validator is IDescribedInputValidator
+            ? validator
+            : InputValidators.Custom(name, arguments, validator);
+    }
+
+    private IInputValidator CompileEnumValidator(string inputName, string enumTypeName)
+    {
+        var enumType = ResolveType(enumTypeName)
+            ?? throw new InvalidOperationException($"Input schema enum type '{enumTypeName}' for '{inputName}' could not be resolved.");
+
+        if (!enumType.IsEnum)
+        {
+            throw new InvalidOperationException($"Input schema enum type '{enumTypeName}' for '{inputName}' is not an enum.");
+        }
+
+        return InputValidators.Enum(enumType);
+    }
+
+    private static string RequiredString(JsonElement element, string property, string inputName)
+    {
+        if (!element.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.String)
+        {
+            throw new InvalidOperationException($"Input schema constraints for '{inputName}' require string property '{property}'.");
+        }
+
+        return value.GetString()!;
+    }
+
+    private static int RequiredInt(JsonElement element, string property, string inputName)
+    {
+        if (!element.TryGetProperty(property, out var value) || !value.TryGetInt32(out var number))
+        {
+            throw new InvalidOperationException($"Input schema constraints for '{inputName}' require integer property '{property}'.");
+        }
+
+        return number;
+    }
+
+    private static TEnum ParseEnum<TEnum>(string? value, TEnum defaultValue)
+        where TEnum : struct
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? defaultValue
+            : Enum.TryParse<TEnum>(value, ignoreCase: true, out var parsed)
+                ? parsed
+                : throw new InvalidOperationException($"Unsupported {typeof(TEnum).Name} value '{value}'.");
+    }
+
+    private Type? ResolveType(string typeName)
+    {
+        var simpleTypeName = StripAssemblyQualification(typeName);
+        return simpleTypeName switch
+        {
+            "bool" or "boolean" or "System.Boolean" => typeof(bool),
+            "byte" or "System.Byte" => typeof(byte),
+            "short" or "System.Int16" => typeof(short),
+            "int" or "integer" or "System.Int32" => typeof(int),
+            "long" or "System.Int64" => typeof(long),
+            "float" or "single" or "System.Single" => typeof(float),
+            "double" or "number" or "System.Double" => typeof(double),
+            "decimal" or "System.Decimal" => typeof(decimal),
+            "string" or "System.String" => typeof(string),
+            "object" or "System.Object" => typeof(object),
+            "Exception" or "System.Exception" => typeof(Exception),
+            "InvalidOperationException" or "System.InvalidOperationException" => typeof(InvalidOperationException),
+            "OperationCanceledException" or "System.OperationCanceledException" => typeof(OperationCanceledException),
+            "TaskCanceledException" or "System.Threading.Tasks.TaskCanceledException" => typeof(TaskCanceledException),
+            "TimeoutException" or "System.TimeoutException" => typeof(TimeoutException),
+            "ArgumentException" or "System.ArgumentException" => typeof(ArgumentException),
+            "ArgumentNullException" or "System.ArgumentNullException" => typeof(ArgumentNullException),
+            "NotSupportedException" or "System.NotSupportedException" => typeof(NotSupportedException),
+            _ => _options.ResolveType(typeName)
+        };
+    }
+
+    private static string StripAssemblyQualification(string typeName)
+    {
+        var commaIndex = typeName.IndexOf(',');
+        return commaIndex < 0
+            ? typeName
+            : typeName[..commaIndex].Trim();
+    }
+
     private static EdgeCondition FieldCondition(ConditionType type, ConditionConfig config)
     {
         return new EdgeCondition
@@ -294,7 +589,7 @@ public sealed class GraphConfigCompiler
     {
         if (config.Values is { Count: > 0 })
         {
-            return config.Values.Select(value => value.Clone()).ToArray();
+            return config.Values.Select(GraphJsonValue.ToObject).ToArray();
         }
 
         if (config.Pattern is not null)
@@ -302,7 +597,7 @@ public sealed class GraphConfigCompiler
             return config.Pattern;
         }
 
-        return config.Value?.Clone();
+        return config.Value is null ? null : GraphJsonValue.ToObject(config.Value.Value);
     }
 
     private static ScheduleConstraint? CompileSchedule(ScheduleConstraintConfig? config)

@@ -1,10 +1,13 @@
+using HPDAgent.Graph.Abstractions.Artifacts;
 using HPDAgent.Graph.Abstractions.Checkpointing;
 using HPDAgent.Graph.Abstractions.Invocation;
+using HPDAgent.Graph.Abstractions.Registry;
 using HPDAgent.Graph.Abstractions.Storage;
 using HPDAgent.Graph.Core.Config;
 using HPDAgent.Graph.Core.Context;
 using HPDAgent.Graph.Core.Orchestration;
 using HPDAgent.Graph.Hosting.Data;
+using HPD.Events;
 
 namespace HPDAgent.Graph.Hosting.Lifecycle;
 
@@ -56,16 +59,25 @@ public sealed class InProcessWorkflowResumeRunner : IWorkflowResumeRunner
     private readonly IServiceProvider _serviceProvider;
     private readonly IGraphCheckpointStore _checkpointStore;
     private readonly IGraphHandlerRegistry? _handlerRegistry;
+    private readonly IEventCoordinator? _eventCoordinator;
+    private readonly IArtifactRegistry? _artifactRegistry;
+    private readonly IGraphRegistry? _graphRegistry;
     private readonly GraphConfigCompiler _compiler = new();
 
     public InProcessWorkflowResumeRunner(
         IServiceProvider serviceProvider,
         IGraphCheckpointStore checkpointStore,
-        IGraphHandlerRegistry? handlerRegistry = null)
+        IGraphHandlerRegistry? handlerRegistry = null,
+        IEventCoordinator? eventCoordinator = null,
+        IArtifactRegistry? artifactRegistry = null,
+        IGraphRegistry? graphRegistry = null)
     {
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _checkpointStore = checkpointStore ?? throw new ArgumentNullException(nameof(checkpointStore));
         _handlerRegistry = handlerRegistry;
+        _eventCoordinator = eventCoordinator;
+        _artifactRegistry = artifactRegistry;
+        _graphRegistry = graphRegistry;
     }
 
     public async Task<WorkflowResumeRunnerResult> ResumeAsync(
@@ -105,7 +117,10 @@ public sealed class InProcessWorkflowResumeRunner : IWorkflowResumeRunner
         }
 
         var graph = _compiler.Compile(request.Graph.Config);
-        var context = new GraphContext(request.Execution.ExecutionId, graph, _serviceProvider);
+        var context = new GraphContext(request.Execution.ExecutionId, graph, _serviceProvider)
+        {
+            EventCoordinator = _eventCoordinator
+        };
 
         var nodeId = request.Checkpoint.Metadata?.SuspendedNodeId;
         if (!string.IsNullOrWhiteSpace(nodeId))
@@ -118,6 +133,8 @@ public sealed class InProcessWorkflowResumeRunner : IWorkflowResumeRunner
         var orchestrator = new GraphOrchestrator<GraphContext>(
             _serviceProvider,
             checkpointStore: _checkpointStore,
+            artifactRegistry: _artifactRegistry,
+            graphRegistry: _graphRegistry,
             handlerRegistry: _handlerRegistry);
 
         try

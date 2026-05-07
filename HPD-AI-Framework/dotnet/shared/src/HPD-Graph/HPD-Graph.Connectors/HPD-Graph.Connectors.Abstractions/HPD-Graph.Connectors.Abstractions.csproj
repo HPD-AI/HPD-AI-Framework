@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <RootNamespace>HPDAgent.Graph.Connectors.Abstractions</RootNamespace>
+    <AssemblyName>HPDAgent.Graph.Connectors.Abstractions</AssemblyName>
+    <IsPackable>true</IsPackable>
+
+    <!-- Package metadata -->
+    <PackageId>HPD-Graph.Connectors.Abstractions</PackageId>
+    <Description>Stable connector contracts for HPD-Graph automation and data connectors.</Description>
+    <PackageTags>graph;workflow;connectors;automation;data-orchestration;abstractions</PackageTags>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\HPD-Graph.Abstractions\HPD-Graph.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\HPD-Events\HPD-Events.csproj" />
+
+    <!-- Source Generator Reference -->
+    <ProjectReference Include="..\HPD-Graph.Connectors.SourceGenerator\HPD-Graph.Connectors.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

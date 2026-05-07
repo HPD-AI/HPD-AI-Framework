@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using HPD.Events;
 
 namespace HPD.Events.Tests;
@@ -153,4 +155,36 @@ public class EventTests
         Assert.Equal(EventChannel.Control, evt.Channel);
         Assert.Equal(EventKind.Diagnostic, evt.Kind);
     }
+
+    [Fact]
+    public void FixedEventClassification_RoundTrips_WithSourceGeneratedJsonMetadata()
+    {
+        var evt = new EventSourceGenerationTestEvent { Name = "fixed" };
+
+        var json = JsonSerializer.Serialize(
+            evt,
+            EventTestsJsonSerializerContext.Default.EventSourceGenerationTestEvent);
+
+        var deserialized = JsonSerializer.Deserialize(
+            json,
+            EventTestsJsonSerializerContext.Default.EventSourceGenerationTestEvent);
+
+        Assert.NotNull(deserialized);
+        Assert.Equal("fixed", deserialized.Name);
+        Assert.Equal(EventKind.Lifecycle, deserialized.Kind);
+        Assert.Equal(EventChannel.Control, deserialized.Channel);
+    }
 }
+
+internal sealed record EventSourceGenerationTestEvent : Event
+{
+    public required string Name { get; init; }
+
+    public override EventKind Kind => EventKind.Lifecycle;
+
+    public override EventChannel Channel => EventChannel.Control;
+}
+
+[JsonSourceGenerationOptions(UseStringEnumConverter = true)]
+[JsonSerializable(typeof(EventSourceGenerationTestEvent))]
+internal sealed partial class EventTestsJsonSerializerContext : JsonSerializerContext;

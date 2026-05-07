@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+
 <Solution>
   <Configurations>
     <Platform Name="Any CPU" />
@@ -7,7 +7,14 @@
   </Configurations>
   <Folder Name="/HPD-Core/">
     <Project Path="src/HPD-Graph/HPD-Graph.Abstractions/HPD-Graph.Abstractions.csproj" />
+    <Project Path="src/HPD-Graph/HPD-Graph.AspNetCore/HPD-Graph.AspNetCore.csproj" />
+    <Project Path="src/HPD-Graph/HPD-Graph.Connectors/HPD-Graph.Connectors.Abstractions/HPD-Graph.Connectors.Abstractions.csproj" />
+    <Project Path="src/HPD-Graph/HPD-Graph.Connectors/HPD-Graph.Connectors.AspNetCore/HPD-Graph.Connectors.AspNetCore.csproj" />
+    <Project Path="src/HPD-Graph/HPD-Graph.Connectors/HPD-Graph.Connectors.Core/HPD-Graph.Connectors.Core.csproj" />
+    <Project Path="src/HPD-Graph/HPD-Graph.Connectors/HPD-Graph.Connectors.OpenApi/HPD-Graph.Connectors.OpenApi.csproj" />
+    <Project Path="src/HPD-Graph/HPD-Graph.Connectors/HPD-Graph.Connectors.SourceGenerator/HPD-Graph.Connectors.SourceGenerator.csproj" />
     <Project Path="src/HPD-Graph/HPD-Graph.Core/HPD-Graph.Core.csproj" />
+    <Project Path="src/HPD-Graph/HPD-Graph.Hosting/HPD-Graph.Hosting.csproj" />
     <Project Path="src/HPD-Graph/HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj" />
     <Project Path="src/HPD-Events/HPD-Events.csproj" />
     <Project Path="src/HPD-VCS/HPD-VCS.csproj" />
@@ -35,6 +42,7 @@
     <Project Path="src/Rhodium/src/Rhodium.Events/Rhodium.Events.csproj" />
     <Project Path="src/Rhodium/src/Rhodium.HFT/Rhodium.HFT.csproj" />
   </Folder>
+  <Folder Name="/Tests/" />
   <Folder Name="/Tests/HeliumTests/">
     <Project Path="src/Helium/test/Helium.Primitives.Tests/Helium.Primitives.Tests.csproj" />
     <Project Path="src/Helium/test/Helium.Algebra.Tests/Helium.Algebra.Tests.csproj" />

@@ -224,7 +224,8 @@ public class GraphContext : IGraphContext
             LastUpdatedAt = DateTimeOffset.UtcNow,
             CurrentLayerIndex = CurrentLayerIndex,
             TotalLayers = TotalLayers,
-            _currentIteration = _currentIteration
+            _currentIteration = _currentIteration,
+            EventCoordinator = EventCoordinator
         };
 
         // Copy completed nodes so isolated context knows which upstream nodes have completed

@@ -1,6 +1,9 @@
 using FluentAssertions;
+using HPD.Events;
+using HPD.Events.Core;
 using HPDAgent.Graph.Abstractions.Checkpointing;
 using HPDAgent.Graph.Abstractions.Config;
+using HPDAgent.Graph.Abstractions.Events;
 using HPDAgent.Graph.Abstractions.Execution;
 using HPDAgent.Graph.Abstractions.Handlers;
 using HPDAgent.Graph.Abstractions.Storage;
@@ -100,6 +103,43 @@ public sealed class WorkflowResumeRunnerTests
         afterHandler.Decision.Should().Be("approved");
     }
 
+    [Fact]
+    public async Task InProcessResumeRunner_WithEventCoordinator_EmitsGraphLifecycleEvents()
+    {
+        var approvalHandler = new ResumeApprovalHandler();
+        var afterHandler = new ResumeConsumerHandler();
+        var eventCoordinator = new EventCoordinator();
+        var services = new ServiceCollection()
+            .AddSingleton<IGraphNodeHandler<GraphContext>>(approvalHandler)
+            .AddSingleton<IGraphNodeHandler<GraphContext>>(afterHandler)
+            .BuildServiceProvider();
+        var checkpointStore = new InMemoryCheckpointStore();
+        var checkpoint = CreateSuspensionCheckpoint();
+        await checkpointStore.SaveCheckpointAsync(checkpoint);
+        var runner = new InProcessWorkflowResumeRunner(
+            services,
+            checkpointStore,
+            eventCoordinator: eventCoordinator);
+
+        var result = await runner.ResumeAsync(new WorkflowResumeRunnerRequest
+        {
+            Execution = CreateExecution(),
+            Graph = CreateStoredGraph(),
+            Checkpoint = checkpoint,
+            ResumeValue = "approved"
+        });
+
+        result.Status.Should().Be(ResumeSuspensionStatus.Accepted);
+        result.ExecutionContinued.Should().BeTrue();
+        var events = await CollectSynchronousEventsAsync(eventCoordinator, evt => evt is GraphExecutionCompletedEvent);
+        events.Should().ContainSingle(evt => evt is GraphExecutionStartedEvent);
+        events.Should().ContainSingle(evt => evt is GraphExecutionCompletedEvent);
+        events.OfType<NodeExecutionStartedEvent>().Should().Contain(evt => evt.NodeId == "approval");
+        events.OfType<NodeExecutionCompletedEvent>().Should().Contain(evt => evt.NodeId == "approval");
+        events.OfType<NodeExecutionStartedEvent>().Should().Contain(evt => evt.NodeId == "after");
+        events.OfType<NodeExecutionCompletedEvent>().Should().Contain(evt => evt.NodeId == "after");
+    }
+
     private static WorkflowExecution CreateExecution(
         string graphId = "resume-graph",
         string executionId = "exec-1") => new()
@@ -179,6 +219,31 @@ public sealed class WorkflowResumeRunnerTests
             SuspensionOutcome = SuspensionOutcome.Pending
         }
     };
+
+    private static async Task<List<Event>> CollectSynchronousEventsAsync(
+        EventCoordinator coordinator,
+        Func<Event, bool>? stopWhen = null)
+    {
+        var events = new List<Event>();
+        using var cts = new CancellationTokenSource(500);
+
+        try
+        {
+            await foreach (var evt in coordinator.ReadSynchronousAsync(cts.Token))
+            {
+                events.Add(evt);
+                if (stopWhen?.Invoke(evt) == true)
+                {
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+        }
+
+        return events;
+    }
 
     private sealed class ResumeApprovalHandler : IGraphNodeHandler<GraphContext>
     {

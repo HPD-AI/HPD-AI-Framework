@@ -11,8 +11,8 @@ public record EventDroppedEvent(
 ) : Event
 {
     /// <inheritdoc />
-    public override EventChannel Channel { get; init; } = EventChannel.Control;
+    public override EventChannel Channel => EventChannel.Control;
 
     /// <inheritdoc />
-    public override EventKind Kind { get; init; } = EventKind.Diagnostic;
+    public override EventKind Kind => EventKind.Diagnostic;
 }

@@ -8,6 +8,27 @@ public interface IWorkflowExecutionStore
     Task SaveAsync(WorkflowExecution execution, CancellationToken ct = default);
     Task<WorkflowExecution?> LoadAsync(string graphId, string executionId, CancellationToken ct = default);
     Task<IReadOnlyList<WorkflowExecution>> ListAsync(string graphId, CancellationToken ct = default);
+    Task<WorkflowExecution?> TryClaimAsync(
+        string graphId,
+        string executionId,
+        string workerId,
+        DateTimeOffset now,
+        TimeSpan leaseDuration,
+        CancellationToken ct = default);
+
+    Task<WorkflowExecution?> RenewLeaseAsync(
+        string graphId,
+        string executionId,
+        string workerId,
+        DateTimeOffset now,
+        TimeSpan leaseDuration,
+        CancellationToken ct = default);
+
+    Task ReleaseClaimAsync(
+        string graphId,
+        string executionId,
+        string workerId,
+        CancellationToken ct = default);
 }
 
 public interface IWorkflowSuspensionSink
@@ -66,6 +87,13 @@ public sealed record WorkflowExecution
     public int? PollingAttemptNumber { get; init; }
     public DateTimeOffset? PollingStartedAt { get; init; }
     public DateTimeOffset? NextRetryAt { get; init; }
+    public string? ClaimedBy { get; init; }
+    public DateTimeOffset? ClaimedAt { get; init; }
+    public DateTimeOffset? LeaseUntil { get; init; }
+    public DateTimeOffset? LastHeartbeatAt { get; init; }
+    public int AttemptCount { get; init; }
+    public DateTimeOffset? LastAttemptAt { get; init; }
+    public DateTimeOffset? NextAttemptAt { get; init; }
     public IReadOnlyList<WorkflowSuspension> Suspensions { get; init; } = Array.Empty<WorkflowSuspension>();
     public string? ErrorMessage { get; init; }
 }

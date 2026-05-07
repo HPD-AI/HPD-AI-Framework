@@ -49,3 +49,75 @@ public class GeneratedTestOutput
     [OutputSocket(Description = "Result length")]
     public int Length { get; set; }
 }
+
+[GraphNodeHandler(NodeName = "clean_generated")]
+public partial class CleanGeneratedHandler
+{
+    public Task<GeneratedTestOutput> ExecuteAsync(
+        [InputSocket(Description = "Test input text")] string text,
+        CancellationToken ct)
+    {
+        return Task.FromResult(new GeneratedTestOutput
+        {
+            Result = text.ToUpperInvariant(),
+            Length = text.Length
+        });
+    }
+}
+
+[GraphNodeHandler(NodeName = "generated_config")]
+public partial class GeneratedConfigHandler : IGraphNodeHandler<GraphContext>
+{
+    public sealed class Config
+    {
+        public string Prefix { get; set; } = "";
+        public int Count { get; set; }
+        public int? OptionalCount { get; set; }
+        public Guid RequestId { get; set; }
+        public DateTimeOffset Since { get; set; }
+        public string[] Tags { get; set; } = [];
+        public List<int> Scores { get; set; } = [];
+        public GeneratedConfigMode Mode { get; set; }
+        public GeneratedComplexConfig Complex { get; set; } = new();
+    }
+
+    public Task<GeneratedTestOutput> ExecuteAsync(
+        GraphContext context,
+        [InputSocket(Description = "Input value")] string text,
+        CancellationToken ct)
+    {
+        var config = GetNodeConfig();
+        var result = string.Join(
+            ":",
+            config.Prefix,
+            text,
+            config.Count,
+            config.OptionalCount,
+            config.RequestId,
+            config.Since.ToString("O"),
+            string.Join(",", config.Tags),
+            config.Scores.Sum(),
+            config.Mode,
+            config.Complex.Name,
+            config.Complex.Enabled);
+
+        return Task.FromResult(new GeneratedTestOutput
+        {
+            Result = result,
+            Length = result.Length
+        });
+    }
+}
+
+public enum GeneratedConfigMode
+{
+    Unknown,
+    Fast,
+    Careful
+}
+
+public sealed class GeneratedComplexConfig
+{
+    public string Name { get; set; } = "";
+    public bool Enabled { get; set; }
+}

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using HPDAgent.Graph.Abstractions.Artifacts;
 using HPDAgent.Graph.Abstractions.Config;
 using HPDAgent.Graph.Abstractions.Discovery;
 using HPDAgent.Graph.Abstractions.Storage;
@@ -27,8 +28,15 @@ namespace HPDAgent.Graph.Abstractions.Serialization;
 [JsonSerializable(typeof(ArtifactDependencyConfig))]
 [JsonSerializable(typeof(PartitionDefinitionConfig))]
 [JsonSerializable(typeof(PartitionDependencyConfig))]
+[JsonSerializable(typeof(PartitionDependencyMappingKindConfig))]
+[JsonSerializable(typeof(CustomPrimitiveDescriptorConfig))]
+[JsonSerializable(typeof(StaticPartitionDefinition))]
+[JsonSerializable(typeof(TimePartitionDefinition))]
+[JsonSerializable(typeof(MultiPartitionDefinition))]
+[JsonSerializable(typeof(List<PartitionDefinition>))]
 [JsonSerializable(typeof(CacheOptionsConfig))]
 [JsonSerializable(typeof(InputSchemaConfig))]
+[JsonSerializable(typeof(MapErrorModeConfig))]
 [JsonSerializable(typeof(GraphScheduleConfig))]
 [JsonSerializable(typeof(ScheduledGraph))]
 [JsonSerializable(typeof(StoredGraph))]
@@ -48,6 +56,7 @@ namespace HPDAgent.Graph.Abstractions.Serialization;
 [JsonSerializable(typeof(List<WorkflowExecution>))]
 [JsonSerializable(typeof(List<WorkflowSuspension>))]
 [JsonSerializable(typeof(JsonElement))]
+[JsonSerializable(typeof(string))]
 public partial class GraphConfigJsonSerializerContext : JsonSerializerContext
 {
 }

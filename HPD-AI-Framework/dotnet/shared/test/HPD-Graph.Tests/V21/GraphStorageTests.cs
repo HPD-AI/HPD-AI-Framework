@@ -92,6 +92,51 @@ public sealed class GraphStorageTests
     }
 
     [Fact]
+    public async Task InMemoryWorkflowExecutionStore_ClaimsRenewsAndReleasesExecutionLeases()
+    {
+        var store = new InMemoryWorkflowExecutionStore();
+        var now = DateTimeOffset.UnixEpoch.AddMinutes(1);
+        await store.SaveAsync(CreateExecution("workflow", "exec", WorkflowExecutionStatus.Created, DateTimeOffset.UnixEpoch));
+
+        var claimed = await store.TryClaimAsync("workflow", "exec", "worker-a", now, TimeSpan.FromSeconds(30));
+        var competingClaim = await store.TryClaimAsync("workflow", "exec", "worker-b", now.AddSeconds(1), TimeSpan.FromSeconds(30));
+        var renewed = await store.RenewLeaseAsync("workflow", "exec", "worker-a", now.AddSeconds(10), TimeSpan.FromSeconds(30));
+
+        claimed.Should().NotBeNull();
+        claimed!.Status.Should().Be(WorkflowExecutionStatus.Running);
+        claimed.ClaimedBy.Should().Be("worker-a");
+        claimed.AttemptCount.Should().Be(1);
+        competingClaim.Should().BeNull();
+        renewed!.LeaseUntil.Should().Be(now.AddSeconds(40));
+
+        await store.ReleaseClaimAsync("workflow", "exec", "worker-a");
+
+        var released = await store.LoadAsync("workflow", "exec");
+        released!.ClaimedBy.Should().BeNull();
+        released.LeaseUntil.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task InMemoryWorkflowExecutionStore_ExpiredLeaseCanBeReclaimed()
+    {
+        var store = new InMemoryWorkflowExecutionStore();
+        var now = DateTimeOffset.UnixEpoch.AddMinutes(1);
+        await store.SaveAsync(CreateExecution("workflow", "exec", WorkflowExecutionStatus.Running, DateTimeOffset.UnixEpoch) with
+        {
+            ClaimedBy = "worker-a",
+            ClaimedAt = now.AddMinutes(-2),
+            LeaseUntil = now.AddSeconds(-1),
+            AttemptCount = 1
+        });
+
+        var claimed = await store.TryClaimAsync("workflow", "exec", "worker-b", now, TimeSpan.FromSeconds(30));
+
+        claimed.Should().NotBeNull();
+        claimed!.ClaimedBy.Should().Be("worker-b");
+        claimed.AttemptCount.Should().Be(2);
+    }
+
+    [Fact]
     public async Task JsonGraphDefinitionStore_PersistsDefinitionsAcrossInstances()
     {
         using var temp = TempDirectory.Create();
@@ -185,6 +230,27 @@ public sealed class GraphStorageTests
         loaded.CompletedAt.Should().Be(DateTimeOffset.UnixEpoch.AddMinutes(1));
         loaded.ErrorMessage.Should().Be("cancelled by user");
         (await store.ListAsync("workflow")).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task JsonWorkflowExecutionStore_ClaimLeasePersistsAcrossInstances()
+    {
+        using var temp = TempDirectory.Create();
+        var now = DateTimeOffset.UnixEpoch.AddMinutes(1);
+        var first = new JsonWorkflowExecutionStore(temp.Path);
+        await first.SaveAsync(CreateExecution("workflow", "exec", WorkflowExecutionStatus.Created, DateTimeOffset.UnixEpoch));
+
+        var claimed = await first.TryClaimAsync("workflow", "exec", "worker-a", now, TimeSpan.FromSeconds(30));
+
+        var second = new JsonWorkflowExecutionStore(temp.Path);
+        var loaded = await second.LoadAsync("workflow", "exec");
+        var competingClaim = await second.TryClaimAsync("workflow", "exec", "worker-b", now.AddSeconds(1), TimeSpan.FromSeconds(30));
+
+        claimed.Should().NotBeNull();
+        loaded!.ClaimedBy.Should().Be("worker-a");
+        loaded.LeaseUntil.Should().Be(now.AddSeconds(30));
+        loaded.AttemptCount.Should().Be(1);
+        competingClaim.Should().BeNull();
     }
 
     [Fact]

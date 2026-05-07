@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text.Json;
+using HPDAgent.Graph.Abstractions.Config;
 
 namespace HPDAgent.Graph.Abstractions.Artifacts;
 
@@ -8,6 +10,17 @@ namespace HPDAgent.Graph.Abstractions.Artifacts;
 /// </summary>
 public record PartitionDependencyMapping
 {
+    /// <summary>
+    /// Serializable descriptor for built-in dependency mappings.
+    /// Custom mappings leave this unset and cannot be exported to declarative config.
+    /// </summary>
+    public PartitionDependencyMappingKind? Kind { get; init; }
+
+    /// <summary>
+    /// Serializable descriptor for custom dependency mappings resolved through a registry.
+    /// </summary>
+    public CustomPrimitiveDescriptorConfig? CustomDescriptor { get; init; }
+
     /// <summary>
     /// Maps output partition to required input partition keys.
     /// Example: "2025-W03" → ["2025-01-15", "2025-01-16", ..., "2025-01-21"]
@@ -22,6 +35,7 @@ public record PartitionDependencyMapping
     {
         return new PartitionDependencyMapping
         {
+            Kind = PartitionDependencyMappingKind.WeeklyFromDaily,
             MapInputPartitions = weekKey =>
             {
                 var weekString = weekKey.Dimensions.FirstOrDefault()
@@ -69,6 +83,7 @@ public record PartitionDependencyMapping
     {
         return new PartitionDependencyMapping
         {
+            Kind = PartitionDependencyMappingKind.MonthlyFromDaily,
             MapInputPartitions = monthKey =>
             {
                 var monthString = monthKey.Dimensions.FirstOrDefault()
@@ -100,6 +115,7 @@ public record PartitionDependencyMapping
     {
         return new PartitionDependencyMapping
         {
+            Kind = PartitionDependencyMappingKind.QuarterlyFromMonthly,
             MapInputPartitions = quarterKey =>
             {
                 var quarterString = quarterKey.Dimensions.FirstOrDefault()
@@ -138,6 +154,7 @@ public record PartitionDependencyMapping
     {
         return new PartitionDependencyMapping
         {
+            Kind = PartitionDependencyMappingKind.YearlyFromMonthly,
             MapInputPartitions = yearKey =>
             {
                 var yearString = yearKey.Dimensions.FirstOrDefault()
@@ -160,4 +177,46 @@ public record PartitionDependencyMapping
     {
         return new PartitionDependencyMapping { MapInputPartitions = mapper };
     }
+
+    /// <summary>
+    /// Factory: Custom mapping function with a serializable descriptor.
+    /// </summary>
+    public static PartitionDependencyMapping Custom(
+        string name,
+        JsonElement? arguments,
+        Func<PartitionKey, IEnumerable<PartitionKey>> mapper)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("Custom partition dependency mapping name is required.", nameof(name));
+        }
+
+        return new PartitionDependencyMapping
+        {
+            CustomDescriptor = new CustomPrimitiveDescriptorConfig
+            {
+                Name = name,
+                Arguments = arguments
+            },
+            MapInputPartitions = mapper
+        };
+    }
+}
+
+/// <summary>
+/// Built-in partition dependency mapping descriptors that can be exported to declarative config.
+/// </summary>
+public enum PartitionDependencyMappingKind
+{
+    /// <summary>Weekly output partitions depend on daily input partitions.</summary>
+    WeeklyFromDaily,
+
+    /// <summary>Monthly output partitions depend on daily input partitions.</summary>
+    MonthlyFromDaily,
+
+    /// <summary>Quarterly output partitions depend on monthly input partitions.</summary>
+    QuarterlyFromMonthly,
+
+    /// <summary>Yearly output partitions depend on monthly input partitions.</summary>
+    YearlyFromMonthly
 }

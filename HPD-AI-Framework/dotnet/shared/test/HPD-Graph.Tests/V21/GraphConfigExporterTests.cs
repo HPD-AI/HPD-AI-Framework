@@ -1,9 +1,13 @@
 using System.Text.Json;
 using FluentAssertions;
+using HPDAgent.Graph.Abstractions.Artifacts;
+using HPDAgent.Graph.Abstractions.Caching;
 using HPDAgent.Graph.Abstractions.Config;
 using HPDAgent.Graph.Abstractions.Execution;
 using HPDAgent.Graph.Abstractions.Graph;
+using HPDAgent.Graph.Abstractions.Validation;
 using HPDAgent.Graph.Core.Config;
+using HPDAgent.Graph.Core.Validation;
 using RuntimeGraph = HPDAgent.Graph.Abstractions.Graph.Graph;
 
 namespace HPD.Graph.Tests.V21;
@@ -62,15 +66,66 @@ public sealed class GraphConfigExporterTests
         node.ErrorPolicy!.Mode.Should().Be(PropagationModeConfig.ExecuteFallback);
         node.ErrorPolicy.FallbackNodeId.Should().Be("fallback");
         node.SuspensionOptions!.ActiveWaitTimeout.Should().Be(TimeSpan.Zero);
+        node.EnableCheckpointing.Should().BeFalse();
         node.MaxExecutions.Should().Be(3);
         node.MaxParallelExecutions.Should().Be(2);
         node.OutputPortCount.Should().Be(2);
+        node.Artifacts!.ProducesArtifact.Should().Be("runtime/output");
+        node.Artifacts.RequiresArtifacts.Should().ContainSingle("runtime/input");
+        node.Partitions!.Type.Should().Be(PartitionKindConfig.Static);
+        node.Partitions.Definition!.Value.GetProperty("keys").EnumerateArray().Select(e => e.GetString()).Should().Equal("a", "b");
+        node.PartitionDependencies!.Type.Should().Be(PartitionDependencyMappingKindConfig.MonthlyFromDaily);
+        node.Cache!.Strategy.Should().Be("Inputs");
+        node.Cache.Ttl.Should().Be(TimeSpan.FromSeconds(30));
+        node.Cache.Invalidation.Should().Be("Never");
         node.ArtifactNamespace.Should().Equal("ns", "child");
+        node.InputSchemas.Should().ContainKey("name");
+        node.InputSchemas!["name"].TypeName.Should().Contain("System.String");
+        node.InputSchemas["name"].Constraints!.Value.GetProperty("type").GetString().Should().Be("stringLength");
+        node.InputSchemas["name"].Constraints!.Value.GetProperty("minLength").GetInt32().Should().Be(1);
+        node.InputSchemas["name"].Constraints!.Value.GetProperty("maxLength").GetInt32().Should().Be(80);
         node.Metadata.Should().Contain("kind", "test");
     }
 
     [Fact]
-    public void Export_NodeConfigDictionary_BecomesJsonObject()
+    public void Export_CustomPrimitiveDescriptors_AreMapped()
+    {
+        var arguments = JsonDocument.Parse("""{"prefix":"HPD-"}""").RootElement.Clone();
+        var graph = CreateRuntimeGraph() with
+        {
+            Nodes =
+            [
+                StartNode(),
+                WorkNode() with
+                {
+                    PartitionDependencies = PartitionDependencyMapping.Custom(
+                        "window",
+                        JsonDocument.Parse("""{"days":7}""").RootElement.Clone(),
+                        key => [key]),
+                    InputSchemas = new Dictionary<string, InputSchema>
+                    {
+                        ["code"] = new()
+                        {
+                            Type = typeof(string),
+                            Validator = InputValidators.Custom("starts-with", arguments, new PrefixValidator("HPD-"))
+                        }
+                    }
+                },
+                EndNode()
+            ]
+        };
+
+        var node = _exporter.Export(graph).Nodes["work"];
+
+        node.PartitionDependencies!.Custom!.Name.Should().Be("window");
+        node.PartitionDependencies.Custom.Arguments!.Value.GetProperty("days").GetInt32().Should().Be(7);
+        node.InputSchemas!["code"].Constraints!.Value.GetProperty("type").GetString().Should().Be("custom");
+        node.InputSchemas["code"].Constraints!.Value.GetProperty("name").GetString().Should().Be("starts-with");
+        node.InputSchemas["code"].Constraints!.Value.GetProperty("arguments").GetProperty("prefix").GetString().Should().Be("HPD-");
+    }
+
+    [Fact]
+    public void Export_NodeConfigJson_BecomesJsonObject()
     {
         var config = _exporter.Export(CreateRuntimeGraph());
 
@@ -95,10 +150,7 @@ public sealed class GraphConfigExporterTests
                     Name = "Work",
                     Type = NodeType.Handler,
                     HandlerName = "work_handler",
-                    Config = new Dictionary<string, object>
-                    {
-                        ["$value"] = JsonDocument.Parse("""["a","b"]""").RootElement.Clone()
-                    }
+                    Config = JsonDocument.Parse("""["a","b"]""").RootElement.Clone()
                 },
                 EndNode()
             ]
@@ -416,11 +468,7 @@ public sealed class GraphConfigExporterTests
         Name = "Work",
         Type = NodeType.Handler,
         HandlerName = "work_handler",
-        Config = new Dictionary<string, object>
-        {
-            ["path"] = "/tmp",
-            ["count"] = 5
-        },
+        Config = JsonDocument.Parse("""{"path":"/tmp","count":5}""").RootElement.Clone(),
         Timeout = TimeSpan.FromSeconds(20),
         RetryPolicy = new RetryPolicy
         {
@@ -444,7 +492,37 @@ public sealed class GraphConfigExporterTests
         MaxExecutions = 3,
         MaxParallelExecutions = 2,
         OutputPortCount = 2,
+        EnableCheckpointing = false,
+        ProducesArtifact = ArtifactKey.Parse("runtime/output"),
+        RequiresArtifacts = [ArtifactKey.Parse("runtime/input")],
+        Partitions = StaticPartitionDefinition.FromKeys("a", "b"),
+        PartitionDependencies = PartitionDependencyMapping.MonthlyFromDaily(),
+        Cache = new CacheOptions
+        {
+            Strategy = CacheKeyStrategy.Inputs,
+            Ttl = TimeSpan.FromSeconds(30),
+            Invalidation = CacheInvalidation.Never
+        },
         ArtifactNamespace = ["ns", "child"],
+        InputSchemas = new Dictionary<string, InputSchema>
+        {
+            ["name"] = new()
+            {
+                Type = typeof(string),
+                Required = true,
+                Validator = InputValidators.StringLength(1, 80)
+            }
+        },
         Metadata = new Dictionary<string, string> { ["kind"] = "test" }
     };
+
+    private sealed class PrefixValidator(string prefix) : IInputValidator
+    {
+        public ValidationResult Validate(string inputName, object? value)
+        {
+            return value is string text && text.StartsWith(prefix, StringComparison.Ordinal)
+                ? ValidationResult.Success()
+                : ValidationResult.Failure($"{inputName} must start with {prefix}");
+        }
+    }
 }

@@ -1,16 +1,24 @@
+using HPDAgent.Graph.Abstractions.Artifacts;
 using HPDAgent.Graph.Abstractions.Checkpointing;
 using HPDAgent.Graph.Abstractions.Discovery;
+using HPDAgent.Graph.Abstractions.Registry;
 using HPDAgent.Graph.Abstractions.Serialization;
 using HPDAgent.Graph.Abstractions.Storage;
+using HPDAgent.Graph.AspNetCore.Hosting;
 using HPDAgent.Graph.AspNetCore.Serialization;
+using HPDAgent.Graph.Core.Artifacts;
 using HPDAgent.Graph.Core.Checkpointing;
+using HPDAgent.Graph.Core.Registry;
 using HPDAgent.Graph.Core.Storage;
 using HPDAgent.Graph.Hosting.Lifecycle;
 using HPDAgent.Graph.Hosting.Serialization;
+using HPD.Events;
+using HPD.Events.Core;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace HPDAgent.Graph.AspNetCore.DependencyInjection;
 
@@ -25,18 +33,31 @@ public static class GraphAspNetCoreServiceCollectionExtensions
         services.TryAddSingleton<IWorkflowLogStore, InMemoryWorkflowLogStore>();
         services.TryAddSingleton<IScheduledGraphStore, InMemoryScheduledGraphStore>();
         services.TryAddSingleton<IGraphCheckpointStore, InMemoryCheckpointStore>();
+        services.TryAddSingleton<IEventCoordinator, EventCoordinator>();
         services.TryAddSingleton<IGeneratedHandlerCatalog, EmptyGeneratedHandlerCatalog>();
         services.TryAddSingleton<IWorkflowResumeRunner, InProcessWorkflowResumeRunner>();
         services.TryAddSingleton<GraphManager>();
         services.TryAddSingleton<ExecutionManager>();
+        services.TryAddSingleton<IWorkflowExecutionRunner, InProcessWorkflowExecutionRunner>();
         services.TryAddSingleton<InProcessCronScheduleProvider>();
         services.TryAddSingleton<IScheduleProvider>(sp => sp.GetRequiredService<InProcessCronScheduleProvider>());
         services.TryAddSingleton<IScheduleTriggerProvider>(sp => sp.GetRequiredService<InProcessCronScheduleProvider>());
         services.TryAddSingleton<SchedulingManager>();
         services.TryAddSingleton<IWorkflowExecutionStateSink>(sp => sp.GetRequiredService<ExecutionManager>());
         services.TryAddSingleton<IWorkflowSuspensionSink>(sp => sp.GetRequiredService<ExecutionManager>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, WorkflowExecutionBackgroundService>());
         services.AddOptions<JsonOptions>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<JsonOptions>, GraphJsonOptionsSetup>());
+
+        return services;
+    }
+
+    public static IServiceCollection AddHPDGraphMaterialization(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton<IArtifactRegistry, InMemoryArtifactRegistry>();
+        services.TryAddSingleton<IGraphRegistry, InMemoryGraphRegistry>();
 
         return services;
     }

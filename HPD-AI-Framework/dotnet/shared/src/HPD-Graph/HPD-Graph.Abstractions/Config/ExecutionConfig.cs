@@ -99,7 +99,17 @@ public enum PartitionKindConfig
 
 public sealed record PartitionDependencyConfig
 {
+    public PartitionDependencyMappingKindConfig? Type { get; init; }
+    public CustomPrimitiveDescriptorConfig? Custom { get; init; }
     public JsonElement? Mapping { get; init; }
+}
+
+public enum PartitionDependencyMappingKindConfig
+{
+    WeeklyFromDaily,
+    MonthlyFromDaily,
+    QuarterlyFromMonthly,
+    YearlyFromMonthly
 }
 
 public sealed record CacheOptionsConfig
@@ -107,6 +117,7 @@ public sealed record CacheOptionsConfig
     public bool Enabled { get; init; } = true;
     public string? Strategy { get; init; }
     public TimeSpan? Ttl { get; init; }
+    public string? Invalidation { get; init; }
 }
 
 public sealed record InputSchemaConfig
@@ -114,4 +125,10 @@ public sealed record InputSchemaConfig
     public required string TypeName { get; init; }
     public bool Required { get; init; } = true;
     public JsonElement? Constraints { get; init; }
+}
+
+public sealed record CustomPrimitiveDescriptorConfig
+{
+    public required string Name { get; init; }
+    public JsonElement? Arguments { get; init; }
 }

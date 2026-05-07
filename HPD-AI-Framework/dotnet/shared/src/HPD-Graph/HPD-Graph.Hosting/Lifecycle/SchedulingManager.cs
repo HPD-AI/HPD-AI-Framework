@@ -296,6 +296,7 @@ public sealed class InProcessCronScheduleProvider : IScheduleTriggerProvider
     private readonly IWorkflowExecutionStore _executionStore;
     private readonly GraphManager _graphManager;
     private readonly ExecutionManager _executionManager;
+    private readonly IWorkflowExecutionRunner? _executionRunner;
     private readonly TimeProvider _timeProvider;
 
     public InProcessCronScheduleProvider(
@@ -303,12 +304,14 @@ public sealed class InProcessCronScheduleProvider : IScheduleTriggerProvider
         IWorkflowExecutionStore executionStore,
         GraphManager graphManager,
         ExecutionManager executionManager,
+        IWorkflowExecutionRunner? executionRunner = null,
         TimeProvider? timeProvider = null)
     {
         _scheduleStore = scheduleStore ?? throw new ArgumentNullException(nameof(scheduleStore));
         _executionStore = executionStore ?? throw new ArgumentNullException(nameof(executionStore));
         _graphManager = graphManager ?? throw new ArgumentNullException(nameof(graphManager));
         _executionManager = executionManager ?? throw new ArgumentNullException(nameof(executionManager));
+        _executionRunner = executionRunner;
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -403,17 +406,18 @@ public sealed class InProcessCronScheduleProvider : IScheduleTriggerProvider
         WorkflowExecutionDto execution;
         try
         {
-            execution = await _graphManager.CreateExecutionAsync(
-                graphId,
-                new ExecuteWorkflowRequest
-                {
-                    Input = scheduled.Schedule.DefaultInput,
-                    Timeout = scheduled.Schedule.Timeout,
-                    TriggeredBy = $"schedule:{Name}",
-                    Mode = WorkflowExecutionMode.Background,
-                    StartImmediately = startImmediately
-                },
-                ct).ConfigureAwait(false);
+            var request = new ExecuteWorkflowRequest
+            {
+                Input = scheduled.Schedule.DefaultInput,
+                Timeout = scheduled.Schedule.Timeout,
+                TriggeredBy = $"schedule:{Name}",
+                Mode = WorkflowExecutionMode.Background,
+                StartImmediately = startImmediately
+            };
+
+            execution = _executionRunner is null
+                ? await _graphManager.CreateExecutionAsync(graphId, request, ct).ConfigureAwait(false)
+                : await _executionRunner.StartAsync(graphId, request, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -430,13 +434,13 @@ public sealed class InProcessCronScheduleProvider : IScheduleTriggerProvider
 
     private async Task<WorkflowExecution?> GetActiveExecutionAsync(string graphId, CancellationToken ct)
     {
+        var now = _timeProvider.GetUtcNow();
         var executions = await _executionStore.ListAsync(graphId, ct).ConfigureAwait(false);
         return executions
-            .Where(static execution => execution.Status is
-                WorkflowExecutionStatus.Created or
-                WorkflowExecutionStatus.Running or
-                WorkflowExecutionStatus.Suspended or
-                WorkflowExecutionStatus.Polling)
+            .Where(execution =>
+                execution.Status is WorkflowExecutionStatus.Created or WorkflowExecutionStatus.Suspended or WorkflowExecutionStatus.Polling ||
+                (execution.Status == WorkflowExecutionStatus.Running &&
+                 (execution.LeaseUntil is null || execution.LeaseUntil > now)))
             .OrderByDescending(static execution => execution.StartedAt ?? execution.CreatedAt)
             .FirstOrDefault();
     }

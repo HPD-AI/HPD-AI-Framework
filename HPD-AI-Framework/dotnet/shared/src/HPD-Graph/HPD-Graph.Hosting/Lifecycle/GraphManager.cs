@@ -1,6 +1,8 @@
 using HPDAgent.Graph.Abstractions.Config;
 using HPDAgent.Graph.Abstractions.Context;
+using HPDAgent.Graph.Abstractions.Registry;
 using HPDAgent.Graph.Abstractions.Storage;
+using HPDAgent.Graph.Core.Config;
 using HPDAgent.Graph.Hosting.Data;
 
 namespace HPDAgent.Graph.Hosting.Lifecycle;
@@ -10,17 +12,21 @@ public sealed class GraphManager
     private readonly IGraphDefinitionStore _graphStore;
     private readonly IWorkflowExecutionStore _executionStore;
     private readonly IWorkflowLogStore? _logStore;
+    private readonly IGraphRegistry? _graphRegistry;
     private readonly TimeProvider _timeProvider;
+    private readonly GraphConfigCompiler _compiler = new();
 
     public GraphManager(
         IGraphDefinitionStore graphStore,
         IWorkflowExecutionStore executionStore,
         IWorkflowLogStore? logStore = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IGraphRegistry? graphRegistry = null)
     {
         _graphStore = graphStore ?? throw new ArgumentNullException(nameof(graphStore));
         _executionStore = executionStore ?? throw new ArgumentNullException(nameof(executionStore));
         _logStore = logStore;
+        _graphRegistry = graphRegistry;
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -43,6 +49,7 @@ public sealed class GraphManager
         };
 
         await _graphStore.SaveAsync(stored, ct).ConfigureAwait(false);
+        SyncGraphRegistry(config.GraphId, config);
         return stored;
     }
 
@@ -80,13 +87,15 @@ public sealed class GraphManager
         };
 
         await _graphStore.SaveAsync(updated, ct).ConfigureAwait(false);
+        SyncGraphRegistry(graphId, updatedConfig);
         return updated;
     }
 
-    public Task DeleteDefinitionAsync(string graphId, CancellationToken ct = default)
+    public async Task DeleteDefinitionAsync(string graphId, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(graphId);
-        return _graphStore.DeleteAsync(graphId, ct);
+        await _graphStore.DeleteAsync(graphId, ct).ConfigureAwait(false);
+        _graphRegistry?.UnregisterGraph(graphId);
     }
 
     public async Task<WorkflowExecutionDto> CreateExecutionAsync(
@@ -141,5 +150,20 @@ public sealed class GraphManager
             Level = LogLevel.Information,
             Message = message
         }, ct) ?? Task.CompletedTask;
+    }
+
+    private void SyncGraphRegistry(string graphId, GraphConfig config)
+    {
+        if (_graphRegistry is null)
+        {
+            return;
+        }
+
+        if (_graphRegistry.ContainsGraph(graphId))
+        {
+            _graphRegistry.UnregisterGraph(graphId);
+        }
+
+        _graphRegistry.RegisterGraph(graphId, _compiler.Compile(config));
     }
 }

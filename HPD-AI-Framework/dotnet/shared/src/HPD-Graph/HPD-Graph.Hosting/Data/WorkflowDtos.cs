@@ -101,6 +101,13 @@ public sealed record WorkflowExecutionDto
     public SuspendReason? SuspendReason { get; init; }
     public string? SuspensionMessage { get; init; }
     public DateTimeOffset? SuspendedAt { get; init; }
+    public string? ClaimedBy { get; init; }
+    public DateTimeOffset? ClaimedAt { get; init; }
+    public DateTimeOffset? LeaseUntil { get; init; }
+    public DateTimeOffset? LastHeartbeatAt { get; init; }
+    public int AttemptCount { get; init; }
+    public DateTimeOffset? LastAttemptAt { get; init; }
+    public DateTimeOffset? NextAttemptAt { get; init; }
     public string? ErrorMessage { get; init; }
 }
 
@@ -122,6 +129,13 @@ public sealed record WorkflowStatusDto
     public SuspendReason? SuspendReason { get; init; }
     public string? SuspensionMessage { get; init; }
     public DateTimeOffset? SuspendedAt { get; init; }
+    public string? ClaimedBy { get; init; }
+    public DateTimeOffset? ClaimedAt { get; init; }
+    public DateTimeOffset? LeaseUntil { get; init; }
+    public DateTimeOffset? LastHeartbeatAt { get; init; }
+    public int AttemptCount { get; init; }
+    public DateTimeOffset? LastAttemptAt { get; init; }
+    public DateTimeOffset? NextAttemptAt { get; init; }
     public string? ErrorMessage { get; init; }
 }
 
@@ -232,6 +246,13 @@ public static class WorkflowDtoMapper
         SuspendReason = execution.SuspendReason,
         SuspensionMessage = execution.SuspensionMessage,
         SuspendedAt = execution.SuspendedAt,
+        ClaimedBy = execution.ClaimedBy,
+        ClaimedAt = execution.ClaimedAt,
+        LeaseUntil = execution.LeaseUntil,
+        LastHeartbeatAt = execution.LastHeartbeatAt,
+        AttemptCount = execution.AttemptCount,
+        LastAttemptAt = execution.LastAttemptAt,
+        NextAttemptAt = execution.NextAttemptAt,
         ErrorMessage = execution.ErrorMessage
     };
 
@@ -253,6 +274,13 @@ public static class WorkflowDtoMapper
         SuspendReason = execution.SuspendReason,
         SuspensionMessage = execution.SuspensionMessage,
         SuspendedAt = execution.SuspendedAt,
+        ClaimedBy = execution.ClaimedBy,
+        ClaimedAt = execution.ClaimedAt,
+        LeaseUntil = execution.LeaseUntil,
+        LastHeartbeatAt = execution.LastHeartbeatAt,
+        AttemptCount = execution.AttemptCount,
+        LastAttemptAt = execution.LastAttemptAt,
+        NextAttemptAt = execution.NextAttemptAt,
         ErrorMessage = execution.ErrorMessage
     };
 

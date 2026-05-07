@@ -1,14 +1,20 @@
 using FluentAssertions;
 using System.Text.Json;
+using HPD.Events;
+using HPD.Events.Core;
 using HPDAgent.Graph.Abstractions.Checkpointing;
 using HPDAgent.Graph.Abstractions.Config;
 using HPDAgent.Graph.Abstractions.Context;
+using HPDAgent.Graph.Abstractions.Events;
 using HPDAgent.Graph.Abstractions.Execution;
+using HPDAgent.Graph.Abstractions.Handlers;
 using HPDAgent.Graph.Abstractions.Storage;
 using HPDAgent.Graph.Core.Checkpointing;
+using HPDAgent.Graph.Core.Context;
 using HPDAgent.Graph.Core.Storage;
 using HPDAgent.Graph.Hosting.Data;
 using HPDAgent.Graph.Hosting.Lifecycle;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Graph.Tests.V21;
 
@@ -67,6 +73,172 @@ public sealed class HostingManagerTests
             log.Source == nameof(GraphManager) &&
             log.Level == LogLevel.Information &&
             log.Message == "Execution started.");
+    }
+
+    [Fact]
+    public async Task WorkflowExecutionRunner_StartAsync_ForegroundRunsGraphAndMarksCompleted()
+    {
+        var graphStore = new InMemoryGraphDefinitionStore();
+        var executionStore = new InMemoryWorkflowExecutionStore();
+        var logStore = new InMemoryWorkflowLogStore();
+        var graphManager = new GraphManager(graphStore, executionStore, logStore);
+        var executionManager = new ExecutionManager(executionStore, logStore);
+        var handler = new RecordingInputHandler();
+        using var services = new ServiceCollection()
+            .AddSingleton<IWorkflowExecutionStateSink>(executionManager)
+            .AddSingleton<IGraphNodeHandler<GraphContext>>(handler)
+            .BuildServiceProvider();
+        var runner = new InProcessWorkflowExecutionRunner(
+            services,
+            graphStore,
+            executionStore,
+            graphManager,
+            executionManager,
+            logStore);
+        await graphManager.CreateDefinitionAsync(CreateConfig("graph-a", "Workflow"));
+
+        var execution = await runner.StartAsync(
+            "graph-a",
+            new ExecuteWorkflowRequest
+            {
+                ExecutionId = "exec-a",
+                Mode = WorkflowExecutionMode.Foreground,
+                Input = ParseJsonElement("""{"message":"hello"}""")
+            });
+
+        execution.Status.Should().Be(WorkflowExecutionStatus.Completed);
+        execution.CompletedAt.Should().NotBeNull();
+        handler.Messages.Should().ContainSingle("hello");
+
+        var stored = await executionStore.LoadAsync("graph-a", "exec-a");
+        stored!.Status.Should().Be(WorkflowExecutionStatus.Completed);
+        stored.ClaimedBy.Should().BeNull();
+        stored.AttemptCount.Should().Be(1);
+
+        var logs = await logStore.ListAsync("graph-a", "exec-a");
+        logs.Should().Contain(log =>
+            log.Source == nameof(ExecutionManager) &&
+            log.Message == "Execution completed.");
+    }
+
+    [Fact]
+    public async Task WorkflowExecutionRunner_StartAsync_WithEventCoordinator_EmitsGraphLifecycleEvents()
+    {
+        var graphStore = new InMemoryGraphDefinitionStore();
+        var executionStore = new InMemoryWorkflowExecutionStore();
+        var graphManager = new GraphManager(graphStore, executionStore);
+        var executionManager = new ExecutionManager(executionStore);
+        var eventCoordinator = new EventCoordinator();
+        using var services = new ServiceCollection()
+            .AddSingleton<IWorkflowExecutionStateSink>(executionManager)
+            .AddSingleton<IGraphNodeHandler<GraphContext>>(new RecordingInputHandler())
+            .BuildServiceProvider();
+        var runner = new InProcessWorkflowExecutionRunner(
+            services,
+            graphStore,
+            executionStore,
+            graphManager,
+            executionManager,
+            eventCoordinator: eventCoordinator);
+        await graphManager.CreateDefinitionAsync(CreateConfig("graph-a", "Workflow"));
+
+        var execution = await runner.StartAsync(
+            "graph-a",
+            new ExecuteWorkflowRequest
+            {
+                ExecutionId = "exec-a",
+                Mode = WorkflowExecutionMode.Foreground,
+                Input = ParseJsonElement("""{"message":"hello"}""")
+            });
+
+        execution.Status.Should().Be(WorkflowExecutionStatus.Completed);
+        var events = await CollectSynchronousEventsAsync(eventCoordinator, evt => evt is GraphExecutionCompletedEvent);
+        events.Should().ContainSingle(evt => evt is GraphExecutionStartedEvent);
+        events.Should().ContainSingle(evt => evt is GraphExecutionCompletedEvent);
+        events.Should().Contain(evt => evt is NodeExecutionStartedEvent);
+        events.Should().Contain(evt => evt is NodeExecutionCompletedEvent);
+    }
+
+    [Fact]
+    public async Task WorkflowExecutionRunner_RunQueuedAsync_StartsOnlyWhenGraphHasNoActiveExecution()
+    {
+        var graphStore = new InMemoryGraphDefinitionStore();
+        var executionStore = new InMemoryWorkflowExecutionStore();
+        var graphManager = new GraphManager(graphStore, executionStore);
+        var executionManager = new ExecutionManager(executionStore);
+        using var services = new ServiceCollection()
+            .AddSingleton<IWorkflowExecutionStateSink>(executionManager)
+            .AddSingleton<IGraphNodeHandler<GraphContext>>(new RecordingInputHandler())
+            .BuildServiceProvider();
+        var runner = new InProcessWorkflowExecutionRunner(
+            services,
+            graphStore,
+            executionStore,
+            graphManager,
+            executionManager);
+        await graphManager.CreateDefinitionAsync(CreateConfig("graph-a", "Workflow"));
+        await executionStore.SaveAsync(CreateExecution("graph-a", "active", WorkflowExecutionStatus.Running));
+        await executionStore.SaveAsync(CreateExecution("graph-a", "queued", WorkflowExecutionStatus.Created) with
+        {
+            Input = ParseJsonElement("""{"message":"queued"}""")
+        });
+
+        var startedWithActive = await runner.RunQueuedAsync();
+
+        startedWithActive.Should().Be(0);
+        (await executionStore.LoadAsync("graph-a", "queued"))!.Status.Should().Be(WorkflowExecutionStatus.Created);
+
+        await executionStore.SaveAsync(CreateExecution("graph-a", "active", WorkflowExecutionStatus.Completed));
+
+        var startedAfterCompletion = await runner.RunQueuedAsync();
+
+        startedAfterCompletion.Should().Be(1);
+        await EventuallyAsync(async () =>
+        {
+            var queued = await executionStore.LoadAsync("graph-a", "queued");
+            queued!.Status.Should().Be(WorkflowExecutionStatus.Completed);
+        });
+    }
+
+    [Fact]
+    public async Task WorkflowExecutionRunner_RequeueInterruptedAsync_RequeuesOnlyExpiredRunningLeases()
+    {
+        var now = DateTimeOffset.UnixEpoch.AddMinutes(10);
+        var timeProvider = new ManualTimeProvider(now);
+        var graphStore = new InMemoryGraphDefinitionStore();
+        var executionStore = new InMemoryWorkflowExecutionStore();
+        var graphManager = new GraphManager(graphStore, executionStore, timeProvider: timeProvider);
+        var executionManager = new ExecutionManager(executionStore, timeProvider: timeProvider);
+        using var services = new ServiceCollection()
+            .AddSingleton<IWorkflowExecutionStateSink>(executionManager)
+            .BuildServiceProvider();
+        var runner = new InProcessWorkflowExecutionRunner(
+            services,
+            graphStore,
+            executionStore,
+            graphManager,
+            executionManager,
+            timeProvider: timeProvider,
+            workerId: "worker-b");
+        await graphManager.CreateDefinitionAsync(CreateConfig("graph-a", "Workflow"));
+        await executionStore.SaveAsync(CreateExecution("graph-a", "healthy", WorkflowExecutionStatus.Running) with
+        {
+            ClaimedBy = "worker-a",
+            LeaseUntil = now.AddSeconds(30)
+        });
+        await executionStore.SaveAsync(CreateExecution("graph-a", "expired", WorkflowExecutionStatus.Running) with
+        {
+            ClaimedBy = "worker-a",
+            LeaseUntil = now.AddSeconds(-1)
+        });
+
+        var requeued = await runner.RequeueInterruptedAsync();
+
+        requeued.Should().Be(1);
+        (await executionStore.LoadAsync("graph-a", "healthy"))!.Status.Should().Be(WorkflowExecutionStatus.Running);
+        var expired = await executionStore.LoadAsync("graph-a", "expired");
+        expired!.Status.Should().Be(WorkflowExecutionStatus.Created);
+        expired.ClaimedBy.Should().BeNull();
     }
 
     [Fact]
@@ -1132,6 +1304,78 @@ public sealed class HostingManagerTests
                 CustomMetadata = metadata
             }
         };
+    }
+
+    private static async Task EventuallyAsync(Func<Task> assertion)
+    {
+        Exception? last = null;
+
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            try
+            {
+                await assertion();
+                return;
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                await Task.Delay(25);
+            }
+        }
+
+        throw last ?? new InvalidOperationException("Assertion did not complete.");
+    }
+
+    private static JsonElement ParseJsonElement(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
+
+    private static async Task<List<Event>> CollectSynchronousEventsAsync(
+        EventCoordinator coordinator,
+        Func<Event, bool>? stopWhen = null)
+    {
+        var events = new List<Event>();
+        using var cts = new CancellationTokenSource(500);
+
+        try
+        {
+            await foreach (var evt in coordinator.ReadSynchronousAsync(cts.Token))
+            {
+                events.Add(evt);
+                if (stopWhen?.Invoke(evt) == true)
+                {
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+        }
+
+        return events;
+    }
+
+    private sealed class RecordingInputHandler : IGraphNodeHandler<GraphContext>
+    {
+        public string HandlerName => "work";
+        public List<string> Messages { get; } = new();
+
+        public Task<NodeExecutionResult> ExecuteAsync(
+            GraphContext context,
+            HandlerInputs inputs,
+            CancellationToken cancellationToken)
+        {
+            Messages.Add(inputs.Get<string>("message"));
+
+            return Task.FromResult<NodeExecutionResult>(
+                NodeExecutionResult.Success.Single(
+                    output: new Dictionary<string, object> { ["ok"] = true },
+                    duration: TimeSpan.Zero,
+                    metadata: new NodeExecutionMetadata()));
+        }
     }
 
     private sealed class RecordingResumeRunner : IWorkflowResumeRunner

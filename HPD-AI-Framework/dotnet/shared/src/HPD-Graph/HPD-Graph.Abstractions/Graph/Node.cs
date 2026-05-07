@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPDAgent.Graph.Abstractions.Artifacts;
 using HPDAgent.Graph.Abstractions.Caching;
 using HPDAgent.Graph.Abstractions.Execution;
@@ -36,18 +37,10 @@ public sealed record Node
 
     /// <summary>
     /// Node-specific configuration.
-    /// Deserialized into handler-specific config types at runtime.
-    ///
-    /// TODO (JSON graph definitions): Change this to JsonElement or string (raw JSON) to enable
-    /// clean STJ roundtripping. Dictionary&lt;string, object&gt; does not deserialize safely —
-    /// STJ loses type information on object values (everything becomes JsonElement anyway but
-    /// without the original type context). Switching to JsonElement here unblocks full JSON
-    /// graph definition support (SubGraphRef / MapProcessorGraphRef loader). All handlers
-    /// that currently read Node.Config via GetNodeConfig&lt;T&gt;() would need updating to
-    /// deserialize from JsonElement instead of casting object values.
+    /// Stored as raw JSON so persisted graph definitions can round-trip without losing
+    /// value shape through Dictionary&lt;string, object&gt; deserialization.
     /// </summary>
-    public IReadOnlyDictionary<string, object> Config { get; init; } =
-        new Dictionary<string, object>();
+    public JsonElement? Config { get; init; }
 
     /// <summary>
     /// Timeout for this node execution.

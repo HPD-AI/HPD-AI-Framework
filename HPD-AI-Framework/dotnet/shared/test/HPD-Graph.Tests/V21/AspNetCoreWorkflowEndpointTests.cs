@@ -1,11 +1,17 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using FluentAssertions;
+using HPD.Events;
+using HPDAgent.Graph.Abstractions.Artifacts;
 using HPDAgent.Graph.Abstractions.Config;
+using HPDAgent.Graph.Abstractions.Registry;
 using HPDAgent.Graph.Abstractions.Serialization;
 using HPDAgent.Graph.AspNetCore.DependencyInjection;
 using HPDAgent.Graph.AspNetCore.EndpointMapping;
+using HPDAgent.Graph.Core.Artifacts;
+using HPDAgent.Graph.Core.Registry;
 using HPDAgent.Graph.Hosting.Data;
+using HPDAgent.Graph.Hosting.Lifecycle;
 using HPDAgent.Graph.Hosting.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -79,7 +85,7 @@ public sealed class AspNetCoreWorkflowEndpointTests
             app,
             "/workflows/{graphId}/execute",
             "POST",
-            new ExecuteWorkflowRequest { ExecutionId = "exec-a" },
+            new ExecuteWorkflowRequest { ExecutionId = "exec-a", StartImmediately = false },
             GraphHostingJsonSerializerContext.Default.ExecuteWorkflowRequest,
             ("graphId", "graph-a"));
 
@@ -87,7 +93,7 @@ public sealed class AspNetCoreWorkflowEndpointTests
         var execution = Deserialize<WorkflowExecutionDto>(
             executeResponse.Body,
             GraphHostingJsonSerializerContext.Default.WorkflowExecutionDto);
-        execution.Status.Should().Be(HPDAgent.Graph.Abstractions.Storage.WorkflowExecutionStatus.Running);
+        execution.Status.Should().Be(HPDAgent.Graph.Abstractions.Storage.WorkflowExecutionStatus.Created);
 
         var statusResponse = await InvokeAsync(
             app,
@@ -113,7 +119,7 @@ public sealed class AspNetCoreWorkflowEndpointTests
             ("executionId", "exec-a"));
         logResponse.StatusCode.Should().Be(StatusCodes.Status200OK);
         logResponse.ContentType.Should().Be("text/event-stream");
-        logResponse.Body.Should().Contain("Execution started.");
+        logResponse.Body.Should().Contain("Execution created.");
         logResponse.Body.Should().Contain("Execution cancelled.");
     }
 
@@ -319,6 +325,36 @@ public sealed class AspNetCoreWorkflowEndpointTests
         var options = provider.GetRequiredService<IOptions<JsonOptions>>().Value;
 
         options.SerializerOptions.TypeInfoResolverChain.Should().Contain(resolver);
+    }
+
+    [Fact]
+    public void AddHPDGraphAspNetCore_RegistersEventCoordinator()
+    {
+        var services = new ServiceCollection();
+
+        services.AddHPDGraphAspNetCore();
+
+        using var provider = services.BuildServiceProvider();
+        provider.GetRequiredService<IEventCoordinator>().Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task AddHPDGraphMaterialization_RegistersDemandDrivenRegistries()
+    {
+        var services = new ServiceCollection();
+
+        services.AddHPDGraphAspNetCore();
+        services.AddHPDGraphMaterialization();
+
+        using var provider = services.BuildServiceProvider();
+        provider.GetRequiredService<IArtifactRegistry>().Should().BeOfType<InMemoryArtifactRegistry>();
+        var graphRegistry = provider.GetRequiredService<IGraphRegistry>();
+        graphRegistry.Should().BeOfType<InMemoryGraphRegistry>();
+
+        await provider.GetRequiredService<GraphManager>()
+            .CreateDefinitionAsync(CreateConfig("graph-a", "Workflow A"));
+
+        graphRegistry.GetGraph("graph-a").Should().NotBeNull();
     }
 
     private static WebApplication CreateApp()

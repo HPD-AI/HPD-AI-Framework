@@ -107,8 +107,8 @@ public class SocketBridgeGenerator : IIncrementalGenerator
         var className = classSymbol.Name;
         var nodeName = GetNodeName(attribute, className);
 
-        // Extract context type from first parameter or infer from base interface
-        var contextType = InferContextType(classSymbol, executeMethod);
+        // Extract context type from attribute, first parameter, interface, or default GraphContext.
+        var contextType = InferContextType(classSymbol, executeMethod, attribute);
 
         var sb = new StringBuilder();
 
@@ -129,6 +129,7 @@ public class SocketBridgeGenerator : IIncrementalGenerator
 
         // Generate private field to store current node (for GetNodeConfig)
         sb.AppendLine("    private HPDAgent.Graph.Abstractions.Graph.Node? _currentNode;");
+        sb.AppendLine("    private System.IServiceProvider? _currentServices;");
         sb.AppendLine();
 
         // Check if handler has a nested Config class
@@ -139,17 +140,30 @@ public class SocketBridgeGenerator : IIncrementalGenerator
             var configTypeName = configClass.ToDisplayString();
             sb.AppendLine("    /// <summary>");
             sb.AppendLine("    /// Gets the node-specific configuration for the current node being executed.");
-            sb.AppendLine("    /// Deserializes from Node.Config dictionary into strongly-typed Config object.");
+            sb.AppendLine("    /// Deserializes from Node.Config JSON into strongly-typed Config object.");
             sb.AppendLine("    /// </summary>");
             sb.AppendLine($"    protected {configTypeName} GetNodeConfig()");
             sb.AppendLine("    {");
-            sb.AppendLine("        if (_currentNode?.Config == null || _currentNode.Config.Count == 0)");
+            sb.AppendLine("        if (_currentNode?.Config == null)");
             sb.AppendLine($"            return new {configTypeName}();");
             sb.AppendLine();
-            sb.AppendLine("        // Serialize to JSON then deserialize to Config type");
-            sb.AppendLine("        var json = System.Text.Json.JsonSerializer.Serialize(_currentNode.Config);");
-            sb.AppendLine($"        return System.Text.Json.JsonSerializer.Deserialize<{configTypeName}>(json)");
-            sb.AppendLine($"            ?? new {configTypeName}();");
+            sb.AppendLine("        var json = _currentNode.Config.Value;");
+            sb.AppendLine($"        if (TryGetJsonTypeInfo<{configTypeName}>(out var jsonTypeInfo))");
+            sb.AppendLine("        {");
+            sb.AppendLine("            return System.Text.Json.JsonSerializer.Deserialize(json, jsonTypeInfo)");
+            sb.AppendLine($"                ?? new {configTypeName}();");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine($"        var config = new {configTypeName}();");
+            sb.AppendLine("        if (json.ValueKind != System.Text.Json.JsonValueKind.Object)");
+            sb.AppendLine("            return config;");
+            sb.AppendLine();
+            var unsupportedProperties = GenerateConfigPropertyReaders(sb, configClass);
+            if (unsupportedProperties.Count > 0)
+            {
+                sb.AppendLine($"        throw CreateMissingConfigJsonTypeInfoException(\"{configTypeName}\", \"{string.Join(", ", unsupportedProperties)}\");");
+            }
+            sb.AppendLine("        return config;");
             sb.AppendLine("    }");
             sb.AppendLine();
         }
@@ -162,6 +176,7 @@ public class SocketBridgeGenerator : IIncrementalGenerator
         sb.AppendLine("    {");
         sb.AppendLine("        // Store current node for GetNodeConfig access");
         sb.AppendLine("        _currentNode = context.Graph.GetNode(context.CurrentNodeId);");
+        sb.AppendLine("        _currentServices = context.Services;");
         sb.AppendLine();
         sb.AppendLine("        var stopwatch = System.Diagnostics.Stopwatch.StartNew();");
         sb.AppendLine("        try");
@@ -246,6 +261,40 @@ public class SocketBridgeGenerator : IIncrementalGenerator
         sb.AppendLine();
 
         // Helper method to determine if exception is transient
+        if (configClass != null)
+        {
+            sb.AppendLine("    private bool TryGetJsonTypeInfo<TConfig>(out System.Text.Json.Serialization.Metadata.JsonTypeInfo<TConfig> jsonTypeInfo)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        if (_currentServices?.GetService(typeof(System.Collections.Generic.IEnumerable<HPDAgent.Graph.Abstractions.Serialization.IGraphJsonTypeInfoResolverContributor>)) is System.Collections.Generic.IEnumerable<HPDAgent.Graph.Abstractions.Serialization.IGraphJsonTypeInfoResolverContributor> contributors)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            foreach (var contributor in contributors)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                if (contributor.Resolver is System.Text.Json.Serialization.JsonSerializerContext contextResolver &&");
+            sb.AppendLine("                    contextResolver.GetTypeInfo(typeof(TConfig)) is System.Text.Json.Serialization.Metadata.JsonTypeInfo<TConfig> contextResolved)");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    jsonTypeInfo = contextResolved;");
+            sb.AppendLine("                    return true;");
+            sb.AppendLine("                }");
+            sb.AppendLine();
+            sb.AppendLine("                if (contributor.Resolver.GetTypeInfo(typeof(TConfig), new System.Text.Json.JsonSerializerOptions()) is System.Text.Json.Serialization.Metadata.JsonTypeInfo<TConfig> resolved)");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    jsonTypeInfo = resolved;");
+            sb.AppendLine("                    return true;");
+            sb.AppendLine("                }");
+            sb.AppendLine("            }");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        jsonTypeInfo = null!;");
+            sb.AppendLine("        return false;");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+            sb.AppendLine("    private static System.InvalidOperationException CreateMissingConfigJsonTypeInfoException(string configTypeName, string unsupportedProperties)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        return new System.InvalidOperationException($\"Config type '{configTypeName}' contains unsupported properties ({unsupportedProperties}). Register an HPDAgent.Graph.Abstractions.Serialization.IGraphJsonTypeInfoResolverContributor that provides JsonTypeInfo for this config type, or use only AOT-safe primitive config properties.\");");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+        }
+
         sb.AppendLine("    private static bool IsTransientException(System.Exception ex)");
         sb.AppendLine("    {");
         sb.AppendLine("        // Common transient exceptions");
@@ -290,8 +339,12 @@ public class SocketBridgeGenerator : IIncrementalGenerator
         return default;
     }
 
-    private string InferContextType(INamedTypeSymbol classSymbol, IMethodSymbol executeMethod)
+    private string InferContextType(INamedTypeSymbol classSymbol, IMethodSymbol executeMethod, AttributeData attribute)
     {
+        var attributeContextType = GetAttributeType(attribute, "ContextType");
+        if (attributeContextType != null)
+            return attributeContextType.ToDisplayString();
+
         // First check if method has a parameter that looks like context
         var contextParam = executeMethod.Parameters.FirstOrDefault(p =>
             p.Name.Contains("context", System.StringComparison.OrdinalIgnoreCase));
@@ -309,7 +362,13 @@ public class SocketBridgeGenerator : IIncrementalGenerator
         }
 
         // Default fallback
-        return "HPDAgent.Graph.Abstractions.Context.IGraphContext";
+        return "HPDAgent.Graph.Core.Context.GraphContext";
+    }
+
+    private ITypeSymbol? GetAttributeType(AttributeData attribute, string propertyName)
+    {
+        var namedArg = attribute.NamedArguments.FirstOrDefault(a => a.Key == propertyName);
+        return namedArg.Value.Value as ITypeSymbol;
     }
 
     private bool HasHandlerNameProperty(INamedTypeSymbol classSymbol)
@@ -366,6 +425,155 @@ public class SocketBridgeGenerator : IIncrementalGenerator
         // Look for a nested class named "Config"
         return classSymbol.GetTypeMembers()
             .FirstOrDefault(t => t.Name == "Config");
+    }
+
+    private IReadOnlyList<string> GenerateConfigPropertyReaders(StringBuilder sb, INamedTypeSymbol configClass)
+    {
+        var unsupportedProperties = new List<string>();
+
+        foreach (var property in configClass.GetMembers().OfType<IPropertySymbol>())
+        {
+            if (property.SetMethod == null || property.IsStatic)
+                continue;
+
+            var readExpression = GetJsonElementReadExpression(property.Type, "value");
+            if (readExpression == null)
+            {
+                unsupportedProperties.Add($"{property.Name}: {property.Type.ToDisplayString()}");
+                continue;
+            }
+
+            var valueName = ToCamelCase(property.Name) + "Value";
+            var propertyReadExpression = readExpression.Replace("value", valueName);
+
+            sb.AppendLine($"        if (json.TryGetProperty(\"{property.Name}\", out var {valueName}) && {valueName}.ValueKind != System.Text.Json.JsonValueKind.Null)");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            config.{property.Name} = {propertyReadExpression};");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+        }
+
+        return unsupportedProperties;
+    }
+
+    private string? GetJsonElementReadExpression(ITypeSymbol type, string elementName)
+    {
+        var nullableUnderlying = GetNullableUnderlyingType(type);
+        if (nullableUnderlying != null)
+        {
+            return GetJsonElementReadExpression(nullableUnderlying, elementName);
+        }
+
+        if (type is IArrayTypeSymbol arrayType)
+        {
+            var itemExpression = GetJsonArrayItemReadExpression(arrayType.ElementType, "item");
+            if (itemExpression != null)
+            {
+                return $"System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Select({elementName}.EnumerateArray(), static item => {itemExpression}))";
+            }
+        }
+
+        if (type is INamedTypeSymbol namedType && namedType.TypeArguments.Length == 1)
+        {
+            var typeName = namedType.ToDisplayString();
+            if (typeName.StartsWith("System.Collections.Generic.List<") ||
+                typeName.StartsWith("System.Collections.Generic.IReadOnlyList<") ||
+                typeName.StartsWith("System.Collections.Generic.IList<") ||
+                typeName.StartsWith("System.Collections.Generic.IEnumerable<"))
+            {
+                var itemType = namedType.TypeArguments[0];
+                var itemExpression = GetJsonArrayItemReadExpression(itemType, "item");
+                if (itemExpression != null)
+                {
+                    return $"new System.Collections.Generic.List<{itemType.ToDisplayString()}>(System.Linq.Enumerable.Select({elementName}.EnumerateArray(), static item => {itemExpression}))";
+                }
+            }
+        }
+
+        if (type.SpecialType == SpecialType.System_String)
+            return $"{elementName}.GetString() ?? string.Empty";
+        if (type.SpecialType == SpecialType.System_Boolean)
+            return $"{elementName}.GetBoolean()";
+        if (type.SpecialType == SpecialType.System_Int32)
+            return $"{elementName}.GetInt32()";
+        if (type.SpecialType == SpecialType.System_Int64)
+            return $"{elementName}.GetInt64()";
+        if (type.SpecialType == SpecialType.System_Double)
+            return $"{elementName}.GetDouble()";
+        if (type.SpecialType == SpecialType.System_Single)
+            return $"{elementName}.GetSingle()";
+        if (type.SpecialType == SpecialType.System_Decimal)
+            return $"{elementName}.GetDecimal()";
+        if (type.SpecialType == SpecialType.System_DateTime)
+            return $"{elementName}.GetDateTime()";
+
+        if (IsType(type, "System.Guid"))
+            return $"{elementName}.GetGuid()";
+        if (IsType(type, "System.DateTimeOffset"))
+            return $"{elementName}.GetDateTimeOffset()";
+
+        if (type.TypeKind == TypeKind.Enum)
+            return $"{elementName}.ValueKind == System.Text.Json.JsonValueKind.String ? System.Enum.Parse<{type.ToDisplayString()}>({elementName}.GetString()!, ignoreCase: true) : ({type.ToDisplayString()}){elementName}.GetInt32()";
+
+        return null;
+    }
+
+    private string? GetJsonArrayItemReadExpression(ITypeSymbol type, string elementName)
+    {
+        var nullableUnderlying = GetNullableUnderlyingType(type);
+        if (nullableUnderlying != null)
+        {
+            return GetJsonArrayItemReadExpression(nullableUnderlying, elementName);
+        }
+
+        if (type.SpecialType == SpecialType.System_String)
+            return $"{elementName}.GetString() ?? string.Empty";
+        if (type.SpecialType == SpecialType.System_Boolean)
+            return $"{elementName}.GetBoolean()";
+        if (type.SpecialType == SpecialType.System_Int32)
+            return $"{elementName}.GetInt32()";
+        if (type.SpecialType == SpecialType.System_Int64)
+            return $"{elementName}.GetInt64()";
+        if (type.SpecialType == SpecialType.System_Double)
+            return $"{elementName}.GetDouble()";
+        if (type.SpecialType == SpecialType.System_Single)
+            return $"{elementName}.GetSingle()";
+        if (type.SpecialType == SpecialType.System_Decimal)
+            return $"{elementName}.GetDecimal()";
+        if (type.SpecialType == SpecialType.System_DateTime)
+            return $"{elementName}.GetDateTime()";
+
+        if (IsType(type, "System.Guid"))
+            return $"{elementName}.GetGuid()";
+        if (IsType(type, "System.DateTimeOffset"))
+            return $"{elementName}.GetDateTimeOffset()";
+
+        if (type.TypeKind == TypeKind.Enum)
+            return $"{elementName}.ValueKind == System.Text.Json.JsonValueKind.String ? System.Enum.Parse<{type.ToDisplayString()}>({elementName}.GetString()!, ignoreCase: true) : ({type.ToDisplayString()}){elementName}.GetInt32()";
+
+        return null;
+    }
+
+    private static ITypeSymbol? GetNullableUnderlyingType(ITypeSymbol type)
+    {
+        return type is INamedTypeSymbol namedType &&
+               namedType.ConstructedFrom.SpecialType == SpecialType.System_Nullable_T &&
+               namedType.TypeArguments.Length == 1
+            ? namedType.TypeArguments[0]
+            : null;
+    }
+
+    private static bool IsType(ITypeSymbol type, string fullyQualifiedMetadataName)
+    {
+        return string.Equals(type.ToDisplayString(), fullyQualifiedMetadataName, System.StringComparison.Ordinal);
+    }
+
+    private static string ToCamelCase(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return text;
+
+        return char.ToLowerInvariant(text[0]) + text.Substring(1);
     }
 
 

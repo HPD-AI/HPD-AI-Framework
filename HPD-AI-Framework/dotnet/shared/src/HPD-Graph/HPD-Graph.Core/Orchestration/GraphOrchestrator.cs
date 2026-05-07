@@ -11,6 +11,7 @@ using HPDAgent.Graph.Abstractions.Graph;
 using HPDAgent.Graph.Abstractions.Handlers;
 using HPDAgent.Graph.Abstractions.Invocation;
 using HPDAgent.Graph.Abstractions.Orchestration;
+using HPDAgent.Graph.Abstractions.Serialization;
 using HPDAgent.Graph.Abstractions.Storage;
 using HPDAgent.Graph.Core.Artifacts;
 using HPDAgent.Graph.Core.Channels;
@@ -921,10 +922,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         // Note: May fail on circular references, falls back to ToString
         try
         {
-            var json = System.Text.Json.JsonSerializer.Serialize(
-                value,
-                HPDAgent.Graph.Abstractions.Serialization.GraphJsonSerializerContext.Default.Object
-            );
+            var json = GraphJsonValue.ToJsonString(value, "output hash value");
             return json;
         }
         catch
@@ -1334,10 +1332,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                                 {
                                     NodeId = nodeId,
                                     Version = node.Version,
-                                    StateJson = System.Text.Json.JsonSerializer.Serialize(
-                                        output,
-                                        HPDAgent.Graph.Abstractions.Serialization.GraphJsonSerializerContext.Default.DictionaryStringObject
-                                    ),
+                                    StateJson = GraphJsonValue.ToJsonString(output, $"node state '{nodeId}'"),
                                     CapturedAt = DateTimeOffset.UtcNow
                                 };
                             }
@@ -1363,7 +1358,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             CurrentIteration = iteration,
             PendingDirtyNodes = pendingDirtyNodes,
             ContextJson = System.Text.Json.JsonSerializer.Serialize(
-                new HPDAgent.Graph.Abstractions.Serialization.ContextMetadata
+                new ContextMetadata
                 {
                     ExecutionId = context.ExecutionId,
                     CompletedNodes = context.CompletedNodes.ToList(),
@@ -1371,7 +1366,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                     CurrentIteration = iteration,
                     PendingDirtyNodes = pendingDirtyNodes.ToList()
                 },
-                HPDAgent.Graph.Abstractions.Serialization.GraphJsonSerializerContext.Default.ContextMetadata
+                GraphJsonSerializerContext.Default.ContextMetadata
             ),
             Metadata = new Abstractions.Checkpointing.CheckpointMetadata
             {
@@ -2767,7 +2762,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             };
             context.AddTag($"polling_info:{node.Id}", System.Text.Json.JsonSerializer.Serialize(
                 currentPollingState,
-                HPDAgent.Graph.Abstractions.Serialization.GraphJsonSerializerContext.Default.PollingState
+                GraphJsonSerializerContext.Default.PollingState
             ));
 
             await PublishSuspensionAsync(context, node, suspended, currentAttempt, ct);
@@ -2957,7 +2952,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             {
                 return System.Text.Json.JsonSerializer.Deserialize(
                     values.First(),
-                    HPDAgent.Graph.Abstractions.Serialization.GraphJsonSerializerContext.Default.PollingState);
+                    GraphJsonSerializerContext.Default.PollingState);
             }
             catch (System.Text.Json.JsonException ex)
             {
@@ -3030,7 +3025,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 {
                     var pollingState = System.Text.Json.JsonSerializer.Deserialize(
                         values.First(),
-                        HPDAgent.Graph.Abstractions.Serialization.GraphJsonSerializerContext.Default.PollingState);
+                        GraphJsonSerializerContext.Default.PollingState);
                     if (pollingState != null)
                     {
                         // Calculate next retry time for this node
@@ -3136,10 +3131,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                                 {
                                     NodeId = nodeId,
                                     Version = completedNode.Version,
-                                    StateJson = System.Text.Json.JsonSerializer.Serialize(
-                                        output,
-                                        HPDAgent.Graph.Abstractions.Serialization.GraphJsonSerializerContext.Default.DictionaryStringObject
-                                    ),
+                                    StateJson = GraphJsonValue.ToJsonString(output, $"node state '{nodeId}'"),
                                     CapturedAt = DateTimeOffset.UtcNow
                                 };
                             }
@@ -3162,14 +3154,18 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             CompletedNodes = context.CompletedNodes,
             NodeOutputs = nodeOutputs,
             NodeStateMetadata = nodeStateMetadata,
-            ContextJson = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                ExecutionId = context.ExecutionId,
-                CompletedNodes = context.CompletedNodes,
-                CurrentLayerIndex = graphContext.CurrentLayerIndex,
-                SuspendedNodeId = node.Id,
-                SuspendToken = suspended.SuspendToken
-            }),
+            ContextJson = System.Text.Json.JsonSerializer.Serialize(
+                new ContextMetadata
+                {
+                    ExecutionId = context.ExecutionId,
+                    CompletedNodes = context.CompletedNodes.ToList(),
+                    CurrentLayerIndex = graphContext.CurrentLayerIndex,
+                    CurrentIteration = 0,
+                    PendingDirtyNodes = [],
+                    SuspendedNodeId = node.Id,
+                    SuspendToken = suspended.SuspendToken
+                },
+                GraphJsonSerializerContext.Default.ContextMetadata),
             Metadata = new Abstractions.Checkpointing.CheckpointMetadata
             {
                 Trigger = Abstractions.Checkpointing.CheckpointTrigger.Suspension,
@@ -4635,10 +4631,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                                 {
                                     NodeId = nodeId,
                                     Version = node.Version,
-                                    StateJson = System.Text.Json.JsonSerializer.Serialize(
-                                        output,
-                                        HPDAgent.Graph.Abstractions.Serialization.GraphJsonSerializerContext.Default.DictionaryStringObject
-                                    ),
+                                    StateJson = GraphJsonValue.ToJsonString(output, $"node state '{nodeId}'"),
                                     CapturedAt = DateTimeOffset.UtcNow
                                 };
                             }
@@ -4662,12 +4655,16 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             CompletedNodes = context.CompletedNodes,
             NodeOutputs = nodeOutputs,
             NodeStateMetadata = nodeStateMetadata,
-            ContextJson = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                ExecutionId = context.ExecutionId,
-                CompletedNodes = context.CompletedNodes,
-                CurrentLayerIndex = completedLayerIndex,
-            }),
+            ContextJson = System.Text.Json.JsonSerializer.Serialize(
+                new ContextMetadata
+                {
+                    ExecutionId = context.ExecutionId,
+                    CompletedNodes = context.CompletedNodes.ToList(),
+                    CurrentLayerIndex = completedLayerIndex,
+                    CurrentIteration = 0,
+                    PendingDirtyNodes = []
+                },
+                GraphJsonSerializerContext.Default.ContextMetadata),
             Metadata = new Abstractions.Checkpointing.CheckpointMetadata
             {
                 Trigger = trigger,

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>HPDAgent.Graph.Connectors.SourceGenerator</RootNamespace>
+    <AssemblyName>HPDAgent.Graph.Connectors.SourceGenerator</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);NETSDK1210;RS2008;RS1035;RS1036;RS1037;CS1591</NoWarn>
+
+    <PackageId>HPD-Graph.Connectors.SourceGenerator</PackageId>
+    <Description>Source generator for HPD-Graph connector registration, descriptors, wrappers, and endpoints.</Description>
+    <PackageTags>source-generator;roslyn;graph;connectors;codegen</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" PrivateAssets="all" />
+    <PackageReference Include="System.Text.Json" Version="10.0.5" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+  </ItemGroup>
+
+</Project>

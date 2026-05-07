@@ -78,7 +78,11 @@ public sealed class ExecutionManager : IWorkflowExecutionStateSink
         var cancelled = execution with
         {
             Status = WorkflowExecutionStatus.Cancelled,
-            CompletedAt = _timeProvider.GetUtcNow()
+            CompletedAt = _timeProvider.GetUtcNow(),
+            ClaimedBy = null,
+            ClaimedAt = null,
+            LeaseUntil = null,
+            LastHeartbeatAt = null
         };
 
         await _executionStore.SaveAsync(cancelled, ct).ConfigureAwait(false);
@@ -323,7 +327,11 @@ public sealed class ExecutionManager : IWorkflowExecutionStateSink
                 {
                     Status = WorkflowExecutionStatus.Failed,
                     CompletedAt = _timeProvider.GetUtcNow(),
-                    ErrorMessage = message
+                    ErrorMessage = message,
+                    ClaimedBy = null,
+                    ClaimedAt = null,
+                    LeaseUntil = null,
+                    LastHeartbeatAt = null
                 };
                 await _executionStore.SaveAsync(resultExecution, ct).ConfigureAwait(false);
                 await AppendLogAsync(
@@ -638,7 +646,11 @@ public sealed class ExecutionManager : IWorkflowExecutionStateSink
             PollingAttemptNumber = effectivePollingAttempt,
             PollingStartedAt = effectivePollingStartedAt,
             NextRetryAt = suspension.NextRetryAt,
-            Suspensions = suspensions
+            Suspensions = suspensions,
+            ClaimedBy = null,
+            ClaimedAt = null,
+            LeaseUntil = null,
+            LastHeartbeatAt = null
         };
 
         await _executionStore.SaveAsync(suspended, ct).ConfigureAwait(false);
@@ -713,6 +725,99 @@ public sealed class ExecutionManager : IWorkflowExecutionStateSink
         return running;
     }
 
+    public async Task<WorkflowExecution> MarkCompletedAsync(
+        string graphId,
+        string executionId,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(graphId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(executionId);
+
+        var execution = await _executionStore.LoadAsync(graphId, executionId, ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Execution '{executionId}' for graph '{graphId}' was not found.");
+
+        var completed = execution with
+        {
+            Status = WorkflowExecutionStatus.Completed,
+            CurrentNodeId = null,
+            SuspendedNodeId = null,
+            SuspendToken = null,
+            SuspendReason = null,
+            SuspensionMessage = null,
+            SuspendedAt = null,
+            RetryAfter = null,
+            MaxWaitTime = null,
+            MaxRetries = null,
+            PollingAttemptNumber = null,
+            PollingStartedAt = null,
+            NextRetryAt = null,
+            Suspensions = Array.Empty<WorkflowSuspension>(),
+            CompletedAt = _timeProvider.GetUtcNow(),
+            ErrorMessage = null,
+            ClaimedBy = null,
+            ClaimedAt = null,
+            LeaseUntil = null,
+            LastHeartbeatAt = null
+        };
+
+        await _executionStore.SaveAsync(completed, ct).ConfigureAwait(false);
+        await AppendLogAsync(
+            graphId,
+            executionId,
+            "Execution completed.",
+            LogLevel.Information,
+            ct).ConfigureAwait(false);
+
+        return completed;
+    }
+
+    public async Task<WorkflowExecution> MarkCancelledAsync(
+        string graphId,
+        string executionId,
+        string? message = null,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(graphId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(executionId);
+
+        var execution = await _executionStore.LoadAsync(graphId, executionId, ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Execution '{executionId}' for graph '{graphId}' was not found.");
+
+        var cancelled = execution with
+        {
+            Status = WorkflowExecutionStatus.Cancelled,
+            CurrentNodeId = null,
+            SuspendedNodeId = null,
+            SuspendToken = null,
+            SuspendReason = null,
+            SuspensionMessage = null,
+            SuspendedAt = null,
+            RetryAfter = null,
+            MaxWaitTime = null,
+            MaxRetries = null,
+            PollingAttemptNumber = null,
+            PollingStartedAt = null,
+            NextRetryAt = null,
+            Suspensions = Array.Empty<WorkflowSuspension>(),
+            CompletedAt = _timeProvider.GetUtcNow(),
+            ErrorMessage = message,
+            ClaimedBy = null,
+            ClaimedAt = null,
+            LeaseUntil = null,
+            LastHeartbeatAt = null
+        };
+
+        await _executionStore.SaveAsync(cancelled, ct).ConfigureAwait(false);
+        await AppendLogAsync(
+            graphId,
+            executionId,
+            string.IsNullOrWhiteSpace(message) ? "Execution cancelled." : $"Execution cancelled: {message}",
+            LogLevel.Warning,
+            ct).ConfigureAwait(false);
+
+        return cancelled;
+    }
+
     async Task IWorkflowExecutionStateSink.MarkRunningAsync(
         string graphId,
         string executionId,
@@ -753,7 +858,11 @@ public sealed class ExecutionManager : IWorkflowExecutionStateSink
             NextRetryAt = null,
             Suspensions = Array.Empty<WorkflowSuspension>(),
             CompletedAt = _timeProvider.GetUtcNow(),
-            ErrorMessage = errorMessage
+            ErrorMessage = errorMessage,
+            ClaimedBy = null,
+            ClaimedAt = null,
+            LeaseUntil = null,
+            LastHeartbeatAt = null
         };
 
         await _executionStore.SaveAsync(failed, ct).ConfigureAwait(false);

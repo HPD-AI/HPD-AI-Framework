@@ -1,6 +1,11 @@
+using System.Text.Json;
+using HPDAgent.Graph.Abstractions.Artifacts;
+using HPDAgent.Graph.Abstractions.Config;
 using HPDAgent.Graph.Abstractions.Execution;
 using HPDAgent.Graph.Abstractions.Graph;
 using HPDAgent.Graph.Abstractions.Context;
+using HPDAgent.Graph.Abstractions.Serialization;
+using HPDAgent.Graph.Core.Config;
 
 // Alias for SuspensionOptions to avoid conflicts
 using SuspensionOpts = HPDAgent.Graph.Abstractions.Execution.SuspensionOptions;
@@ -27,6 +32,7 @@ public class GraphBuilder
     private IterationOptions? _iterationOptions;
     private bool _autoSequentialEdges = true;
     private bool _autoSequentialEdgesExplicitlyConfigured;
+    private GraphConfigCompilerOptions? _compilerOptions;
 
     /// <summary>
     /// Creates a new GraphBuilder instance.
@@ -36,6 +42,28 @@ public class GraphBuilder
         // Auto-generate ID if not specified
         _id = Guid.NewGuid().ToString("N");
     }
+
+    /// <summary>
+    /// Creates a graph builder seeded from a serializable graph configuration.
+    /// </summary>
+    public GraphBuilder(GraphConfig config, GraphConfigCompilerOptions? compilerOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        _compilerOptions = compilerOptions;
+        var graph = new GraphConfigCompiler(compilerOptions).Compile(config);
+        LoadFromGraph(graph);
+
+        // Config-authored graphs should preserve their declared topology exactly.
+        _autoSequentialEdges = false;
+        _autoSequentialEdgesExplicitlyConfigured = true;
+    }
+
+    /// <summary>
+    /// Creates a graph builder seeded from a serializable graph configuration.
+    /// </summary>
+    public static GraphBuilder FromConfig(GraphConfig config, GraphConfigCompilerOptions? compilerOptions = null)
+        => new(config, compilerOptions);
 
     /// <summary>
     /// Sets the graph ID.
@@ -394,6 +422,24 @@ public class GraphBuilder
     /// </summary>
     public Abstractions.Graph.Graph Build()
     {
+        var graph = BuildRuntimeGraph();
+        if (HasRuntimeOnlyState(graph))
+        {
+            return graph;
+        }
+
+        var config = new GraphConfigExporter().Export(graph);
+        return new GraphConfigCompiler(_compilerOptions).Compile(config);
+    }
+
+    /// <summary>
+    /// Builds a serializable graph configuration from the current builder state.
+    /// </summary>
+    public GraphConfig ToConfig()
+        => new GraphConfigExporter().Export(BuildRuntimeGraph());
+
+    private Abstractions.Graph.Graph BuildRuntimeGraph()
+    {
         if (string.IsNullOrWhiteSpace(_name))
             throw new InvalidOperationException("Graph name is required. Call WithName() before Build().");
 
@@ -429,6 +475,45 @@ public class GraphBuilder
             IterationOptions = _iterationOptions
         };
     }
+
+    private void LoadFromGraph(Abstractions.Graph.Graph graph)
+    {
+        _id = graph.Id;
+        _name = graph.Name;
+        _version = graph.Version;
+        _entryNodeId = graph.EntryNodeId;
+        _exitNodeId = graph.ExitNodeId;
+        _maxIterations = graph.MaxIterations;
+        _executionTimeout = graph.ExecutionTimeout;
+        _cloningPolicy = graph.CloningPolicy;
+        _iterationOptions = graph.IterationOptions;
+
+        _metadata.Clear();
+        foreach (var (key, value) in graph.Metadata)
+        {
+            _metadata[key] = value;
+        }
+
+        _nodes.Clear();
+        _nodes.AddRange(graph.Nodes);
+
+        _edges.Clear();
+        _edges.AddRange(graph.Edges);
+    }
+
+    private static bool HasRuntimeOnlyState(Abstractions.Graph.Graph graph)
+    {
+        return graph.Nodes.Any(node =>
+                node.ErrorPolicy?.ShouldPropagate is not null ||
+                HasRuntimeOnlySubGraph(node.SubGraph)) ||
+            graph.Edges.Any(edge =>
+                edge.Predicate is not null ||
+                edge.Schedule?.AdditionalCondition is not null ||
+                edge.RetryPolicy?.RetryCondition is not null);
+    }
+
+    private static bool HasRuntimeOnlySubGraph(Abstractions.Graph.Graph? graph)
+        => graph is not null && HasRuntimeOnlyState(graph);
 
     internal void AddBuiltEdge(Edge edge)
     {
@@ -517,6 +602,11 @@ public class NodeBuilder
     private int _outputPortCount = 1;
     private Dictionary<string, Abstractions.Validation.InputSchema>? _inputSchemas;
     private Abstractions.Caching.CacheOptions? _cache;
+    private ArtifactKey? _producesArtifact;
+    private IReadOnlyList<ArtifactKey>? _requiresArtifacts;
+    private PartitionDefinition? _partitions;
+    private PartitionDependencyMapping? _partitionDependencies;
+    private IReadOnlyList<string>? _artifactNamespace;
 
     internal NodeBuilder(string id, string name, NodeType type, string? handlerName)
     {
@@ -532,6 +622,16 @@ public class NodeBuilder
     public NodeBuilder WithConfig(string key, object value)
     {
         _config[key] = value;
+        return this;
+    }
+
+    /// <summary>
+    /// Replaces the node configuration with raw JSON.
+    /// </summary>
+    public NodeBuilder WithConfig(JsonElement config)
+    {
+        _config.Clear();
+        _config["$value"] = config.Clone();
         return this;
     }
 
@@ -660,6 +760,73 @@ public class NodeBuilder
         return this;
     }
 
+    /// <summary>
+    /// Declares the artifact produced by this node.
+    /// </summary>
+    public NodeBuilder WithProducesArtifact(ArtifactKey artifactKey)
+    {
+        _producesArtifact = artifactKey ?? throw new ArgumentNullException(nameof(artifactKey));
+        return this;
+    }
+
+    /// <summary>
+    /// Declares artifact dependencies for this node.
+    /// </summary>
+    public NodeBuilder WithRequiresArtifacts(params ArtifactKey[] artifactKeys)
+    {
+        ArgumentNullException.ThrowIfNull(artifactKeys);
+        _requiresArtifacts = artifactKeys.ToArray();
+        return this;
+    }
+
+    /// <summary>
+    /// Declares artifact dependencies for this node.
+    /// </summary>
+    public NodeBuilder WithRequiresArtifacts(IEnumerable<ArtifactKey> artifactKeys)
+    {
+        ArgumentNullException.ThrowIfNull(artifactKeys);
+        _requiresArtifacts = artifactKeys.ToArray();
+        return this;
+    }
+
+    /// <summary>
+    /// Declares the partitions produced or consumed by this node.
+    /// </summary>
+    public NodeBuilder WithPartitions(PartitionDefinition partitions)
+    {
+        _partitions = partitions ?? throw new ArgumentNullException(nameof(partitions));
+        return this;
+    }
+
+    /// <summary>
+    /// Declares how output partitions map to required input partitions.
+    /// </summary>
+    public NodeBuilder WithPartitionDependencies(PartitionDependencyMapping partitionDependencies)
+    {
+        _partitionDependencies = partitionDependencies ?? throw new ArgumentNullException(nameof(partitionDependencies));
+        return this;
+    }
+
+    /// <summary>
+    /// Declares a namespace prefix for artifacts produced by this node or subgraph.
+    /// </summary>
+    public NodeBuilder WithArtifactNamespace(params string[] namespaceSegments)
+    {
+        ArgumentNullException.ThrowIfNull(namespaceSegments);
+        _artifactNamespace = namespaceSegments.ToArray();
+        return this;
+    }
+
+    /// <summary>
+    /// Declares a namespace prefix for artifacts produced by this node or subgraph.
+    /// </summary>
+    public NodeBuilder WithArtifactNamespace(IEnumerable<string> namespaceSegments)
+    {
+        ArgumentNullException.ThrowIfNull(namespaceSegments);
+        _artifactNamespace = namespaceSegments.ToArray();
+        return this;
+    }
+
     internal Node Build()
     {
         return new Node
@@ -668,7 +835,7 @@ public class NodeBuilder
             Name = _name,
             Type = _type,
             HandlerName = _handlerName,
-            Config = _config,
+            Config = BuildConfig(),
             Timeout = _timeout,
             RetryPolicy = _retryPolicy,
             Metadata = _metadata,
@@ -681,8 +848,30 @@ public class NodeBuilder
             SuspensionOptions = _suspensionOptions,
             OutputPortCount = _outputPortCount,
             InputSchemas = _inputSchemas,
-            Cache = _cache
+            Cache = _cache,
+            ProducesArtifact = _producesArtifact,
+            RequiresArtifacts = _requiresArtifacts,
+            Partitions = _partitions,
+            PartitionDependencies = _partitionDependencies,
+            ArtifactNamespace = _artifactNamespace
         };
+    }
+
+    private JsonElement? BuildConfig()
+    {
+        if (_config.Count == 0)
+        {
+            return null;
+        }
+
+        if (_config.Count == 1 &&
+            _config.TryGetValue("$value", out var rawConfig) &&
+            rawConfig is JsonElement rawElement)
+        {
+            return rawElement.Clone();
+        }
+
+        return GraphJsonValue.ToJsonElement(_config, "node config");
     }
 
     /// <summary>

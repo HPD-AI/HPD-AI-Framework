@@ -35,11 +35,23 @@ public sealed record NodeConfig
     public RetryPolicyConfig? RetryPolicy { get; init; }
     public ErrorPropagationPolicyConfig? ErrorPolicy { get; init; }
     public SuspensionOptionsConfig? SuspensionOptions { get; init; }
+    public bool EnableCheckpointing { get; init; } = true;
     public int? MaxExecutions { get; init; }
     public int? MaxParallelExecutions { get; init; }
     public int OutputPortCount { get; init; } = 1;
     public string? SubGraphRef { get; init; }
     public GraphConfig? SubGraph { get; init; }
+    public GraphConfig? MapProcessorGraph { get; init; }
+    public string? MapProcessorGraphRef { get; init; }
+    public int? MaxParallelMapTasks { get; init; }
+    public string? MapInputChannel { get; init; }
+    public string? MapOutputChannel { get; init; }
+    public MapErrorModeConfig? MapErrorMode { get; init; }
+    public string? MapItemType { get; init; }
+    public string? MapResultType { get; init; }
+    public IReadOnlyDictionary<string, GraphConfig>? MapProcessorGraphs { get; init; }
+    public string? MapRouterName { get; init; }
+    public GraphConfig? MapDefaultGraph { get; init; }
     public ArtifactDependencyConfig? Artifacts { get; init; }
     public PartitionDefinitionConfig? Partitions { get; init; }
     public PartitionDependencyConfig? PartitionDependencies { get; init; }
@@ -47,6 +59,13 @@ public sealed record NodeConfig
     public IReadOnlyList<string>? ArtifactNamespace { get; init; }
     public IReadOnlyDictionary<string, InputSchemaConfig>? InputSchemas { get; init; }
     public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
+}
+
+public enum MapErrorModeConfig
+{
+    FailFast,
+    ContinueWithNulls,
+    ContinueOmitFailures
 }
 
 public sealed record EdgeConfig
@@ -114,4 +133,3 @@ public enum ConditionKindConfig
     Any,
     Not
 }
-

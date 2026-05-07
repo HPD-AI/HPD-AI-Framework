@@ -43,4 +43,11 @@ public sealed class GraphNodeHandlerAttribute : Attribute
     /// Used in graph definitions to reference this handler.
     /// </summary>
     public string? NodeName { get; set; }
+
+    /// <summary>
+    /// Optional graph context type for clean partial handlers that do not declare
+    /// IGraphNodeHandler&lt;TContext&gt; directly.
+    /// Defaults to GraphContext when omitted.
+    /// </summary>
+    public Type? ContextType { get; set; }
 }

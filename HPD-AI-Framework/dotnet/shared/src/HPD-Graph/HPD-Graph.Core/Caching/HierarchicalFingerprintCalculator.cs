@@ -1,8 +1,8 @@
 using System.IO.Hashing;
 using System.Text;
-using System.Text.Json;
 using HPDAgent.Graph.Abstractions.Caching;
 using HPDAgent.Graph.Abstractions.Handlers;
+using HPDAgent.Graph.Abstractions.Serialization;
 
 namespace HPDAgent.Graph.Core.Caching;
 
@@ -86,17 +86,8 @@ public class HierarchicalFingerprintCalculator : INodeFingerprintCalculator
             return ComputeHash(sb.ToString());
         }
 
-        // Complex objects - serialize to JSON and hash
-        try
-        {
-            var json = JsonSerializer.Serialize(value);
-            return ComputeHash(json);
-        }
-        catch
-        {
-            // Fallback to ToString
-            return ComputeHash(value.ToString() ?? "object");
-        }
+        // Complex supported graph values - write JSON without reflection.
+        return ComputeHash(GraphJsonValue.ToJsonString(value, "fingerprint value"));
     }
 
     /// <summary>
