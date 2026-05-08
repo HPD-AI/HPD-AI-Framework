@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 using System.Text.Json.Serialization;
+using HPD.Agent.Audio.Eot;
 using HPD.Agent.Audio.Stt;
 using HPD.Agent.Audio.Tts;
 using HPD.Agent.Audio.Vad;
@@ -19,12 +20,14 @@ namespace HPD.Agent.Audio;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(AudioConfig))]
 [JsonSerializable(typeof(AudioRunConfig))]
+[JsonSerializable(typeof(AudioDiagnosticsConfig))]
+[JsonSerializable(typeof(EotConfig))]
 [JsonSerializable(typeof(TtsConfig))]
 [JsonSerializable(typeof(SttConfig))]
 [JsonSerializable(typeof(VadConfig))]
 [JsonSerializable(typeof(AudioProcessingMode))]
 [JsonSerializable(typeof(AudioIOMode))]
-[JsonSerializable(typeof(TurnDetectionStrategy))]
+[JsonSerializable(typeof(EotDetectionStrategy))]
 [JsonSerializable(typeof(BackchannelStrategy))]
 [JsonSerializable(typeof(FillerStrategy))]
 [JsonSerializable(typeof(ValidationResult))]

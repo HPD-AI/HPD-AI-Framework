@@ -136,7 +136,7 @@ public class AudioEventsTests
 
         // Assert
         Assert.Equal("gen-123", evt.GenerationId);
-        Assert.Equal(0.85f, evt.TurnCompletionProbability);
+        Assert.Equal(0.85f, evt.EndOfTurnProbability);
     }
 
     [Fact]
@@ -194,20 +194,20 @@ public class AudioEventsTests
     }
 
     [Fact]
-    public void TurnDetectedEvent_CanBeCreated()
+    public void EotDetectedEvent_CanBeCreated()
     {
         // Act
-        var evt = new TurnDetectedEvent(
+        var evt = new EotDetectedEvent(
             "Hello, how are you?",
             0.9f,
             TimeSpan.FromSeconds(0.8),
-            "heuristic");
+            "heuristic-eot");
 
         // Assert
         Assert.Equal("Hello, how are you?", evt.TranscribedText);
-        Assert.Equal(0.9f, evt.CompletionProbability);
+        Assert.Equal(0.9f, evt.EndOfTurnProbability);
         Assert.Equal(TimeSpan.FromSeconds(0.8), evt.SilenceDuration);
-        Assert.Equal("heuristic", evt.DetectionMethod);
+        Assert.Equal("heuristic-eot", evt.DetectionMethod);
     }
 
     [Fact]
@@ -238,7 +238,7 @@ public class AudioEventsTests
         Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(VadStartOfSpeechEvent)));
         Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(VadEndOfSpeechEvent)));
         Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(AudioPipelineMetricsEvent)));
-        Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(TurnDetectedEvent)));
+        Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(EotDetectedEvent)));
         Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(FillerAudioPlayedEvent)));
     }
 

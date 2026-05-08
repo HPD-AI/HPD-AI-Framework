@@ -3,6 +3,8 @@
 
 namespace HPD.Agent.Audio.Tts;
 
+using Microsoft.Extensions.AI;
+
 /// <summary>
 /// Factory for creating TTS clients.
 /// Registered via TtsProviderDiscovery in module initializer.

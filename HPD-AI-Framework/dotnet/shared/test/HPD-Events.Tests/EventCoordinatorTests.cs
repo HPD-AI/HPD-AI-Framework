@@ -131,13 +131,12 @@ public class EventCoordinatorTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         var handled = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var runTask = coordinator
-            .On<TestEvent>(evt =>
-            {
-                handled.TrySetResult(evt.Message);
-                return ValueTask.CompletedTask;
-            })
-            .RunAsync(cts.Token);
+        using var subscription = coordinator.Subscribe<TestEvent>(evt =>
+        {
+            handled.TrySetResult(evt.Message);
+            return ValueTask.CompletedTask;
+        });
+        var runTask = coordinator.RunAsync(cts.Token);
 
         coordinator.Emit(new TestEvent("handled"));
 
@@ -153,13 +152,12 @@ public class EventCoordinatorTests
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
         var handled = false;
 
-        var runTask = coordinator
-            .On<BaseTestEvent>(_ =>
-            {
-                handled = true;
-                return ValueTask.CompletedTask;
-            })
-            .RunAsync(cts.Token);
+        using var subscription = coordinator.Subscribe<BaseTestEvent>(_ =>
+        {
+            handled = true;
+            return ValueTask.CompletedTask;
+        });
+        var runTask = coordinator.RunAsync(cts.Token);
 
         coordinator.Emit(new DerivedTestEvent("derived"));
 
@@ -171,27 +169,26 @@ public class EventCoordinatorTests
     }
 
     [Fact]
-    public async Task OnAny_ReceivesEventsFromAllChannelsAfterExactHandlers()
+    public async Task SubscribeAny_ReceivesEventsFromAllChannelsAfterExactHandlers()
     {
         using var coordinator = new EventCoordinator();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         var seen = new List<string>();
         var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var runTask = coordinator
-            .On<TestEvent>(evt =>
-            {
-                seen.Add($"exact:{evt.Message}");
-                return ValueTask.CompletedTask;
-            })
-            .OnAny(evt =>
-            {
-                seen.Add($"any:{evt.GetType().Name}");
-                if (seen.Count == 5)
-                    completed.TrySetResult();
-                return ValueTask.CompletedTask;
-            })
-            .RunAsync(cts.Token);
+        using var exactSubscription = coordinator.Subscribe<TestEvent>(evt =>
+        {
+            seen.Add($"exact:{evt.Message}");
+            return ValueTask.CompletedTask;
+        });
+        using var anySubscription = coordinator.SubscribeAny(evt =>
+        {
+            seen.Add($"any:{evt.GetType().Name}");
+            if (seen.Count == 5)
+                completed.TrySetResult();
+            return ValueTask.CompletedTask;
+        });
+        var runTask = coordinator.RunAsync(cts.Token);
 
         coordinator.Emit(new TestEvent("synchronous"));
         coordinator.Emit(new TestStreamingEvent("streaming"));
@@ -219,14 +216,14 @@ public class EventCoordinatorTests
         var releaseSynchronous = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var streamingHandled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var runTask = coordinator
-            .On<TestEvent>(async _ => await releaseSynchronous.Task.WaitAsync(cts.Token))
-            .On<TestStreamingEvent>(_ =>
-            {
-                streamingHandled.TrySetResult();
-                return ValueTask.CompletedTask;
-            })
-            .RunAsync(cts.Token);
+        using var synchronousSubscription = coordinator.Subscribe<TestEvent>(
+            async _ => await releaseSynchronous.Task.WaitAsync(cts.Token));
+        using var streamingSubscription = coordinator.Subscribe<TestStreamingEvent>(_ =>
+        {
+            streamingHandled.TrySetResult();
+            return ValueTask.CompletedTask;
+        });
+        var runTask = coordinator.RunAsync(cts.Token);
 
         coordinator.Emit(new TestEvent("slow"));
         coordinator.Emit(new TestStreamingEvent("fast"));
@@ -657,9 +654,9 @@ public class EventCoordinatorTests
     {
         using var coordinator = new EventCoordinator();
 
-        var runTask = coordinator
-            .On<TestEvent>(_ => throw new InvalidOperationException("handler failed"))
-            .RunAsync();
+        using var subscription = coordinator.Subscribe<TestEvent>(
+            _ => throw new InvalidOperationException("handler failed"));
+        var runTask = coordinator.RunAsync();
 
         coordinator.Emit(new TestEvent("boom"));
 
@@ -667,6 +664,54 @@ public class EventCoordinatorTests
             async () => await runTask.WaitAsync(TimeSpan.FromSeconds(2)));
 
         Assert.Equal("handler failed", ex.Message);
+    }
+
+    [Fact]
+    public async Task Subscribe_Dispose_RemovesHandler()
+    {
+        using var coordinator = new EventCoordinator();
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        var handled = false;
+
+        var subscription = coordinator.Subscribe<TestEvent>(_ =>
+        {
+            handled = true;
+            return ValueTask.CompletedTask;
+        });
+        subscription.Dispose();
+
+        var runTask = coordinator.RunAsync(cts.Token);
+        coordinator.Emit(new TestEvent("removed"));
+
+        await Task.Delay(50, CancellationToken.None);
+        await cts.CancelAsync();
+        await runTask;
+
+        Assert.False(handled);
+    }
+
+    [Fact]
+    public async Task SubscribeAny_Dispose_RemovesHandler()
+    {
+        using var coordinator = new EventCoordinator();
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        var handled = false;
+
+        var subscription = coordinator.SubscribeAny(_ =>
+        {
+            handled = true;
+            return ValueTask.CompletedTask;
+        });
+        subscription.Dispose();
+
+        var runTask = coordinator.RunAsync(cts.Token);
+        coordinator.Emit(new TestEvent("removed"));
+
+        await Task.Delay(50, CancellationToken.None);
+        await cts.CancelAsync();
+        await runTask;
+
+        Assert.False(handled);
     }
 
     [Fact]

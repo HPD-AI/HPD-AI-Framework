@@ -1,4 +1,5 @@
 using HPD.Events;
+using System.Threading.Channels;
 
 namespace HPD.Agent.Middleware;
 
@@ -21,7 +22,11 @@ public sealed class AgentRuntimeContext : IAsyncDisposable
     private readonly List<Task> _backgroundTasks = new();
     private readonly List<IDisposable> _disposables = new();
     private readonly List<IAsyncDisposable> _asyncDisposables = new();
+    private readonly ChannelWriter<AgentInputEvent> _runtimeInputWriter;
+    private readonly Func<InterruptionRequestEvent, CancellationToken, ValueTask> _runtimeInterruptionHandler;
+    private readonly Func<bool> _hasActiveRuntimeTurns;
     private readonly object _lock = new();
+    private bool _acceptingInputs = true;
 
     public string AgentName { get; }
     public AgentConfig Config { get; }
@@ -33,18 +38,25 @@ public sealed class AgentRuntimeContext : IAsyncDisposable
     public DateTimeOffset? StartedAt { get; private set; }
     public DateTimeOffset? StoppedAt { get; private set; }
     public CancellationToken RuntimeCancellationToken { get; }
+    public bool HasActiveRuntimeTurns => _hasActiveRuntimeTurns();
 
     internal AgentRuntimeContext(
         string agentName,
         AgentConfig config,
         IServiceProvider? services,
         IEventCoordinator eventCoordinator,
+        ChannelWriter<AgentInputEvent> runtimeInputWriter,
+        Func<InterruptionRequestEvent, CancellationToken, ValueTask> runtimeInterruptionHandler,
+        Func<bool> hasActiveRuntimeTurns,
         CancellationToken runtimeCancellationToken)
     {
         AgentName = agentName ?? throw new ArgumentNullException(nameof(agentName));
         Config = config ?? throw new ArgumentNullException(nameof(config));
         Services = services;
         EventCoordinator = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
+        _runtimeInputWriter = runtimeInputWriter ?? throw new ArgumentNullException(nameof(runtimeInputWriter));
+        _runtimeInterruptionHandler = runtimeInterruptionHandler ?? throw new ArgumentNullException(nameof(runtimeInterruptionHandler));
+        _hasActiveRuntimeTurns = hasActiveRuntimeTurns ?? throw new ArgumentNullException(nameof(hasActiveRuntimeTurns));
         RuntimeCancellationToken = runtimeCancellationToken;
         RuntimeId = Guid.NewGuid().ToString("N");
         CreatedAt = DateTimeOffset.UtcNow;
@@ -54,6 +66,46 @@ public sealed class AgentRuntimeContext : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(evt);
         EventCoordinator.Emit(evt);
+    }
+
+    /// <summary>
+    /// Submit user input or runtime control input to the agent runtime loop.
+    /// </summary>
+    /// <remarks>
+    /// The input is enqueued for the runtime loop and is not executed inline. Use
+    /// <see cref="Emit(AgentEvent)"/> for observation events instead.
+    /// </remarks>
+    public async ValueTask RunAsync(
+        AgentInputEvent input,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+
+        lock (_lock)
+        {
+            if (!_acceptingInputs)
+                throw new InvalidOperationException("Agent runtime is stopping or stopped and cannot accept user input.");
+        }
+
+        if (RuntimeCancellationToken.IsCancellationRequested)
+            throw new InvalidOperationException("Agent runtime is stopping or stopped and cannot accept user input.");
+
+        if (input is InterruptionRequestEvent interruption)
+        {
+            await _runtimeInterruptionHandler(interruption, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            await _runtimeInputWriter.WriteAsync(input, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ChannelClosedException ex)
+        {
+            throw new InvalidOperationException(
+                "Agent runtime is stopping or stopped and cannot accept user input.",
+                ex);
+        }
     }
 
     public void RegisterBackgroundTask(Task task)
@@ -98,6 +150,18 @@ public sealed class AgentRuntimeContext : IAsyncDisposable
     internal void MarkStarted() => StartedAt = DateTimeOffset.UtcNow;
 
     internal void MarkStopped() => StoppedAt = DateTimeOffset.UtcNow;
+
+    internal void CompleteInputWriter(Exception? error = null)
+    {
+        lock (_lock)
+        {
+            if (!_acceptingInputs)
+                return;
+
+            _acceptingInputs = false;
+            _runtimeInputWriter.TryComplete(error);
+        }
+    }
 
     internal async Task DisposeRegisteredResourcesAsync(CancellationToken cancellationToken)
     {
@@ -198,8 +262,19 @@ public abstract class RuntimeHookContext
     public string RuntimeId => Base.RuntimeId;
     public DateTimeOffset CreatedAt => Base.CreatedAt;
     public CancellationToken RuntimeCancellationToken => Base.RuntimeCancellationToken;
+    public bool HasActiveRuntimeTurns => Base.HasActiveRuntimeTurns;
 
     public void Emit(AgentEvent evt) => Base.Emit(evt);
+
+    /// <summary>
+    /// Submit semantic user input to the agent runtime loop.
+    /// </summary>
+    /// <remarks>
+    /// The input is enqueued for runtime processing and is not emitted through
+    /// <see cref="EventCoordinator"/>.
+    /// </remarks>
+    public ValueTask RunAsync(AgentInputEvent input, CancellationToken cancellationToken = default) =>
+        Base.RunAsync(input, cancellationToken);
     public void RegisterBackgroundTask(Task task) => Base.RegisterBackgroundTask(task);
     public void RegisterBackgroundTask(Func<CancellationToken, Task> taskFactory) => Base.RegisterBackgroundTask(taskFactory);
     public void RegisterDisposable(IDisposable disposable) => Base.RegisterDisposable(disposable);

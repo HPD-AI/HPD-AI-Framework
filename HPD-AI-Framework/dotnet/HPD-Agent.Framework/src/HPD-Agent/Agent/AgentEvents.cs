@@ -74,7 +74,7 @@ public enum InterruptionSource
 /// <summary>
 /// Requests interruption of active streams or operations.
 /// </summary>
-public record InterruptionRequestEvent : AgentEvent
+public record InterruptionRequestEvent : AgentInputEvent
 {
     public InterruptionRequestEvent(
         string? StreamId,

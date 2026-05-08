@@ -1,25 +1,26 @@
 // Copyright (c) 2025 Einstein Essibu. All rights reserved.
 
 using HPD.Agent.Audio;
+using HPD.Agent.Audio.Eot;
 using Xunit;
 
 namespace HPD.Agent.Tests.Audio;
 
 /// <summary>
-/// Unit tests for HeuristicTurnDetector.
+/// Unit tests for HeuristicEotDetector.
 /// </summary>
-public class HeuristicTurnDetectorTests
+public class HeuristicEotDetectorTests
 {
-    private readonly HeuristicTurnDetector _detector = new();
+    private readonly HeuristicEotDetector _detector = new();
 
     [Theory]
     [InlineData("Hello, how are you?", 0.9f)]
     [InlineData("I'm doing great!", 0.9f)]
     [InlineData("That's interesting.", 0.9f)]
-    public void GetCompletionProbability_StrongEndings_ReturnsHighProbability(string text, float expectedMin)
+    public void GetEndOfTurnProbability_StrongEndings_ReturnsHighProbability(string text, float expectedMin)
     {
         // Act
-        var probability = _detector.GetCompletionProbability(text);
+        var probability = _detector.GetEndOfTurnProbability(text);
 
         // Assert
         Assert.True(probability >= expectedMin, $"Expected >= {expectedMin}, got {probability}");
@@ -29,10 +30,10 @@ public class HeuristicTurnDetectorTests
     [InlineData("Well, I think", 0.3f)]
     [InlineData("First of all,", 0.3f)]
     [InlineData("The reason is;", 0.3f)]
-    public void GetCompletionProbability_WeakEndings_ReturnsMediumProbability(string text, float expectedMax)
+    public void GetEndOfTurnProbability_WeakEndings_ReturnsMediumProbability(string text, float expectedMax)
     {
         // Act
-        var probability = _detector.GetCompletionProbability(text);
+        var probability = _detector.GetEndOfTurnProbability(text);
 
         // Assert
         Assert.True(probability <= expectedMax, $"Expected <= {expectedMax}, got {probability}");
@@ -41,10 +42,10 @@ public class HeuristicTurnDetectorTests
     [Theory]
     [InlineData("I was thinking", 0.2f)]  // No punctuation
     [InlineData("Maybe we could", 0.2f)]  // No punctuation
-    public void GetCompletionProbability_NoPunctuation_ReturnsLowProbability2(string text, float expectedMax)
+    public void GetEndOfTurnProbability_NoPunctuation_ReturnsLowProbability2(string text, float expectedMax)
     {
         // Act
-        var probability = _detector.GetCompletionProbability(text);
+        var probability = _detector.GetEndOfTurnProbability(text);
 
         // Assert
         Assert.True(probability <= expectedMax, $"Expected <= {expectedMax}, got {probability}");
@@ -54,10 +55,10 @@ public class HeuristicTurnDetectorTests
     [InlineData("So I was thinking about", 0.2f)]
     [InlineData("The main reason", 0.2f)]
     [InlineData("Actually", 0.2f)]
-    public void GetCompletionProbability_NoPunctuation_ReturnsVeryLowProbability(string text, float expectedMax)
+    public void GetEndOfTurnProbability_NoPunctuation_ReturnsVeryLowProbability(string text, float expectedMax)
     {
         // Act
-        var probability = _detector.GetCompletionProbability(text);
+        var probability = _detector.GetEndOfTurnProbability(text);
 
         // Assert
         Assert.True(probability <= expectedMax, $"Expected <= {expectedMax}, got {probability}");
@@ -66,10 +67,10 @@ public class HeuristicTurnDetectorTests
     [Theory]
     [InlineData("He said \"hello\"", 0.7f)]
     [InlineData("She replied 'yes'", 0.7f)]
-    public void GetCompletionProbability_QuotationEndings_ReturnsModerateProbability(string text, float expectedMin)
+    public void GetEndOfTurnProbability_QuotationEndings_ReturnsModerateProbability(string text, float expectedMin)
     {
         // Act
-        var probability = _detector.GetCompletionProbability(text);
+        var probability = _detector.GetEndOfTurnProbability(text);
 
         // Assert
         Assert.True(probability >= expectedMin, $"Expected >= {expectedMin}, got {probability}");
@@ -79,10 +80,10 @@ public class HeuristicTurnDetectorTests
     [InlineData("")]
     [InlineData("   ")]
     [InlineData(null)]
-    public void GetCompletionProbability_EmptyOrNull_ReturnsZero(string? text)
+    public void GetEndOfTurnProbability_EmptyOrNull_ReturnsZero(string? text)
     {
         // Act
-        var probability = _detector.GetCompletionProbability(text!);
+        var probability = _detector.GetEndOfTurnProbability(text!);
 
         // Assert
         Assert.Equal(0.0f, probability);
@@ -96,14 +97,25 @@ public class HeuristicTurnDetectorTests
     }
 
     [Fact]
-    public void GetCompletionProbability_MultipleCallsAreDeterministic()
+    public void HeuristicEotProvider_IsRegistered()
+    {
+        // Act
+        var factory = EotProviderDiscovery.GetFactory("heuristic-eot");
+
+        // Assert
+        Assert.IsType<HeuristicEotProviderFactory>(factory);
+        Assert.Same(typeof(EotConfig), EotProviderDiscovery.GetConfigType("heuristic-eot"));
+    }
+
+    [Fact]
+    public void GetEndOfTurnProbability_MultipleCallsAreDeterministic()
     {
         // Arrange
         var text = "How are you today?";
 
         // Act
-        var prob1 = _detector.GetCompletionProbability(text);
-        var prob2 = _detector.GetCompletionProbability(text);
+        var prob1 = _detector.GetEndOfTurnProbability(text);
+        var prob2 = _detector.GetEndOfTurnProbability(text);
 
         // Assert
         Assert.Equal(prob1, prob2);
@@ -118,10 +130,10 @@ public class HeuristicTurnDetectorTests
     [InlineData("The reason is but.", 0.6f)]
     [InlineData("Maybe because.", 0.6f)]
     [InlineData("I thought that.", 0.6f)]
-    public void GetCompletionProbability_TrailingIncompleteWords_ReturnsMediumProbability(string text, float expected)
+    public void GetEndOfTurnProbability_TrailingIncompleteWords_ReturnsMediumProbability(string text, float expected)
     {
         // Act
-        var probability = _detector.GetCompletionProbability(text);
+        var probability = _detector.GetEndOfTurnProbability(text);
 
         // Assert
         Assert.Equal(expected, probability);
@@ -131,10 +143,10 @@ public class HeuristicTurnDetectorTests
     [InlineData("I completely agree.", 0.9f)]  // No trailing incomplete word
     [InlineData("That sounds good!", 0.9f)]
     [InlineData("I'll do it?", 0.9f)]
-    public void GetCompletionProbability_NoTrailingIncompleteWords_ReturnsHighProbability(string text, float expectedMin)
+    public void GetEndOfTurnProbability_NoTrailingIncompleteWords_ReturnsHighProbability(string text, float expectedMin)
     {
         // Act
-        var probability = _detector.GetCompletionProbability(text);
+        var probability = _detector.GetEndOfTurnProbability(text);
 
         // Assert
         Assert.True(probability >= expectedMin, $"Expected >= {expectedMin}, got {probability}");
@@ -143,13 +155,13 @@ public class HeuristicTurnDetectorTests
     [Theory]
     [InlineData("and")]  // Single trailing word with period implied
     [InlineData("but")]
-    public void GetCompletionProbability_SingleTrailingWord_DoesNotCrash(string text)
+    public void GetEndOfTurnProbability_SingleTrailingWord_DoesNotCrash(string text)
     {
         // Arrange
         var textWithPeriod = text + ".";
 
         // Act
-        var probability = _detector.GetCompletionProbability(textWithPeriod);
+        var probability = _detector.GetEndOfTurnProbability(textWithPeriod);
 
         // Assert - should not crash, just return normal period probability
         Assert.True(probability > 0);

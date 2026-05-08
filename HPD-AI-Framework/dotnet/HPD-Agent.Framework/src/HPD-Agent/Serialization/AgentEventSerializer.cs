@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Serialization;
 
@@ -124,13 +125,35 @@ public static partial class AgentEventSerializer
     /// <summary>
     /// Standard JSON options with source generator for Native AOT.
     /// </summary>
-    public static JsonSerializerOptions StandardJsonOptions { get; } = new()
+    public static JsonSerializerOptions StandardJsonOptions { get; } = CreateStandardJsonOptions();
+
+    private static JsonSerializerOptions CreateStandardJsonOptions()
     {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
-        WriteIndented = false,
-        TypeInfoResolver = AgentEventJsonContext.Default
-    };
+        var options = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+            WriteIndented = false
+        };
+
+        options.TypeInfoResolverChain.Add(AgentEventJsonContext.Default);
+
+        foreach (var resolver in Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions.TypeInfoResolverChain)
+        {
+            if (resolver is not null)
+            {
+                options.TypeInfoResolverChain.Add(resolver);
+            }
+        }
+
+        options.AddAIContentType<ImageContent>("hpd:image");
+        options.AddAIContentType<AudioContent>("hpd:audio");
+        options.AddAIContentType<VideoContent>("hpd:video");
+        options.AddAIContentType<DocumentContent>("hpd:document");
+
+        options.MakeReadOnly();
+        return options;
+    }
 
     /// <summary>
     /// Serializes an agent event to JSON with version and type fields.

@@ -43,9 +43,9 @@ public enum AudioIOMode
 }
 
 /// <summary>
-/// Turn detection strategy (like PIIMiddleware per-type strategies).
+/// End-of-turn detection strategy.
 /// </summary>
-public enum TurnDetectionStrategy
+public enum EotDetectionStrategy
 {
     /// <summary>Don't use this detection method.</summary>
     Disabled,
@@ -59,7 +59,7 @@ public enum TurnDetectionStrategy
     /// <summary>Always run this detection method.</summary>
     Always,
 
-    /// <summary>User controls turn boundaries via CommitUserTurn(). ( )</summary>
+    /// <summary>User controls EOT boundaries manually.</summary>
     Manual
 }
 

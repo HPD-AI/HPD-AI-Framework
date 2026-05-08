@@ -1,6 +1,7 @@
 // Copyright (c) 2025 Einstein Essibu. All rights reserved.
 
 using HPD.Agent.Audio;
+using HPD.Agent.Audio.Eot;
 using HPD.Agent.Audio.Stt;
 using HPD.Agent.Audio.Tts;
 using HPD.Agent.Audio.Vad;
@@ -45,6 +46,7 @@ public class AudioConfigTests
         config.Tts.Should().BeNull();
         config.Stt.Should().BeNull();
         config.Vad.Should().BeNull();
+        config.Eot.Should().NotBeNull();
     }
 
     [Fact]
@@ -61,20 +63,21 @@ public class AudioConfigTests
     }
 
     [Fact]
-    public void TurnDetectionDefaults_AreCorrect()
+    public void EotDefaults_AreCorrect()
     {
         // Arrange & Act
-        var config = new AudioConfig();
+        var eot = new EotConfig();
 
         // Assert
-        config.SilenceStrategy.Should().Be(TurnDetectionStrategy.FastPath);
-        config.MlStrategy.Should().Be(TurnDetectionStrategy.OnAmbiguous);
-        config.SilenceFastPathThreshold.Should().Be(1.5f);
-        config.MinEndpointingDelay.Should().Be(0.3f);
-        config.MaxEndpointingDelay.Should().Be(1.5f);
-        config.SilenceBoostMultiplier.Should().Be(0.7f);
-        config.UseCombinedProbability.Should().Be(true);
-        config.TrailingWordPenalty.Should().Be(0.6f);
+        eot.Provider.Should().Be("heuristic-eot");
+        eot.SilenceStrategy.Should().Be(EotDetectionStrategy.FastPath);
+        eot.DetectorStrategy.Should().Be(EotDetectionStrategy.OnAmbiguous);
+        eot.SilenceFastPathThreshold.Should().Be(1.5f);
+        eot.MinEndpointingDelay.Should().Be(0.3f);
+        eot.MaxEndpointingDelay.Should().Be(1.5f);
+        eot.SilenceBoostMultiplier.Should().Be(0.7f);
+        eot.UseCombinedProbability.Should().Be(true);
+        eot.TrailingWordPenalty.Should().Be(0.6f);
     }
 
     [Fact]

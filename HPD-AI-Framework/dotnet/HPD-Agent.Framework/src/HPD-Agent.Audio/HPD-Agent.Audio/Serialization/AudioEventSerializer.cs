@@ -59,8 +59,8 @@ public static partial class AudioEventSerializer
         // Metrics Events
         [typeof(AudioPipelineMetricsEvent)] = AudioEventTypes.Metrics.AUDIO_PIPELINE_METRICS,
 
-        // Turn Detection Events
-        [typeof(TurnDetectedEvent)] = AudioEventTypes.TurnDetection.TURN_DETECTED,
+        // EOT Events
+        [typeof(EotDetectedEvent)] = AudioEventTypes.Eot.EOT_DETECTED,
 
         // Filler Events
         [typeof(FillerAudioPlayedEvent)] = AudioEventTypes.Filler.FILLER_AUDIO_PLAYED,

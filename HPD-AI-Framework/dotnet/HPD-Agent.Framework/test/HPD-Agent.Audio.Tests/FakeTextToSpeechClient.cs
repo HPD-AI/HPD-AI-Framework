@@ -30,7 +30,7 @@ public sealed class FakeTextToSpeechClient : ITextToSpeechClient
     }
 
     /// <inheritdoc />
-    public Task<TextToSpeechResponse> GetSpeechAsync(
+    public Task<TextToSpeechResponse> GetAudioAsync(
         string text,
         TextToSpeechOptions? options = null,
         CancellationToken cancellationToken = default)
@@ -39,31 +39,23 @@ public sealed class FakeTextToSpeechClient : ITextToSpeechClient
 
         _requests.Add(new SynthesisRequest(text, options, false));
 
-        return Task.FromResult(new TextToSpeechResponse
+        return Task.FromResult(new TextToSpeechResponse([new DataContent(_audioData, "audio/mpeg")])
         {
-            Audio = new DataContent(_audioData, "audio/mpeg"),
-            Duration = TimeSpan.FromSeconds(text.Length * 0.1), // Rough estimate
             ModelId = options?.ModelId,
-            Voice = options?.Voice
+            AdditionalProperties = options?.VoiceId is null
+                ? null
+                : new AdditionalPropertiesDictionary { ["voiceId"] = options.VoiceId }
         });
     }
 
     /// <inheritdoc />
-    public async IAsyncEnumerable<TextToSpeechResponseUpdate> GetStreamingSpeechAsync(
-        IAsyncEnumerable<string> textChunks,
+    public async IAsyncEnumerable<TextToSpeechResponseUpdate> GetStreamingAudioAsync(
+        string text,
         TextToSpeechOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        // Collect all text chunks
-        var fullText = new System.Text.StringBuilder();
-        await foreach (var chunk in textChunks.WithCancellation(cancellationToken))
-        {
-            fullText.Append(chunk);
-        }
-
-        var text = fullText.ToString();
         _requests.Add(new SynthesisRequest(text, options, true));
 
         if (string.IsNullOrEmpty(text))
@@ -72,13 +64,13 @@ public sealed class FakeTextToSpeechClient : ITextToSpeechClient
         }
 
         // Return single chunk
-        yield return new TextToSpeechResponseUpdate
+        yield return new TextToSpeechResponseUpdate([new DataContent(_audioData, "audio/mpeg")])
         {
-            Audio = new DataContent(_audioData, "audio/mpeg"),
-            Duration = TimeSpan.FromSeconds(text.Length * 0.1),
-            IsLast = true,
-            SequenceNumber = 0
+            Kind = TextToSpeechResponseUpdateKind.AudioUpdated,
+            ModelId = options?.ModelId
         };
+
+        await Task.CompletedTask;
     }
 
     /// <inheritdoc />

@@ -128,7 +128,7 @@ public sealed class MragRetrievalPipeline : IMragRetriever
 
         var eventChannel = Channel.CreateUnbounded<Event>();
         using var coordinatorCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        eventCoordinator.OnAny(evt =>
+        using var eventSubscription = eventCoordinator.SubscribeAny(evt =>
         {
             eventChannel.Writer.TryWrite(evt);
             return ValueTask.CompletedTask;

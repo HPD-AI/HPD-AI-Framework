@@ -164,11 +164,11 @@ public class AgentContextEmitTests
             return ValueTask.CompletedTask;
         }
 
-        public IEventCoordinator On<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event => _inner.On(handler);
-        public IEventCoordinator OnAny(Func<Event, ValueTask> handler) => _inner.OnAny(handler);
+        public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event => _inner.Subscribe(handler);
+        public IDisposable SubscribeAny(Func<Event, ValueTask> handler) => _inner.SubscribeAny(handler);
         public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent => _inner.TryEmitStruct(in evt);
         public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : struct, IStructEvent => _inner.EmitStructAsync(evt, ct);
-        public IEventCoordinator OnStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => _inner.OnStruct(handler);
+        public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => _inner.SubscribeStruct(handler);
         public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null) where TEvent : struct, IStructEvent => _inner.SubscribeStruct<TEvent>(options);
         public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null) where TEvent : struct, IStructEvent => _inner.CreateStructEmitter(options);
         public Task RunAsync(CancellationToken ct = default) => _inner.RunAsync(ct);

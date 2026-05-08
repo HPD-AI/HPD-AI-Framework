@@ -52,7 +52,7 @@ public sealed class Agent
     private readonly object _structHandlerLock = new();
     private readonly List<RuntimeStructHandlerSubscription> _structHandlerSubscriptions = new();
     private readonly object _runtimeLock = new();
-    private Channel<AgentEvent>? _runtimeInbox;
+    private Channel<AgentInputEvent>? _runtimeInbox;
     private CancellationTokenSource? _runtimeCts;
     private Task? _runtimeLoopTask;
     private Middleware.AgentRuntimeContext? _runtimeContext;
@@ -620,83 +620,6 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Registers a permanent ordered output handler for the exact event type.
-    /// </summary>
-    public Agent On<TEvent>(Func<TEvent, ValueTask> handler)
-        where TEvent : AgentEvent
-    {
-        _ = Subscribe(handler);
-        return this;
-    }
-
-    /// <summary>
-    /// Registers a permanent ordered output handler for the exact event type.
-    /// </summary>
-    public Agent On<TEvent>(Func<TEvent, Task> handler)
-        where TEvent : AgentEvent
-    {
-        _ = Subscribe(handler);
-        return this;
-    }
-
-    /// <summary>
-    /// Registers a permanent ordered output handler for the exact event type.
-    /// </summary>
-    public Agent On<TEvent>(Action<TEvent> handler)
-        where TEvent : AgentEvent
-    {
-        _ = Subscribe(handler);
-        return this;
-    }
-
-    /// <summary>
-    /// Registers a permanent ordered catch-all output handler.
-    /// </summary>
-    public Agent OnAny(Func<AgentEvent, ValueTask> handler)
-    {
-        _ = SubscribeAny(handler);
-        return this;
-    }
-
-    /// <summary>
-    /// Registers a permanent ordered catch-all output handler.
-    /// </summary>
-    public Agent OnAny(Func<AgentEvent, Task> handler)
-    {
-        _ = SubscribeAny(handler);
-        return this;
-    }
-
-    /// <summary>
-    /// Registers a permanent ordered catch-all output handler.
-    /// </summary>
-    public Agent OnAny(Action<AgentEvent> handler)
-    {
-        _ = SubscribeAny(handler);
-        return this;
-    }
-
-    /// <summary>
-    /// Registers a permanent handler for a process-local struct event type.
-    /// </summary>
-    public Agent OnStruct<TEvent>(Func<TEvent, ValueTask> handler)
-        where TEvent : struct, IStructEvent
-    {
-        _ = SubscribeStruct(handler);
-        return this;
-    }
-
-    /// <summary>
-    /// Registers a permanent handler for a process-local struct event type.
-    /// </summary>
-    public Agent OnStruct<TEvent>(Action<TEvent> handler)
-        where TEvent : struct, IStructEvent
-    {
-        _ = SubscribeStruct(handler);
-        return this;
-    }
-
-    /// <summary>
     /// Validates and migrates middleware state schema when resuming from checkpoint.
     // ── Span ID helpers ───────────────────────────────────────────────────────
 
@@ -901,7 +824,7 @@ public sealed class Agent
 
         CancelActiveRuntimeTurns();
 
-        await HandleOutputEventAsync(interruption, cancellationToken).ConfigureAwait(false);
+        await HandleOutputEventAsync(interruption, CancellationToken.None).ConfigureAwait(false);
     }
 
     private async Task RunTextInputAsync(
@@ -981,7 +904,7 @@ public sealed class Agent
     }
 
     private static bool ShouldEnqueueToRuntime(AgentEvent input) =>
-        input is UserTextInputEvent or UserMessagesInputEvent;
+        input is AgentInputEvent;
 
     private HPD.Events.IEventCoordinator GetActiveEventCoordinator()
     {
@@ -1032,7 +955,7 @@ public sealed class Agent
     }
 
     private async Task RunRuntimeLoopAsync(
-        ChannelReader<AgentEvent> reader,
+        ChannelReader<AgentInputEvent> reader,
         HPD.Events.IEventCoordinator eventCoordinator,
         CancellationToken cancellationToken)
     {
@@ -1057,6 +980,8 @@ public sealed class Agent
                 catch (OperationCanceledException) when (activeTurnCts.IsCancellationRequested)
                 {
                     // The active turn was interrupted; keep the runtime loop alive.
+                    await foreach (var evt in DrainMiddlewareEventsAsync(eventCoordinator, cancellationToken).ConfigureAwait(false))
+                        await HandleOutputEventAsync(evt, CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -1089,7 +1014,7 @@ public sealed class Agent
         Middleware.AgentRuntimeContext runtimeContext;
         HPD.Events.IEventCoordinator runtimeCoordinator;
         CancellationTokenSource runtimeCts;
-        Channel<AgentEvent> runtimeInbox;
+        Channel<AgentInputEvent> runtimeInbox;
 
         lock (_runtimeLock)
         {
@@ -1101,18 +1026,21 @@ public sealed class Agent
             runtimeCts = new CancellationTokenSource();
             runtimeCoordinator = new HPD.Events.Core.EventCoordinator();
             runtimeCoordinator.SetParent(_eventCoordinator);
-            runtimeContext = new Middleware.AgentRuntimeContext(
-                _name,
-                Config ?? throw new InvalidOperationException("Agent configuration is not available."),
-                _serviceProvider,
-                runtimeCoordinator,
-                runtimeCts.Token);
-            runtimeInbox = Channel.CreateUnbounded<AgentEvent>(new UnboundedChannelOptions
+            runtimeInbox = Channel.CreateUnbounded<AgentInputEvent>(new UnboundedChannelOptions
             {
                 SingleReader = true,
                 SingleWriter = false,
                 AllowSynchronousContinuations = false
             });
+            runtimeContext = new Middleware.AgentRuntimeContext(
+                _name,
+                Config ?? throw new InvalidOperationException("Agent configuration is not available."),
+                _serviceProvider,
+                runtimeCoordinator,
+                runtimeInbox.Writer,
+                async (interruption, ct) => await HandleInterruptionAsync(interruption, ct).ConfigureAwait(false),
+                HasActiveRuntimeTurns,
+                runtimeCts.Token);
 
             _runtimeCts = runtimeCts;
             _runtimeEventCoordinator = runtimeCoordinator;
@@ -1208,7 +1136,6 @@ public sealed class Agent
         CancellationToken cancellationToken)
     {
         Task? runtimeTask;
-        Channel<AgentEvent>? runtimeInbox;
         var drainPendingInputs = true;
         TimeSpan? drainTimeout = null;
         Exception? stopError = null;
@@ -1236,10 +1163,10 @@ public sealed class Agent
         lock (_runtimeLock)
         {
             runtimeTask = _runtimeLoopTask;
-            runtimeInbox = _runtimeInbox;
             _runtimeStopping = true;
-            runtimeInbox?.Writer.TryComplete();
         }
+
+        runtimeContext.CompleteInputWriter();
 
         if (!drainPendingInputs)
         {
@@ -1352,6 +1279,14 @@ public sealed class Agent
         }
     }
 
+    private bool HasActiveRuntimeTurns()
+    {
+        lock (_runtimeLock)
+        {
+            return _activeRuntimeTurnCts.Count > 0;
+        }
+    }
+
     private async Task DispatchDrainedRootEventsAsync(CancellationToken cancellationToken)
     {
         try
@@ -1372,9 +1307,15 @@ public sealed class Agent
     {
         ArgumentNullException.ThrowIfNull(input);
 
+        if (input is InterruptionRequestEvent interruption)
+        {
+            await HandleInterruptionAsync(interruption, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         if (ShouldEnqueueToRuntime(input))
         {
-            ChannelWriter<AgentEvent>? runtimeWriter;
+            ChannelWriter<AgentInputEvent>? runtimeWriter;
             bool runtimeTransitioning;
 
             lock (_runtimeLock)
@@ -1389,8 +1330,17 @@ public sealed class Agent
 
             if (runtimeWriter is not null)
             {
-                await runtimeWriter.WriteAsync(input, cancellationToken).ConfigureAwait(false);
-                return;
+                try
+                {
+                    await runtimeWriter.WriteAsync((AgentInputEvent)input, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+                catch (ChannelClosedException ex)
+                {
+                    throw new InvalidOperationException(
+                        "Agent runtime is starting or stopping and cannot accept user input.",
+                        ex);
+                }
             }
 
             if (runtimeTransitioning)

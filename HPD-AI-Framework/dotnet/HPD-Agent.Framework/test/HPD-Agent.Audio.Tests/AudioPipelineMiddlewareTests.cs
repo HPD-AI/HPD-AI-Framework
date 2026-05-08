@@ -1,6 +1,7 @@
 // Copyright (c) 2025 Einstein Essibu. All rights reserved.
 
 using HPD.Agent.Audio;
+using HPD.Agent.Audio.Eot;
 using Xunit;
 
 namespace HPD.Agent.Tests.Audio;
@@ -26,12 +27,8 @@ public class AudioPipelineMiddlewareTests
         // Assert.Equal(0.5f, middleware.VadPrefixPaddingDuration);
         // Assert.Equal(0.5f, middleware.VadActivationThreshold);
 
-        // Assert - Turn detection
-        Assert.Equal(TurnDetectionStrategy.FastPath, middleware.SilenceStrategy);
-        Assert.Equal(TurnDetectionStrategy.OnAmbiguous, middleware.MlStrategy);
-        Assert.Equal(1.5f, middleware.SilenceFastPathThreshold);
-        Assert.Equal(0.3f, middleware.MinEndpointingDelay);
-        Assert.Equal(1.5f, middleware.MaxEndpointingDelay);
+        // Assert - provider roles
+        Assert.Null(middleware.EotDetector);
 
         // Assert - Features
         Assert.True(middleware.EnableQuickAnswer);
@@ -313,11 +310,11 @@ public class AudioPipelineMiddlewareTests
     // Helper Classes
     //
 
-    private class MockTurnDetector : ITurnDetector
+    private class MockEotDetector : IEotDetector
     {
         public float Probability { get; set; } = 0.5f;
 
-        public float GetCompletionProbability(string text) => Probability;
+        public float GetEndOfTurnProbability(string text) => Probability;
         public void Reset() { }
     }
 }

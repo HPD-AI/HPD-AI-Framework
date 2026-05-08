@@ -181,6 +181,11 @@ public sealed class ElevenLabsSpeechToTextClient : ISpeechToTextClient
             return _client;
         }
 
+        if (serviceType == typeof(SpeechToTextClientMetadata))
+        {
+            return new SpeechToTextClientMetadata("elevenlabs", null, _config.SttModelId ?? DefaultModelId);
+        }
+
         if (serviceType.IsInstanceOfType(this))
         {
             return this;

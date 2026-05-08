@@ -348,7 +348,7 @@ public class FunctionRetryMiddlewareTests
         var eventCoordinator = new HPD.Events.Core.EventCoordinator();
         using var eventPumpCts = new CancellationTokenSource();
         var eventPump = eventCoordinator.RunAsync(eventPumpCts.Token);
-        eventCoordinator.On<FunctionRetryEvent>(evt =>
+        eventCoordinator.Subscribe<FunctionRetryEvent>(evt =>
         {
             retryEvents.Add(evt);
             return ValueTask.CompletedTask;

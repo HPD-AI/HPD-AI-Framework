@@ -5,6 +5,7 @@ using System.Text.Json;
 using HPD.Agent.Audio;
 using HPD.Agent.Audio.OpenAI;
 using HPD.Agent.Audio.Tts;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.AudioProviders.OpenAI.Tts;
 

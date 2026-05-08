@@ -13,7 +13,7 @@ namespace HPD.Auth.Audit.Middleware;
 ///
 /// Flow:
 ///   1. Resolve the scoped <see cref="IEventCoordinator"/> for this request.
-///   2. Register an OnAny observer and run the coordinator.
+///   2. Register a SubscribeAny observer and run the coordinator.
 ///   3. Call next (endpoint runs, emitting auth events onto the coordinator), passing each
 ///      <see cref="AuthEvent"/> to <see cref="AuditingAuthObserver"/>.
 ///
@@ -40,7 +40,7 @@ public sealed class AuthEventObserverMiddleware
             return;
         }
 
-        coordinator.OnAny(async evt =>
+        using var eventSubscription = coordinator.SubscribeAny(async evt =>
         {
             if (evt is AuthEvent authEvent && observer.ShouldProcess(authEvent))
             {

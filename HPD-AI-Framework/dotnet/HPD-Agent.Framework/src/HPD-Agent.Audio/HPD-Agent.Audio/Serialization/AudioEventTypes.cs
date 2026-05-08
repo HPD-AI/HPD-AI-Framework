@@ -65,11 +65,11 @@ public static class AudioEventTypes
     }
 
     /// <summary>
-    /// Turn detection events.
+    /// End-of-turn detection events.
     /// </summary>
-    public static class TurnDetection
+    public static class Eot
     {
-        public const string TURN_DETECTED = "TURN_DETECTED";
+        public const string EOT_DETECTED = "EOT_DETECTED";
     }
 
     /// <summary>

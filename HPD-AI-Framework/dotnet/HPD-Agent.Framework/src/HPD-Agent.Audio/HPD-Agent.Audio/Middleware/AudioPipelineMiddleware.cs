@@ -4,8 +4,14 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Channels;
+using HPD.Agent.Audio.Stt;
+using HPD.Agent.Audio.Tts;
+using HPD.Agent.Audio.Vad;
+using HPD.Agent.Audio.Eot;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using HPD.Events;
 
 namespace HPD.Agent.Audio;
@@ -24,38 +30,64 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     /// Middleware-level default configuration.
     /// Per-request overrides via AudioConfig are merged with these defaults.
     /// </summary>
-    private readonly AudioConfig _config = new();
+    private AudioConfig _config = new();
+
+    /// <summary>
+    /// Creates a middleware instance with default audio configuration.
+    /// </summary>
+    public AudioPipelineMiddleware()
+    {
+    }
+
+    /// <summary>
+    /// Creates a middleware instance with the supplied audio configuration as middleware defaults.
+    /// </summary>
+    public AudioPipelineMiddleware(AudioConfig config)
+    {
+        Configure(config);
+    }
+
+    /// <summary>
+    /// Replaces middleware-level default audio configuration.
+    /// </summary>
+    public void Configure(AudioConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        config.Validate();
+        _config = config.Clone();
+    }
 
     //
     // PROCESSING MODE (HOW audio is processed)
     //
 
     /// <summary>How audio is processed internally. Default: Pipeline.</summary>
-    public AudioProcessingMode ProcessingMode { get; set; } = AudioProcessingMode.Pipeline;
+    public AudioProcessingMode ProcessingMode
+    {
+        get => _config.ProcessingMode;
+        set => _config.ProcessingMode = value;
+    }
 
     //
     // I/O MODE (WHAT goes in/out)
     //
 
     /// <summary>What input/output modalities to use. Default: AudioToAudioAndText.</summary>
-    public AudioIOMode IOMode { get; set; } = AudioIOMode.AudioToAudioAndText;
+    public AudioIOMode IOMode
+    {
+        get => _config.IOMode;
+        set => _config.IOMode = value;
+    }
 
     // Derived helpers for checking I/O capabilities
     /// <summary>Whether audio input is expected.</summary>
-    public bool HasAudioInput => IOMode is AudioIOMode.AudioToText
-                                        or AudioIOMode.AudioToAudio
-                                        or AudioIOMode.AudioToAudioAndText;
+    public bool HasAudioInput => HasAudioInputMode(IOMode);
 
     /// <summary>Whether audio output is enabled.</summary>
-    public bool HasAudioOutput => IOMode is AudioIOMode.TextToAudio
-                                         or AudioIOMode.AudioToAudio
-                                         or AudioIOMode.AudioToAudioAndText
-                                         or AudioIOMode.TextToAudioAndText;
+    public bool HasAudioOutput => HasAudioOutputMode(IOMode);
 
     /// <summary>Whether text output is enabled (in addition to or instead of audio).</summary>
-    public bool HasTextOutput => IOMode is AudioIOMode.AudioToText
-                                        or AudioIOMode.AudioToAudioAndText
-                                        or AudioIOMode.TextToAudioAndText;
+    public bool HasTextOutput => HasTextOutputMode(IOMode);
 
     //
     // PROVIDERS (injected)
@@ -70,47 +102,8 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     /// <summary>Voice activity detector (optional, for fast interruption).</summary>
     public IVoiceActivityDetector? Vad { get; set; }
 
-    /// <summary>Turn detector (optional, for end-of-speech detection).</summary>
-    public ITurnDetector? TurnDetector { get; set; }
-
-    //
-    // TURN DETECTION CONFIGURATION (delegates to AudioConfig)
-    //
-
-    /// <summary>Turn detection strategy for silence. Default: FastPath.</summary>
-    public TurnDetectionStrategy SilenceStrategy
-    {
-        get => _config.SilenceStrategy ?? TurnDetectionStrategy.FastPath;
-        set => _config.SilenceStrategy = value;
-    }
-
-    /// <summary>Turn detection strategy for ML. Default: OnAmbiguous.</summary>
-    public TurnDetectionStrategy MlStrategy
-    {
-        get => _config.MlStrategy ?? TurnDetectionStrategy.OnAmbiguous;
-        set => _config.MlStrategy = value;
-    }
-
-    /// <summary>Silence threshold for fast-path rejection. Default: 1.5s.</summary>
-    public float SilenceFastPathThreshold
-    {
-        get => _config.SilenceFastPathThreshold ?? 1.5f;
-        set => _config.SilenceFastPathThreshold = value;
-    }
-
-    /// <summary>Min endpointing delay when ML is confident. Default: 0.3s.</summary>
-    public float MinEndpointingDelay
-    {
-        get => _config.MinEndpointingDelay ?? 0.3f;
-        set => _config.MinEndpointingDelay = value;
-    }
-
-    /// <summary>Max endpointing delay when ML is uncertain. Default: 1.5s.</summary>
-    public float MaxEndpointingDelay
-    {
-        get => _config.MaxEndpointingDelay ?? 1.5f;
-        set => _config.MaxEndpointingDelay = value;
-    }
+    /// <summary>End-of-turn detector.</summary>
+    public IEotDetector? EotDetector { get; set; }
 
     //
     // QUICK ANSWER (delegates to AudioPipelineConfig)
@@ -136,6 +129,8 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
     private float _currentWpm = 150f; // Internal state
     private TurnMetrics? _turnMetrics; // Metrics for current turn
+    private readonly object _runtimeInputLock = new();
+    private readonly Dictionary<AudioInputKey, AudioInputBuffer> _runtimeInputBuffers = new();
 
     // FALSE INTERRUPTION RECOVERY STATE
     private PausedSynthesisState? _pausedSynthesis;
@@ -267,14 +262,14 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     // PREEMPTIVE GENERATION (delegates to AudioPipelineConfig)
     //
 
-    /// <summary>Start LLM inference before turn is confirmed. Reduces latency but uses more compute. Default: false. ( )</summary>
+    /// <summary>Start LLM inference before EOT is confirmed. Reduces latency but uses more compute. Default: false.</summary>
     public bool EnablePreemptiveGeneration
     {
         get => _config.EnablePreemptiveGeneration ?? false;
         set => _config.EnablePreemptiveGeneration = value;
     }
 
-    /// <summary>Minimum turn completion probability to trigger preemptive generation. Default: 0.7. ( )</summary>
+    /// <summary>Minimum EOT probability to trigger preemptive generation. Default: 0.7.</summary>
     public float PreemptiveGenerationThreshold
     {
         get => _config.PreemptiveGenerationThreshold ?? 0.7f;
@@ -335,21 +330,528 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
     /// <summary>
     /// Gets the effective configuration by merging per-request overrides with middleware defaults.
-    /// Per-request values from AudioConfig take precedence over middleware defaults.
     /// </summary>
-    private AudioConfig GetEffectiveConfig(AudioConfig? audioOptions)
-    {
-        // If no per-request overrides, return middleware defaults
-        if (audioOptions == null)
-            return _config;
+    private AudioConfig GetEffectiveConfig(object? audioOptions) =>
+        audioOptions switch
+        {
+            AudioRunConfig runOptions => GetEffectiveConfig(runOptions),
+            AudioConfig config => _config.MergeWith(config),
+            _ => _config.Clone()
+        };
 
-        // Merge per-request overrides with middleware defaults
-        return _config.MergeWith(audioOptions);
+    private AudioConfig GetEffectiveConfig(AudioRunConfig runOptions)
+    {
+        runOptions.Validate();
+
+        var effective = _config.Clone();
+        if (runOptions.ProcessingMode.HasValue)
+            effective.ProcessingMode = runOptions.ProcessingMode.Value;
+
+        if (runOptions.IOMode.HasValue)
+            effective.IOMode = runOptions.IOMode.Value;
+
+        effective.Language = runOptions.Language ?? effective.Language;
+        effective.Disabled = runOptions.Disabled ?? effective.Disabled;
+
+        var runTts = AudioConfig.CloneTts(runOptions.Tts);
+        if (runOptions.Voice != null || runOptions.TtsModel != null || runOptions.TtsSpeed != null)
+        {
+            runTts ??= new TtsConfig();
+            runTts.Voice ??= runOptions.Voice;
+            runTts.ModelId ??= runOptions.TtsModel;
+            if (runOptions.TtsSpeed.HasValue)
+                runTts.Speed ??= runOptions.TtsSpeed.Value;
+        }
+
+        effective.Tts = MergeTts(effective.Tts, runTts);
+        effective.Stt = MergeStt(effective.Stt, runOptions.Stt);
+        effective.Vad = runOptions.Vad ?? effective.Vad;
+
+        return effective;
+    }
+
+    private static TtsConfig? MergeTts(TtsConfig? defaults, TtsConfig? overrides)
+    {
+        if (overrides == null)
+            return defaults;
+
+        defaults = AudioConfig.CloneTts(defaults) ?? new TtsConfig();
+        defaults.Voice = overrides.Voice ?? defaults.Voice;
+        defaults.Speed = overrides.Speed ?? defaults.Speed;
+        defaults.Pitch = overrides.Pitch ?? defaults.Pitch;
+        defaults.Volume = overrides.Volume ?? defaults.Volume;
+        defaults.OutputFormat = overrides.OutputFormat ?? defaults.OutputFormat;
+        defaults.SampleRate = overrides.SampleRate ?? defaults.SampleRate;
+        defaults.ModelId = overrides.ModelId ?? defaults.ModelId;
+        defaults.Language = overrides.Language ?? defaults.Language;
+        defaults.Provider = string.IsNullOrWhiteSpace(overrides.Provider) ? defaults.Provider : overrides.Provider;
+        defaults.ProviderOptionsJson = overrides.ProviderOptionsJson ?? defaults.ProviderOptionsJson;
+        defaults.AdditionalProperties = MergeAdditionalProperties(defaults.AdditionalProperties, overrides.AdditionalProperties);
+        return defaults;
+    }
+
+    private static SttConfig? MergeStt(SttConfig? defaults, SttConfig? overrides)
+    {
+        if (overrides == null)
+            return defaults;
+
+        defaults = AudioConfig.CloneStt(defaults) ?? new SttConfig();
+        defaults.Language = overrides.Language ?? defaults.Language;
+        defaults.SpeechSampleRate = overrides.SpeechSampleRate ?? defaults.SpeechSampleRate;
+        defaults.TextLanguage = overrides.TextLanguage ?? defaults.TextLanguage;
+        defaults.ModelId = overrides.ModelId ?? defaults.ModelId;
+        defaults.Temperature = overrides.Temperature ?? defaults.Temperature;
+        defaults.ResponseFormat = overrides.ResponseFormat ?? defaults.ResponseFormat;
+        defaults.Provider = string.IsNullOrWhiteSpace(overrides.Provider) ? defaults.Provider : overrides.Provider;
+        defaults.ProviderOptionsJson = overrides.ProviderOptionsJson ?? defaults.ProviderOptionsJson;
+        defaults.AdditionalProperties = MergeAdditionalProperties(defaults.AdditionalProperties, overrides.AdditionalProperties);
+        return defaults;
+    }
+
+    private static Dictionary<string, object>? MergeAdditionalProperties(
+        Dictionary<string, object>? defaults,
+        Dictionary<string, object>? overrides)
+    {
+        if (defaults == null && overrides == null)
+            return null;
+
+        var merged = defaults == null
+            ? new Dictionary<string, object>()
+            : new Dictionary<string, object>(defaults);
+
+        if (overrides != null)
+        {
+            foreach (var entry in overrides)
+                merged[entry.Key] = entry.Value;
+        }
+
+        return merged;
+    }
+
+    private static bool HasAudioInputMode(AudioIOMode mode) =>
+        mode is AudioIOMode.AudioToText
+            or AudioIOMode.AudioToAudio
+            or AudioIOMode.AudioToAudioAndText;
+
+    private static bool HasAudioOutputMode(AudioIOMode mode) =>
+        mode is AudioIOMode.TextToAudio
+            or AudioIOMode.AudioToAudio
+            or AudioIOMode.AudioToAudioAndText
+            or AudioIOMode.TextToAudioAndText;
+
+    private static bool HasTextOutputMode(AudioIOMode mode) =>
+        mode is AudioIOMode.AudioToText
+            or AudioIOMode.AudioToAudioAndText
+            or AudioIOMode.TextToAudioAndText;
+
+    private static ISpeechToTextClient WrapSpeechToTextClient(
+        ISpeechToTextClient client,
+        AudioConfig config,
+        IServiceProvider? services)
+    {
+        var diagnostics = config.Diagnostics;
+        if (diagnostics is not { EnableLogging: true } &&
+            diagnostics is not { EnableOpenTelemetry: true })
+        {
+            return client;
+        }
+
+        var builder = client.AsBuilder();
+
+        if (diagnostics.EnableLogging &&
+            services?.GetService(typeof(ILoggerFactory)) is ILoggerFactory loggerFactory)
+        {
+            builder.UseLogging(loggerFactory);
+        }
+
+        if (diagnostics.EnableOpenTelemetry)
+        {
+            builder.UseOpenTelemetry(
+                services?.GetService(typeof(ILoggerFactory)) as ILoggerFactory,
+                diagnostics.SourceName,
+                c => c.EnableSensitiveData = diagnostics.CaptureSensitiveTelemetry);
+        }
+
+        return builder.Build(services);
+    }
+
+    private static ITextToSpeechClient WrapTextToSpeechClient(
+        ITextToSpeechClient client,
+        AudioConfig config,
+        IServiceProvider? services)
+    {
+        var diagnostics = config.Diagnostics;
+        if (diagnostics is not { EnableLogging: true } &&
+            diagnostics is not { EnableOpenTelemetry: true })
+        {
+            return client;
+        }
+
+        var builder = client.AsBuilder();
+
+        if (diagnostics.EnableLogging &&
+            services?.GetService(typeof(ILoggerFactory)) is ILoggerFactory loggerFactory)
+        {
+            builder.UseLogging(loggerFactory);
+        }
+
+        if (diagnostics.EnableOpenTelemetry)
+        {
+            builder.UseOpenTelemetry(
+                services?.GetService(typeof(ILoggerFactory)) as ILoggerFactory,
+                diagnostics.SourceName,
+                c => c.EnableSensitiveData = diagnostics.CaptureSensitiveTelemetry);
+        }
+
+        return builder.Build(services);
+    }
+
+    private static void ApplyGlobalLanguage(AudioConfig effectiveConfig)
+    {
+        if (string.IsNullOrWhiteSpace(effectiveConfig.Language))
+            return;
+
+        if (effectiveConfig.Stt != null)
+            effectiveConfig.Stt.Language ??= effectiveConfig.Language;
+
+        if (effectiveConfig.Tts != null)
+            effectiveConfig.Tts.Language ??= effectiveConfig.Language;
+    }
+
+    private void EnsureRuntimeProviders(AudioConfig effectiveConfig, IServiceProvider? services)
+    {
+        var hasAudioInput = HasAudioInputMode(effectiveConfig.IOMode);
+        var hasAudioOutput = HasAudioOutputMode(effectiveConfig.IOMode);
+
+        if (SpeechToTextClient == null &&
+            effectiveConfig.Stt != null &&
+            !string.IsNullOrWhiteSpace(effectiveConfig.Stt.Provider) &&
+            hasAudioInput)
+        {
+            try
+            {
+                var sttFactory = Stt.SttProviderDiscovery.GetFactory(effectiveConfig.Stt.Provider);
+                SpeechToTextClient = WrapSpeechToTextClient(
+                    sttFactory.CreateClient(effectiveConfig.Stt, services),
+                    effectiveConfig,
+                    services);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to create STT client: {ex.Message}");
+            }
+        }
+
+        if (TextToSpeechClient == null &&
+            effectiveConfig.Tts != null &&
+            !string.IsNullOrWhiteSpace(effectiveConfig.Tts.Provider) &&
+            hasAudioOutput)
+        {
+            try
+            {
+                var ttsFactory = Tts.TtsProviderDiscovery.GetFactory(effectiveConfig.Tts.Provider);
+                TextToSpeechClient = WrapTextToSpeechClient(
+                    ttsFactory.CreateClient(effectiveConfig.Tts, services),
+                    effectiveConfig,
+                    services);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to create TTS client: {ex.Message}");
+            }
+        }
+
+        if (Vad == null && effectiveConfig.Vad != null && hasAudioInput)
+        {
+            try
+            {
+                var vadFactory = Audio.Vad.VadProviderDiscovery.GetFactory(effectiveConfig.Vad.Provider);
+                Vad = vadFactory.CreateDetector(effectiveConfig.Vad, services);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to create VAD: {ex.Message}");
+            }
+        }
+
+        if (EotDetector == null && effectiveConfig.Eot != null && hasAudioInput)
+        {
+            try
+            {
+                var eotFactory = EotProviderDiscovery.GetFactory(effectiveConfig.Eot.Provider);
+                EotDetector = eotFactory.CreateDetector(effectiveConfig.Eot, services);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to create EOT detector: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task RunAudioInputLoopAsync(
+        RuntimeHookContext context,
+        ChannelReader<AudioInputFrame> frames,
+        AudioConfig effectiveConfig,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var frame in frames.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (frame.Audio.IsEmpty && !frame.IsFinal)
+                    continue;
+
+                AudioInputBuffer? completedBuffer = null;
+                var shouldInterrupt = false;
+                var timestamp = TimeSpan.FromTicks(frame.TimestampNs / 100);
+                lock (_runtimeInputLock)
+                {
+                    var key = new AudioInputKey(frame.SessionId, frame.BranchId);
+                    if (!_runtimeInputBuffers.TryGetValue(key, out var buffer))
+                    {
+                        buffer = new AudioInputBuffer(frame.SessionId, frame.BranchId, frame.MimeType);
+                        _runtimeInputBuffers[key] = buffer;
+                    }
+
+                    if (!frame.Audio.IsEmpty)
+                    {
+                        buffer.Append(frame.Audio);
+                        var vadResult = ProcessVadFrame(frame, timestamp);
+                        if (vadResult.HasValue)
+                            shouldInterrupt = ObserveVadResult(context, buffer, timestamp, vadResult.Value);
+                    }
+
+                    if (frame.IsFinal)
+                        buffer.MarkFinalFrame();
+
+                    if (frame.IsFinal || buffer.ShouldCommitFromVad)
+                    {
+                        completedBuffer = buffer;
+                        _runtimeInputBuffers.Remove(key);
+                    }
+                }
+
+                if (shouldInterrupt)
+                    await InterruptForVadStartAsync(context, cancellationToken).ConfigureAwait(false);
+
+                if (completedBuffer != null)
+                    await CommitAudioInputAsync(
+                            context,
+                            completedBuffer,
+                            effectiveConfig,
+                            completedBuffer.CommitReason,
+                            completedBuffer.LastSilenceDuration,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private VadResult? ProcessVadFrame(AudioInputFrame frame, TimeSpan timestamp)
+    {
+        if (Vad == null || frame.Audio.IsEmpty)
+            return null;
+
+        try
+        {
+            return Vad.Process(new AudioFrame
+            {
+                Data = frame.Audio,
+                SampleRate = 16000,
+                Channels = 1,
+                Timestamp = timestamp,
+                Duration = TimeSpan.Zero
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"VAD processing failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static bool ObserveVadResult(
+        RuntimeHookContext context,
+        AudioInputBuffer buffer,
+        TimeSpan timestamp,
+        VadResult result)
+    {
+        var speechStarted = false;
+
+        if ((result.State == VadState.Starting || result.State == VadState.Speaking) &&
+            !buffer.IsSpeaking)
+        {
+            buffer.MarkSpeechStarted(timestamp);
+            speechStarted = true;
+            context.Emit(new VadStartOfSpeechEvent(timestamp, result.SpeechProbability)
+            {
+                Channel = EventChannel.Streaming
+            });
+        }
+
+        if (buffer.IsSpeaking &&
+            (result.State == VadState.Stopping || (!result.IsSpeaking && result.State == VadState.Quiet)))
+        {
+            buffer.MarkSpeechEnded(timestamp);
+            context.Emit(new VadEndOfSpeechEvent(
+                timestamp,
+                buffer.SpeechDuration,
+                result.SpeechProbability)
+            {
+                Channel = EventChannel.Streaming
+            });
+        }
+
+        return speechStarted;
+    }
+
+    private async ValueTask InterruptForVadStartAsync(
+        RuntimeHookContext context,
+        CancellationToken cancellationToken)
+    {
+        if (!context.HasActiveRuntimeTurns &&
+            !context.Streams.ActiveStreams.Any(static stream => !stream.IsInterrupted))
+        {
+            return;
+        }
+
+        context.Emit(new UserInterruptedEvent(null)
+        {
+            Channel = EventChannel.Control
+        });
+
+        await context.RunAsync(new InterruptionRequestEvent(
+            StreamId: null,
+            Reason: "vad_start_of_speech",
+            Source: InterruptionSource.User), cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task CommitAudioInputAsync(
+        RuntimeHookContext context,
+        AudioInputBuffer buffer,
+        AudioConfig effectiveConfig,
+        string detectionMethod,
+        TimeSpan silenceDuration,
+        CancellationToken cancellationToken)
+    {
+        if (SpeechToTextClient == null || buffer.Length == 0)
+            return;
+
+        var transcriptionId = Guid.NewGuid().ToString("N")[..8];
+        var startedAt = DateTime.UtcNow;
+
+        context.Emit(new TranscriptionDeltaEvent(transcriptionId, "", false, null)
+        {
+            Channel = EventChannel.Streaming
+        });
+
+        string? transcript;
+        try
+        {
+            transcript = await TranscribeAudioAsync(
+                new DataContent(buffer.ToArray(), buffer.MimeType),
+                effectiveConfig.Stt,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            context.Emit(new AudioPipelineMetricsEvent("error", "runtime_stt_error", 1, "count")
+            {
+                Channel = EventChannel.Streaming
+            });
+            System.Diagnostics.Debug.WriteLine($"Runtime STT error: {ex.Message}");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(transcript))
+            return;
+
+        var sttDuration = DateTime.UtcNow - startedAt;
+        context.Emit(new TranscriptionDeltaEvent(transcriptionId, transcript, true, null)
+        {
+            Channel = EventChannel.Streaming
+        });
+        context.Emit(new TranscriptionCompletedEvent(transcriptionId, transcript, sttDuration)
+        {
+            Channel = EventChannel.Synchronous
+        });
+
+        var eotProbability = EotDetector?.GetEndOfTurnProbability(transcript) ?? 1.0f;
+        var eotConfig = effectiveConfig.Eot ?? new EotConfig();
+        var shouldCommit = detectionMethod == AudioInputBuffer.FinalFrameCommitReason ||
+            eotConfig.DetectorStrategy == EotDetectionStrategy.Disabled ||
+            EotDetector == null ||
+            eotProbability >= eotConfig.SilenceBoostMultiplier ||
+            CalculateEndpointingDelay(transcript, (float)silenceDuration.TotalSeconds, eotConfig) <= eotConfig.MinEndpointingDelay;
+
+        if (!shouldCommit)
+            return;
+
+        context.Emit(new EotDetectedEvent(transcript, eotProbability, silenceDuration, detectionMethod)
+        {
+            Channel = EventChannel.Synchronous
+        });
+
+        try
+        {
+            await context.RunAsync(new UserTextInputEvent(transcript)
+            {
+                SessionId = buffer.SessionId,
+                BranchId = buffer.BranchId
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Runtime input commit skipped: {ex.Message}");
+        }
     }
 
     //
     // MIDDLEWARE HOOKS
     //
+
+    /// <summary>
+    /// Creates runtime audio infrastructure and starts the live input loop.
+    /// </summary>
+    public Task BeforeStartAsync(BeforeStartContext context, CancellationToken cancellationToken)
+    {
+        var effectiveConfig = GetEffectiveConfig((object?)null);
+        effectiveConfig.Validate();
+
+        ApplyGlobalLanguage(effectiveConfig);
+
+        if (effectiveConfig.Disabled == true ||
+            effectiveConfig.ProcessingMode == AudioProcessingMode.Native ||
+            !HasAudioInputMode(effectiveConfig.IOMode))
+        {
+            return Task.CompletedTask;
+        }
+
+        EnsureRuntimeProviders(effectiveConfig, context.Services);
+
+        var subscription = context.EventCoordinator.SubscribeStruct<AudioInputFrame>();
+        context.RegisterAsyncDisposable(subscription);
+        context.RegisterBackgroundTask(runtimeToken =>
+            RunAudioInputLoopAsync(context, subscription.Reader, effectiveConfig, runtimeToken));
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Stops accepting buffered runtime audio input.
+    /// </summary>
+    public Task BeforeStopAsync(BeforeStopContext context, CancellationToken cancellationToken)
+    {
+        lock (_runtimeInputLock)
+        {
+            _runtimeInputBuffers.Clear();
+        }
+
+        return Task.CompletedTask;
+    }
 
     /// <summary>
     /// Processes audio input before LLM call (STT conversion).
@@ -358,19 +860,12 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     /// </summary>
     public async Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken cancellationToken)
     {
-        // Support both AudioRunConfig (new slim API) and AudioConfig (legacy full API)
-        AudioConfig? audioOptions = context.RunConfig?.Audio switch
-        {
-            AudioRunConfig runOpts => runOpts.ToFullConfig(),
-            AudioConfig cfg => cfg,
-            _ => null
-        };
-
-        // Merge run-time overrides with middleware defaults
-        var effectiveConfig = GetEffectiveConfig(audioOptions);
+        var effectiveConfig = GetEffectiveConfig(context.RunConfig?.Audio);
 
         // Validate merged configuration
         effectiveConfig.Validate();
+
+        ApplyGlobalLanguage(effectiveConfig);
 
         // Check if audio processing is disabled
         if (effectiveConfig.Disabled == true)
@@ -378,52 +873,15 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
         // Native mode: the model handles audio I/O directly — skip STT entirely.
         // Audio content is left in the messages for the model to process natively.
-        if (ProcessingMode == AudioProcessingMode.Native)
+        if (effectiveConfig.ProcessingMode == AudioProcessingMode.Native)
             return;
 
-        // Create clients from role-based configuration if not already injected
-        // This implements the V3 role-based discovery pattern
-        if (SpeechToTextClient == null && effectiveConfig.Stt != null && HasAudioInput)
-        {
-            try
-            {
-                var sttFactory = Stt.SttProviderDiscovery.GetFactory(effectiveConfig.Stt.Provider);
-                SpeechToTextClient = sttFactory.CreateClient(effectiveConfig.Stt, context.Services);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Failed to create STT client: {ex.Message}");
-            }
-        }
-
-        if (TextToSpeechClient == null && effectiveConfig.Tts != null && HasAudioOutput)
-        {
-            try
-            {
-                var ttsFactory = Tts.TtsProviderDiscovery.GetFactory(effectiveConfig.Tts.Provider);
-                TextToSpeechClient = ttsFactory.CreateClient(effectiveConfig.Tts, context.Services);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Failed to create TTS client: {ex.Message}");
-            }
-        }
-
-        if (Vad == null && effectiveConfig.Vad != null && HasAudioInput)
-        {
-            try
-            {
-                var vadFactory = Audio.Vad.VadProviderDiscovery.GetFactory(effectiveConfig.Vad.Provider);
-                Vad = vadFactory.CreateDetector(effectiveConfig.Vad, context.Services);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Failed to create VAD: {ex.Message}");
-            }
-        }
+        var hasAudioInput = HasAudioInputMode(effectiveConfig.IOMode);
+        var hasAudioOutput = HasAudioOutputMode(effectiveConfig.IOMode);
+        EnsureRuntimeProviders(effectiveConfig, context.Services);
 
         // Check if audio input processing is needed
-        if (!HasAudioInput || SpeechToTextClient == null)
+        if (!hasAudioInput || SpeechToTextClient == null)
             return;
 
         if (context.Messages == null || context.Messages.Count == 0)
@@ -488,7 +946,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             if (resolved == null) continue;
             try
             {
-                var transcription = await TranscribeAudioAsync(resolved, cancellationToken);
+                var transcription = await TranscribeAudioAsync(resolved, effectiveConfig.Stt, cancellationToken);
                 if (!string.IsNullOrWhiteSpace(transcription))
                 {
                     transcriptions.Add(transcription);
@@ -554,7 +1012,10 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         }
     }
 
-    private async Task<string?> TranscribeAudioAsync(DataContent audioContent, CancellationToken cancellationToken)
+    private async Task<string?> TranscribeAudioAsync(
+        DataContent audioContent,
+        SttConfig? sttConfig,
+        CancellationToken cancellationToken)
     {
         if (SpeechToTextClient == null)
             return null;
@@ -565,7 +1026,10 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
         using var stream = new MemoryStream(audioData.ToArray());
 
-        var result = await SpeechToTextClient.GetTextAsync(stream, cancellationToken: cancellationToken);
+        var result = await SpeechToTextClient.GetTextAsync(
+            stream,
+            sttConfig?.ToOptions(),
+            cancellationToken);
 
         return result.Text;
     }
@@ -589,27 +1053,33 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> handler,
         [EnumeratorCancellation] CancellationToken ct)
     {
-        // Resolve audio options from request
-        var audioOptions = request.RunConfig?.Audio as AudioConfig;
+        var effectiveConfig = GetEffectiveConfig(request.RunConfig?.Audio);
+        effectiveConfig.Validate();
+
+        if (!string.IsNullOrWhiteSpace(effectiveConfig.Language) && effectiveConfig.Tts != null)
+            effectiveConfig.Tts.Language ??= effectiveConfig.Language;
 
         // Check if audio is disabled for this request
-        if (audioOptions?.Disabled == true)
+        if (effectiveConfig.Disabled == true)
             return null;
 
         // Native mode: model outputs audio directly — scan the response stream for
         // DataContent with audio/* MIME and emit AudioChunkEvents; skip TTS entirely.
-        if (ProcessingMode == AudioProcessingMode.Native && HasAudioOutput)
-            return StreamNativeAudioAsync(request, handler, ct);
+        if (effectiveConfig.ProcessingMode == AudioProcessingMode.Native &&
+            HasAudioOutputMode(effectiveConfig.IOMode))
+        {
+            return StreamNativeAudioAsync(request, handler, effectiveConfig, ct);
+        }
 
         // Pipeline mode: synthesize audio from text via TTS
-        if (TextToSpeechClient == null || !HasAudioOutput)
+        if (TextToSpeechClient == null || !HasAudioOutputMode(effectiveConfig.IOMode))
         {
             // Return null to pass through without interception
             return null;
         }
 
         // Delegate to implementation method
-        return StreamWithTtsAsync(request, handler, ct);
+        return StreamWithTtsAsync(request, handler, effectiveConfig, ct);
     }
 
     /// <summary>
@@ -618,10 +1088,9 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     private async IAsyncEnumerable<ChatResponseUpdate> StreamWithTtsAsync(
         ModelRequest request,
         Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> handler,
+        AudioConfig effectiveConfig,
         [EnumeratorCancellation] CancellationToken ct)
     {
-        var audioOptions = request.RunConfig?.Audio as AudioConfig;
-
         // Create stream handle for interruption support (from Priority Streaming)
         var stream = request.Streams?.Create();
         var sentenceBuffer = new StringBuilder();
@@ -629,10 +1098,15 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         var synthesisState = new SynthesisState();
 
         // Resolve TTS settings (per-request overrides > middleware defaults)
-        var voice = audioOptions?.Tts?.Voice ?? DefaultVoice;
-        var model = audioOptions?.Tts?.ModelId ?? DefaultModel;
-        var speed = audioOptions?.Tts?.Speed;
-        var outputFormat = DefaultOutputFormat ?? "audio/mpeg";
+        var ttsOptions = effectiveConfig.Tts?.ToOptions() ?? new TextToSpeechOptions();
+        if (!string.IsNullOrWhiteSpace(effectiveConfig.Language))
+        {
+            ttsOptions.Language ??= effectiveConfig.Language;
+        }
+
+        var voice = ttsOptions.VoiceId;
+        var model = ttsOptions.ModelId;
+        var outputFormat = ttsOptions.AudioFormat ?? "audio/mpeg";
 
         // Initialize metrics if not already set by BeforeIterationAsync
         _turnMetrics ??= new TurnMetrics { TurnStartTime = DateTime.UtcNow };
@@ -657,18 +1131,18 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                 _fillerCts?.Cancel();
                 // Extract text from update
                 var text = ExtractText(update);
-                if (text != null && EnableQuickAnswer)
+                if (text != null && (effectiveConfig.EnableQuickAnswer ?? true))
                 {
                     sentenceBuffer.Append(text);
 
                     // Quick Answer: synthesize on sentence boundary
                     if (IsSentenceBoundary(sentenceBuffer.ToString()))
                     {
-                        var textToSynthesize = FilterTextForTts(sentenceBuffer.ToString());
+                        var textToSynthesize = FilterTextForTts(sentenceBuffer.ToString(), effectiveConfig);
                         if (!string.IsNullOrWhiteSpace(textToSynthesize))
                         {
                             await foreach (var chunk in SynthesizeAndEmitAsync(
-                                request.EventCoordinator, textToSynthesize, stream, synthesisId, voice, model, speed, synthesisState, ct))
+                                request.EventCoordinator, textToSynthesize, stream, synthesisId, ttsOptions, synthesisState, ct))
                             {
                                 // Track time to first audio
                                 firstAudioTime ??= DateTime.UtcNow;
@@ -684,11 +1158,11 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             // Flush remaining text
             if (sentenceBuffer.Length > 0)
             {
-                var textToSynthesize = FilterTextForTts(sentenceBuffer.ToString());
+                var textToSynthesize = FilterTextForTts(sentenceBuffer.ToString(), effectiveConfig);
                 if (!string.IsNullOrWhiteSpace(textToSynthesize))
                 {
                     await foreach (var chunk in SynthesizeAndEmitAsync(
-                        request.EventCoordinator, textToSynthesize, stream, synthesisId, voice, model, speed, synthesisState, ct))
+                        request.EventCoordinator, textToSynthesize, stream, synthesisId, ttsOptions, synthesisState, ct))
                     {
                         // Track time to first audio
                         firstAudioTime ??= DateTime.UtcNow;
@@ -773,12 +1247,13 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     private async IAsyncEnumerable<ChatResponseUpdate> StreamNativeAudioAsync(
         ModelRequest request,
         Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> handler,
+        AudioConfig effectiveConfig,
         [EnumeratorCancellation] CancellationToken ct)
     {
         var stream = request.Streams?.Create();
         var synthesisId = Guid.NewGuid().ToString("N")[..8];
         var synthesisState = new SynthesisState();
-        var outputFormat = DefaultOutputFormat ?? "audio/pcm";
+        var outputFormat = effectiveConfig.Tts?.OutputFormat ?? "audio/pcm";
         var audioFrameEmitter = CreateAudioChunkFrameEmitter(request.EventCoordinator);
 
         _turnMetrics ??= new TurnMetrics { TurnStartTime = DateTime.UtcNow };
@@ -1128,34 +1603,41 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     }
 
     //
-    // TURN DETECTION (hybrid strategy)
+    // END-OF-TURN DETECTION (hybrid strategy)
     //
 
     internal float CalculateEndpointingDelay(string text, float silenceDuration)
+        => CalculateEndpointingDelay(text, silenceDuration, _config.Eot ?? new EotConfig());
+
+    internal float CalculateEndpointingDelay(string text, float silenceDuration, EotConfig eot)
     {
         // Fast path: long silence = definitely done (no ML needed)
-        if (SilenceStrategy == TurnDetectionStrategy.FastPath &&
-            silenceDuration >= SilenceFastPathThreshold)
+        if (eot.SilenceStrategy == EotDetectionStrategy.FastPath &&
+            silenceDuration >= eot.SilenceFastPathThreshold)
         {
             return 0; // Respond immediately
         }
 
-        // ML path: get completion probability
-        float mlProbability = 0.5f;
-        if (TurnDetector != null && MlStrategy != TurnDetectionStrategy.Disabled)
+        // Detector path: get completion probability
+        float detectorProbability = 0.5f;
+        if (EotDetector != null && eot.DetectorStrategy != EotDetectionStrategy.Disabled)
         {
-            mlProbability = TurnDetector.GetCompletionProbability(text);
+            detectorProbability = EotDetector.GetEndOfTurnProbability(text);
         }
 
-        // Combine ML probability with silence duration
+        // Combine detector probability with silence duration
         // Longer silence → boost probability confidence
-        float silenceBoost = Math.Min(silenceDuration / SilenceFastPathThreshold, 1.0f);
-        float combinedProbability = Math.Max(mlProbability, silenceBoost * 0.7f);
+        float silenceBoost = eot.SilenceFastPathThreshold <= 0
+            ? 1.0f
+            : Math.Min(silenceDuration / eot.SilenceFastPathThreshold, 1.0f);
+        float combinedProbability = eot.UseCombinedProbability
+            ? Math.Max(detectorProbability, silenceBoost * eot.SilenceBoostMultiplier)
+            : detectorProbability;
 
         // Interpolate delay based on combined probability
         var baseDelay = combinedProbability > 0.7f
-            ? MinEndpointingDelay
-            : MaxEndpointingDelay - (combinedProbability * (MaxEndpointingDelay - MinEndpointingDelay));
+            ? eot.MinEndpointingDelay
+            : eot.MaxEndpointingDelay - (combinedProbability * (eot.MaxEndpointingDelay - eot.MinEndpointingDelay));
 
         return AdjustEndpointingDelay(baseDelay);
     }
@@ -1165,26 +1647,29 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     //
 
     internal string FilterTextForTts(string text)
+        => FilterTextForTts(text, _config);
+
+    private static string FilterTextForTts(string text, AudioConfig config)
     {
-        if (!EnableTextFiltering)
+        if (config.EnableTextFiltering == false)
             return text;
 
         var filtered = text;
 
         // Remove code blocks
-        if (FilterCodeBlocks)
+        if (config.FilterCodeBlocks ?? true)
         {
             filtered = CodeBlockRegex().Replace(filtered, " [code omitted] ");
         }
 
         // Remove tables
-        if (FilterTables)
+        if (config.FilterTables ?? true)
         {
             filtered = TableRegex().Replace(filtered, " [table omitted] ");
         }
 
         // Remove URLs (keep domain for context)
-        if (FilterUrls)
+        if (config.FilterUrls ?? true)
         {
             filtered = UrlRegex().Replace(filtered, m =>
             {
@@ -1201,7 +1686,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         }
 
         // Remove markdown formatting
-        if (FilterMarkdownFormatting)
+        if (config.FilterMarkdownFormatting ?? true)
         {
             // Bold
             filtered = BoldRegex().Replace(filtered, "$1");
@@ -1216,7 +1701,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         }
 
         // Remove emoji
-        if (FilterEmoji)
+        if (config.FilterEmoji ?? true)
         {
             filtered = EmojiRegex().Replace(filtered, "");
         }
@@ -1246,22 +1731,23 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         {
             try
             {
-                var response = await TextToSpeechClient.GetSpeechAsync(
+                var response = await TextToSpeechClient.GetAudioAsync(
                     phrase,
                     new TextToSpeechOptions
                     {
-                        Voice = _config.FillerVoice ?? DefaultVoice,
+                        VoiceId = _config.FillerVoice ?? DefaultVoice,
                         ModelId = DefaultModel,
                         Speed = _config.FillerSpeed ?? 0.95f
                     },
                     ct);
 
+                var audio = ExtractAudioData(response.Contents);
                 _cachedFillers.Add(new CachedFillerAudio
                 {
                     Phrase = phrase,
-                    AudioData = response.Audio?.Data.ToArray() ?? [],
-                    MimeType = response.Audio?.MediaType ?? "audio/mpeg",
-                    Duration = response.Duration ?? TimeSpan.Zero
+                    AudioData = audio?.Data.ToArray() ?? [],
+                    MimeType = audio?.MediaType ?? "audio/mpeg",
+                    Duration = TimeSpan.Zero
                 });
             }
             catch (Exception ex)
@@ -1346,30 +1832,19 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         string text,
         IStreamHandle? stream,
         string synthesisId,
-        string? voice,
-        string? model,
-        float? speed,
+        TextToSpeechOptions options,
         SynthesisState state,
         [EnumeratorCancellation] CancellationToken ct)
     {
         if (stream?.IsInterrupted == true) yield break;
         var audioFrameEmitter = CreateAudioChunkFrameEmitter(eventCoordinator);
 
-        var options = new TextToSpeechOptions
-        {
-            Voice = voice,
-            ModelId = model,
-            Speed = speed,
-            OutputFormat = DefaultOutputFormat,
-            SampleRate = DefaultSampleRate
-        };
-
-        await foreach (var chunk in TextToSpeechClient!.GetStreamingSpeechAsync(
-            ToAsyncEnumerable(text), options, ct))
+        await foreach (var chunk in TextToSpeechClient!.GetStreamingAudioAsync(text, options, ct))
         {
             if (stream?.IsInterrupted == true) break;
 
-            var audioData = chunk.Audio?.Data ?? ReadOnlyMemory<byte>.Empty;
+            var audioContent = ExtractAudioData(chunk.Contents);
+            var audioData = audioContent?.Data ?? ReadOnlyMemory<byte>.Empty;
             var audioBytes = audioData.ToArray();
 
             // Accumulate bytes for artifact upload after synthesis completes
@@ -1378,10 +1853,11 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             var audioChunk = new AudioChunkEvent(
                 synthesisId,
                 Convert.ToBase64String(audioBytes),
-                "audio/mpeg",
+                audioContent?.MediaType ?? options.AudioFormat ?? "audio/mpeg",
                 state.ChunkIndex++,
-                chunk.Duration ?? TimeSpan.Zero,
-                chunk.IsLast)
+                TimeSpan.Zero,
+                chunk.Kind == TextToSpeechResponseUpdateKind.AudioUpdated ||
+                chunk.Kind == TextToSpeechResponseUpdateKind.SessionClose)
             {
                 Channel = EventChannel.Streaming,
                 StreamId = stream?.StreamId,
@@ -1392,6 +1868,20 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             EmitAudioChunkFrame(audioFrameEmitter, audioChunk, audioBytes);
             yield return audioChunk;
         }
+    }
+
+    private static DataContent? ExtractAudioData(IEnumerable<AIContent> contents)
+    {
+        foreach (var content in contents)
+        {
+            if (content is DataContent data &&
+                data.MediaType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return data;
+            }
+        }
+
+        return null;
     }
 
     private static StructEmitter<AudioChunkFrame>? CreateAudioChunkFrameEmitter(IEventCoordinator? eventCoordinator) =>
@@ -1455,12 +1945,6 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     {
         // Extract text content from ChatResponseUpdate
         return update.Contents?.OfType<TextContent>().FirstOrDefault()?.Text;
-    }
-
-    private static async IAsyncEnumerable<string> ToAsyncEnumerable(string text)
-    {
-        yield return text;
-        await Task.CompletedTask;
     }
 
     //
@@ -1540,6 +2024,64 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     }
 
     //
+
+    private readonly record struct AudioInputKey(string? SessionId, string? BranchId);
+
+    private sealed class AudioInputBuffer(string? sessionId, string? branchId, string mimeType)
+    {
+        private readonly MemoryStream _audio = new();
+        public const string VadEndCommitReason = "vad-end-of-speech";
+        public const string FinalFrameCommitReason = "final-frame";
+        private TimeSpan? _speechStartedAt;
+
+        public string? SessionId { get; } = sessionId;
+        public string? BranchId { get; } = branchId;
+        public string MimeType { get; } = string.IsNullOrWhiteSpace(mimeType)
+            ? "audio/pcm"
+            : mimeType;
+        public long Length => _audio.Length;
+        public bool IsSpeaking { get; private set; }
+        public bool ShouldCommitFromVad { get; private set; }
+        public string CommitReason { get; private set; } = FinalFrameCommitReason;
+        public TimeSpan SpeechDuration { get; private set; }
+        public TimeSpan LastSilenceDuration { get; private set; }
+
+        public void Append(ReadOnlyMemory<byte> audio)
+        {
+            if (!audio.IsEmpty)
+                _audio.Write(audio.Span);
+        }
+
+        public void MarkSpeechStarted(TimeSpan timestamp)
+        {
+            IsSpeaking = true;
+            ShouldCommitFromVad = false;
+            _speechStartedAt = timestamp;
+            SpeechDuration = TimeSpan.Zero;
+            LastSilenceDuration = TimeSpan.Zero;
+            CommitReason = VadEndCommitReason;
+        }
+
+        public void MarkSpeechEnded(TimeSpan timestamp)
+        {
+            if (_speechStartedAt.HasValue && timestamp >= _speechStartedAt.Value)
+                SpeechDuration = timestamp - _speechStartedAt.Value;
+
+            IsSpeaking = false;
+            ShouldCommitFromVad = true;
+            LastSilenceDuration = TimeSpan.Zero;
+            CommitReason = VadEndCommitReason;
+        }
+
+        public void MarkFinalFrame()
+        {
+            CommitReason = FinalFrameCommitReason;
+            if (IsSpeaking)
+                IsSpeaking = false;
+        }
+
+        public byte[] ToArray() => _audio.ToArray();
+    }
 
     /// <summary>
     /// Tracks metrics for a single audio turn.

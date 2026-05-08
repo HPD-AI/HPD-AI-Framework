@@ -18,8 +18,8 @@ internal sealed class EventChannelRouter : IDisposable
         _responseWaiters = new();
     private readonly ConcurrentDictionary<EventChannelRouter, byte> _children = new();
 
-    private readonly Dictionary<Type, List<Func<Event, ValueTask>>> _classHandlers = new();
-    private readonly List<Func<Event, ValueTask>> _anyHandlers = new();
+    private readonly Dictionary<Type, List<RegisteredEventHandler>> _classHandlers = new();
+    private readonly List<RegisteredEventHandler> _anyHandlers = new();
 
     private readonly StreamRegistry _streamRegistry = new();
     private readonly Func<Event, Event>? _eventEnricher;
@@ -135,33 +135,41 @@ internal sealed class EventChannelRouter : IDisposable
             await _parentCoordinator.EmitAsync(enriched, ct).ConfigureAwait(false);
     }
 
-    public void On<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event
+    public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event
     {
         ArgumentNullException.ThrowIfNull(handler);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         var type = typeof(TEvent);
+        var registration = new RegisteredEventHandler(evt => handler((TEvent)evt));
+
         lock (_classHandlers)
         {
             if (!_classHandlers.TryGetValue(type, out var list))
             {
-                list = new List<Func<Event, ValueTask>>();
+                list = new List<RegisteredEventHandler>();
                 _classHandlers[type] = list;
             }
 
-            list.Add(evt => handler((TEvent)evt));
+            list.Add(registration);
         }
+
+        return new EventHandlerSubscription(this, type, registration.Id);
     }
 
-    public void OnAny(Func<Event, ValueTask> handler)
+    public IDisposable SubscribeAny(Func<Event, ValueTask> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        var registration = new RegisteredEventHandler(handler);
+
         lock (_anyHandlers)
         {
-            _anyHandlers.Add(handler);
+            _anyHandlers.Add(registration);
         }
+
+        return new EventHandlerSubscription(this, eventType: null, registration.Id);
     }
 
     public async Task RunAsync(CancellationToken ct = default)
@@ -421,7 +429,7 @@ internal sealed class EventChannelRouter : IDisposable
                 lock (_classHandlers)
                 {
                     if (_classHandlers.TryGetValue(evt.GetType(), out var handlers))
-                        exactHandlers = handlers.ToList();
+                        exactHandlers = handlers.Select(h => h.Handler).ToList();
                 }
 
                 if (exactHandlers is not null)
@@ -433,7 +441,7 @@ internal sealed class EventChannelRouter : IDisposable
                 List<Func<Event, ValueTask>> anyHandlers;
                 lock (_anyHandlers)
                 {
-                    anyHandlers = _anyHandlers.ToList();
+                    anyHandlers = _anyHandlers.Select(h => h.Handler).ToList();
                 }
 
                 foreach (var handler in anyHandlers)
@@ -443,6 +451,51 @@ internal sealed class EventChannelRouter : IDisposable
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // Cooperative shutdown.
+        }
+    }
+
+    private void RemoveHandler(Type? eventType, Guid handlerId)
+    {
+        if (eventType is null)
+        {
+            lock (_anyHandlers)
+            {
+                _anyHandlers.RemoveAll(handler => handler.Id == handlerId);
+            }
+
+            return;
+        }
+
+        lock (_classHandlers)
+        {
+            if (!_classHandlers.TryGetValue(eventType, out var handlers))
+                return;
+
+            handlers.RemoveAll(handler => handler.Id == handlerId);
+            if (handlers.Count == 0)
+                _classHandlers.Remove(eventType);
+        }
+    }
+
+    private sealed class RegisteredEventHandler(Func<Event, ValueTask> handler)
+    {
+        public Guid Id { get; } = Guid.NewGuid();
+        public Func<Event, ValueTask> Handler { get; } = handler;
+    }
+
+    private sealed class EventHandlerSubscription(
+        EventChannelRouter router,
+        Type? eventType,
+        Guid handlerId) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+
+            router.RemoveHandler(eventType, handlerId);
         }
     }
 

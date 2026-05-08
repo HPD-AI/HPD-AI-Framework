@@ -9,7 +9,7 @@ namespace HPD.Events;
 /// - Hierarchical event bubbling via SetParent (child events bubble to parent)
 /// - Bidirectional patterns (request/response with WaitForResponseAsync)
 /// - Interruptible streams (group events that can be canceled together)
-/// - Fluent typed handlers and low-level channel readers
+/// - Removable typed subscriptions and low-level channel readers
 /// </summary>
 public interface IEventCoordinator
 {
@@ -28,14 +28,14 @@ public interface IEventCoordinator
     ValueTask EmitAsync(Event evt, CancellationToken ct = default);
 
     /// <summary>
-    /// Register a typed handler for an exact class event type.
+    /// Register a removable typed handler for an exact class event type.
     /// </summary>
-    IEventCoordinator On<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event;
+    IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event;
 
     /// <summary>
-    /// Register a broad observer that receives every class event from every channel.
+    /// Register a removable broad observer that receives every class event from every channel.
     /// </summary>
-    IEventCoordinator OnAny(Func<Event, ValueTask> handler);
+    IDisposable SubscribeAny(Func<Event, ValueTask> handler);
 
     /// <summary>
     /// Try to emit a local struct event without waiting.
@@ -49,15 +49,15 @@ public interface IEventCoordinator
         where TEvent : struct, IStructEvent;
 
     /// <summary>
-    /// Register a handler for an exact local struct event type.
-    /// </summary>
-    IEventCoordinator OnStruct<TEvent>(Func<TEvent, ValueTask> handler)
-        where TEvent : struct, IStructEvent;
-
-    /// <summary>
     /// Subscribe directly to a local struct event stream.
     /// </summary>
     StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null)
+        where TEvent : struct, IStructEvent;
+
+    /// <summary>
+    /// Register a removable handler for an exact local struct event type.
+    /// </summary>
+    IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler)
         where TEvent : struct, IStructEvent;
 
     /// <summary>

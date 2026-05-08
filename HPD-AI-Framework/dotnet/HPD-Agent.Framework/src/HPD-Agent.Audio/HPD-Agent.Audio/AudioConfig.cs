@@ -4,6 +4,7 @@
 using HPD.Agent.Audio.Stt;
 using HPD.Agent.Audio.Tts;
 using HPD.Agent.Audio.Vad;
+using HPD.Agent.Audio.Eot;
 
 namespace HPD.Agent.Audio;
 
@@ -35,13 +36,19 @@ public class AudioConfig
     /// </summary>
     public VadConfig? Vad { get; set; }
 
+    /// <summary>
+    /// EOT (End-of-Turn) detection configuration.
+    /// Null if provider-backed endpointing is not needed for this agent.
+    /// </summary>
+    public EotConfig? Eot { get; set; } = new();
+
     //
     // PROCESSING MODE & I/O
     //
 
     /// <summary>
-    /// Audio processing mode: Pipeline (STT→LLM→TTS) or Native (GPT-4o Realtime, Gemini Live).
-    /// Default: Pipeline
+    /// Processing mode: Pipeline (external STT/TTS/VAD/EOT) or Native (model handles audio directly).
+    /// Default: Pipeline.
     /// </summary>
     public AudioProcessingMode ProcessingMode { get; set; } = AudioProcessingMode.Pipeline;
 
@@ -63,40 +70,10 @@ public class AudioConfig
     /// </summary>
     public bool? Disabled { get; set; }
 
-    //
-    // TURN DETECTION (Pipeline-Level)
-    //
-
-    /// <summary>Turn detection strategy for silence. Default: FastPath.</summary>
-    public TurnDetectionStrategy? SilenceStrategy { get; set; } = TurnDetectionStrategy.FastPath;
-
-    /// <summary>Turn detection strategy for ML. Default: OnAmbiguous.</summary>
-    public TurnDetectionStrategy? MlStrategy { get; set; } = TurnDetectionStrategy.OnAmbiguous;
-
-    /// <summary>Silence threshold for fast-path rejection. Default: 1.5s.</summary>
-    public float? SilenceFastPathThreshold { get; set; } = 1.5f;
-
-    /// <summary>Min endpointing delay when ML is confident. Default: 0.3s.</summary>
-    public float? MinEndpointingDelay { get; set; } = 0.3f;
-
-    /// <summary>Max endpointing delay when ML is uncertain. Default: 1.5s.</summary>
-    public float? MaxEndpointingDelay { get; set; } = 1.5f;
-
-    /// <summary>Multiplier for silence-based probability boost. Default: 0.7.</summary>
-    public float? SilenceBoostMultiplier { get; set; } = 0.7f;
-
-    /// <summary>Whether to combine ML and silence probabilities. Default: true.</summary>
-    public bool? UseCombinedProbability { get; set; } = true;
-
-    /// <summary>Custom trailing words that indicate incomplete thoughts. Default: null (uses built-in list).</summary>
-    public HashSet<string>? CustomTrailingWords { get; set; }
-
-    /// <summary>Probability penalty for trailing incomplete words. Default: 0.6.</summary>
-    public float? TrailingWordPenalty { get; set; } = 0.6f;
-
-    //
-    // PIPELINE FEATURES
-    //
+    /// <summary>
+    /// Optional Microsoft.Extensions.AI diagnostics wrappers for provider clients.
+    /// </summary>
+    public AudioDiagnosticsConfig? Diagnostics { get; set; }
 
     /// <summary>Enable TTS on first complete sentence. Default: true.</summary>
     public bool? EnableQuickAnswer { get; set; } = true;
@@ -197,23 +174,14 @@ public class AudioConfig
             Tts = overrides.Tts ?? Tts,
             Stt = overrides.Stt ?? Stt,
             Vad = overrides.Vad ?? Vad,
+            Eot = overrides.Eot ?? Eot,
 
             // Processing
             ProcessingMode = overrides.ProcessingMode,
             IOMode = overrides.IOMode,
             Language = overrides.Language ?? Language,
             Disabled = overrides.Disabled ?? Disabled,
-
-            // Turn Detection
-            SilenceStrategy = overrides.SilenceStrategy ?? SilenceStrategy,
-            MlStrategy = overrides.MlStrategy ?? MlStrategy,
-            SilenceFastPathThreshold = overrides.SilenceFastPathThreshold ?? SilenceFastPathThreshold,
-            MinEndpointingDelay = overrides.MinEndpointingDelay ?? MinEndpointingDelay,
-            MaxEndpointingDelay = overrides.MaxEndpointingDelay ?? MaxEndpointingDelay,
-            SilenceBoostMultiplier = overrides.SilenceBoostMultiplier ?? SilenceBoostMultiplier,
-            UseCombinedProbability = overrides.UseCombinedProbability ?? UseCombinedProbability,
-            CustomTrailingWords = overrides.CustomTrailingWords ?? CustomTrailingWords,
-            TrailingWordPenalty = overrides.TrailingWordPenalty ?? TrailingWordPenalty,
+            Diagnostics = overrides.Diagnostics ?? Diagnostics,
 
             // Features
             EnableQuickAnswer = overrides.EnableQuickAnswer ?? EnableQuickAnswer,
@@ -249,6 +217,104 @@ public class AudioConfig
     }
 
     /// <summary>
+    /// Creates a copy of the configuration.
+    /// </summary>
+    public AudioConfig Clone() => new()
+    {
+        Tts = CloneTts(Tts),
+        Stt = CloneStt(Stt),
+        Vad = CloneVad(Vad),
+        Eot = CloneEot(Eot),
+        ProcessingMode = ProcessingMode,
+        IOMode = IOMode,
+        Language = Language,
+        Disabled = Disabled,
+        Diagnostics = Diagnostics?.Clone(),
+        EnableQuickAnswer = EnableQuickAnswer,
+        EnableSpeedAdaptation = EnableSpeedAdaptation,
+        EnablePreemptiveGeneration = EnablePreemptiveGeneration,
+        PreemptiveGenerationThreshold = PreemptiveGenerationThreshold,
+        BackchannelStrategy = BackchannelStrategy,
+        MinWordsForInterruption = MinWordsForInterruption,
+        EnableFalseInterruptionRecovery = EnableFalseInterruptionRecovery,
+        FalseInterruptionTimeout = FalseInterruptionTimeout,
+        ResumeFalseInterruption = ResumeFalseInterruption,
+        MaxBufferedChunksDuringPause = MaxBufferedChunksDuringPause,
+        EnableFillerAudio = EnableFillerAudio,
+        FillerSilenceThreshold = FillerSilenceThreshold,
+        FillerPhrases = FillerPhrases is null ? null : [.. FillerPhrases],
+        FillerSelectionStrategy = FillerSelectionStrategy,
+        MaxFillerPlaysPerTurn = MaxFillerPlaysPerTurn,
+        FillerVoice = FillerVoice,
+        FillerSpeed = FillerSpeed,
+        EnableTextFiltering = EnableTextFiltering,
+        FilterCodeBlocks = FilterCodeBlocks,
+        FilterTables = FilterTables,
+        FilterUrls = FilterUrls,
+        FilterMarkdownFormatting = FilterMarkdownFormatting,
+        FilterEmoji = FilterEmoji
+    };
+
+    internal static TtsConfig? CloneTts(TtsConfig? config) => config is null ? null : new TtsConfig
+    {
+        Voice = config.Voice,
+        Speed = config.Speed,
+        Pitch = config.Pitch,
+        Volume = config.Volume,
+        OutputFormat = config.OutputFormat,
+        SampleRate = config.SampleRate,
+        ModelId = config.ModelId,
+        Language = config.Language,
+        Provider = config.Provider,
+        ProviderOptionsJson = config.ProviderOptionsJson,
+        AdditionalProperties = config.AdditionalProperties is null
+            ? null
+            : new Dictionary<string, object>(config.AdditionalProperties)
+    };
+
+    internal static SttConfig? CloneStt(SttConfig? config) => config is null ? null : new SttConfig
+    {
+        Language = config.Language,
+        SpeechSampleRate = config.SpeechSampleRate,
+        TextLanguage = config.TextLanguage,
+        ModelId = config.ModelId,
+        Temperature = config.Temperature,
+        ResponseFormat = config.ResponseFormat,
+        AdditionalProperties = config.AdditionalProperties is null
+            ? null
+            : new Dictionary<string, object>(config.AdditionalProperties),
+        Provider = config.Provider,
+        ProviderOptionsJson = config.ProviderOptionsJson
+    };
+
+    internal static VadConfig? CloneVad(VadConfig? config) => config is null ? null : new VadConfig
+    {
+        MinSpeechDuration = config.MinSpeechDuration,
+        MinSilenceDuration = config.MinSilenceDuration,
+        PrefixPaddingDuration = config.PrefixPaddingDuration,
+        ActivationThreshold = config.ActivationThreshold,
+        Provider = config.Provider,
+        ProviderOptionsJson = config.ProviderOptionsJson
+    };
+
+    internal static EotConfig? CloneEot(EotConfig? config) => config is null ? null : new EotConfig
+    {
+        Provider = config.Provider,
+        SilenceStrategy = config.SilenceStrategy,
+        DetectorStrategy = config.DetectorStrategy,
+        SilenceFastPathThreshold = config.SilenceFastPathThreshold,
+        MinEndpointingDelay = config.MinEndpointingDelay,
+        MaxEndpointingDelay = config.MaxEndpointingDelay,
+        SilenceBoostMultiplier = config.SilenceBoostMultiplier,
+        UseCombinedProbability = config.UseCombinedProbability,
+        CustomTrailingWords = config.CustomTrailingWords is null
+            ? null
+            : new HashSet<string>(config.CustomTrailingWords),
+        TrailingWordPenalty = config.TrailingWordPenalty,
+        ProviderOptionsJson = config.ProviderOptionsJson
+    };
+
+    /// <summary>
     /// Validates configuration values.
     /// </summary>
     public void Validate()
@@ -272,26 +338,18 @@ public class AudioConfig
             if (Vad != null)
                 throw new InvalidOperationException(
                     "AudioConfig.Vad cannot be set when ProcessingMode is Native. " +
-                    "In Native mode turn detection is handled by the model itself; " +
+                    "In Native mode EOT detection is handled by the model itself; " +
                     "remove the Vad configuration or switch to ProcessingMode.Pipeline.");
 
             return;
         }
 
-        // Validate role configs
-        Tts?.Validate();
-        Stt?.Validate();
+        // Validate role configs. Provider selection is only required when a provider
+        // factory must be used; injected MEAI clients can use option-only configs.
+        Tts?.Validate(requireProvider: false);
+        Stt?.Validate(requireProvider: false);
         Vad?.Validate();
-
-        // Validate turn detection
-        if (SilenceFastPathThreshold is < 0)
-            throw new ArgumentException("SilenceFastPathThreshold must be non-negative");
-
-        if (MinEndpointingDelay is < 0)
-            throw new ArgumentException("MinEndpointingDelay must be non-negative");
-
-        if (MaxEndpointingDelay is < 0)
-            throw new ArgumentException("MaxEndpointingDelay must be non-negative");
+        Eot?.Validate();
 
         // Validate interruption
         if (MinWordsForInterruption is < 0)
@@ -314,4 +372,31 @@ public class AudioConfig
         if (PreemptiveGenerationThreshold is < 0 or > 1.0f)
             throw new ArgumentException("PreemptiveGenerationThreshold must be between 0 and 1.0");
     }
+}
+
+/// <summary>
+/// Controls optional Microsoft.Extensions.AI diagnostics wrappers for audio provider clients.
+/// </summary>
+public class AudioDiagnosticsConfig
+{
+    /// <summary>Wrap provider clients with Microsoft.Extensions.AI logging decorators.</summary>
+    public bool EnableLogging { get; set; }
+
+    /// <summary>Wrap provider clients with Microsoft.Extensions.AI OpenTelemetry decorators.</summary>
+    public bool EnableOpenTelemetry { get; set; }
+
+    /// <summary>Include potentially sensitive request/response data in OpenTelemetry events.</summary>
+    public bool CaptureSensitiveTelemetry { get; set; }
+
+    /// <summary>Optional OpenTelemetry source name.</summary>
+    public string? SourceName { get; set; }
+
+    /// <summary>Creates a copy of this diagnostics config.</summary>
+    public AudioDiagnosticsConfig Clone() => new()
+    {
+        EnableLogging = EnableLogging,
+        EnableOpenTelemetry = EnableOpenTelemetry,
+        CaptureSensitiveTelemetry = CaptureSensitiveTelemetry,
+        SourceName = SourceName
+    };
 }

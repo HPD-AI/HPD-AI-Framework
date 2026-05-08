@@ -35,18 +35,12 @@ public sealed class EventCoordinator : IEventCoordinator, IDisposable
         _events.EmitAsync(evt, ct);
 
     /// <inheritdoc />
-    public IEventCoordinator On<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event
-    {
-        _events.On(handler);
-        return this;
-    }
+    public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event =>
+        _events.Subscribe(handler);
 
     /// <inheritdoc />
-    public IEventCoordinator OnAny(Func<Event, ValueTask> handler)
-    {
-        _events.OnAny(handler);
-        return this;
-    }
+    public IDisposable SubscribeAny(Func<Event, ValueTask> handler) =>
+        _events.SubscribeAny(handler);
 
     /// <inheritdoc />
     public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent =>
@@ -58,17 +52,14 @@ public sealed class EventCoordinator : IEventCoordinator, IDisposable
         _structs.EmitStructAsync(evt, ct);
 
     /// <inheritdoc />
-    public IEventCoordinator OnStruct<TEvent>(Func<TEvent, ValueTask> handler)
-        where TEvent : struct, IStructEvent
-    {
-        _structs.OnStruct(handler);
-        return this;
-    }
-
-    /// <inheritdoc />
     public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null)
         where TEvent : struct, IStructEvent =>
         _structs.SubscribeStruct<TEvent>(options);
+
+    /// <inheritdoc />
+    public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler)
+        where TEvent : struct, IStructEvent =>
+        _structs.SubscribeStruct(handler);
 
     /// <inheritdoc />
     public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null)

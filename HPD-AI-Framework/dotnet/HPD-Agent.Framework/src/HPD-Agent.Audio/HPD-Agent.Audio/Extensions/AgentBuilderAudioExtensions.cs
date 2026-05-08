@@ -5,6 +5,8 @@ using System.Text.Json;
 using HPD.Agent.Audio.Tts;
 using HPD.Agent.Audio.Stt;
 using HPD.Agent.Audio.Vad;
+using HPD.Agent.Audio.Eot;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Audio;
 
@@ -65,7 +67,7 @@ public static class AgentBuilderAudioExtensions
     /// <param name="ttsClient">The text-to-speech client to use.</param>
     /// <param name="sttClient">The speech-to-text client to use (from Microsoft.Extensions.AI).</param>
     /// <param name="vad">The voice activity detector to use.</param>
-    /// <param name="turnDetector">The turn detector to use.</param>
+    /// <param name="eotDetector">The end-of-turn detector to use.</param>
     /// <param name="configure">Optional additional configuration.</param>
     /// <returns>The agent builder for chaining.</returns>
     public static AgentBuilder UseAudioPipeline(
@@ -73,7 +75,7 @@ public static class AgentBuilderAudioExtensions
         ITextToSpeechClient? ttsClient,
         Microsoft.Extensions.AI.ISpeechToTextClient? sttClient,
         IVoiceActivityDetector? vad = null,
-        ITurnDetector? turnDetector = null,
+        IEotDetector? eotDetector = null,
         Action<AudioPipelineMiddleware>? configure = null)
     {
         var middleware = new AudioPipelineMiddleware
@@ -81,7 +83,7 @@ public static class AgentBuilderAudioExtensions
             TextToSpeechClient = ttsClient,
             SpeechToTextClient = sttClient,
             Vad = vad,
-            TurnDetector = turnDetector ?? new HeuristicTurnDetector()
+            EotDetector = eotDetector ?? new HeuristicEotDetector()
         };
         configure?.Invoke(middleware);
         return builder.WithMiddleware(middleware);
@@ -95,8 +97,8 @@ public static class AgentBuilderAudioExtensions
         var config = new AudioConfig();
         configure(config);
 
-        // Create middleware and set configuration
-        var middleware = new AudioPipelineMiddleware();
+        // Create middleware and set full configuration
+        var middleware = new AudioPipelineMiddleware(config);
 
         // Create clients from configuration
         if (config.Tts != null)
@@ -125,14 +127,41 @@ public static class AgentBuilderAudioExtensions
     /// </summary>
     public static AgentBuilder WithAudio(this AgentBuilder builder, AudioConfig config)
     {
-        return builder.WithAudio(c => {
-            c.Tts = config.Tts;
-            c.Stt = config.Stt;
-            c.Vad = config.Vad;
-            c.ProcessingMode = config.ProcessingMode;
-            c.IOMode = config.IOMode;
-            c.Language = config.Language;
-            c.Disabled = config.Disabled;
+        return builder.WithAudio(c =>
+        {
+            var copy = config.Clone();
+            c.Tts = copy.Tts;
+            c.Stt = copy.Stt;
+            c.Vad = copy.Vad;
+            c.Eot = copy.Eot;
+            c.ProcessingMode = copy.ProcessingMode;
+            c.IOMode = copy.IOMode;
+            c.Language = copy.Language;
+            c.Disabled = copy.Disabled;
+            c.Diagnostics = copy.Diagnostics;
+            c.EnableQuickAnswer = copy.EnableQuickAnswer;
+            c.EnableSpeedAdaptation = copy.EnableSpeedAdaptation;
+            c.EnablePreemptiveGeneration = copy.EnablePreemptiveGeneration;
+            c.PreemptiveGenerationThreshold = copy.PreemptiveGenerationThreshold;
+            c.BackchannelStrategy = copy.BackchannelStrategy;
+            c.MinWordsForInterruption = copy.MinWordsForInterruption;
+            c.EnableFalseInterruptionRecovery = copy.EnableFalseInterruptionRecovery;
+            c.FalseInterruptionTimeout = copy.FalseInterruptionTimeout;
+            c.ResumeFalseInterruption = copy.ResumeFalseInterruption;
+            c.MaxBufferedChunksDuringPause = copy.MaxBufferedChunksDuringPause;
+            c.EnableFillerAudio = copy.EnableFillerAudio;
+            c.FillerSilenceThreshold = copy.FillerSilenceThreshold;
+            c.FillerPhrases = copy.FillerPhrases;
+            c.FillerSelectionStrategy = copy.FillerSelectionStrategy;
+            c.MaxFillerPlaysPerTurn = copy.MaxFillerPlaysPerTurn;
+            c.FillerVoice = copy.FillerVoice;
+            c.FillerSpeed = copy.FillerSpeed;
+            c.EnableTextFiltering = copy.EnableTextFiltering;
+            c.FilterCodeBlocks = copy.FilterCodeBlocks;
+            c.FilterTables = copy.FilterTables;
+            c.FilterUrls = copy.FilterUrls;
+            c.FilterMarkdownFormatting = copy.FilterMarkdownFormatting;
+            c.FilterEmoji = copy.FilterEmoji;
         });
     }
 

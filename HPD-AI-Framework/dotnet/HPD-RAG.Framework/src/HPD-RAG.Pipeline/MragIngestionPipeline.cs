@@ -89,7 +89,7 @@ public sealed class MragIngestionPipeline
     /// <para>
     /// Implementation follows the AgentWorkflowInstance event coordinator pattern:
     /// graph execution starts in a background task, and events are observed through
-    /// <see cref="IEventCoordinator.OnAny"/> until completion.
+    /// <see cref="IEventCoordinator.SubscribeAny"/> until completion.
     /// </para>
     ///
     /// <para>
@@ -125,7 +125,7 @@ public sealed class MragIngestionPipeline
 
         var eventChannel = Channel.CreateUnbounded<Event>();
         using var coordinatorCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        eventCoordinator.OnAny(evt =>
+        using var eventSubscription = eventCoordinator.SubscribeAny(evt =>
         {
             eventChannel.Writer.TryWrite(evt);
             return ValueTask.CompletedTask;

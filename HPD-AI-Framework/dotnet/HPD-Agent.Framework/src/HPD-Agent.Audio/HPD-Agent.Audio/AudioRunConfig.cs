@@ -21,7 +21,7 @@ namespace HPD.Agent.Audio;
 /// - I/O mode switching (voice-only vs. voice+captions)
 /// </para>
 /// <para>
-/// Pipeline tuning settings (turn detection, filler audio, interruption behavior)
+/// Pipeline tuning settings (EOT detection, filler audio, interruption behavior)
 /// are intentionally NOT exposed here - they should be configured at agent-level
 /// via AudioPipelineMiddleware or AgentBuilder for UX consistency.
 /// </para>
@@ -201,7 +201,7 @@ public class AudioRunConfig
             if (Vad != null)
                 throw new InvalidOperationException(
                     "AudioRunConfig.Vad cannot be set when ProcessingMode is Native. " +
-                    "In Native mode turn detection is handled by the model itself; " +
+                    "In Native mode EOT detection is handled by the model itself; " +
                     "remove the Vad configuration or switch to ProcessingMode.Pipeline.");
 
             if (Voice != null || TtsModel != null || TtsSpeed != null)

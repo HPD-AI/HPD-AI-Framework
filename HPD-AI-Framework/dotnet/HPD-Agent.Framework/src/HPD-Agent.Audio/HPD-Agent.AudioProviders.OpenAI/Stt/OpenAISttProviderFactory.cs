@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using HPD.Agent.Audio;
+using HPD.Agent.Audio.OpenAI;
 using HPD.Agent.Audio.Stt;
 using Microsoft.Extensions.AI;
 
@@ -22,18 +23,10 @@ public class OpenAISttProviderFactory : ISttProviderFactory
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException("OpenAI API key is required. Set it via ProviderOptionsJson or OPENAI_API_KEY environment variable.");
 
-        // TODO: Implement OpenAISpeechToTextClient when ready
-        // For now, throw NotImplementedException
-        throw new NotImplementedException("OpenAI STT client is not yet implemented. Use Deepgram or another STT provider.");
-
-        // Future implementation:
-        // return new OpenAISpeechToTextClient(
-        //     apiKey: apiKey,
-        //     model: config.ModelId ?? "whisper-1",
-        //     language: config.Language,
-        //     temperature: config.Temperature,
-        //     responseFormat: config.ResponseFormat
-        // );
+        return new OpenAISpeechToTextClient(
+            apiKey: apiKey,
+            model: config.ModelId ?? "whisper-1",
+            baseUrl: providerConfig.BaseUrl);
     }
 
     public SttProviderMetadata GetMetadata() => new()

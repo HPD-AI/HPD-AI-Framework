@@ -685,31 +685,27 @@ public class NativeAudioModeTests
     {
         public int CallCount { get; private set; }
 
-        public Task<TextToSpeechResponse> GetSpeechAsync(
+        public Task<TextToSpeechResponse> GetAudioAsync(
             string text,
             TextToSpeechOptions? options = null,
             CancellationToken cancellationToken = default)
         {
             CallCount++;
-            return Task.FromResult(new TextToSpeechResponse
-            {
-                Audio = new DataContent(new byte[] { 0x00 }, "audio/mpeg")
-            });
+            return Task.FromResult(new TextToSpeechResponse([new DataContent(new byte[] { 0x00 }, "audio/mpeg")]));
         }
 
-        public async IAsyncEnumerable<TextToSpeechResponseUpdate> GetStreamingSpeechAsync(
-            IAsyncEnumerable<string> textStream,
+        public async IAsyncEnumerable<TextToSpeechResponseUpdate> GetStreamingAudioAsync(
+            string text,
             TextToSpeechOptions? options = null,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             CallCount++;
-            // consume stream
-            await foreach (var _ in textStream.WithCancellation(cancellationToken)) { }
-            yield return new TextToSpeechResponseUpdate
+            yield return new TextToSpeechResponseUpdate([new DataContent(new byte[] { 0x00 }, "audio/mpeg")])
             {
-                Audio = new DataContent(new byte[] { 0x00 }, "audio/mpeg"),
-                IsLast = true
+                Kind = TextToSpeechResponseUpdateKind.AudioUpdated
             };
+
+            await Task.CompletedTask;
         }
 
         public object? GetService(Type serviceType, object? serviceKey = null) => null;
@@ -726,11 +722,11 @@ public class NativeAudioModeTests
         public CapturingEventCoordinator(Action<AgentEvent> onEmit) => _onEmit = onEmit;
         public void Emit(Event evt) => _onEmit((AgentEvent)evt);
         public ValueTask EmitAsync(Event evt, CancellationToken ct = default) { Emit(evt); return ValueTask.CompletedTask; }
-        public IEventCoordinator On<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event => this;
-        public IEventCoordinator OnAny(Func<Event, ValueTask> handler) => this;
+        public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event => NoOpDisposable.Instance;
+        public IDisposable SubscribeAny(Func<Event, ValueTask> handler) => NoOpDisposable.Instance;
         public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent => false;
         public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : struct, IStructEvent => ValueTask.CompletedTask;
-        public IEventCoordinator OnStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => this;
+        public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => NoOpDisposable.Instance;
         public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null) where TEvent : struct, IStructEvent => default;
         public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null) where TEvent : struct, IStructEvent => default;
         public Task RunAsync(CancellationToken ct = default) => Task.CompletedTask;

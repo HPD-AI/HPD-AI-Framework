@@ -56,7 +56,7 @@ public class OpenAITextToSpeechClient : ITextToSpeechClient
     }
 
     /// <inheritdoc />
-    public async Task<TextToSpeechResponse> GetSpeechAsync(
+    public async Task<TextToSpeechResponse> GetAudioAsync(
         string text,
         TextToSpeechOptions? options = null,
         CancellationToken cancellationToken = default)
@@ -64,7 +64,8 @@ public class OpenAITextToSpeechClient : ITextToSpeechClient
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrEmpty(text);
 
-        var voice = ResolveVoice(options?.Voice ?? _defaultVoice);
+        var voiceId = options?.VoiceId ?? _defaultVoice;
+        var voice = ResolveVoice(voiceId);
         var speechOptions = CreateSpeechOptions(options);
 
         BinaryData audioData = await _audioClient.GenerateSpeechAsync(
@@ -73,50 +74,45 @@ public class OpenAITextToSpeechClient : ITextToSpeechClient
             speechOptions,
             cancellationToken);
 
-        return new TextToSpeechResponse
+        return new TextToSpeechResponse([new DataContent(audioData.ToArray(), GetAudioFormat(options))])
         {
-            Audio = new DataContent(audioData.ToArray(), options?.OutputFormat ?? "audio/mpeg"),
             ModelId = options?.ModelId ?? _defaultModel,
-            Voice = options?.Voice ?? _defaultVoice
+            AdditionalProperties = new AdditionalPropertiesDictionary
+            {
+                ["voiceId"] = voiceId
+            }
         };
     }
 
     /// <inheritdoc />
-    public async IAsyncEnumerable<TextToSpeechResponseUpdate> GetStreamingSpeechAsync(
-        IAsyncEnumerable<string> textChunks,
+    public async IAsyncEnumerable<TextToSpeechResponseUpdate> GetStreamingAudioAsync(
+        string text,
         TextToSpeechOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentException.ThrowIfNullOrEmpty(text);
 
-        var voice = ResolveVoice(options?.Voice ?? _defaultVoice);
+        var voiceId = options?.VoiceId ?? _defaultVoice;
+        var voice = ResolveVoice(voiceId);
         var speechOptions = CreateSpeechOptions(options);
-
-        // Collect text chunks (OpenAI TTS doesn't support streaming input)
-        var fullText = new System.Text.StringBuilder();
-        await foreach (var chunk in textChunks.WithCancellation(cancellationToken))
-        {
-            fullText.Append(chunk);
-        }
-
-        if (fullText.Length == 0)
-        {
-            yield break;
-        }
 
         // Generate speech
         BinaryData audioData = await _audioClient.GenerateSpeechAsync(
-            fullText.ToString(),
+            text,
             voice,
             speechOptions,
             cancellationToken);
 
         // Return as single chunk (OpenAI TTS returns complete audio)
-        yield return new TextToSpeechResponseUpdate
+        yield return new TextToSpeechResponseUpdate([new DataContent(audioData.ToArray(), GetAudioFormat(options))])
         {
-            Audio = new DataContent(audioData.ToArray(), options?.OutputFormat ?? "audio/mpeg"),
-            IsLast = true,
-            SequenceNumber = 0
+            Kind = TextToSpeechResponseUpdateKind.AudioUpdated,
+            ModelId = options?.ModelId ?? _defaultModel,
+            AdditionalProperties = new AdditionalPropertiesDictionary
+            {
+                ["voiceId"] = voiceId
+            }
         };
     }
 
@@ -125,6 +121,9 @@ public class OpenAITextToSpeechClient : ITextToSpeechClient
     {
         if (serviceType == typeof(AudioClient))
             return _audioClient;
+
+        if (serviceType == typeof(TextToSpeechClientMetadata))
+            return new TextToSpeechClientMetadata("openai", null, _defaultModel);
 
         return null;
     }
@@ -163,9 +162,9 @@ public class OpenAITextToSpeechClient : ITextToSpeechClient
             speechOptions.SpeedRatio = options.Speed.Value;
         }
 
-        if (!string.IsNullOrEmpty(options?.OutputFormat))
+        if (!string.IsNullOrEmpty(options?.AudioFormat))
         {
-            speechOptions.ResponseFormat = options.OutputFormat.ToLowerInvariant() switch
+            speechOptions.ResponseFormat = options.AudioFormat.ToLowerInvariant() switch
             {
                 "mp3" or "audio/mpeg" => GeneratedSpeechFormat.Mp3,
                 "opus" or "audio/opus" => GeneratedSpeechFormat.Opus,
@@ -179,4 +178,17 @@ public class OpenAITextToSpeechClient : ITextToSpeechClient
 
         return speechOptions;
     }
+
+    private static string GetAudioFormat(TextToSpeechOptions? options) =>
+        options?.AudioFormat?.ToLowerInvariant() switch
+        {
+            "mp3" => "audio/mpeg",
+            "opus" => "audio/opus",
+            "aac" => "audio/aac",
+            "flac" => "audio/flac",
+            "wav" => "audio/wav",
+            "pcm" => "audio/pcm",
+            string format when format.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) => format,
+            _ => "audio/mpeg"
+        };
 }

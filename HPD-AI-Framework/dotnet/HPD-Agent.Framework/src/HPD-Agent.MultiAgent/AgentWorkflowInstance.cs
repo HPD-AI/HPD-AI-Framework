@@ -416,7 +416,7 @@ public sealed class AgentWorkflowInstance
 
         var eventChannel = Channel.CreateUnbounded<Event>();
         using var coordinatorCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        eventCoordinator.OnAny(evt =>
+        using var eventSubscription = eventCoordinator.SubscribeAny(evt =>
         {
             eventChannel.Writer.TryWrite(evt);
             return ValueTask.CompletedTask;

@@ -3,6 +3,8 @@
 
 namespace HPD.Agent.Audio.Stt;
 
+using Microsoft.Extensions.AI;
+
 /// <summary>
 /// Configuration for Speech-to-Text (STT) services.
 /// Contains service-agnostic settings that work with any STT provider.
@@ -20,6 +22,19 @@ public class SttConfig
     /// If not set, uses AudioConfig.Language global override.
     /// </summary>
     public string? Language { get; set; }
+
+    /// <summary>
+    /// Sample rate of the input speech audio in Hz.
+    /// Maps directly to <see cref="SpeechToTextOptions.SpeechSampleRate"/>.
+    /// </summary>
+    public int? SpeechSampleRate { get; set; }
+
+    /// <summary>
+    /// Language code for the generated text.
+    /// When this differs from <see cref="Language"/>, providers may perform translation.
+    /// Maps directly to <see cref="SpeechToTextOptions.TextLanguage"/>.
+    /// </summary>
+    public string? TextLanguage { get; set; }
 
     /// <summary>
     /// Model/engine to use for transcription.
@@ -72,14 +87,51 @@ public class SttConfig
     public string? ProviderOptionsJson { get; set; }
 
     /// <summary>
+    /// Converts this HPD STT config into Microsoft.Extensions.AI request options.
+    /// </summary>
+    public SpeechToTextOptions ToOptions()
+    {
+        var options = new SpeechToTextOptions
+        {
+            ModelId = ModelId,
+            SpeechLanguage = Language,
+            SpeechSampleRate = SpeechSampleRate,
+            TextLanguage = TextLanguage
+        };
+
+        if (Temperature.HasValue)
+        {
+            (options.AdditionalProperties ??= [])["temperature"] = Temperature.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(ResponseFormat))
+        {
+            (options.AdditionalProperties ??= [])["responseFormat"] = ResponseFormat;
+        }
+
+        if (AdditionalProperties != null)
+        {
+            foreach (var property in AdditionalProperties)
+            {
+                (options.AdditionalProperties ??= [])[property.Key] = property.Value;
+            }
+        }
+
+        return options;
+    }
+
+    /// <summary>
     /// Validates STT configuration.
     /// </summary>
-    public void Validate()
+    public void Validate(bool requireProvider = true)
     {
-        if (string.IsNullOrWhiteSpace(Provider))
+        if (requireProvider && string.IsNullOrWhiteSpace(Provider))
             throw new ArgumentException("STT Provider is required", nameof(Provider));
 
         if (Temperature is < 0.0f or > 1.0f)
             throw new ArgumentException("Temperature must be between 0.0 and 1.0", nameof(Temperature));
+
+        if (SpeechSampleRate is < 8000 or > 48000)
+            throw new ArgumentException("SpeechSampleRate must be between 8000 and 48000", nameof(SpeechSampleRate));
     }
 }

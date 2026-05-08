@@ -94,7 +94,7 @@ public class ConcurrencyTests
         var observer    = scope.ServiceProvider.GetRequiredService<AuditingAuthObserver>();
 
         var observed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        coordinator.OnAny(async pending =>
+        coordinator.SubscribeAny(async pending =>
         {
             if (pending is AuthEvent ae && observer.ShouldProcess(ae))
                 await observer.OnEventAsync(ae);

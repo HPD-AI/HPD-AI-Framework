@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using HPD.Agent.Audio.Eot;
 
 namespace HPD.Agent.Audio.Serialization;
 
@@ -40,8 +41,8 @@ namespace HPD.Agent.Audio.Serialization;
 // Metrics Events
 [JsonSerializable(typeof(AudioPipelineMetricsEvent))]
 
-// Turn Detection Events
-[JsonSerializable(typeof(TurnDetectedEvent))]
+// EOT Events
+[JsonSerializable(typeof(EotDetectedEvent))]
 
 // Filler Events
 [JsonSerializable(typeof(FillerAudioPlayedEvent))]
@@ -49,11 +50,13 @@ namespace HPD.Agent.Audio.Serialization;
 // Audio Enums
 [JsonSerializable(typeof(AudioProcessingMode))]
 [JsonSerializable(typeof(AudioIOMode))]
-[JsonSerializable(typeof(TurnDetectionStrategy))]
+[JsonSerializable(typeof(EotDetectionStrategy))]
 [JsonSerializable(typeof(BackchannelStrategy))]
 
 // Audio Configuration
 [JsonSerializable(typeof(AudioConfig))]
+[JsonSerializable(typeof(AudioDiagnosticsConfig))]
+[JsonSerializable(typeof(EotConfig))]
 
 // Common types
 [JsonSerializable(typeof(TimeSpan))]

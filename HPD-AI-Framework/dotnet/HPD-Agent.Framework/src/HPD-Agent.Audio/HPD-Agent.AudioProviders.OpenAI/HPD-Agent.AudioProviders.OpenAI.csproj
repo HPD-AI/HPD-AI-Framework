@@ -16,7 +16,7 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>HPD-Agent.AudioProviders.OpenAI</PackageId>
-    <Description>OpenAI audio provider for HPD-Agent. Implements ITextToSpeechClient using OpenAI's TTS API.</Description>
+    <Description>OpenAI audio provider for HPD-Agent. Implements Microsoft.Extensions.AI speech-to-text and text-to-speech clients using OpenAI's audio APIs.</Description>
     <PackageTags>ai;agent;audio;tts;openai;speech</PackageTags>
   </PropertyGroup>
 

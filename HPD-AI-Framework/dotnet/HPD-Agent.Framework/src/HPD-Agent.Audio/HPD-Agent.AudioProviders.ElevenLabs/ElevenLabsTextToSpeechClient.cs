@@ -117,7 +117,7 @@ public sealed class ElevenLabsTextToSpeechClient : ITextToSpeechClient
     /// <summary>
     /// Get speech audio from text (non-streaming).
     /// </summary>
-    public async Task<TextToSpeechResponse> GetSpeechAsync(
+    public async Task<TextToSpeechResponse> GetAudioAsync(
         string text,
         TextToSpeechOptions? options = null,
         CancellationToken cancellationToken = default)
@@ -125,7 +125,7 @@ public sealed class ElevenLabsTextToSpeechClient : ITextToSpeechClient
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
 
         // Service-agnostic settings from TtsConfig
-        var voiceId = options?.Voice ?? _ttsConfig.Voice ?? "21m00Tcm4TlvDq8ikWAM"; // Rachel default
+        var voiceId = options?.VoiceId ?? _ttsConfig.Voice ?? "21m00Tcm4TlvDq8ikWAM"; // Rachel default
         var modelId = options?.ModelId ?? _ttsConfig.ModelId ?? "eleven_turbo_v2_5";
         var language = options?.Language ?? _ttsConfig.Language;
 
@@ -137,53 +137,49 @@ public sealed class ElevenLabsTextToSpeechClient : ITextToSpeechClient
             cancellationToken: cancellationToken
         );
 
-        return new TextToSpeechResponse
+        return new TextToSpeechResponse([new DataContent(audioBytes, GetAudioFormat(options))])
         {
-            Audio = new DataContent(audioBytes, "audio/mpeg"),
             ModelId = modelId,
-            Voice = voiceId
+            AdditionalProperties = new AdditionalPropertiesDictionary
+            {
+                ["voiceId"] = voiceId
+            }
         };
     }
 
     /// <summary>
-    /// Get speech audio from streaming text chunks.
+    /// Get speech audio from text and return streaming updates.
     /// Streams audio chunks as they are generated.
     /// </summary>
-    public async IAsyncEnumerable<TextToSpeechResponseUpdate> GetStreamingSpeechAsync(
-        IAsyncEnumerable<string> textChunks,
+    public async IAsyncEnumerable<TextToSpeechResponseUpdate> GetStreamingAudioAsync(
+        string text,
         TextToSpeechOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(textChunks);
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
 
         // Service-agnostic settings from TtsConfig
-        var voiceId = options?.Voice ?? _ttsConfig.Voice ?? "21m00Tcm4TlvDq8ikWAM"; // Rachel default
+        var voiceId = options?.VoiceId ?? _ttsConfig.Voice ?? "21m00Tcm4TlvDq8ikWAM"; // Rachel default
         var modelId = options?.ModelId ?? _ttsConfig.ModelId ?? "eleven_turbo_v2_5";
         var language = options?.Language ?? _ttsConfig.Language;
 
-        int sequenceNumber = 0;
+        var audioBytes = await _client.CreateTextToSpeechByVoiceIdStreamAsync(
+            voiceId: voiceId,
+            text: text,
+            modelId: modelId,
+            languageCode: language,
+            cancellationToken: cancellationToken
+        );
 
-        await foreach (var textChunk in textChunks.WithCancellation(cancellationToken))
+        yield return new TextToSpeechResponseUpdate([new DataContent(audioBytes, GetAudioFormat(options))])
         {
-            if (string.IsNullOrWhiteSpace(textChunk))
+            Kind = TextToSpeechResponseUpdateKind.AudioUpdated,
+            ModelId = modelId,
+            AdditionalProperties = new AdditionalPropertiesDictionary
             {
-                continue;
+                ["voiceId"] = voiceId
             }
-
-            var audioBytes = await _client.CreateTextToSpeechByVoiceIdStreamAsync(
-                voiceId: voiceId,
-                text: textChunk,
-                modelId: modelId,
-                languageCode: language,
-                cancellationToken: cancellationToken
-            );
-
-            yield return new TextToSpeechResponseUpdate
-            {
-                Audio = new DataContent(audioBytes, "audio/mpeg"),
-                SequenceNumber = sequenceNumber++
-            };
-        }
+        };
     }
 
     /// <summary>
@@ -206,6 +202,11 @@ public sealed class ElevenLabsTextToSpeechClient : ITextToSpeechClient
             return _client;
         }
 
+        if (serviceType == typeof(TextToSpeechClientMetadata))
+        {
+            return new TextToSpeechClientMetadata("elevenlabs", null, _ttsConfig.ModelId);
+        }
+
         return null;
     }
 
@@ -218,4 +219,15 @@ public sealed class ElevenLabsTextToSpeechClient : ITextToSpeechClient
         _disposed = true;
         _client?.Dispose();
     }
+
+    private static string GetAudioFormat(TextToSpeechOptions? options) =>
+        options?.AudioFormat?.ToLowerInvariant() switch
+        {
+            string format when format.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) => format,
+            "mp3" or null => "audio/mpeg",
+            "wav" => "audio/wav",
+            "pcm" => "audio/pcm",
+            "opus" => "audio/opus",
+            _ => "audio/mpeg"
+        };
 }

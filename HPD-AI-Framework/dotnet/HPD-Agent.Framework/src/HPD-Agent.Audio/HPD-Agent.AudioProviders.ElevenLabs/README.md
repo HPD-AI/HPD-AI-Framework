@@ -39,8 +39,9 @@ using var provider = new ElevenLabsAudioProvider(config);
 var ttsClient = provider.GetTextToSpeechClient();
 
 // Generate speech
-var response = await ttsClient.GetSpeechAsync("Hello, world!");
-await File.WriteAllBytesAsync("output.mp3", response.Audio.Data.ToArray());
+var response = await ttsClient.GetAudioAsync("Hello, world!");
+var audio = response.Contents.OfType<DataContent>().First();
+await File.WriteAllBytesAsync("output.mp3", audio.Data.ToArray());
 ```
 
 ### Use with Audio Pipeline Middleware
@@ -173,10 +174,13 @@ config.DefaultVoiceId = voices["Rachel"];
 ```csharp
 var ttsClient = provider.GetTextToSpeechClient();
 
-await foreach (var chunk in ttsClient.GetStreamingSpeechAsync(textChunks))
+await foreach (var chunk in ttsClient.GetStreamingAudioAsync("Hello, world!"))
 {
     // Process audio chunks as they arrive
-    await audioStream.WriteAsync(chunk.Audio.Data);
+    foreach (var audio in chunk.Contents.OfType<DataContent>())
+    {
+        await audioStream.WriteAsync(audio.Data);
+    }
 }
 ```
 
@@ -196,7 +200,7 @@ Console.WriteLine(transcription.Text);
 ```csharp
 var options = new TextToSpeechOptions
 {
-    Voice = "21m00Tcm4TlvDq8ikWAM",  // Rachel
+    VoiceId = "21m00Tcm4TlvDq8ikWAM",  // Rachel
     AdditionalProperties = new Dictionary<string, object?>
     {
         ["Stability"] = 0.8f,
@@ -206,7 +210,7 @@ var options = new TextToSpeechOptions
     }
 };
 
-var response = await ttsClient.GetSpeechAsync("Hello!", options);
+var response = await ttsClient.GetAudioAsync("Hello!", options);
 ```
 
 ## Integration with HPD Audio Pipeline

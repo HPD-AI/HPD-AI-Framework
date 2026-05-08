@@ -52,7 +52,7 @@ public sealed class MultiAgentGraphBuilderExtensionsTests
 
         node.Should().NotBeNull();
         node!.Type.Should().Be(NodeType.SubGraph);
-        node.SubGraph.Should().BeSameAs(workflow.Graph);
+        AssertEquivalentSubGraph(node.SubGraph, workflow.Graph);
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public sealed class MultiAgentGraphBuilderExtensionsTests
 
         ragNode.Should().NotBeNull();
         ragNode!.Type.Should().Be(NodeType.SubGraph);
-        ragNode.SubGraph.Should().BeSameAs(ragPipeline.Graph);
+        AssertEquivalentSubGraph(ragNode.SubGraph, ragPipeline.Graph);
 
         agentNode.Should().NotBeNull();
         agentNode!.Type.Should().Be(NodeType.SubGraph);
@@ -145,4 +145,18 @@ public sealed class MultiAgentGraphBuilderExtensionsTests
             new EdgeConfig { From = "classifier", To = "END" }
         ]
     };
+
+    private static void AssertEquivalentSubGraph(Graph? actual, Graph expected)
+    {
+        actual.Should().NotBeNull();
+        actual.Should().NotBeSameAs(expected);
+        actual!.Id.Should().Be(expected.Id);
+        actual.Name.Should().Be(expected.Name);
+        actual.EntryNodeId.Should().Be(expected.EntryNodeId);
+        actual.ExitNodeId.Should().Be(expected.ExitNodeId);
+        actual.MaxIterations.Should().Be(expected.MaxIterations);
+        actual.Nodes.Select(node => node.Id).Should().BeEquivalentTo(expected.Nodes.Select(node => node.Id));
+        actual.Edges.Select(edge => $"{edge.From}->{edge.To}").Should()
+            .BeEquivalentTo(expected.Edges.Select(edge => $"{edge.From}->{edge.To}"));
+    }
 }

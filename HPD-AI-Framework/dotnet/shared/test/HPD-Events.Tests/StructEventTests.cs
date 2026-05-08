@@ -129,19 +129,18 @@ public class StructEventTests
     }
 
     [Fact]
-    public async Task OnStruct_DispatchesThroughRunAsync()
+    public async Task SubscribeStructHandler_DispatchesThroughRunAsync()
     {
         using var coordinator = new EventCoordinator();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         var handled = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var runTask = coordinator
-            .OnStruct<TestStructEvent>(evt =>
-            {
-                handled.TrySetResult(evt.Message);
-                return ValueTask.CompletedTask;
-            })
-            .RunAsync(cts.Token);
+        using var handlerSubscription = coordinator.SubscribeStruct<TestStructEvent>(evt =>
+        {
+            handled.TrySetResult(evt.Message);
+            return ValueTask.CompletedTask;
+        });
+        var runTask = coordinator.RunAsync(cts.Token);
 
         Assert.True(coordinator.TryEmitStruct(new TestStructEvent("handled")));
 
@@ -151,21 +150,20 @@ public class StructEventTests
     }
 
     [Fact]
-    public async Task OnStruct_DoesNotDispatchToClassOnAny()
+    public async Task SubscribeStructHandler_DoesNotDispatchToClassSubscribeAny()
     {
         using var coordinator = new EventCoordinator();
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
         var sawClassEvent = false;
 
-        var runTask = coordinator
-            .OnAny(_ =>
-            {
-                sawClassEvent = true;
-                return ValueTask.CompletedTask;
-            })
-            .RunAsync(cts.Token);
+        using var anySubscription = coordinator.SubscribeAny(_ =>
+        {
+            sawClassEvent = true;
+            return ValueTask.CompletedTask;
+        });
+        var runTask = coordinator.RunAsync(cts.Token);
 
-        coordinator.OnStruct<TestStructEvent>(_ => ValueTask.CompletedTask);
+        using var structSubscription = coordinator.SubscribeStruct<TestStructEvent>(_ => ValueTask.CompletedTask);
         Assert.True(coordinator.TryEmitStruct(new TestStructEvent("struct-only")));
 
         await Task.Delay(50, CancellationToken.None);
@@ -185,13 +183,12 @@ public class StructEventTests
 
         child.SetParent(parent);
 
-        var runTask = parent
-            .OnAny(_ =>
-            {
-                parentSawEvent = true;
-                return ValueTask.CompletedTask;
-            })
-            .RunAsync(cts.Token);
+        using var anySubscription = parent.SubscribeAny(_ =>
+        {
+            parentSawEvent = true;
+            return ValueTask.CompletedTask;
+        });
+        var runTask = parent.RunAsync(cts.Token);
 
         await using var subscription = child.SubscribeStruct<TestStructEvent>();
         Assert.True(child.TryEmitStruct(new TestStructEvent("local")));
@@ -205,6 +202,17 @@ public class StructEventTests
     }
 
     [Fact]
+    public void SubscribeStruct_HandlerDispose_RemovesSubscriber()
+    {
+        using var coordinator = new EventCoordinator();
+
+        var subscription = coordinator.SubscribeStruct<TestStructEvent>(_ => ValueTask.CompletedTask);
+        subscription.Dispose();
+
+        Assert.False(coordinator.TryEmitStruct(new TestStructEvent("removed")));
+    }
+
+    [Fact]
     public async Task StructAndClassHandlers_RunConcurrently()
     {
         using var coordinator = new EventCoordinator();
@@ -212,14 +220,14 @@ public class StructEventTests
         var releaseClassHandler = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var structHandled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var runTask = coordinator
-            .On<TestClassEvent>(async _ => await releaseClassHandler.Task.WaitAsync(cts.Token))
-            .OnStruct<TestStructEvent>(_ =>
-            {
-                structHandled.TrySetResult();
-                return ValueTask.CompletedTask;
-            })
-            .RunAsync(cts.Token);
+        using var classSubscription = coordinator.Subscribe<TestClassEvent>(
+            async _ => await releaseClassHandler.Task.WaitAsync(cts.Token));
+        using var structSubscription = coordinator.SubscribeStruct<TestStructEvent>(_ =>
+        {
+            structHandled.TrySetResult();
+            return ValueTask.CompletedTask;
+        });
+        var runTask = coordinator.RunAsync(cts.Token);
 
         coordinator.Emit(new TestClassEvent("slow"));
         Assert.True(coordinator.TryEmitStruct(new TestStructEvent("fast")));

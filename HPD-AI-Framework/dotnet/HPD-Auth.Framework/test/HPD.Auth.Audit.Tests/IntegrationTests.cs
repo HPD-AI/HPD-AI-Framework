@@ -20,7 +20,7 @@ public class IntegrationTests
     private static async Task EmitAndDrainAsync(IEventCoordinator coordinator, AuditingAuthObserver observer, AuthEvent evt)
     {
         var observed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        coordinator.OnAny(async pending =>
+        coordinator.SubscribeAny(async pending =>
         {
             if (pending is AuthEvent authEvent && observer.ShouldProcess(authEvent))
                 await observer.OnEventAsync(authEvent);

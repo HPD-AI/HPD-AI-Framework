@@ -16,14 +16,15 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>HPD-Agent.Audio</PackageId>
-    <Description>Audio pipeline abstractions and middleware for HPD-Agent. Includes TTS/STT abstractions, VAD, turn detection, and audio events.</Description>
+    <Description>Audio pipeline abstractions and middleware for HPD-Agent. Includes TTS/STT abstractions, VAD, EOT detection, and audio events.</Description>
     <PackageTags>ai;agent;audio;tts;stt;voice;speech;middleware</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- Core HPD-Agent dependency -->
     <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
-        <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.4.1" />
   </ItemGroup>
 
   <!-- Expose internals to test projects -->

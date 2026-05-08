@@ -48,7 +48,7 @@ public sealed class TradingHost : IDisposable
         var subscriptions = GetSubscriptions();
 
         var gate = new object();
-        _coordinator.OnAny(evt =>
+        using var eventSubscription = _coordinator.SubscribeAny(evt =>
         {
             if (evt is FinanceEvent financeEvt)
             {

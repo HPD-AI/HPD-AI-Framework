@@ -583,24 +583,22 @@ public class AudioPipelineMiddlewareOutputTests
         private readonly byte[][] _chunks;
         public FakeTtsClient(byte[][] chunks) => _chunks = chunks;
 
-        public Task<TextToSpeechResponse> GetSpeechAsync(
+        public Task<TextToSpeechResponse> GetAudioAsync(
             string text,
             TextToSpeechOptions? options = null,
             CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
-        public async IAsyncEnumerable<TextToSpeechResponseUpdate> GetStreamingSpeechAsync(
-            IAsyncEnumerable<string> textStream,
+        public async IAsyncEnumerable<TextToSpeechResponseUpdate> GetStreamingAudioAsync(
+            string text,
             TextToSpeechOptions? options = null,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             for (int i = 0; i < _chunks.Length; i++)
             {
-                yield return new TextToSpeechResponseUpdate
+                yield return new TextToSpeechResponseUpdate([new DataContent(_chunks[i], "audio/mpeg")])
                 {
-                    Audio = new DataContent(_chunks[i], "audio/mpeg"),
-                    Duration = TimeSpan.FromMilliseconds(100),
-                    IsLast = i == _chunks.Length - 1
+                    Kind = TextToSpeechResponseUpdateKind.AudioUpdated
                 };
                 await Task.Yield();
             }
@@ -804,21 +802,19 @@ public class AudioPipelineMiddlewareOutputTests
             _registry = registry;
         }
 
-        public Task<TextToSpeechResponse> GetSpeechAsync(
+        public Task<TextToSpeechResponse> GetAudioAsync(
             string text, TextToSpeechOptions? options = null, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
-        public async IAsyncEnumerable<TextToSpeechResponseUpdate> GetStreamingSpeechAsync(
-            IAsyncEnumerable<string> textStream,
+        public async IAsyncEnumerable<TextToSpeechResponseUpdate> GetStreamingAudioAsync(
+            string text,
             TextToSpeechOptions? options = null,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             // Yield the chunk first so it accumulates in AssembledAudio
-            yield return new TextToSpeechResponseUpdate
+            yield return new TextToSpeechResponseUpdate([new DataContent(_chunk, "audio/mpeg")])
             {
-                Audio = new DataContent(_chunk, "audio/mpeg"),
-                Duration = TimeSpan.FromMilliseconds(100),
-                IsLast = true
+                Kind = TextToSpeechResponseUpdateKind.AudioUpdated
             };
             // Now interrupt the stream — middleware will see IsInterrupted=true in the finally block
             _registry.InterruptAll();

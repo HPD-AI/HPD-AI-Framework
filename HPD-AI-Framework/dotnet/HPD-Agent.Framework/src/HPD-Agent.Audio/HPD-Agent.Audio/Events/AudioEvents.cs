@@ -54,6 +54,23 @@ public readonly record struct AudioChunkFrame(
 }
 
 /// <summary>
+/// Local audio input frame for runtime voice capture.
+/// </summary>
+public readonly record struct AudioInputFrame(
+    string? SessionId,
+    string? BranchId,
+    ReadOnlyMemory<byte> Audio,
+    string MimeType,
+    long TimestampNs,
+    bool IsFinal,
+    long SequenceNumber = 0
+) : IStructEvent
+{
+    /// <inheritdoc />
+    public EventKind Kind => EventKind.Content;
+}
+
+/// <summary>
 /// Emitted when TTS synthesis completes.
 /// </summary>
 public record SynthesisCompletedEvent(
@@ -118,11 +135,11 @@ public record SpeechResumedEvent(
 //
 
 /// <summary>
-/// Emitted when preemptive LLM generation starts before turn is confirmed.
+/// Emitted when preemptive LLM generation starts before EOT is confirmed.
 /// </summary>
 public record PreemptiveGenerationStartedEvent(
     string GenerationId,
-    float TurnCompletionProbability
+    float EndOfTurnProbability
 ) : AgentEvent;
 
 /// <summary>
@@ -169,17 +186,17 @@ public record AudioPipelineMetricsEvent(
 ) : AgentEvent;
 
 //
-// TURN DETECTION EVENTS
+// END-OF-TURN EVENTS
 //
 
 /// <summary>
-/// Emitted when turn detection determines user has finished speaking.
+/// Emitted when EOT detection determines user has finished speaking.
 /// </summary>
-public record TurnDetectedEvent(
+public record EotDetectedEvent(
     string TranscribedText,
-    float CompletionProbability,
+    float EndOfTurnProbability,
     TimeSpan SilenceDuration,
-    string DetectionMethod  // "heuristic", "ml", "manual", "timeout"
+    string DetectionMethod  // "heuristic-eot", "manual", "timeout"
 ) : AgentEvent;
 
 //

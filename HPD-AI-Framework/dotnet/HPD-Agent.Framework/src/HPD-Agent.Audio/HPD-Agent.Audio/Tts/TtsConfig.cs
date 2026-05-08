@@ -3,6 +3,8 @@
 
 namespace HPD.Agent.Audio.Tts;
 
+using Microsoft.Extensions.AI;
+
 /// <summary>
 /// Configuration for Text-to-Speech (TTS) services.
 /// Contains service-agnostic settings that work with any TTS provider.
@@ -32,6 +34,12 @@ public class TtsConfig
     /// Not supported by all providers (e.g., OpenAI ignores this).
     /// </summary>
     public float? Pitch { get; set; }
+
+    /// <summary>
+    /// Volume multiplier. Provider-specific interpretation.
+    /// Maps directly to <see cref="TextToSpeechOptions.Volume"/>.
+    /// </summary>
+    public float? Volume { get; set; }
 
     /// <summary>
     /// Output audio format.
@@ -84,11 +92,49 @@ public class TtsConfig
     public string? ProviderOptionsJson { get; set; }
 
     /// <summary>
+    /// Additional provider-agnostic request properties.
+    /// Values are copied to <see cref="TextToSpeechOptions.AdditionalProperties"/>.
+    /// </summary>
+    public Dictionary<string, object>? AdditionalProperties { get; set; }
+
+    /// <summary>
+    /// Converts this HPD TTS config into Microsoft.Extensions.AI request options.
+    /// </summary>
+    public TextToSpeechOptions ToOptions()
+    {
+        var options = new TextToSpeechOptions
+        {
+            ModelId = ModelId,
+            VoiceId = Voice,
+            Language = Language,
+            AudioFormat = OutputFormat,
+            Speed = Speed,
+            Pitch = Pitch,
+            Volume = Volume
+        };
+
+        if (SampleRate.HasValue)
+        {
+            (options.AdditionalProperties ??= [])["sampleRate"] = SampleRate.Value;
+        }
+
+        if (AdditionalProperties != null)
+        {
+            foreach (var property in AdditionalProperties)
+            {
+                (options.AdditionalProperties ??= [])[property.Key] = property.Value;
+            }
+        }
+
+        return options;
+    }
+
+    /// <summary>
     /// Validates TTS configuration.
     /// </summary>
-    public void Validate()
+    public void Validate(bool requireProvider = true)
     {
-        if (string.IsNullOrWhiteSpace(Provider))
+        if (requireProvider && string.IsNullOrWhiteSpace(Provider))
             throw new ArgumentException("TTS Provider is required", nameof(Provider));
 
         if (Speed is < 0.25f or > 4.0f)

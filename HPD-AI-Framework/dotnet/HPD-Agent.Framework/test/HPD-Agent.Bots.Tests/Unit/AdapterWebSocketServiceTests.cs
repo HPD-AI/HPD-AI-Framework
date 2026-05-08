@@ -49,9 +49,11 @@ public class BotWebSocketServiceTests
         private readonly Func<int, TimeSpan?> _delayFunc;
         private readonly Func<System.Net.WebSockets.WebSocket, CancellationToken, Task> _runSession;
         private readonly TaskCompletionSource _started = new();
+        private readonly TaskCompletionSource _delayObserved = new();
 
         public IReadOnlyList<int> AttemptsPassedToGetDelay => _attemptsPassedToGetDelay;
         public Task Started => _started.Task;
+        public Task DelayObserved => _delayObserved.Task;
 
         public ControlledBackoffService(
             Func<int, TimeSpan?> delayFunc,
@@ -78,6 +80,7 @@ public class BotWebSocketServiceTests
         protected override TimeSpan? GetReconnectDelay(int attempt)
         {
             _attemptsPassedToGetDelay.Add(attempt);
+            _delayObserved.TrySetResult();
             return _delayFunc(attempt);
         }
     }
@@ -238,8 +241,7 @@ public class BotWebSocketServiceTests
             runSession: (_, _) => throw new IOException("forced failure"));
 
         await svc.StartAsync(cts.Token);
-        // Give the background service a moment to run to completion
-        await Task.Delay(200, CancellationToken.None);
+        await svc.DelayObserved.WaitAsync(cts.Token);
         await svc.StopAsync(CancellationToken.None);
 
         svc.AttemptsPassedToGetDelay.Should().HaveCount(1)

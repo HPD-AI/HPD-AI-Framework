@@ -134,11 +134,11 @@ public class TradingHostTests
     {
         public void Emit(Event evt) { }
         public ValueTask EmitAsync(Event evt, CancellationToken ct = default) => ValueTask.CompletedTask;
-        public IEventCoordinator On<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event => this;
-        public IEventCoordinator OnAny(Func<Event, ValueTask> handler) => this;
+        public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event => new NoopSubscription();
+        public IDisposable SubscribeAny(Func<Event, ValueTask> handler) => new NoopSubscription();
         public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent => false;
         public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : struct, IStructEvent => ValueTask.CompletedTask;
-        public IEventCoordinator OnStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => this;
+        public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => new NoopSubscription();
         public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null) where TEvent : struct, IStructEvent => default;
         public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null) where TEvent : struct, IStructEvent => default;
         public Task RunAsync(CancellationToken ct = default) => Task.CompletedTask;
@@ -179,5 +179,10 @@ public class TradingHostTests
         {
             TickCount++;
         }
+    }
+
+    private sealed class NoopSubscription : IDisposable
+    {
+        public void Dispose() { }
     }
 }
