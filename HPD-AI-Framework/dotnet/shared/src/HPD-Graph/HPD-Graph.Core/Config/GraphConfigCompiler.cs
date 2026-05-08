@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using HPDAgent.Graph.Abstractions.Artifacts;
 using HPDAgent.Graph.Abstractions.Caching;
@@ -451,8 +452,109 @@ public sealed class GraphConfigCompiler
         {
             Type = type,
             Required = config.Required,
+            DefaultValue = config.DefaultValue is null
+                ? null
+                : CompileDefaultValue(inputName, type, config.DefaultValue.Value),
             Validator = CompileInputValidator(inputName, config.Constraints)
         };
+    }
+
+    private static object? CompileDefaultValue(string inputName, Type type, JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (type == typeof(string))
+        {
+            return value.GetString();
+        }
+
+        if (type == typeof(bool) && value.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            return value.GetBoolean();
+        }
+
+        if (type == typeof(byte) && value.TryGetByte(out var byteValue))
+        {
+            return byteValue;
+        }
+
+        if (type == typeof(sbyte) && value.TryGetSByte(out var sbyteValue))
+        {
+            return sbyteValue;
+        }
+
+        if (type == typeof(short) && value.TryGetInt16(out var shortValue))
+        {
+            return shortValue;
+        }
+
+        if (type == typeof(ushort) && value.TryGetUInt16(out var ushortValue))
+        {
+            return ushortValue;
+        }
+
+        if (type == typeof(int) && value.TryGetInt32(out var intValue))
+        {
+            return intValue;
+        }
+
+        if (type == typeof(uint) && value.TryGetUInt32(out var uintValue))
+        {
+            return uintValue;
+        }
+
+        if (type == typeof(long) && value.TryGetInt64(out var longValue))
+        {
+            return longValue;
+        }
+
+        if (type == typeof(ulong) && value.TryGetUInt64(out var ulongValue))
+        {
+            return ulongValue;
+        }
+
+        if (type == typeof(float) && value.TryGetSingle(out var floatValue))
+        {
+            return floatValue;
+        }
+
+        if (type == typeof(double) && value.TryGetDouble(out var doubleValue))
+        {
+            return doubleValue;
+        }
+
+        if (type == typeof(decimal) && value.TryGetDecimal(out var decimalValue))
+        {
+            return decimalValue;
+        }
+
+        if (type == typeof(Guid) && value.ValueKind == JsonValueKind.String && value.TryGetGuid(out var guidValue))
+        {
+            return guidValue;
+        }
+
+        if (type == typeof(DateTime) && value.ValueKind == JsonValueKind.String && value.TryGetDateTime(out var dateTimeValue))
+        {
+            return dateTimeValue;
+        }
+
+        if (type == typeof(DateTimeOffset) && value.ValueKind == JsonValueKind.String && value.TryGetDateTimeOffset(out var dateTimeOffsetValue))
+        {
+            return dateTimeOffsetValue;
+        }
+
+        if (type == typeof(TimeSpan) &&
+            value.ValueKind == JsonValueKind.String &&
+            TimeSpan.TryParse(value.GetString(), CultureInfo.InvariantCulture, out var timeSpanValue))
+        {
+            return timeSpanValue;
+        }
+
+        throw new InvalidOperationException(
+            $"Input schema default value for '{inputName}' could not be converted to '{type.FullName}'.");
     }
 
     private IInputValidator? CompileInputValidator(string inputName, JsonElement? constraints)
@@ -542,19 +644,33 @@ public sealed class GraphConfigCompiler
 
     private Type? ResolveType(string typeName)
     {
+        var registeredType = _options.ResolveType(typeName);
+        if (registeredType is not null)
+        {
+            return registeredType;
+        }
+
         var simpleTypeName = StripAssemblyQualification(typeName);
         return simpleTypeName switch
         {
             "bool" or "boolean" or "System.Boolean" => typeof(bool),
             "byte" or "System.Byte" => typeof(byte),
+            "sbyte" or "System.SByte" => typeof(sbyte),
             "short" or "System.Int16" => typeof(short),
+            "ushort" or "System.UInt16" => typeof(ushort),
             "int" or "integer" or "System.Int32" => typeof(int),
+            "uint" or "System.UInt32" => typeof(uint),
             "long" or "System.Int64" => typeof(long),
+            "ulong" or "System.UInt64" => typeof(ulong),
             "float" or "single" or "System.Single" => typeof(float),
             "double" or "number" or "System.Double" => typeof(double),
             "decimal" or "System.Decimal" => typeof(decimal),
             "string" or "System.String" => typeof(string),
             "object" or "System.Object" => typeof(object),
+            "Guid" or "System.Guid" => typeof(Guid),
+            "DateTime" or "System.DateTime" => typeof(DateTime),
+            "DateTimeOffset" or "System.DateTimeOffset" => typeof(DateTimeOffset),
+            "TimeSpan" or "System.TimeSpan" => typeof(TimeSpan),
             "Exception" or "System.Exception" => typeof(Exception),
             "InvalidOperationException" or "System.InvalidOperationException" => typeof(InvalidOperationException),
             "OperationCanceledException" or "System.OperationCanceledException" => typeof(OperationCanceledException),
@@ -563,7 +679,7 @@ public sealed class GraphConfigCompiler
             "ArgumentException" or "System.ArgumentException" => typeof(ArgumentException),
             "ArgumentNullException" or "System.ArgumentNullException" => typeof(ArgumentNullException),
             "NotSupportedException" or "System.NotSupportedException" => typeof(NotSupportedException),
-            _ => _options.ResolveType(typeName)
+            _ => _options.ResolveType(simpleTypeName)
         };
     }
 

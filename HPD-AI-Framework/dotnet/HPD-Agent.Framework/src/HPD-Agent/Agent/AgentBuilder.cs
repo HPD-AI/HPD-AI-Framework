@@ -43,6 +43,20 @@ internal record AgentBuildDependencies(
 /// </summary>
 public class AgentBuilder
 {
+    private sealed class CompositeDisposable(params IDisposable[] disposables) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+
+            foreach (var disposable in disposables)
+                disposable.Dispose();
+        }
+    }
+
     // The new central configuration object
     private readonly AgentConfig _config;
     private readonly IProviderRegistry _providerRegistry;
@@ -74,8 +88,8 @@ public class AgentBuilder
     internal readonly Dictionary<string, string> _functionToHarnessMap = new(); // functionName -> toolTypeName
     internal readonly Dictionary<string, string> _functionToSkillMap = new(); // functionName -> skillName
 
-    // Internal observers for agent-level observability (developer-only, hidden from users)
-    private readonly List<IAgentEventObserver> _observers = new();
+    // Internal subscriptions for agent-level observability (developer-only, hidden from users)
+    private readonly List<Func<HPD.Events.IEventCoordinator, IDisposable>> _eventSubscriptionFactories = new();
 
     internal readonly Dictionary<Type, object> _providerConfigs = new();
     internal IServiceProvider? _serviceProvider;
@@ -1319,8 +1333,13 @@ public class AgentBuilder
 
         // 2. Internally create TelemetryEventObserver for agent-level observability (developer-only)
         // This tracks agent decisions, iterations, circuit breakers, etc.
-        var telemetryObserver = new TelemetryEventObserver(effectiveSourceName);
-        _observers.Add(telemetryObserver);
+        _eventSubscriptionFactories.Add(coordinator =>
+        {
+            var telemetryObserver = new TelemetryEventObserver(effectiveSourceName);
+            return new CompositeDisposable(
+                coordinator.Subscribe<AgentEvent>(telemetryObserver.HandleAsync),
+                telemetryObserver);
+        });
 
         return this;
     }
@@ -1351,8 +1370,13 @@ public class AgentBuilder
     /// </param>
     public AgentBuilder WithTracing(string? sourceName = null, SpanSanitizerOptions? sanitizerOptions = null)
     {
-        var observer = new TracingObserver(sourceName ?? "HPD.Agent", sanitizerOptions);
-        _observers.Add(observer);
+        _eventSubscriptionFactories.Add(coordinator =>
+        {
+            var tracing = new TracingObserver(sourceName ?? "HPD.Agent", sanitizerOptions);
+            return new CompositeDisposable(
+                coordinator.Subscribe<AgentEvent>(tracing.HandleAsync),
+                tracing);
+        });
         return this;
     }
 
@@ -1451,7 +1475,8 @@ public class AgentBuilder
             var loggingObserver = new LoggingEventObserver(
                 _logger.CreateLogger<LoggingEventObserver>(),
                 enableSensitiveData);
-            _observers.Add(loggingObserver);
+            _eventSubscriptionFactories.Add(coordinator =>
+                coordinator.Subscribe<AgentEvent>(loggingObserver.HandleAsync));
         }
 
         // 3. Store logging options - LoggingMiddleware will be added LAST in RegisterAutoMiddleware()
@@ -1486,69 +1511,13 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Registers a custom event observer to handle agent events.
-    /// Observers receive all internal agent events (AgentEvent) and can process them asynchronously.
-    /// Use this to implement custom event handling, logging, metrics collection, or UI updates.
+    /// Registers a subscription factory against the agent event coordinator during build.
     /// </summary>
-    /// <param name="observer">The observer to register. Can use <see cref="IEventHandler"/> or <see cref="IAgentEventObserver"/> - both are equivalent.</param>
-    /// <returns>The builder for chaining</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>Observer Pattern Benefits:</b>
-    /// </para>
-    /// <list type="bullet">
-    /// <item><description>Reusable event handling logic across multiple agents</description></item>
-    /// <item><description>Fire-and-forget async processing (doesn't block agent execution)</description></item>
-    /// <item><description>Automatic circuit breaker protection (failing observers auto-disabled after 10 failures)</description></item>
-    /// <item><description>Selective filtering via <c>ShouldProcess()</c> method</description></item>
-    /// </list>
-    /// <para>
-    /// <b>Example - Custom Event Handler:</b>
-    /// <code>
-    /// public class MyEventHandler : IEventHandler
-    /// {
-    ///     public bool ShouldProcess(AgentEvent evt)
-    ///     {
-    ///         // Filter events you care about
-    ///         return evt is PermissionRequestEvent or TextDeltaEvent;
-    ///     }
-    ///
-    ///     public async Task OnEventAsync(AgentEvent evt, CancellationToken ct)
-    ///     {
-    ///         switch (evt)
-    ///         {
-    ///             case PermissionRequestEvent permReq:
-    ///                 await HandlePermissionAsync(permReq, ct);
-    ///                 break;
-    ///             case TextDeltaEvent textDelta:
-    ///                 Console.Write(textDelta.Text);
-    ///                 break;
-    ///         }
-    ///     }
-    /// }
-    ///
-    /// // Register with agent
-    /// var agent = new AgentBuilder(config)
-    ///     .WithObserver(new MyEventHandler())
-    ///     .Build();
-    /// </code>
-    /// </para>
-    /// <para>
-    /// <b>Multiple Observers:</b> Call <c>WithObserver()</c> multiple times to register multiple observers.
-    /// All observers run in parallel via fire-and-forget pattern.
-    /// </para>
-    /// <para>
-    /// <b>Built-in Observers:</b> The framework automatically registers:
-    /// - <c>LoggingEventObserver</c> (when you call <c>WithLogging()</c>)
-    /// - <c>TelemetryEventObserver</c> (when you call <c>WithTelemetry()</c>)
-    /// </para>
-    /// </remarks>
-    public AgentBuilder WithObserver(IAgentEventObserver observer)
+    public AgentBuilder WithEventSubscription(
+        Func<HPD.Events.IEventCoordinator, IDisposable> subscriptionFactory)
     {
-        if (observer == null)
-            throw new ArgumentNullException(nameof(observer));
-
-        _observers.Add(observer);
+        ArgumentNullException.ThrowIfNull(subscriptionFactory);
+        _eventSubscriptionFactories.Add(subscriptionFactory);
         return this;
     }
 
@@ -2113,7 +2082,7 @@ public class AgentBuilder
             _functionToSkillMap,
             _middlewares,
             _serviceProvider,
-            _observers,
+            _eventSubscriptionFactories,
             _providerRegistry,
             _stateFactories,
             buildData.OwnedHttpClients);

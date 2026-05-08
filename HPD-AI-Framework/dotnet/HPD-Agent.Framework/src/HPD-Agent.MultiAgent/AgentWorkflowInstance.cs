@@ -274,12 +274,12 @@ public sealed class AgentWorkflowInstance
 
     /// <summary>
     /// Execute the workflow with streaming events, using a <see cref="WorkflowEventCoordinator"/>
-    /// for bidirectional event patterns (e.g. approval responses) and observer dispatch.
+    /// for bidirectional event patterns (e.g. approval responses) and subscriptions.
     /// This overload avoids any direct dependency on HPD.Events.
     /// </summary>
     /// <param name="input">The input to the workflow.</param>
     /// <param name="coordinator">
-    /// A <see cref="WorkflowEventCoordinator"/> used to send approval responses and receive observer callbacks.
+    /// A <see cref="WorkflowEventCoordinator"/> used to send approval responses and receive subscription events.
     /// Call <see cref="WorkflowEventCoordinator.Approve"/> or <see cref="WorkflowEventCoordinator.Deny"/>
     /// while iterating the returned stream.
     /// </param>
@@ -292,8 +292,6 @@ public sealed class AgentWorkflowInstance
     {
         await foreach (var evt in ExecuteStreamingAsync(input, coordinator.Inner, parentExecutionContext: null, parentChatClient: null, cancellationToken))
         {
-            if (coordinator.HasObservers)
-                await coordinator.DispatchToObserversAsync(evt, cancellationToken);
             yield return evt;
         }
     }
@@ -415,14 +413,11 @@ public sealed class AgentWorkflowInstance
         var orchestrator = new GraphOrchestrator<AgentGraphContext>(_serviceProvider, checkpointStore: checkpointStore);
 
         var eventChannel = Channel.CreateUnbounded<Event>();
-        using var coordinatorCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var eventSubscription = eventCoordinator.SubscribeAny(evt =>
         {
             eventChannel.Writer.TryWrite(evt);
             return ValueTask.CompletedTask;
         });
-
-        var coordinatorTask = eventCoordinator.RunAsync(coordinatorCts.Token);
 
         // Start execution in background task
         var executionTask = Task.Run(async () =>
@@ -441,7 +436,6 @@ public sealed class AgentWorkflowInstance
             finally
             {
                 eventChannel.Writer.TryComplete();
-                await coordinatorCts.CancelAsync().ConfigureAwait(false);
             }
         }, cancellationToken);
 
@@ -464,7 +458,6 @@ public sealed class AgentWorkflowInstance
 
         // Wait for execution to complete
         await executionTask;
-        await SuppressCancellationAsync(coordinatorTask).ConfigureAwait(false);
     }
 
     /// <summary>

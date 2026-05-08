@@ -129,7 +129,7 @@ public class StructEventTests
     }
 
     [Fact]
-    public async Task SubscribeStructHandler_DispatchesThroughRunAsync()
+    public async Task SubscribeStructHandler_DispatchesWithoutRunAsync()
     {
         using var coordinator = new EventCoordinator();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -140,13 +140,10 @@ public class StructEventTests
             handled.TrySetResult(evt.Message);
             return ValueTask.CompletedTask;
         });
-        var runTask = coordinator.RunAsync(cts.Token);
 
         Assert.True(coordinator.TryEmitStruct(new TestStructEvent("handled")));
 
         Assert.Equal("handled", await handled.Task.WaitAsync(cts.Token));
-        await cts.CancelAsync();
-        await runTask;
     }
 
     [Fact]
@@ -161,14 +158,11 @@ public class StructEventTests
             sawClassEvent = true;
             return ValueTask.CompletedTask;
         });
-        var runTask = coordinator.RunAsync(cts.Token);
 
         using var structSubscription = coordinator.SubscribeStruct<TestStructEvent>(_ => ValueTask.CompletedTask);
         Assert.True(coordinator.TryEmitStruct(new TestStructEvent("struct-only")));
 
         await Task.Delay(50, CancellationToken.None);
-        await cts.CancelAsync();
-        await runTask;
 
         Assert.False(sawClassEvent);
     }
@@ -188,15 +182,12 @@ public class StructEventTests
             parentSawEvent = true;
             return ValueTask.CompletedTask;
         });
-        var runTask = parent.RunAsync(cts.Token);
 
         await using var subscription = child.SubscribeStruct<TestStructEvent>();
         Assert.True(child.TryEmitStruct(new TestStructEvent("local")));
         Assert.Equal("local", (await ReadOneAsync(subscription.Reader)).Message);
 
         await Task.Delay(50, CancellationToken.None);
-        await cts.CancelAsync();
-        await runTask;
 
         Assert.False(parentSawEvent);
     }
@@ -227,15 +218,12 @@ public class StructEventTests
             structHandled.TrySetResult();
             return ValueTask.CompletedTask;
         });
-        var runTask = coordinator.RunAsync(cts.Token);
 
         coordinator.Emit(new TestClassEvent("slow"));
         Assert.True(coordinator.TryEmitStruct(new TestStructEvent("fast")));
 
         await structHandled.Task.WaitAsync(cts.Token);
         releaseClassHandler.SetResult();
-        await cts.CancelAsync();
-        await runTask;
     }
 
     private static async Task<TEvent> ReadOneAsync<TEvent>(

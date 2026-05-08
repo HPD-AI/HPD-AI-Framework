@@ -1,35 +1,23 @@
 using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 
 namespace HPD.Events.Core;
 
 /// <summary>
-/// Routes semantic HPD events through the four EventChannel queues.
+/// Routes semantic HPD events through per-subscriber fan-out mailboxes.
 /// </summary>
 internal sealed class EventChannelRouter : IDisposable
 {
-    private readonly Channel<Event> _streamingChannel;
-    private readonly Channel<Event> _synchronousChannel;
-    private readonly Channel<Event> _interactiveChannel;
-    private readonly Channel<Event> _controlChannel;
-
     private readonly ConcurrentDictionary<string, (TaskCompletionSource<Event>, CancellationTokenSource)>
         _responseWaiters = new();
     private readonly ConcurrentDictionary<EventChannelRouter, byte> _children = new();
-
-    private readonly Dictionary<Type, List<RegisteredEventHandler>> _classHandlers = new();
-    private readonly List<RegisteredEventHandler> _anyHandlers = new();
-
+    private readonly List<IClassEventSubscriber> _subscribers = new();
     private readonly StreamRegistry _streamRegistry = new();
     private readonly Func<Event, Event>? _eventEnricher;
     private readonly Func<Event, bool>? _eventFilter;
 
     private long _sequenceCounter;
-    private int _streamingDepth;
-    private int _synchronousDepth;
-    private int _interactiveDepth;
-    private int _controlDepth;
+    private long _totalDropped;
     private IEventCoordinator? _parentCoordinator;
     private bool _disposed;
 
@@ -39,49 +27,6 @@ internal sealed class EventChannelRouter : IDisposable
     {
         _eventEnricher = eventEnricher;
         _eventFilter = eventFilter;
-
-        _controlChannel = Channel.CreateBounded<Event>(new BoundedChannelOptions(64)
-        {
-            SingleWriter = false,
-            SingleReader = true,
-            FullMode = BoundedChannelFullMode.Wait,
-            AllowSynchronousContinuations = false
-        });
-
-        _streamingChannel = Channel.CreateBounded<Event>(
-            new BoundedChannelOptions(256)
-            {
-                SingleWriter = false,
-                SingleReader = true,
-                FullMode = BoundedChannelFullMode.DropOldest,
-                AllowSynchronousContinuations = false
-            },
-            itemDropped: evt =>
-            {
-                Interlocked.Decrement(ref _streamingDepth);
-                if (_controlChannel.Writer.TryWrite(new EventDroppedEvent(
-                    evt.StreamId ?? string.Empty,
-                    evt.GetType().Name,
-                    evt.SequenceNumber)))
-                {
-                    Interlocked.Increment(ref _controlDepth);
-                }
-            });
-
-        _synchronousChannel = Channel.CreateUnbounded<Event>(new UnboundedChannelOptions
-        {
-            SingleWriter = false,
-            SingleReader = true,
-            AllowSynchronousContinuations = false
-        });
-
-        _interactiveChannel = Channel.CreateBounded<Event>(new BoundedChannelOptions(64)
-        {
-            SingleWriter = false,
-            SingleReader = true,
-            FullMode = BoundedChannelFullMode.Wait,
-            AllowSynchronousContinuations = false
-        });
     }
 
     public IStreamRegistry Streams => _streamRegistry;
@@ -111,13 +56,8 @@ internal sealed class EventChannelRouter : IDisposable
         if (enriched is null)
             return;
 
-        if (!TryEmitToChannel(enriched))
-        {
-            throw new InvalidOperationException(
-                $"Event channel '{enriched.Channel}' is full. Use EmitAsync() to wait for capacity.");
-        }
-
-        _parentCoordinator?.Emit(enriched);
+        PublishPrepared(enriched, skipSubscriberId: null);
+        BubblePrepared(enriched);
     }
 
     public async ValueTask EmitAsync(Event evt, CancellationToken ct = default)
@@ -129,73 +69,54 @@ internal sealed class EventChannelRouter : IDisposable
         if (enriched is null)
             return;
 
-        await WriteToChannelAsync(enriched, ct).ConfigureAwait(false);
-
-        if (_parentCoordinator is not null)
-            await _parentCoordinator.EmitAsync(enriched, ct).ConfigureAwait(false);
+        await PublishPreparedAsync(enriched, skipSubscriberId: null, ct).ConfigureAwait(false);
+        await BubblePreparedAsync(enriched, ct).ConfigureAwait(false);
     }
 
-    public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event
+    public IDisposable Subscribe<TEvent>(
+        Func<TEvent, ValueTask> handler,
+        EventSubscriptionOptions? options = null)
+        where TEvent : Event
     {
         ArgumentNullException.ThrowIfNull(handler);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        var type = typeof(TEvent);
-        var registration = new RegisteredEventHandler(evt => handler((TEvent)evt));
+        var subscriber = CreateSubscriber<TEvent>(isStream: false, options);
+        var cts = new CancellationTokenSource();
+        var task = Task.Run(
+            () => RunHandlerPumpAsync(subscriber, handler, cts.Token),
+            CancellationToken.None);
 
-        lock (_classHandlers)
-        {
-            if (!_classHandlers.TryGetValue(type, out var list))
-            {
-                list = new List<RegisteredEventHandler>();
-                _classHandlers[type] = list;
-            }
-
-            list.Add(registration);
-        }
-
-        return new EventHandlerSubscription(this, type, registration.Id);
+        return new HandlerSubscription<TEvent>(this, subscriber, cts, task);
     }
 
-    public IDisposable SubscribeAny(Func<Event, ValueTask> handler)
+    public IDisposable SubscribeAny(
+        Func<Event, ValueTask> handler,
+        EventSubscriptionOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(handler);
-        ObjectDisposedException.ThrowIf(_disposed, this);
-
-        var registration = new RegisteredEventHandler(handler);
-
-        lock (_anyHandlers)
-        {
-            _anyHandlers.Add(registration);
-        }
-
-        return new EventHandlerSubscription(this, eventType: null, registration.Id);
+        return Subscribe<Event>(handler, options);
     }
 
-    public async Task RunAsync(CancellationToken ct = default)
+    public EventStreamSubscription<TEvent> SubscribeStream<TEvent>(
+        EventSubscriptionOptions? options = null)
+        where TEvent : Event
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        using var runCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
-        var tasks = new List<Task>
-        {
-            RunChannelAsync(_streamingChannel.Reader, () => Interlocked.Decrement(ref _streamingDepth), runCts.Token),
-            RunChannelAsync(_synchronousChannel.Reader, () => Interlocked.Decrement(ref _synchronousDepth), runCts.Token),
-            RunChannelAsync(_interactiveChannel.Reader, () => Interlocked.Decrement(ref _interactiveDepth), runCts.Token),
-            RunChannelAsync(_controlChannel.Reader, () => Interlocked.Decrement(ref _controlDepth), runCts.Token)
-        };
+        var subscriber = CreateSubscriber<TEvent>(isStream: true, options);
+        return new EventStreamSubscription<TEvent>(
+            subscriber.Reader,
+            subscriber.Writer,
+            writer => RemoveSubscriberByWriter(writer));
+    }
 
-        while (tasks.Count > 0)
-        {
-            var completed = await Task.WhenAny(tasks).ConfigureAwait(false);
-            if (completed.IsFaulted)
-            {
-                await runCts.CancelAsync().ConfigureAwait(false);
-                await completed.ConfigureAwait(false);
-            }
-
-            tasks.Remove(completed);
-        }
+    public EventStreamSubscription<Event> SubscribeChannel(
+        EventChannel channel,
+        EventSubscriptionOptions? options = null)
+    {
+        options = (options ?? new EventSubscriptionOptions()) with { Channel = channel };
+        return SubscribeStream<Event>(options);
     }
 
     public void SetParent(IEventCoordinator parent, IEventCoordinator owner)
@@ -303,24 +224,51 @@ internal sealed class EventChannelRouter : IDisposable
         return true;
     }
 
-    public EventCoordinatorStats GetStats() =>
-        new(
-            Volatile.Read(ref _streamingDepth),
-            Volatile.Read(ref _synchronousDepth),
-            Volatile.Read(ref _interactiveDepth),
-            Volatile.Read(ref _controlDepth));
+    public EventCoordinatorStats GetStats()
+    {
+        IClassEventSubscriber[] subscribers;
+        lock (_subscribers)
+        {
+            subscribers = _subscribers.ToArray();
+        }
 
-    public IAsyncEnumerable<Event> ReadStreamingAsync(CancellationToken ct = default) =>
-        ReadChannelAsync(_streamingChannel.Reader, () => Interlocked.Decrement(ref _streamingDepth), ct);
+        var totalQueued = 0;
+        var maxDepth = 0;
+        var streamSubscribers = 0;
+        foreach (var subscriber in subscribers)
+        {
+            var depth = subscriber.Depth;
+            totalQueued += depth;
+            maxDepth = Math.Max(maxDepth, depth);
+            if (subscriber.IsStream)
+                streamSubscribers++;
+        }
 
-    public IAsyncEnumerable<Event> ReadSynchronousAsync(CancellationToken ct = default) =>
-        ReadChannelAsync(_synchronousChannel.Reader, () => Interlocked.Decrement(ref _synchronousDepth), ct);
+        return new EventCoordinatorStats(
+            subscribers.Length,
+            streamSubscribers,
+            totalQueued,
+            (int)Math.Min(int.MaxValue, Volatile.Read(ref _totalDropped)),
+            maxDepth);
+    }
 
-    public IAsyncEnumerable<Event> ReadInteractiveAsync(CancellationToken ct = default) =>
-        ReadChannelAsync(_interactiveChannel.Reader, () => Interlocked.Decrement(ref _interactiveDepth), ct);
+    private EventSubscriber<TEvent> CreateSubscriber<TEvent>(
+        bool isStream,
+        EventSubscriptionOptions? options)
+        where TEvent : Event
+    {
+        options ??= new EventSubscriptionOptions();
+        if (options.Capacity <= 0)
+            throw new ArgumentOutOfRangeException(nameof(options), "Event subscription capacity must be greater than zero.");
 
-    public IAsyncEnumerable<Event> ReadControlAsync(CancellationToken ct = default) =>
-        ReadChannelAsync(_controlChannel.Reader, () => Interlocked.Decrement(ref _controlDepth), ct);
+        var subscriber = new EventSubscriber<TEvent>(options, isStream, OnSubscriberDropped);
+        lock (_subscribers)
+        {
+            _subscribers.Add(subscriber);
+        }
+
+        return subscriber;
+    }
 
     private Event? PrepareForEmission(Event evt)
     {
@@ -328,7 +276,8 @@ internal sealed class EventChannelRouter : IDisposable
             return null;
 
         var enriched = _eventEnricher?.Invoke(evt) ?? evt;
-        enriched.SequenceNumber = Interlocked.Increment(ref _sequenceCounter);
+        if (enriched.SequenceNumber == 0)
+            enriched.SequenceNumber = Interlocked.Increment(ref _sequenceCounter);
 
         if (enriched.StreamId is not null && enriched.CanInterrupt && enriched is not EventDroppedEvent)
         {
@@ -336,10 +285,11 @@ internal sealed class EventChannelRouter : IDisposable
             if (streamHandle is StreamHandle { IsInterrupted: true } handle)
             {
                 handle.IncrementDroppedCount();
-                TryEmitToChannel(new EventDroppedEvent(
+                PublishDiagnostic(new EventDroppedEvent(
                     enriched.StreamId,
                     enriched.GetType().Name,
-                    enriched.SequenceNumber));
+                    enriched.SequenceNumber),
+                    skipSubscriberId: null);
                 return null;
             }
         }
@@ -353,48 +303,103 @@ internal sealed class EventChannelRouter : IDisposable
         return enriched;
     }
 
-    private bool TryEmitToChannel(Event evt)
+    private void PublishPrepared(Event evt, Guid? skipSubscriberId)
     {
-        var written = GetChannel(evt.Channel).Writer.TryWrite(evt);
-        if (written)
-            IncrementDepth(evt.Channel);
-
-        return written;
-    }
-
-    private async ValueTask WriteToChannelAsync(Event evt, CancellationToken ct)
-    {
-        await GetChannel(evt.Channel).Writer.WriteAsync(evt, ct).ConfigureAwait(false);
-        IncrementDepth(evt.Channel);
-    }
-
-    private void IncrementDepth(EventChannel channel)
-    {
-        switch (channel)
+        var subscribers = SnapshotSubscribers();
+        foreach (var subscriber in subscribers)
         {
-            case EventChannel.Streaming:
-                Interlocked.Increment(ref _streamingDepth);
-                break;
-            case EventChannel.Synchronous:
-                Interlocked.Increment(ref _synchronousDepth);
-                break;
-            case EventChannel.Interactive:
-                Interlocked.Increment(ref _interactiveDepth);
-                break;
-            case EventChannel.Control:
-                Interlocked.Increment(ref _controlDepth);
-                break;
+            if (skipSubscriberId == subscriber.Id)
+                continue;
+
+            if (!subscriber.Matches(evt))
+                continue;
+
+            if (!subscriber.TryPublish(evt))
+                OnSubscriberDropped();
         }
     }
 
-    private Channel<Event> GetChannel(EventChannel channel) => channel switch
+    private async ValueTask PublishPreparedAsync(Event evt, Guid? skipSubscriberId, CancellationToken ct)
     {
-        EventChannel.Streaming => _streamingChannel,
-        EventChannel.Synchronous => _synchronousChannel,
-        EventChannel.Interactive => _interactiveChannel,
-        EventChannel.Control => _controlChannel,
-        _ => _synchronousChannel
-    };
+        var subscribers = SnapshotSubscribers();
+        foreach (var subscriber in subscribers)
+        {
+            if (skipSubscriberId == subscriber.Id)
+                continue;
+
+            if (!subscriber.Matches(evt))
+                continue;
+
+            if (subscriber.TryPublish(evt))
+                continue;
+
+            if (subscriber.Options.FullMode == BoundedChannelFullMode.Wait)
+            {
+                await subscriber.PublishAsync(evt, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                OnSubscriberDropped();
+            }
+        }
+    }
+
+    private void PublishDiagnostic(Event diagnostic, Guid? skipSubscriberId)
+    {
+        if (diagnostic.SequenceNumber == 0)
+            diagnostic.SequenceNumber = Interlocked.Increment(ref _sequenceCounter);
+
+        PublishPrepared(diagnostic, skipSubscriberId);
+        BubblePrepared(diagnostic);
+    }
+
+    private void BubblePrepared(Event evt)
+    {
+        _parentCoordinator?.Emit(evt);
+    }
+
+    private async ValueTask BubblePreparedAsync(Event evt, CancellationToken ct)
+    {
+        if (_parentCoordinator is not null)
+            await _parentCoordinator.EmitAsync(evt, ct).ConfigureAwait(false);
+    }
+
+    private IClassEventSubscriber[] SnapshotSubscribers()
+    {
+        lock (_subscribers)
+        {
+            return _subscribers.ToArray();
+        }
+    }
+
+    private void RemoveSubscriber(Guid subscriberId)
+    {
+        lock (_subscribers)
+        {
+            var index = _subscribers.FindIndex(subscriber => subscriber.Id == subscriberId);
+            if (index < 0)
+                return;
+
+            _subscribers[index].Complete();
+            _subscribers.RemoveAt(index);
+        }
+    }
+
+    private void RemoveSubscriberByWriter<TEvent>(ChannelWriter<TEvent> writer)
+        where TEvent : Event
+    {
+        lock (_subscribers)
+        {
+            var index = _subscribers.FindIndex(subscriber => subscriber.IsWriter(writer));
+            if (index < 0)
+                return;
+
+            _subscribers[index].Complete();
+            _subscribers.RemoveAt(index);
+        }
+    }
+
+    private void OnSubscriberDropped() => Interlocked.Increment(ref _totalDropped);
 
     private void FindResponseWaiters(string requestId, List<EventChannelRouter> matches)
     {
@@ -417,97 +422,34 @@ internal sealed class EventChannelRouter : IDisposable
         }
     }
 
-    private async Task RunChannelAsync(ChannelReader<Event> reader, Action decrementDepth, CancellationToken ct)
+    private async Task RunHandlerPumpAsync<TEvent>(
+        EventSubscriber<TEvent> subscriber,
+        Func<TEvent, ValueTask> handler,
+        CancellationToken ct)
+        where TEvent : Event
     {
         try
         {
-            await foreach (var evt in reader.ReadAllAsync(ct).ConfigureAwait(false))
+            await foreach (var evt in subscriber.Reader.ReadAllAsync(ct).ConfigureAwait(false))
             {
-                decrementDepth();
-
-                List<Func<Event, ValueTask>>? exactHandlers = null;
-                lock (_classHandlers)
-                {
-                    if (_classHandlers.TryGetValue(evt.GetType(), out var handlers))
-                        exactHandlers = handlers.Select(h => h.Handler).ToList();
-                }
-
-                if (exactHandlers is not null)
-                {
-                    foreach (var handler in exactHandlers)
-                        await handler(evt).ConfigureAwait(false);
-                }
-
-                List<Func<Event, ValueTask>> anyHandlers;
-                lock (_anyHandlers)
-                {
-                    anyHandlers = _anyHandlers.Select(h => h.Handler).ToList();
-                }
-
-                foreach (var handler in anyHandlers)
-                    await handler(evt).ConfigureAwait(false);
+                subscriber.DecrementDepth();
+                await handler(evt).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // Cooperative shutdown.
         }
-    }
-
-    private void RemoveHandler(Type? eventType, Guid handlerId)
-    {
-        if (eventType is null)
+        catch (Exception ex)
         {
-            lock (_anyHandlers)
-            {
-                _anyHandlers.RemoveAll(handler => handler.Id == handlerId);
-            }
-
-            return;
-        }
-
-        lock (_classHandlers)
-        {
-            if (!_classHandlers.TryGetValue(eventType, out var handlers))
-                return;
-
-            handlers.RemoveAll(handler => handler.Id == handlerId);
-            if (handlers.Count == 0)
-                _classHandlers.Remove(eventType);
-        }
-    }
-
-    private sealed class RegisteredEventHandler(Func<Event, ValueTask> handler)
-    {
-        public Guid Id { get; } = Guid.NewGuid();
-        public Func<Event, ValueTask> Handler { get; } = handler;
-    }
-
-    private sealed class EventHandlerSubscription(
-        EventChannelRouter router,
-        Type? eventType,
-        Guid handlerId) : IDisposable
-    {
-        private int _disposed;
-
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0)
-                return;
-
-            router.RemoveHandler(eventType, handlerId);
-        }
-    }
-
-    private static async IAsyncEnumerable<Event> ReadChannelAsync(
-        ChannelReader<Event> reader,
-        Action decrementDepth,
-        [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        await foreach (var evt in reader.ReadAllAsync(ct).ConfigureAwait(false))
-        {
-            decrementDepth();
-            yield return evt;
+            RemoveSubscriber(subscriber.Id);
+            PublishDiagnostic(
+                new EventSubscriberFaultedEvent(
+                    subscriber.Id.ToString("N"),
+                    typeof(TEvent).Name,
+                    ex.GetType().Name,
+                    ex.Message),
+                skipSubscriberId: subscriber.Id);
         }
     }
 
@@ -521,10 +463,13 @@ internal sealed class EventChannelRouter : IDisposable
         if (_parentCoordinator is EventCoordinator parent)
             parent.UnregisterChildRouter(this);
 
-        _streamingChannel.Writer.TryComplete();
-        _synchronousChannel.Writer.TryComplete();
-        _interactiveChannel.Writer.TryComplete();
-        _controlChannel.Writer.TryComplete();
+        lock (_subscribers)
+        {
+            foreach (var subscriber in _subscribers)
+                subscriber.Complete();
+
+            _subscribers.Clear();
+        }
 
         foreach (var (_, (tcs, cts)) in _responseWaiters)
         {
@@ -534,5 +479,148 @@ internal sealed class EventChannelRouter : IDisposable
 
         _responseWaiters.Clear();
         _children.Clear();
+    }
+
+    private interface IClassEventSubscriber
+    {
+        Guid Id { get; }
+        EventSubscriptionOptions Options { get; }
+        bool IsStream { get; }
+        int Depth { get; }
+        bool Matches(Event evt);
+        bool TryPublish(Event evt);
+        ValueTask PublishAsync(Event evt, CancellationToken ct);
+        bool IsWriter<TEvent>(ChannelWriter<TEvent> writer) where TEvent : Event;
+        void Complete();
+    }
+
+    private sealed class EventSubscriber<TEvent> : IClassEventSubscriber
+        where TEvent : Event
+    {
+        private readonly Channel<TEvent> _channel;
+        private readonly Action _onDropped;
+        private int _depth;
+
+        public EventSubscriber(
+            EventSubscriptionOptions options,
+            bool isStream,
+            Action onDropped)
+        {
+            Options = options;
+            IsStream = isStream;
+            _onDropped = onDropped;
+            _channel = Channel.CreateBounded<TEvent>(
+                new BoundedChannelOptions(options.Capacity)
+                {
+                    SingleReader = true,
+                    SingleWriter = false,
+                    FullMode = options.FullMode,
+                    AllowSynchronousContinuations = false
+                },
+                itemDropped: _ =>
+                {
+                    DecrementDepth();
+                    _onDropped();
+                });
+        }
+
+        public Guid Id { get; } = Guid.NewGuid();
+        public EventSubscriptionOptions Options { get; }
+        public bool IsStream { get; }
+        public int Depth => Volatile.Read(ref _depth);
+        public ChannelReader<TEvent> Reader => _channel.Reader;
+        public ChannelWriter<TEvent> Writer => _channel.Writer;
+
+        public bool Matches(Event evt)
+        {
+            if (Options.Channel is { } channel && evt.Channel != channel)
+                return false;
+
+            if (Options.IncludeDerivedTypes)
+                return evt is TEvent;
+
+            return evt.GetType() == typeof(TEvent);
+        }
+
+        public bool TryPublish(Event evt)
+        {
+            if (evt is not TEvent typed)
+                return false;
+
+            var written = _channel.Writer.TryWrite(typed);
+            if (written)
+                Interlocked.Increment(ref _depth);
+
+            return written;
+        }
+
+        public async ValueTask PublishAsync(Event evt, CancellationToken ct)
+        {
+            if (evt is not TEvent typed)
+                return;
+
+            await _channel.Writer.WriteAsync(typed, ct).ConfigureAwait(false);
+            Interlocked.Increment(ref _depth);
+        }
+
+        public void DecrementDepth()
+        {
+            int current;
+            do
+            {
+                current = Volatile.Read(ref _depth);
+                if (current <= 0)
+                    return;
+            }
+            while (Interlocked.CompareExchange(ref _depth, current - 1, current) != current);
+        }
+
+        public bool IsWriter<T>(ChannelWriter<T> writer)
+            where T : Event =>
+            ReferenceEquals(_channel.Writer, writer);
+
+        public void Complete() => _channel.Writer.TryComplete();
+    }
+
+    private sealed class HandlerSubscription<TEvent> : IDisposable
+        where TEvent : Event
+    {
+        private readonly EventChannelRouter _router;
+        private readonly EventSubscriber<TEvent> _subscriber;
+        private readonly CancellationTokenSource _cts;
+        private readonly Task _task;
+        private int _disposed;
+
+        public HandlerSubscription(
+            EventChannelRouter router,
+            EventSubscriber<TEvent> subscriber,
+            CancellationTokenSource cts,
+            Task task)
+        {
+            _router = router;
+            _subscriber = subscriber;
+            _cts = cts;
+            _task = task;
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+
+            _router.RemoveSubscriber(_subscriber.Id);
+            _cts.Cancel();
+            try
+            {
+                _task.GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                _cts.Dispose();
+            }
+        }
     }
 }

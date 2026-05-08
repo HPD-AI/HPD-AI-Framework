@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 namespace HPD.Auth.Audit.Services;
 
 /// <summary>
-/// <see cref="IEventObserver{TEvent}"/> that writes an <see cref="AuditLogEntry"/>
+/// Subscription handler that writes an <see cref="AuditLogEntry"/>
 /// for each auth event and fans out to all registered <see cref="IAuthEventObserver{TEvent}"/>
 /// instances from the DI container.
 ///
@@ -19,7 +19,7 @@ namespace HPD.Auth.Audit.Services;
 /// Resilience: audit write failures and observer exceptions are caught individually
 /// and logged — they never break the primary auth flow.
 /// </summary>
-public sealed class AuditingAuthObserver : IEventObserver<AuthEvent>
+public sealed class AuditingAuthObserver
 {
     private readonly IAuditLogger _auditLogger;
     private readonly IServiceProvider _serviceProvider;
@@ -35,9 +35,7 @@ public sealed class AuditingAuthObserver : IEventObserver<AuthEvent>
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public bool ShouldProcess(AuthEvent evt) => true;
-
-    public async Task OnEventAsync(AuthEvent evt, CancellationToken ct = default)
+    public async ValueTask HandleAsync(AuthEvent evt, CancellationToken ct = default)
     {
         // ── Step 1: Write audit log entry ─────────────────────────────────────
         var entry = MapToAuditEntry(evt);
@@ -71,7 +69,6 @@ public sealed class AuditingAuthObserver : IEventObserver<AuthEvent>
         // Resolve and invoke typed IAuthEventObserver<TEvent> by reflecting the concrete type.
         // Each observer type is registered in DI; we resolve IEnumerable<IAuthEventObserver<TEvent>>.
         var observerType = typeof(IAuthEventObserver<>).MakeGenericType(evt.GetType());
-        var baseObserverType = typeof(IEventObserver<>).MakeGenericType(evt.GetType());
         var observers = _serviceProvider.GetServices(observerType);
 
         foreach (var observer in observers)
@@ -80,15 +77,10 @@ public sealed class AuditingAuthObserver : IEventObserver<AuthEvent>
 
             try
             {
-                var shouldProcess = (bool)baseObserverType.GetMethod(nameof(IEventObserver<AuthEvent>.ShouldProcess))!
-                    .Invoke(observer, [evt])!;
-
-                if (!shouldProcess) continue;
-
-                var task = (Task)baseObserverType.GetMethod(nameof(IEventObserver<AuthEvent>.OnEventAsync))!
+                var task = (ValueTask)observerType.GetMethod(nameof(IAuthEventObserver<AuthEvent>.HandleAsync))!
                     .Invoke(observer, [evt, ct])!;
 
-                await task;
+                await task.ConfigureAwait(false);
             }
             catch (Exception ex)
             {

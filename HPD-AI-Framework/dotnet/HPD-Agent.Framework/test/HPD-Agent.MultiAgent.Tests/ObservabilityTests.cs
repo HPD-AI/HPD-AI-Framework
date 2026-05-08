@@ -211,22 +211,6 @@ public class ObservabilityTests
     }
 
     [Fact]
-    public async Task MetricsObserver_ShouldProcess_Returns_True_For_Graph_Events()
-    {
-        var observer = new MetricsObserver();
-
-        var graphEvent = new GraphExecutionStartedEvent { NodeCount = 5 };
-        observer.ShouldProcess(graphEvent).Should().BeTrue();
-
-        var nodeEvent = new NodeExecutionStartedEvent
-        {
-            NodeId = "test",
-            HandlerName = "TestHandler"
-        };
-        observer.ShouldProcess(nodeEvent).Should().BeTrue();
-    }
-
-    [Fact]
     public async Task MetricsObserver_Handles_GraphStarted_Event()
     {
         var observer = new MetricsObserver();
@@ -243,7 +227,7 @@ public class ObservabilityTests
             }
         };
 
-        await observer.OnEventAsync(evt);
+        await observer.HandleAsync(evt);
 
         capturedMetrics.Should().NotBeNull();
         capturedMetrics!.ExecutionId.Should().Be("workflow-123");
@@ -263,7 +247,7 @@ public class ObservabilityTests
             NodeCount = 5,
             GraphContext = new GraphExecutionContext { GraphId = "workflow-123", TotalNodes = 5 }
         };
-        await observer.OnEventAsync(startEvt);
+        await observer.HandleAsync(startEvt);
 
         // Complete workflow
         var endEvt = new GraphExecutionCompletedEvent
@@ -273,7 +257,7 @@ public class ObservabilityTests
             FailedNodes = 0,
             GraphContext = new GraphExecutionContext { GraphId = "workflow-123", TotalNodes = 5 }
         };
-        await observer.OnEventAsync(endEvt);
+        await observer.HandleAsync(endEvt);
 
         completedMetrics.Should().NotBeNull();
         completedMetrics!.Success.Should().BeTrue();
@@ -292,7 +276,7 @@ public class ObservabilityTests
             NodeCount = 2,
             GraphContext = new GraphExecutionContext { GraphId = "workflow-123", TotalNodes = 2 }
         };
-        await observer.OnEventAsync(startEvt);
+        await observer.HandleAsync(startEvt);
 
         // Start node
         var nodeEvt = new NodeExecutionStartedEvent
@@ -301,7 +285,7 @@ public class ObservabilityTests
             HandlerName = "TestHandler",
             GraphContext = new GraphExecutionContext { GraphId = "workflow-123", TotalNodes = 2 }
         };
-        await observer.OnEventAsync(nodeEvt);
+        await observer.HandleAsync(nodeEvt);
 
         var metrics = observer.GetActiveWorkflow("workflow-123");
         metrics.Should().NotBeNull();
@@ -320,7 +304,7 @@ public class ObservabilityTests
             NodeCount = 1,
             GraphContext = new GraphExecutionContext { GraphId = "test", TotalNodes = 1 }
         };
-        observer.OnEventAsync(startEvt);
+        observer.HandleAsync(startEvt);
 
         observer.ActiveWorkflows.Should().NotBeEmpty();
 
@@ -339,7 +323,7 @@ public class ObservabilityTests
         var (executionId, nodeId) = await StartWorkflowAndNode(observer);
 
         var usage = new Microsoft.Extensions.AI.UsageDetails { InputTokenCount = 120, OutputTokenCount = 0 };
-        await observer.OnEventAsync(new MessageTurnFinishedEvent("t", "c", "A", TimeSpan.Zero, Usage: usage));
+        await observer.HandleAsync(new MessageTurnFinishedEvent("t", "c", "A", TimeSpan.Zero, Usage: usage));
 
         var node = observer.GetActiveWorkflow(executionId)!.NodeMetrics[nodeId];
         node.InputTokens.Should().Be(120);
@@ -354,7 +338,7 @@ public class ObservabilityTests
         var (executionId, nodeId) = await StartWorkflowAndNode(observer);
 
         var usage = new Microsoft.Extensions.AI.UsageDetails { InputTokenCount = 0, OutputTokenCount = 60 };
-        await observer.OnEventAsync(new MessageTurnFinishedEvent("t", "c", "A", TimeSpan.Zero, Usage: usage));
+        await observer.HandleAsync(new MessageTurnFinishedEvent("t", "c", "A", TimeSpan.Zero, Usage: usage));
 
         var node = observer.GetActiveWorkflow(executionId)!.NodeMetrics[nodeId];
         node.OutputTokens.Should().Be(60);
@@ -368,7 +352,7 @@ public class ObservabilityTests
         var observer = new MetricsObserver();
         var (executionId, nodeId) = await StartWorkflowAndNode(observer);
 
-        var act = async () => await observer.OnEventAsync(
+        var act = async () => await observer.HandleAsync(
             new MessageTurnFinishedEvent("t", "c", "A", TimeSpan.Zero, Usage: null));
 
         await act.Should().NotThrowAsync();
@@ -382,14 +366,14 @@ public class ObservabilityTests
     {
         // Workflow exists but no node has been started (so _activeNodePerExecution is empty)
         var observer = new MetricsObserver();
-        await observer.OnEventAsync(new GraphExecutionStartedEvent
+        await observer.HandleAsync(new GraphExecutionStartedEvent
         {
             NodeCount = 1,
             GraphContext = new GraphExecutionContext { GraphId = "wf-no-node", TotalNodes = 1 }
         });
 
         var usage = new Microsoft.Extensions.AI.UsageDetails { InputTokenCount = 50, OutputTokenCount = 25 };
-        var act = async () => await observer.OnEventAsync(
+        var act = async () => await observer.HandleAsync(
             new MessageTurnFinishedEvent("t", "c", "A", TimeSpan.Zero, Usage: usage));
 
         await act.Should().NotThrowAsync();
@@ -403,10 +387,10 @@ public class ObservabilityTests
         var observer = new MetricsObserver();
         var (executionId, nodeId) = await StartWorkflowAndNode(observer);
 
-        await observer.OnEventAsync(new MessageTurnFinishedEvent("t1", "c", "A", TimeSpan.Zero,
+        await observer.HandleAsync(new MessageTurnFinishedEvent("t1", "c", "A", TimeSpan.Zero,
             Usage: new Microsoft.Extensions.AI.UsageDetails { InputTokenCount = 100, OutputTokenCount = 50 }));
 
-        await observer.OnEventAsync(new MessageTurnFinishedEvent("t2", "c", "A", TimeSpan.Zero,
+        await observer.HandleAsync(new MessageTurnFinishedEvent("t2", "c", "A", TimeSpan.Zero,
             Usage: new Microsoft.Extensions.AI.UsageDetails { InputTokenCount = 200, OutputTokenCount = 75 }));
 
         var node = observer.GetActiveWorkflow(executionId)!.NodeMetrics[nodeId];
@@ -422,9 +406,9 @@ public class ObservabilityTests
         var observer = new MetricsObserver();
         var (executionId, nodeId) = await StartWorkflowAndNode(observer);
 
-        await observer.OnEventAsync(new ToolCallStartEvent("id1", "search", "msg1"));
-        await observer.OnEventAsync(new ToolCallStartEvent("id2", "calculate", "msg1"));
-        await observer.OnEventAsync(new ToolCallStartEvent("id3", "format", "msg1"));
+        await observer.HandleAsync(new ToolCallStartEvent("id1", "search", "msg1"));
+        await observer.HandleAsync(new ToolCallStartEvent("id2", "calculate", "msg1"));
+        await observer.HandleAsync(new ToolCallStartEvent("id3", "format", "msg1"));
 
         var node = observer.GetActiveWorkflow(executionId)!.NodeMetrics[nodeId];
         node.ToolCallCount.Should().Be(3);
@@ -438,7 +422,7 @@ public class ObservabilityTests
         var observer = new MetricsObserver();
         var (executionId, nodeId) = await StartWorkflowAndNode(observer);
 
-        await observer.OnEventAsync(new ToolCallStartEvent("id1", "search", "msg1"));
+        await observer.HandleAsync(new ToolCallStartEvent("id1", "search", "msg1"));
 
         var node = observer.GetActiveWorkflow(executionId)!.NodeMetrics[nodeId];
         node.ToolsCalled.Should().Contain("search");
@@ -452,7 +436,7 @@ public class ObservabilityTests
         var observer = new MetricsObserver();
         var (executionId, nodeId) = await StartWorkflowAndNode(observer);
 
-        await observer.OnEventAsync(new ToolCallStartEvent("id1", "", "msg1"));
+        await observer.HandleAsync(new ToolCallStartEvent("id1", "", "msg1"));
 
         var node = observer.GetActiveWorkflow(executionId)!.NodeMetrics[nodeId];
         node.ToolsCalled.Should().BeEmpty();
@@ -465,13 +449,13 @@ public class ObservabilityTests
     public async Task MetricsObserver_HandleToolCallStart_NoActiveNode_DoesNothing()
     {
         var observer = new MetricsObserver();
-        await observer.OnEventAsync(new GraphExecutionStartedEvent
+        await observer.HandleAsync(new GraphExecutionStartedEvent
         {
             NodeCount = 1,
             GraphContext = new GraphExecutionContext { GraphId = "wf-no-node2", TotalNodes = 1 }
         });
 
-        var act = async () => await observer.OnEventAsync(
+        var act = async () => await observer.HandleAsync(
             new ToolCallStartEvent("id1", "search", "msg1"));
 
         await act.Should().NotThrowAsync();
@@ -486,25 +470,25 @@ public class ObservabilityTests
         const string nodeId = "node-track";
         var observer = new MetricsObserver();
 
-        await observer.OnEventAsync(new GraphExecutionStartedEvent
+        await observer.HandleAsync(new GraphExecutionStartedEvent
         {
             NodeCount = 1,
             GraphContext = new GraphExecutionContext { GraphId = executionId, TotalNodes = 1 }
         });
 
         // After NodeStart a ToolCallStart should reach the node metrics
-        await observer.OnEventAsync(new NodeExecutionStartedEvent
+        await observer.HandleAsync(new NodeExecutionStartedEvent
         {
             NodeId = nodeId,
             HandlerName = "H",
             GraphContext = new GraphExecutionContext { GraphId = executionId, TotalNodes = 1 }
         });
 
-        await observer.OnEventAsync(new ToolCallStartEvent("id1", "tool-a", "msg"));
+        await observer.HandleAsync(new ToolCallStartEvent("id1", "tool-a", "msg"));
         observer.GetActiveWorkflow(executionId)!.NodeMetrics[nodeId].ToolCallCount.Should().Be(1);
 
         // After NodeComplete the active tracking is cleared → next tool call lands nowhere
-        await observer.OnEventAsync(new NodeExecutionCompletedEvent
+        await observer.HandleAsync(new NodeExecutionCompletedEvent
         {
             NodeId = nodeId,
             HandlerName = "H",
@@ -513,7 +497,7 @@ public class ObservabilityTests
             GraphContext = new GraphExecutionContext { GraphId = executionId, TotalNodes = 1 }
         });
 
-        await observer.OnEventAsync(new ToolCallStartEvent("id2", "tool-b", "msg"));
+        await observer.HandleAsync(new ToolCallStartEvent("id2", "tool-b", "msg"));
         observer.GetActiveWorkflow(executionId)!.NodeMetrics[nodeId].ToolCallCount.Should().Be(1,
             "tool after node completes must not increment that node's count");
     }
@@ -526,22 +510,22 @@ public class ObservabilityTests
         const string executionId = "wf-two-nodes";
         var observer = new MetricsObserver();
 
-        await observer.OnEventAsync(new GraphExecutionStartedEvent
+        await observer.HandleAsync(new GraphExecutionStartedEvent
         {
             NodeCount = 2,
             GraphContext = new GraphExecutionContext { GraphId = executionId, TotalNodes = 2 }
         });
 
         // node-A runs, finishes, tokens emitted BEFORE node-A completes
-        await observer.OnEventAsync(new NodeExecutionStartedEvent
+        await observer.HandleAsync(new NodeExecutionStartedEvent
         {
             NodeId = "node-A",
             HandlerName = "H",
             GraphContext = new GraphExecutionContext { GraphId = executionId, TotalNodes = 2 }
         });
-        await observer.OnEventAsync(new MessageTurnFinishedEvent("t1", "c", "A", TimeSpan.Zero,
+        await observer.HandleAsync(new MessageTurnFinishedEvent("t1", "c", "A", TimeSpan.Zero,
             Usage: new Microsoft.Extensions.AI.UsageDetails { InputTokenCount = 50, OutputTokenCount = 10 }));
-        await observer.OnEventAsync(new NodeExecutionCompletedEvent
+        await observer.HandleAsync(new NodeExecutionCompletedEvent
         {
             NodeId = "node-A",
             HandlerName = "H",
@@ -551,13 +535,13 @@ public class ObservabilityTests
         });
 
         // node-B runs, different token counts
-        await observer.OnEventAsync(new NodeExecutionStartedEvent
+        await observer.HandleAsync(new NodeExecutionStartedEvent
         {
             NodeId = "node-B",
             HandlerName = "H",
             GraphContext = new GraphExecutionContext { GraphId = executionId, TotalNodes = 2 }
         });
-        await observer.OnEventAsync(new MessageTurnFinishedEvent("t2", "c", "A", TimeSpan.Zero,
+        await observer.HandleAsync(new MessageTurnFinishedEvent("t2", "c", "A", TimeSpan.Zero,
             Usage: new Microsoft.Extensions.AI.UsageDetails { InputTokenCount = 200, OutputTokenCount = 80 }));
 
         var wf = observer.GetActiveWorkflow(executionId)!;
@@ -576,7 +560,7 @@ public class ObservabilityTests
         observer.Clear();
 
         // After Clear, a ToolCallStart should land nowhere (no active node)
-        var act = async () => await observer.OnEventAsync(
+        var act = async () => await observer.HandleAsync(
             new ToolCallStartEvent("id1", "search", "msg1"));
         await act.Should().NotThrowAsync();
         observer.ActiveWorkflows.Should().BeEmpty();
@@ -593,13 +577,13 @@ public class ObservabilityTests
         string executionId = "wf-active",
         string nodeId = "node-active")
     {
-        await observer.OnEventAsync(new GraphExecutionStartedEvent
+        await observer.HandleAsync(new GraphExecutionStartedEvent
         {
             NodeCount = 1,
             GraphContext = new GraphExecutionContext { GraphId = executionId, TotalNodes = 1 }
         });
 
-        await observer.OnEventAsync(new NodeExecutionStartedEvent
+        await observer.HandleAsync(new NodeExecutionStartedEvent
         {
             NodeId = nodeId,
             HandlerName = "TestHandler",
@@ -635,27 +619,18 @@ public class ObservabilityTests
     }
 
     [Fact]
-    public void TracingObserver_ShouldProcess_Returns_True_For_Graph_Events()
-    {
-        var observer = new TracingObserver();
-
-        var graphEvent = new GraphExecutionStartedEvent { NodeCount = 5 };
-        observer.ShouldProcess(graphEvent).Should().BeTrue();
-    }
-
-    [Fact]
     public async Task TracingObserver_Handles_Events_Without_Throwing()
     {
         var observer = new TracingObserver();
 
-        // Should not throw on any event
+        // Should not throw on handled events
         var startEvt = new GraphExecutionStartedEvent
         {
             NodeCount = 1,
             GraphContext = new GraphExecutionContext { GraphId = "test", TotalNodes = 1 }
         };
 
-        var act = async () => await observer.OnEventAsync(startEvt);
+        var act = async () => await observer.HandleAsync(startEvt);
         await act.Should().NotThrowAsync();
 
         observer.Dispose();
@@ -670,19 +645,6 @@ public class ObservabilityTests
         act.Should().NotThrow();
     }
 
-    // ── 6.1  ShouldProcess includes WorkflowStartedEvent ─────────────────────
-
-    [Fact]
-    public void TracingObserver_ShouldProcess_WorkflowStartedEvent_ReturnsTrue()
-    {
-        var observer = new TracingObserver();
-
-        var evt = new WorkflowStartedEvent { WorkflowName = "W", NodeCount = 1 };
-        observer.ShouldProcess(evt).Should().BeTrue();
-
-        observer.Dispose();
-    }
-
     // ── 6.2  PatchWorkflowSpanName patches DisplayName ───────────────────────
 
     [Fact]
@@ -692,14 +654,14 @@ public class ObservabilityTests
         var observer = new TracingObserver();
 
         // 1. GraphExecutionStartedEvent creates "Workflow:unnamed" span
-        await observer.OnEventAsync(new GraphExecutionStartedEvent
+        await observer.HandleAsync(new GraphExecutionStartedEvent
         {
             NodeCount = 1,
             GraphContext = new GraphExecutionContext { GraphId = "gx-1", TotalNodes = 1 }
         });
 
         // 2. WorkflowStartedEvent patches it
-        await observer.OnEventAsync(new WorkflowStartedEvent
+        await observer.HandleAsync(new WorkflowStartedEvent
         {
             WorkflowName = "MyFlow",
             NodeCount = 1
@@ -707,7 +669,7 @@ public class ObservabilityTests
 
         // The activity stored internally should now carry the patched name.
         // We verify indirectly via the observer not throwing and then completing it.
-        var act = async () => await observer.OnEventAsync(new GraphExecutionCompletedEvent
+        var act = async () => await observer.HandleAsync(new GraphExecutionCompletedEvent
         {
             Duration = TimeSpan.FromSeconds(1),
             SuccessfulNodes = 1,
@@ -739,13 +701,13 @@ public class ObservabilityTests
 
         var observer = new TracingObserver();
 
-        await observer.OnEventAsync(new GraphExecutionStartedEvent
+        await observer.HandleAsync(new GraphExecutionStartedEvent
         {
             NodeCount = 1,
             GraphContext = new GraphExecutionContext { GraphId = "gx-tag", TotalNodes = 1 }
         });
 
-        await observer.OnEventAsync(new WorkflowStartedEvent
+        await observer.HandleAsync(new WorkflowStartedEvent
         {
             WorkflowName = "TagFlow",
             NodeCount = 1
@@ -767,7 +729,7 @@ public class ObservabilityTests
         // No GraphExecutionStartedEvent first → nothing in _workflowActivities
         var observer = new TracingObserver();
 
-        var act = async () => await observer.OnEventAsync(new WorkflowStartedEvent
+        var act = async () => await observer.HandleAsync(new WorkflowStartedEvent
         {
             WorkflowName = "Orphan",
             NodeCount = 1
@@ -797,18 +759,18 @@ public class ObservabilityTests
 
         var observer = new TracingObserver();
 
-        await observer.OnEventAsync(new GraphExecutionStartedEvent
+        await observer.HandleAsync(new GraphExecutionStartedEvent
         {
             NodeCount = 1,
             GraphContext = new GraphExecutionContext { GraphId = "gx-once", TotalNodes = 1 }
         });
 
         // First patch
-        await observer.OnEventAsync(new WorkflowStartedEvent { WorkflowName = "First", NodeCount = 1 });
+        await observer.HandleAsync(new WorkflowStartedEvent { WorkflowName = "First", NodeCount = 1 });
         capturedActivity!.DisplayName.Should().Be("Workflow:First");
 
         // Second patch should not match (DisplayName is no longer "Workflow:unnamed")
-        await observer.OnEventAsync(new WorkflowStartedEvent { WorkflowName = "Second", NodeCount = 1 });
+        await observer.HandleAsync(new WorkflowStartedEvent { WorkflowName = "Second", NodeCount = 1 });
         capturedActivity.DisplayName.Should().Be("Workflow:First",
             "already-named span must not be overwritten by a second WorkflowStartedEvent");
 
@@ -822,20 +784,21 @@ public class ObservabilityTests
     {
         var observer = new TracingObserver();
         var coordinator = new WorkflowEventCoordinator();
-        coordinator.AddObserver(observer);
+        using var subscription = coordinator.SubscribeAny(observer.HandleAsync);
 
         var act = async () =>
         {
-            await coordinator.DispatchToObserversAsync(new GraphExecutionStartedEvent
+            coordinator.Emit(new GraphExecutionStartedEvent
             {
                 NodeCount = 1,
                 GraphContext = new GraphExecutionContext { GraphId = "coord-trace", TotalNodes = 1 }
             });
-            await coordinator.DispatchToObserversAsync(new WorkflowStartedEvent
+            coordinator.Emit(new WorkflowStartedEvent
             {
                 WorkflowName = "CoordFlow",
                 NodeCount = 1
             });
+            await Task.Delay(50);
         };
 
         await act.Should().NotThrowAsync();
@@ -912,7 +875,7 @@ public class ObservabilityTests
         // Arrange
         var observer = new MetricsObserver();
         var coordinator = new WorkflowEventCoordinator();
-        coordinator.AddObserver(observer);
+        using var subscription = coordinator.SubscribeAny(observer.HandleAsync);
 
         var startEvt = new GraphExecutionStartedEvent
         {
@@ -920,8 +883,9 @@ public class ObservabilityTests
             GraphContext = new GraphExecutionContext { GraphId = "coord-test-1", TotalNodes = 2 }
         };
 
-        // Act — dispatch directly through the coordinator
-        await coordinator.DispatchToObserversAsync(startEvt);
+        // Act - publish directly through the coordinator
+        coordinator.Emit(startEvt);
+        await Task.Delay(50);
 
         // Assert — MetricsObserver registered the workflow
         observer.ActiveWorkflows.Should().HaveCount(1);
@@ -934,7 +898,7 @@ public class ObservabilityTests
         // Arrange
         var observer = new TracingObserver();
         var coordinator = new WorkflowEventCoordinator();
-        coordinator.AddObserver(observer);
+        using var subscription = coordinator.SubscribeAny(observer.HandleAsync);
 
         var startEvt = new GraphExecutionStartedEvent
         {
@@ -943,7 +907,11 @@ public class ObservabilityTests
         };
 
         // Act & Assert — must not throw
-        var act = async () => await coordinator.DispatchToObserversAsync(startEvt);
+        var act = async () =>
+        {
+            coordinator.Emit(startEvt);
+            await Task.Delay(50);
+        };
         await act.Should().NotThrowAsync();
 
         observer.Dispose();

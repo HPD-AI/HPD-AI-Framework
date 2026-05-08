@@ -237,7 +237,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
             Reason: "stop from client",
             Source: InterruptionSource.User)));
 
-        using var interruption = await ReceiveUntilTypeAsync(ws, "INTERRUPTION_REQUEST");
+        using var interruption = await ReceiveUntilTypeAsync(ws, "INTERRUPTION_HANDLED");
 
         // Assert
         interruption.RootElement.GetProperty("reason").GetString().Should().Be("stop from client");

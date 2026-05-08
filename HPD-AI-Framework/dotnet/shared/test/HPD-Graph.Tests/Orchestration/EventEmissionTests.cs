@@ -37,15 +37,15 @@ public class EventEmissionTests
         };
 
         var orchestrator = new GraphOrchestrator<GraphContext>(services);
+        await using var events = coordinator.SubscribeChannel(EventChannel.Synchronous);
 
         // Act
-        _ = Task.Run(async () => await orchestrator.ExecuteAsync(context));
-        await Task.Delay(100); // Give time for start event
+        await orchestrator.ExecuteAsync(context);
 
         // Assert
-        var events = await CollectSynchronousEventsAsync(coordinator, maxCount: 10);
+        var collectedEvents = await CollectSynchronousEventsAsync(events.Reader, maxCount: 10);
 
-        var startedEvent = events.OfType<GraphExecutionStartedEvent>().FirstOrDefault();
+        var startedEvent = collectedEvents.OfType<GraphExecutionStartedEvent>().FirstOrDefault();
         startedEvent.Should().NotBeNull();
         startedEvent!.NodeCount.Should().BeGreaterThan(0);
     }
@@ -73,14 +73,15 @@ public class EventEmissionTests
         };
 
         var orchestrator = new GraphOrchestrator<GraphContext>(services);
+        await using var events = coordinator.SubscribeChannel(EventChannel.Synchronous);
 
         // Act
         await orchestrator.ExecuteAsync(context);
 
         // Assert
-        var events = await CollectSynchronousEventsAsync(coordinator, evt => evt is GraphExecutionCompletedEvent);
+        var collectedEvents = await CollectSynchronousEventsAsync(events.Reader, evt => evt is GraphExecutionCompletedEvent);
 
-        var completedEvent = events.OfType<GraphExecutionCompletedEvent>().FirstOrDefault();
+        var completedEvent = collectedEvents.OfType<GraphExecutionCompletedEvent>().FirstOrDefault();
         completedEvent.Should().NotBeNull();
         completedEvent!.SuccessfulNodes.Should().BeGreaterThan(0);
         completedEvent.Duration.Should().BeGreaterThan(TimeSpan.Zero);
@@ -109,15 +110,16 @@ public class EventEmissionTests
         };
 
         var orchestrator = new GraphOrchestrator<GraphContext>(services);
+        await using var events = coordinator.SubscribeChannel(EventChannel.Synchronous);
 
         // Act
         await orchestrator.ExecuteAsync(context);
 
         // Assert
-        var events = await CollectSynchronousEventsAsync(coordinator, evt => evt is GraphExecutionCompletedEvent);
+        var collectedEvents = await CollectSynchronousEventsAsync(events.Reader, evt => evt is GraphExecutionCompletedEvent);
 
-        var nodeStartedEvents = events.OfType<NodeExecutionStartedEvent>().ToList();
-        var nodeCompletedEvents = events.OfType<NodeExecutionCompletedEvent>().ToList();
+        var nodeStartedEvents = collectedEvents.OfType<NodeExecutionStartedEvent>().ToList();
+        var nodeCompletedEvents = collectedEvents.OfType<NodeExecutionCompletedEvent>().ToList();
 
         nodeStartedEvents.Should().NotBeEmpty();
         nodeCompletedEvents.Should().NotBeEmpty();
@@ -175,22 +177,23 @@ public class EventEmissionTests
         };
 
         var orchestrator = new GraphOrchestrator<GraphContext>(services);
+        await using var events = coordinator.SubscribeChannel(EventChannel.Synchronous);
 
         // Act
         await orchestrator.ExecuteAsync(context);
 
         // Assert
-        var events = await CollectSynchronousEventsAsync(coordinator, evt => evt is GraphExecutionCompletedEvent);
+        var collectedEvents = await CollectSynchronousEventsAsync(events.Reader, evt => evt is GraphExecutionCompletedEvent);
 
-        var layerStartedEvents = events.OfType<LayerExecutionStartedEvent>().ToList();
-        var layerCompletedEvents = events.OfType<LayerExecutionCompletedEvent>().ToList();
+        var layerStartedEvents = collectedEvents.OfType<LayerExecutionStartedEvent>().ToList();
+        var layerCompletedEvents = collectedEvents.OfType<LayerExecutionCompletedEvent>().ToList();
 
         layerStartedEvents.Should().NotBeEmpty();
         layerCompletedEvents.Should().NotBeEmpty();
     }
 
     private static async Task<List<Event>> CollectSynchronousEventsAsync(
-        EventCoordinator coordinator,
+        System.Threading.Channels.ChannelReader<Event> reader,
         Func<Event, bool>? stopWhen = null,
         int maxCount = int.MaxValue)
     {
@@ -199,7 +202,7 @@ public class EventEmissionTests
 
         try
         {
-            await foreach (var evt in coordinator.ReadSynchronousAsync(cts.Token))
+            await foreach (var evt in reader.ReadAllAsync(cts.Token))
             {
                 events.Add(evt);
                 if (events.Count >= maxCount || stopWhen?.Invoke(evt) == true)

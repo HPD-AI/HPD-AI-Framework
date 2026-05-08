@@ -142,7 +142,7 @@ internal sealed class RegexValidator : IInputValidator
     }
 }
 
-internal sealed class EnumValidator<TEnum> : IInputValidator where TEnum : struct, Enum
+internal sealed class EnumValidator<TEnum> : IInputValidator, IRuntimeEnumValidator where TEnum : struct, Enum
 {
     public Type EnumType => typeof(TEnum);
 
@@ -172,7 +172,12 @@ internal sealed class EnumValidator<TEnum> : IInputValidator where TEnum : struc
     }
 }
 
-internal sealed class RuntimeEnumValidator : IInputValidator
+internal interface IRuntimeEnumValidator
+{
+    Type EnumType { get; }
+}
+
+internal sealed class RuntimeEnumValidator : IInputValidator, IRuntimeEnumValidator
 {
     private readonly Type _enumType;
     private readonly string[] _validNames;

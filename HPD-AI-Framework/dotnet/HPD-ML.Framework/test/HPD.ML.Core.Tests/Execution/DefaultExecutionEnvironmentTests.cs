@@ -59,9 +59,10 @@ public class DefaultExecutionEnvironmentTests
         using var coordinator = new EventCoordinator();
         var env = new DefaultExecutionEnvironment(coordinator: coordinator);
         using var subject = env.CreateProgressSubject();
+        await using var events = coordinator.SubscribeChannel(EventChannel.Synchronous);
 
         subject.OnNext(new ProgressEvent { Epoch = 1 });
-        var evt = await ReadFirstSynchronousAsync(coordinator);
+        var evt = await ReadFirstAsync(events.Reader);
         Assert.IsType<TrainingProgressEvent>(evt);
     }
 
@@ -103,12 +104,13 @@ public class DefaultExecutionEnvironmentTests
         using var coordinator = new EventCoordinator();
         var env = new DefaultExecutionEnvironment(coordinator: coordinator);
         var child = env.CreateChild();
+        await using var events = coordinator.SubscribeChannel(EventChannel.Synchronous);
 
         // The child's progress subject should bubble events to the parent coordinator
         using var subject = child.CreateProgressSubject();
         subject.OnNext(new ProgressEvent { Epoch = 99 });
 
-        var evt = await ReadFirstSynchronousAsync(coordinator);
+        var evt = await ReadFirstAsync(events.Reader);
         var tpe = Assert.IsType<TrainingProgressEvent>(evt);
         Assert.Equal(99, tpe.Progress.Epoch);
     }
@@ -124,10 +126,10 @@ public class DefaultExecutionEnvironmentTests
         Assert.IsType<Progress<int>>(progress);
     }
 
-    private static async Task<Event> ReadFirstSynchronousAsync(EventCoordinator coordinator)
+    private static async Task<Event> ReadFirstAsync(System.Threading.Channels.ChannelReader<Event> reader)
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await foreach (var evt in coordinator.ReadSynchronousAsync(cts.Token))
+        await foreach (var evt in reader.ReadAllAsync(cts.Token))
             return evt;
 
         throw new InvalidOperationException("No event was produced.");

@@ -120,6 +120,7 @@ public sealed class WorkflowResumeRunnerTests
             services,
             checkpointStore,
             eventCoordinator: eventCoordinator);
+        await using var eventSubscription = eventCoordinator.SubscribeChannel(EventChannel.Synchronous);
 
         var result = await runner.ResumeAsync(new WorkflowResumeRunnerRequest
         {
@@ -131,7 +132,7 @@ public sealed class WorkflowResumeRunnerTests
 
         result.Status.Should().Be(ResumeSuspensionStatus.Accepted);
         result.ExecutionContinued.Should().BeTrue();
-        var events = await CollectSynchronousEventsAsync(eventCoordinator, evt => evt is GraphExecutionCompletedEvent);
+        var events = await CollectSynchronousEventsAsync(eventSubscription.Reader, evt => evt is GraphExecutionCompletedEvent);
         events.Should().ContainSingle(evt => evt is GraphExecutionStartedEvent);
         events.Should().ContainSingle(evt => evt is GraphExecutionCompletedEvent);
         events.OfType<NodeExecutionStartedEvent>().Should().Contain(evt => evt.NodeId == "approval");
@@ -221,7 +222,7 @@ public sealed class WorkflowResumeRunnerTests
     };
 
     private static async Task<List<Event>> CollectSynchronousEventsAsync(
-        EventCoordinator coordinator,
+        System.Threading.Channels.ChannelReader<Event> reader,
         Func<Event, bool>? stopWhen = null)
     {
         var events = new List<Event>();
@@ -229,7 +230,7 @@ public sealed class WorkflowResumeRunnerTests
 
         try
         {
-            await foreach (var evt in coordinator.ReadSynchronousAsync(cts.Token))
+            await foreach (var evt in reader.ReadAllAsync(cts.Token))
             {
                 events.Add(evt);
                 if (stopWhen?.Invoke(evt) == true)

@@ -298,7 +298,7 @@ public class DefaultProcessorHandler : IGraphNodeHandler<GraphContext>
 }
 
 /// <summary>
-/// Test handler that produces a list of TestDocument objects.
+/// Test handler that produces a list of AOT-safe document dictionaries.
 /// </summary>
 public class DocumentListProducerHandler : IGraphNodeHandler<GraphContext>
 {
@@ -306,11 +306,11 @@ public class DocumentListProducerHandler : IGraphNodeHandler<GraphContext>
 
     public Task<NodeExecutionResult> ExecuteAsync(GraphContext context, HandlerInputs inputs, CancellationToken cancellationToken = default)
     {
-        var docs = new List<TestDocument>
+        var docs = new List<Dictionary<string, object>>
         {
-            new() { Type = "pdf", Content = "PDF content" },
-            new() { Type = "image", Content = "Image data" },
-            new() { Type = "pdf", Content = "Another PDF" }
+            new() { ["Type"] = "pdf", ["Content"] = "PDF content" },
+            new() { ["Type"] = "image", ["Content"] = "Image data" },
+            new() { ["Type"] = "pdf", ["Content"] = "Another PDF" }
         };
 
         return Task.FromResult<NodeExecutionResult>(NodeExecutionResult.Success.Single(
@@ -330,8 +330,14 @@ public class PdfProcessorHandler : IGraphNodeHandler<GraphContext>
 
     public Task<NodeExecutionResult> ExecuteAsync(GraphContext context, HandlerInputs inputs, CancellationToken cancellationToken = default)
     {
-        var doc = inputs.TryGet<TestDocument>("item", out var value) ? value : new TestDocument();
-        var processed = $"pdf_processed_{doc.Content}";
+        var content = inputs.TryGet<TestDocument>("item", out var doc)
+            ? doc.Content
+            : inputs.TryGet<IReadOnlyDictionary<string, object>>("item", out var dictionary) &&
+                dictionary.TryGetValue("Content", out var value) &&
+                value is string stringValue
+                    ? stringValue
+                    : string.Empty;
+        var processed = $"pdf_processed_{content}";
 
         return Task.FromResult<NodeExecutionResult>(NodeExecutionResult.Success.Single(
             output: new Dictionary<string, object> { ["output"] = processed },
@@ -350,8 +356,14 @@ public class ImageProcessorHandler : IGraphNodeHandler<GraphContext>
 
     public Task<NodeExecutionResult> ExecuteAsync(GraphContext context, HandlerInputs inputs, CancellationToken cancellationToken = default)
     {
-        var doc = inputs.TryGet<TestDocument>("item", out var value) ? value : new TestDocument();
-        var processed = $"image_processed_{doc.Content}";
+        var content = inputs.TryGet<TestDocument>("item", out var doc)
+            ? doc.Content
+            : inputs.TryGet<IReadOnlyDictionary<string, object>>("item", out var dictionary) &&
+                dictionary.TryGetValue("Content", out var value) &&
+                value is string stringValue
+                    ? stringValue
+                    : string.Empty;
+        var processed = $"image_processed_{content}";
 
         return Task.FromResult<NodeExecutionResult>(NodeExecutionResult.Success.Single(
             output: new Dictionary<string, object> { ["output"] = processed },

@@ -21,7 +21,7 @@ namespace HPD.Agent;
 ///
 /// var agent = new AgentBuilder()
 ///     .WithModel(model)
-///     .WithObserver(vizObserver)
+///     .WithEventSubscription(coordinator => coordinator.Subscribe&lt;AgentEvent&gt;(vizObserver.HandleAsync))
 ///     .Build();
 ///
 /// await agent.RunAsync("Analyze the request.");
@@ -40,7 +40,7 @@ namespace HPD.Agent;
 /// <item><see cref="GenerateTimeline"/> - ASCII timeline for console output</item>
 /// </list>
 /// </remarks>
-public class MermaidVisualizationObserver : IAgentEventObserver
+public class MermaidVisualizationObserver
 {
     private readonly List<GraphNode> _nodes = [];
     private readonly List<GraphEdge> _edges = [];
@@ -61,7 +61,7 @@ public class MermaidVisualizationObserver : IAgentEventObserver
     /// </summary>
     public TimeSpan TotalDuration => _trace.LastOrDefault()?.Timestamp - (_startTime ?? DateTimeOffset.UtcNow) ?? TimeSpan.Zero;
 
-    public Task OnEventAsync(AgentEvent evt, CancellationToken ct = default)
+    public ValueTask HandleAsync(AgentEvent evt)
     {
         lock (_lock)
         {
@@ -174,7 +174,7 @@ public class MermaidVisualizationObserver : IAgentEventObserver
             }
         }
 
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     /// <summary>

@@ -9,7 +9,6 @@ namespace HPD.Events.Core;
 internal sealed class StructEventRouter : IDisposable
 {
     private readonly ConcurrentDictionary<Type, object> _subscribersByType = new();
-    private readonly List<RegisteredStructHandler> _handlerPumps = new();
     private long _sequenceCounter;
     private bool _disposed;
 
@@ -67,13 +66,12 @@ internal sealed class StructEventRouter : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         var subscription = SubscribeStruct<TEvent>();
-        var registration = new RegisteredStructHandler(ct => RunHandlerPumpAsync(subscription, handler, ct));
-        lock (_handlerPumps)
-        {
-            _handlerPumps.Add(registration);
-        }
+        var cts = new CancellationTokenSource();
+        var task = Task.Run(
+            () => RunHandlerPumpAsync(subscription, handler, cts.Token),
+            CancellationToken.None);
 
-        return new StructHandlerSubscription(this, registration.Id, subscription.DisposeAsync);
+        return new StructHandlerSubscription(cts, task, subscription.DisposeAsync);
     }
 
     public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null)
@@ -110,44 +108,7 @@ internal sealed class StructEventRouter : IDisposable
         where TEvent : struct, IStructEvent =>
         new(this, options);
 
-    public async Task RunAsync(CancellationToken ct = default)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-
-        Func<CancellationToken, Task>[] pumps;
-        lock (_handlerPumps)
-        {
-            pumps = _handlerPumps.Select(handler => handler.Pump).ToArray();
-        }
-
-        if (pumps.Length == 0)
-            return;
-
-        using var runCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var tasks = pumps.Select(pump => pump(runCts.Token)).ToList();
-
-        while (tasks.Count > 0)
-        {
-            var completed = await Task.WhenAny(tasks).ConfigureAwait(false);
-            if (completed.IsFaulted)
-            {
-                await runCts.CancelAsync().ConfigureAwait(false);
-                await completed.ConfigureAwait(false);
-            }
-
-            tasks.Remove(completed);
-        }
-    }
-
     public long NextSequence() => Interlocked.Increment(ref _sequenceCounter);
-
-    private void RemoveHandler(Guid handlerId)
-    {
-        lock (_handlerPumps)
-        {
-            _handlerPumps.RemoveAll(handler => handler.Id == handlerId);
-        }
-    }
 
     private static async Task RunHandlerPumpAsync<TEvent>(
         StructSubscription<TEvent> subscription,
@@ -218,15 +179,9 @@ internal sealed class StructEventRouter : IDisposable
         void Complete();
     }
 
-    private sealed class RegisteredStructHandler(Func<CancellationToken, Task> pump)
-    {
-        public Guid Id { get; } = Guid.NewGuid();
-        public Func<CancellationToken, Task> Pump { get; } = pump;
-    }
-
     private sealed class StructHandlerSubscription(
-        StructEventRouter router,
-        Guid handlerId,
+        CancellationTokenSource cts,
+        Task task,
         Func<ValueTask> disposeSubscription) : IDisposable
     {
         private int _disposed;
@@ -236,8 +191,19 @@ internal sealed class StructEventRouter : IDisposable
             if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
 
-            router.RemoveHandler(handlerId);
+            cts.Cancel();
             disposeSubscription().AsTask().GetAwaiter().GetResult();
+            try
+            {
+                task.GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                cts.Dispose();
+            }
         }
     }
 

@@ -205,6 +205,7 @@ public static partial class EventTypes
     public static class Streaming
     {
         public const string INTERRUPTION_REQUEST = "INTERRUPTION_REQUEST";
+        public const string INTERRUPTION_HANDLED = "INTERRUPTION_HANDLED";
     }
 
     #endregion

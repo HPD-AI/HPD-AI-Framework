@@ -35,7 +35,15 @@ public static class GraphJsonValue
     public static void Write(Utf8JsonWriter writer, object? value, string? valueName = null)
     {
         ArgumentNullException.ThrowIfNull(writer);
+        Write(writer, value, valueName, new HashSet<object>(ReferenceEqualityComparer.Instance));
+    }
 
+    private static void Write(
+        Utf8JsonWriter writer,
+        object? value,
+        string? valueName,
+        HashSet<object> visited)
+    {
         switch (value)
         {
             case null:
@@ -99,16 +107,16 @@ public static class GraphJsonValue
                 writer.WriteStringValue(enumValue.ToString());
                 return;
             case IReadOnlyDictionary<string, object?> readOnlyDictionary:
-                WriteDictionary(writer, readOnlyDictionary, valueName);
+                WriteDictionary(writer, readOnlyDictionary, valueName, visited);
                 return;
             case IDictionary<string, object?> dictionary:
-                WriteDictionary(writer, dictionary, valueName);
+                WriteDictionary(writer, dictionary, valueName, visited);
                 return;
             case IDictionary nonGenericDictionary:
-                WriteDictionary(writer, nonGenericDictionary, valueName);
+                WriteDictionary(writer, nonGenericDictionary, valueName, visited);
                 return;
             case IEnumerable enumerable when value is not string:
-                WriteArray(writer, enumerable, valueName);
+                WriteArray(writer, enumerable, valueName, visited);
                 return;
             default:
                 throw UnsupportedValue(value, valueName);
@@ -139,45 +147,91 @@ public static class GraphJsonValue
     private static void WriteDictionary<TValue>(
         Utf8JsonWriter writer,
         IEnumerable<KeyValuePair<string, TValue>> dictionary,
-        string? valueName)
+        string? valueName,
+        HashSet<object> visited)
     {
-        writer.WriteStartObject();
-        foreach (var (key, nestedValue) in dictionary)
+        var reference = (object)dictionary;
+        if (!visited.Add(reference))
         {
-            writer.WritePropertyName(key);
-            Write(writer, nestedValue, valueName is null ? key : $"{valueName}.{key}");
+            throw CircularValue(valueName);
         }
 
-        writer.WriteEndObject();
-    }
-
-    private static void WriteDictionary(Utf8JsonWriter writer, IDictionary dictionary, string? valueName)
-    {
         writer.WriteStartObject();
-        foreach (DictionaryEntry entry in dictionary)
+        try
         {
-            if (entry.Key is not string key)
+            foreach (var (key, nestedValue) in dictionary)
             {
-                throw new InvalidOperationException(
-                    $"Graph JSON value '{valueName ?? "value"}' contains a dictionary key of type '{entry.Key?.GetType().FullName ?? "null"}'. " +
-                    "Only string dictionary keys are supported in Native AOT-safe graph JSON values.");
+                writer.WritePropertyName(key);
+                Write(writer, nestedValue, valueName is null ? key : $"{valueName}.{key}", visited);
             }
-
-            writer.WritePropertyName(key);
-            Write(writer, entry.Value, valueName is null ? key : $"{valueName}.{key}");
+        }
+        finally
+        {
+            visited.Remove(reference);
         }
 
         writer.WriteEndObject();
     }
 
-    private static void WriteArray(Utf8JsonWriter writer, IEnumerable enumerable, string? valueName)
+    private static void WriteDictionary(
+        Utf8JsonWriter writer,
+        IDictionary dictionary,
+        string? valueName,
+        HashSet<object> visited)
     {
-        writer.WriteStartArray();
-        var index = 0;
-        foreach (var item in enumerable)
+        if (!visited.Add(dictionary))
         {
-            Write(writer, item, $"{valueName ?? "value"}[{index}]");
-            index++;
+            throw CircularValue(valueName);
+        }
+
+        writer.WriteStartObject();
+        try
+        {
+            foreach (DictionaryEntry entry in dictionary)
+            {
+                if (entry.Key is not string key)
+                {
+                    throw new InvalidOperationException(
+                        $"Graph JSON value '{valueName ?? "value"}' contains a dictionary key of type '{entry.Key?.GetType().FullName ?? "null"}'. " +
+                        "Only string dictionary keys are supported in Native AOT-safe graph JSON values.");
+                }
+
+                writer.WritePropertyName(key);
+                Write(writer, entry.Value, valueName is null ? key : $"{valueName}.{key}", visited);
+            }
+        }
+        finally
+        {
+            visited.Remove(dictionary);
+        }
+
+        writer.WriteEndObject();
+    }
+
+    private static void WriteArray(
+        Utf8JsonWriter writer,
+        IEnumerable enumerable,
+        string? valueName,
+        HashSet<object> visited)
+    {
+        if (!visited.Add(enumerable))
+        {
+            throw CircularValue(valueName);
+        }
+
+        writer.WriteStartArray();
+        try
+        {
+            var index = 0;
+            foreach (var item in enumerable)
+            {
+                Write(writer, item, $"{valueName ?? "value"}[{index}]", visited);
+                index++;
+            }
+        }
+        finally
+        {
+            visited.Remove(enumerable);
         }
 
         writer.WriteEndArray();
@@ -188,4 +242,9 @@ public static class GraphJsonValue
             $"Graph JSON value '{valueName ?? "value"}' has unsupported type '{value.GetType().FullName}'. " +
             "Native AOT-safe graph JSON values must be primitives, enums, JsonElement, arrays, or dictionaries with string keys. " +
             "Convert custom objects to a supported graph value or provide source-generated JsonTypeInfo at the API boundary.");
+
+    private static InvalidOperationException CircularValue(string? valueName)
+        => new(
+            $"Graph JSON value '{valueName ?? "value"}' contains a circular reference. " +
+            "Native AOT-safe graph JSON values must be acyclic.");
 }

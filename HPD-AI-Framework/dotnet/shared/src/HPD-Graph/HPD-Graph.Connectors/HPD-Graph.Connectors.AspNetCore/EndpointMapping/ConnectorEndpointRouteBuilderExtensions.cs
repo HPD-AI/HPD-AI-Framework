@@ -435,7 +435,8 @@ public static class ConnectorEndpointRouteBuilderExtensions
         CancellationToken ct)
     {
         httpContext.Response.ContentType = "text/event-stream";
-        await foreach (var evt in events.ReadSynchronousAsync(ct).ConfigureAwait(false))
+        await using var subscription = events.SubscribeChannel(EventChannel.Synchronous);
+        await foreach (var evt in subscription.Reader.ReadAllAsync(ct).ConfigureAwait(false))
         {
             await httpContext.Response.WriteAsync("event: ", ct).ConfigureAwait(false);
             await httpContext.Response.WriteAsync(evt.GetType().Name, ct).ConfigureAwait(false);

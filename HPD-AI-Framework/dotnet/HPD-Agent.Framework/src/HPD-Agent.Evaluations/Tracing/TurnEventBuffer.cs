@@ -10,8 +10,8 @@ namespace HPD.Agent.Evaluations.Tracing;
 /// reconstruct timing and permission data when building TurnTrace.
 ///
 /// Activated in BeforeMessageTurnAsync and consumed in AfterMessageTurnAsync.
-/// EvaluationMiddleware populates this via its IAgentEventObserver.OnEventAsync
-/// implementation running concurrently with the turn.
+/// EvaluationMiddleware populates this through an HPD.Events subscription
+/// running concurrently with the turn.
 ///
 /// Thread-safe: concurrent tool calls may write to ToolCallStarts simultaneously.
 /// </summary>
@@ -43,7 +43,7 @@ internal sealed class TurnEventBuffer
     // Set of callIds that were permission-denied this turn
     private readonly ConcurrentDictionary<string, bool> _deniedCallIds = new();
 
-    // ── Mutation methods (called from OnEventAsync) ───────────────────────────
+    // ── Mutation methods (called from the event subscription) ─────────────────
 
     public void RecordTurnStarted(string messageTurnId, DateTimeOffset at)
     {

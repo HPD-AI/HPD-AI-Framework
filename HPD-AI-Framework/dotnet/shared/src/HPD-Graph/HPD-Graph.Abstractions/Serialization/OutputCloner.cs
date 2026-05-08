@@ -3,8 +3,7 @@ using System.Text.Json;
 namespace HPDAgent.Graph.Abstractions.Serialization;
 
 /// <summary>
-/// Deep clones node outputs using source-generated JSON serialization.
-/// Native AOT compatible. Handles polymorphic object values via JsonElement.
+/// Deep clones node outputs using Native AOT-safe graph JSON serialization.
 /// </summary>
 public static class OutputCloner
 {
@@ -12,7 +11,7 @@ public static class OutputCloner
     // Instead we use the JsonTypeInfo directly from the context
 
     /// <summary>
-    /// Deep clones node outputs. Handles primitives, collections, and custom objects.
+    /// Deep clones node outputs. Handles primitives, collections, dictionaries, and JsonElement values.
     /// Performance: ~140 μs for 100KB payloads.
     /// </summary>
     /// <param name="outputs">Original outputs dictionary</param>
@@ -32,8 +31,7 @@ public static class OutputCloner
     }
 
     /// <summary>
-    /// Deep clones with circular reference support (slower but safer).
-    /// Use when outputs may contain circular references.
+    /// Deep clones with the same Native AOT-safe value restrictions as <see cref="DeepClone"/>.
     /// </summary>
     public static Dictionary<string, object> DeepCloneWithCircularRefs(
         Dictionary<string, object> outputs)
@@ -110,7 +108,7 @@ public static class OutputCloner
     /// - Numbers: int if fits, else long, else decimal, else double
     /// - Arrays: List&lt;object&gt;
     /// - Objects: Dictionary&lt;string, object&gt;
-    /// - Custom objects: Preserved as Dictionary (graceful degradation)
+    /// - Objects: Dictionary&lt;string, object&gt;
     /// </summary>
     private static object ConvertJsonElement(JsonElement element)
     {

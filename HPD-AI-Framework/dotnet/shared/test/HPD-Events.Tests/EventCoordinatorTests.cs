@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using HPD.Events;
 using HPD.Events.Core;
 
@@ -55,77 +56,7 @@ public class EventCoordinatorTests
     }
 
     [Fact]
-    public async Task Emit_RoutesEventsToDeclaredChannels()
-    {
-        var coordinator = new EventCoordinator();
-
-        coordinator.Emit(new TestStreamingEvent("streaming"));
-        coordinator.Emit(new TestEvent("synchronous"));
-        coordinator.Emit(new TestInteractiveEvent("interactive"));
-        coordinator.Emit(new TestControlEvent("control"));
-
-        Assert.Equal("streaming", Assert.IsType<TestStreamingEvent>(
-            await ReadOneAsync(coordinator.ReadStreamingAsync())).Message);
-        Assert.Equal("synchronous", Assert.IsType<TestEvent>(
-            await ReadOneAsync(coordinator.ReadSynchronousAsync())).Message);
-        Assert.Equal("interactive", Assert.IsType<TestInteractiveEvent>(
-            await ReadOneAsync(coordinator.ReadInteractiveAsync())).Message);
-        Assert.Equal("control", Assert.IsType<TestControlEvent>(
-            await ReadOneAsync(coordinator.ReadControlAsync())).Message);
-    }
-
-    [Fact]
-    public async Task LowLevelReaders_DoNotCrossReadChannels()
-    {
-        var coordinator = new EventCoordinator();
-        coordinator.Emit(new TestStreamingEvent("streaming"));
-
-        var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            async () => await ReadOneAsync(coordinator.ReadSynchronousAsync(cts.Token), cts.Token));
-    }
-
-    [Fact]
-    public async Task SynchronousChannel_PreservesFifoOrder()
-    {
-        var coordinator = new EventCoordinator();
-        coordinator.Emit(new TestEvent("1"));
-        coordinator.Emit(new TestEvent("2"));
-        coordinator.Emit(new TestEvent("3"));
-
-        var events = await ReadManyAsync(coordinator.ReadSynchronousAsync(), 3);
-
-        Assert.Equal(["1", "2", "3"], events.Cast<TestEvent>().Select(static evt => evt.Message));
-    }
-
-    [Fact]
-    public async Task InteractiveChannel_PreservesFifoOrder()
-    {
-        var coordinator = new EventCoordinator();
-        coordinator.Emit(new TestInteractiveEvent("1"));
-        coordinator.Emit(new TestInteractiveEvent("2"));
-        coordinator.Emit(new TestInteractiveEvent("3"));
-
-        var events = await ReadManyAsync(coordinator.ReadInteractiveAsync(), 3);
-
-        Assert.Equal(["1", "2", "3"], events.Cast<TestInteractiveEvent>().Select(static evt => evt.Message));
-    }
-
-    [Fact]
-    public async Task ControlChannel_PreservesFifoOrder()
-    {
-        var coordinator = new EventCoordinator();
-        coordinator.Emit(new TestControlEvent("1"));
-        coordinator.Emit(new TestControlEvent("2"));
-        coordinator.Emit(new TestControlEvent("3"));
-
-        var events = await ReadManyAsync(coordinator.ReadControlAsync(), 3);
-
-        Assert.Equal(["1", "2", "3"], events.Cast<TestControlEvent>().Select(static evt => evt.Message));
-    }
-
-    [Fact]
-    public async Task RunAsync_DispatchesExactTypeHandler()
+    public async Task Subscribe_ReceivesEmittedEventWithoutRunAsync()
     {
         using var coordinator = new EventCoordinator();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -136,59 +67,31 @@ public class EventCoordinatorTests
             handled.TrySetResult(evt.Message);
             return ValueTask.CompletedTask;
         });
-        var runTask = coordinator.RunAsync(cts.Token);
 
         coordinator.Emit(new TestEvent("handled"));
 
         Assert.Equal("handled", await handled.Task.WaitAsync(cts.Token));
-        await cts.CancelAsync();
-        await runTask;
     }
 
     [Fact]
-    public async Task RunAsync_DoesNotDispatchDerivedEventToBaseHandler()
-    {
-        using var coordinator = new EventCoordinator();
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
-        var handled = false;
-
-        using var subscription = coordinator.Subscribe<BaseTestEvent>(_ =>
-        {
-            handled = true;
-            return ValueTask.CompletedTask;
-        });
-        var runTask = coordinator.RunAsync(cts.Token);
-
-        coordinator.Emit(new DerivedTestEvent("derived"));
-
-        await Task.Delay(50, CancellationToken.None);
-        await cts.CancelAsync();
-        await runTask;
-
-        Assert.False(handled);
-    }
-
-    [Fact]
-    public async Task SubscribeAny_ReceivesEventsFromAllChannelsAfterExactHandlers()
+    public async Task SubscribeAny_ReceivesEventsFromAllChannelsWithoutRunAsync()
     {
         using var coordinator = new EventCoordinator();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         var seen = new List<string>();
         var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        using var exactSubscription = coordinator.Subscribe<TestEvent>(evt =>
+        using var subscription = coordinator.SubscribeAny(evt =>
         {
-            seen.Add($"exact:{evt.Message}");
+            lock (seen)
+            {
+                seen.Add(evt.GetType().Name);
+                if (seen.Count == 4)
+                    completed.TrySetResult();
+            }
+
             return ValueTask.CompletedTask;
         });
-        using var anySubscription = coordinator.SubscribeAny(evt =>
-        {
-            seen.Add($"any:{evt.GetType().Name}");
-            if (seen.Count == 5)
-                completed.TrySetResult();
-            return ValueTask.CompletedTask;
-        });
-        var runTask = coordinator.RunAsync(cts.Token);
 
         coordinator.Emit(new TestEvent("synchronous"));
         coordinator.Emit(new TestStreamingEvent("streaming"));
@@ -196,242 +99,259 @@ public class EventCoordinatorTests
         coordinator.Emit(new TestControlEvent("control"));
 
         await completed.Task.WaitAsync(cts.Token);
-        await cts.CancelAsync();
-        await runTask;
 
-        var exactIndex = seen.IndexOf("exact:synchronous");
-        var anyIndex = seen.IndexOf("any:TestEvent");
-        Assert.True(exactIndex >= 0);
-        Assert.True(anyIndex > exactIndex);
-        Assert.Contains("any:TestStreamingEvent", seen);
-        Assert.Contains("any:TestInteractiveEvent", seen);
-        Assert.Contains("any:TestControlEvent", seen);
+        Assert.Contains(nameof(TestEvent), seen);
+        Assert.Contains(nameof(TestStreamingEvent), seen);
+        Assert.Contains(nameof(TestInteractiveEvent), seen);
+        Assert.Contains(nameof(TestControlEvent), seen);
     }
 
     [Fact]
-    public async Task StreamingChannel_IsIsolatedFromSlowSynchronousHandler()
+    public async Task Subscribe_BaseTypeReceivesDerivedEventByDefault()
     {
         using var coordinator = new EventCoordinator();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        var releaseSynchronous = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var streamingHandled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handled = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        using var synchronousSubscription = coordinator.Subscribe<TestEvent>(
-            async _ => await releaseSynchronous.Task.WaitAsync(cts.Token));
-        using var streamingSubscription = coordinator.Subscribe<TestStreamingEvent>(_ =>
+        using var subscription = coordinator.Subscribe<BaseTestEvent>(evt =>
         {
-            streamingHandled.TrySetResult();
+            handled.TrySetResult(evt.Message);
             return ValueTask.CompletedTask;
         });
-        var runTask = coordinator.RunAsync(cts.Token);
+
+        coordinator.Emit(new DerivedTestEvent("derived"));
+
+        Assert.Equal("derived", await handled.Task.WaitAsync(cts.Token));
+    }
+
+    [Fact]
+    public async Task Subscribe_ExactTypeOptionDoesNotReceiveDerivedEvent()
+    {
+        using var coordinator = new EventCoordinator();
+        var handled = false;
+
+        using var subscription = coordinator.Subscribe<BaseTestEvent>(
+            _ =>
+            {
+                handled = true;
+                return ValueTask.CompletedTask;
+            },
+            new EventSubscriptionOptions { IncludeDerivedTypes = false });
+
+        coordinator.Emit(new DerivedTestEvent("derived"));
+        await Task.Delay(50);
+
+        Assert.False(handled);
+    }
+
+    [Fact]
+    public async Task MultipleSubscribers_AllReceiveSameClassEvent()
+    {
+        using var coordinator = new EventCoordinator();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var first = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var second = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var sub1 = coordinator.Subscribe<TestEvent>(evt =>
+        {
+            first.TrySetResult(evt.Message);
+            return ValueTask.CompletedTask;
+        });
+        using var sub2 = coordinator.Subscribe<TestEvent>(evt =>
+        {
+            second.TrySetResult(evt.Message);
+            return ValueTask.CompletedTask;
+        });
+
+        coordinator.Emit(new TestEvent("fan-out"));
+
+        Assert.Equal("fan-out", await first.Task.WaitAsync(cts.Token));
+        Assert.Equal("fan-out", await second.Task.WaitAsync(cts.Token));
+    }
+
+    [Fact]
+    public async Task TypedSubscriberAndStreamSubscriber_BothReceiveSameEvent()
+    {
+        using var coordinator = new EventCoordinator();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var handled = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var stream = coordinator.SubscribeStream<TestEvent>();
+
+        using var subscription = coordinator.Subscribe<TestEvent>(evt =>
+        {
+            handled.TrySetResult(evt.Message);
+            return ValueTask.CompletedTask;
+        });
+
+        coordinator.Emit(new TestEvent("both"));
+
+        Assert.Equal("both", await handled.Task.WaitAsync(cts.Token));
+        Assert.Equal("both", (await ReadOneAsync(stream.Reader, cts.Token)).Message);
+    }
+
+    [Fact]
+    public async Task ChannelSubscriber_ReceivesOnlyMatchingChannelWithoutStealing()
+    {
+        using var coordinator = new EventCoordinator();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await using var streaming = coordinator.SubscribeChannel(EventChannel.Streaming);
+        var handled = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var subscription = coordinator.Subscribe<TestStreamingEvent>(evt =>
+        {
+            handled.TrySetResult(evt.Message);
+            return ValueTask.CompletedTask;
+        });
+
+        coordinator.Emit(new TestEvent("sync"));
+        coordinator.Emit(new TestStreamingEvent("stream"));
+
+        Assert.Equal("stream", Assert.IsType<TestStreamingEvent>(
+            await ReadOneAsync(streaming.Reader, cts.Token)).Message);
+        Assert.Equal("stream", await handled.Task.WaitAsync(cts.Token));
+        Assert.False(await WaitToReadSafelyAsync(streaming.Reader));
+    }
+
+    [Fact]
+    public async Task SlowSubscriber_DoesNotBlockUnrelatedSubscriber()
+    {
+        using var coordinator = new EventCoordinator();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fast = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var slowSub = coordinator.Subscribe<TestEvent>(
+            async _ => await release.Task.WaitAsync(cts.Token));
+        using var fastSub = coordinator.Subscribe<TestStreamingEvent>(_ =>
+        {
+            fast.TrySetResult();
+            return ValueTask.CompletedTask;
+        });
 
         coordinator.Emit(new TestEvent("slow"));
         coordinator.Emit(new TestStreamingEvent("fast"));
 
-        await streamingHandled.Task.WaitAsync(cts.Token);
-        releaseSynchronous.SetResult();
-        await cts.CancelAsync();
-        await runTask;
+        await fast.Task.WaitAsync(cts.Token);
+        release.SetResult();
     }
 
     [Fact]
-    public async Task GetStats_ReturnsChannelDepths()
+    public async Task EmitAsync_WaitsForFullModeWaitSubscriber()
     {
-        var coordinator = new EventCoordinator();
+        using var coordinator = new EventCoordinator();
+        await using var stream = coordinator.SubscribeStream<TestEvent>(
+            new EventSubscriptionOptions
+            {
+                Capacity = 1,
+                FullMode = BoundedChannelFullMode.Wait
+            });
 
-        coordinator.Emit(new TestStreamingEvent("streaming"));
-        coordinator.Emit(new TestEvent("synchronous"));
-        coordinator.Emit(new TestInteractiveEvent("interactive"));
-        coordinator.Emit(new TestControlEvent("control"));
-
-        Assert.Equal(new EventCoordinatorStats(1, 1, 1, 1), coordinator.GetStats());
-
-        _ = await ReadOneAsync(coordinator.ReadStreamingAsync());
-
-        Assert.Equal(0, coordinator.GetStats().Streaming);
-    }
-
-    [Fact]
-    public async Task StreamingChannel_DropsOldestWhenFullAndReportsControlDiagnostic()
-    {
-        var coordinator = new EventCoordinator();
-
-        for (var i = 0; i < 300; i++)
-            coordinator.Emit(new TestStreamingEvent(i.ToString()));
-
-        var streamingEvents = await ReadManyAsync(coordinator.ReadStreamingAsync(), 256);
-        var firstRemaining = Assert.IsType<TestStreamingEvent>(streamingEvents[0]);
-        Assert.NotEqual("0", firstRemaining.Message);
-        Assert.Equal("299", Assert.IsType<TestStreamingEvent>(streamingEvents[^1]).Message);
-
-        var dropped = Assert.IsType<EventDroppedEvent>(await ReadOneAsync(coordinator.ReadControlAsync()));
-        Assert.Equal(nameof(TestStreamingEvent), dropped.DroppedEventType);
-    }
-
-    [Fact]
-    public void StreamingDropDiagnostic_DoesNotBlockWhenControlChannelIsFull()
-    {
-        var coordinator = new EventCoordinator();
-
-        for (var i = 0; i < 64; i++)
-            coordinator.Emit(new TestControlEvent(i.ToString()));
-
-        for (var i = 0; i < 300; i++)
-            coordinator.Emit(new TestStreamingEvent(i.ToString()));
-
-        Assert.Equal(64, coordinator.GetStats().Control);
-        Assert.Equal(256, coordinator.GetStats().Streaming);
-    }
-
-    [Fact]
-    public void Emit_ThrowsImmediatelyWhenInteractiveChannelIsFull()
-    {
-        var coordinator = new EventCoordinator();
-
-        for (var i = 0; i < 64; i++)
-            coordinator.Emit(new TestInteractiveEvent(i.ToString()));
-
-        var ex = Assert.Throws<InvalidOperationException>(
-            () => coordinator.Emit(new TestInteractiveEvent("overflow")));
-
-        Assert.Contains("Interactive", ex.Message);
-        Assert.Contains("EmitAsync", ex.Message);
-    }
-
-    [Fact]
-    public void Emit_ThrowsImmediatelyWhenControlChannelIsFull()
-    {
-        var coordinator = new EventCoordinator();
-
-        for (var i = 0; i < 64; i++)
-            coordinator.Emit(new TestControlEvent(i.ToString()));
-
-        var ex = Assert.Throws<InvalidOperationException>(
-            () => coordinator.Emit(new TestControlEvent("overflow")));
-
-        Assert.Contains("Control", ex.Message);
-        Assert.Contains("EmitAsync", ex.Message);
-    }
-
-    [Fact]
-    public async Task EmitAsync_WaitsForInteractiveCapacity()
-    {
-        var coordinator = new EventCoordinator();
-
-        for (var i = 0; i < 64; i++)
-            coordinator.Emit(new TestInteractiveEvent(i.ToString()));
-
-        var emitTask = coordinator.EmitAsync(new TestInteractiveEvent("after-capacity")).AsTask();
+        await coordinator.EmitAsync(new TestEvent("first"));
+        var emitTask = coordinator.EmitAsync(new TestEvent("second")).AsTask();
         await Task.Delay(50);
 
         Assert.False(emitTask.IsCompleted);
 
-        _ = await ReadOneAsync(coordinator.ReadInteractiveAsync());
-
+        Assert.Equal("first", (await ReadOneAsync(stream.Reader)).Message);
         await emitTask.WaitAsync(TimeSpan.FromSeconds(2));
-
-        Assert.Contains(
-            await ReadManyAsync(coordinator.ReadInteractiveAsync(), 64),
-            evt => evt is TestInteractiveEvent { Message: "after-capacity" });
+        Assert.Equal("second", (await ReadOneAsync(stream.Reader)).Message);
     }
 
     [Fact]
-    public async Task EmitAsync_WaitsForControlCapacity()
+    public async Task HandlerException_FaultsOnlyThatSubscriptionAndEmitsDiagnostic()
     {
-        var coordinator = new EventCoordinator();
+        using var coordinator = new EventCoordinator();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await using var diagnostics = coordinator.SubscribeStream<EventSubscriberFaultedEvent>();
+        var later = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        for (var i = 0; i < 64; i++)
-            coordinator.Emit(new TestControlEvent(i.ToString()));
+        using var throwing = coordinator.Subscribe<TestEvent>(
+            _ => throw new InvalidOperationException("handler failed"));
+        using var remaining = coordinator.Subscribe<TestEvent>(evt =>
+        {
+            later.TrySetResult(evt.Message);
+            return ValueTask.CompletedTask;
+        });
 
-        var emitTask = coordinator.EmitAsync(new TestControlEvent("after-capacity")).AsTask();
-        await Task.Delay(50);
+        coordinator.Emit(new TestEvent("boom"));
 
-        Assert.False(emitTask.IsCompleted);
-
-        _ = await ReadOneAsync(coordinator.ReadControlAsync());
-
-        await emitTask.WaitAsync(TimeSpan.FromSeconds(2));
-
-        Assert.Contains(
-            await ReadManyAsync(coordinator.ReadControlAsync(), 64),
-            evt => evt is TestControlEvent { Message: "after-capacity" });
+        var diagnostic = await ReadOneAsync(diagnostics.Reader, cts.Token);
+        Assert.Equal(nameof(InvalidOperationException), diagnostic.ErrorType);
+        Assert.Equal("handler failed", diagnostic.ErrorMessage);
+        Assert.Equal("boom", await later.Task.WaitAsync(cts.Token));
     }
 
     [Fact]
-    public async Task EmitAsync_RespectsCancellationWhileWaitingForCapacity()
+    public async Task SetParent_BubblesEventsToParentSubscribersWithoutChangingSequence()
     {
-        var coordinator = new EventCoordinator();
-
-        for (var i = 0; i < 64; i++)
-            coordinator.Emit(new TestControlEvent(i.ToString()));
-
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
-            await coordinator.EmitAsync(new TestControlEvent("cancelled"), cts.Token));
-    }
-
-    [Fact]
-    public void SetParent_WithNullParent_ThrowsArgumentNullException()
-    {
-        var coordinator = new EventCoordinator();
-
-        Assert.Throws<ArgumentNullException>(() => coordinator.SetParent(null!));
-    }
-
-    [Fact]
-    public void SetParent_WithSelfReference_ThrowsInvalidOperationException()
-    {
-        var coordinator = new EventCoordinator();
-
-        var ex = Assert.Throws<InvalidOperationException>(() => coordinator.SetParent(coordinator));
-
-        Assert.Contains("Cannot set coordinator as its own parent", ex.Message);
-    }
-
-    [Fact]
-    public void SetParent_WithCycle_ThrowsInvalidOperationException()
-    {
-        var coordinatorA = new EventCoordinator();
-        var coordinatorB = new EventCoordinator();
-        var coordinatorC = new EventCoordinator();
-
-        coordinatorA.SetParent(coordinatorB);
-        coordinatorB.SetParent(coordinatorC);
-
-        var ex = Assert.Throws<InvalidOperationException>(() => coordinatorC.SetParent(coordinatorA));
-
-        Assert.Contains("Cannot set parent: this would create a cycle", ex.Message);
-    }
-
-    [Fact]
-    public async Task SetParent_BubblesEventsToParent()
-    {
-        var parent = new EventCoordinator();
-        var child = new EventCoordinator();
+        using var parent = new EventCoordinator();
+        using var child = new EventCoordinator();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         child.SetParent(parent);
+        await using var parentStream = parent.SubscribeStream<TestControlEvent>();
 
-        child.Emit(new TestControlEvent("bubbled"));
+        var evt = new TestControlEvent("bubbled");
+        child.Emit(evt);
 
-        var result = await ReadOneAsync(parent.ReadControlAsync());
+        var result = await ReadOneAsync(parentStream.Reader, cts.Token);
 
-        Assert.Equal("bubbled", Assert.IsType<TestControlEvent>(result).Message);
+        Assert.Same(evt, result);
+        Assert.Equal(1, result.SequenceNumber);
         Assert.Equal(EventDirection.Upstream, result.Direction);
         Assert.Equal(EventChannel.Control, result.Channel);
     }
 
     [Fact]
+    public async Task SetParent_ParentEnricherAppliesToBubbledEventsWithoutChangingSequence()
+    {
+        using var parent = new EventCoordinator(
+            eventEnricher: evt => evt with
+            {
+                Extensions = new Dictionary<string, object> { ["parent"] = true }
+            });
+        using var child = new EventCoordinator();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        child.SetParent(parent);
+        await using var parentStream = parent.SubscribeStream<TestControlEvent>();
+
+        child.Emit(new TestControlEvent("bubbled"));
+
+        var result = await ReadOneAsync(parentStream.Reader, cts.Token);
+
+        Assert.Equal(1, result.SequenceNumber);
+        Assert.NotNull(result.Extensions);
+        Assert.True((bool)result.Extensions["parent"]);
+    }
+
+    [Fact]
+    public async Task SetParent_ParentFilterAppliesToBubbledEvents()
+    {
+        using var parent = new EventCoordinator(
+            eventFilter: evt => evt is TestControlEvent { Message: "allowed" });
+        using var child = new EventCoordinator();
+        child.SetParent(parent);
+        await using var parentStream = parent.SubscribeStream<TestControlEvent>();
+
+        child.Emit(new TestControlEvent("blocked"));
+        child.Emit(new TestControlEvent("allowed"));
+
+        Assert.Equal("allowed", (await ReadOneAsync(parentStream.Reader)).Message);
+        Assert.False(await WaitToReadSafelyAsync(parentStream.Reader));
+    }
+
+    [Fact]
     public async Task EventEnricher_EnrichesEventsBeforeEmission()
     {
-        var coordinator = new EventCoordinator(
+        using var coordinator = new EventCoordinator(
             eventEnricher: evt => evt with
             {
                 Extensions = new Dictionary<string, object> { ["enriched"] = true }
             });
+        await using var stream = coordinator.SubscribeStream<TestEvent>();
 
         coordinator.Emit(new TestEvent("test"));
 
-        var result = await ReadOneAsync(coordinator.ReadSynchronousAsync());
+        var result = await ReadOneAsync(stream.Reader);
 
         Assert.NotNull(result.Extensions);
         Assert.True((bool)result.Extensions["enriched"]);
@@ -440,17 +360,15 @@ public class EventCoordinatorTests
     [Fact]
     public async Task EventFilter_FiltersEvents()
     {
-        var coordinator = new EventCoordinator(
+        using var coordinator = new EventCoordinator(
             eventFilter: evt => evt is TestEvent { Message: "allowed" });
+        await using var stream = coordinator.SubscribeStream<TestEvent>();
 
         coordinator.Emit(new TestEvent("allowed"));
         coordinator.Emit(new TestEvent("blocked"));
 
-        var results = await ReadManyAsync(coordinator.ReadSynchronousAsync(), 1);
-
-        Assert.Single(results);
-        Assert.Equal("allowed", Assert.IsType<TestEvent>(results[0]).Message);
-        Assert.Equal(0, coordinator.GetStats().Synchronous);
+        Assert.Equal("allowed", (await ReadOneAsync(stream.Reader)).Message);
+        Assert.False(await WaitToReadSafelyAsync(stream.Reader));
     }
 
     [Fact]
@@ -537,83 +455,6 @@ public class EventCoordinatorTests
     }
 
     [Fact]
-    public async Task SendResponse_RoutesToGrandchildWaiter()
-    {
-        var grandparent = new EventCoordinator();
-        var parent = new EventCoordinator();
-        var child = new EventCoordinator();
-        parent.SetParent(grandparent);
-        child.SetParent(parent);
-
-        var responseTask = child.WaitForResponseAsync<TestEvent>(
-            "grandchild-request",
-            TimeSpan.FromSeconds(5));
-
-        grandparent.SendResponse("grandchild-request", new TestEvent("from-grandparent"));
-
-        var response = await responseTask;
-        Assert.Equal("from-grandparent", response.Message);
-    }
-
-    [Fact]
-    public async Task SendResponse_RoutesFromChildToParentWaiter()
-    {
-        var parent = new EventCoordinator();
-        var child = new EventCoordinator();
-        child.SetParent(parent);
-
-        var responseTask = parent.WaitForResponseAsync<TestEvent>(
-            "parent-request",
-            TimeSpan.FromSeconds(5));
-
-        child.SendResponse("parent-request", new TestEvent("from-child"));
-
-        var response = await responseTask;
-        Assert.Equal("from-child", response.Message);
-    }
-
-    [Fact]
-    public async Task SendResponse_ReparentingRemovesOldParentRoute()
-    {
-        var oldParent = new EventCoordinator();
-        var newParent = new EventCoordinator();
-        var child = new EventCoordinator();
-        child.SetParent(oldParent);
-        child.SetParent(newParent);
-
-        var responseTask = child.WaitForResponseAsync<TestEvent>(
-            "reparented-request",
-            TimeSpan.FromSeconds(5));
-
-        oldParent.SendResponse("reparented-request", new TestEvent("old-parent"));
-
-        await Task.Delay(50);
-        Assert.False(responseTask.IsCompleted);
-
-        newParent.SendResponse("reparented-request", new TestEvent("new-parent"));
-
-        var response = await responseTask;
-        Assert.Equal("new-parent", response.Message);
-    }
-
-    [Fact]
-    public async Task SendResponse_DisposedChildIsRemovedFromParentRouting()
-    {
-        var parent = new EventCoordinator();
-        var child = new EventCoordinator();
-        child.SetParent(parent);
-
-        var responseTask = child.WaitForResponseAsync<TestEvent>(
-            "disposed-child-request",
-            TimeSpan.FromSeconds(5));
-
-        child.Dispose();
-        parent.SendResponse("disposed-child-request", new TestEvent("response"));
-
-        await Assert.ThrowsAsync<TimeoutException>(async () => await responseTask);
-    }
-
-    [Fact]
     public async Task SendResponse_ThrowsWhenRequestIdIsAmbiguousInHierarchy()
     {
         var parent = new EventCoordinator();
@@ -642,35 +483,34 @@ public class EventCoordinatorTests
     }
 
     [Fact]
-    public void SendResponse_IgnoresUnknownRequestId()
+    public void SetParent_WithSelfReference_ThrowsInvalidOperationException()
     {
         var coordinator = new EventCoordinator();
 
-        coordinator.SendResponse("unknown", new TestEvent("response"));
+        var ex = Assert.Throws<InvalidOperationException>(() => coordinator.SetParent(coordinator));
+
+        Assert.Contains("Cannot set coordinator as its own parent", ex.Message);
     }
 
     [Fact]
-    public async Task HandlerException_FaultsRunAsync()
+    public void SetParent_WithCycle_ThrowsInvalidOperationException()
     {
-        using var coordinator = new EventCoordinator();
+        var coordinatorA = new EventCoordinator();
+        var coordinatorB = new EventCoordinator();
+        var coordinatorC = new EventCoordinator();
 
-        using var subscription = coordinator.Subscribe<TestEvent>(
-            _ => throw new InvalidOperationException("handler failed"));
-        var runTask = coordinator.RunAsync();
+        coordinatorA.SetParent(coordinatorB);
+        coordinatorB.SetParent(coordinatorC);
 
-        coordinator.Emit(new TestEvent("boom"));
+        var ex = Assert.Throws<InvalidOperationException>(() => coordinatorC.SetParent(coordinatorA));
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-            async () => await runTask.WaitAsync(TimeSpan.FromSeconds(2)));
-
-        Assert.Equal("handler failed", ex.Message);
+        Assert.Contains("Cannot set parent: this would create a cycle", ex.Message);
     }
 
     [Fact]
     public async Task Subscribe_Dispose_RemovesHandler()
     {
         using var coordinator = new EventCoordinator();
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
         var handled = false;
 
         var subscription = coordinator.Subscribe<TestEvent>(_ =>
@@ -680,49 +520,10 @@ public class EventCoordinatorTests
         });
         subscription.Dispose();
 
-        var runTask = coordinator.RunAsync(cts.Token);
         coordinator.Emit(new TestEvent("removed"));
-
-        await Task.Delay(50, CancellationToken.None);
-        await cts.CancelAsync();
-        await runTask;
+        await Task.Delay(50);
 
         Assert.False(handled);
-    }
-
-    [Fact]
-    public async Task SubscribeAny_Dispose_RemovesHandler()
-    {
-        using var coordinator = new EventCoordinator();
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
-        var handled = false;
-
-        var subscription = coordinator.SubscribeAny(_ =>
-        {
-            handled = true;
-            return ValueTask.CompletedTask;
-        });
-        subscription.Dispose();
-
-        var runTask = coordinator.RunAsync(cts.Token);
-        coordinator.Emit(new TestEvent("removed"));
-
-        await Task.Delay(50, CancellationToken.None);
-        await cts.CancelAsync();
-        await runTask;
-
-        Assert.False(handled);
-    }
-
-    [Fact]
-    public async Task RunAsync_ExitsAfterDisposeCompletesWriters()
-    {
-        var coordinator = new EventCoordinator();
-        var runTask = coordinator.RunAsync();
-
-        coordinator.Dispose();
-
-        await runTask.WaitAsync(TimeSpan.FromSeconds(2));
     }
 
     [Fact]
@@ -743,33 +544,43 @@ public class EventCoordinatorTests
         Assert.IsAssignableFrom<IStreamRegistry>(coordinator.Streams);
     }
 
-    private static async Task<Event> ReadOneAsync(
-        IAsyncEnumerable<Event> source,
+    [Fact]
+    public async Task GetStats_ReportsSubscriberHealth()
+    {
+        using var coordinator = new EventCoordinator();
+        await using var stream = coordinator.SubscribeStream<TestEvent>();
+        using var handler = coordinator.SubscribeAny(_ => ValueTask.CompletedTask);
+
+        coordinator.Emit(new TestEvent("queued"));
+
+        var stats = coordinator.GetStats();
+
+        Assert.Equal(2, stats.SubscriberCount);
+        Assert.Equal(1, stats.StreamSubscriberCount);
+        Assert.True(stats.TotalQueued >= 1);
+        Assert.True(stats.MaxSubscriberDepth >= 1);
+    }
+
+    private static async Task<TEvent> ReadOneAsync<TEvent>(
+        ChannelReader<TEvent> reader,
         CancellationToken ct = default)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
 
-        await foreach (var evt in source.WithCancellation(linked.Token))
-            return evt;
-
-        throw new InvalidOperationException("No event was available.");
+        return await reader.ReadAsync(linked.Token);
     }
 
-    private static async Task<List<Event>> ReadManyAsync(
-        IAsyncEnumerable<Event> source,
-        int count)
+    private static async Task<bool> WaitToReadSafelyAsync<TEvent>(ChannelReader<TEvent> reader)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        var events = new List<Event>(count);
-
-        await foreach (var evt in source.WithCancellation(timeout.Token))
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        try
         {
-            events.Add(evt);
-            if (events.Count == count)
-                break;
+            return await reader.WaitToReadAsync(cts.Token);
         }
-
-        return events;
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
     }
 }

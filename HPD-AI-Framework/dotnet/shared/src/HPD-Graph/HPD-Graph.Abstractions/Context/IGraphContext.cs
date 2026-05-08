@@ -181,7 +181,7 @@ public interface IGraphContext
     /// <list type="number">
     /// <item>Handler emits request event (e.g., NodeApprovalRequestEvent)</item>
     /// <item>Handler calls WaitForResponseAsync() - BLOCKS HERE</item>
-    /// <item>External handler receives request event (via EventCoordinator.ReadAllAsync)</item>
+    /// <item>External handler receives request event (via EventCoordinator.SubscribeStream or SubscribeChannel)</item>
     /// <item>User provides input</item>
     /// <item>External handler calls EventCoordinator.SendResponse()</item>
     /// <item>Handler receives response and continues</item>

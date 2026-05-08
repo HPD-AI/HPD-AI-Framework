@@ -150,28 +150,28 @@ public sealed class AudioPipelineMiddlewareRuntimeInputTests : AgentTestBase
         var agent = CreateAgentWithMiddlewares(
             client: chatClient,
             middlewares: [middleware]);
-        var interruption = new TaskCompletionSource<InterruptionRequestEvent>(
+        var interruption = new TaskCompletionSource<InterruptionHandledEvent>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var userInterrupted = new TaskCompletionSource<UserInterruptedEvent>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var vadStart = new TaskCompletionSource<VadStartOfSpeechEvent>(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        agent.Subscribe<InterruptionRequestEvent>(evt =>
+        agent.Subscribe<InterruptionHandledEvent>((Func<InterruptionHandledEvent, ValueTask>)(evt =>
         {
             interruption.TrySetResult(evt);
             return ValueTask.CompletedTask;
-        });
-        agent.Subscribe<UserInterruptedEvent>(evt =>
+        }));
+        agent.Subscribe<UserInterruptedEvent>((Func<UserInterruptedEvent, ValueTask>)(evt =>
         {
             userInterrupted.TrySetResult(evt);
             return ValueTask.CompletedTask;
-        });
-        agent.Subscribe<VadStartOfSpeechEvent>(evt =>
+        }));
+        agent.Subscribe<VadStartOfSpeechEvent>((Func<VadStartOfSpeechEvent, ValueTask>)(evt =>
         {
             vadStart.TrySetResult(evt);
             return ValueTask.CompletedTask;
-        });
+        }));
 
         await agent.StartAsync(TestCancellationToken);
         await agent.RunAsync("block", cancellationToken: TestCancellationToken);

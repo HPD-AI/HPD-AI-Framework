@@ -89,10 +89,11 @@ public class ProgressSubjectTests
     {
         using var coordinator = new EventCoordinator();
         using var subject = new ProgressSubject(coordinator);
+        await using var events = coordinator.SubscribeChannel(EventChannel.Synchronous);
 
         subject.OnNext(MakeProgress(epoch: 5));
 
-        var evt = await ReadFirstSynchronousAsync(coordinator);
+        var evt = await ReadFirstAsync(events.Reader);
         var tpe = Assert.IsType<TrainingProgressEvent>(evt);
         Assert.Equal(5, tpe.Progress.Epoch);
     }
@@ -118,10 +119,10 @@ public class ProgressSubjectTests
         public void OnError(Exception error) => onError?.Invoke(error);
     }
 
-    private static async Task<Event> ReadFirstSynchronousAsync(EventCoordinator coordinator)
+    private static async Task<Event> ReadFirstAsync(System.Threading.Channels.ChannelReader<Event> reader)
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await foreach (var evt in coordinator.ReadSynchronousAsync(cts.Token))
+        await foreach (var evt in reader.ReadAllAsync(cts.Token))
             return evt;
 
         throw new InvalidOperationException("No event was produced.");

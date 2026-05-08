@@ -228,8 +228,7 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
             cancellationToken: TestCancellationToken))
         { }
 
-        // Flush all observer dispatchers so ActivityStopped callbacks have fired
-        // before we assert. This is deterministic — no arbitrary delay needed.
-        await agent.FlushObserversAsync(TestCancellationToken);
+        // Event subscriptions are processed by HPD.Events subscriber mailboxes.
+        await Task.Delay(100, TestCancellationToken);
     }
 }

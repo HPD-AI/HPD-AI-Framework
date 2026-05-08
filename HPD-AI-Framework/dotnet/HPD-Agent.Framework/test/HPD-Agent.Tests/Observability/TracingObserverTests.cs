@@ -100,23 +100,7 @@ public class TracingObserverTests : IDisposable
         };
 
     private async Task EmitAsync(AgentEvent evt) =>
-        await _observer.OnEventAsync(evt, CancellationToken.None);
-
-    // ── Filtering (ShouldProcess) ─────────────────────────────────────────────
-
-    [Fact]
-    public void ShouldProcess_EventWithNullTraceId_ReturnsFalse()
-    {
-        var evt = new TextDeltaEvent("hello", "msg-1"); // TraceId = null
-        _observer.ShouldProcess(evt).Should().BeFalse();
-    }
-
-    [Fact]
-    public void ShouldProcess_EventWithTraceId_ReturnsTrue()
-    {
-        var evt = new TextDeltaEvent("hello", "msg-1") { TraceId = TraceId };
-        _observer.ShouldProcess(evt).Should().BeTrue();
-    }
+        await _observer.HandleAsync(evt);
 
     // ── Turn span lifecycle ───────────────────────────────────────────────────
 
@@ -425,8 +409,6 @@ public class TracingObserverTests : IDisposable
         turnSpan.GetTagItem("error.message").Should().NotBeNull();
     }
 
-    // ShouldProcess filtering is already covered in the "Filtering (ShouldProcess)" section above.
-
     // ── No listener — graceful null-activity handling ─────────────────────────
 
     [Fact]
@@ -435,13 +417,13 @@ public class TracingObserverTests : IDisposable
         // Create a separate observer with a source name no listener monitors.
         using var isolated = new TracingObserver("HPD.Agent.NoListener.Test");
 
-        // If StartActivity returns null (no listener), OnEventAsync must not throw.
+        // If StartActivity returns null (no listener), HandleAsync must not throw.
         var act = async () =>
         {
-            await isolated.OnEventAsync(TurnStarted(), CancellationToken.None);
-            await isolated.OnEventAsync(IterStarted(), CancellationToken.None);
-            await isolated.OnEventAsync(IterFinished(), CancellationToken.None);
-            await isolated.OnEventAsync(TurnFinished(), CancellationToken.None);
+            await isolated.HandleAsync(TurnStarted());
+            await isolated.HandleAsync(IterStarted());
+            await isolated.HandleAsync(IterFinished());
+            await isolated.HandleAsync(TurnFinished());
         };
 
         await act.Should().NotThrowAsync();
@@ -537,11 +519,11 @@ public class TracingObserverTests : IDisposable
         var obs1 = new TracingObserver(_sourceName);
         var obs2 = new TracingObserver(_sourceName);
 
-        await obs1.OnEventAsync(new MessageTurnStartedEvent("t1", "c", "A") { TraceId = trace1, SpanId = "span1111aaaabbbb" }, default);
-        await obs2.OnEventAsync(new MessageTurnStartedEvent("t2", "c", "A") { TraceId = trace2, SpanId = "span2222ccccdddd" }, default);
+        await obs1.HandleAsync(new MessageTurnStartedEvent("t1", "c", "A") { TraceId = trace1, SpanId = "span1111aaaabbbb" });
+        await obs2.HandleAsync(new MessageTurnStartedEvent("t2", "c", "A") { TraceId = trace2, SpanId = "span2222ccccdddd" });
 
-        await obs1.OnEventAsync(new MessageTurnFinishedEvent("t1", "c", "A", TimeSpan.Zero) { TraceId = trace1, SpanId = "span1111aaaabbbb" }, default);
-        await obs2.OnEventAsync(new MessageTurnFinishedEvent("t2", "c", "A", TimeSpan.Zero) { TraceId = trace2, SpanId = "span2222ccccdddd" }, default);
+        await obs1.HandleAsync(new MessageTurnFinishedEvent("t1", "c", "A", TimeSpan.Zero) { TraceId = trace1, SpanId = "span1111aaaabbbb" });
+        await obs2.HandleAsync(new MessageTurnFinishedEvent("t2", "c", "A", TimeSpan.Zero) { TraceId = trace2, SpanId = "span2222ccccdddd" });
 
         obs1.Dispose();
         obs2.Dispose();

@@ -17,11 +17,12 @@ Console.WriteLine();
 try
 {
     // Create a simple agent
+    var consoleEvents = new SimpleConsoleEventSink();
     var agent = await new AgentBuilder()
         .WithProvider("openrouter", "minimax/minimax-m2.1")  // Using mini for cost efficiency
         .WithName("TestAssistant")
         .WithInstructions("You are a helpful assistant. Keep your responses concise and friendly.")
-        .WithEventHandler(new SimpleConsoleEventHandler())
+        .WithEventSubscription(coordinator => coordinator.Subscribe<AgentEvent>(consoleEvents.HandleAsync))
         .BuildAsync();
 
     Console.WriteLine(" Agent created successfully!");
@@ -53,18 +54,18 @@ catch (Exception ex)
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Simple Event Handler - Displays text streaming
+// Simple event sink - Displays text streaming
 // ═══════════════════════════════════════════════════════════════
 
-public class SimpleConsoleEventHandler : IAgentEventHandler
+public class SimpleConsoleEventSink
 {
     private readonly System.Text.StringBuilder _reasoningBuffer = new();
     private bool _isReasoning = false;
 
-    public async Task OnEventAsync(AgentEvent evt, CancellationToken ct = default)
+    public ValueTask HandleAsync(AgentEvent evt)
     {
         // Filter out observability events (internal diagnostics)
-        if (evt is IObservabilityEvent) return;
+        if (evt is IObservabilityEvent) return ValueTask.CompletedTask;
 
         switch (evt)
         {
@@ -123,6 +124,6 @@ public class SimpleConsoleEventHandler : IAgentEventHandler
                 break;
         }
 
-        await Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 }

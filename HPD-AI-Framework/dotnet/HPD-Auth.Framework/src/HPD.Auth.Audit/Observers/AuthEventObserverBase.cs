@@ -8,10 +8,9 @@ namespace HPD.Auth.Audit.Observers;
 ///
 /// Provides:
 /// - A typed <see cref="Logger"/> for structured logging within the observer.
-/// - A sealed <see cref="OnEventAsync"/> entry point that wraps
+/// - A sealed <see cref="HandleAsync"/> entry point that wraps
 ///   <see cref="ExecuteAsync"/> in a try/catch, fulfilling the observer contract
 ///   that exceptions must not propagate.
-/// - A default <see cref="ShouldProcess"/> implementation that accepts all events.
 ///
 /// Usage — inherit and override <see cref="ExecuteAsync"/>:
 /// <code>
@@ -39,15 +38,10 @@ public abstract class AuthEventObserverBase<TEvent> : IAuthEventObserver<TEvent>
     }
 
     /// <summary>
-    /// Override to filter which events this observer processes. Default: all events.
-    /// </summary>
-    public virtual bool ShouldProcess(TEvent evt) => true;
-
-    /// <summary>
     /// Entry point called by <see cref="Services.AuditingAuthObserver"/>.
     /// Wraps <see cref="ExecuteAsync"/> in try/catch.
     /// </summary>
-    public async Task OnEventAsync(TEvent evt, CancellationToken ct = default)
+    public async ValueTask HandleAsync(TEvent evt, CancellationToken ct = default)
     {
         try
         {

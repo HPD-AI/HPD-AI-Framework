@@ -171,7 +171,8 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
         var serviceProvider = services.BuildServiceProvider();
 
         var agent = new AgentBuilder(config, providerRegistry)
-            .WithObserver(_eventObserver)
+            .WithEventSubscription(coordinator =>
+                coordinator.Subscribe<AgentEvent>(_eventObserver.HandleAsync))
             .WithServiceProvider(serviceProvider)
             .WithSessionStore(store)
             .BuildAsync(CancellationToken.None).GetAwaiter().GetResult();
@@ -314,17 +315,18 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
 /// <summary>
 /// Test event observer that captures events for assertions.
 /// </summary>
-internal class TestEventObserver : IAgentEventObserver
+internal class TestEventObserver
 {
     private readonly List<AgentEvent> _events = new();
 
-    public Task OnEventAsync(AgentEvent evt, CancellationToken cancellationToken = default)
+    public ValueTask HandleAsync(AgentEvent evt)
     {
         lock (_events)
         {
             _events.Add(evt);
         }
-        return Task.CompletedTask;
+
+        return ValueTask.CompletedTask;
     }
 
     public List<T> GetEvents<T>() where T : AgentEvent

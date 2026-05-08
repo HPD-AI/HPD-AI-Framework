@@ -172,7 +172,7 @@ public sealed class MockPermissionHandler : IDisposable
                     }
 
                     // Send response back to agent
-                    await _agent.RunAsync(new PermissionResponseEvent(
+                    await _agent.RespondAsync(new PermissionResponseEvent(
                         permissionRequest.PermissionId,
                         "MockPermissionHandler",
                         response.Approved,
@@ -188,7 +188,7 @@ public sealed class MockPermissionHandler : IDisposable
                         approved = _autoApproveContinuation && !_autoDenyContinuation;
                     }
 
-                    await _agent.RunAsync(new ContinuationResponseEvent(
+                    await _agent.RespondAsync(new ContinuationResponseEvent(
                         continuationRequest.ContinuationId,
                         "MockPermissionHandler",
                         approved));

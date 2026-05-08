@@ -36,6 +36,14 @@ public class PropertyBasedRouter : IMapRouter
         {
             return doc.Type;
         }
+
+        if (item is IReadOnlyDictionary<string, object> dictionary &&
+            dictionary.TryGetValue("Type", out var type) &&
+            type is string typeValue)
+        {
+            return typeValue;
+        }
+
         return "unknown";
     }
 }

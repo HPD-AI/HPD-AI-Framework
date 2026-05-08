@@ -61,18 +61,7 @@ public sealed class TradingHost : IDisposable
             return ValueTask.CompletedTask;
         });
 
-        using var coordinatorCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var coordinatorTask = _coordinator.RunAsync(coordinatorCts.Token);
-
-        try
-        {
-            await _connector.StartAsync(subscriptions, _coordinator, ct);
-        }
-        finally
-        {
-            await coordinatorCts.CancelAsync();
-            await SuppressCancellationAsync(coordinatorTask);
-        }
+        await _connector.StartAsync(subscriptions, _coordinator, ct);
     }
 
     private void ProcessEvent(FinanceEvent evt, StrategyBase strategy)
@@ -104,14 +93,4 @@ public sealed class TradingHost : IDisposable
         _connector.Dispose();
     }
 
-    private static async Task SuppressCancellationAsync(Task task)
-    {
-        try
-        {
-            await task.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-        }
-    }
 }

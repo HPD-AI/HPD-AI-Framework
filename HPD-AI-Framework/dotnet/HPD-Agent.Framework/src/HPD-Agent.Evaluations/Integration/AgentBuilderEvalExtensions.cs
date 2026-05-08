@@ -151,7 +151,7 @@ public static class AgentBuilderEvalExtensions
 
     /// <summary>
     /// Finds the shared EvaluationMiddleware on this builder, creating and registering
-    /// it (as both middleware and observer) if it doesn't exist yet.
+    /// it (as middleware and event subscription) if it doesn't exist yet.
     /// </summary>
     private static EvaluationMiddleware GetOrCreateMiddleware(AgentBuilder builder)
     {
@@ -163,9 +163,8 @@ public static class AgentBuilderEvalExtensions
         {
             middleware = new EvaluationMiddleware();
             builder.Middlewares.Add(middleware);
-            // Also register as an observer so OnEventAsync receives timing and permission events.
-            // EvaluationMiddleware implements both IAgentMiddleware and IAgentEventObserver.
-            builder.WithObserver(middleware);
+            builder.WithEventSubscription(coordinator =>
+                coordinator.Subscribe<AgentEvent>(middleware.HandleAsync));
         }
 
         return middleware;

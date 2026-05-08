@@ -103,7 +103,7 @@ public static class SseHelper
     /// Streams agent events as SSE data lines.
     /// </summary>
     /// <param name="agent">The agent to run.</param>
-    /// <param name="input">The input event to send to the agent.</param>
+    /// <param name="input">The input event to submit to the agent.</param>
     /// <param name="writeAsync">Async function to write SSE data.</param>
     /// <param name="flushAsync">Async function to flush the response.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -129,7 +129,7 @@ public static class SseHelper
     /// </example>
     public static async Task StreamEventsAsync(
         Agent agent,
-        AgentEvent input,
+        AgentInputEvent input,
         Func<string, Task> writeAsync,
         Func<Task> flushAsync,
         CancellationToken cancellationToken = default)
@@ -153,14 +153,14 @@ public static class SseHelper
     /// Streams agent events as SSE with a custom serializer.
     /// </summary>
     /// <param name="agent">The agent to run.</param>
-    /// <param name="input">The input event to send to the agent.</param>
+    /// <param name="input">The input event to submit to the agent.</param>
     /// <param name="writeAsync">Async function to write SSE data.</param>
     /// <param name="flushAsync">Async function to flush the response.</param>
     /// <param name="eventSerializer">Custom event serializer function.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public static async Task StreamEventsAsync(
         Agent agent,
-        AgentEvent input,
+        AgentInputEvent input,
         Func<string, Task> writeAsync,
         Func<Task> flushAsync,
         Func<AgentEvent, string> eventSerializer,

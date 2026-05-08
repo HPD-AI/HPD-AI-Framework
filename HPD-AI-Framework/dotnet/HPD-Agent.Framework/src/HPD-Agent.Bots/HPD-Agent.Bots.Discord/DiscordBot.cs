@@ -362,7 +362,7 @@ public partial class DiscordBot(
                     CompleteTextAsync = UpdateDiscordTextAsync,
                     CompleteCardAsync = CompleteDiscordCardAsync,
                     HandlePermissionAsync = async (_, agent, req, token) =>
-                        await agent.RunAsync(new PermissionResponseEvent(
+                        await agent.RespondAsync(new PermissionResponseEvent(
                             PermissionId: req.PermissionId,
                             SourceName: "discord",
                             Approved: false), token),

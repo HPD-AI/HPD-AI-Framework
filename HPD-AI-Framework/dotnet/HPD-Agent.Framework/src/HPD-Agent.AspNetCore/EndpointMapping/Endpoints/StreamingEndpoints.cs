@@ -90,9 +90,7 @@ internal static class StreamingEndpoints
             input = ApplyRouteScope(input, sid, bid);
 
             // Get or build the agent (keyed by event AgentId, defaults to "default")
-            var agentId = input is AgentInputEvent agentInput
-                ? agentInput.AgentId ?? "default"
-                : "default";
+            var agentId = input.AgentId ?? "default";
             var agent = await agentManager.GetOrBuildAgentAsync(agentId, ct);
 
             // Stream events using SSE - this sends headers and starts streaming
@@ -188,22 +186,21 @@ internal static class StreamingEndpoints
                         break;
                     }
 
-                    var input = AgentEventSerializer.FromJson(json);
-                    if (input == null)
+                    var evt = AgentEventSerializer.FromJson(json);
+                    var input = evt as AgentInputEvent;
+                    var response = evt as HPD.Events.IBidirectionalEvent;
+                    if (input is null && response is null)
                     {
                         await webSocket.CloseAsync(
                             WebSocketCloseStatus.InvalidPayloadData,
-                            "Invalid agent event envelope",
+                            "Invalid agent input or response event envelope",
                             ct);
                         return TypedResults.Ok();
                     }
 
-                    input = ApplyRouteScope(input, sid, bid);
                     if (agent == null)
                     {
-                        var agentId = input is AgentInputEvent agentInput
-                            ? agentInput.AgentId ?? "default"
-                            : "default";
+                        var agentId = input?.AgentId ?? "default";
 
                         agent = await agentManager.GetOrBuildAgentAsync(agentId, ct);
                         subscription = agent.SubscribeAny((Func<AgentEvent, Task>)(async evt =>
@@ -225,7 +222,15 @@ internal static class StreamingEndpoints
                         runtimeStarted = true;
                     }
 
-                    await agent.RunAsync(input, ct);
+                    if (input is not null)
+                    {
+                        input = ApplyRouteScope(input, sid, bid);
+                        await agent.RunAsync(input, ct);
+                    }
+                    else
+                    {
+                        await agent.RespondAsync(response!, ct);
+                    }
                 }
             }
             finally
@@ -255,12 +260,12 @@ internal static class StreamingEndpoints
         }
     }
 
-    private static AgentEvent? ParseInputEvent(JsonElement request)
+    private static AgentInputEvent? ParseInputEvent(JsonElement request)
     {
-        return AgentEventSerializer.FromJson(request.GetRawText());
+        return AgentEventSerializer.FromJson(request.GetRawText()) as AgentInputEvent;
     }
 
-    private static AgentEvent ApplyRouteScope(AgentEvent input, string sid, string bid)
+    private static AgentInputEvent ApplyRouteScope(AgentInputEvent input, string sid, string bid)
     {
         return input switch
         {

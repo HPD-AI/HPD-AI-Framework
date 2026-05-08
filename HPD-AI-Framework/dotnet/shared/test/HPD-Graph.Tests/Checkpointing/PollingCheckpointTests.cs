@@ -1,4 +1,5 @@
 using FluentAssertions;
+using HPD.Events;
 using HPD.Events.Core;
 using HPD.Graph.Tests.Helpers;
 using HPDAgent.Graph.Abstractions.Context;
@@ -220,12 +221,13 @@ public class PollingCheckpointTests
 
         var pollingEvents = new List<NodePollingEvent>();
         var orchestrator = new GraphOrchestrator<GraphContext>(services, checkpointStore: store);
+        await using var eventSubscription = coordinator.SubscribeChannel(EventChannel.Synchronous);
 
         // Act - Execute and collect events
         var execTask = Task.Run(async () => await orchestrator.ExecuteAsync(context));
 
         // Collect polling events
-        await foreach (var evt in ReadSynchronousUntilTimeoutAsync(coordinator, TimeSpan.FromMilliseconds(500)))
+        await foreach (var evt in ReadSynchronousUntilTimeoutAsync(eventSubscription.Reader, TimeSpan.FromMilliseconds(500)))
         {
             if (evt is NodePollingEvent pollingEvt)
             {
@@ -243,11 +245,11 @@ public class PollingCheckpointTests
     }
 
     private static async IAsyncEnumerable<HPD.Events.Event> ReadSynchronousUntilTimeoutAsync(
-        EventCoordinator coordinator,
+        System.Threading.Channels.ChannelReader<HPD.Events.Event> reader,
         TimeSpan timeout)
     {
         using var cts = new CancellationTokenSource(timeout);
-        await using var enumerator = coordinator.ReadSynchronousAsync(cts.Token).GetAsyncEnumerator(cts.Token);
+        await using var enumerator = reader.ReadAllAsync(cts.Token).GetAsyncEnumerator(cts.Token);
 
         while (true)
         {

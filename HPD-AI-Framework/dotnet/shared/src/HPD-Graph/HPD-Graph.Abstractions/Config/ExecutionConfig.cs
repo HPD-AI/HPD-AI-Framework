@@ -124,6 +124,7 @@ public sealed record InputSchemaConfig
 {
     public required string TypeName { get; init; }
     public bool Required { get; init; } = true;
+    public JsonElement? DefaultValue { get; init; }
     public JsonElement? Constraints { get; init; }
 }
 

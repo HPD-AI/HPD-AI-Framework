@@ -334,12 +334,12 @@ public sealed class EvaluationMiddlewareFlagTests
     }
 
     [Fact]
-    public void EvaluationMiddleware_IsIAgentMiddleware_AndIAgentEventObserver()
+    public void EvaluationMiddleware_IsIAgentMiddleware_AndSubscriptionHandler()
     {
         var middleware = new EvaluationMiddleware();
 
         middleware.Should().BeAssignableTo<IAgentMiddleware>();
-        middleware.Should().BeAssignableTo<IAgentEventObserver>();
+        middleware.HandleAsync(new TextDeltaEvent("x")).IsCompletedSuccessfully.Should().BeTrue();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -92,7 +92,7 @@ public class OutputClonerTests
     }
 
     [Fact]
-    public void DeepClone_WithCustomObject_SerializesAsJsonElement()
+    public void DeepClone_WithCustomObject_ThrowsClearly()
     {
         // Arrange
         var custom = new TestDocument { Type = "pdf", Content = "test" };
@@ -102,14 +102,11 @@ public class OutputClonerTests
         };
 
         // Act
-        var cloned = OutputCloner.DeepClone(original);
+        Action act = () => OutputCloner.DeepClone(original);
 
         // Assert
-        // Custom objects are serialized as dictionaries (graceful degradation)
-        var clonedCustom = cloned["custom"] as Dictionary<string, object>;
-        clonedCustom.Should().NotBeNull();
-        clonedCustom!["Type"].Should().Be("pdf");
-        clonedCustom["Content"].Should().Be("test");
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*unsupported type*Native AOT-safe graph JSON values*");
     }
 
     [Fact]
@@ -162,7 +159,7 @@ public class OutputClonerTests
     }
 
     [Fact]
-    public void DeepCloneWithCircularRefs_HandlesCircularReferences()
+    public void DeepCloneWithCircularRefs_ThrowsClearlyForCircularReferences()
     {
         // Arrange
         var parent = new Dictionary<string, object> { ["name"] = "parent" };
@@ -170,12 +167,11 @@ public class OutputClonerTests
         parent["child"] = child;
 
         // Act
-        var cloned = OutputCloner.DeepCloneWithCircularRefs(parent);
+        Action act = () => OutputCloner.DeepCloneWithCircularRefs(parent);
 
         // Assert
-        cloned.Should().NotBeNull();
-        cloned.Should().NotBeSameAs(parent);
-        cloned["name"].Should().Be("parent");
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*circular reference*");
     }
 
     [Fact]
@@ -230,7 +226,7 @@ public class OutputClonerTests
     }
 
     [Fact]
-    public void ValidateSerializable_WithSerializableTypes_DoesNotThrow()
+    public void ValidateSerializable_WithSerializableGraphValues_DoesNotThrow()
     {
         // Arrange
         var outputs = new Dictionary<string, object>
@@ -238,7 +234,11 @@ public class OutputClonerTests
             ["string"] = "test",
             ["int"] = 42,
             ["list"] = new List<string> { "a", "b" },
-            ["custom"] = new TestDocument { Type = "pdf", Content = "test" }
+            ["custom"] = new Dictionary<string, object>
+            {
+                ["Type"] = "pdf",
+                ["Content"] = "test"
+            }
         };
 
         // Act

@@ -346,9 +346,7 @@ public class FunctionRetryMiddlewareTests
         var middleware = new RetryMiddleware(config);
         var retryEvents = new List<FunctionRetryEvent>();
         var eventCoordinator = new HPD.Events.Core.EventCoordinator();
-        using var eventPumpCts = new CancellationTokenSource();
-        var eventPump = eventCoordinator.RunAsync(eventPumpCts.Token);
-        eventCoordinator.Subscribe<FunctionRetryEvent>(evt =>
+        using var retrySubscription = eventCoordinator.Subscribe<FunctionRetryEvent>(evt =>
         {
             retryEvents.Add(evt);
             return ValueTask.CompletedTask;
@@ -365,26 +363,12 @@ public class FunctionRetryMiddlewareTests
         };
 
         // Act
-        try
-        {
-            await middleware.WrapFunctionCallAsync(request, handler, CancellationToken.None);
+        await middleware.WrapFunctionCallAsync(request, handler, CancellationToken.None);
 
-            var deadline = DateTime.UtcNow.AddSeconds(1);
-            while (retryEvents.Count < 2 && DateTime.UtcNow < deadline)
-            {
-                await Task.Delay(10);
-            }
-        }
-        finally
+        var deadline = DateTime.UtcNow.AddSeconds(1);
+        while (retryEvents.Count < 2 && DateTime.UtcNow < deadline)
         {
-            eventPumpCts.Cancel();
-            try
-            {
-                await eventPump;
-            }
-            catch (OperationCanceledException)
-            {
-            }
+            await Task.Delay(10);
         }
 
         // Assert - delays should be capped at MaxRetryDelay

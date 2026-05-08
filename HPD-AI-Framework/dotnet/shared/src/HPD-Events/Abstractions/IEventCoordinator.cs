@@ -1,3 +1,5 @@
+using System.Threading.Channels;
+
 namespace HPD.Events;
 
 /// <summary>
@@ -5,11 +7,11 @@ namespace HPD.Events;
 /// Non-generic design works with any Event subclass without type conversions.
 ///
 /// Key Features:
-/// - Channel-based event routing (Streaming, Synchronous, Interactive, Control)
+/// - Fan-out event routing with per-subscriber mailboxes
 /// - Hierarchical event bubbling via SetParent (child events bubble to parent)
 /// - Bidirectional patterns (request/response with WaitForResponseAsync)
 /// - Interruptible streams (group events that can be canceled together)
-/// - Removable typed subscriptions and low-level channel readers
+/// - Removable typed, catch-all, stream, and channel subscriptions
 /// </summary>
 public interface IEventCoordinator
 {
@@ -22,20 +24,39 @@ public interface IEventCoordinator
     void Emit(Event evt);
 
     /// <summary>
-    /// Emit an event asynchronously. Bounded Interactive and Control channels wait
-    /// for capacity; Streaming drops oldest; Synchronous is unbounded.
+    /// Emit an event asynchronously. Subscriber mailboxes configured with
+    /// <see cref="BoundedChannelFullMode.Wait"/> wait for capacity.
     /// </summary>
     ValueTask EmitAsync(Event evt, CancellationToken ct = default);
 
     /// <summary>
-    /// Register a removable typed handler for an exact class event type.
+    /// Register a removable typed handler.
     /// </summary>
-    IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event;
+    IDisposable Subscribe<TEvent>(
+        Func<TEvent, ValueTask> handler,
+        EventSubscriptionOptions? options = null)
+        where TEvent : Event;
 
     /// <summary>
     /// Register a removable broad observer that receives every class event from every channel.
     /// </summary>
-    IDisposable SubscribeAny(Func<Event, ValueTask> handler);
+    IDisposable SubscribeAny(
+        Func<Event, ValueTask> handler,
+        EventSubscriptionOptions? options = null);
+
+    /// <summary>
+    /// Subscribe directly to a typed class-event stream.
+    /// </summary>
+    EventStreamSubscription<TEvent> SubscribeStream<TEvent>(
+        EventSubscriptionOptions? options = null)
+        where TEvent : Event;
+
+    /// <summary>
+    /// Subscribe directly to a class-event channel stream.
+    /// </summary>
+    EventStreamSubscription<Event> SubscribeChannel(
+        EventChannel channel,
+        EventSubscriptionOptions? options = null);
 
     /// <summary>
     /// Try to emit a local struct event without waiting.
@@ -65,12 +86,6 @@ public interface IEventCoordinator
     /// </summary>
     StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null)
         where TEvent : struct, IStructEvent;
-
-    /// <summary>
-    /// Start all registered handlers. Runs one reader task per class-event channel
-    /// plus registered struct-event handler pumps.
-    /// </summary>
-    Task RunAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Set parent coordinator for hierarchical event bubbling.
@@ -110,18 +125,6 @@ public interface IEventCoordinator
     /// </summary>
     IStreamRegistry Streams { get; }
 
-    /// <summary>Returns current class-event channel depths.</summary>
+    /// <summary>Returns current class-event bus health.</summary>
     EventCoordinatorStats GetStats();
-
-    /// <summary>Read streaming events directly.</summary>
-    IAsyncEnumerable<Event> ReadStreamingAsync(CancellationToken ct = default);
-
-    /// <summary>Read synchronous events directly.</summary>
-    IAsyncEnumerable<Event> ReadSynchronousAsync(CancellationToken ct = default);
-
-    /// <summary>Read interactive events directly.</summary>
-    IAsyncEnumerable<Event> ReadInteractiveAsync(CancellationToken ct = default);
-
-    /// <summary>Read control events directly.</summary>
-    IAsyncEnumerable<Event> ReadControlAsync(CancellationToken ct = default);
 }

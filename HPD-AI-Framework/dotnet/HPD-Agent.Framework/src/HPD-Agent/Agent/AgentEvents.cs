@@ -88,10 +88,29 @@ public record InterruptionRequestEvent : AgentInputEvent
 
     public string Reason { get; init; }
     public InterruptionSource Source { get; init; }
+    public string? StreamId { get; init; }
+}
+
+/// <summary>
+/// Emitted after an interruption request has been applied to active streams or turns.
+/// </summary>
+public sealed record InterruptionHandledEvent : AgentEvent
+{
+    public InterruptionHandledEvent(
+        string? streamId,
+        string reason,
+        InterruptionSource source)
+    {
+        StreamId = streamId;
+        Reason = reason;
+        Source = source;
+    }
+
+    public string Reason { get; init; }
+    public InterruptionSource Source { get; init; }
 
     public override EventChannel Channel { get; init; } = EventChannel.Control;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
-    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
 }
 
 #endregion
@@ -193,14 +212,9 @@ public abstract record AgentEvent : HPD.Events.Event
 }
 
 /// <summary>
-/// Marker interface for semantic events that can be sent into an agent.
-/// </summary>
-public interface IAgentInputEvent { }
-
-/// <summary>
 /// Base type for first-class user input events.
 /// </summary>
-public abstract record AgentInputEvent : AgentEvent, IAgentInputEvent
+public abstract record AgentInputEvent
 {
     /// <summary>Session scope for the input event.</summary>
     public string? SessionId { get; init; }
@@ -213,9 +227,6 @@ public abstract record AgentInputEvent : AgentEvent, IAgentInputEvent
 
     /// <summary>Per-run configuration carried with the input event.</summary>
     public AgentRunConfig? RunConfig { get; init; }
-
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
 }
 
 /// <summary>
@@ -223,7 +234,6 @@ public abstract record AgentInputEvent : AgentEvent, IAgentInputEvent
 /// </summary>
 public sealed record UserTextInputEvent(string Text) : AgentInputEvent
 {
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Content;
 }
 
 /// <summary>
@@ -239,8 +249,6 @@ public sealed record UserMessagesInputEvent(
     /// <summary>Process-local branch scope for in-memory integrations.</summary>
     [JsonIgnore]
     public Branch? Branch { get; init; }
-
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Content;
 }
 
 #region Message Turn Events (Entire User Interaction)
@@ -730,7 +738,7 @@ public record MiddlewareErrorEvent(
 /// <summary>
 /// Marker interface to distinguish observability events from protocol events.
 /// Observability events are designed for logging, metrics, and monitoring.
-/// They are processed by IAgentEventObserver implementations.
+/// They are observed through HPD.Events subscriptions.
 /// </summary>
 public interface IObservabilityEvent { }
 

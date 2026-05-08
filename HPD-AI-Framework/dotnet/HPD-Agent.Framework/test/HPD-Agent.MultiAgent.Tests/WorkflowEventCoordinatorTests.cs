@@ -22,49 +22,16 @@ public class WorkflowEventCoordinatorTests
         act.Should().NotThrow();
     }
 
-    // ── HasObservers ──────────────────────────────────────────────────────────
+    // ── Subscriptions ─────────────────────────────────────────────────────────
 
     [Fact]
-    public void HasObservers_False_When_No_Observer_Registered()
-    {
-        var coordinator = new WorkflowEventCoordinator();
-
-        coordinator.HasObservers.Should().BeFalse();
-    }
-
-    [Fact]
-    public void HasObservers_True_After_AddObserver()
-    {
-        var coordinator = new WorkflowEventCoordinator();
-        var observer = new RecordingObserver();
-
-        coordinator.AddObserver(observer);
-
-        coordinator.HasObservers.Should().BeTrue();
-    }
-
-    [Fact]
-    public void HasObservers_True_After_Multiple_AddObserver_Calls()
-    {
-        var coordinator = new WorkflowEventCoordinator();
-
-        coordinator.AddObserver(new RecordingObserver());
-        coordinator.AddObserver(new RecordingObserver());
-        coordinator.AddObserver(new RecordingObserver());
-
-        coordinator.HasObservers.Should().BeTrue();
-    }
-
-    // ── DispatchToObserversAsync ──────────────────────────────────────────────
-
-    [Fact]
-    public async Task DispatchToObservers_Calls_All_Registered_Observers()
+    public async Task Emit_Calls_All_Registered_Observers()
     {
         var coordinator = new WorkflowEventCoordinator();
         var obs1 = new RecordingObserver();
         var obs2 = new RecordingObserver();
-        coordinator.AddObserver(obs1);
-        coordinator.AddObserver(obs2);
+        using var sub1 = coordinator.SubscribeAny(obs1.HandleAsync);
+        using var sub2 = coordinator.SubscribeAny(obs2.HandleAsync);
 
         var evt = new WorkflowStartedEvent
         {
@@ -73,19 +40,20 @@ public class WorkflowEventCoordinatorTests
             ExecutionContext = new AgentExecutionContext { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
         };
 
-        await coordinator.DispatchToObserversAsync(evt);
+        coordinator.Emit(evt);
+        await Task.Delay(50);
 
         obs1.Received.Should().ContainSingle().Which.Should().Be(evt);
         obs2.Received.Should().ContainSingle().Which.Should().Be(evt);
     }
 
     [Fact]
-    public async Task DispatchToObservers_When_No_Observers_Does_Nothing()
+    public async Task Emit_When_No_Observers_Does_Nothing()
     {
         var coordinator = new WorkflowEventCoordinator();
 
         // Should not throw even with no observers
-        var act = async () => await coordinator.DispatchToObserversAsync(
+        var act = () => coordinator.Emit(
             new WorkflowStartedEvent
             {
                 WorkflowName = "W",
@@ -93,35 +61,36 @@ public class WorkflowEventCoordinatorTests
                 ExecutionContext = new AgentExecutionContext { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
             });
 
-        await act.Should().NotThrowAsync();
+        act.Should().NotThrow();
     }
 
     [Fact]
-    public async Task DispatchToObservers_Filters_By_TEvent_Generic_Type()
+    public async Task Emit_Filters_By_TEvent_Generic_Type()
     {
         var coordinator = new WorkflowEventCoordinator();
 
         // Observer typed to WorkflowNodeCompletedEvent only
         var typedObserver = new TypedRecordingObserver<WorkflowNodeCompletedEvent>();
-        coordinator.AddObserver(typedObserver);
+        using var subscription = coordinator.Subscribe<WorkflowNodeCompletedEvent>(typedObserver.HandleAsync);
 
-        // Dispatch a WorkflowStartedEvent — should NOT reach the typed observer
-        await coordinator.DispatchToObserversAsync(new WorkflowStartedEvent
+        // Emit a WorkflowStartedEvent — should NOT reach the typed observer
+        coordinator.Emit(new WorkflowStartedEvent
         {
             WorkflowName = "W",
             NodeCount = 1,
             ExecutionContext = new AgentExecutionContext { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
         });
+        await Task.Delay(50);
 
         typedObserver.Received.Should().BeEmpty("observer is typed to WorkflowNodeCompletedEvent, not WorkflowStartedEvent");
     }
 
     [Fact]
-    public async Task DispatchToObservers_Typed_Observer_Receives_Matching_Event()
+    public async Task Emit_Typed_Observer_Receives_Matching_Event()
     {
         var coordinator = new WorkflowEventCoordinator();
         var typedObserver = new TypedRecordingObserver<WorkflowNodeCompletedEvent>();
-        coordinator.AddObserver(typedObserver);
+        using var subscription = coordinator.Subscribe<WorkflowNodeCompletedEvent>(typedObserver.HandleAsync);
 
         var nodeCompletedEvt = new WorkflowNodeCompletedEvent
         {
@@ -132,37 +101,38 @@ public class WorkflowEventCoordinatorTests
             ExecutionContext = new AgentExecutionContext { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
         };
 
-        await coordinator.DispatchToObserversAsync(nodeCompletedEvt);
+        coordinator.Emit(nodeCompletedEvt);
+        await Task.Delay(50);
 
         typedObserver.Received.Should().ContainSingle().Which.Should().Be(nodeCompletedEvt);
     }
 
     [Fact]
-    public async Task DispatchToObservers_Respects_ShouldProcess_False()
+    public async Task Subscription_Handler_Can_Filter_Inline()
     {
         var coordinator = new WorkflowEventCoordinator();
         var refusingObserver = new RefusingObserver();
-        coordinator.AddObserver(refusingObserver);
+        using var subscription = coordinator.SubscribeAny(refusingObserver.HandleAsync);
 
-        await coordinator.DispatchToObserversAsync(new WorkflowStartedEvent
+        coordinator.Emit(new WorkflowStartedEvent
         {
             WorkflowName = "W",
             NodeCount = 1,
             ExecutionContext = new AgentExecutionContext { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
         });
+        await Task.Delay(50);
 
-        refusingObserver.OnEventAsyncCallCount.Should().Be(0,
-            "ShouldProcess returned false so OnEventAsync must not be called");
+        refusingObserver.HandleCallCount.Should().Be(0);
     }
 
     [Fact]
-    public async Task DispatchToObservers_Observer_Exception_Does_Not_Propagate()
+    public async Task Emit_Observer_Exception_Does_Not_Propagate()
     {
         var coordinator = new WorkflowEventCoordinator();
         var throwingObserver = new ThrowingObserver();
         var healthyObserver = new RecordingObserver();
-        coordinator.AddObserver(throwingObserver);
-        coordinator.AddObserver(healthyObserver);
+        using var throwingSubscription = coordinator.SubscribeAny(throwingObserver.HandleAsync);
+        using var healthySubscription = coordinator.SubscribeAny(healthyObserver.HandleAsync);
 
         var evt = new WorkflowStartedEvent
         {
@@ -172,11 +142,13 @@ public class WorkflowEventCoordinatorTests
         };
 
         // The throwing observer must not kill the dispatch
-        var act = async () => await coordinator.DispatchToObserversAsync(evt);
-        await act.Should().NotThrowAsync();
+        var act = () => coordinator.Emit(evt);
+        act.Should().NotThrow();
+        await Task.Delay(50);
 
-        // The healthy observer must still have received the event
-        healthyObserver.Received.Should().ContainSingle();
+        // The healthy observer must still receive the original event. It may
+        // also observe the fault diagnostic emitted when the bad subscriber is removed.
+        healthyObserver.Received.Should().Contain(evt);
     }
 
     // ── Approve / Deny ────────────────────────────────────────────────────────
@@ -241,54 +213,48 @@ public class WorkflowEventCoordinatorTests
     // ── stub helpers ──────────────────────────────────────────────────────────
 
     /// <summary>Records every event dispatched to it.</summary>
-    private sealed class RecordingObserver : IEventObserver<HPD.Events.Event>
+    private sealed class RecordingObserver
     {
         public List<HPD.Events.Event> Received { get; } = new();
 
-        public bool ShouldProcess(HPD.Events.Event evt) => true;
-
-        public Task OnEventAsync(HPD.Events.Event evt, CancellationToken cancellationToken = default)
+        public ValueTask HandleAsync(HPD.Events.Event evt)
         {
             Received.Add(evt);
-            return Task.CompletedTask;
+            return ValueTask.CompletedTask;
         }
     }
 
     /// <summary>Records only TEvent-typed events.</summary>
-    private sealed class TypedRecordingObserver<TEvent> : IEventObserver<TEvent>
+    private sealed class TypedRecordingObserver<TEvent>
         where TEvent : HPD.Events.Event
     {
         public List<TEvent> Received { get; } = new();
 
-        public bool ShouldProcess(TEvent evt) => true;
-
-        public Task OnEventAsync(TEvent evt, CancellationToken cancellationToken = default)
+        public ValueTask HandleAsync(TEvent evt)
         {
             Received.Add(evt);
-            return Task.CompletedTask;
+            return ValueTask.CompletedTask;
         }
     }
 
-    /// <summary>Always returns false from ShouldProcess — OnEventAsync must never be called.</summary>
-    private sealed class RefusingObserver : IEventObserver<HPD.Events.Event>
+    /// <summary>Filters all events inline.</summary>
+    private sealed class RefusingObserver
     {
-        public int OnEventAsyncCallCount { get; private set; }
+        public int HandleCallCount { get; private set; }
 
-        public bool ShouldProcess(HPD.Events.Event evt) => false;
-
-        public Task OnEventAsync(HPD.Events.Event evt, CancellationToken cancellationToken = default)
+        public ValueTask HandleAsync(HPD.Events.Event evt)
         {
-            OnEventAsyncCallCount++;
-            return Task.CompletedTask;
+            if (evt is WorkflowNodeCompletedEvent)
+                HandleCallCount++;
+
+            return ValueTask.CompletedTask;
         }
     }
 
-    /// <summary>Always throws from OnEventAsync.</summary>
-    private sealed class ThrowingObserver : IEventObserver<HPD.Events.Event>
+    /// <summary>Always throws from HandleAsync.</summary>
+    private sealed class ThrowingObserver
     {
-        public bool ShouldProcess(HPD.Events.Event evt) => true;
-
-        public Task OnEventAsync(HPD.Events.Event evt, CancellationToken cancellationToken = default)
+        public ValueTask HandleAsync(HPD.Events.Event evt)
             => throw new InvalidOperationException("Observer intentionally blew up");
     }
 }

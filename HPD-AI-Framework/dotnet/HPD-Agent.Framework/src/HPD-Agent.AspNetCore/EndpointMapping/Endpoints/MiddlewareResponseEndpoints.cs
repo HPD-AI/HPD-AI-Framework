@@ -67,8 +67,8 @@ internal static class MiddlewareResponseEndpoints
                 return TypedResults.NotFound();
             }
 
-            // Send response as an input event to the waiting permission middleware
-            await agent.RunAsync(evt, ct);
+            // Send response to the waiting permission middleware.
+            await agent.RespondAsync(evt, ct);
 
             return TypedResults.Ok();
         }
@@ -98,8 +98,8 @@ internal static class MiddlewareResponseEndpoints
                 return TypedResults.NotFound();
             }
 
-            // Send response as an input event to the waiting continuation middleware
-            await agent.RunAsync(evt, ct);
+            // Send response to the waiting continuation middleware.
+            await agent.RespondAsync(evt, ct);
 
             return TypedResults.Ok();
         }
@@ -128,7 +128,7 @@ internal static class MiddlewareResponseEndpoints
                 return TypedResults.NotFound();
             }
 
-            await agent.RunAsync(evt, ct);
+            await agent.RespondAsync(evt, ct);
 
             return TypedResults.Ok();
         }
@@ -158,8 +158,8 @@ internal static class MiddlewareResponseEndpoints
                 return TypedResults.NotFound();
             }
 
-            // Send response as an input event to the waiting ClientToolMiddleware
-            await agent.RunAsync(evt, ct);
+            // Send response to the waiting ClientToolMiddleware.
+            await agent.RespondAsync(evt, ct);
 
             return TypedResults.Ok();
         }

@@ -6,11 +6,11 @@ namespace HPD.MultiAgent;
 
 /// <summary>
 /// Event coordinator for multi-agent workflows.
-/// Provides approval response methods, observer registration, and bidirectional event patterns
+/// Provides approval response methods, subscriptions, and bidirectional event patterns
 /// without requiring a direct reference to HPD.Events or HPD.Events.Core.
 ///
 /// <para>
-/// Create one instance, register any observers, then pass it to
+/// Create one instance, register any subscriptions, then pass it to
 /// <see cref="AgentWorkflowInstance.ExecuteStreamingAsync(string, WorkflowEventCoordinator, System.Threading.CancellationToken)"/>.
 /// Call <see cref="Approve"/> or <see cref="Deny"/> while iterating the stream to respond to approval requests.
 /// </para>
@@ -18,12 +18,16 @@ namespace HPD.MultiAgent;
 public sealed class WorkflowEventCoordinator : IDisposable
 {
     private readonly EventCoordinator _inner = new();
-    private readonly List<Func<HPD.Events.Event, CancellationToken, Task>> _observers = new();
 
     /// <summary>
     /// The underlying <see cref="IEventCoordinator"/> used for workflow execution.
     /// </summary>
     internal IEventCoordinator Inner => _inner;
+
+    /// <summary>
+    /// Publish an event through the workflow coordinator.
+    /// </summary>
+    public void Emit(HPD.Events.Event evt) => _inner.Emit(evt);
 
     // ── Approval ──────────────────────────────────────────────────────────────
 
@@ -44,42 +48,24 @@ public sealed class WorkflowEventCoordinator : IDisposable
     public void Deny(string requestId, string reason = "Denied by user")
         => _inner.Deny(requestId, reason);
 
-    // ── Observers ─────────────────────────────────────────────────────────────
+    // ── Subscriptions ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Register an observer to receive all events emitted during the workflow.
-    /// Observers are invoked for each event yielded from <c>ExecuteStreamingAsync</c>.
-    /// Multiple observers can be registered; they are called in registration order.
+    /// Register a removable typed subscription.
     /// </summary>
-    /// <typeparam name="TEvent">Base event type (use <c>Event</c> for all events).</typeparam>
-    /// <param name="observer">The observer to register.</param>
-    public void AddObserver<TEvent>(IEventObserver<TEvent> observer)
+    public IDisposable Subscribe<TEvent>(
+        Func<TEvent, ValueTask> handler,
+        EventSubscriptionOptions? options = null)
         where TEvent : HPD.Events.Event
-    {
-        _observers.Add(async (evt, ct) =>
-        {
-            if (evt is TEvent typedEvt && observer.ShouldProcess(typedEvt))
-                await observer.OnEventAsync(typedEvt, ct);
-        });
-    }
+        => _inner.Subscribe(handler, options);
 
     /// <summary>
-    /// Dispatch an event to all registered observers.
-    /// Called internally by <see cref="AgentWorkflowInstance"/> for each streamed event.
+    /// Register a removable broad subscription for all workflow events.
     /// </summary>
-    public async Task DispatchToObserversAsync(HPD.Events.Event evt, CancellationToken ct = default)
-    {
-        foreach (var observer in _observers)
-        {
-            try { await observer(evt, ct); }
-            catch { /* Observers must not crash the workflow */ }
-        }
-    }
-
-    /// <summary>
-    /// Whether any observers are registered.
-    /// </summary>
-    public bool HasObservers => _observers.Count > 0;
+    public IDisposable SubscribeAny(
+        Func<HPD.Events.Event, ValueTask> handler,
+        EventSubscriptionOptions? options = null)
+        => _inner.SubscribeAny(handler, options);
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 

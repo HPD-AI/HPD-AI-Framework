@@ -34,7 +34,7 @@ public sealed class RagGraphBuilderExtensionsTests
 
         Assert.NotNull(node);
         Assert.Equal(NodeType.SubGraph, node!.Type);
-        Assert.Same(pipeline.Graph, node.SubGraph);
+        AssertEquivalentGraph(pipeline.Graph, node.SubGraph);
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public sealed class RagGraphBuilderExtensionsTests
 
         Assert.NotNull(node);
         Assert.Equal(NodeType.SubGraph, node!.Type);
-        Assert.Same(pipeline.Graph, node.SubGraph);
+        AssertEquivalentGraph(pipeline.Graph, node.SubGraph);
     }
 
     [Fact]
@@ -149,5 +149,18 @@ public sealed class RagGraphBuilderExtensionsTests
         var contributor = provider.GetRequiredService<IGraphJsonTypeInfoResolverContributor>();
 
         Assert.Same(MragJsonSerializerContext.Shared, contributor.Resolver);
+    }
+
+    private static void AssertEquivalentGraph(Graph expected, Graph? actual)
+    {
+        Assert.NotNull(actual);
+        Assert.Equal(expected.Id, actual!.Id);
+        Assert.Equal(expected.Name, actual.Name);
+        Assert.Equal(expected.EntryNodeId, actual.EntryNodeId);
+        Assert.Equal(expected.ExitNodeId, actual.ExitNodeId);
+        Assert.Equal(expected.Nodes.Select(node => node.Id), actual.Nodes.Select(node => node.Id));
+        Assert.Equal(
+            expected.Edges.Select(edge => (edge.From, edge.To)),
+            actual.Edges.Select(edge => (edge.From, edge.To)));
     }
 }

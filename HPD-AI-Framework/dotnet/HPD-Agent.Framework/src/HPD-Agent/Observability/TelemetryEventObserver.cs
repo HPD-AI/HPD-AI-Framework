@@ -7,7 +7,7 @@ namespace HPD.Agent;
 /// Metrics provide aggregated statistics for dashboards and alerting.
 /// Note: Distributed tracing is handled separately via ActivitySource in Agent.
 /// </summary>
-public class TelemetryEventObserver : IAgentEventObserver, IDisposable
+public class TelemetryEventObserver : IDisposable
 {
     private readonly Meter _meter;
 
@@ -197,7 +197,7 @@ public class TelemetryEventObserver : IAgentEventObserver, IDisposable
             description: "Distribution of checkpoint sizes");
     }
 
-    public Task OnEventAsync(AgentEvent evt, CancellationToken ct = default)
+    public ValueTask HandleAsync(AgentEvent evt)
     {
         switch (evt)
         {
@@ -427,7 +427,7 @@ public class TelemetryEventObserver : IAgentEventObserver, IDisposable
 
         }
 
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     public void Dispose()

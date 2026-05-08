@@ -13,7 +13,7 @@ namespace HPD.Auth.Audit.Middleware;
 ///
 /// Flow:
 ///   1. Resolve the scoped <see cref="IEventCoordinator"/> for this request.
-///   2. Register a SubscribeAny observer and run the coordinator.
+///   2. Register an auth-event subscription.
 ///   3. Call next (endpoint runs, emitting auth events onto the coordinator), passing each
 ///      <see cref="AuthEvent"/> to <see cref="AuditingAuthObserver"/>.
 ///
@@ -40,31 +40,9 @@ public sealed class AuthEventObserverMiddleware
             return;
         }
 
-        using var eventSubscription = coordinator.SubscribeAny(async evt =>
-        {
-            if (evt is AuthEvent authEvent && observer.ShouldProcess(authEvent))
-            {
-                await observer.OnEventAsync(authEvent, context.RequestAborted);
-            }
-        });
+        using var eventSubscription = coordinator.Subscribe<AuthEvent>(
+            authEvent => observer.HandleAsync(authEvent, context.RequestAborted));
 
-        using var coordinatorCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
-        var coordinatorTask = coordinator.RunAsync(coordinatorCts.Token);
-
-        try
-        {
-            await _next(context);
-        }
-        finally
-        {
-            await coordinatorCts.CancelAsync();
-            try
-            {
-                await coordinatorTask.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (coordinatorCts.IsCancellationRequested)
-            {
-            }
-        }
+        await _next(context);
     }
 }

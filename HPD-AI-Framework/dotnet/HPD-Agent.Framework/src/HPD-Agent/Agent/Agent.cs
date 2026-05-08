@@ -3,7 +3,6 @@ using HPD.Agent.Middleware;
 using System.Runtime.CompilerServices;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Diagnostics.Metrics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Collections.Immutable;
@@ -42,13 +41,9 @@ public sealed class Agent
     private readonly FunctionCallProcessor _functionCallProcessor;
     private readonly AgentTurn _agentTurn;
     private readonly HPD.Events.IEventCoordinator _eventCoordinator;
+    private readonly IReadOnlyList<IDisposable> _eventSubscriptions;
     // Unified middleware pipeline
     private readonly AgentMiddlewarePipeline _middlewarePipeline;
-    // Observer pattern for event-driven observability
-    private readonly IReadOnlyList<ObserverDispatcher> _observerDispatchers;
-    private readonly object _eventHandlerLock = new();
-    private readonly Dictionary<Type, List<RegisteredOutputHandler>> _typedEventHandlers = new();
-    private readonly List<RegisteredOutputHandler> _anyEventHandlers = new();
     private readonly object _structHandlerLock = new();
     private readonly List<RuntimeStructHandlerSubscription> _structHandlerSubscriptions = new();
     private readonly object _runtimeLock = new();
@@ -60,9 +55,7 @@ public sealed class Agent
     private bool _runtimeStarting;
     private bool _runtimeStopping;
     private readonly List<CancellationTokenSource> _activeRuntimeTurnCts = new();
-    private readonly ObserverHealthTracker? _observerHealthTracker;
-    private readonly ILogger? _observerErrorLogger;
-    private readonly Counter<long>? _observerErrorCounter;
+    private readonly ILogger? _agentLogger;
 
     // Provider registry for runtime provider switching via AgentRunConfig.ProviderKey/ModelId
     private readonly Providers.IProviderRegistry? _providerRegistry;
@@ -162,72 +155,6 @@ public sealed class Agent
     /// </summary>
     public HPD.Events.IEventCoordinator EventCoordinator => _eventCoordinator;
 
-    private async IAsyncEnumerable<AgentEvent> DrainMiddlewareEventsAsync(
-        HPD.Events.IEventCoordinator eventCoordinator,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        await foreach (var evt in DrainAvailableChannelAsync(eventCoordinator.ReadControlAsync, cancellationToken).ConfigureAwait(false))
-            yield return evt;
-
-        await foreach (var evt in DrainAvailableChannelAsync(eventCoordinator.ReadInteractiveAsync, cancellationToken).ConfigureAwait(false))
-            yield return evt;
-
-        await foreach (var evt in DrainAvailableChannelAsync(eventCoordinator.ReadStreamingAsync, cancellationToken).ConfigureAwait(false))
-            yield return evt;
-
-        await foreach (var evt in DrainAvailableChannelAsync(eventCoordinator.ReadSynchronousAsync, cancellationToken).ConfigureAwait(false))
-            yield return evt;
-
-        if (!ReferenceEquals(eventCoordinator, _eventCoordinator))
-            await DiscardDrainedRootEventsAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private IAsyncEnumerable<AgentEvent> DrainMiddlewareEventsAsync(
-        CancellationToken cancellationToken)
-        => DrainMiddlewareEventsAsync(_eventCoordinator, cancellationToken);
-
-    private static async IAsyncEnumerable<AgentEvent> DrainAvailableChannelAsync(
-        Func<CancellationToken, IAsyncEnumerable<Event>> readChannel,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            using var idleCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            idleCts.CancelAfter(TimeSpan.FromMilliseconds(1));
-
-            await using var enumerator = readChannel(idleCts.Token).GetAsyncEnumerator(idleCts.Token);
-            bool hasItem;
-            try
-            {
-                hasItem = await enumerator.MoveNextAsync().ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (idleCts.IsCancellationRequested)
-            {
-                yield break;
-            }
-
-            if (!hasItem)
-                yield break;
-
-            if (enumerator.Current is AgentEvent agentEvent)
-                yield return agentEvent;
-        }
-    }
-
-    private async Task DiscardDrainedRootEventsAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await foreach (var _ in DrainMiddlewareEventsAsync(_eventCoordinator, cancellationToken).ConfigureAwait(false))
-            {
-            }
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            // Empty-channel probe timed out while checking for bubbled runtime copies.
-        }
-    }
-
     /// <summary>
     /// Internal access to event coordinator for middleware event emission.
     /// Use Emit() method for channel-aware routing.
@@ -259,7 +186,7 @@ public sealed class Agent
         IReadOnlyDictionary<string, string>? functionToSkillMap = null,
         IReadOnlyList<IAgentMiddleware>? middlewares = null,
         IServiceProvider? serviceProvider = null,
-        IEnumerable<IAgentEventObserver>? observers = null,
+        IEnumerable<Func<HPD.Events.IEventCoordinator, IDisposable>>? eventSubscriptionFactories = null,
         Providers.IProviderRegistry? providerRegistry = null,
         IReadOnlyDictionary<string, MiddlewareStateFactory>? stateFactories = null,
         IReadOnlyList<HttpClient>? ownedHttpClients = null)
@@ -313,34 +240,11 @@ public sealed class Agent
         var loggerFactory = serviceProvider?.GetService(typeof(ILoggerFactory))
             as ILoggerFactory;
 
-        // Initialize observer health tracker and dispatchers if observers are configured
-        var observerList = observers?.ToList() ?? new List<IAgentEventObserver>();
-        if (observerList.Count > 0 && loggerFactory != null)
-        {
-            _observerErrorLogger = loggerFactory.CreateLogger<Agent>();
-
-            var meterFactory = serviceProvider?.GetService(typeof(IMeterFactory)) as IMeterFactory;
-            if (meterFactory != null)
-            {
-                var observerMeter = meterFactory.Create("HPD.Agent.Observers");
-                _observerErrorCounter = observerMeter.CreateCounter<long>(
-                    "agent.observer.errors",
-                    description: "Number of observer processing failures");
-            }
-
-            var observabilityConfig = config.Observability ?? new ObservabilityConfig();
-            _observerHealthTracker = new ObserverHealthTracker(
-                _observerErrorLogger,
-                _observerErrorCounter,
-                observabilityConfig.MaxConsecutiveFailures,
-                observabilityConfig.SuccessesToResetCircuitBreaker);
-        }
-
-        var emitObservabilityEvents = config.Observability?.EmitObservabilityEvents ?? false;
-        _observerDispatchers = observerList
-            .Select(o => new ObserverDispatcher(o, _observerHealthTracker, _observerErrorLogger, emitObservabilityEvents))
-            .ToList();
-
+        _agentLogger = loggerFactory?.CreateLogger<Agent>();
+        _eventSubscriptions = eventSubscriptionFactories?
+            .Select(factory => factory(_eventCoordinator))
+            .ToList()
+            ?? [];
     }
 
     /// <summary>
@@ -387,28 +291,6 @@ public sealed class Agent
     public IReadOnlyList<IAgentMiddleware> Middlewares =>
         _middlewarePipeline.Middlewares;
 
-    private sealed class RegisteredOutputHandler(Func<AgentEvent, ValueTask> handler)
-    {
-        public Guid Id { get; } = Guid.NewGuid();
-        public Func<AgentEvent, ValueTask> Handler { get; } = handler;
-    }
-
-    private sealed class OutputHandlerSubscription(
-        Agent agent,
-        Type? eventType,
-        Guid handlerId) : IDisposable
-    {
-        private int _disposed;
-
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0)
-                return;
-
-            agent.RemoveOutputHandler(eventType, handlerId);
-        }
-    }
-
     private sealed class RuntimeStructHandlerSubscription(
         Agent agent,
         CancellationTokenSource cancellationTokenSource,
@@ -425,25 +307,6 @@ public sealed class Agent
             disposeSubscription().AsTask().GetAwaiter().GetResult();
             cancellationTokenSource.Dispose();
             agent.RemoveStructHandlerSubscription(this);
-        }
-    }
-
-    private void RemoveOutputHandler(Type? eventType, Guid handlerId)
-    {
-        lock (_eventHandlerLock)
-        {
-            if (eventType is null)
-            {
-                _anyEventHandlers.RemoveAll(h => h.Id == handlerId);
-                return;
-            }
-
-            if (!_typedEventHandlers.TryGetValue(eventType, out var handlers))
-                return;
-
-            handlers.RemoveAll(h => h.Id == handlerId);
-            if (handlers.Count == 0)
-                _typedEventHandlers.Remove(eventType);
         }
     }
 
@@ -475,15 +338,15 @@ public sealed class Agent
                 }
                 catch (Exception ex)
                 {
-                    _observerErrorLogger?.LogError(ex,
-                        "Agent struct output handler failed processing {EventType}",
+                    _agentLogger?.LogError(ex,
+                        "Agent struct subscriber failed processing {EventType}",
                         typeof(TEvent).Name);
                 }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Cooperative handler shutdown.
+            // Cooperative subscription shutdown.
         }
         finally
         {
@@ -492,30 +355,17 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Registers a removable ordered output handler for the exact event type.
+    /// Registers a removable ordered subscriber for the exact event type.
     /// </summary>
     public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler)
         where TEvent : AgentEvent
     {
         ArgumentNullException.ThrowIfNull(handler);
-        var registration = new RegisteredOutputHandler(evt => handler((TEvent)evt));
-
-        lock (_eventHandlerLock)
-        {
-            if (!_typedEventHandlers.TryGetValue(typeof(TEvent), out var handlers))
-            {
-                handlers = new List<RegisteredOutputHandler>();
-                _typedEventHandlers[typeof(TEvent)] = handlers;
-            }
-
-            handlers.Add(registration);
-        }
-
-        return new OutputHandlerSubscription(this, typeof(TEvent), registration.Id);
+        return _eventCoordinator.Subscribe(handler);
     }
 
     /// <summary>
-    /// Registers a removable ordered output handler for the exact event type.
+    /// Registers a removable ordered subscriber for the exact event type.
     /// </summary>
     public IDisposable Subscribe<TEvent>(Func<TEvent, Task> handler)
         where TEvent : AgentEvent
@@ -525,7 +375,7 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Registers a removable ordered output handler for the exact event type.
+    /// Registers a removable ordered subscriber for the exact event type.
     /// </summary>
     public IDisposable Subscribe<TEvent>(Action<TEvent> handler)
         where TEvent : AgentEvent
@@ -539,23 +389,16 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Registers a removable ordered catch-all output handler.
+    /// Registers a removable ordered catch-all subscriber.
     /// </summary>
     public IDisposable SubscribeAny(Func<AgentEvent, ValueTask> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
-        var registration = new RegisteredOutputHandler(handler);
-
-        lock (_eventHandlerLock)
-        {
-            _anyEventHandlers.Add(registration);
-        }
-
-        return new OutputHandlerSubscription(this, eventType: null, registration.Id);
+        return _eventCoordinator.Subscribe<AgentEvent>(handler);
     }
 
     /// <summary>
-    /// Registers a removable ordered catch-all output handler.
+    /// Registers a removable ordered catch-all subscriber.
     /// </summary>
     public IDisposable SubscribeAny(Func<AgentEvent, Task> handler)
     {
@@ -564,7 +407,7 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Registers a removable ordered catch-all output handler.
+    /// Registers a removable ordered catch-all subscriber.
     /// </summary>
     public IDisposable SubscribeAny(Action<AgentEvent> handler)
     {
@@ -651,7 +494,7 @@ public sealed class Agent
         // Case 1: Pre-versioning checkpoint (SchemaSignature is null)
         if (checkpointState.SchemaSignature == null)
         {
-            _observerErrorLogger?.LogInformation(
+            _agentLogger?.LogInformation(
                 "Resuming from checkpoint created before schema versioning. " +
                 "Upgrading to current schema.");
 
@@ -662,7 +505,7 @@ public sealed class Agent
                 AddedTypes: Array.Empty<string>(),
                 IsUpgrade: true);
 
-            DispatchToObservers(upgradeEvent);
+            PublishOutputEvent(upgradeEvent);
 
             return new MiddlewareState
             {
@@ -693,7 +536,7 @@ public sealed class Agent
         {
             var removedNames = removed.Select(fqn => fqn.Split('.').Last()).ToList();
 
-            _observerErrorLogger?.LogWarning(
+            _agentLogger?.LogWarning(
                 "Checkpoint contains state for {RemovedCount} middleware that no longer exist: {RemovedMiddleware}. " +
                 "State will be discarded (this is expected after middleware removal).",
                 removed.Count,
@@ -705,7 +548,7 @@ public sealed class Agent
         {
             var addedNames = added.Select(fqn => fqn.Split('.').Last()).ToList();
 
-            _observerErrorLogger?.LogInformation(
+            _agentLogger?.LogInformation(
                 "Detected {AddedCount} new middleware not present in checkpoint: {AddedMiddleware}. " +
                 "State will be initialized to defaults.",
                 added.Count,
@@ -720,7 +563,7 @@ public sealed class Agent
             AddedTypes: added,
             IsUpgrade: false);
 
-        DispatchToObservers(schemaEvent);
+        PublishOutputEvent(schemaEvent);
 
         // Update to current schema metadata
         return new MiddlewareState
@@ -733,83 +576,11 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Dispatches an event to all registered observers via their dedicated sequential channels.
-    /// Each observer's channel guarantees FIFO ordering, eliminating Task.Run race conditions.
+    /// Publishes an output event produced by the agent engine.
     /// </summary>
-    private void DispatchToObservers(AgentEvent evt)
-    {
-        if (_observerDispatchers.Count == 0) return;
+    private void PublishOutputEvent(AgentEvent evt) => _eventCoordinator.Emit(evt);
 
-        foreach (var dispatcher in _observerDispatchers)
-            dispatcher.Enqueue(evt);
-    }
-
-    /// <summary>
-    /// Processes registered output handlers synchronously, guaranteeing ordered execution.
-    /// Typed exact-match handlers run first, followed by catch-all handlers.
-    /// Handler failures are logged but don't crash the agent.
-    /// </summary>
-    private async ValueTask ProcessRegisteredHandlersAsync(AgentEvent evt, CancellationToken cancellationToken)
-    {
-        List<Func<AgentEvent, ValueTask>>? typedHandlers = null;
-        List<Func<AgentEvent, ValueTask>>? anyHandlers = null;
-
-        lock (_eventHandlerLock)
-        {
-            if (_typedEventHandlers.TryGetValue(evt.GetType(), out var registeredTypedHandlers))
-                typedHandlers = registeredTypedHandlers.Select(h => h.Handler).ToList();
-
-            if (_anyEventHandlers.Count > 0)
-                anyHandlers = _anyEventHandlers.Select(h => h.Handler).ToList();
-        }
-
-        if (typedHandlers == null && anyHandlers == null)
-            return;
-
-        static async ValueTask InvokeHandlersAsync(
-            IEnumerable<Func<AgentEvent, ValueTask>> handlers,
-            AgentEvent evt,
-            ILogger? logger,
-            CancellationToken cancellationToken)
-        {
-            foreach (var handler in handlers)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                try
-                {
-                    await handler(evt).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    logger?.LogError(ex,
-                        "Agent output handler failed processing {EventType}",
-                        evt.GetType().Name);
-                }
-            }
-        }
-
-        if (typedHandlers != null)
-            await InvokeHandlersAsync(typedHandlers, evt, _observerErrorLogger, cancellationToken).ConfigureAwait(false);
-
-        if (anyHandlers != null)
-            await InvokeHandlersAsync(anyHandlers, evt, _observerErrorLogger, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Single ordered output dispatch point for events produced by the agent engine.
-    /// </summary>
-    private async ValueTask HandleOutputEventAsync(AgentEvent evt, CancellationToken cancellationToken)
-    {
-        await ProcessRegisteredHandlersAsync(evt, cancellationToken).ConfigureAwait(false);
-        DispatchToObservers(evt);
-    }
-
-    private async Task HandleInterruptionAsync(InterruptionRequestEvent interruption, CancellationToken cancellationToken)
+    private Task HandleInterruptionAsync(InterruptionRequestEvent interruption, CancellationToken cancellationToken)
     {
         var eventCoordinator = GetActiveEventCoordinator();
 
@@ -824,7 +595,12 @@ public sealed class Agent
 
         CancelActiveRuntimeTurns();
 
-        await HandleOutputEventAsync(interruption, CancellationToken.None).ConfigureAwait(false);
+        PublishOutputEvent(new InterruptionHandledEvent(
+            interruption.StreamId,
+            interruption.Reason,
+            interruption.Source));
+
+        return Task.CompletedTask;
     }
 
     private async Task RunTextInputAsync(
@@ -903,8 +679,7 @@ public sealed class Agent
         }
     }
 
-    private static bool ShouldEnqueueToRuntime(AgentEvent input) =>
-        input is AgentInputEvent;
+    private static bool ShouldEnqueueToRuntime(AgentInputEvent input) => true;
 
     private HPD.Events.IEventCoordinator GetActiveEventCoordinator()
     {
@@ -922,11 +697,11 @@ public sealed class Agent
         return _eventCoordinator;
     }
 
-    private async Task RunInputDirectAsync(AgentEvent input, CancellationToken cancellationToken)
+    private async Task RunInputDirectAsync(AgentInputEvent input, CancellationToken cancellationToken)
         => await RunInputDirectAsync(input, GetActiveEventCoordinator(), cancellationToken).ConfigureAwait(false);
 
     private async Task RunInputDirectAsync(
-        AgentEvent input,
+        AgentInputEvent input,
         HPD.Events.IEventCoordinator eventCoordinator,
         CancellationToken cancellationToken)
     {
@@ -938,10 +713,6 @@ public sealed class Agent
 
             case UserMessagesInputEvent messages:
                 await RunMessagesInputAsync(messages, eventCoordinator, cancellationToken).ConfigureAwait(false);
-                break;
-
-            case HPD.Events.IBidirectionalEvent response:
-                eventCoordinator.SendResponse(response.RequestId, input);
                 break;
 
             case InterruptionRequestEvent interruption:
@@ -980,12 +751,10 @@ public sealed class Agent
                 catch (OperationCanceledException) when (activeTurnCts.IsCancellationRequested)
                 {
                     // The active turn was interrupted; keep the runtime loop alive.
-                    await foreach (var evt in DrainMiddlewareEventsAsync(eventCoordinator, cancellationToken).ConfigureAwait(false))
-                        await HandleOutputEventAsync(evt, CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
-                    _observerErrorLogger?.LogError(ex,
+                    _agentLogger?.LogError(ex,
                         "Agent runtime loop failed processing input event {EventType}",
                         input.GetType().Name);
                 }
@@ -1053,7 +822,6 @@ public sealed class Agent
         {
             var beforeStart = runtimeContext.AsBeforeStart();
             await _middlewarePipeline.ExecuteBeforeStartAsync(beforeStart, cancellationToken).ConfigureAwait(false);
-            await DispatchDrainedRootEventsAsync(cancellationToken).ConfigureAwait(false);
 
             if (beforeStart.CancelStart)
             {
@@ -1076,7 +844,6 @@ public sealed class Agent
             await _middlewarePipeline.ExecuteAfterStartedAsync(
                 runtimeContext.AsAfterStarted(),
                 cancellationToken).ConfigureAwait(false);
-            await DispatchDrainedRootEventsAsync(cancellationToken).ConfigureAwait(false);
 
             lock (_runtimeLock)
             {
@@ -1147,7 +914,6 @@ public sealed class Agent
             {
                 var beforeStop = runtimeContext.AsBeforeStop(reason);
                 await _middlewarePipeline.ExecuteBeforeStopAsync(beforeStop, cancellationToken).ConfigureAwait(false);
-                await DispatchDrainedRootEventsAsync(cancellationToken).ConfigureAwait(false);
 
                 drainPendingInputs = beforeStop.DrainPendingInputs;
                 drainTimeout = beforeStop.DrainTimeout;
@@ -1229,7 +995,6 @@ public sealed class Agent
             await _middlewarePipeline.ExecuteAfterStoppedAsync(
                 runtimeContext.AsAfterStopped(reason, stopError),
                 cancellationToken).ConfigureAwait(false);
-            await DispatchDrainedRootEventsAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1287,23 +1052,10 @@ public sealed class Agent
         }
     }
 
-    private async Task DispatchDrainedRootEventsAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await foreach (var evt in DrainMiddlewareEventsAsync(_eventCoordinator, cancellationToken).ConfigureAwait(false))
-                await HandleOutputEventAsync(evt, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            // Empty-channel probe timed out while checking lifecycle-emitted events.
-        }
-    }
-
     /// <summary>
     /// Sends a semantic input event to the agent.
     /// </summary>
-    public async Task RunAsync(AgentEvent input, CancellationToken cancellationToken = default)
+    public async Task RunAsync(AgentInputEvent input, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
 
@@ -1332,7 +1084,7 @@ public sealed class Agent
             {
                 try
                 {
-                    await runtimeWriter.WriteAsync((AgentInputEvent)input, cancellationToken).ConfigureAwait(false);
+                    await runtimeWriter.WriteAsync(input, cancellationToken).ConfigureAwait(false);
                     return;
                 }
                 catch (ChannelClosedException ex)
@@ -1348,6 +1100,34 @@ public sealed class Agent
         }
 
         await RunInputDirectAsync(input, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Routes a response event to a pending bidirectional request.
+    /// </summary>
+    public void Respond(string requestId, AgentEvent response)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestId);
+        ArgumentNullException.ThrowIfNull(response);
+
+        GetActiveEventCoordinator().SendResponse(requestId, response);
+    }
+
+    /// <summary>
+    /// Routes a bidirectional response event to the waiter matching its request ID.
+    /// </summary>
+    public Task RespondAsync(
+        HPD.Events.IBidirectionalEvent response,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (response is not HPD.Events.Event responseEvent)
+            throw new ArgumentException("Bidirectional response must also be an HPD.Events.Event.", nameof(response));
+
+        GetActiveEventCoordinator().SendResponse(response.RequestId, responseEvent);
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -1702,11 +1482,6 @@ public sealed class Agent
             // effectiveMessages updated to point to same shared list for downstream use
             effectiveMessages = sharedMessages;
 
-            // Drain middleware events
-            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
-                yield return middlewareEvt;
-
-
             // MAIN AGENTIC LOOP (Hybrid: Pure Decisions + Inline Execution)
             // NOTE: Iteration limit enforcement is handled by ContinuationPermissionMiddleware.
             // The middleware checks the limit and requests user permission to continue.
@@ -1736,10 +1511,6 @@ public sealed class Agent
                     CompletedFunctions: new List<string>(state.CompletedFunctions),
                     AgentName: _name)
                 { TraceId = traceId };
-
-                // Drain middleware events before decision
-                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
-                yield return middlewareEvt;
 
                 //      
                 // FUNCTIONAL CORE: Pure Decision (No I/O)
@@ -1773,11 +1544,6 @@ public sealed class Agent
 
                 // NOTE: Circuit breaker events are now emitted directly by CircuitBreakerIterationMiddleware
                 // via context.Emit() in BeforeToolExecutionAsync.
-
-                // Drain middleware events after decision-making, before execution
-                // CRITICAL: Ensures events emitted during decision logic are yielded before LLM streaming starts
-                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
-                yield return middlewareEvt;
 
                 //     
                 // ARCHITECTURAL DECISION: Inline Execution for Zero-Latency Streaming
@@ -1878,27 +1644,9 @@ public sealed class Agent
                         runConfig: effectiveRunConfig);  // Use the SAME instance from BeforeMessageTurnAsync
 
                     // EXECUTE BEFORE ITERATION MIDDLEWARES
-                    // Run with event polling to support bidirectional events (e.g., ContinuationPermissionMiddleware)
-                    var beforeIterationTask = _middlewarePipeline.ExecuteBeforeIterationAsync(
+                    await _middlewarePipeline.ExecuteBeforeIterationAsync(
                         beforeIterationContext,
-                        effectiveCancellationToken);
-
-                    // Poll for events while middleware is executing (CRITICAL for permission requests)
-                    while (!beforeIterationTask.IsCompleted)
-                    {
-                        var delayTask = Task.Delay(10, effectiveCancellationToken);
-                        await Task.WhenAny(beforeIterationTask, delayTask).ConfigureAwait(false);
-
-                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
-                        yield return middlewareEvt;
-                    }
-
-                    // Await to propagate any exceptions
-                    await beforeIterationTask.ConfigureAwait(false);
-
-                    // Final drain of events from middleware
-                    await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
-                        yield return middlewareEvt;
+                        effectiveCancellationToken).ConfigureAwait(false);
 
                     // V2: State updates are immediate - no GetPendingState() needed!
                     state = agentContext.State;
@@ -2019,9 +1767,9 @@ public sealed class Agent
                         };
 
                         // [AGENT] DEBUG: Log exact payload being sent to LLM
-                        if (_observerErrorLogger?.IsEnabled(LogLevel.Debug) == true)
+                        if (_agentLogger?.IsEnabled(LogLevel.Debug) == true)
                         {
-                            _observerErrorLogger.LogDebug(
+                            _agentLogger.LogDebug(
                                 "[AGENT] Iteration {Iteration} - EXACT PAYLOAD TO LLM:\n" +
                                 "  Messages ({MessageCount}):\n{Messages}\n" +
                                 "  Tools ({ToolCount}): {Tools}\n" +
@@ -2101,10 +1849,6 @@ public sealed class Agent
                                         }
                                     }
                                 }
-
-                                // Still emit middleware events immediately
-                                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
-                        yield return middlewareEvt;
                             }
 
                             // Now coalesce and emit events
@@ -2304,11 +2048,6 @@ public sealed class Agent
                                         }
                                     }
                                 }
-
-                                // Periodically yield Middleware events during LLM streaming
-                                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
-                        yield return middlewareEvt;
-
                                 // Check for stream completion
                                 if (update.FinishReason != null)
                                 {
@@ -2404,10 +2143,6 @@ public sealed class Agent
 
                         var effectiveOptionsForTools = beforeIterationContext.Options;
 
-                        // Yield Middleware events before tool execution
-                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
-                        yield return middlewareEvt;
-
                         // UPDATE AGENT CONTEXT STATE before tool execution hook
                         agentContext.SyncState(state);
 
@@ -2424,10 +2159,6 @@ public sealed class Agent
                             beforeToolContext,
                             effectiveCancellationToken).ConfigureAwait(false);
 
-                        // Drain events from middleware
-                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
-                        yield return middlewareEvt;
-
                         // V2: Sync state after middleware
                         state = agentContext.State;
 
@@ -2437,9 +2168,6 @@ public sealed class Agent
                             // Check for termination
                             if (state.IsTerminated)
                             {
-                                // Drain any final events from middleware (e.g., TextDeltaEvent from circuit breaker)
-                                await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
-                        yield return middlewareEvt;
                                 break; // Exit the main loop WITHOUT executing tools
                             }
 
@@ -2447,35 +2175,18 @@ public sealed class Agent
                             continue;
                         }
 
-                        // Execute tools with event polling (CRITICAL for permissions)
-                        var executeTask = _functionCallProcessor.ExecuteToolsAsync(
+                        var executionResult = await _functionCallProcessor.ExecuteToolsAsync(
                             sharedMessages,
                             toolRequests,
                             effectiveOptionsForTools,
                             state,
                             effectiveRunConfig,
                             agentContext,
-                            effectiveCancellationToken);
-
-                        // Poll for Middleware events while tool execution is in progress
-                        while (!executeTask.IsCompleted)
-                        {
-                            var delayTask = Task.Delay(10, effectiveCancellationToken);
-                            await Task.WhenAny(executeTask, delayTask).ConfigureAwait(false);
-
-                            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
-                        yield return middlewareEvt;
-                        }
-
-                        var executionResult = await executeTask.ConfigureAwait(false);
+                            effectiveCancellationToken).ConfigureAwait(false);
 
                         // Extract structured results from ToolExecutionResult
                         var toolResultMessage = executionResult.Message;
                         var successfulFunctions = executionResult.SuccessfulFunctions;
-
-                        // Final drain
-                        await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
-                        yield return middlewareEvt;
 
                         // ═══════════════════════════════════════════════════════════════
                         // OUTPUT TOOL TERMINATION (structured output tool mode)
@@ -2519,9 +2230,6 @@ public sealed class Agent
                         // Check if middleware signaled termination
                         if (state.IsTerminated)
                         {
-                            // Drain any events emitted during termination (e.g., StateSnapshotEvent from ErrorTrackingMiddleware)
-                            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
-                        yield return middlewareEvt;
                             break;
                         }
 
@@ -2718,10 +2426,6 @@ public sealed class Agent
                 }
             }
 
-            // Final drain of middleware events after loop
-            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
-                yield return middlewareEvt;
-
             // Emit MESSAGE TURN finished event
             turnStopwatch.Stop();
             yield return new MessageTurnFinishedEvent(
@@ -2761,7 +2465,7 @@ public sealed class Agent
                     {
                         await store.DeleteUncommittedTurnAsync(session.Id);
 
-                        DispatchToObservers(new CheckpointEvent(
+                        PublishOutputEvent(new CheckpointEvent(
                             Operation: CheckpointOperation.Cleared,
                             SessionId: session.Id,
                             Timestamp: DateTimeOffset.UtcNow,
@@ -2770,7 +2474,7 @@ public sealed class Agent
                     }
                     catch (Exception ex)
                     {
-                        DispatchToObservers(new CheckpointEvent(
+                        PublishOutputEvent(new CheckpointEvent(
                             Operation: CheckpointOperation.Cleared,
                             SessionId: session.Id,
                             Timestamp: DateTimeOffset.UtcNow,
@@ -2803,10 +2507,6 @@ public sealed class Agent
 
             // Note: If AfterMessageTurn was called, middleware may have modified turnHistory
             // The turnHistory variable is passed by reference and may have been updated
-
-            // Drain middleware events
-            await foreach (var middlewareEvt in DrainMiddlewareEventsAsync(eventCoordinator, effectiveCancellationToken).ConfigureAwait(false))
-                yield return middlewareEvt;
 
             // PERSISTENCE: Save complete turn history to branch
             if (branch != null && turnHistory.Count > 0)
@@ -3024,17 +2724,6 @@ public sealed class Agent
         return response;
     }
 
-    /// <summary>
-    /// Waits for all observer dispatchers to finish processing their queued events.
-    /// Call this after an agent run completes to ensure observers (e.g. TracingObserver)
-    /// have fully processed all events before asserting or shutting down.
-    /// </summary>
-    public async Task FlushObserversAsync(CancellationToken cancellationToken = default)
-    {
-        foreach (var dispatcher in _observerDispatchers)
-            await dispatcher.FlushAsync(cancellationToken).ConfigureAwait(false);
-    }
-
     /// <inheritdoc />
     public void Dispose()
     {
@@ -3050,10 +2739,11 @@ public sealed class Agent
         foreach (var subscription in structSubscriptions)
             subscription.Dispose();
 
+        foreach (var subscription in _eventSubscriptions)
+            subscription.Dispose();
+
         _baseClient?.Dispose();
         (_eventCoordinator as IDisposable)?.Dispose();
-        foreach (var dispatcher in _observerDispatchers)
-            dispatcher.Dispose();
         if (_ownedHttpClients != null)
             foreach (var client in _ownedHttpClients)
                 client.Dispose();
@@ -3120,7 +2810,7 @@ public sealed class Agent
             initialContextProperties: null,
             cancellationToken: cancellationToken))
         {
-            await HandleOutputEventAsync(evt, cancellationToken).ConfigureAwait(false);
+            PublishOutputEvent(evt);
             yield return evt;
         }
     }
@@ -3455,7 +3145,7 @@ public sealed class Agent
                 await options.CustomStreamCallback(evt).ConfigureAwait(false);
             }
 
-            await HandleOutputEventAsync(evt, cancellationToken).ConfigureAwait(false);
+            PublishOutputEvent(evt);
             yield return evt;
         }
     }
@@ -3595,7 +3285,6 @@ public sealed class Agent
                 if (evt is ToolCallEndEvent toolEnd && toolEnd.CallId == outputToolCallId)
                 {
                     // Final parse for tool/union mode
-                    // Note: Event draining is handled by RunTurnStreamAsync() - no need to drain here
                     var finalJson = textAccumulator.ToString();
                     var elapsed = Stopwatch.GetElapsedTime(startTime);
                     var resultTypeName = (isUnionMode || isToolModeWithUnionTypes) && matchedUnionType != null
@@ -3660,7 +3349,6 @@ public sealed class Agent
             // ═══════════════════════════════════════════════════════════════
             if (evt is TextMessageEndEvent && !isToolMode && !isUnionMode)
             {
-                // Note: Event draining is handled by RunTurnStreamAsync() - no need to drain here
                 var finalJson = textAccumulator.ToString();
                 var elapsed = Stopwatch.GetElapsedTime(startTime);
 
@@ -3729,7 +3417,7 @@ public sealed class Agent
             session, branch, options, cancellationToken);
 
     /// <summary>
-    /// Runs structured output from a text input and dispatches results through Agent output handlers.
+    /// Runs structured output from a text input and dispatches results through Agent subscribers.
     /// </summary>
     public Task RunStructuredAsync<T>(
         string userMessage,
@@ -3749,10 +3437,10 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Runs structured output from an input event and dispatches results through Agent output handlers.
+    /// Runs structured output from an input event and dispatches results through Agent subscribers.
     /// </summary>
     public async Task RunStructuredAsync<T>(
-        AgentEvent input,
+        AgentInputEvent input,
         CancellationToken cancellationToken = default) where T : class
     {
         ArgumentNullException.ThrowIfNull(input);
@@ -3768,12 +3456,12 @@ public sealed class Agent
             cancellationToken).ConfigureAwait(false))
         {
             if (IsStructuredOutputEvent<T>(evt))
-                await HandleOutputEventAsync(evt, cancellationToken).ConfigureAwait(false);
+                PublishOutputEvent(evt);
         }
     }
 
     private async Task<(IEnumerable<ChatMessage> Messages, Session? Session, Branch? Branch, AgentRunConfig Options)> ResolveStructuredInputAsync(
-        AgentEvent input,
+        AgentInputEvent input,
         CancellationToken cancellationToken)
     {
         IReadOnlyList<ChatMessage> messages;
@@ -4422,7 +4110,7 @@ public sealed class Agent
         // Warning 1: Messages provided with ContinuationToken (messages will be ignored)
         if (runConfig?.ContinuationToken != null && messageCount > 0)
         {
-            _observerErrorLogger?.LogWarning(
+            _agentLogger?.LogWarning(
                 "Background responses: Messages provided with ContinuationToken will be ignored during polling. " +
                 "When polling with a token, only the token is used - messages are not sent to the provider.");
         }
@@ -4431,7 +4119,7 @@ public sealed class Agent
         // This might indicate the user doesn't realize they're in polling mode
         if (runConfig?.ContinuationToken != null && runConfig.AllowBackgroundResponses != true)
         {
-            _observerErrorLogger?.LogInformation(
+            _agentLogger?.LogInformation(
                 "Background responses: ContinuationToken provided without AllowBackgroundResponses=true. " +
                 "Token will be used for polling, but consider explicitly enabling background responses.");
         }
@@ -4440,7 +4128,7 @@ public sealed class Agent
         // Auto-poll handles polling automatically - manual token might cause confusion
         if (Config?.BackgroundResponses?.AutoPollToCompletion == true && runConfig?.ContinuationToken != null)
         {
-            _observerErrorLogger?.LogWarning(
+            _agentLogger?.LogWarning(
                 "Background responses: Manual ContinuationToken provided with AutoPollToCompletion enabled. " +
                 "Auto-poll mode handles polling automatically. Manual token usage may cause unexpected behavior.");
         }

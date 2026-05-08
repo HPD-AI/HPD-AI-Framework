@@ -16,12 +16,13 @@ public class ChannelRoutingTests
     public async Task ControlEvents_AreReadFromControlChannel()
     {
         var coordinator = new HPD.Events.Core.EventCoordinator();
-        var interruption = new InterruptionRequestEvent(null, "test", InterruptionSource.User);
+        var interruption = new InterruptionHandledEvent(null, "test", InterruptionSource.User);
+        await using var subscription = coordinator.SubscribeChannel(EventChannel.Control);
 
         coordinator.Emit(interruption);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var evt = await ReadFirstAsync(coordinator.ReadControlAsync(cts.Token));
+        var evt = await ReadFirstAsync(subscription.Reader, cts.Token);
 
         Assert.Same(interruption, evt);
         Assert.Equal(EventChannel.Control, evt.Channel);
@@ -31,13 +32,14 @@ public class ChannelRoutingTests
     public async Task SynchronousAgentEvents_AreReadFromSynchronousChannel()
     {
         var coordinator = new HPD.Events.Core.EventCoordinator();
+        await using var subscription = coordinator.SubscribeChannel(EventChannel.Synchronous);
 
         var snapshot = new StateSnapshotEvent(1, 10, false, null, 0, [], "agent");
 
         coordinator.Emit(snapshot);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var evt = await ReadFirstAsync(coordinator.ReadSynchronousAsync(cts.Token));
+        var evt = await ReadFirstAsync(subscription.Reader, cts.Token);
 
         Assert.IsType<StateSnapshotEvent>(evt);
     }
@@ -62,13 +64,14 @@ public class ChannelRoutingTests
     public async Task SequenceNumber_AssignedByCoordinator()
     {
         var coordinator = new HPD.Events.Core.EventCoordinator();
+        await using var subscription = coordinator.SubscribeChannel(EventChannel.Streaming);
 
         coordinator.Emit(new TextDeltaEvent("first", "msg1"));
         coordinator.Emit(new TextDeltaEvent("second", "msg1"));
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var first = await ReadFirstAsync(coordinator.ReadStreamingAsync(cts.Token));
-        var second = await ReadFirstAsync(coordinator.ReadStreamingAsync(cts.Token));
+        var first = await ReadFirstAsync(subscription.Reader, cts.Token);
+        var second = await ReadFirstAsync(subscription.Reader, cts.Token);
 
         Assert.True(first.SequenceNumber > 0);
         Assert.True(second.SequenceNumber > first.SequenceNumber);
@@ -191,6 +194,7 @@ public class ChannelRoutingTests
     {
         var coordinator = new HPD.Events.Core.EventCoordinator();
         var stream = coordinator.Streams.Create();
+        await using var subscription = coordinator.SubscribeChannel(EventChannel.Streaming);
         stream.Interrupt();
 
         coordinator.Emit(new TextMessageEndEvent("msg1")
@@ -200,7 +204,7 @@ public class ChannelRoutingTests
         });
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var evt = await ReadFirstAsync(coordinator.ReadStreamingAsync(cts.Token));
+        var evt = await ReadFirstAsync(subscription.Reader, cts.Token);
 
         Assert.IsType<TextMessageEndEvent>(evt);
     }
@@ -224,12 +228,12 @@ public class ChannelRoutingTests
     }
 
     [Fact]
-    public void InterruptionRequestEvent_IsControlUpstream()
+    public void InterruptionHandledEvent_IsControlDownstream()
     {
-        var evt = new InterruptionRequestEvent(null, "test", InterruptionSource.User);
+        var evt = new InterruptionHandledEvent(null, "test", InterruptionSource.User);
 
         Assert.Equal(EventChannel.Control, evt.Channel);
-        Assert.Equal(EventDirection.Upstream, evt.Direction);
+        Assert.Equal(EventDirection.Downstream, evt.Direction);
         Assert.Equal(EventKind.Control, evt.Kind);
     }
 
@@ -243,7 +247,6 @@ public class ChannelRoutingTests
 
     public static TheoryData<AgentEvent, EventChannel, EventKind> ChannelSamples() => new()
     {
-        { new UserTextInputEvent("hello"), EventChannel.Interactive, EventKind.Content },
         { new TextDeltaEvent("hello", "msg1"), EventChannel.Streaming, EventKind.Content },
         { new ReasoningDeltaEvent("thinking", "msg1"), EventChannel.Streaming, EventKind.Content },
         { new ToolCallStartEvent("call1", "tool", "msg1"), EventChannel.Synchronous, EventKind.Lifecycle },
@@ -253,7 +256,7 @@ public class ChannelRoutingTests
         { new HPD.Agent.ClientTools.ClientToolInvokeResponseEvent("req1", "ok"), EventChannel.Interactive, EventKind.Control },
         { new StateSnapshotEvent(1, 10, false, null, 0, [], "agent"), EventChannel.Synchronous, EventKind.Diagnostic },
         { new EventDroppedEvent("stream1", "TextDeltaEvent", 1), EventChannel.Synchronous, EventKind.Diagnostic },
-        { new InterruptionRequestEvent(null, "stop", InterruptionSource.User), EventChannel.Control, EventKind.Control },
+        { new InterruptionHandledEvent(null, "stop", InterruptionSource.User), EventChannel.Control, EventKind.Control },
     };
 
     [Fact]
@@ -262,26 +265,39 @@ public class ChannelRoutingTests
         var parent = new HPD.Events.Core.EventCoordinator();
         var child = new HPD.Events.Core.EventCoordinator();
         child.SetParent(parent);
+        await using var subscription = parent.SubscribeChannel(EventChannel.Control);
 
-        var interruption = new InterruptionRequestEvent("stream1", "test", InterruptionSource.User);
+        var interruption = new InterruptionHandledEvent("stream1", "test", InterruptionSource.User);
 
         child.Emit(interruption);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var evt = await ReadFirstAsync(parent.ReadControlAsync(cts.Token));
+        var evt = await ReadFirstAsync(subscription.Reader, cts.Token);
 
         Assert.Same(interruption, evt);
-        Assert.Equal(EventDirection.Upstream, evt.Direction);
+        Assert.Equal(EventDirection.Downstream, evt.Direction);
     }
 
     [Fact]
-    public void InterruptionRequestEvent_SerializesWithType()
+    public void InterruptionRequestEvent_SerializesAsInputEnvelope()
     {
         var evt = new InterruptionRequestEvent("stream-abc", "User cancelled", InterruptionSource.User);
 
         var json = AgentEventSerializer.ToJson(evt);
 
         Assert.Contains("\"type\":\"INTERRUPTION_REQUEST\"", json);
+        Assert.Contains("\"version\":\"1.0\"", json);
+        Assert.Contains("\"reason\":\"User cancelled\"", json);
+    }
+
+    [Fact]
+    public void InterruptionHandledEvent_SerializesWithType()
+    {
+        var evt = new InterruptionHandledEvent("stream-abc", "User cancelled", InterruptionSource.User);
+
+        var json = AgentEventSerializer.ToJson(evt);
+
+        Assert.Contains("\"type\":\"INTERRUPTION_HANDLED\"", json);
         Assert.Contains("\"version\":\"1.0\"", json);
         Assert.Contains("\"reason\":\"User cancelled\"", json);
     }
@@ -314,9 +330,9 @@ public class ChannelRoutingTests
         Assert.Equal("INTERRUPTION_REQUEST", AgentEventSerializer.GetEventTypeName(typeof(InterruptionRequestEvent)));
     }
 
-    private static async Task<Event> ReadFirstAsync(IAsyncEnumerable<Event> events)
+    private static async Task<Event> ReadFirstAsync(System.Threading.Channels.ChannelReader<Event> reader, CancellationToken ct)
     {
-        await foreach (var evt in events)
+        await foreach (var evt in reader.ReadAllAsync(ct))
             return evt;
 
         throw new InvalidOperationException("No event was produced.");

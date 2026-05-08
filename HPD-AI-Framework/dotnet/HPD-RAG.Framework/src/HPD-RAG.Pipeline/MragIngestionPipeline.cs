@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using System.Threading.Channels;
 using HPD.Events;
 using HPD.Events.Core;
 using HPD.RAG.Core.Context;
@@ -20,7 +19,7 @@ namespace HPD.RAG.Pipeline;
 /// <list type="bullet">
 ///   <item><see cref="RunAsync"/> — awaits completion, discards events.</item>
 ///   <item><see cref="RunStreamingAsync"/> — streams <see cref="MragEvent"/> instances
-///         as the pipeline progresses, following the AgentWorkflowInstance event-coordinator pattern.</item>
+    ///         as the pipeline progresses through HPD.Events stream subscriptions.</item>
 /// </list>
 ///
 /// <para>
@@ -87,9 +86,9 @@ public sealed class MragIngestionPipeline
     /// Executes the ingestion pipeline and streams <see cref="MragEvent"/> instances as it progresses.
     ///
     /// <para>
-    /// Implementation follows the AgentWorkflowInstance event coordinator pattern:
-    /// graph execution starts in a background task, and events are observed through
-    /// <see cref="IEventCoordinator.SubscribeAny"/> until completion.
+    /// Graph execution starts in a background task, and events are observed through
+    /// a fan-out <see cref="IEventCoordinator.SubscribeStream{TEvent}"/> subscription
+    /// until completion.
     /// </para>
     ///
     /// <para>
@@ -123,15 +122,7 @@ public sealed class MragIngestionPipeline
             services,
             checkpointStore: null);
 
-        var eventChannel = Channel.CreateUnbounded<Event>();
-        using var coordinatorCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        using var eventSubscription = eventCoordinator.SubscribeAny(evt =>
-        {
-            eventChannel.Writer.TryWrite(evt);
-            return ValueTask.CompletedTask;
-        });
-
-        var coordinatorTask = eventCoordinator.RunAsync(coordinatorCts.Token);
+        await using var events = eventCoordinator.SubscribeStream<Event>();
 
         var executionTask = Task.Run(async () =>
         {
@@ -151,12 +142,11 @@ public sealed class MragIngestionPipeline
             }
             finally
             {
-                eventChannel.Writer.TryComplete();
-                await coordinatorCts.CancelAsync().ConfigureAwait(false);
+                eventCoordinator.Dispose();
             }
         }, ct);
 
-        await foreach (var evt in eventChannel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+        await foreach (var evt in events.Reader.ReadAllAsync(ct).ConfigureAwait(false))
         {
             var mapped = MragEventMapper.MapIngestionEvent(evt, PipelineName, ingestionCtx);
             if (mapped != null)
@@ -167,7 +157,6 @@ public sealed class MragIngestionPipeline
         }
 
         await executionTask.ConfigureAwait(false);
-        await SuppressCancellationAsync(coordinatorTask).ConfigureAwait(false);
 
         // Emit synthetic DocumentSkippedEvent for every submitted document that was
         // not recorded as written by the writer handler.
@@ -224,14 +213,4 @@ public sealed class MragIngestionPipeline
         return ctx;
     }
 
-    private static async Task SuppressCancellationAsync(Task task)
-    {
-        try
-        {
-            await task.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-        }
-    }
 }

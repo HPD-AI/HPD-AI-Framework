@@ -7,10 +7,9 @@ using HPDAgent.Graph.Abstractions.Execution;
 namespace HPD.MultiAgent.Observability;
 
 /// <summary>
-/// Observer that collects metrics from workflow execution events.
-/// Implements IEventObserver for fire-and-forget metric collection.
+/// Collects metrics from workflow execution events.
 /// </summary>
-public class MetricsObserver : IEventObserver<Event>
+public class MetricsObserver
 {
     private readonly ConcurrentDictionary<string, WorkflowMetrics> _activeWorkflows = new();
     private readonly ConcurrentQueue<WorkflowMetrics> _completedWorkflows = new();
@@ -57,22 +56,19 @@ public class MetricsObserver : IEventObserver<Event>
     /// </summary>
     public IReadOnlyCollection<WorkflowMetrics> CompletedWorkflows => _completedWorkflows.ToList();
 
-    /// <inheritdoc/>
-    public bool ShouldProcess(Event evt)
+    public ValueTask HandleAsync(Event evt)
     {
-        // Process graph events and agent events we care about
-        return evt is GraphEvent
+        if (evt is not (GraphEvent
             or TextDeltaEvent
             or ToolCallStartEvent
             or ToolCallEndEvent
             or MessageTurnFinishedEvent
             or NodeApprovalRequestEvent
-            or NodeApprovalResponseEvent;
-    }
+            or NodeApprovalResponseEvent))
+        {
+            return ValueTask.CompletedTask;
+        }
 
-    /// <inheritdoc/>
-    public Task OnEventAsync(Event evt, CancellationToken cancellationToken = default)
-    {
         try
         {
             switch (evt)
@@ -126,7 +122,7 @@ public class MetricsObserver : IEventObserver<Event>
             // In production, log this error
         }
 
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     private void HandleGraphStarted(GraphExecutionStartedEvent evt)

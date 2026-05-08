@@ -9,8 +9,8 @@ namespace HPD.Agent.Evaluations.Tracing;
 /// Span tree for a single agent turn. Built in EvaluationMiddleware.AfterMessageTurnAsync
 /// using two sources:
 /// - Typed ChatMessage objects from TurnHistory (content, tool calls, reasoning, finish reason)
-/// - TurnEventBuffer populated by EvaluationMiddleware as IAgentEventObserver (timestamps,
-///   permission denial data)
+/// - TurnEventBuffer populated by EvaluationMiddleware through an HPD.Events
+///   subscription (timestamps, permission denial data)
 /// </summary>
 public sealed class TurnTrace
 {

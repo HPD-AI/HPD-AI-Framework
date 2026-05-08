@@ -22,7 +22,7 @@ namespace HPD.Agent.Evaluations.Tests.Integration;
 /// 3. UseScoreStore injects store onto the middleware.
 /// 4. UseEvalJudgeConfig injects judge config onto the middleware.
 /// 5. Multiple evaluators → all tracked on single middleware instance.
-/// 6. EvaluationMiddleware is also registered as IAgentEventObserver (verified indirectly).
+/// 6. EvaluationMiddleware is also registered as an HPD.Events subscription (verified indirectly).
 /// </summary>
 public sealed class AgentBuilderEvalExtensionsTests
 {

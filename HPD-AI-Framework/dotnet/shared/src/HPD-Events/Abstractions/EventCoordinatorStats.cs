@@ -1,8 +1,9 @@
 namespace HPD.Events;
 
-/// <summary>Snapshot of current class-event channel depths.</summary>
+/// <summary>Snapshot of current class-event bus health.</summary>
 public readonly record struct EventCoordinatorStats(
-    int Streaming,
-    int Synchronous,
-    int Interactive,
-    int Control);
+    int SubscriberCount,
+    int StreamSubscriberCount,
+    int TotalQueued,
+    int TotalDropped,
+    int MaxSubscriberDepth);

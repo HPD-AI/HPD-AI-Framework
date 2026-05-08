@@ -120,6 +120,7 @@ public static partial class AgentEventSerializer
 
         // Priority Streaming Events
         [typeof(InterruptionRequestEvent)] = EventTypes.Streaming.INTERRUPTION_REQUEST,
+        [typeof(InterruptionHandledEvent)] = EventTypes.Streaming.INTERRUPTION_HANDLED,
     };
 
     /// <summary>
@@ -183,6 +184,14 @@ public static partial class AgentEventSerializer
     }
 
     /// <summary>
+    /// Serializes an agent input event to JSON with version and type fields.
+    /// </summary>
+    public static string ToJson(AgentInputEvent input)
+    {
+        return ToJson(input, "1.0");
+    }
+
+    /// <summary>
     /// Serializes an agent event to JSON with specified version.
     /// </summary>
     /// <param name="evt">The event to serialize.</param>
@@ -193,29 +202,18 @@ public static partial class AgentEventSerializer
         ArgumentNullException.ThrowIfNull(evt);
         ArgumentNullException.ThrowIfNull(version);
 
-        // Get type discriminator
-        var eventType = TypeNames.TryGetValue(evt.GetType(), out var typeName)
-            ? typeName
-            : ToScreamingSnakeCase(evt.GetType().Name);
+        return ToJsonEnvelope(evt, evt.GetType(), version);
+    }
 
+    /// <summary>
+    /// Serializes an agent input event to JSON with specified version.
+    /// </summary>
+    public static string ToJson(AgentInputEvent input, string version)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(version);
 
-        // Serialize event to JSON
-        var eventJson = JsonSerializer.Serialize(evt, evt.GetType(), StandardJsonOptions);
-
-        // Inject version and type fields at the beginning
-        // JSON always starts with { so we insert after it
-        var prefix = $"\"version\":\"{version}\",\"type\":\"{eventType}\"";
-
-        if (eventJson == "{}")
-        {
-            // Empty object - just add the fields
-            return $"{{{prefix}}}";
-        }
-        else
-        {
-            // Insert prefix after opening brace
-            return eventJson.Insert(1, prefix + ",");
-        }
+        return ToJsonEnvelope(input, input.GetType(), version);
     }
 
     /// <summary>
@@ -239,6 +237,15 @@ public static partial class AgentEventSerializer
     {
         ArgumentNullException.ThrowIfNull(evt);
         return GetEventTypeName(evt.GetType());
+    }
+
+    /// <summary>
+    /// Gets the type discriminator for an input event instance.
+    /// </summary>
+    public static string GetEventTypeName(AgentInputEvent input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        return GetEventTypeName(input.GetType());
     }
 
     /// <summary>
@@ -271,29 +278,55 @@ public static partial class AgentEventSerializer
     }
 
     /// <summary>
-    /// Deserializes an agent event from a JSON string produced by <see cref="ToJson"/>.
-    /// Reads the "type" discriminator field to determine the concrete event type.
-    /// Returns null if the discriminator is unknown or the JSON is invalid.
+    /// Deserializes an agent wire envelope from JSON.
     /// </summary>
-    public static AgentEvent? FromJson(string json)
+    public static object? FromJson(string json)
     {
         try
         {
-            using var doc = JsonDocument.Parse(json);
-            if (!doc.RootElement.TryGetProperty("type", out var typeProp))
-                return null;
-
-            var discriminator = typeProp.GetString();
-            if (discriminator == null || !DiscriminatorToType.TryGetValue(discriminator, out var concreteType))
-                return null;
-
-            // Deserialize directly from the already-parsed JsonElement to avoid a second parse.
-            return (AgentEvent?)doc.RootElement.Deserialize(concreteType, StandardJsonOptions);
+            return DeserializeEnvelope(json);
         }
         catch
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Deserializes an output/observation agent event from JSON.
+    /// </summary>
+    public static AgentEvent? FromEventJson(string json) => FromJson(json) as AgentEvent;
+
+    /// <summary>
+    /// Deserializes an agent input event from JSON.
+    /// </summary>
+    public static AgentInputEvent? FromInputJson(string json) => FromJson(json) as AgentInputEvent;
+
+    private static string ToJsonEnvelope(object value, Type concreteType, string version)
+    {
+        var eventType = TypeNames.TryGetValue(concreteType, out var typeName)
+            ? typeName
+            : ToScreamingSnakeCase(concreteType.Name);
+
+        var eventJson = JsonSerializer.Serialize(value, concreteType, StandardJsonOptions);
+        var prefix = $"\"version\":\"{version}\",\"type\":\"{eventType}\"";
+
+        return eventJson == "{}"
+            ? $"{{{prefix}}}"
+            : eventJson.Insert(1, prefix + ",");
+    }
+
+    private static object? DeserializeEnvelope(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        if (!doc.RootElement.TryGetProperty("type", out var typeProp))
+            return null;
+
+        var discriminator = typeProp.GetString();
+        if (discriminator == null || !DiscriminatorToType.TryGetValue(discriminator, out var concreteType))
+            return null;
+
+        return doc.RootElement.Deserialize(concreteType, StandardJsonOptions);
     }
 
     /// <summary>

@@ -194,6 +194,7 @@ public sealed class ConnectorCoreTests
             runner,
             new WorkflowSourceDedupeService(store),
             coordinator);
+        await using var eventSubscription = coordinator.SubscribeChannel(EventChannel.Synchronous);
 
         await dispatcher.DispatchAsync(new WorkflowSourceEmittedEvent
         {
@@ -219,7 +220,7 @@ public sealed class ConnectorCoreTests
             .Should()
             .Be(123);
 
-        var dispatchEvent = await ReadSynchronousEventAsync<WorkflowExecutionDispatchedEvent>(coordinator);
+        var dispatchEvent = await ReadSynchronousEventAsync<WorkflowExecutionDispatchedEvent>(eventSubscription.Reader);
 
         dispatchEvent.ExecutionId.Should().Be("execution-1");
         dispatchEvent.EventId.Should().Be("delivery-1");
@@ -350,6 +351,7 @@ public sealed class ConnectorCoreTests
             Artifacts = artifacts,
             Events = events
         };
+        await using var eventSubscription = events.SubscribeChannel(EventChannel.Synchronous);
 
         var emitted = new List<Event>();
         await foreach (var evt in dispatcher.MaterializeAsync("fivetran.sync", context))
@@ -363,7 +365,7 @@ public sealed class ConnectorCoreTests
         metadata.Should().NotBeNull();
         metadata!.CustomMetadata.Should().ContainKey("connector.eventKind");
 
-        var eventFromCoordinator = await ReadSynchronousEventAsync<ExternalArtifactMaterializedEvent>(events);
+        var eventFromCoordinator = await ReadSynchronousEventAsync<ExternalArtifactMaterializedEvent>(eventSubscription.Reader);
         eventFromCoordinator.Version.Should().Be("v1");
     }
 
@@ -428,11 +430,12 @@ public sealed class ConnectorCoreTests
         loaded.Should().Be("stored-value");
     }
 
-    private static async Task<TEvent> ReadSynchronousEventAsync<TEvent>(IEventCoordinator coordinator)
+    private static async Task<TEvent> ReadSynchronousEventAsync<TEvent>(
+        System.Threading.Channels.ChannelReader<Event> reader)
         where TEvent : Event
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await foreach (var evt in coordinator.ReadSynchronousAsync(cts.Token))
+        await foreach (var evt in reader.ReadAllAsync(cts.Token))
         {
             if (evt is TEvent typed)
             {

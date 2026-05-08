@@ -533,7 +533,7 @@ public partial class WhatsAppBot
                     CompleteCardAsync = async (stream, card, token) =>
                         await PostMessageAsync(stream.ThreadId, CardFallbackText.From(card), card, token),
                     HandlePermissionAsync = async (_, agent, req, token) =>
-                        await agent.RunAsync(new PermissionResponseEvent(
+                        await agent.RespondAsync(new PermissionResponseEvent(
                             PermissionId: req.PermissionId,
                             SourceName: "whatsapp",
                             Approved: false), token),

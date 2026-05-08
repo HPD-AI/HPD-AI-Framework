@@ -9,7 +9,7 @@ public sealed class EventCoordinator : IEventCoordinator, IDisposable
     private readonly StructEventRouter _structs = new();
 
     /// <summary>
-    /// Creates a new event coordinator with channel-based routing.
+    /// Creates a new event coordinator with fan-out event-bus routing.
     /// </summary>
     public EventCoordinator(
         Func<Event, Event>? eventEnricher = null,
@@ -35,12 +35,29 @@ public sealed class EventCoordinator : IEventCoordinator, IDisposable
         _events.EmitAsync(evt, ct);
 
     /// <inheritdoc />
-    public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event =>
-        _events.Subscribe(handler);
+    public IDisposable Subscribe<TEvent>(
+        Func<TEvent, ValueTask> handler,
+        EventSubscriptionOptions? options = null)
+        where TEvent : Event =>
+        _events.Subscribe(handler, options);
 
     /// <inheritdoc />
-    public IDisposable SubscribeAny(Func<Event, ValueTask> handler) =>
-        _events.SubscribeAny(handler);
+    public IDisposable SubscribeAny(
+        Func<Event, ValueTask> handler,
+        EventSubscriptionOptions? options = null) =>
+        _events.SubscribeAny(handler, options);
+
+    /// <inheritdoc />
+    public EventStreamSubscription<TEvent> SubscribeStream<TEvent>(
+        EventSubscriptionOptions? options = null)
+        where TEvent : Event =>
+        _events.SubscribeStream<TEvent>(options);
+
+    /// <inheritdoc />
+    public EventStreamSubscription<Event> SubscribeChannel(
+        EventChannel channel,
+        EventSubscriptionOptions? options = null) =>
+        _events.SubscribeChannel(channel, options);
 
     /// <inheritdoc />
     public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent =>
@@ -65,10 +82,6 @@ public sealed class EventCoordinator : IEventCoordinator, IDisposable
     public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null)
         where TEvent : struct, IStructEvent =>
         _structs.CreateStructEmitter(options);
-
-    /// <inheritdoc />
-    public Task RunAsync(CancellationToken ct = default) =>
-        Task.WhenAll(_events.RunAsync(ct), _structs.RunAsync(ct));
 
     /// <inheritdoc />
     public void SetParent(IEventCoordinator parent)
@@ -102,22 +115,6 @@ public sealed class EventCoordinator : IEventCoordinator, IDisposable
 
     /// <inheritdoc />
     public EventCoordinatorStats GetStats() => _events.GetStats();
-
-    /// <inheritdoc />
-    public IAsyncEnumerable<Event> ReadStreamingAsync(CancellationToken ct = default) =>
-        _events.ReadStreamingAsync(ct);
-
-    /// <inheritdoc />
-    public IAsyncEnumerable<Event> ReadSynchronousAsync(CancellationToken ct = default) =>
-        _events.ReadSynchronousAsync(ct);
-
-    /// <inheritdoc />
-    public IAsyncEnumerable<Event> ReadInteractiveAsync(CancellationToken ct = default) =>
-        _events.ReadInteractiveAsync(ct);
-
-    /// <inheritdoc />
-    public IAsyncEnumerable<Event> ReadControlAsync(CancellationToken ct = default) =>
-        _events.ReadControlAsync(ct);
 
     /// <summary>
     /// Dispose coordinator and complete all class-event channels and struct subscriptions.

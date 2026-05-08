@@ -8,10 +8,10 @@ using HPDAgent.Graph.Abstractions.Execution;
 namespace HPD.MultiAgent.Observability;
 
 /// <summary>
-/// Observer that creates distributed tracing spans for workflow execution.
+/// Creates distributed tracing spans for workflow execution.
 /// Uses System.Diagnostics.Activity for OpenTelemetry compatibility.
 /// </summary>
-public class TracingObserver : IEventObserver<Event>
+public class TracingObserver
 {
     private readonly ActivitySource _activitySource;
     private readonly ConcurrentDictionary<string, Activity> _workflowActivities = new();
@@ -43,18 +43,16 @@ public class TracingObserver : IEventObserver<Event>
     /// </summary>
     public ActivitySource ActivitySource => _activitySource;
 
-    /// <inheritdoc/>
-    public bool ShouldProcess(Event evt)
+    public ValueTask HandleAsync(Event evt)
     {
-        return evt is GraphEvent
+        if (evt is not (GraphEvent
             or WorkflowStartedEvent
             or ToolCallStartEvent
-            or ToolCallEndEvent;
-    }
+            or ToolCallEndEvent))
+        {
+            return ValueTask.CompletedTask;
+        }
 
-    /// <inheritdoc/>
-    public Task OnEventAsync(Event evt, CancellationToken cancellationToken = default)
-    {
         try
         {
             switch (evt)
@@ -94,7 +92,7 @@ public class TracingObserver : IEventObserver<Event>
             // Observers should never crash the system
         }
 
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     private void StartWorkflowSpan(GraphExecutionStartedEvent evt)

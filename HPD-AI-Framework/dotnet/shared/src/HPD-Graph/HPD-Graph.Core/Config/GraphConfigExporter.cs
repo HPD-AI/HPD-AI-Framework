@@ -252,6 +252,9 @@ public sealed class GraphConfigExporter
                 {
                     TypeName = kvp.Value.Type.AssemblyQualifiedName ?? kvp.Value.Type.FullName ?? kvp.Value.Type.Name,
                     Required = kvp.Value.Required,
+                    DefaultValue = kvp.Value.DefaultValue is null
+                        ? null
+                        : GraphJsonValue.ToJsonElement(kvp.Value.DefaultValue, $"input schema '{kvp.Key}' default value"),
                     Constraints = ExportInputValidator(kvp.Value.Validator)
                 };
             },
@@ -290,22 +293,14 @@ public sealed class GraphConfigExporter
 
     private static bool TryExportEnumValidator(IInputValidator validator, out JsonElement element)
     {
-        if (validator is RuntimeEnumValidator runtimeEnumValidator)
+        if (validator is IRuntimeEnumValidator runtimeEnumValidator)
         {
             element = EnumConstraint(runtimeEnumValidator.EnumType);
             return true;
         }
 
-        var validatorType = validator.GetType();
-        if (!validatorType.IsGenericType || validatorType.GetGenericTypeDefinition() != typeof(EnumValidator<>))
-        {
-            element = default;
-            return false;
-        }
-
-        var enumType = validatorType.GetGenericArguments()[0];
-        element = EnumConstraint(enumType);
-        return true;
+        element = default;
+        return false;
     }
 
     private static JsonElement EnumConstraint(Type enumType)

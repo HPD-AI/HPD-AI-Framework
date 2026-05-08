@@ -141,6 +141,7 @@ public sealed class HostingManagerTests
             executionManager,
             eventCoordinator: eventCoordinator);
         await graphManager.CreateDefinitionAsync(CreateConfig("graph-a", "Workflow"));
+        await using var eventSubscription = eventCoordinator.SubscribeChannel(EventChannel.Synchronous);
 
         var execution = await runner.StartAsync(
             "graph-a",
@@ -152,7 +153,7 @@ public sealed class HostingManagerTests
             });
 
         execution.Status.Should().Be(WorkflowExecutionStatus.Completed);
-        var events = await CollectSynchronousEventsAsync(eventCoordinator, evt => evt is GraphExecutionCompletedEvent);
+        var events = await CollectSynchronousEventsAsync(eventSubscription.Reader, evt => evt is GraphExecutionCompletedEvent);
         events.Should().ContainSingle(evt => evt is GraphExecutionStartedEvent);
         events.Should().ContainSingle(evt => evt is GraphExecutionCompletedEvent);
         events.Should().Contain(evt => evt is NodeExecutionStartedEvent);
@@ -1334,7 +1335,7 @@ public sealed class HostingManagerTests
     }
 
     private static async Task<List<Event>> CollectSynchronousEventsAsync(
-        EventCoordinator coordinator,
+        System.Threading.Channels.ChannelReader<Event> reader,
         Func<Event, bool>? stopWhen = null)
     {
         var events = new List<Event>();
@@ -1342,7 +1343,7 @@ public sealed class HostingManagerTests
 
         try
         {
-            await foreach (var evt in coordinator.ReadSynchronousAsync(cts.Token))
+            await foreach (var evt in reader.ReadAllAsync(cts.Token))
             {
                 events.Add(evt);
                 if (stopWhen?.Invoke(evt) == true)

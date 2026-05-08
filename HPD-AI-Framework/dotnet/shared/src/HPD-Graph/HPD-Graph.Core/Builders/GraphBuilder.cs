@@ -6,6 +6,7 @@ using HPDAgent.Graph.Abstractions.Graph;
 using HPDAgent.Graph.Abstractions.Context;
 using HPDAgent.Graph.Abstractions.Serialization;
 using HPDAgent.Graph.Core.Config;
+using HPDAgent.Graph.Core.Validation;
 
 // Alias for SuspensionOptions to avoid conflicts
 using SuspensionOpts = HPDAgent.Graph.Abstractions.Execution.SuspensionOptions;
@@ -428,8 +429,11 @@ public class GraphBuilder
             return graph;
         }
 
+        var compilerOptions = _compilerOptions ??= new GraphConfigCompilerOptions();
+        RegisterInputSchemaTypes(graph, compilerOptions);
+
         var config = new GraphConfigExporter().Export(graph);
-        return new GraphConfigCompiler(_compilerOptions).Compile(config);
+        return new GraphConfigCompiler(compilerOptions).Compile(config);
     }
 
     /// <summary>
@@ -514,6 +518,49 @@ public class GraphBuilder
 
     private static bool HasRuntimeOnlySubGraph(Abstractions.Graph.Graph? graph)
         => graph is not null && HasRuntimeOnlyState(graph);
+
+    private static void RegisterInputSchemaTypes(Abstractions.Graph.Graph graph, GraphConfigCompilerOptions compilerOptions)
+    {
+        foreach (var node in graph.Nodes)
+        {
+            if (node.InputSchemas is null)
+            {
+                continue;
+            }
+
+            foreach (var schema in node.InputSchemas.Values)
+            {
+                RegisterTypeAliases(compilerOptions, schema.Type);
+                if (schema.Validator is IRuntimeEnumValidator enumValidator)
+                {
+                    RegisterTypeAliases(compilerOptions, enumValidator.EnumType);
+                }
+            }
+
+            if (node.SubGraph is not null)
+            {
+                RegisterInputSchemaTypes(node.SubGraph, compilerOptions);
+            }
+        }
+    }
+
+    private static void RegisterTypeAliases(GraphConfigCompilerOptions compilerOptions, Type type)
+    {
+        if (!string.IsNullOrWhiteSpace(type.Name))
+        {
+            compilerOptions.RegisterType(type.Name, type);
+        }
+
+        if (!string.IsNullOrWhiteSpace(type.FullName))
+        {
+            compilerOptions.RegisterType(type.FullName, type);
+        }
+
+        if (!string.IsNullOrWhiteSpace(type.AssemblyQualifiedName))
+        {
+            compilerOptions.RegisterType(type.AssemblyQualifiedName, type);
+        }
+    }
 
     internal void AddBuiltEdge(Edge edge)
     {

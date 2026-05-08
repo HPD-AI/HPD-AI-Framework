@@ -16,7 +16,7 @@ internal static class SseEventHandler
     public static async Task StreamEventsAsync(
         HttpContext context,
         Agent agent,
-        AgentEvent input,
+        AgentInputEvent input,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);

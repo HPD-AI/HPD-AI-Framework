@@ -34,11 +34,12 @@ public class EventBubblingTests
         var parentCoordinator = new EventCoordinator();
         var childCoordinator = new EventCoordinator();
         childCoordinator.SetParent(parentCoordinator);
+        await using var subscription = parentCoordinator.SubscribeChannel(EventChannel.Streaming);
 
         var receivedEvents = new List<Event>();
         var readTask = Task.Run(async () =>
         {
-            await foreach (var evt in parentCoordinator.ReadStreamingAsync(CancellationToken.None))
+            await foreach (var evt in subscription.Reader.ReadAllAsync(CancellationToken.None))
             {
                 receivedEvents.Add(evt);
                 if (receivedEvents.Count >= 1) break;
@@ -64,6 +65,7 @@ public class EventBubblingTests
         var parentCoordinator = new EventCoordinator();
         var childCoordinator = new EventCoordinator();
         childCoordinator.SetParent(parentCoordinator);
+        await using var subscription = parentCoordinator.SubscribeChannel(EventChannel.Streaming);
 
         var receivedEvents = new List<Event>();
         var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -72,7 +74,7 @@ public class EventBubblingTests
         {
             try
             {
-                await foreach (var evt in parentCoordinator.ReadStreamingAsync(cts.Token))
+                await foreach (var evt in subscription.Reader.ReadAllAsync(cts.Token))
                 {
                     receivedEvents.Add(evt);
                     if (receivedEvents.Count >= 3) break;

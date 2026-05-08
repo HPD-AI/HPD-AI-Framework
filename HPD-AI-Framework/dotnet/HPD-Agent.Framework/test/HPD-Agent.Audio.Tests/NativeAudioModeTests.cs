@@ -722,14 +722,15 @@ public class NativeAudioModeTests
         public CapturingEventCoordinator(Action<AgentEvent> onEmit) => _onEmit = onEmit;
         public void Emit(Event evt) => _onEmit((AgentEvent)evt);
         public ValueTask EmitAsync(Event evt, CancellationToken ct = default) { Emit(evt); return ValueTask.CompletedTask; }
-        public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event => NoOpDisposable.Instance;
-        public IDisposable SubscribeAny(Func<Event, ValueTask> handler) => NoOpDisposable.Instance;
+        public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler, EventSubscriptionOptions? options = null) where TEvent : Event => NoOpDisposable.Instance;
+        public IDisposable SubscribeAny(Func<Event, ValueTask> handler, EventSubscriptionOptions? options = null) => NoOpDisposable.Instance;
+        public EventStreamSubscription<TEvent> SubscribeStream<TEvent>(EventSubscriptionOptions? options = null) where TEvent : Event => default;
+        public EventStreamSubscription<Event> SubscribeChannel(EventChannel channelName, EventSubscriptionOptions? options = null) => default;
         public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent => false;
         public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : struct, IStructEvent => ValueTask.CompletedTask;
         public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => NoOpDisposable.Instance;
         public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null) where TEvent : struct, IStructEvent => default;
         public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null) where TEvent : struct, IStructEvent => default;
-        public Task RunAsync(CancellationToken ct = default) => Task.CompletedTask;
         public void SetParent(IEventCoordinator parent) { }
         public Task<TResponse> WaitForResponseAsync<TResponse>(
             string requestId,
@@ -739,16 +740,7 @@ public class NativeAudioModeTests
         public void SendResponse(string requestId, Event response) { }
         public IStreamRegistry Streams { get; } = new NoOpStreamRegistry();
         public EventCoordinatorStats GetStats() => default;
-        public IAsyncEnumerable<Event> ReadStreamingAsync(CancellationToken ct = default) => EmptyAsync(ct);
-        public IAsyncEnumerable<Event> ReadSynchronousAsync(CancellationToken ct = default) => EmptyAsync(ct);
-        public IAsyncEnumerable<Event> ReadInteractiveAsync(CancellationToken ct = default) => EmptyAsync(ct);
-        public IAsyncEnumerable<Event> ReadControlAsync(CancellationToken ct = default) => EmptyAsync(ct);
         public IDisposable Subscribe(Action<AgentEvent> handler) => NoOpDisposable.Instance;
-        private static async IAsyncEnumerable<Event> EmptyAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
-        {
-            await Task.CompletedTask;
-            yield break;
-        }
         private sealed class NoOpDisposable : IDisposable
         {
             public static readonly NoOpDisposable Instance = new();

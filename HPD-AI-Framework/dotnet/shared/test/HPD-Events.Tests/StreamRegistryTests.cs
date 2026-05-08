@@ -1,5 +1,6 @@
 using HPD.Events;
 using HPD.Events.Core;
+using System.Threading.Channels;
 
 namespace HPD.Events.Tests;
 
@@ -205,14 +206,16 @@ public class StreamRegistryTests
         // Arrange
         var coordinator = new EventCoordinator();
         var handle = coordinator.Streams.BeginStream("stream-1");
+        await using var events = coordinator.SubscribeStream<TestEvent>();
+        await using var diagnostics = coordinator.SubscribeStream<EventDroppedEvent>();
 
         // Act
         coordinator.Emit(new TestEvent("before-interrupt") { StreamId = "stream-1" });
         handle.Interrupt();
         coordinator.Emit(new TestEvent("after-interrupt") { StreamId = "stream-1" });
 
-        var before = Assert.IsType<TestEvent>(await ReadOneAsync(coordinator.ReadSynchronousAsync()));
-        var droppedEvent = Assert.IsType<EventDroppedEvent>(await ReadOneAsync(coordinator.ReadControlAsync()));
+        var before = await ReadOneAsync(events.Reader);
+        var droppedEvent = await ReadOneAsync(diagnostics.Reader);
 
         // Assert - First event should be received, second dropped (with EventDroppedEvent emitted)
         Assert.Equal("before-interrupt", before.Message);
@@ -229,6 +232,7 @@ public class StreamRegistryTests
         // Arrange
         var coordinator = new EventCoordinator();
         var handle = coordinator.Streams.BeginStream("stream-1");
+        await using var events = coordinator.SubscribeStream<TestEvent>();
 
         // Act
         coordinator.Emit(new TestEvent("before-interrupt") { StreamId = "stream-1" });
@@ -238,12 +242,12 @@ public class StreamRegistryTests
             CanInterrupt = false // Critical event
         });
 
-        var results = await ReadManyAsync(coordinator.ReadSynchronousAsync(), 2);
+        var results = await ReadManyAsync(events.Reader, 2);
 
         // Assert - Both events should be received
         Assert.Equal(2, results.Count);
-        Assert.Equal("before-interrupt", ((TestEvent)results[0]).Message);
-        Assert.Equal("after-interrupt-critical", ((TestEvent)results[1]).Message);
+        Assert.Equal("before-interrupt", results[0].Message);
+        Assert.Equal("after-interrupt-critical", results[1].Message);
     }
 
     [Fact]
@@ -252,16 +256,17 @@ public class StreamRegistryTests
         // Arrange
         var coordinator = new EventCoordinator();
         var handle = coordinator.Streams.BeginStream("stream-1");
+        await using var events = coordinator.SubscribeStream<TestEvent>();
 
         // Act
         handle.Interrupt();
         coordinator.Emit(new TestEvent("no-stream-id")); // No StreamId
 
-        var result = await ReadOneAsync(coordinator.ReadSynchronousAsync());
+        var result = await ReadOneAsync(events.Reader);
 
         // Assert - Event should be received
         Assert.NotNull(result);
-        Assert.Equal("no-stream-id", ((TestEvent)result).Message);
+        Assert.Equal("no-stream-id", result.Message);
     }
 
     [Fact]
@@ -270,6 +275,8 @@ public class StreamRegistryTests
         // Arrange
         var coordinator = new EventCoordinator();
         var handle = coordinator.Streams.BeginStream("stream-1");
+        await using var events = coordinator.SubscribeStream<TestEvent>();
+        await using var diagnostics = coordinator.SubscribeStream<EventDroppedEvent>();
 
         // Act - Emit 5 events before interruption
         for (int i = 0; i < 5; i++)
@@ -289,8 +296,8 @@ public class StreamRegistryTests
         // Emit one critical event (CanInterrupt = false, should NOT be dropped)
         coordinator.Emit(new TestEvent("critical") { StreamId = "stream-1", CanInterrupt = false });
 
-        var testEvents = await ReadManyAsync(coordinator.ReadSynchronousAsync(), 6);
-        var droppedEvents = await ReadManyAsync(coordinator.ReadControlAsync(), 5);
+        var testEvents = await ReadManyAsync(events.Reader, 6);
+        var droppedEvents = await ReadManyAsync(diagnostics.Reader, 5);
 
         // Assert
         Assert.Equal(6, testEvents.Count); // 5 before + 1 critical
@@ -304,15 +311,16 @@ public class StreamRegistryTests
     {
         var coordinator = new EventCoordinator();
         var handle = coordinator.Streams.BeginStream("stream-1");
+        await using var events = coordinator.SubscribeStream<TestEvent>();
 
         coordinator.Emit(new TestEvent("before-complete") { StreamId = "stream-1" });
         handle.Complete();
         coordinator.Emit(new TestEvent("after-complete") { StreamId = "stream-1" });
 
-        var events = await ReadManyAsync(coordinator.ReadSynchronousAsync(), 2);
+        var received = await ReadManyAsync(events.Reader, 2);
 
         Assert.Null(coordinator.Streams.Get("stream-1"));
-        Assert.Equal(["before-complete", "after-complete"], events.Cast<TestEvent>().Select(static evt => evt.Message));
+        Assert.Equal(["before-complete", "after-complete"], received.Select(static evt => evt.Message));
     }
 
     [Fact]
@@ -320,11 +328,12 @@ public class StreamRegistryTests
     {
         var coordinator = new EventCoordinator();
         var handle = coordinator.Streams.BeginStream("stream-1");
+        await using var diagnostics = coordinator.SubscribeStream<EventDroppedEvent>();
 
         coordinator.Streams.InterruptStream("stream-1");
         coordinator.Emit(new TestEvent("after-interrupt") { StreamId = "stream-1" });
 
-        var dropped = Assert.IsType<EventDroppedEvent>(await ReadOneAsync(coordinator.ReadControlAsync()));
+        var dropped = await ReadOneAsync(diagnostics.Reader);
 
         Assert.Equal("stream-1", dropped.DroppedStreamId);
         Assert.Equal(1, handle.DroppedCount);
@@ -336,16 +345,17 @@ public class StreamRegistryTests
         var coordinator = new EventCoordinator();
         var handle1 = coordinator.Streams.BeginStream("stream-1");
         var handle2 = coordinator.Streams.BeginStream("stream-2");
+        await using var diagnostics = coordinator.SubscribeStream<EventDroppedEvent>();
 
         coordinator.Streams.InterruptAll();
 
         coordinator.Emit(new TestEvent("after-1") { StreamId = "stream-1" });
         coordinator.Emit(new TestEvent("after-2") { StreamId = "stream-2" });
 
-        var droppedEvents = await ReadManyAsync(coordinator.ReadControlAsync(), 2);
+        var droppedEvents = await ReadManyAsync(diagnostics.Reader, 2);
 
         Assert.Equal(0, coordinator.Streams.ActiveCount);
-        Assert.Equal(["stream-1", "stream-2"], droppedEvents.Cast<EventDroppedEvent>().Select(static evt => evt.DroppedStreamId));
+        Assert.Equal(["stream-1", "stream-2"], droppedEvents.Select(static evt => evt.DroppedStreamId));
         Assert.Equal(1, handle1.DroppedCount);
         Assert.Equal(1, handle2.DroppedCount);
     }
@@ -356,14 +366,16 @@ public class StreamRegistryTests
         var coordinator = new EventCoordinator();
         var handle1 = coordinator.Streams.BeginStream("stream-1");
         var handle2 = coordinator.Streams.BeginStream("stream-2");
+        await using var events = coordinator.SubscribeStream<TestEvent>();
+        await using var diagnostics = coordinator.SubscribeStream<EventDroppedEvent>();
 
         coordinator.Streams.InterruptWhere(stream => stream.StreamId == "stream-1");
 
         coordinator.Emit(new TestEvent("after-1") { StreamId = "stream-1" });
         coordinator.Emit(new TestEvent("after-2") { StreamId = "stream-2" });
 
-        var delivered = Assert.IsType<TestEvent>(await ReadOneAsync(coordinator.ReadSynchronousAsync()));
-        var dropped = Assert.IsType<EventDroppedEvent>(await ReadOneAsync(coordinator.ReadControlAsync()));
+        var delivered = await ReadOneAsync(events.Reader);
+        var dropped = await ReadOneAsync(diagnostics.Reader);
 
         Assert.Equal("after-2", delivered.Message);
         Assert.Equal("stream-1", dropped.DroppedStreamId);
@@ -421,26 +433,22 @@ public class StreamRegistryTests
         Assert.False(handle2.IsInterrupted);
     }
 
-    private static async Task<Event> ReadOneAsync(IAsyncEnumerable<Event> source)
+    private static async Task<TEvent> ReadOneAsync<TEvent>(ChannelReader<TEvent> reader)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
 
-        await foreach (var evt in source.WithCancellation(timeout.Token))
-            return evt;
-
-        throw new InvalidOperationException("No event was available.");
+        return await reader.ReadAsync(timeout.Token);
     }
 
-    private static async Task<List<Event>> ReadManyAsync(IAsyncEnumerable<Event> source, int count)
+    private static async Task<List<TEvent>> ReadManyAsync<TEvent>(ChannelReader<TEvent> reader, int count)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        var events = new List<Event>(count);
+        var events = new List<TEvent>(count);
 
-        await foreach (var evt in source.WithCancellation(timeout.Token))
+        while (events.Count < count)
         {
+            var evt = await reader.ReadAsync(timeout.Token);
             events.Add(evt);
-            if (events.Count == count)
-                break;
         }
 
         return events;

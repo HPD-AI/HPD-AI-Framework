@@ -29,7 +29,7 @@ namespace HPD.Agent;
 ///           .AddSource("HPD.Agent")
 ///           .AddOtlpExporter());
 /// </summary>
-public sealed class TracingObserver : IAgentEventObserver, IDisposable
+public sealed class TracingObserver : IDisposable
 {
     private readonly ActivitySource _source;
 
@@ -52,12 +52,11 @@ public sealed class TracingObserver : IAgentEventObserver, IDisposable
         _sanitizer = new SpanPayloadSanitizer(sanitizerOptions);
     }
 
-    // ── IAgentEventObserver ───────────────────────────────────────────────────
-
-    public bool ShouldProcess(AgentEvent evt) => evt.TraceId is not null;
-
-    public Task OnEventAsync(AgentEvent evt, CancellationToken cancellationToken)
+    public ValueTask HandleAsync(AgentEvent evt)
     {
+        if (evt.TraceId is null)
+            return ValueTask.CompletedTask;
+
         switch (evt)
         {
             // ── Root span ─────────────────────────────────────────────────────
@@ -136,7 +135,7 @@ public sealed class TracingObserver : IAgentEventObserver, IDisposable
                 break;
         }
 
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     // ── Span lifecycle ────────────────────────────────────────────────────────

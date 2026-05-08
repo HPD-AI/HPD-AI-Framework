@@ -6,7 +6,7 @@ namespace HPD.Agent;
 /// Observes agent events and emits structured logs via ILogger.
 /// Replaces AgentLoggingService with event-driven approach.
 /// </summary>
-public class LoggingEventObserver : IAgentEventObserver
+public class LoggingEventObserver
 {
     private readonly ILogger<LoggingEventObserver> _logger;
     private readonly bool _enableSensitiveData;
@@ -17,7 +17,7 @@ public class LoggingEventObserver : IAgentEventObserver
         _enableSensitiveData = enableSensitiveData;
     }
 
-    public Task OnEventAsync(AgentEvent evt, CancellationToken ct = default)
+    public ValueTask HandleAsync(AgentEvent evt)
     {
         switch (evt)
         {
@@ -317,6 +317,6 @@ public class LoggingEventObserver : IAgentEventObserver
                 break;
         }
 
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 }

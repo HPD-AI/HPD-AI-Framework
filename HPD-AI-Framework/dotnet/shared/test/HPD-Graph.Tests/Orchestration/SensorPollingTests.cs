@@ -1,4 +1,5 @@
 using FluentAssertions;
+using HPD.Events;
 using HPD.Events.Core;
 using HPD.Graph.Tests.Helpers;
 using HPDAgent.Graph.Abstractions.Events;
@@ -326,13 +327,13 @@ public class SensorPollingTests
         var orchestrator = new GraphOrchestrator<GraphContext>(services);
 
         var pollingEvents = new List<NodePollingEvent>();
+        await using var eventSubscription = coordinator.SubscribeChannel(EventChannel.Synchronous);
 
         // Act
         var execTask = Task.Run(async () => await orchestrator.ExecuteAsync(context));
-        await Task.Delay(100); // Give time for events
 
         // Collect events
-        await foreach (var evt in ReadSynchronousUntilTimeoutAsync(coordinator, TimeSpan.FromMilliseconds(500)))
+        await foreach (var evt in ReadSynchronousUntilTimeoutAsync(eventSubscription.Reader, TimeSpan.FromMilliseconds(500)))
         {
             if (evt is NodePollingEvent pollingEvt)
             {
@@ -373,12 +374,13 @@ public class SensorPollingTests
         var orchestrator = new GraphOrchestrator<GraphContext>(services);
 
         var timeoutEvents = new List<NodePollingTimeoutEvent>();
+        await using var eventSubscription = coordinator.SubscribeChannel(EventChannel.Synchronous);
 
         // Act
         var execTask = Task.Run(async () => await orchestrator.ExecuteAsync(context));
 
         // Collect events
-        await foreach (var evt in ReadSynchronousUntilTimeoutAsync(coordinator, TimeSpan.FromMilliseconds(2000)))
+        await foreach (var evt in ReadSynchronousUntilTimeoutAsync(eventSubscription.Reader, TimeSpan.FromMilliseconds(2000)))
         {
             if (evt is NodePollingTimeoutEvent timeoutEvt)
             {
@@ -419,12 +421,13 @@ public class SensorPollingTests
         var orchestrator = new GraphOrchestrator<GraphContext>(services);
 
         var maxRetriesEvents = new List<NodePollingMaxRetriesEvent>();
+        await using var eventSubscription = coordinator.SubscribeChannel(EventChannel.Synchronous);
 
         // Act
         var execTask = Task.Run(async () => await orchestrator.ExecuteAsync(context));
 
         // Collect events
-        await foreach (var evt in ReadSynchronousUntilTimeoutAsync(coordinator, TimeSpan.FromMilliseconds(2000)))
+        await foreach (var evt in ReadSynchronousUntilTimeoutAsync(eventSubscription.Reader, TimeSpan.FromMilliseconds(2000)))
         {
             if (evt is NodePollingMaxRetriesEvent maxRetryEvt)
             {
@@ -598,7 +601,7 @@ public class SensorPollingTests
     }
 
     private static async IAsyncEnumerable<HPD.Events.Event> ReadSynchronousUntilTimeoutAsync(
-        EventCoordinator coordinator,
+        System.Threading.Channels.ChannelReader<HPD.Events.Event> reader,
         TimeSpan timeout)
     {
         using var cts = new CancellationTokenSource(timeout);
@@ -606,7 +609,7 @@ public class SensorPollingTests
         IAsyncEnumerator<HPD.Events.Event>? enumerator = null;
         try
         {
-            enumerator = coordinator.ReadSynchronousAsync(cts.Token).GetAsyncEnumerator(cts.Token);
+            enumerator = reader.ReadAllAsync(cts.Token).GetAsyncEnumerator(cts.Token);
             while (true)
             {
                 bool hasNext;

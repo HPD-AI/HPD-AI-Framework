@@ -26,15 +26,14 @@ internal sealed record EvaluatorRegistration(
 
 /// <summary>
 /// Core middleware that wires the HPD evaluation system into the agent lifecycle.
-/// Implements both IAgentMiddleware (for before/after turn hooks) and
-/// IAgentEventObserver (for buffering timing and permission events).
+/// Implements middleware hooks and subscribes to agent events for buffering timing and permission events.
 ///
 /// Flow:
 ///   BeforeMessageTurnAsync → activate EvalContext, reset TurnEventBuffer
-///   OnEventAsync          → populate buffer (timestamps, permission denials)
+///   HandleAsync           → populate buffer (timestamps, permission denials)
 ///   AfterMessageTurnAsync → build TurnEvaluationContext, launch evaluators fire-and-forget
 /// </summary>
-public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
+public sealed class EvaluationMiddleware : IAgentMiddleware
 {
     private const int MaxStoredConversationResponseLength = 4000;
 
@@ -165,9 +164,9 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
         }
     }
 
-    // ── IAgentEventObserver ───────────────────────────────────────────────────
+    // ── Event subscription ────────────────────────────────────────────────────
 
-    public Task OnEventAsync(AgentEvent evt, CancellationToken ct = default)
+    public ValueTask HandleAsync(AgentEvent evt)
     {
         TurnEventBuffer? buffer = null;
         if (!string.IsNullOrWhiteSpace(evt.TraceId))
@@ -177,7 +176,7 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
 
         buffer ??= _buffer.Value;
         if (buffer is null)
-            return Task.CompletedTask;
+            return ValueTask.CompletedTask;
 
         switch (evt)
         {
@@ -210,7 +209,7 @@ public sealed class EvaluationMiddleware : IAgentMiddleware, IAgentEventObserver
                 break;
         }
 
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

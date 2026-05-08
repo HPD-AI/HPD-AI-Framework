@@ -189,20 +189,17 @@ public class ReplayConnectorTests
 
         public void Emit(Event evt) => EmittedEvents.Add(evt);
         public ValueTask EmitAsync(Event evt, CancellationToken ct = default) { Emit(evt); return ValueTask.CompletedTask; }
-        public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : Event => new NoopSubscription();
-        public IDisposable SubscribeAny(Func<Event, ValueTask> handler) => new NoopSubscription();
+        public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler, EventSubscriptionOptions? options = null) where TEvent : Event => new NoopSubscription();
+        public IDisposable SubscribeAny(Func<Event, ValueTask> handler, EventSubscriptionOptions? options = null) => new NoopSubscription();
+        public EventStreamSubscription<TEvent> SubscribeStream<TEvent>(EventSubscriptionOptions? options = null) where TEvent : Event => default;
+        public EventStreamSubscription<Event> SubscribeChannel(EventChannel channel, EventSubscriptionOptions? options = null) => default;
         public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent => false;
         public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : struct, IStructEvent => ValueTask.CompletedTask;
         public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => new NoopSubscription();
         public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null) where TEvent : struct, IStructEvent => default;
         public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null) where TEvent : struct, IStructEvent => default;
-        public Task RunAsync(CancellationToken ct = default) => Task.CompletedTask;
 
         public EventCoordinatorStats GetStats() => default;
-        public IAsyncEnumerable<Event> ReadStreamingAsync(CancellationToken ct = default) => EmptyAsync(ct);
-        public IAsyncEnumerable<Event> ReadSynchronousAsync(CancellationToken ct = default) => EmptyAsync(ct);
-        public IAsyncEnumerable<Event> ReadInteractiveAsync(CancellationToken ct = default) => EmptyAsync(ct);
-        public IAsyncEnumerable<Event> ReadControlAsync(CancellationToken ct = default) => EmptyAsync(ct);
 
         public void SetParent(IEventCoordinator parent) { }
 
@@ -215,12 +212,6 @@ public class ReplayConnectorTests
         public void SendResponse(string requestId, Event response) { }
 
         public IStreamRegistry Streams => throw new NotImplementedException();
-
-        private static async IAsyncEnumerable<Event> EmptyAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
-        {
-            await Task.CompletedTask;
-            yield break;
-        }
     }
 
     private sealed class NoopSubscription : IDisposable
