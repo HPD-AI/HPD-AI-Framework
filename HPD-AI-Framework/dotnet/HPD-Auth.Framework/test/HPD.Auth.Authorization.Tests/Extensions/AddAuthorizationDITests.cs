@@ -19,11 +19,6 @@ public class AddAuthorizationDITests
         var services = new ServiceCollection();
         services.AddLogging();
 
-        // Register stub implementations for services the scoped handlers depend on.
-        services.AddScoped<IAppPermissionService, StubAppPermissionService>();
-        services.AddScoped<ISubscriptionService, StubSubscriptionService>();
-        services.AddScoped<IFeatureFlagService, StubFeatureFlagService>();
-
         var builder = new StubHPDAuthBuilder(services);
         builder.AddAuthorization();
 
@@ -100,6 +95,32 @@ public class AddAuthorizationDITests
     }
 
     [Fact]
+    public async Task Optional_authorization_services_registered_as_safe_defaults()
+    {
+        var provider = BuildProvider();
+
+        using var scope = provider.CreateScope();
+
+        var appAccess = await scope.ServiceProvider.GetRequiredService<IAppPermissionService>()
+            .UserHasAppAccessAsync(Guid.NewGuid(), "app");
+        appAccess
+            .Should()
+            .BeFalse();
+
+        var subscription = await scope.ServiceProvider.GetRequiredService<ISubscriptionService>()
+            .GetUserSubscriptionAsync(Guid.NewGuid());
+        subscription
+            .Should()
+            .BeNull();
+
+        var featureEnabled = await scope.ServiceProvider.GetRequiredService<IFeatureFlagService>()
+            .IsEnabledAsync("feature", new FeatureContext("user", "free", []));
+        featureEnabled
+            .Should()
+            .BeFalse();
+    }
+
+    [Fact]
     public void IAuthorizationMiddlewareResultHandler_registered_as_HPDAuthorizationMiddlewareResultHandler()
     {
         var provider = BuildProvider();
@@ -121,6 +142,31 @@ public class AddAuthorizationDITests
         var service = provider.GetRequiredService<IRateLimitService>();
 
         service.Should().BeOfType<FakeRateLimitService>();
+    }
+
+    [Fact]
+    public void Custom_optional_authorization_services_override_defaults()
+    {
+        var provider = BuildProvider(services =>
+        {
+            services.AddScoped<IAppPermissionService, StubAppPermissionService>();
+            services.AddScoped<ISubscriptionService, StubSubscriptionService>();
+            services.AddScoped<IFeatureFlagService, StubFeatureFlagService>();
+        });
+
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetRequiredService<IAppPermissionService>()
+            .Should()
+            .BeOfType<StubAppPermissionService>();
+
+        scope.ServiceProvider.GetRequiredService<ISubscriptionService>()
+            .Should()
+            .BeOfType<StubSubscriptionService>();
+
+        scope.ServiceProvider.GetRequiredService<IFeatureFlagService>()
+            .Should()
+            .BeOfType<StubFeatureFlagService>();
     }
 
     [Fact]

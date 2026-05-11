@@ -1,6 +1,8 @@
 using System;
 using System.Text.RegularExpressions;
+using Azure;
 using HPD.Agent.ErrorHandling;
+using System.ClientModel;
 
 namespace HPD.Agent.Providers.AzureAI;
 
@@ -31,7 +33,6 @@ internal partial class AzureAIErrorHandler : IProviderErrorHandler
 
         var message = exception.Message;
 
-        // Try to get status code from the exception using duck typing (AOT-safe)
         int? status = ExtractStatusCodeFromException(exception);
 
         // Fallback to message parsing if we couldn't get it from the exception
@@ -64,20 +65,12 @@ internal partial class AzureAIErrorHandler : IProviderErrorHandler
 
     private static int? ExtractStatusCodeFromException(Exception exception)
     {
-        // Try to get Status property using dynamic (AOT-compatible when the type is known at compile time)
-        // This avoids reflection while still accessing the property
-        try
+        return exception switch
         {
-            // Both RequestFailedException and ClientResultException have a Status property of type int
-            // Using dynamic allows us to access it without reflection
-            dynamic ex = exception;
-            return (int)ex.Status;
-        }
-        catch
-        {
-            // If the property doesn't exist or can't be accessed, fall back to message parsing
-            return null;
-        }
+            RequestFailedException requestFailedException => requestFailedException.Status,
+            ClientResultException clientResultException => clientResultException.Status,
+            _ => null
+        };
     }
 
     private static int? ExtractStatusCodeFromMessage(string message)

@@ -26,7 +26,7 @@ public class ApplicationUser : IdentityUser<Guid>
     /// Used to scope tokens to specific apps within a tenant.
     /// Examples: "authenticated", "admin_portal", "mobile_app"
     /// </summary>
-    [MaxLength(50)]
+    [StringLength(50)]
     public string? Audience { get; set; }
 
     // ─────────────────────────────────────────────────────────────
@@ -65,19 +65,19 @@ public class ApplicationUser : IdentityUser<Guid>
     // ─────────────────────────────────────────────────────────────
 
     [PersonalData]
-    [MaxLength(100)]
+    [StringLength(100)]
     public string? FirstName { get; set; }
 
     [PersonalData]
-    [MaxLength(100)]
+    [StringLength(100)]
     public string? LastName { get; set; }
 
     [PersonalData]
-    [MaxLength(500)]
+    [StringLength(500)]
     public string? DisplayName { get; set; }
 
     [PersonalData]
-    [MaxLength(2048)]
+    [StringLength(2048)]
     public string? AvatarUrl { get; set; }
 
     // ─────────────────────────────────────────────────────────────
@@ -100,14 +100,14 @@ public class ApplicationUser : IdentityUser<Guid>
 
     public DateTime? LastLoginAt { get; set; }
 
-    [MaxLength(45)]
+    [StringLength(45)]
     public string? LastLoginIp { get; set; }
 
     // ─────────────────────────────────────────────────────────────
     // Subscription
     // ─────────────────────────────────────────────────────────────
 
-    [MaxLength(50)]
+    [StringLength(50)]
     public string SubscriptionTier { get; set; } = "free";
 
     // ─────────────────────────────────────────────────────────────

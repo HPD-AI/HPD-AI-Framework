@@ -55,10 +55,9 @@ public sealed class WhatsAppBotConfig
     public string UserName { get; set; } = "whatsapp-bot";
 
     /// <summary>
-    /// Optional HPD agent name for inbound WhatsApp messages. When omitted, the
-    /// default registered agent is used.
+    /// HPD agent ID for inbound WhatsApp messages.
     /// </summary>
-    public string? AgentName { get; set; }
+    public string? AgentId { get; set; }
 
     internal string ResolveAccessToken()
         => FirstNonWhiteSpace(AccessToken, Environment.GetEnvironmentVariable("WHATSAPP_ACCESS_TOKEN"))
@@ -83,6 +82,10 @@ public sealed class WhatsAppBotConfig
     internal string ResolveUserName()
         => FirstNonWhiteSpace(UserName, Environment.GetEnvironmentVariable("WHATSAPP_BOT_USERNAME"))
             ?? "whatsapp-bot";
+
+    internal string ResolveAgentId()
+        => FirstNonWhiteSpace(AgentId)
+            ?? throw new InvalidOperationException("WhatsAppBotConfig.AgentId is required.");
 
     internal string ResolveApiUrl()
         => (FirstNonWhiteSpace(ApiUrl, Environment.GetEnvironmentVariable("WHATSAPP_API_URL"))

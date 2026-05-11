@@ -15,7 +15,7 @@ namespace HPD.Agent.Bots.Slack;
 /// and the caller's own <c>privateMetadata</c> so both survive the platform round-trip
 /// without an external store.
 /// </remarks>
-public static class SlackModalConverter
+public static partial class SlackModalConverter
 {
     // ── Metadata encode / decode ───────────────────────────────────────────────
 
@@ -24,6 +24,9 @@ public static class SlackModalConverter
         [property: JsonPropertyName("m")] string? PrivateMetadata
     );
 
+    [JsonSerializable(typeof(MetadataEnvelope))]
+    private partial class SlackModalJsonContext : JsonSerializerContext;
+
     /// <summary>
     /// Encodes <paramref name="contextId"/> and <paramref name="privateMetadata"/>
     /// into a single Base64 string for Slack's <c>private_metadata</c> field.
@@ -31,7 +34,7 @@ public static class SlackModalConverter
     public static string EncodeMetadata(string? contextId, string? privateMetadata)
     {
         var envelope = new MetadataEnvelope(contextId, privateMetadata);
-        var json = JsonSerializer.Serialize(envelope);
+        var json = JsonSerializer.Serialize(envelope, SlackModalJsonContext.Default.MetadataEnvelope);
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
     }
 
@@ -47,7 +50,7 @@ public static class SlackModalConverter
         try
         {
             var json = Encoding.UTF8.GetString(Convert.FromBase64String(raw));
-            var envelope = JsonSerializer.Deserialize<MetadataEnvelope>(json);
+            var envelope = JsonSerializer.Deserialize(json, SlackModalJsonContext.Default.MetadataEnvelope);
             return (envelope?.ContextId, envelope?.PrivateMetadata);
         }
         catch

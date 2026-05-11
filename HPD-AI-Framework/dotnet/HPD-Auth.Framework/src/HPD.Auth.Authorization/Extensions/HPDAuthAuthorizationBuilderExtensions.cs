@@ -25,19 +25,19 @@ namespace HPD.Auth.Authorization.Extensions;
 /// </code>
 ///
 /// <para>
-/// <b>Service contracts that consuming applications must fulfil:</b>
+/// <b>Overrideable authorization services:</b>
 /// <list type="bullet">
 ///   <item>
 ///     <see cref="ISubscriptionService"/> — used by <see cref="SubscriptionTierHandler"/>
-///     as a fallback when JWT/cookie claims are stale.
+///     as a fallback when JWT/cookie claims are stale. Defaults to no subscription.
 ///   </item>
 ///   <item>
 ///     <see cref="IAppPermissionService"/> — used by <see cref="AppAccessHandler"/>
-///     to check app-level access.
+///     to check app-level access. Defaults to denying app access.
 ///   </item>
 ///   <item>
 ///     <see cref="IFeatureFlagService"/> — used by <see cref="FeatureFlagHandler"/>
-///     to evaluate feature flags.
+///     to evaluate feature flags. Defaults to all flags disabled.
 ///   </item>
 /// </list>
 /// </para>
@@ -46,9 +46,9 @@ namespace HPD.Auth.Authorization.Extensions;
 /// <b>Overrideable defaults:</b>
 /// <see cref="IRateLimitService"/> is registered as a singleton
 /// <see cref="InMemoryRateLimitService"/> for development convenience.
-/// Production callers should register a distributed implementation
-/// (e.g. Redis-backed) <b>after</b> this call; the later registration will
-/// override the in-memory default.
+/// Production callers can replace these defaults by registering their own
+/// implementations before or after this call; direct service resolution uses
+/// the last registration.
 /// </para>
 /// </remarks>
 public static class HPDAuthAuthorizationBuilderExtensions
@@ -75,9 +75,14 @@ public static class HPDAuthAuthorizationBuilderExtensions
         services.AddScoped<IAuthorizationHandler, RateLimitHandler>();
         services.AddScoped<IAuthorizationHandler, FeatureFlagHandler>();
 
-        // ── Rate-limit service (in-memory dev default) ───────────────────────
-        // TryAdd so that a production caller registering its own IRateLimitService
-        // before or after this call retains control.
+        // ── Overrideable service defaults ───────────────────────────────────
+        // ASP.NET Core resolves all registered IAuthorizationHandler instances
+        // when any authorization policy runs, including plain RequireAuthorization().
+        // These defaults keep optional handlers resolvable while still failing
+        // closed for app access, feature flags, and subscription fallbacks.
+        services.TryAddScoped<IAppPermissionService, DenyAllAppPermissionService>();
+        services.TryAddScoped<ISubscriptionService, EmptySubscriptionService>();
+        services.TryAddScoped<IFeatureFlagService, DisabledFeatureFlagService>();
         services.TryAddSingleton<IRateLimitService, InMemoryRateLimitService>();
 
         // ── Custom 401/403 JSON response handler ─────────────────────────────

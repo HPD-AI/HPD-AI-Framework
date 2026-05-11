@@ -7,7 +7,7 @@ namespace HPD.Agent.Bots.Slack.SocketMode;
 
 // ── Response types ─────────────────────────────────────────────────────────────
 
-file record ConnectionsOpenResponse(
+internal sealed record ConnectionsOpenResponse(
     [property: JsonPropertyName("ok")]    bool Ok,
     [property: JsonPropertyName("url")]   string? Url,
     [property: JsonPropertyName("error")] string? Error
@@ -26,9 +26,6 @@ public sealed class SlackSocketModeClient(
     IOptions<SlackBotConfig> options,
     IHttpClientFactory httpClientFactory)
 {
-    private static readonly JsonSerializerOptions _jsonOptions =
-        new() { PropertyNameCaseInsensitive = true };
-
     /// <summary>
     /// Calls <c>POST https://slack.com/api/apps.connections.open</c> with the AppToken
     /// and returns the one-time <c>wss://</c> URI.
@@ -52,7 +49,7 @@ public sealed class SlackSocketModeClient(
         response.EnsureSuccessStatusCode();
 
         var json = await response.Content.ReadAsStringAsync(ct);
-        var result = JsonSerializer.Deserialize<ConnectionsOpenResponse>(json, _jsonOptions)
+        var result = JsonSerializer.Deserialize(json, SlackSocketModeClientJsonContext.Default.ConnectionsOpenResponse)
             ?? throw new InvalidOperationException("apps.connections.open returned null response.");
 
         if (!result.Ok || result.Url is null)
@@ -70,3 +67,7 @@ public sealed class SlackSocketModeClient(
     public static ReadOnlyMemory<byte> BuildAckPayload(string envelopeId)
         => Encoding.UTF8.GetBytes($"{{\"envelope_id\":\"{envelopeId}\"}}");
 }
+
+[JsonSerializable(typeof(ConnectionsOpenResponse))]
+[JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true)]
+internal partial class SlackSocketModeClientJsonContext : JsonSerializerContext;

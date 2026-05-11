@@ -54,7 +54,7 @@ public class JsonSessionStore : ISessionStore
         lock (_lock)
         {
             var json = File.ReadAllText(sessionPath);
-            var session = JsonSerializer.Deserialize<Session>(json, SessionJsonContext.CombinedOptions);
+            var session = JsonSerializer.Deserialize(json, SessionJsonContext.Combined.Session);
             return Task.FromResult(session);
         }
     }
@@ -66,7 +66,7 @@ public class JsonSessionStore : ISessionStore
         ArgumentNullException.ThrowIfNull(session);
 
         var sessionPath = GetSessionFilePath(session.Id);
-        var json = JsonSerializer.Serialize(session, SessionJsonContext.CombinedOptions);
+        var json = JsonSerializer.Serialize(session, SessionJsonContext.Combined.Session);
 
         lock (_lock)
         {
@@ -125,7 +125,7 @@ public class JsonSessionStore : ISessionStore
         lock (_lock)
         {
             var json = File.ReadAllText(branchPath);
-            var branch = JsonSerializer.Deserialize<Branch>(json, SessionJsonContext.CombinedOptions);
+            var branch = JsonSerializer.Deserialize(json, SessionJsonContext.Combined.Branch);
             return Task.FromResult(branch);
         }
     }
@@ -139,7 +139,7 @@ public class JsonSessionStore : ISessionStore
         ArgumentNullException.ThrowIfNull(branch);
 
         var branchPath = GetBranchFilePath(sessionId, branch.Id);
-        var json = JsonSerializer.Serialize(branch, SessionJsonContext.CombinedOptions);
+        var json = JsonSerializer.Serialize(branch, SessionJsonContext.Combined.Branch);
 
         lock (_lock)
         {
@@ -205,7 +205,7 @@ public class JsonSessionStore : ISessionStore
         lock (_lock)
         {
             var json = File.ReadAllText(filePath);
-            var turn = JsonSerializer.Deserialize<UncommittedTurn>(json, SessionJsonContext.CombinedOptions);
+            var turn = JsonSerializer.Deserialize(json, SessionJsonContext.Combined.UncommittedTurn);
             return Task.FromResult(turn);
         }
     }
@@ -217,7 +217,7 @@ public class JsonSessionStore : ISessionStore
         ArgumentNullException.ThrowIfNull(turn);
 
         var filePath = GetUncommittedTurnFilePath(turn.SessionId);
-        var json = JsonSerializer.Serialize(turn, SessionJsonContext.CombinedOptions);
+        var json = JsonSerializer.Serialize(turn, SessionJsonContext.Combined.UncommittedTurn);
 
         lock (_lock)
         {

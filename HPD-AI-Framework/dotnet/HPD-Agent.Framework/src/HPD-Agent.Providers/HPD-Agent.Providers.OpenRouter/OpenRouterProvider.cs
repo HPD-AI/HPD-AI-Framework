@@ -74,7 +74,7 @@ internal class OpenRouterProvider : IProviderExtendedFeatures
                 ["SupportsProviderRouting"] = true,
                 ["SupportsPriceFiltering"] = true,
                 ["SupportsZeroDataRetention"] = true,
-                ["AttributionRequirements"] = "Include HttpReferer and AppName in AdditionalProperties for app rankings"
+                ["AttributionRequirements"] = "Set ProviderConfig.HttpReferer and ProviderConfig.AppName for app rankings"
             }
         };
     }
@@ -110,11 +110,8 @@ internal class OpenRouterProvider : IProviderExtendedFeatures
             ProviderKey = "openrouter",
             ApiKey = apiKey,
             ModelName = modelName,
-            AdditionalProperties = new Dictionary<string, object>
-            {
-                ["HttpReferer"] = appUrl,
-                ["AppName"] = appName
-            }
+            HttpReferer = appUrl,
+            AppName = appName
         };
     }
 
@@ -127,9 +124,8 @@ internal class OpenRouterProvider : IProviderExtendedFeatures
     /// <returns>The updated configuration.</returns>
     public static ProviderConfig WithAttribution(ProviderConfig config, string appUrl, string appName)
     {
-        config.AdditionalProperties ??= new Dictionary<string, object>();
-        config.AdditionalProperties["HttpReferer"] = appUrl;
-        config.AdditionalProperties["AppName"] = appName;
+        config.HttpReferer = appUrl;
+        config.AppName = appName;
         return config;
     }
 
@@ -207,37 +203,8 @@ internal class OpenRouterProvider : IProviderExtendedFeatures
     {
         var attribution = new AttributionInfo();
 
-        // Extract HTTP-Referer
-        if (config.AdditionalProperties?.TryGetValue("HttpReferer", out var refererObj) == true)
-        {
-            attribution.Referer = refererObj?.ToString() ?? string.Empty;
-        }
-        
-        // Also check for "Referer" variant (without HTTP- prefix)
-        if (string.IsNullOrEmpty(attribution.Referer) && 
-            config.AdditionalProperties?.TryGetValue("Referer", out var refererObj2) == true)
-        {
-            attribution.Referer = refererObj2?.ToString() ?? string.Empty;
-        }
-
-        // Extract X-Title / App Name
-        if (config.AdditionalProperties?.TryGetValue("AppName", out var appNameObj) == true)
-        {
-            attribution.Title = appNameObj?.ToString() ?? string.Empty;
-        }
-        
-        // Also check for "XTitle" or "Title" variants
-        if (string.IsNullOrEmpty(attribution.Title))
-        {
-            if (config.AdditionalProperties?.TryGetValue("XTitle", out var xTitleObj) == true)
-            {
-                attribution.Title = xTitleObj?.ToString() ?? string.Empty;
-            }
-            else if (config.AdditionalProperties?.TryGetValue("Title", out var titleObj) == true)
-            {
-                attribution.Title = titleObj?.ToString() ?? string.Empty;
-            }
-        }
+        attribution.Referer = config.HttpReferer ?? string.Empty;
+        attribution.Title = config.AppName ?? string.Empty;
 
         // Apply defaults and validation
         attribution.ApplyDefaults();

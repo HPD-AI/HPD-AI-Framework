@@ -26,6 +26,6 @@
 
   <ItemGroup>
     <!-- Using NuGet package with AnthropicSchemaFixingChatClient wrapper to fix schema bug -->
-    <PackageReference Include="Anthropic" Version="12.*" />
+    <PackageReference Include="Anthropic" Version="12.17.0" />
   </ItemGroup>
 </Project>

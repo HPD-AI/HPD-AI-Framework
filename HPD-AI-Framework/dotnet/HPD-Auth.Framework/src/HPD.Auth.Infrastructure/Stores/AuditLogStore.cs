@@ -1,6 +1,7 @@
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
 using HPD.Auth.Infrastructure.Data;
+using HPD.Auth.Infrastructure.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -157,7 +158,28 @@ public sealed class AuditLogStore : IAuditLogger
 
         try
         {
-            return JsonSerializer.Serialize(metadata);
+            if (metadata is JsonElement jsonElement)
+                return jsonElement.GetRawText();
+
+            if (metadata is Dictionary<string, string?> stringDictionary)
+            {
+                return JsonSerializer.Serialize(
+                    stringDictionary,
+                    HPDAuthInfrastructureJsonSerializerContext.Default.DictionaryStringString);
+            }
+
+            if (metadata is Dictionary<string, object?> objectDictionary)
+            {
+                var convertedDictionary = objectDictionary.ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value?.ToString());
+
+                return JsonSerializer.Serialize(
+                    convertedDictionary,
+                    HPDAuthInfrastructureJsonSerializerContext.Default.DictionaryStringString);
+            }
+
+            return "{}";
         }
         catch
         {

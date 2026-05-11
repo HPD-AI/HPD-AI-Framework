@@ -11,7 +11,7 @@ This release encompasses **32 commits** and represents a major evolution of the 
 - **Middleware & Harness Scoping**: Advanced middleware composition and harness-scoped execution
 - **Slack Socket Mode**: Real-time WebSocket support for Slack bots
 - **Adapter → Bot Terminology**: Alignment with modern bot/chatbot nomenclature
-- **Project Restructuring**: Monorepo reorganization with HPD-AI-Framework and HPD-OS separations
+- **Project Restructuring**: Repository reorganization under HPD-AI-Framework
 
 **Note**: This release contains several breaking changes, particularly around namespace reorganization, architecture refactoring, and API changes. See detailed sections below.
 
@@ -684,7 +684,7 @@ builder.Services.AddSlackBot(config);
 
 ---
 
-### 9. HPDOS & Repository Reorganization (Commit: 936a66a)
+### 9. Repository Reorganization (Commit: 936a66a)
 
 **Status**: MAJOR STRUCTURAL CHANGE
 
@@ -692,7 +692,6 @@ builder.Services.AddSlackBot(config);
 
 **New Project Structure**:
 - Created `HPD-AI-Framework/` directory containing all HPD-AI code
-- Separate `HPDOS/` framework alongside HPD-AI-Framework
 - Root-level `.claude/settings.json` added
 
 **File Reorganization**:
@@ -703,7 +702,6 @@ builder.Services.AddSlackBot(config);
   - `CHANGELOG.md`, `LICENSE`, `.gitignore`, `.gitmodules`, architecture SVGs
 
 **GitHub Workflows**:
-- New: `hpdos-release.yml` (151 lines)
 - Updated: `publish-nuget.yml` (454 lines modified)
 - Updated: `typescript-build-and-test.yml` (30 lines modified)
 - Updated: `publish-npm.yml` (26 lines modified)
@@ -718,7 +716,7 @@ builder.Services.AddSlackBot(config);
    - Git submodule paths may be affected
 
 2. **Monorepo Structure**:
-   - `HPD-AI-Framework` and other frameworks now coexist
+   - `HPD-AI-Framework` now contains the framework code previously located at the repository root
    - Integration points between frameworks unclear in documentation
 
 #### Impact on Existing Code
@@ -727,7 +725,7 @@ builder.Services.AddSlackBot(config);
 - **Build scripts**: CI/CD pipelines must update paths
 - **IDE solutions**: Project file paths require updating
 - **Documentation**: All file path references updated
-- **GitHub Actions**: New release workflow for HPDOS
+- **GitHub Actions**: Workflows updated for the reorganized repository layout
 
 ---
 
@@ -983,7 +981,6 @@ v0.4.0 Structure:
 │   │   └── test/
 │   ├── typescript/
 │   └── documentation/
-├── HPDOS/
 ├── HPD-Auth.Framework/
 └── .claude/settings.json
 ```
@@ -1045,9 +1042,8 @@ New SVG visualizations added:
 ### From Release Analysis
 
 1. **Incomplete Documentation**: HPD-Auth and HPD-ML frameworks have minimal documentation
-2. **HPDOS Integration**: Relationship between HPD-AI-Framework and HPDOS unclear
-3. **RAG Providers**: Some embedding/reranker providers may have limited testing
-4. **Backward Compatibility**: Significant breaking changes require full migration
+2. **RAG Providers**: Some embedding/reranker providers may have limited testing
+3. **Backward Compatibility**: Significant breaking changes require full migration
 
 ### Recommended Pre-Deployment Checks
 

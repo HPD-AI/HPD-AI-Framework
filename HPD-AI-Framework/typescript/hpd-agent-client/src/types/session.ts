@@ -233,7 +233,7 @@ export interface CreateBranchRequest {
   /** Optional tags */
   tags?: string[];
 
-  /** Agent definition ID to associate with this branch (defaults to "default") */
+  /** Agent definition ID used in the route for agent-scoped branch creation */
   agentId?: string;
 }
 
@@ -256,7 +256,7 @@ export interface ForkBranchRequest {
   /** Optional tags */
   tags?: string[];
 
-  /** Agent definition ID to associate with the forked branch (defaults to "default") */
+  /** Agent definition ID used in the route for agent-scoped branch forking */
   agentId?: string;
 }
 

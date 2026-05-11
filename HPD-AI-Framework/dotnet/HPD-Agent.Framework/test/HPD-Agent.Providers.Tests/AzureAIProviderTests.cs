@@ -54,7 +54,7 @@ public class AzureAIProviderTests
         {
             UseDefaultAzureCredential = true
         };
-        config.SetTypedProviderConfig(azureConfig);
+        config.SetProviderConfig(azureConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -137,7 +137,7 @@ public class AzureAIProviderTests
         {
             Temperature = 2.5f // Invalid: must be <= 2.0
         };
-        config.SetTypedProviderConfig(azureConfig);
+        config.SetProviderConfig(azureConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -163,7 +163,7 @@ public class AzureAIProviderTests
         {
             Temperature = -0.1f // Invalid: must be >= 0
         };
-        config.SetTypedProviderConfig(azureConfig);
+        config.SetProviderConfig(azureConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -189,7 +189,7 @@ public class AzureAIProviderTests
         {
             Temperature = 1.5f // Valid for new provider (was invalid for old provider)
         };
-        config.SetTypedProviderConfig(azureConfig);
+        config.SetProviderConfig(azureConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -215,7 +215,7 @@ public class AzureAIProviderTests
         {
             TopP = -0.1f // Invalid: must be >= 0
         };
-        config.SetTypedProviderConfig(azureConfig);
+        config.SetProviderConfig(azureConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -241,7 +241,7 @@ public class AzureAIProviderTests
         {
             FrequencyPenalty = 3.0f // Invalid: must be <= 2.0
         };
-        config.SetTypedProviderConfig(azureConfig);
+        config.SetProviderConfig(azureConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -267,7 +267,7 @@ public class AzureAIProviderTests
         {
             PresencePenalty = -3.0f // Invalid: must be >= -2.0
         };
-        config.SetTypedProviderConfig(azureConfig);
+        config.SetProviderConfig(azureConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -293,7 +293,7 @@ public class AzureAIProviderTests
         {
             ResponseFormat = "invalid_format"
         };
-        config.SetTypedProviderConfig(azureConfig);
+        config.SetProviderConfig(azureConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -321,7 +321,7 @@ public class AzureAIProviderTests
             JsonSchema = "{\"type\":\"object\"}"
             // Missing JsonSchemaName
         };
-        config.SetTypedProviderConfig(azureConfig);
+        config.SetProviderConfig(azureConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -349,7 +349,7 @@ public class AzureAIProviderTests
             JsonSchemaName = "test_schema"
             // Missing JsonSchema
         };
-        config.SetTypedProviderConfig(azureConfig);
+        config.SetProviderConfig(azureConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -375,7 +375,7 @@ public class AzureAIProviderTests
         {
             ToolChoice = "invalid_choice"
         };
-        config.SetTypedProviderConfig(azureConfig);
+        config.SetProviderConfig(azureConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -408,7 +408,7 @@ public class AzureAIProviderTests
             ResponseFormat = "json_object",
             ToolChoice = "auto"
         };
-        config.SetTypedProviderConfig(azureConfig);
+        config.SetProviderConfig(azureConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -627,7 +627,7 @@ public class AzureAIProviderTests
             TopP = 0.9f,
             Seed = 12345
         };
-        config.Provider.SetTypedProviderConfig(azureOpts);
+        config.Provider.SetProviderConfig(azureOpts);
 
         // Act
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
@@ -680,7 +680,7 @@ public class AzureAIProviderTests
         config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
 
         // Verify typed config can be retrieved
-        var azureConfig = config.Provider.GetTypedProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = config.Provider.GetProviderConfig<AzureAIProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.MaxTokens.Should().Be(4096);
         azureConfig.Temperature.Should().Be(0.7f);
@@ -718,7 +718,7 @@ public class AzureAIProviderTests
             StopSequences = new List<string> { "STOP", "END" },
             UseDefaultAzureCredential = true
         };
-        originalConfig.Provider.SetTypedProviderConfig(originalAzureOpts);
+        originalConfig.Provider.SetProviderConfig(originalAzureOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(originalConfig, HPDJsonContext.Default.AgentConfig);
@@ -737,7 +737,7 @@ public class AzureAIProviderTests
         deserializedConfig.Provider.Endpoint.Should().Be("https://test.services.ai.azure.com/api/projects/test-project");
 
         // Assert - Azure-specific config
-        var deserializedAzureOpts = deserializedConfig.Provider.GetTypedProviderConfig<AzureAIProviderConfig>();
+        var deserializedAzureOpts = deserializedConfig.Provider.GetProviderConfig<AzureAIProviderConfig>();
         deserializedAzureOpts.Should().NotBeNull();
         deserializedAzureOpts!.MaxTokens.Should().Be(4096);
         deserializedAzureOpts.Temperature.Should().Be(1.5f);
@@ -754,7 +754,7 @@ public class AzureAIProviderTests
     }
 
     [Fact]
-    public void AgentConfig_SetTypedProviderConfig_ShouldUpdateProviderOptionsJson()
+    public void AgentConfig_SetProviderConfig_ShouldUpdateProviderOptionsJson()
     {
         // Arrange
         var config = new AgentConfig
@@ -772,7 +772,7 @@ public class AzureAIProviderTests
             MaxTokens = 4096,
             Temperature = 0.5f
         };
-        config.Provider.SetTypedProviderConfig(azureOpts);
+        config.Provider.SetProviderConfig(azureOpts);
 
         // Assert - ProviderOptionsJson should be populated
         config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
@@ -782,14 +782,14 @@ public class AzureAIProviderTests
         config.Provider.ProviderOptionsJson.Should().Contain("0.5");
 
         // Verify we can retrieve it back
-        var retrieved = config.Provider.GetTypedProviderConfig<AzureAIProviderConfig>();
+        var retrieved = config.Provider.GetProviderConfig<AzureAIProviderConfig>();
         retrieved.Should().NotBeNull();
         retrieved!.MaxTokens.Should().Be(4096);
         retrieved.Temperature.Should().Be(0.5f);
     }
 
     [Fact]
-    public void AgentConfig_GetTypedProviderConfig_ShouldCacheResult()
+    public void AgentConfig_GetProviderConfig_ShouldCacheResult()
     {
         // Arrange
         var config = new AgentConfig
@@ -806,11 +806,11 @@ public class AzureAIProviderTests
             MaxTokens = 4096,
             Temperature = 0.7f
         };
-        config.Provider.SetTypedProviderConfig(azureOpts);
+        config.Provider.SetProviderConfig(azureOpts);
 
-        // Act - Call GetTypedProviderConfig multiple times
-        var first = config.Provider.GetTypedProviderConfig<AzureAIProviderConfig>();
-        var second = config.Provider.GetTypedProviderConfig<AzureAIProviderConfig>();
+        // Act - Call GetProviderConfig multiple times
+        var first = config.Provider.GetProviderConfig<AzureAIProviderConfig>();
+        var second = config.Provider.GetProviderConfig<AzureAIProviderConfig>();
 
         // Assert - Should return the same cached instance
         first.Should().BeSameAs(second);
@@ -836,14 +836,14 @@ public class AzureAIProviderTests
             MaxTokens = 4096
             // Leave Temperature, TopP, etc. as null
         };
-        config.Provider.SetTypedProviderConfig(azureOpts);
+        config.Provider.SetProviderConfig(azureOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
         var deserialized = System.Text.Json.JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentConfig);
 
         // Assert
-        var deserializedOpts = deserialized!.Provider.GetTypedProviderConfig<AzureAIProviderConfig>();
+        var deserializedOpts = deserialized!.Provider.GetProviderConfig<AzureAIProviderConfig>();
         deserializedOpts.Should().NotBeNull();
         deserializedOpts!.MaxTokens.Should().Be(4096);
         deserializedOpts.Temperature.Should().BeNull();
@@ -882,7 +882,7 @@ public class AzureAIProviderTests
         builder.Config.Provider.Endpoint.Should().Be("https://test.openai.azure.com");
         builder.Config.Provider.ApiKey.Should().Be("test-api-key");
 
-        var azureConfig = builder.Config.Provider.GetTypedProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = builder.Config.Provider.GetProviderConfig<AzureAIProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.MaxTokens.Should().Be(4096);
         azureConfig.Temperature.Should().Be(0.7f);
@@ -909,7 +909,7 @@ public class AzureAIProviderTests
         // ApiKey should be null (will use OAuth via DefaultAzureCredential)
         builder.Config.Provider.ApiKey.Should().BeNull();
 
-        var azureConfig = builder.Config.Provider.GetTypedProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = builder.Config.Provider.GetProviderConfig<AzureAIProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.UseDefaultAzureCredential.Should().BeTrue();
     }
@@ -934,7 +934,7 @@ public class AzureAIProviderTests
             });
 
         // Assert
-        var azureConfig = builder.Config.Provider!.GetTypedProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = builder.Config.Provider!.GetProviderConfig<AzureAIProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.ResponseFormat.Should().Be("json_schema");
         azureConfig.JsonSchemaName.Should().Be("UserInfo");
@@ -943,7 +943,7 @@ public class AzureAIProviderTests
     }
 
     [Fact]
-    public void WithAzureAI_WithClientFactory_ShouldStoreInAdditionalProperties()
+    public void WithAzureAI_WithClientFactory_ShouldStoreClientFactory()
     {
         // Arrange
         var builder = new AgentBuilder();
@@ -963,9 +963,7 @@ public class AzureAIProviderTests
 
         // Assert
         builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.AdditionalProperties.Should().NotBeNull();
-        builder.Config.Provider.AdditionalProperties.Should().ContainKey("ClientFactory");
-        builder.Config.Provider.AdditionalProperties!["ClientFactory"].Should().BeSameAs(clientFactory);
+        builder.Config.Provider!.ClientFactory.Should().BeSameAs(clientFactory);
     }
 
     [Fact]
@@ -1095,7 +1093,7 @@ public class AzureAIProviderTests
             configure: opts => opts.Temperature = 1.5f);
 
         // Assert
-        var azureConfig = builder.Config.Provider!.GetTypedProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = builder.Config.Provider!.GetProviderConfig<AzureAIProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.Temperature.Should().Be(1.5f);
     }
@@ -1254,7 +1252,7 @@ public class AzureAIProviderTests
             });
 
         // Assert
-        var azureConfig = builder.Config.Provider!.GetTypedProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = builder.Config.Provider!.GetProviderConfig<AzureAIProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.MaxTokens.Should().Be(4096);
         azureConfig.Temperature.Should().Be(0.7f);

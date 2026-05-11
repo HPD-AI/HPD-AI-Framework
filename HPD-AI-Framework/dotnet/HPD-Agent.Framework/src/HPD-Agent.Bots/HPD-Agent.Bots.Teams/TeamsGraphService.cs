@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 
 namespace HPD.Agent.Bots.Teams;
 
-public sealed partial class TeamsGraphService(GraphServiceClient? graphClient = null)
+public sealed partial class TeamsGraphService(GraphServiceClient? graphClient = null) : ITeamsHistoryService
 {
     private readonly GraphServiceClient? _graphClient = graphClient;
 

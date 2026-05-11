@@ -17,14 +17,14 @@
     <IsPackable>true</IsPackable>
     <PackageId>HPD-Agent.Bots.Teams</PackageId>
     <Description>Microsoft Teams bot bridge for HPD agents using the Microsoft 365 Agents SDK.</Description>
-    <PackageTags>ai;agent;bots;teams;microsoft365;adaptive-cards</PackageTags>
+    <PackageTags>ai;agent;bots;teams;microsoft365</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent.Bots.Abstractions/HPD-Agent.Bots.Abstractions.csproj" />
     <ProjectReference Include="../HPD-Agent.Bots.AspNetCore/HPD-Agent.Bots.AspNetCore.csproj" />
     <ProjectReference Include="../../HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
-    <ProjectReference Include="../HPD-Agent.Bots.SourceGenerator/HPD-Agent.Bots.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../HPD-Agent.Bots.SourceGenerator/HPD-Agent.Bots.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier" AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
   </ItemGroup>
 
   <ItemGroup>
@@ -32,8 +32,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="AdaptiveCards" Version="3.1.*" />
-    <PackageReference Include="Azure.Identity" Version="1.*" />
     <PackageReference Include="Microsoft.Agents.Authentication.Msal" Version="1.5.*" />
     <PackageReference Include="Microsoft.Agents.Hosting.AspNetCore" Version="1.5.*" />
     <PackageReference Include="Microsoft.Graph" Version="5.*" />

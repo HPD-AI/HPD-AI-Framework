@@ -252,7 +252,9 @@ namespace HPD.Agent.TextExtraction
             return services;
         }
 
-        public static IServiceCollection AddTextExtractionWithOcr<TOcrEngine>(
+        public static IServiceCollection AddTextExtractionWithOcr<
+            [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicConstructors)]
+            TOcrEngine>(
             this IServiceCollection services)
             where TOcrEngine : class, IOcrEngine
         {

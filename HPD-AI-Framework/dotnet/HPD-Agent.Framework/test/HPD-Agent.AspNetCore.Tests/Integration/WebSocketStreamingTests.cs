@@ -13,7 +13,7 @@ namespace HPD.Agent.AspNetCore.Tests.Integration;
 
 /// <summary>
 /// Integration tests for WebSocket streaming endpoint.
-/// Tests: GET /sessions/{sid}/branches/{bid}/ws
+/// Tests: GET /agents/{agentId}/sessions/{sid}/branches/{bid}/ws
 /// </summary>
 public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 {
@@ -97,7 +97,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
             ?? throw new InvalidOperationException("CreateAgent returned null DTO.");
     }
 
-    #region GET /sessions/{sid}/branches/{bid}/ws
+    #region GET /agents/{agentId}/sessions/{sid}/branches/{bid}/ws
 
     [Fact]
     public async Task StreamWs_EstablishesWebSocketConnection()
@@ -108,7 +108,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
             CancellationToken.None);
 
         // Assert
@@ -124,7 +124,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
             CancellationToken.None);
 
         // Send an agent input event envelope
@@ -149,7 +149,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
             CancellationToken.None);
 
         // Act - Send message
@@ -170,7 +170,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
             CancellationToken.None);
 
         var bytes = Encoding.UTF8.GetBytes("{\"type\":\"NOT_AN_AGENT_INPUT\",\"text\":\"Hello\"}");
@@ -196,7 +196,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
             CancellationToken.None);
 
         // Act
@@ -225,7 +225,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
             CancellationToken.None);
 
         // Act
@@ -247,7 +247,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task StreamWs_UsesAgentIdFromInputEvent()
+    public async Task StreamWs_UsesAgentIdFromRoute()
     {
         // Arrange
         var sessionId = await CreateTestSession();
@@ -255,11 +255,11 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/{customAgent.Id}/sessions/{sessionId}/branches/main/ws"),
             CancellationToken.None);
 
         // Act
-        await SendJsonAsync(ws, CreateInputJson("hello custom", customAgent.Id));
+        await SendJsonAsync(ws, CreateInputJson("hello custom", "ignored-agent-id"));
         using var started = await ReceiveUntilTypeAsync(ws, "MESSAGE_TURN_STARTED");
 
         // Assert
@@ -278,7 +278,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         // Connect first WebSocket
         var ws1 = await wsClient1.ConnectAsync(
-            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
             CancellationToken.None);
 
         // Act - Try to connect second WebSocket to same branch
@@ -286,7 +286,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var exception = await Record.ExceptionAsync(async () =>
         {
             var ws2 = await wsClient2.ConnectAsync(
-                new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+                new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
                 CancellationToken.None);
         });
 
@@ -303,7 +303,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
             CancellationToken.None);
 
         // Act - Close the WebSocket
@@ -324,7 +324,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         // Act - Connect and then cancel
         var connectTask = wsClient.ConnectAsync(
-            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
             cts.Token);
 
         await Task.Delay(50);
@@ -344,7 +344,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
             CancellationToken.None);
 
         // Act
@@ -362,7 +362,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var wsClient1 = _factory.Server.CreateWebSocketClient();
 
         var ws1 = await wsClient1.ConnectAsync(
-            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
             CancellationToken.None);
 
         await ws1.CloseAsync(WebSocketCloseStatus.NormalClosure, "Done", CancellationToken.None);
@@ -370,7 +370,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         // Act - Try to connect again (should succeed if lock released)
         var wsClient2 = _factory.Server.CreateWebSocketClient();
         var ws2 = await wsClient2.ConnectAsync(
-            new Uri($"ws://localhost/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
             CancellationToken.None);
 
         // Assert
@@ -389,7 +389,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var exception = await Record.ExceptionAsync(async () =>
         {
             await wsClient.ConnectAsync(
-                new Uri("ws://localhost/sessions/nonexistent/branches/main/ws"),
+                new Uri("ws://localhost/agents/test-agent/sessions/nonexistent/branches/main/ws"),
                 CancellationToken.None);
         });
 
@@ -407,7 +407,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var exception = await Record.ExceptionAsync(async () =>
         {
             await wsClient.ConnectAsync(
-                new Uri($"ws://localhost/sessions/{sessionId}/branches/nonexistent/ws"),
+                new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/nonexistent/ws"),
                 CancellationToken.None);
         });
 

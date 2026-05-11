@@ -56,8 +56,8 @@ public sealed class SlackSocketModeService(
             SlackSocketEnvelope? envelope;
             try
             {
-                envelope = JsonSerializer.Deserialize<SlackSocketEnvelope>(
-                    json, SlackBotJsonContext.Default.Options);
+                envelope = JsonSerializer.Deserialize(
+                    json, SlackBotJsonContext.Default.SlackSocketEnvelope);
             }
             catch (JsonException ex)
             {

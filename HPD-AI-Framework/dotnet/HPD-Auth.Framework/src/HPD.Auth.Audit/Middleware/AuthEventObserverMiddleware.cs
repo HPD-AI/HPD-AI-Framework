@@ -32,16 +32,21 @@ public sealed class AuthEventObserverMiddleware
     public async Task InvokeAsync(HttpContext context)
     {
         var coordinator = context.RequestServices.GetService<IEventCoordinator>();
-        var observer = context.RequestServices.GetService<AuditingAuthObserver>();
+        var scopeFactory = context.RequestServices.GetService<IServiceScopeFactory>();
 
-        if (coordinator is null || observer is null)
+        if (coordinator is null || scopeFactory is null)
         {
             await _next(context);
             return;
         }
 
         using var eventSubscription = coordinator.Subscribe<AuthEvent>(
-            authEvent => observer.HandleAsync(authEvent, context.RequestAborted));
+            async authEvent =>
+            {
+                using var scope = scopeFactory.CreateScope();
+                var observer = scope.ServiceProvider.GetRequiredService<AuditingAuthObserver>();
+                await observer.HandleAsync(authEvent, context.RequestAborted);
+            });
 
         await _next(context);
     }

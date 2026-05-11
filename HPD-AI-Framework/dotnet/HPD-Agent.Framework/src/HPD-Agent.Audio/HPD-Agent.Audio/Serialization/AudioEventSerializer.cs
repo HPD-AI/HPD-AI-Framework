@@ -3,6 +3,9 @@
 
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using HPD.Agent.Audio.Output;
+using HPD.Agent.Audio.Recognition;
+using HPD.Agent.Audio.Turn;
 
 namespace HPD.Agent.Audio.Serialization;
 
@@ -43,6 +46,35 @@ public static partial class AudioEventSerializer
         [typeof(TranscriptionDeltaEvent)] = AudioEventTypes.Transcription.TRANSCRIPTION_DELTA,
         [typeof(TranscriptionCompletedEvent)] = AudioEventTypes.Transcription.TRANSCRIPTION_COMPLETED,
 
+        // Speech Recognition Events
+        [typeof(SpeechRecognitionStartedEvent)] = AudioEventTypes.Recognition.SPEECH_RECOGNITION_STARTED,
+        [typeof(SpeechRecognitionInterimEvent)] = AudioEventTypes.Recognition.SPEECH_RECOGNITION_INTERIM,
+        [typeof(SpeechRecognitionPreflightEvent)] = AudioEventTypes.Recognition.SPEECH_RECOGNITION_PREFLIGHT,
+        [typeof(SpeechRecognitionFinalEvent)] = AudioEventTypes.Recognition.SPEECH_RECOGNITION_FINAL,
+        [typeof(SpeechRecognitionUsageEvent)] = AudioEventTypes.Recognition.SPEECH_RECOGNITION_USAGE,
+        [typeof(SpeechRecognitionEndedEvent)] = AudioEventTypes.Recognition.SPEECH_RECOGNITION_ENDED,
+        [typeof(SpeechRecognitionErrorEvent)] = AudioEventTypes.Recognition.SPEECH_RECOGNITION_ERROR,
+
+        // Speech Output Events
+        [typeof(SpeechOutputStartedEvent)] = AudioEventTypes.Output.SPEECH_OUTPUT_STARTED,
+        [typeof(SpeechOutputTextQueuedEvent)] = AudioEventTypes.Output.SPEECH_OUTPUT_TEXT_QUEUED,
+        [typeof(SpeechOutputAudioQueuedEvent)] = AudioEventTypes.Output.SPEECH_OUTPUT_AUDIO_QUEUED,
+        [typeof(SpeechOutputPlaybackStartedEvent)] = AudioEventTypes.Output.SPEECH_OUTPUT_PLAYBACK_STARTED,
+        [typeof(SpeechOutputPlaybackProgressEvent)] = AudioEventTypes.Output.SPEECH_OUTPUT_PLAYBACK_PROGRESS,
+        [typeof(SpeechOutputPlaybackFinishedEvent)] = AudioEventTypes.Output.SPEECH_OUTPUT_PLAYBACK_FINISHED,
+        [typeof(SpeechOutputPausedEvent)] = AudioEventTypes.Output.SPEECH_OUTPUT_PAUSED,
+        [typeof(SpeechOutputResumedEvent)] = AudioEventTypes.Output.SPEECH_OUTPUT_RESUMED,
+        [typeof(SpeechOutputInterruptedEvent)] = AudioEventTypes.Output.SPEECH_OUTPUT_INTERRUPTED,
+        [typeof(SpeechOutputCompletedEvent)] = AudioEventTypes.Output.SPEECH_OUTPUT_COMPLETED,
+        [typeof(SpeechOutputErrorEvent)] = AudioEventTypes.Output.SPEECH_OUTPUT_ERROR,
+
+        // User Turn Events
+        [typeof(UserTurnStartedEvent)] = AudioEventTypes.Turn.USER_TURN_STARTED,
+        [typeof(UserTurnUpdatedEvent)] = AudioEventTypes.Turn.USER_TURN_UPDATED,
+        [typeof(UserTurnReadyEvent)] = AudioEventTypes.Turn.USER_TURN_READY,
+        [typeof(UserTurnCommittedEvent)] = AudioEventTypes.Turn.USER_TURN_COMMITTED,
+        [typeof(UserTurnCancelledEvent)] = AudioEventTypes.Turn.USER_TURN_CANCELLED,
+
         // Interruption Events
         [typeof(UserInterruptedEvent)] = AudioEventTypes.Interruption.USER_INTERRUPTED,
         [typeof(SpeechPausedEvent)] = AudioEventTypes.Interruption.SPEECH_PAUSED,
@@ -58,6 +90,7 @@ public static partial class AudioEventSerializer
 
         // Metrics Events
         [typeof(AudioPipelineMetricsEvent)] = AudioEventTypes.Metrics.AUDIO_PIPELINE_METRICS,
+        [typeof(AudioExperienceMetricEvent)] = AudioEventTypes.Metrics.AUDIO_EXPERIENCE_METRIC,
 
         // EOT Events
         [typeof(EotDetectedEvent)] = AudioEventTypes.Eot.EOT_DETECTED,

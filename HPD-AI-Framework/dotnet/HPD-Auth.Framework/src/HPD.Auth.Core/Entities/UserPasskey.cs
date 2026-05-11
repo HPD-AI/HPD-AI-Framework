@@ -20,7 +20,7 @@ public class UserPasskey
     /// <summary>
     /// FIDO2 credential ID (base64url-encoded).
     /// </summary>
-    [MaxLength(1024)]
+    [StringLength(1024)]
     public string CredentialId { get; set; } = string.Empty;
 
     /// <summary>
@@ -41,7 +41,7 @@ public class UserPasskey
     /// <summary>
     /// User-supplied name for this passkey (e.g., "Touch ID on MacBook Pro").
     /// </summary>
-    [MaxLength(200)]
+    [StringLength(200)]
     public string? Name { get; set; }
 
     /// <summary>

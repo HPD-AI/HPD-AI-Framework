@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 using HPD.Events;
+using HPD.Agent.Audio.Preemptive;
 
 namespace HPD.Agent.Audio;
 
@@ -64,10 +65,14 @@ public readonly record struct AudioInputFrame(
     long TimestampNs,
     bool IsFinal,
     long SequenceNumber = 0
-) : IStructEvent
+) : IStructEvent, ISequencedStructEvent<AudioInputFrame>
 {
     /// <inheritdoc />
     public EventKind Kind => EventKind.Content;
+
+    /// <inheritdoc />
+    public AudioInputFrame WithSequenceNumber(long sequenceNumber) =>
+        this with { SequenceNumber = sequenceNumber };
 }
 
 /// <summary>
@@ -137,18 +142,40 @@ public record SpeechResumedEvent(
 /// <summary>
 /// Emitted when preemptive LLM generation starts before EOT is confirmed.
 /// </summary>
-public record PreemptiveGenerationStartedEvent(
-    string GenerationId,
-    float EndOfTurnProbability
-) : AgentEvent;
+public sealed record PreemptiveGenerationStartedEvent(
+    PreemptiveGenerationCandidate Candidate
+) : AgentEvent
+{
+    /// <summary>Candidate generation id.</summary>
+    public string GenerationId => Candidate.GenerationId;
+
+    /// <summary>Candidate confidence, retained as the old EOT probability projection.</summary>
+    public float EndOfTurnProbability => Candidate.Confidence;
+
+    /// <inheritdoc />
+    public override EventChannel Channel => EventChannel.Streaming;
+}
 
 /// <summary>
 /// Emitted when preemptive generation is discarded (user continued speaking).
 /// </summary>
-public record PreemptiveGenerationDiscardedEvent(
+public sealed record PreemptiveGenerationDiscardedEvent(
     string GenerationId,
-    string Reason  // "user_continued", "low_confidence"
-) : AgentEvent;
+    string Reason
+) : AgentEvent
+{
+    /// <summary>Recognition id that produced the discarded candidate.</summary>
+    public string? RecognitionId { get; init; }
+
+    /// <summary>Utterance id that produced the discarded candidate.</summary>
+    public string? UtteranceId { get; init; }
+
+    /// <summary>Transcript revision that produced the discarded candidate.</summary>
+    public string? TranscriptRevisionId { get; init; }
+
+    /// <inheritdoc />
+    public override EventChannel Channel => EventChannel.Control;
+}
 
 //
 // VAD EVENTS
@@ -184,6 +211,26 @@ public record AudioPipelineMetricsEvent(
     double Value,
     string? Unit = null     // "ms", "bytes", "chunks"
 ) : AgentEvent;
+
+/// <summary>
+/// User-perceived realtime audio experience measurement.
+/// </summary>
+public sealed record AudioExperienceMetricEvent(
+    string MetricName,
+    double Value,
+    string? Unit = null,
+    string? SpeechId = null,
+    string? OutputStreamId = null,
+    string? SessionId = null,
+    string? BranchId = null
+) : AgentEvent
+{
+    /// <inheritdoc />
+    public override EventChannel Channel => EventChannel.Streaming;
+
+    /// <inheritdoc />
+    public override EventKind Kind => EventKind.Diagnostic;
+}
 
 //
 // END-OF-TURN EVENTS

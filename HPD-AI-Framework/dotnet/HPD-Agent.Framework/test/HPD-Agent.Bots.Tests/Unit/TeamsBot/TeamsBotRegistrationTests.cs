@@ -83,6 +83,14 @@ public class TeamsBotRegistrationTests
     }
 
     [Fact]
+    public void AddTeamsBot_RegistersNoopTeamsHistoryService()
+    {
+        using var sp = BuildProvider();
+
+        sp.GetRequiredService<ITeamsHistoryService>().Should().BeOfType<NoopTeamsHistoryService>();
+    }
+
+    [Fact]
     public void AddTeamsBot_RegistersRegistryProvider()
     {
         using var sp = BuildProvider();
@@ -119,7 +127,7 @@ public class TeamsBotRegistrationTests
     }
 
     [Fact]
-    public void AddTeamsBot_AgentNameConfigApplied()
+    public void AddTeamsBot_AgentIdConfigApplied()
     {
         var services = new ServiceCollection();
         services.AddSingleton<SessionManager>(
@@ -131,12 +139,12 @@ public class TeamsBotRegistrationTests
         {
             config.AppId = "app-id";
             config.AppPassword = "secret";
-            config.AgentName = "support";
+            config.AgentId = "support";
         });
 
         using var sp = services.BuildServiceProvider();
 
-        sp.GetRequiredService<IOptions<TeamsBotConfig>>().Value.AgentName.Should().Be("support");
+        sp.GetRequiredService<IOptions<TeamsBotConfig>>().Value.AgentId.Should().Be("support");
     }
 
     [Fact]

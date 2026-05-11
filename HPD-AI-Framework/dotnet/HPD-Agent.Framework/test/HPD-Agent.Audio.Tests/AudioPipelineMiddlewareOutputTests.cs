@@ -1,7 +1,9 @@
 // Copyright (c) 2025 Einstein Essibu. All rights reserved.
 
+using System.Collections.Concurrent;
 using HPD.Agent;
 using HPD.Agent.Audio;
+using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio.Tts;
 using HPD.Agent.Middleware;
 using HPD.Events;
@@ -282,6 +284,239 @@ public class AudioPipelineMiddlewareOutputTests
         Assert.Equal("audio/opus", contentStore.LastContentType);
     }
 
+    [Fact]
+    public async Task StreamWithTts_EmitsNormalizedSpeechOutputEvents()
+    {
+        // Arrange
+        var captured = new ConcurrentQueue<AgentEvent>();
+        using var coordinator = new HPD.Events.Core.EventCoordinator();
+        using var subscription = coordinator.SubscribeAny(evt =>
+        {
+            captured.Enqueue((AgentEvent)evt);
+            return ValueTask.CompletedTask;
+        });
+
+        var tts = new FakeTtsClient([new byte[] { 0x01 }]);
+        var middleware = new AudioPipelineMiddleware
+        {
+            TextToSpeechClient = tts,
+            IOMode = AudioIOMode.TextToAudio
+        };
+
+        var request = CreateModelRequest(session: null, singleResponse: "Hello.", coordinator);
+
+        // Act
+        await DrainStreamAsync(middleware.WrapModelCallStreamingAsync(request,
+            r => r.Model.GetStreamingResponseAsync(r.Messages, r.Options),
+            CancellationToken.None)!);
+        await WaitForAsync(() => captured.Any(e => e is SpeechOutputCompletedEvent));
+
+        // Assert
+        Assert.Contains(captured, e => e is SpeechOutputStartedEvent);
+        Assert.Contains(captured, e => e is SpeechOutputTextQueuedEvent);
+        Assert.Contains(captured, e => e is SpeechOutputAudioQueuedEvent);
+        Assert.Contains(captured, e => e is SpeechOutputPlaybackStartedEvent);
+        Assert.Contains(captured, e => e is SpeechOutputPlaybackProgressEvent);
+        Assert.Contains(captured, e => e is SpeechOutputPlaybackFinishedEvent);
+        Assert.Contains(captured, e => e is SpeechOutputCompletedEvent);
+        Assert.Contains(captured, e => e is AudioChunkEvent);
+        Assert.Contains(captured, e => e is AudioExperienceMetricEvent metric &&
+            metric.MetricName == "playback_completion_ratio" &&
+            metric.Value == 1);
+        Assert.Contains(captured, e => e is AudioExperienceMetricEvent metric &&
+            metric.MetricName == "audio_generated_duration" &&
+            metric.Value >= 0);
+        Assert.Contains(captured, e => e is AudioExperienceMetricEvent metric &&
+            metric.MetricName == "audio_played_duration" &&
+            metric.Value >= 0);
+        Assert.Contains(captured, e => e is AudioExperienceMetricEvent metric &&
+            metric.MetricName == "audio_discarded_duration" &&
+            metric.Value == 0);
+
+        var completed = Assert.Single(captured.OfType<SpeechOutputCompletedEvent>());
+        Assert.Equal(completed.State.GeneratedDuration, completed.State.PlayedDuration);
+    }
+
+    [Fact]
+    public async Task StreamWithTts_WhenVadStartsDuringOutput_PausesNormalizedSpeechOutput()
+    {
+        // Arrange
+        var captured = new ConcurrentQueue<AgentEvent>();
+        using var coordinator = new HPD.Events.Core.EventCoordinator();
+        using var subscription = coordinator.SubscribeAny(evt =>
+        {
+            captured.Enqueue((AgentEvent)evt);
+            return ValueTask.CompletedTask;
+        });
+
+        var tts = new BlockingTtsClient(new byte[] { 0x01 });
+        var middleware = new AudioPipelineMiddleware
+        {
+            TextToSpeechClient = tts,
+            IOMode = AudioIOMode.TextToAudio,
+            EnableFalseInterruptionRecovery = true,
+            ResumeFalseInterruption = true
+        };
+
+        var request = CreateModelRequest(session: null, singleResponse: "Hello.", coordinator);
+        var drainTask = DrainStreamAsync(middleware.WrapModelCallStreamingAsync(request,
+            r => r.Model.GetStreamingResponseAsync(r.Messages, r.Options),
+            CancellationToken.None)!);
+
+        await tts.WaitForFirstChunkAsync();
+        await WaitForAsync(() => captured.Any(e => e is SpeechOutputAudioQueuedEvent));
+
+        // Act
+        middleware.OnVadStartOfSpeech(CreateHookContext(coordinator), transcribedText: null);
+        await WaitForAsync(() => captured.Any(e => e is SpeechOutputPausedEvent));
+
+        tts.Release();
+        await drainTask;
+
+        // Assert
+        Assert.Contains(captured, e => e is SpeechOutputPausedEvent);
+        Assert.Contains(captured, e => e is SpeechPausedEvent);
+    }
+
+    [Fact]
+    public async Task StreamWithTts_WhenBackchannelTranscriptArrives_ResumesNormalizedSpeechOutput()
+    {
+        // Arrange
+        var captured = new ConcurrentQueue<AgentEvent>();
+        using var coordinator = new HPD.Events.Core.EventCoordinator();
+        using var subscription = coordinator.SubscribeAny(evt =>
+        {
+            captured.Enqueue((AgentEvent)evt);
+            return ValueTask.CompletedTask;
+        });
+
+        var tts = new BlockingTtsClient(new byte[] { 0x01 });
+        var middleware = new AudioPipelineMiddleware
+        {
+            TextToSpeechClient = tts,
+            IOMode = AudioIOMode.TextToAudio,
+            EnableFalseInterruptionRecovery = true,
+            ResumeFalseInterruption = true,
+            BackchannelStrategy = BackchannelStrategy.IgnoreShortUtterances,
+            MinWordsForInterruption = 2
+        };
+
+        var request = CreateModelRequest(session: null, singleResponse: "Hello.", coordinator);
+        var drainTask = DrainStreamAsync(middleware.WrapModelCallStreamingAsync(request,
+            r => r.Model.GetStreamingResponseAsync(r.Messages, r.Options),
+            CancellationToken.None)!);
+
+        await tts.WaitForFirstChunkAsync();
+        await WaitForAsync(() => captured.Any(e => e is SpeechOutputAudioQueuedEvent));
+        var hookContext = CreateHookContext(coordinator);
+        middleware.OnVadStartOfSpeech(hookContext, transcribedText: null);
+        await WaitForAsync(() => captured.Any(e => e is SpeechOutputPausedEvent));
+
+        // Act
+        middleware.OnVadStartOfSpeech(hookContext, transcribedText: "okay");
+        await WaitForAsync(() => captured.Any(e => e is SpeechOutputResumedEvent));
+
+        tts.Release();
+        await drainTask;
+
+        // Assert
+        Assert.Contains(captured, e => e is SpeechOutputResumedEvent);
+        Assert.Contains(captured, e => e is SpeechResumedEvent);
+        Assert.DoesNotContain(captured, e => e is UserInterruptedEvent);
+    }
+
+    [Fact]
+    public async Task StreamWithTts_WhenNoTranscriptArrivesBeforeTimeout_ResumesOutput()
+    {
+        // Arrange
+        var captured = new ConcurrentQueue<AgentEvent>();
+        using var coordinator = new HPD.Events.Core.EventCoordinator();
+        using var subscription = coordinator.SubscribeAny(evt =>
+        {
+            captured.Enqueue((AgentEvent)evt);
+            return ValueTask.CompletedTask;
+        });
+
+        var tts = new BlockingTtsClient(new byte[] { 0x01 });
+        var middleware = new AudioPipelineMiddleware
+        {
+            TextToSpeechClient = tts,
+            IOMode = AudioIOMode.TextToAudio,
+            EnableFalseInterruptionRecovery = true,
+            ResumeFalseInterruption = true,
+            FalseInterruptionTimeout = 0.01f
+        };
+
+        var request = CreateModelRequest(session: null, singleResponse: "Hello.", coordinator);
+        var drainTask = DrainStreamAsync(middleware.WrapModelCallStreamingAsync(request,
+            r => r.Model.GetStreamingResponseAsync(r.Messages, r.Options),
+            CancellationToken.None)!);
+
+        await tts.WaitForFirstChunkAsync();
+        await WaitForAsync(() => captured.Any(e => e is SpeechOutputAudioQueuedEvent));
+
+        // Act
+        middleware.OnVadStartOfSpeech(CreateHookContext(coordinator), transcribedText: null);
+        await WaitForAsync(() => captured.Any(e => e is SpeechOutputResumedEvent));
+
+        tts.Release();
+        await drainTask;
+
+        // Assert
+        Assert.Contains(captured, e => e is SpeechOutputResumedEvent);
+        Assert.Contains(captured, e => e is AudioExperienceMetricEvent metric &&
+            metric.MetricName == "false_interruption_rate" &&
+            metric.Value == 1);
+        Assert.Contains(captured, e => e is AudioExperienceMetricEvent metric &&
+            metric.MetricName == "resume_false_interruption_rate" &&
+            metric.Value == 1);
+        Assert.DoesNotContain(captured, e => e is UserInterruptedEvent);
+    }
+
+    [Fact]
+    public async Task StreamWithTts_WhenTranscriptConfirmsInterruption_InterruptsNormalizedSpeechOutput()
+    {
+        // Arrange
+        var captured = new ConcurrentQueue<AgentEvent>();
+        using var coordinator = new HPD.Events.Core.EventCoordinator();
+        using var subscription = coordinator.SubscribeAny(evt =>
+        {
+            captured.Enqueue((AgentEvent)evt);
+            return ValueTask.CompletedTask;
+        });
+
+        var tts = new BlockingTtsClient(new byte[] { 0x01 });
+        var middleware = new AudioPipelineMiddleware
+        {
+            TextToSpeechClient = tts,
+            IOMode = AudioIOMode.TextToAudio,
+            EnableFalseInterruptionRecovery = true,
+            ResumeFalseInterruption = true
+        };
+
+        var request = CreateModelRequest(session: null, singleResponse: "Hello.", coordinator);
+        var drainTask = DrainStreamAsync(middleware.WrapModelCallStreamingAsync(request,
+            r => r.Model.GetStreamingResponseAsync(r.Messages, r.Options),
+            CancellationToken.None)!);
+
+        await tts.WaitForFirstChunkAsync();
+        await WaitForAsync(() => captured.Any(e => e is SpeechOutputAudioQueuedEvent));
+
+        // Act
+        middleware.OnVadStartOfSpeech(CreateHookContext(coordinator), transcribedText: "actually stop");
+        await WaitForAsync(() => captured.Any(e => e is SpeechOutputInterruptedEvent));
+
+        tts.Release();
+        await drainTask;
+
+        // Assert
+        Assert.Contains(captured, e => e is SpeechOutputInterruptedEvent);
+        Assert.Contains(captured, e => e is UserInterruptedEvent);
+        Assert.Contains(captured, e => e is AudioExperienceMetricEvent metric &&
+            metric.MetricName == "barge_in_stop_latency" &&
+            metric.Unit == "ms");
+    }
+
     // -------------------------------------------------------------------------
     // 25. DefaultOutputFormat null → falls back to audio/mpeg
     // -------------------------------------------------------------------------
@@ -548,7 +783,10 @@ public class AudioPipelineMiddlewareOutputTests
         return new SessionModel(sessionId) { Store = store };
     }
 
-    private static ModelRequest CreateModelRequest(SessionModel? session, string singleResponse)
+    private static ModelRequest CreateModelRequest(
+        SessionModel? session,
+        string singleResponse,
+        IEventCoordinator? eventCoordinator = null)
     {
         var chatClient = new SingleResponseChatClient(singleResponse);
         var state = AgentLoopState.InitialSafe([], "run", "conv", "TestAgent");
@@ -560,8 +798,25 @@ public class AudioPipelineMiddlewareOutputTests
             Options = new ChatOptions(),
             State = state,
             Iteration = 0,
-            Session = session
+            Session = session,
+            EventCoordinator = eventCoordinator,
+            Streams = eventCoordinator?.Streams
         };
+    }
+
+    private static HookContext CreateHookContext(IEventCoordinator coordinator)
+    {
+        var state = AgentLoopState.InitialSafe([], "run", "conv", "TestAgent");
+        var agentContext = new AgentContext(
+            agentName: "TestAgent",
+            conversationId: "conv",
+            initialState: state,
+            eventCoordinator: coordinator,
+            session: null,
+            branch: null,
+            cancellationToken: CancellationToken.None);
+
+        return new TestHookContext(agentContext);
     }
 
     private static async Task<List<ChatResponseUpdate>> DrainStreamAsync(
@@ -571,6 +826,13 @@ public class AudioPipelineMiddlewareOutputTests
         await foreach (var update in stream)
             results.Add(update);
         return results;
+    }
+
+    private static async Task WaitForAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(1);
+        while (!condition() && DateTime.UtcNow < deadline)
+            await Task.Delay(10);
     }
 
     // =========================================================================
@@ -606,6 +868,49 @@ public class AudioPipelineMiddlewareOutputTests
 
         public object? GetService(Type serviceType, object? serviceKey = null) => null;
         public void Dispose() => GC.SuppressFinalize(this);
+    }
+
+    private sealed class BlockingTtsClient : ITextToSpeechClient
+    {
+        private readonly byte[] _chunk;
+        private readonly TaskCompletionSource _firstChunk = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public BlockingTtsClient(byte[] chunk) => _chunk = chunk;
+
+        public Task WaitForFirstChunkAsync() => _firstChunk.Task;
+        public void Release() => _release.TrySetResult();
+
+        public Task<TextToSpeechResponse> GetAudioAsync(
+            string text,
+            TextToSpeechOptions? options = null,
+            CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public async IAsyncEnumerable<TextToSpeechResponseUpdate> GetStreamingAudioAsync(
+            string text,
+            TextToSpeechOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            yield return new TextToSpeechResponseUpdate([new DataContent(_chunk, "audio/mpeg")])
+            {
+                Kind = TextToSpeechResponseUpdateKind.AudioUpdated
+            };
+
+            _firstChunk.TrySetResult();
+            await _release.Task.WaitAsync(cancellationToken);
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() => GC.SuppressFinalize(this);
+    }
+
+    private sealed class TestHookContext : HookContext
+    {
+        public TestHookContext(AgentContext baseContext)
+            : base(baseContext)
+        {
+        }
     }
 
     // =========================================================================

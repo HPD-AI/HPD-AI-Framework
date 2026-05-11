@@ -132,7 +132,7 @@ public class AzureOpenAIProviderTests
         {
             Temperature = 2.5f // Invalid: must be <= 2.0
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -158,7 +158,7 @@ public class AzureOpenAIProviderTests
         {
             TopP = 1.5f // Invalid: must be <= 1.0
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -184,7 +184,7 @@ public class AzureOpenAIProviderTests
         {
             FrequencyPenalty = 3.0f // Invalid: must be <= 2.0
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -210,7 +210,7 @@ public class AzureOpenAIProviderTests
         {
             PresencePenalty = -3.0f // Invalid: must be >= -2.0
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -240,7 +240,7 @@ public class AzureOpenAIProviderTests
             FrequencyPenalty = 0.5f,
             PresencePenalty = 0.5f
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);

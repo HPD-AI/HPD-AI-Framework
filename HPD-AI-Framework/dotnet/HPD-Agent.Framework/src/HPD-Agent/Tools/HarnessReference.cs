@@ -181,7 +181,7 @@ public class HarnessReferenceConverter : JsonConverter<HarnessReference>
                         reference.Name = reader.GetString() ?? "";
                         break;
                     case "functions":
-                        reference.Functions = JsonSerializer.Deserialize<List<string>>(ref reader, options);
+                        reference.Functions = ReadStringList(ref reader);
                         break;
                     case "config":
                         reference.Config = JsonElement.ParseValue(ref reader);
@@ -190,7 +190,7 @@ public class HarnessReferenceConverter : JsonConverter<HarnessReference>
                         reference.Metadata = JsonElement.ParseValue(ref reader);
                         break;
                     case "middlewareconfigs":
-                        reference.MiddlewareConfigs = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(ref reader, options);
+                        reference.MiddlewareConfigs = ReadJsonElementDictionary(ref reader);
                         break;
                     default:
                         // Skip unknown properties
@@ -225,7 +225,7 @@ public class HarnessReferenceConverter : JsonConverter<HarnessReference>
         if (value.Functions != null)
         {
             writer.WritePropertyName("functions");
-            JsonSerializer.Serialize(writer, value.Functions, options);
+            WriteStringList(writer, value.Functions);
         }
 
         if (value.Config.HasValue)
@@ -243,9 +243,70 @@ public class HarnessReferenceConverter : JsonConverter<HarnessReference>
         if (value.MiddlewareConfigs != null)
         {
             writer.WritePropertyName("middlewareConfigs");
-            JsonSerializer.Serialize(writer, value.MiddlewareConfigs, options);
+            WriteJsonElementDictionary(writer, value.MiddlewareConfigs);
         }
 
+        writer.WriteEndObject();
+    }
+
+    private static List<string> ReadStringList(ref Utf8JsonReader reader)
+    {
+        if (reader.TokenType != JsonTokenType.StartArray)
+            throw new JsonException("Expected an array of function names.");
+
+        var values = new List<string>();
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndArray)
+                return values;
+
+            if (reader.TokenType != JsonTokenType.String)
+                throw new JsonException("Function names must be strings.");
+
+            values.Add(reader.GetString() ?? string.Empty);
+        }
+
+        throw new JsonException("Unexpected end of JSON while reading function names.");
+    }
+
+    private static Dictionary<string, JsonElement> ReadJsonElementDictionary(ref Utf8JsonReader reader)
+    {
+        if (reader.TokenType != JsonTokenType.StartObject)
+            throw new JsonException("Expected an object for middleware configs.");
+
+        var values = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndObject)
+                return values;
+
+            if (reader.TokenType != JsonTokenType.PropertyName)
+                throw new JsonException("Expected a middleware config property name.");
+
+            var name = reader.GetString() ?? string.Empty;
+            reader.Read();
+            values[name] = JsonElement.ParseValue(ref reader);
+        }
+
+        throw new JsonException("Unexpected end of JSON while reading middleware configs.");
+    }
+
+    private static void WriteStringList(Utf8JsonWriter writer, IEnumerable<string> values)
+    {
+        writer.WriteStartArray();
+        foreach (var value in values)
+            writer.WriteStringValue(value);
+        writer.WriteEndArray();
+    }
+
+    private static void WriteJsonElementDictionary(Utf8JsonWriter writer, IReadOnlyDictionary<string, JsonElement> values)
+    {
+        writer.WriteStartObject();
+        foreach (var (key, value) in values)
+        {
+            writer.WritePropertyName(key);
+            value.WriteTo(writer);
+        }
         writer.WriteEndObject();
     }
 }

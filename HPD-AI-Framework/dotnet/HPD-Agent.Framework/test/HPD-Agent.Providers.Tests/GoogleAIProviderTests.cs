@@ -113,7 +113,7 @@ public class GoogleAIProviderTests
         {
             Temperature = 2.5 // Invalid: must be <= 2.0
         };
-        config.SetTypedProviderConfig(googleConfig);
+        config.SetProviderConfig(googleConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -138,7 +138,7 @@ public class GoogleAIProviderTests
         {
             Temperature = -0.1 // Invalid: must be >= 0
         };
-        config.SetTypedProviderConfig(googleConfig);
+        config.SetProviderConfig(googleConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -163,7 +163,7 @@ public class GoogleAIProviderTests
         {
             Temperature = 1.5 // Valid: 0-2 range
         };
-        config.SetTypedProviderConfig(googleConfig);
+        config.SetProviderConfig(googleConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -188,7 +188,7 @@ public class GoogleAIProviderTests
         {
             TopP = 1.5 // Invalid: must be <= 1.0
         };
-        config.SetTypedProviderConfig(googleConfig);
+        config.SetProviderConfig(googleConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -213,7 +213,7 @@ public class GoogleAIProviderTests
         {
             TopP = -0.1 // Invalid: must be >= 0
         };
-        config.SetTypedProviderConfig(googleConfig);
+        config.SetProviderConfig(googleConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -238,7 +238,7 @@ public class GoogleAIProviderTests
         {
             TopK = -5 // Invalid: must be positive
         };
-        config.SetTypedProviderConfig(googleConfig);
+        config.SetProviderConfig(googleConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -263,7 +263,7 @@ public class GoogleAIProviderTests
         {
             CandidateCount = 5 // Invalid: currently only 1 is supported
         };
-        config.SetTypedProviderConfig(googleConfig);
+        config.SetProviderConfig(googleConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -293,7 +293,7 @@ public class GoogleAIProviderTests
             ResponseSchema = "{\"type\":\"object\"}",
             ResponseMimeType = "text/plain" // Invalid: must be application/json when ResponseSchema is set
         };
-        config.SetTypedProviderConfig(googleConfig);
+        config.SetProviderConfig(googleConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -319,7 +319,7 @@ public class GoogleAIProviderTests
             ResponseSchema = "{\"type\":\"object\"}",
             ResponseJsonSchema = "{\"type\":\"object\"}" // Invalid: can't have both
         };
-        config.SetTypedProviderConfig(googleConfig);
+        config.SetProviderConfig(googleConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -345,7 +345,7 @@ public class GoogleAIProviderTests
             ResponseSchema = "{\"type\":\"object\"}",
             ResponseMimeType = "application/json"
         };
-        config.SetTypedProviderConfig(googleConfig);
+        config.SetProviderConfig(googleConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -381,7 +381,7 @@ public class GoogleAIProviderTests
         builder.Config.Provider.ApiKey.Should().Be("test-api-key");
         builder.Config.Provider.ModelName.Should().Be("gemini-2.0-flash");
 
-        var googleConfig = builder.Config.Provider.GetTypedProviderConfig<GoogleAIProviderConfig>();
+        var googleConfig = builder.Config.Provider.GetProviderConfig<GoogleAIProviderConfig>();
         googleConfig.Should().NotBeNull();
         googleConfig!.Temperature.Should().Be(0.7);
         googleConfig.MaxOutputTokens.Should().Be(8192);
@@ -644,7 +644,7 @@ public class GoogleAIProviderTests
             });
 
         // Assert
-        var googleConfig = builder.Config.Provider!.GetTypedProviderConfig<GoogleAIProviderConfig>();
+        var googleConfig = builder.Config.Provider!.GetProviderConfig<GoogleAIProviderConfig>();
         googleConfig.Should().NotBeNull();
         googleConfig!.SafetySettings.Should().HaveCount(2);
         googleConfig.SafetySettings![0].Category.Should().Be("HARM_CATEGORY_HARASSMENT");
@@ -669,7 +669,7 @@ public class GoogleAIProviderTests
             });
 
         // Assert
-        var googleConfig = builder.Config.Provider!.GetTypedProviderConfig<GoogleAIProviderConfig>();
+        var googleConfig = builder.Config.Provider!.GetProviderConfig<GoogleAIProviderConfig>();
         googleConfig.Should().NotBeNull();
         googleConfig!.IncludeThoughts.Should().BeTrue();
         googleConfig.ThinkingBudget.Should().Be(5000);

@@ -34,15 +34,15 @@ internal static class BranchEndpoints
             .WithName("GetBranch")
             .WithSummary("Get branch metadata by ID");
 
-        // POST /sessions/{sid}/branches - Create new branch
-        endpoints.MapPost("/sessions/{sid}/branches", (string sid, CreateBranchRequest request, CancellationToken ct) =>
-                CreateBranch(sid, request, sessionManager, agentManager, ct))
+        // POST /agents/{agentId}/sessions/{sid}/branches - Create new branch using agent behavior
+        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches", (string agentId, string sid, CreateBranchRequest request, CancellationToken ct) =>
+                CreateBranch(agentId, sid, request, sessionManager, agentManager, ct))
             .WithName("CreateBranch")
             .WithSummary("Create a new branch in a session");
 
-        // POST /sessions/{sid}/branches/{bid}/fork - Fork at message index
-        endpoints.MapPost("/sessions/{sid}/branches/{bid}/fork", (string sid, string bid, ForkBranchRequest request, CancellationToken ct) =>
-                ForkBranch(sid, bid, request, sessionManager, agentManager, ct))
+        // POST /agents/{agentId}/sessions/{sid}/branches/{bid}/fork - Fork at message index using agent behavior
+        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/fork", (string agentId, string sid, string bid, ForkBranchRequest request, CancellationToken ct) =>
+                ForkBranch(agentId, sid, bid, request, sessionManager, agentManager, ct))
             .WithName("ForkBranch")
             .WithSummary("Fork an existing branch at a specific message index");
 
@@ -135,6 +135,7 @@ internal static class BranchEndpoints
     }
 
     private static async Task<Results<Created<BranchDto>, NotFound, Conflict, ValidationProblem>> CreateBranch(
+        string agentId,
         string sid,
         CreateBranchRequest request,
         AspNetCoreSessionManager sessionManager,
@@ -162,7 +163,7 @@ internal static class BranchEndpoints
             }
 
             // Use string-based ForkBranchAsync to create the new branch from message 0
-            var agent = await agentManager.GetOrBuildAgentAsync(request.AgentId ?? "default", ct);
+            var agent = await agentManager.GetOrBuildAgentAsync(agentId, ct);
             await agent.ForkBranchAsync(sid, "main", branchId, 0, ct);
 
             var branch = await sessionManager.Store.LoadBranchAsync(sid, branchId, ct)
@@ -192,6 +193,7 @@ internal static class BranchEndpoints
     }
 
     private static async Task<Results<Created<BranchDto>, NotFound, ValidationProblem>> ForkBranch(
+        string agentId,
         string sid,
         string bid,
         ForkBranchRequest request,
@@ -203,7 +205,7 @@ internal static class BranchEndpoints
         {
             //  Use session-level lock for atomic sibling updates
             return await sessionManager.WithSessionLockAsync(sid,
-                () => DoForkBranchAsync(sid, bid, request, sessionManager, agentManager, ct),
+                () => DoForkBranchAsync(agentId, sid, bid, request, sessionManager, agentManager, ct),
                 ct);
         }
         catch (Exception ex)
@@ -504,6 +506,7 @@ internal static class BranchEndpoints
     }
 
     private static async Task<Results<Created<BranchDto>, NotFound, ValidationProblem>> DoForkBranchAsync(
+        string agentId,
         string sid,
         string bid,
         ForkBranchRequest request,
@@ -527,7 +530,7 @@ internal static class BranchEndpoints
             ? Guid.NewGuid().ToString()
             : request.NewBranchId;
 
-        var agent = await agentManager.GetOrBuildAgentAsync(request.AgentId ?? "default", ct);
+        var agent = await agentManager.GetOrBuildAgentAsync(agentId, ct);
         await agent.ForkBranchAsync(sid, bid, newBranchId, request.FromMessageIndex, ct);
 
         var newBranch = await sessionManager.Store.LoadBranchAsync(sid, newBranchId, ct)

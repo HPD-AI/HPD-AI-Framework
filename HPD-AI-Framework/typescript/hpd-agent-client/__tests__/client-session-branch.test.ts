@@ -207,26 +207,26 @@ describe('AgentClient — session/branch passthroughs', () => {
   });
 
   describe('createBranch', () => {
-    it('calls POST /sessions/{sid}/branches and returns the new branch', async () => {
+    it('calls POST /agents/{agentId}/sessions/{sid}/branches and returns the new branch', async () => {
       mockFetchJson(BRANCH, 201);
-      const result = await client.createBranch('sess-1', { metadata: { label: 'alt' } });
+      const result = await client.createBranch('sess-1', { agentId: 'agent-1', metadata: { label: 'alt' } });
 
       const [url, init] = vi.mocked(fetch).mock.calls[0];
-      expect(String(url)).toBe(`${BASE}/sessions/sess-1/branches`);
+      expect(String(url)).toBe(`${BASE}/agents/agent-1/sessions/sess-1/branches`);
       expect(init?.method).toBe('POST');
       expect(result).toEqual(BRANCH);
     });
   });
 
   describe('forkBranch', () => {
-    it('calls POST /sessions/{sid}/branches/{bid}/fork and returns the forked branch', async () => {
+    it('calls POST /agents/{agentId}/sessions/{sid}/branches/{bid}/fork and returns the forked branch', async () => {
       const fork = { ...BRANCH, id: 'branch-2' };
       mockFetchJson(fork, 201);
 
-      const result = await client.forkBranch('sess-1', 'branch-1', { forkAtMessageIndex: 3 });
+      const result = await client.forkBranch('sess-1', 'branch-1', { agentId: 'agent-1', forkAtMessageIndex: 3 });
 
       const [url, init] = vi.mocked(fetch).mock.calls[0];
-      expect(String(url)).toBe(`${BASE}/sessions/sess-1/branches/branch-1/fork`);
+      expect(String(url)).toBe(`${BASE}/agents/agent-1/sessions/sess-1/branches/branch-1/fork`);
       expect(init?.method).toBe('POST');
       expect(result).toEqual(fork);
     });

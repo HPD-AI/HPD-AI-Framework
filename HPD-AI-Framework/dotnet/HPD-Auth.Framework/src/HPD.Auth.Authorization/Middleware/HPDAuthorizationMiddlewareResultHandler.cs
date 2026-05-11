@@ -94,11 +94,11 @@ public sealed class HPDAuthorizationMiddlewareResultHandler : IAuthorizationMidd
                 context.Response.StatusCode  = StatusCodes.Status401Unauthorized;
                 context.Response.ContentType = "application/json";
 
-                await context.Response.WriteAsJsonAsync(new
-                {
-                    error   = "unauthorized",
-                    message = "Authentication required"
-                });
+                await context.Response.WriteAsJsonAsync(
+                    new AuthorizationErrorResponse(
+                        Error: "unauthorized",
+                        Message: "Authentication required"),
+                    AuthorizationJsonContext.Default.AuthorizationErrorResponse);
             }
             else
             {
@@ -116,12 +116,12 @@ public sealed class HPDAuthorizationMiddlewareResultHandler : IAuthorizationMidd
                 .Select(r => r.Message)
                 .ToList() ?? new List<string>();
 
-            await context.Response.WriteAsJsonAsync(new
-            {
-                error   = "forbidden",
-                message = "You do not have permission to access this resource",
-                reasons = failureReasons
-            });
+            await context.Response.WriteAsJsonAsync(
+                new ForbiddenAuthorizationErrorResponse(
+                    Error: "forbidden",
+                    Message: "You do not have permission to access this resource",
+                    Reasons: failureReasons),
+                AuthorizationJsonContext.Default.ForbiddenAuthorizationErrorResponse);
         }
     }
 

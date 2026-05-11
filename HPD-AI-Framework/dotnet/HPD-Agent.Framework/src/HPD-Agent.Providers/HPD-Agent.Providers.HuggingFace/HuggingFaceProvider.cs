@@ -68,7 +68,7 @@ internal class HuggingFaceProvider : IProviderFeatures
         var client = new HuggingFaceClient(apiKey);
 
         // Get typed config for advanced options
-        var hfConfig = config.GetTypedProviderConfig<HuggingFaceProviderConfig>();
+        var hfConfig = config.GetProviderConfig<HuggingFaceProviderConfig>();
 
         // Wrap the client to apply configuration options
         return new HuggingFaceConfiguredChatClient(client, modelName, hfConfig);
@@ -109,7 +109,7 @@ internal class HuggingFaceProvider : IProviderFeatures
             errors.Add("Model name (repository ID like 'meta-llama/Meta-Llama-3-8B-Instruct') is required");
 
         // Validate HuggingFace-specific config if present
-        var hfConfig = config.GetTypedProviderConfig<HuggingFaceProviderConfig>();
+        var hfConfig = config.GetProviderConfig<HuggingFaceProviderConfig>();
         if (hfConfig != null)
         {
             // Validate Temperature range

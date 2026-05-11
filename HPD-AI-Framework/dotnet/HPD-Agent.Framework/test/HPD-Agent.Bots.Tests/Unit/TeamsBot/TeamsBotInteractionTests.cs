@@ -136,7 +136,8 @@ public class TeamsBotInteractionTests
         var options = Options.Create(new TeamsBotConfig
         {
             AppId = "app-id",
-            AppPassword = "secret"
+            AppPassword = "secret",
+            AgentId = "teams-test-agent"
         });
 
         return new HPD.Agent.Bots.Teams.TeamsBot(options, sessionManager, agentManager, mapper);
@@ -213,8 +214,6 @@ public class TeamsBotInteractionTests
         public string? ReplyToId { get; init; }
 
         public string? TenantId { get; init; }
-
-        public string? ConversationJson { get; init; }
 
         public IReadOnlyDictionary<string, string> Values { get; init; } = new Dictionary<string, string>();
 

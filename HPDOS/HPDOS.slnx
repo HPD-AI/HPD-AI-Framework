@@ -1,9 +1,0 @@
-<Solution>
-  <Configurations>
-    <Platform Name="Any CPU" />
-    <Platform Name="x64" />
-    <Platform Name="x86" />
-  </Configurations>
-  <Project Path="src-dotnet/HPDOS.Core/HPDOS.Core.csproj" />
-  <Project Path="src-dotnet/HPDOS.CLI/HPDOS.CLI.csproj" />
-</Solution>

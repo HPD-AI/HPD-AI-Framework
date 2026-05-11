@@ -27,7 +27,7 @@ namespace HPD.Agent;
 /// Dependencies needed for agent construction
 /// </summary>
 internal record AgentBuildDependencies(
-    IChatClient ClientToUse,
+    IChatClient? ClientToUse,
     ChatOptions? MergedOptions,
     ErrorHandling.IProviderErrorHandler ErrorHandler,
     IChatClient? SummarizerClient = null,
@@ -227,6 +227,7 @@ public class AgentBuilder
     /// Null until HPD-Agent.OpenApi is loaded. Same pattern as provider modules.
     /// </summary>
     private static IOpenApiLoader? s_openApiLoader;
+    private static IMcpToolLoader? s_mcpToolLoader;
 
     /// <summary>
     /// OpenAPI sources registered via WithOpenApi() or [OpenApi] harness attribute.
@@ -244,6 +245,14 @@ public class AgentBuilder
     }
 
     /// <summary>
+    /// Registers the MCP loader hook. Called by MCPAutoDiscovery via [ModuleInitializer].
+    /// </summary>
+    internal static void RegisterMcpToolLoader(IMcpToolLoader loader)
+    {
+        s_mcpToolLoader = loader;
+    }
+
+    /// <summary>
     /// Adds a pending OpenAPI source registration. Called by WithOpenApi() and
     /// CreateFunctionsFromCatalog() when a harness has [OpenApi] methods.
     /// </summary>
@@ -256,67 +265,53 @@ public class AgentBuilder
     /// Creates a new builder with default configuration.
     /// Provider assemblies are automatically discovered via ProviderAutoDiscovery ModuleInitializer.
     /// </summary>
-#pragma warning disable IL2026
     public AgentBuilder()
     {
-        // Capture calling assembly FIRST, before any method calls
-        // GetCallingAssembly() returns the immediate caller, not transitive
-        var callingAssembly = Assembly.GetCallingAssembly();
-
         _config = new AgentConfig();
         _providerRegistry = new ProviderRegistry();
 
-        // Load from HPD-Agent assembly first (ensures core middleware states are always available)
-        LoadToolRegistryFromAssembly(typeof(Agent).Assembly);
-
-        // Then load from calling assembly (user-defined harnesses/states)
-        LoadToolRegistryFromAssembly(callingAssembly);
+        LoadGeneratedRegistries();
         RegisterDiscoveredProviders();
     }
-#pragma warning restore IL2026
 
     /// <summary>
     /// Creates a builder from existing configuration.
     /// Provider assemblies are automatically discovered via ProviderAutoDiscovery ModuleInitializer.
     /// </summary>
-#pragma warning disable IL2026
     public AgentBuilder(AgentConfig config)
     {
-        // Capture calling assembly FIRST, before any method calls
-        var callingAssembly = Assembly.GetCallingAssembly();
-
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _providerRegistry = new ProviderRegistry();
 
-        // Load from HPD-Agent assembly first (ensures core middleware states are always available)
-        LoadToolRegistryFromAssembly(typeof(Agent).Assembly);
-
-        // Then load from calling assembly (user-defined harnesses/states)
-        LoadToolRegistryFromAssembly(callingAssembly);
+        LoadGeneratedRegistries();
         RegisterDiscoveredProviders();
     }
-#pragma warning restore IL2026
 
     /// <summary>
     /// Creates a builder with custom provider registry (for testing).
     /// Optionally accepts an assembly hint for Harness registry discovery.
     /// </summary>
-#pragma warning disable IL2026
     public AgentBuilder(AgentConfig config, IProviderRegistry providerRegistry)
     {
-        // Capture calling assembly FIRST
-        var callingAssembly = Assembly.GetCallingAssembly();
-
         _config = config;
         _providerRegistry = providerRegistry;
 
-        // Load from HPD-Agent assembly first (ensures core middleware states are always available)
-        LoadToolRegistryFromAssembly(typeof(Agent).Assembly);
-
-        // Then load from calling assembly (user-defined harnesses/states)
-        LoadToolRegistryFromAssembly(callingAssembly);
+        LoadGeneratedRegistries();
     }
-#pragma warning restore IL2026
+
+    internal void LoadGeneratedRegistries()
+    {
+        var (harneses, middlewares, states) = AgentGeneratedRegistry.Snapshot();
+
+        foreach (var factory in harneses)
+            _availableHarneses.TryAdd(factory.Name, factory);
+
+        foreach (var factory in middlewares)
+            _availableMiddlewares.TryAdd(factory.Name, factory);
+
+        foreach (var factory in states)
+            _stateFactories.TryAdd(factory.FullyQualifiedName, factory);
+    }
 
     /// <summary>
     /// Registers all providers that were discovered by ProviderAutoDiscovery ModuleInitializer.
@@ -562,7 +557,6 @@ public class AgentBuilder
     /// Phase 4.5: Applies function filters for selective registration.
     /// </summary>
     /// <returns>List of AIFunctions from all selected Harneses</returns>
-    [RequiresUnreferencedCode("Instance-based registrations for DI Harneses use reflection.")]
     private List<AIFunction> CreateFunctionsFromCatalog()
     {
         var allFunctions = new List<AIFunction>();
@@ -651,8 +645,28 @@ public class AgentBuilder
         {
             try
             {
+                if (!_availableHarneses.TryGetValue(registration.ToolTypeName, out var factory))
+                {
+                    throw new InvalidOperationException(
+                        $"Harness '{registration.ToolTypeName}' not found in HarnessRegistry.All. " +
+                        $"Ensure the harness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
+                }
+
                 _harnessContexts.TryGetValue(registration.ToolTypeName, out var ctx);
-                var functions = CreateFunctionsFromInstance(registration, ctx ?? _defaulTMetadata);
+
+                if (factory.CollectOpenApiSources != null)
+                {
+                    factory.CollectOpenApiSources(registration.Instance, (name, config, parentContainer) =>
+                    {
+                        _openApiSources.Add(new OpenApiSourceRegistration(
+                            Name: name,
+                            ParentContainer: parentContainer,
+                            CollapseWithinHarness: false,
+                            Config: config));
+                    });
+                }
+
+                var functions = factory.CreateFunctions(registration.Instance, ctx ?? _defaulTMetadata);
 
                 // Apply function filter if set
                 if (registration.FunctionFilter != null && registration.FunctionFilter.Length > 0)
@@ -675,64 +689,18 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Creates AIFunctions from an instance-based Harness registration.
-    /// Uses the generated Registration class to create functions from the provided instance.
-    /// This is used for DI Harneses that cannot be instantiated via the catalog.
-    /// </summary>
-    [RequiresUnreferencedCode("Uses reflection to call generated Registration class for DI Harneses.")]
-    private List<AIFunction> CreateFunctionsFromInstance(ToolInstanceRegistration registration, IToolMetadata? context)
-    {
-        var instance = registration.Instance;
-        var instanceType = instance.GetType();
-
-        // Look up the generated Registration class
-        var registrationTypeName = $"{registration.ToolTypeName}Registration";
-        var registrationType = instanceType.Assembly.GetType(registrationTypeName);
-
-        if (registrationType == null)
-        {
-            throw new InvalidOperationException(
-                $"Generated registration class {registrationTypeName} not found for DI Harness. " +
-                $"Ensure the Harness has [Function] or [Skill] attributes and the source generator ran successfully.");
-        }
-
-        var createHarnessMethod = registrationType.GetMethod("CreateHarness", BindingFlags.Public | BindingFlags.Static);
-        if (createHarnessMethod == null)
-        {
-            throw new InvalidOperationException(
-                $"CreateHarness method not found in {registrationTypeName}.");
-        }
-
-        // Invoke CreateHarness with the instance
-        var parameters = createHarnessMethod.GetParameters();
-        object? result;
-
-        if (parameters.Length == 1)
-        {
-            // Skill-only container: CreateHarness(IToolMetadata? context)
-            result = createHarnessMethod.Invoke(null, new object?[] { context });
-        }
-        else
-        {
-            // Regular Harness: CreateHarness(THarness instance, IToolMetadata? context)
-            result = createHarnessMethod.Invoke(null, new object?[] { instance, context });
-        }
-
-        return result as List<AIFunction> ?? new List<AIFunction>();
-    }
-
-    /// <summary>
     /// Resolves harnesses from config Harneses list and adds them to _selectedHarnessFactories.
     /// Implements Config = Base, Builder = Override/Extend pattern:
     /// - Config harnesses are registered first (in order)
     /// - Builder calls can override (replace same name) or extend (add new)
     /// - DI-first resolution: try ServiceProvider first, fall back to CreateInstance
     /// </summary>
-    [RequiresUnreferencedCode("Config harness resolution may load assemblies dynamically.")]
     private void ResolveConfigHarneses()
     {
         if (_config.Harneses == null || _config.Harneses.Count == 0)
             return;
+
+        LoadGeneratedRegistries();
 
         var logger = _logger?.CreateLogger<AgentBuilder>();
         logger?.LogDebug("Resolving {Count} harnesses from config", _config.Harneses.Count);
@@ -785,13 +753,11 @@ public class AgentBuilder
             }
 
             // Handle metadata from config
-            if (effectiveRef.Metadata.HasValue && factory.MetadataType != null)
+            if (effectiveRef.Metadata.HasValue && factory.DeserializeMetadata != null)
             {
                 try
                 {
-                    var metadata = (IToolMetadata?)JsonSerializer.Deserialize(
-                        effectiveRef.Metadata.Value.GetRawText(),
-                        factory.MetadataType);
+                    var metadata = factory.DeserializeMetadata(effectiveRef.Metadata.Value);
                     if (metadata != null)
                     {
                         _harnessContexts[factory.Name] = metadata;
@@ -801,7 +767,7 @@ public class AgentBuilder
                 {
                     logger?.LogWarning(ex,
                         "Failed to deserialize metadata for harness '{Name}' to type {MetadataType}",
-                        effectiveRef.Name, factory.MetadataType.Name);
+                        effectiveRef.Name, factory.MetadataType?.Name ?? "unknown");
                 }
             }
 
@@ -1799,16 +1765,9 @@ public class AgentBuilder
 
     /// <summary>
     /// Builds the protocol-agnostic core agent asynchronously.
-    /// Internal method - use protocol-specific Build methods (e.g., BuildMicrosoftAgent()).
-    /// Validation behavior is controlled by the ValidationConfig (see WithValidation()).
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token for async operations</param>
-    [RequiresUnreferencedCode("Agent building may use Harness registration methods that require reflection.")]
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "RequiresUnreferencedCode declared on method")]
-    /// <summary>
-    /// Builds the protocol-agnostic core agent asynchronously.
     /// Required for provider validation (LLM connectivity checks) during initialization.
     /// </summary>
+    /// <param name="cancellationToken">Cancellation token for async operations</param>
     public async Task<Agent> BuildAsync(CancellationToken cancellationToken = default)
     {
         await ResolveStoredAgentDefinitionAsync(cancellationToken).ConfigureAwait(false);
@@ -2090,35 +2049,30 @@ public class AgentBuilder
 
     /// <summary>
     /// Loads MCP tools from harness-owned [MCPServer] methods.
-    /// Iterates through selected harness factories with HasMCPServers=true,
-    /// discovers MCPServerRegistration objects via reflection on the generated Registration class,
-    /// resolves configs, and loads tools through MCPClientManager.
+    /// Generated registration code collects MCP server sources directly; HPD-Agent.MCP owns concrete config handling.
     /// </summary>
-#pragma warning disable IL2075
     private async Task<List<AIFunction>> LoadHarnessMCPServersAsync(CancellationToken cancellationToken)
     {
         var allTools = new List<AIFunction>();
 
-        // Find harnesses that have MCP servers
-        var harnessesWithMcp = _selectedHarnessFactories.Where(f => f.HasMCPServers).ToList();
+        var harnessesWithMcp = _selectedHarnessFactories
+            .Where(f => f.HasMCPServers && f.CollectMcpServers != null)
+            .ToList();
         if (harnessesWithMcp.Count == 0)
             return allTools;
 
-        // Ensure we have an MCP client manager (create one if needed)
+        if (s_mcpToolLoader == null)
+        {
+            _logger?.CreateLogger<AgentBuilder>().LogWarning(
+                "Harnesses have [MCPServer] attributes but HPD-Agent.MCP is not loaded. Skipping MCP server loading.");
+            return allTools;
+        }
+
         if (McpClientManager == null)
         {
-            // Try to create MCPClientManager via reflection (same pattern as WithMCP)
-            var mcpManagerType = Type.GetType("HPD.Agent.MCP.MCPClientManager, HPD-Agent.MCP");
-            if (mcpManagerType == null)
-            {
-                _logger?.CreateLogger<AgentBuilder>().LogWarning(
-                    "Harneses have [MCPServer] attributes but HPD-Agent.MCP assembly is not referenced. Skipping MCP server loading.");
-                return allTools;
-            }
-
             var logger = _logger?.CreateLogger("HPD.Agent.MCP.MCPClientManager")
-                ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
-            McpClientManager = Activator.CreateInstance(mcpManagerType, logger, null);
+                ?? NullLogger.Instance;
+            McpClientManager = s_mcpToolLoader.CreateManager(logger, _config.Mcp?.Options);
         }
 
         var maxFunctionNames = _config.Collapsing?.MaxFunctionNamesInDescription ?? 10;
@@ -2127,35 +2081,6 @@ public class AgentBuilder
         {
             try
             {
-                // Find the Registration class: {HarnessName}Registration
-                var registrationType = factory.HarnessType.Assembly.GetType(
-                    $"{factory.Name}Registration") ??
-                    factory.HarnessType.Assembly.GetTypes().FirstOrDefault(t =>
-                        t.Name == $"{factory.Name}Registration");
-
-                if (registrationType == null)
-                {
-                    _logger?.CreateLogger<AgentBuilder>().LogWarning(
-                        "Could not find {HarnessName}Registration class for MCP server loading", factory.Name);
-                    continue;
-                }
-
-                // Get the MCPServers static property
-                var mcpServersProp = registrationType.GetProperty("MCPServers",
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-
-                if (mcpServersProp == null)
-                {
-                    _logger?.CreateLogger<AgentBuilder>().LogWarning(
-                        "Registration class {HarnessName}Registration has no MCPServers property", factory.Name);
-                    continue;
-                }
-
-                // Get the registrations list
-                var registrations = mcpServersProp.GetValue(null);
-                if (registrations == null) continue;
-
-                // Get the harness instance for instance-method MCP servers
                 object? harnessInstance = null;
                 if (_serviceProvider != null)
                 {
@@ -2167,87 +2092,40 @@ public class AgentBuilder
                 }
                 harnessInstance ??= factory.CreateInstance();
 
-                // Iterate over MCPServerRegistration objects
-                var registrationList = (System.Collections.IEnumerable)registrations;
-                foreach (var regObj in registrationList)
-                {
-                    // Use reflection to access MCPServerRegistration properties
-                    var regType = regObj.GetType();
-                    var fromManifest = (string?)regType.GetProperty("FromManifest")?.GetValue(regObj);
-                    var manifestServerName = (string?)regType.GetProperty("ManifestServerName")?.GetValue(regObj);
-                    var name = (string?)regType.GetProperty("Name")?.GetValue(regObj) ?? string.Empty;
-                    var description = (string?)regType.GetProperty("Description")?.GetValue(regObj);
-                    var parentHarness = (string?)regType.GetProperty("ParentHarness")?.GetValue(regObj) ?? factory.Name;
-                    var collapseWithinHarness = (bool)(regType.GetProperty("CollapseWithinHarness")?.GetValue(regObj) ?? false);
-                    var requiresPermissionOverride = (bool?)regType.GetProperty("RequiresPermissionOverride")?.GetValue(regObj);
+                var sources = new List<McpServerSource>();
+                factory.CollectMcpServers!(harnessInstance, sources.Add);
 
+                foreach (var source in sources)
+                {
                     object? config = null;
 
-                    if (fromManifest != null)
+                    if (source.FromManifest != null)
                     {
-                        // FromManifest mode: load config from manifest file
-                        config = await LoadConfigFromManifestAsync(fromManifest, manifestServerName ?? name, cancellationToken);
+                        config = await s_mcpToolLoader.LoadConfigFromManifestAsync(
+                            source.FromManifest,
+                            source.ManifestServerName ?? source.Name,
+                            cancellationToken).ConfigureAwait(false);
                     }
-                    else
+                    else if (source.ConfigProvider != null)
                     {
-                        // Inline config mode: call the provider delegate
-                        var staticProvider = regType.GetProperty("StaticConfigProvider")?.GetValue(regObj);
-                        var instanceProvider = regType.GetProperty("InstanceConfigProvider")?.GetValue(regObj);
-
-                        if (staticProvider is Delegate staticDel)
-                        {
-                            config = staticDel.DynamicInvoke();
-                        }
-                        else if (instanceProvider is Delegate instanceDel)
-                        {
-                            config = instanceDel.DynamicInvoke(harnessInstance);
-                        }
+                        config = source.ConfigProvider(harnessInstance);
                     }
 
                     if (config == null)
                     {
                         _logger?.CreateLogger<AgentBuilder>().LogDebug(
                             "MCP server '{ServerName}' in harness '{HarnessName}' returned null config, skipping",
-                            name, factory.Name);
+                            source.Name, factory.Name);
                         continue;
                     }
 
-                    // Set harness-awareness properties on the config
-                    var configType = config.GetType();
-                    configType.GetProperty("ParentHarness")?.SetValue(config, parentHarness);
-                    configType.GetProperty("CollapseWithinHarness")?.SetValue(config, collapseWithinHarness);
-
-                    // Apply attribute overrides
-                    if (requiresPermissionOverride.HasValue)
-                    {
-                        configType.GetProperty("RequiresPermission")?.SetValue(config, requiresPermissionOverride.Value);
-                    }
-
-                    if (!string.IsNullOrEmpty(description))
-                    {
-                        var descProp = configType.GetProperty("Description");
-                        var currentDesc = (string?)descProp?.GetValue(config);
-                        if (string.IsNullOrEmpty(currentDesc))
-                        {
-                            descProp?.SetValue(config, description);
-                        }
-                    }
-
-                    // Load tools via MCPClientManager.LoadToolsForHarnessAsync
-                    var mcpManagerType = McpClientManager!.GetType();
-                    var loadMethod = mcpManagerType.GetMethod("LoadToolsForHarnessAsync");
-
-                    if (loadMethod != null)
-                    {
-                        var task = loadMethod.Invoke(McpClientManager, new object[] { config, maxFunctionNames, cancellationToken })
-                            as Task<List<AIFunction>>;
-
-                        if (task != null)
-                        {
-                            var tools = await task;
-                            allTools.AddRange(tools);
-                        }
-                    }
+                    var tools = await s_mcpToolLoader.LoadForHarnessAsync(
+                        McpClientManager!,
+                        config,
+                        source,
+                        maxFunctionNames,
+                        cancellationToken).ConfigureAwait(false);
+                    allTools.AddRange(tools);
                 }
             }
             catch (Exception ex)
@@ -2262,96 +2140,8 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Loads an MCPServerConfig from a manifest file by server name.
-    /// </summary>
-    private async Task<object?> LoadConfigFromManifestAsync(string manifestPath, string serverName, CancellationToken cancellationToken)
-    {
-        try
-        {
-            if (!File.Exists(manifestPath))
-            {
-                _logger?.CreateLogger<AgentBuilder>().LogWarning(
-                    "MCP manifest file not found: {ManifestPath}", manifestPath);
-                return null;
-            }
-
-            var json = await File.ReadAllTextAsync(manifestPath, cancellationToken);
-
-            // Use reflection to parse manifest and find server
-            var manifestType = Type.GetType("HPD.Agent.MCP.MCPManifest, HPD-Agent.MCP");
-            var configType = Type.GetType("HPD.Agent.MCP.MCPServerConfig, HPD-Agent.MCP");
-            if (manifestType == null || configType == null) return null;
-
-            var manifest = System.Text.Json.JsonSerializer.Deserialize(json, manifestType);
-            if (manifest == null) return null;
-
-            var serversProp = manifestType.GetProperty("Servers");
-            var servers = serversProp?.GetValue(manifest) as System.Collections.IEnumerable;
-            if (servers == null) return null;
-
-            foreach (var server in servers)
-            {
-                var nameProp = server.GetType().GetProperty("Name");
-                var name = (string?)nameProp?.GetValue(server);
-                if (string.Equals(name, serverName, StringComparison.OrdinalIgnoreCase))
-                {
-                    return server;
-                }
-            }
-
-            _logger?.CreateLogger<AgentBuilder>().LogWarning(
-                "Server '{ServerName}' not found in manifest '{ManifestPath}'", serverName, manifestPath);
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _logger?.CreateLogger<AgentBuilder>().LogWarning(ex,
-                "Failed to load manifest '{ManifestPath}': {Error}", manifestPath, ex.Message);
-            return null;
-        }
-    }
-#pragma warning restore IL2075
-
-    /// <summary>
-    /// Invokes MCP methods via reflection. This is only called from RequiresUnreferencedCode context,
-    /// so the trimmer knows MCPClientManager types must be preserved.
-    /// </summary>
-#pragma warning disable IL2075
-    private async Task<List<AIFunction>> InvokeMCPMethodAsync(
-        object mcpManager,
-        string methodName,
-        string manifestPath,
-        int maxFunctionNames,
-        CancellationToken cancellationToken)
-    {
-        var managerType = mcpManager.GetType();
-        var method = managerType.GetMethod(
-            methodName,
-            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance,
-            null,
-            new[] { typeof(string), typeof(bool), typeof(int), typeof(System.Threading.CancellationToken) },
-            null);
-
-        if (method == null)
-            throw new InvalidOperationException($"MCPClientManager does not have {methodName} method");
-
-        var task = method.Invoke(mcpManager, new object[] { manifestPath, false, maxFunctionNames, cancellationToken })
-            as System.Threading.Tasks.Task<List<AIFunction>>;
-
-        if (task == null)
-            throw new InvalidOperationException($"MCP method {methodName} returned null or wrong type");
-
-        return await task;
-    }
-#pragma warning restore IL2075
-
-    /// <summary>
     /// Builds all dependencies needed for agent construction.
-    /// WARNING: This method uses reflection for MCP tool loading. It requires HPD.Agent.MCP assembly
-    /// and its public types to be preserved during AOT compilation. For Native AOT deployment,
-    /// ensure MCPClientManager type is explicitly preserved in your rd.xml or RootDescriptor.
     /// </summary>
-    [RequiresUnreferencedCode("MCP tool loading via reflection. Requires HPD.Agent.MCP types preserved.")]
     private async Task<AgentBuildDependencies> BuildDependenciesAsync(CancellationToken cancellationToken)
     {
         // ===  INITIALIZE SKILL DOCUMENTS VIA CONTENT STORE ===
@@ -2383,23 +2173,19 @@ public class AgentBuilder
                 testErrorHandler);
         }
 
-        // === DEFERRED PROVIDER: Skip validation when chat client will be provided at runtime ===
-        // Used for agents in multi-agent workflows that inherit the parent's chat client
-        if (_deferredProvider)
-        {
-            // Return null client - will be provided via AgentRunConfig.OverrideChatClient at runtime
-            var deferredErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
-            return new AgentBuildDependencies(
-                null!, // Client will be provided at runtime via OverrideChatClient
-                _config.Provider?.DefaultChatOptions,
-                deferredErrorHandler);
-        }
-
         // === START: VALIDATION LOGIC ===
         AgentConfigValidator.ValidateAndThrow(_config);
 
-        if (_config.Provider == null)
-            throw new InvalidOperationException("Provider configuration is required.");
+        // === RUNTIME PROVIDER: Skip provider client creation when a chat client
+        // will be selected at invocation time via AgentRunConfig.
+        if (_deferredProvider || _config.Provider == null)
+        {
+            var runtimeErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
+            return new AgentBuildDependencies(
+                null,
+                _config.Provider?.DefaultChatOptions,
+                runtimeErrorHandler);
+        }
 
         // ✨ AUTO-CONFIGURE: If no configuration provided, create default configuration
         // Automatically loads from appsettings.json in the application directory
@@ -2512,8 +2298,14 @@ public class AgentBuilder
 
         // Resolve provider from registry
         var providerKey = _config.Provider.ProviderKey;
-        if (string.IsNullOrEmpty(providerKey))
-            throw new InvalidOperationException("ProviderKey in ProviderConfig cannot be empty.");
+        if (string.IsNullOrEmpty(providerKey) || string.IsNullOrEmpty(_config.Provider.ModelName))
+        {
+            var runtimeErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
+            return new AgentBuildDependencies(
+                null,
+                _config.Provider.DefaultChatOptions,
+                runtimeErrorHandler);
+        }
 
         var providerFeatures = _providerRegistry.GetProvider(providerKey);
 
@@ -2655,32 +2447,32 @@ public class AgentBuilder
         {
             try
             {
+                if (s_mcpToolLoader == null)
+                    throw new InvalidOperationException(
+                        "MCP client manager is configured but HPD-Agent.MCP loader is not registered. " +
+                        "Reference HPD-Agent.MCP so its module initializer can register MCP support.");
+
                 List<AIFunction> mcpTools;
                 if (_config.Mcp != null && !string.IsNullOrEmpty(_config.Mcp.ManifestPath))
                 {
-                    // Get max function names configuration (no longer using global MCP Collapsing - that's per-server now)
                     var maxFunctionNames = _config.Collapsing?.MaxFunctionNamesInDescription ?? 10;
 
                     // Check if this is actually content vs path based on if it starts with '{'
                     if (_config.Mcp.ManifestPath.TrimStart().StartsWith("{"))
                     {
-                        // AOT-safe reflection-based method invocation (no dynamic required)
-                        mcpTools = await InvokeMCPMethodAsync(
+                        mcpTools = await s_mcpToolLoader.LoadFromManifestContentAsync(
                             McpClientManager,
-                            "LoadToolsFromManifestContentAsync",
                             _config.Mcp.ManifestPath,
                             maxFunctionNames,
-                            cancellationToken);
+                            cancellationToken).ConfigureAwait(false);
                     }
                     else
                     {
-                        // AOT-safe reflection-based method invocation (no dynamic required)
-                        mcpTools = await InvokeMCPMethodAsync(
+                        mcpTools = await s_mcpToolLoader.LoadFromManifestAsync(
                             McpClientManager,
-                            "LoadToolsFromManifestAsync",
                             _config.Mcp.ManifestPath,
                             maxFunctionNames,
-                            cancellationToken);
+                            cancellationToken).ConfigureAwait(false);
                     }
                 }
                 else
@@ -2955,7 +2747,7 @@ public class AgentBuilder
     /// Returns null if history reduction is not enabled.
     /// </summary>
     private static IChatReducer? CreateChatReducer(
-        IChatClient baseClient,
+        IChatClient? baseClient,
         AgentConfig config,
         IChatClient? summarizerClient)
     {
@@ -2983,7 +2775,7 @@ public class AgentBuilder
     /// Supports using a separate, cheaper model for summarization (cost optimization).
     /// </summary>
     private static SummarizingChatReducer CreateSummarizingReducer(
-        IChatClient baseClient,
+        IChatClient? baseClient,
         HistoryReductionConfig historyConfig,
         IChatClient? summarizerClient)
     {
@@ -2991,6 +2783,11 @@ public class AgentBuilder
         // If a custom summarizer client was provided, use it
         // Otherwise, fall back to the base client
         var clientForSummarization = summarizerClient ?? baseClient;
+        if (clientForSummarization == null)
+        {
+            throw new InvalidOperationException(
+                "History reduction with summarization requires a configured provider or summarizer provider.");
+        }
 
         var reducer = new SummarizingChatReducer(
             clientForSummarization,
@@ -3979,29 +3776,19 @@ public static class AgentBuilderHarnessExtensions
     /// AOT-Compatible: Uses generated HarnessRegistry.All catalog (zero reflection in hot path).
     /// Automatically loads harness registry from the assembly where T is defined if not already loaded.
     /// Auto-registers referenced harnesses from skills via GetReferencedHarneses().
-    /// WARNING: For Native AOT, requires HarnessRegistry types in all referenced assemblies to be preserved.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown if harness is not found in any loaded registry.</exception>
-    [RequiresUnreferencedCode("Harness loading via WithHarness requires HarnessRegistry from assembly where T is defined to be preserved.")]
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "RequiresUnreferencedCode declared on method")]
     public static AgentBuilder WithHarness<T>(this AgentBuilder builder, IToolMetadata? context = null) where T : class, new()
     {
+        builder.LoadGeneratedRegistries();
         var harnessName = typeof(T).Name;
-        var harnessAssembly = typeof(T).Assembly;
 
         // Try to find in already loaded harnesses
         if (!builder._availableHarneses.TryGetValue(harnessName, out var factory))
         {
-            // Not found - try loading the assembly where T is defined
-            builder.LoadToolRegistryFromAssembly(harnessAssembly);
-
-            // Try again after loading
-            if (!builder._availableHarneses.TryGetValue(harnessName, out factory))
-            {
-                throw new InvalidOperationException(
-                    $"Harness '{harnessName}' not found in HarnessRegistry.All. " +
-                    $"Ensure the harness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
-            }
+            throw new InvalidOperationException(
+                $"Harness '{harnessName}' not found in HarnessRegistry.All. " +
+                $"Ensure the harness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
         }
 
         // AOT-compatible path: Use catalog
@@ -4031,8 +3818,6 @@ public static class AgentBuilderHarnessExtensions
     ///     opts.AddScopedMiddleware(new DbAuditMiddleware(sp.GetRequiredService&lt;IAuditLog&gt;())));
     /// </code>
     /// </example>
-    [RequiresUnreferencedCode("Harness loading via WithHarness requires HarnessRegistry from assembly where T is defined to be preserved.")]
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "RequiresUnreferencedCode declared on method")]
     public static AgentBuilder WithHarness<T>(this AgentBuilder builder, Action<HarnessOptions> configure, IToolMetadata? context = null) where T : class, new()
     {
         // Register the harness normally first
@@ -4059,29 +3844,28 @@ public static class AgentBuilderHarnessExtensions
     /// <summary>
     /// Registers a harness using a pre-created instance with optional execution context.
     /// Used for DI-required harnesses (e.g., AgentPlanHarness, DynamicMemoryHarness).
-    /// The instance's generated Registration class is used for function creation (AOT-compatible).
-    /// WARNING: For Native AOT, requires HarnessRegistry from instance assembly to be preserved.
+    /// The generated HarnessFactory delegate is used for function creation (AOT-compatible).
     /// </summary>
-    [RequiresUnreferencedCode("Harness instance registration requires HarnessRegistry from instance's assembly to be preserved.")]
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "RequiresUnreferencedCode declared on method")]
     public static AgentBuilder WithHarness<T>(this AgentBuilder builder, T instance, IToolMetadata? context = null) where T : class
     {
+        builder.LoadGeneratedRegistries();
         var harnessName = typeof(T).Name;
 
-        // Register as instance registration (will use generated Registration class for function creation)
+        if (!builder._availableHarneses.TryGetValue(harnessName, out var factory))
+        {
+            throw new InvalidOperationException(
+                $"Harness '{harnessName}' not found in HarnessRegistry.All. " +
+                $"Ensure the harness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
+        }
+
+        // Register as instance registration (will use the generated HarnessFactory delegate for function creation)
         builder._instanceRegistrations.Add(new ToolInstanceRegistration(instance, harnessName));
         builder.HarnessContexts[harnessName] = context;
 
         // Track this as explicitly registered
         builder._explicitlyRegisteredHarneses.Add(harnessName);
 
-        // Auto-register dependencies if harness is in catalog (for skill dependencies)
-        // First try to load the assembly where the instance type is defined
-        builder.LoadToolRegistryFromAssembly(instance.GetType().Assembly);
-        if (builder._availableHarneses.TryGetValue(harnessName, out var factory))
-        {
-            AutoRegisterDependenciesFromFactory(builder, factory);
-        }
+        AutoRegisterDependenciesFromFactory(builder, factory);
 
         return builder;
     }
@@ -4091,29 +3875,19 @@ public static class AgentBuilderHarnessExtensions
     /// AOT-Compatible: Uses generated HarnessRegistry.All catalog (zero reflection in hot path).
     /// Automatically loads harness registry from the assembly where harnessType is defined if not already loaded.
     /// Auto-registers referenced harnesses from skills via GetReferencedHarneses().
-    /// WARNING: For Native AOT, requires HarnessRegistry from harnessType's assembly to be preserved.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown if harness is not found in any loaded registry.</exception>
-    [RequiresUnreferencedCode("Harness registration by Type requires HarnessRegistry from harness assembly to be preserved.")]
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "RequiresUnreferencedCode declared on method")]
     public static AgentBuilder WithHarness(this AgentBuilder builder, Type harnessType, IToolMetadata? context = null)
     {
+        builder.LoadGeneratedRegistries();
         var harnessName = harnessType.Name;
-        var harnessAssembly = harnessType.Assembly;
 
         // Try to find in already loaded harnesses
         if (!builder._availableHarneses.TryGetValue(harnessName, out var factory))
         {
-            // Not found - try loading the assembly where harnessType is defined
-            builder.LoadToolRegistryFromAssembly(harnessAssembly);
-
-            // Try again after loading
-            if (!builder._availableHarneses.TryGetValue(harnessName, out factory))
-            {
-                throw new InvalidOperationException(
-                    $"Harness '{harnessName}' not found in HarnessRegistry.All. " +
-                    $"Ensure the harness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
-            }
+            throw new InvalidOperationException(
+                $"Harness '{harnessName}' not found in HarnessRegistry.All. " +
+                $"Ensure the harness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
         }
 
         // AOT-compatible path: Use catalog
@@ -4172,22 +3946,16 @@ public static class AgentBuilderHarnessExtensions
 
     /// <inheritdoc cref="WithHarness{T}(AgentBuilder, IToolMetadata?)"/>
     [Obsolete("Use WithHarness<T>() instead. WithTools will be removed in a future version.")]
-    [RequiresUnreferencedCode("Harness loading via WithTools requires HarnessRegistry from assembly where T is defined to be preserved.")]
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "RequiresUnreferencedCode declared on method")]
     public static AgentBuilder WithTools<T>(this AgentBuilder builder, IToolMetadata? context = null) where T : class, new()
         => builder.WithHarness<T>(context);
 
     /// <inheritdoc cref="WithHarness{T}(AgentBuilder, T, IToolMetadata?)"/>
     [Obsolete("Use WithHarness<T>() instead. WithTools will be removed in a future version.")]
-    [RequiresUnreferencedCode("Harness instance registration requires HarnessRegistry from instance's assembly to be preserved.")]
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "RequiresUnreferencedCode declared on method")]
     public static AgentBuilder WithTools<T>(this AgentBuilder builder, T instance, IToolMetadata? context = null) where T : class
         => builder.WithHarness(instance, context);
 
     /// <inheritdoc cref="WithHarness(AgentBuilder, Type, IToolMetadata?)"/>
     [Obsolete("Use WithHarness() instead. WithTools will be removed in a future version.")]
-    [RequiresUnreferencedCode("Harness registration by Type requires HarnessRegistry from harness assembly to be preserved.")]
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "RequiresUnreferencedCode declared on method")]
     public static AgentBuilder WithTools(this AgentBuilder builder, Type harnessType, IToolMetadata? context = null)
         => builder.WithHarness(harnessType, context);
 

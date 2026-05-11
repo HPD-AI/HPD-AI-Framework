@@ -1,6 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent;
+using HPD.Agent.ClientTools;
+using HPD.Agent.Planning;
+using System.Collections.Immutable;
 
 /// <summary>
 /// JSON serialization context for HPD-Agent core types (AOT-compatible).
@@ -31,6 +34,8 @@ using HPD.Agent;
 [JsonSerializable(typeof(JsonElement))]
 [JsonSerializable(typeof(Dictionary<string, object>))]
 [JsonSerializable(typeof(Dictionary<string, object?>))]
+[JsonSerializable(typeof(Dictionary<string, JsonElement>))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(IDictionary<string, object>))]
 [JsonSerializable(typeof(IDictionary<string, object?>))]
 [JsonSerializable(typeof(List<string>))]
@@ -45,6 +50,7 @@ using HPD.Agent;
 [JsonSerializable(typeof(System.Text.Json.Nodes.JsonValue))]
 
 // --- Agent configuration types ---
+[JsonSerializable(typeof(StoredAgent))]
 [JsonSerializable(typeof(AgentConfig))]
 [JsonSerializable(typeof(ProviderConfig))]
 [JsonSerializable(typeof(string))]
@@ -70,10 +76,29 @@ using HPD.Agent;
 [JsonSerializable(typeof(HPD.Agent.AudioContent))]
 [JsonSerializable(typeof(HPD.Agent.VideoContent))]
 [JsonSerializable(typeof(HPD.Agent.DocumentContent))]
+[JsonSerializable(typeof(LocalContentMetadata))]
 
 // --- Conversation storage and serialization types ---
+[JsonSerializable(typeof(BatchPermissionStateData))]
+[JsonSerializable(typeof(CircuitBreakerStateData))]
+[JsonSerializable(typeof(ContinuationPermissionStateData))]
+[JsonSerializable(typeof(ErrorTrackingStateData))]
 [JsonSerializable(typeof(HistoryReductionStateData))]
 [JsonSerializable(typeof(CachedReduction))]
+[JsonSerializable(typeof(PermissionPersistentStateData))]
+[JsonSerializable(typeof(TotalErrorThresholdStateData))]
+[JsonSerializable(typeof(PlanModePersistentStateData))]
+[JsonSerializable(typeof(AgentPlanData))]
+[JsonSerializable(typeof(PlanStepData))]
+[JsonSerializable(typeof(ClientToolStateData))]
+[JsonSerializable(typeof(ContainerMiddlewareState))]
+[JsonSerializable(typeof(ContainerInstructionSet))]
+[JsonSerializable(typeof(RecoveryInfo))]
+[JsonSerializable(typeof(ImmutableHashSet<string>))]
+[JsonSerializable(typeof(ImmutableDictionary<string, clientHarnessDefinition>), TypeInfoPropertyName = "ImmutableDictionaryStringClientHarnessDefinition")]
+[JsonSerializable(typeof(ImmutableDictionary<string, ContextItem>), TypeInfoPropertyName = "ImmutableDictionaryStringContextItem")]
+[JsonSerializable(typeof(ImmutableDictionary<string, ContainerInstructionSet>), TypeInfoPropertyName = "ImmutableDictionaryStringContainerInstructionSet")]
+[JsonSerializable(typeof(ImmutableDictionary<string, RecoveryInfo>), TypeInfoPropertyName = "ImmutableDictionaryStringRecoveryInfo")]
 
 // --- Client Tools types ---
 [JsonSerializable(typeof(HPD.Agent.ClientTools.clientHarnessDefinition))]

@@ -2,6 +2,7 @@
 
 using HPD.Agent;
 using HPD.Agent.Audio;
+using HPD.Agent.Audio.Recognition;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 using Xunit;
@@ -30,7 +31,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new FakeSpeechToTextClient("hello world");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -62,7 +63,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new FakeSpeechToTextClient("hey there");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -97,7 +98,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new FakeSpeechToTextClient("transcribed from store");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -129,7 +130,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new FakeSpeechToTextClient("never called");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -158,7 +159,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new FakeSpeechToTextClient("should not be called");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -185,7 +186,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new FakeSpeechToTextClient("should not be called");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -215,7 +216,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new FakeSpeechToTextClient("spoken words");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -253,7 +254,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new SequentialSpeechToTextClient(["first part", "second part"]);
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -284,7 +285,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new FakeSpeechToTextClient("should not be called");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -312,7 +313,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new FakeSpeechToTextClient("should not be called");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -340,7 +341,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new FakeSpeechToTextClient("should not be called");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -354,7 +355,7 @@ public class AudioPipelineMiddlewareInputTests
     }
 
     // -------------------------------------------------------------------------
-    // 12. No SpeechToTextClient — audio present but skipped
+    // 12. No speech recognizer — audio present but skipped
     // -------------------------------------------------------------------------
 
     [Fact]
@@ -363,7 +364,7 @@ public class AudioPipelineMiddlewareInputTests
         // Arrange — no STT configured
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = null,
+            SpeechRecognizer = null,
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -393,7 +394,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new ThrowingThenSucceedingSttClient("recovered");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -425,7 +426,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new FakeSpeechToTextClient("spoken");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -454,7 +455,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new SequentialSpeechToTextClient(["alpha", "beta"]);
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -712,7 +713,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new FakeSpeechToTextClient("should not be called");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText,
             ProcessingMode = AudioProcessingMode.Native
         };
@@ -741,7 +742,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new FakeSpeechToTextClient("ignored");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText,
             ProcessingMode = AudioProcessingMode.Native
         };
@@ -773,7 +774,7 @@ public class AudioPipelineMiddlewareInputTests
         var audioBytes = new byte[] { 0x04, 0x05 };
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = new FakeSpeechToTextClient("ignored"),
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(new FakeSpeechToTextClient("ignored")),
             IOMode = AudioIOMode.AudioToText,
             ProcessingMode = AudioProcessingMode.Native
         };
@@ -802,7 +803,7 @@ public class AudioPipelineMiddlewareInputTests
         // Arrange
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = new FakeSpeechToTextClient("ignored"),
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(new FakeSpeechToTextClient("ignored")),
             IOMode = AudioIOMode.AudioToText,
             ProcessingMode = AudioProcessingMode.Native
         };
@@ -830,7 +831,7 @@ public class AudioPipelineMiddlewareInputTests
         // Arrange
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = new FakeSpeechToTextClient("ignored"),
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(new FakeSpeechToTextClient("ignored")),
             IOMode = AudioIOMode.AudioToAudioAndText,
             ProcessingMode = AudioProcessingMode.Native
         };
@@ -852,7 +853,7 @@ public class AudioPipelineMiddlewareInputTests
     }
 
     // -------------------------------------------------------------------------
-    // 45. Native bypass takes priority even when SpeechToTextClient is injected
+    // 45. Native bypass takes priority even when speech recognition is injected
     // -------------------------------------------------------------------------
 
     [Fact]
@@ -862,7 +863,7 @@ public class AudioPipelineMiddlewareInputTests
         var stt = new FakeSpeechToTextClient("should not see this");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToAudioAndText,
             ProcessingMode = AudioProcessingMode.Native
         };

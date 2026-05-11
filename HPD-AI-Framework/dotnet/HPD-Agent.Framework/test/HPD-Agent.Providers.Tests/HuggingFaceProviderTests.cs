@@ -109,7 +109,7 @@ public class HuggingFaceProviderTests
         {
             Temperature = 101.0 // Invalid: must be <= 100
         };
-        config.SetTypedProviderConfig(hfConfig);
+        config.SetProviderConfig(hfConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -134,7 +134,7 @@ public class HuggingFaceProviderTests
         {
             Temperature = -0.1 // Invalid: must be >= 0
         };
-        config.SetTypedProviderConfig(hfConfig);
+        config.SetProviderConfig(hfConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -159,7 +159,7 @@ public class HuggingFaceProviderTests
         {
             Temperature = 1.5 // Valid for HuggingFace
         };
-        config.SetTypedProviderConfig(hfConfig);
+        config.SetProviderConfig(hfConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -184,7 +184,7 @@ public class HuggingFaceProviderTests
         {
             TopP = -0.1 // Invalid: must be >= 0
         };
-        config.SetTypedProviderConfig(hfConfig);
+        config.SetProviderConfig(hfConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -209,7 +209,7 @@ public class HuggingFaceProviderTests
         {
             TopP = 1.1 // Invalid: must be <= 1
         };
-        config.SetTypedProviderConfig(hfConfig);
+        config.SetProviderConfig(hfConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -234,7 +234,7 @@ public class HuggingFaceProviderTests
         {
             TopK = -1 // Invalid: must be >= 0
         };
-        config.SetTypedProviderConfig(hfConfig);
+        config.SetProviderConfig(hfConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -259,7 +259,7 @@ public class HuggingFaceProviderTests
         {
             RepetitionPenalty = -0.1 // Invalid: must be >= 0
         };
-        config.SetTypedProviderConfig(hfConfig);
+        config.SetProviderConfig(hfConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -284,7 +284,7 @@ public class HuggingFaceProviderTests
         {
             MaxNewTokens = 0 // Invalid: must be >= 1
         };
-        config.SetTypedProviderConfig(hfConfig);
+        config.SetProviderConfig(hfConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -309,7 +309,7 @@ public class HuggingFaceProviderTests
         {
             NumReturnSequences = 0 // Invalid: must be >= 1
         };
-        config.SetTypedProviderConfig(hfConfig);
+        config.SetProviderConfig(hfConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -334,7 +334,7 @@ public class HuggingFaceProviderTests
         {
             MaxTime = 0 // Invalid: must be > 0
         };
-        config.SetTypedProviderConfig(hfConfig);
+        config.SetProviderConfig(hfConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -369,7 +369,7 @@ public class HuggingFaceProviderTests
             UseCache = false,
             WaitForModel = true
         };
-        config.SetTypedProviderConfig(hfConfig);
+        config.SetProviderConfig(hfConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -587,7 +587,7 @@ public class HuggingFaceProviderTests
             TopP = 0.9,
             TopK = 50
         };
-        config.Provider.SetTypedProviderConfig(hfOpts);
+        config.Provider.SetProviderConfig(hfOpts);
 
         // Act
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
@@ -638,7 +638,7 @@ public class HuggingFaceProviderTests
         config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
 
         // Verify typed config can be retrieved
-        var hfConfig = config.Provider.GetTypedProviderConfig<HuggingFaceProviderConfig>();
+        var hfConfig = config.Provider.GetProviderConfig<HuggingFaceProviderConfig>();
         hfConfig.Should().NotBeNull();
         hfConfig!.MaxNewTokens.Should().Be(250);
         hfConfig.Temperature.Should().Be(0.7);
@@ -677,7 +677,7 @@ public class HuggingFaceProviderTests
             UseCache = false,
             WaitForModel = true
         };
-        originalConfig.Provider.SetTypedProviderConfig(originalHfOpts);
+        originalConfig.Provider.SetProviderConfig(originalHfOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(originalConfig, HPDJsonContext.Default.AgentConfig);
@@ -696,7 +696,7 @@ public class HuggingFaceProviderTests
         deserializedConfig.Provider.ApiKey.Should().Be("hf_test_key");
 
         // Assert - HuggingFace-specific config
-        var deserializedHfOpts = deserializedConfig.Provider.GetTypedProviderConfig<HuggingFaceProviderConfig>();
+        var deserializedHfOpts = deserializedConfig.Provider.GetProviderConfig<HuggingFaceProviderConfig>();
         deserializedHfOpts.Should().NotBeNull();
         deserializedHfOpts!.MaxNewTokens.Should().Be(500);
         deserializedHfOpts.Temperature.Should().Be(0.8);
@@ -712,7 +712,7 @@ public class HuggingFaceProviderTests
     }
 
     [Fact]
-    public void AgentConfig_SetTypedProviderConfig_ShouldUpdateProviderOptionsJson()
+    public void AgentConfig_SetProviderConfig_ShouldUpdateProviderOptionsJson()
     {
         // Arrange
         var config = new AgentConfig
@@ -730,7 +730,7 @@ public class HuggingFaceProviderTests
             MaxNewTokens = 250,
             Temperature = 0.5
         };
-        config.Provider.SetTypedProviderConfig(hfOpts);
+        config.Provider.SetProviderConfig(hfOpts);
 
         // Assert - ProviderOptionsJson should be populated
         config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
@@ -740,14 +740,14 @@ public class HuggingFaceProviderTests
         config.Provider.ProviderOptionsJson.Should().Contain("0.5");
 
         // Verify we can retrieve it back
-        var retrieved = config.Provider.GetTypedProviderConfig<HuggingFaceProviderConfig>();
+        var retrieved = config.Provider.GetProviderConfig<HuggingFaceProviderConfig>();
         retrieved.Should().NotBeNull();
         retrieved!.MaxNewTokens.Should().Be(250);
         retrieved.Temperature.Should().Be(0.5);
     }
 
     [Fact]
-    public void AgentConfig_GetTypedProviderConfig_ShouldCacheResult()
+    public void AgentConfig_GetProviderConfig_ShouldCacheResult()
     {
         // Arrange
         var config = new AgentConfig
@@ -764,11 +764,11 @@ public class HuggingFaceProviderTests
             MaxNewTokens = 250,
             Temperature = 0.7
         };
-        config.Provider.SetTypedProviderConfig(hfOpts);
+        config.Provider.SetProviderConfig(hfOpts);
 
-        // Act - Call GetTypedProviderConfig multiple times
-        var first = config.Provider.GetTypedProviderConfig<HuggingFaceProviderConfig>();
-        var second = config.Provider.GetTypedProviderConfig<HuggingFaceProviderConfig>();
+        // Act - Call GetProviderConfig multiple times
+        var first = config.Provider.GetProviderConfig<HuggingFaceProviderConfig>();
+        var second = config.Provider.GetProviderConfig<HuggingFaceProviderConfig>();
 
         // Assert - Should return the same cached instance
         first.Should().BeSameAs(second);
@@ -794,14 +794,14 @@ public class HuggingFaceProviderTests
             MaxNewTokens = 250
             // Leave Temperature, TopP, etc. as null
         };
-        config.Provider.SetTypedProviderConfig(hfOpts);
+        config.Provider.SetProviderConfig(hfOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
         var deserialized = System.Text.Json.JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentConfig);
 
         // Assert
-        var deserializedOpts = deserialized!.Provider.GetTypedProviderConfig<HuggingFaceProviderConfig>();
+        var deserializedOpts = deserialized!.Provider.GetProviderConfig<HuggingFaceProviderConfig>();
         deserializedOpts.Should().NotBeNull();
         deserializedOpts!.MaxNewTokens.Should().Be(250);
         deserializedOpts.Temperature.Should().BeNull();
@@ -837,7 +837,7 @@ public class HuggingFaceProviderTests
         builder.Config.Provider.ModelName.Should().Be("meta-llama/Meta-Llama-3-8B-Instruct");
         builder.Config.Provider.ApiKey.Should().Be("hf_test_key");
 
-        var hfConfig = builder.Config.Provider.GetTypedProviderConfig<HuggingFaceProviderConfig>();
+        var hfConfig = builder.Config.Provider.GetProviderConfig<HuggingFaceProviderConfig>();
         hfConfig.Should().NotBeNull();
         hfConfig!.MaxNewTokens.Should().Be(500);
         hfConfig.Temperature.Should().Be(0.7);
@@ -887,7 +887,7 @@ public class HuggingFaceProviderTests
             });
 
         // Assert
-        var hfConfig = builder.Config.Provider!.GetTypedProviderConfig<HuggingFaceProviderConfig>();
+        var hfConfig = builder.Config.Provider!.GetProviderConfig<HuggingFaceProviderConfig>();
         hfConfig.Should().NotBeNull();
         hfConfig!.MaxNewTokens.Should().Be(1000);
         hfConfig.Temperature.Should().Be(0.8);

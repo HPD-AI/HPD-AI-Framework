@@ -183,8 +183,7 @@ public sealed partial class MiddlewareState
         var result = value switch
         {
             TState typed => typed,  // Runtime: already correct type
-            JsonElement elem => elem.Deserialize<TState>(
-                AIJsonUtilities.DefaultOptions),  // Deserialized from checkpoint
+            JsonElement elem => DeserializeJsonElement<TState>(key, elem),  // Deserialized from checkpoint
             _ => throw new InvalidOperationException(
                 $"Unexpected type {value.GetType().Name} for middleware state '{key}'. " +
                 $"Expected {typeof(TState).Name} or JsonElement.")
@@ -197,6 +196,24 @@ public sealed partial class MiddlewareState
         }
 
         return result;
+    }
+
+    private static TState? DeserializeJsonElement<TState>(
+        string key,
+        JsonElement element) where TState : class
+    {
+        var (_, _, states) = AgentGeneratedRegistry.Snapshot();
+        foreach (var factory in states)
+        {
+            if (string.Equals(factory.FullyQualifiedName, key, StringComparison.Ordinal)
+                && factory.StateType == typeof(TState))
+            {
+                return factory.Deserialize(element.GetRawText()) as TState;
+            }
+        }
+
+        throw new NotSupportedException(
+            $"No middleware state factory is registered for '{key}'.");
     }
 
     /// <summary>

@@ -28,6 +28,7 @@ builder.Services.AddSlackBot(c =>
 {
     c.SigningSecret = builder.Configuration["Slack:SigningSecret"]!;
     c.BotToken      = builder.Configuration["Slack:BotToken"]!;
+    c.AgentId       = builder.Configuration["Agent:Id"] ?? "dev-agent";
 }, registerDefaultSecretResolver: true);
 
 builder.Services.AddSlackOAuth(c =>

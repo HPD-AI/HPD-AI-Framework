@@ -34,7 +34,7 @@ public class AnthropicProviderTests
         config.Provider.ModelName.Should().Be("claude-sonnet-4-5-20250929");
 
         // Verify typed config
-        var providerConfig = config.Provider.GetTypedProviderConfig<AnthropicProviderConfig>();
+        var providerConfig = config.Provider.GetProviderConfig<AnthropicProviderConfig>();
         providerConfig.Should().NotBeNull();
         providerConfig.MaxTokens.Should().Be(2048);
         providerConfig.Temperature.Should().Be(0.5);
@@ -52,7 +52,7 @@ public class AnthropicProviderTests
         builder.WithAnthropic("claude-sonnet-4-5-20250929", apiKey: "test-api-key");
 
         // Assert
-        var providerConfig = builder.Config.Provider.GetTypedProviderConfig<AnthropicProviderConfig>();
+        var providerConfig = builder.Config.Provider.GetProviderConfig<AnthropicProviderConfig>();
         providerConfig.Should().NotBeNull();
         providerConfig.MaxTokens.Should().Be(4096); // Default
         providerConfig.Temperature.Should().BeNull();
@@ -191,7 +191,7 @@ public class AnthropicProviderTests
         });
 
         // Assert
-        var providerConfig = builder.Config.Provider.GetTypedProviderConfig<AnthropicProviderConfig>();
+        var providerConfig = builder.Config.Provider.GetProviderConfig<AnthropicProviderConfig>();
         providerConfig.Should().NotBeNull();
         providerConfig!.EnablePromptCaching.Should().BeTrue();
         providerConfig.PromptCacheTTLMinutes.Should().Be(10);
@@ -240,8 +240,7 @@ public class AnthropicProviderTests
             clientFactory: clientFactory);
 
         // Assert
-        builder.Config.Provider.AdditionalProperties.Should().ContainKey("ClientFactory");
-        builder.Config.Provider.AdditionalProperties!["ClientFactory"].Should().Be(clientFactory);
+        builder.Config.Provider.ClientFactory.Should().Be(clientFactory);
     }
 
     #region Error Handler Tests
@@ -537,7 +536,7 @@ public class AnthropicProviderTests
             Temperature = 1.0f,
             ThinkingBudgetTokens = 2048
         };
-        config.Provider.SetTypedProviderConfig(anthropicOpts);
+        config.Provider.SetProviderConfig(anthropicOpts);
 
         // Act
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
@@ -587,7 +586,7 @@ public class AnthropicProviderTests
         config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
 
         // Verify typed config can be retrieved
-        var anthropicConfig = config.Provider.GetTypedProviderConfig<AnthropicProviderConfig>();
+        var anthropicConfig = config.Provider.GetProviderConfig<AnthropicProviderConfig>();
         anthropicConfig.Should().NotBeNull();
         anthropicConfig!.MaxTokens.Should().Be(4096);
         anthropicConfig.EnablePromptCaching.Should().BeTrue();
@@ -625,7 +624,7 @@ public class AnthropicProviderTests
             ServiceTier = "auto",
             StopSequences = new List<string> { "STOP", "END" }
         };
-        originalConfig.Provider.SetTypedProviderConfig(originalAnthropicOpts);
+        originalConfig.Provider.SetProviderConfig(originalAnthropicOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(originalConfig, HPDJsonContext.Default.AgentConfig);
@@ -645,7 +644,7 @@ public class AnthropicProviderTests
         deserializedConfig.Provider.Endpoint.Should().Be("https://api.anthropic.com");
 
         // Assert - Anthropic-specific config
-        var deserializedAnthropicOpts = deserializedConfig.Provider.GetTypedProviderConfig<AnthropicProviderConfig>();
+        var deserializedAnthropicOpts = deserializedConfig.Provider.GetProviderConfig<AnthropicProviderConfig>();
         deserializedAnthropicOpts.Should().NotBeNull();
         deserializedAnthropicOpts!.MaxTokens.Should().Be(8192);
         deserializedAnthropicOpts.EnablePromptCaching.Should().BeTrue();
@@ -661,7 +660,7 @@ public class AnthropicProviderTests
     }
 
     [Fact]
-    public void AgentConfig_SetTypedProviderConfig_ShouldUpdateProviderOptionsJson()
+    public void AgentConfig_SetProviderConfig_ShouldUpdateProviderOptionsJson()
     {
         // Arrange
         var config = new AgentConfig
@@ -679,7 +678,7 @@ public class AnthropicProviderTests
             MaxTokens = 2048,
             Temperature = 0.5f
         };
-        config.Provider.SetTypedProviderConfig(anthropicOpts);
+        config.Provider.SetProviderConfig(anthropicOpts);
 
         // Assert - ProviderOptionsJson should be populated
         config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
@@ -689,14 +688,14 @@ public class AnthropicProviderTests
         config.Provider.ProviderOptionsJson.Should().Contain("0.5");
 
         // Verify we can retrieve it back
-        var retrieved = config.Provider.GetTypedProviderConfig<AnthropicProviderConfig>();
+        var retrieved = config.Provider.GetProviderConfig<AnthropicProviderConfig>();
         retrieved.Should().NotBeNull();
         retrieved!.MaxTokens.Should().Be(2048);
         retrieved.Temperature.Should().Be(0.5f);
     }
 
     [Fact]
-    public void AgentConfig_GetTypedProviderConfig_ShouldCacheResult()
+    public void AgentConfig_GetProviderConfig_ShouldCacheResult()
     {
         // Arrange
         var config = new AgentConfig
@@ -713,11 +712,11 @@ public class AnthropicProviderTests
             MaxTokens = 4096,
             Temperature = 1.0f
         };
-        config.Provider.SetTypedProviderConfig(anthropicOpts);
+        config.Provider.SetProviderConfig(anthropicOpts);
 
-        // Act - Call GetTypedProviderConfig multiple times
-        var first = config.Provider.GetTypedProviderConfig<AnthropicProviderConfig>();
-        var second = config.Provider.GetTypedProviderConfig<AnthropicProviderConfig>();
+        // Act - Call GetProviderConfig multiple times
+        var first = config.Provider.GetProviderConfig<AnthropicProviderConfig>();
+        var second = config.Provider.GetProviderConfig<AnthropicProviderConfig>();
 
         // Assert - Should return the same cached instance
         first.Should().BeSameAs(second);
@@ -744,14 +743,14 @@ public class AnthropicProviderTests
             // Leave Temperature, TopP, etc. as null
             EnablePromptCaching = false
         };
-        config.Provider.SetTypedProviderConfig(anthropicOpts);
+        config.Provider.SetProviderConfig(anthropicOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
         var deserialized = System.Text.Json.JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentConfig);
 
         // Assert
-        var deserializedOpts = deserialized!.Provider.GetTypedProviderConfig<AnthropicProviderConfig>();
+        var deserializedOpts = deserialized!.Provider.GetProviderConfig<AnthropicProviderConfig>();
         deserializedOpts.Should().NotBeNull();
         deserializedOpts!.MaxTokens.Should().Be(4096);
         deserializedOpts.Temperature.Should().BeNull();

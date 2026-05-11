@@ -1,6 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
-
 namespace HPD.Agent;
 
 /// <summary>
@@ -18,13 +15,6 @@ public class JsonAgentStore : IAgentStore
 {
     private readonly string _basePath;
 
-    private static readonly JsonSerializerOptions _options = new()
-    {
-        WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
-
     public JsonAgentStore(string basePath)
     {
         _basePath = basePath ?? throw new ArgumentNullException(nameof(basePath));
@@ -39,7 +29,7 @@ public class JsonAgentStore : IAgentStore
             return null;
 
         var json = await File.ReadAllTextAsync(path, ct);
-        return JsonSerializer.Deserialize<StoredAgent>(json, _options);
+        return System.Text.Json.JsonSerializer.Deserialize(json, HPDJsonContext.Default.StoredAgent);
     }
 
     public async Task SaveAsync(StoredAgent agent, CancellationToken ct = default)
@@ -50,7 +40,7 @@ public class JsonAgentStore : IAgentStore
         var dir = GetAgentDirectory(agent.Id);
         Directory.CreateDirectory(dir);
 
-        var json = JsonSerializer.Serialize(agent, _options);
+        var json = System.Text.Json.JsonSerializer.Serialize(agent, HPDJsonContext.Default.StoredAgent);
         await File.WriteAllTextAsync(GetAgentFilePath(agent.Id), json, ct);
     }
 

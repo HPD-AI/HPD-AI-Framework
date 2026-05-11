@@ -1,9 +1,11 @@
 using System.Security.Claims;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
+using HPD.Auth.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Auth.Endpoints;
 
@@ -17,22 +19,65 @@ namespace HPD.Auth.Endpoints;
 /// </summary>
 public static class SessionEndpoints
 {
+    /// <summary>
+    /// Maps authenticated session listing and revocation endpoints.
+    /// </summary>
     public static void Map(IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/auth/sessions")
                        .RequireAuthorization();
 
-        group.MapGet("/", ListSessionsAsync)
+        group.MapGet("/", ListSessionsRequestDelegate)
              .WithName("AuthListSessions")
              .WithSummary("List the current user's active sessions.");
 
-        group.MapDelete("/{id}", RevokeSessionAsync)
+        group.MapDelete("/{id}", RevokeSessionRequestDelegate)
              .WithName("AuthRevokeSession")
              .WithSummary("Revoke a specific session by ID. Only the owning user may revoke their own sessions.");
 
-        group.MapDelete("/", RevokeOtherSessionsAsync)
+        group.MapDelete("/", RevokeOtherSessionsRequestDelegate)
              .WithName("AuthRevokeOtherSessions")
              .WithSummary("Revoke all sessions except the current one.");
+    }
+
+    private static async Task ListSessionsRequestDelegate(HttpContext httpContext)
+    {
+        var services = httpContext.RequestServices;
+        var result = await ListSessionsAsync(
+            httpContext.User,
+            services.GetRequiredService<ISessionManager>(),
+            services.GetRequiredService<IAuditLogger>(),
+            httpContext.RequestAborted);
+
+        await result.ExecuteAsync(httpContext);
+    }
+
+    private static async Task RevokeSessionRequestDelegate(HttpContext httpContext)
+    {
+        var id = httpContext.Request.RouteValues["id"]?.ToString() ?? string.Empty;
+        var services = httpContext.RequestServices;
+        var result = await RevokeSessionAsync(
+            id,
+            httpContext.User,
+            services.GetRequiredService<ISessionManager>(),
+            services.GetRequiredService<IAuditLogger>(),
+            httpContext,
+            httpContext.RequestAborted);
+
+        await result.ExecuteAsync(httpContext);
+    }
+
+    private static async Task RevokeOtherSessionsRequestDelegate(HttpContext httpContext)
+    {
+        var services = httpContext.RequestServices;
+        var result = await RevokeOtherSessionsAsync(
+            httpContext.User,
+            services.GetRequiredService<ISessionManager>(),
+            services.GetRequiredService<IAuditLogger>(),
+            httpContext,
+            httpContext.RequestAborted);
+
+        await result.ExecuteAsync(httpContext);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -51,7 +96,7 @@ public static class SessionEndpoints
 
         var sessions = await sessionManager.GetActiveSessionsAsync(userId.Value, ct);
 
-        return Results.Ok(sessions.Select(s => new SessionResponse(
+        return AuthEndpointJson.Ok(sessions.Select(s => new SessionResponse(
             Id: s.Id,
             UserId: s.UserId,
             IpAddress: s.IpAddress,
@@ -61,7 +106,7 @@ public static class SessionEndpoints
             CreatedAt: s.CreatedAt,
             LastActiveAt: s.LastActiveAt,
             ExpiresAt: s.ExpiresAt
-        )));
+        )).ToList(), HPDAuthJsonSerializerContext.Default.ListSessionResponse);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -103,7 +148,7 @@ public static class SessionEndpoints
             Success: true,
             UserId: userId.Value,
             IpAddress: ipAddress,
-            Metadata: new { session_id = sessionId }
+            Metadata: new Dictionary<string, string?> { ["session_id"] = sessionId.ToString() }
         ), ct);
 
         return Results.NoContent();
@@ -140,7 +185,11 @@ public static class SessionEndpoints
             Success: true,
             UserId: userId.Value,
             IpAddress: ipAddress,
-            Metadata: new { scope = "others", kept_session = currentSessionId }
+            Metadata: new Dictionary<string, string?>
+            {
+                ["scope"] = "others",
+                ["kept_session"] = currentSessionId?.ToString()
+            }
         ), ct);
 
         return Results.NoContent();

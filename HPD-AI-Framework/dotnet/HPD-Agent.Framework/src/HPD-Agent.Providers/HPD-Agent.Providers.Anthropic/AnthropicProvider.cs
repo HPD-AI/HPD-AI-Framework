@@ -42,7 +42,7 @@ internal class AnthropicProvider : IProviderFeatures
         };
 
         // Get config for max tokens
-        var anthropicConfig = config.GetTypedProviderConfig<AnthropicProviderConfig>();
+        var anthropicConfig = config.GetProviderConfig<AnthropicProviderConfig>();
         var maxTokens = anthropicConfig?.MaxTokens ?? 4096;
 
         // Use the SDK's built-in AsIChatClient extension method
@@ -61,8 +61,7 @@ internal class AnthropicProvider : IProviderFeatures
         // with RawRepresentationFactory for advanced features.
 
         // Apply client factory middleware if provided
-        if (config.AdditionalProperties?.TryGetValue("ClientFactory", out var factoryObj) == true &&
-            factoryObj is Func<IChatClient, IChatClient> clientFactory)
+        if (config.ClientFactory is { } clientFactory)
         {
             chatClient = clientFactory(chatClient);
         }
@@ -104,7 +103,7 @@ internal class AnthropicProvider : IProviderFeatures
             return ProviderValidationResult.Failure("Model name is required");
 
         // Validate Anthropic-specific config if present
-        var anthropicConfig = config.GetTypedProviderConfig<AnthropicProviderConfig>();
+        var anthropicConfig = config.GetProviderConfig<AnthropicProviderConfig>();
         if (anthropicConfig != null)
         {
             if (anthropicConfig.ThinkingBudgetTokens.HasValue && anthropicConfig.ThinkingBudgetTokens.Value < 1024)

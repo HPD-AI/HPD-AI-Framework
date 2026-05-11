@@ -50,8 +50,8 @@ public class AgentRunConfig
 
     /// <summary>
     /// Model ID to use for the switched provider (e.g., "gpt-4", "claude-opus").
-    /// Ignored if ProviderKey is not set.
-    /// If null with ProviderKey, uses default model from config.
+    /// If ProviderKey is not set, uses the provider from AgentConfig.
+    /// If null with ProviderKey, uses the model from AgentConfig.
     /// </summary>
     public string? ModelId { get; set; }
 

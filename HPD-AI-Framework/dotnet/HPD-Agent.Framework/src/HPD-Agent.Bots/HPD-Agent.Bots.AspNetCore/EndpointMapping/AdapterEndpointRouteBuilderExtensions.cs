@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Bots.AspNetCore.EndpointMapping;
 
@@ -45,9 +46,8 @@ public static class BotEndpointRouteBuilderExtensions
     {
         // The generator emits BotRegistry in namespace HPD.Agent.Bots.Generated.
         // We resolve it here by convention. If none are registered, returns empty.
-        var registryType = app.ServiceProvider
-            .GetService(typeof(IBotRegistryProvider)) as IBotRegistryProvider;
-
-        return registryType?.GetAll() ?? [];
+        return app.ServiceProvider
+            .GetServices<IBotRegistryProvider>()
+            .SelectMany(provider => provider.GetAll());
     }
 }

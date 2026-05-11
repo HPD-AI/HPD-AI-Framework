@@ -89,7 +89,7 @@ public class RecursiveBranchDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
     {
         var request = new ForkBranchRequest(newBranchId, 0, null, null, null);
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/{sourceBranchId}/fork", request);
+            $"/agents/test-agent/sessions/{sessionId}/branches/{sourceBranchId}/fork", request);
         response.IsSuccessStatusCode.Should().BeTrue($"fork to {newBranchId} should succeed");
         return (await response.Content.ReadFromJsonAsync<BranchDto>())!;
     }
@@ -295,7 +295,7 @@ public class RecursiveBranchDeleteGuardTests : IClassFixture<TestWebApplicationF
     {
         var request = new ForkBranchRequest(newBranchId, 0, null, null, null);
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/{sourceBranchId}/fork", request);
+            $"/agents/test-agent/sessions/{sessionId}/branches/{sourceBranchId}/fork", request);
         response.IsSuccessStatusCode.Should().BeTrue();
         return (await response.Content.ReadFromJsonAsync<BranchDto>())!;
     }

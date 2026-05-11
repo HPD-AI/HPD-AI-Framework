@@ -2,10 +2,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 using System.Runtime.CompilerServices;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
+using HPD.Agent.Audio.Interruption;
+using HPD.Agent.Audio.Output;
+using HPD.Agent.Audio.Preemptive;
+using HPD.Agent.Audio.Recognition;
 using HPD.Agent.Audio.Stt;
+using HPD.Agent.Audio.Turn;
 using HPD.Agent.Audio.Tts;
 using HPD.Agent.Audio.Vad;
 using HPD.Agent.Audio.Eot;
@@ -93,8 +97,8 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     // PROVIDERS (injected)
     //
 
-    /// <summary>STT client (from Microsoft.Extensions.AI).</summary>
-    public ISpeechToTextClient? SpeechToTextClient { get; set; }
+    /// <summary>HPD speech recognizer.</summary>
+    public ISpeechRecognizer? SpeechRecognizer { get; set; }
 
     /// <summary>TTS client.</summary>
     public ITextToSpeechClient? TextToSpeechClient { get; set; }
@@ -135,6 +139,9 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     // FALSE INTERRUPTION RECOVERY STATE
     private PausedSynthesisState? _pausedSynthesis;
     private readonly object _pauseLock = new();
+    private readonly object _interruptionLock = new();
+    private readonly Dictionary<string, ISpeechOutputSession> _activeOutputSessions = new();
+    private InterruptionController? _interruptionController;
 
     // FILLER AUDIO STATE
     private List<CachedFillerAudio>? _cachedFillers;
@@ -444,37 +451,6 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             or AudioIOMode.AudioToAudioAndText
             or AudioIOMode.TextToAudioAndText;
 
-    private static ISpeechToTextClient WrapSpeechToTextClient(
-        ISpeechToTextClient client,
-        AudioConfig config,
-        IServiceProvider? services)
-    {
-        var diagnostics = config.Diagnostics;
-        if (diagnostics is not { EnableLogging: true } &&
-            diagnostics is not { EnableOpenTelemetry: true })
-        {
-            return client;
-        }
-
-        var builder = client.AsBuilder();
-
-        if (diagnostics.EnableLogging &&
-            services?.GetService(typeof(ILoggerFactory)) is ILoggerFactory loggerFactory)
-        {
-            builder.UseLogging(loggerFactory);
-        }
-
-        if (diagnostics.EnableOpenTelemetry)
-        {
-            builder.UseOpenTelemetry(
-                services?.GetService(typeof(ILoggerFactory)) as ILoggerFactory,
-                diagnostics.SourceName,
-                c => c.EnableSensitiveData = diagnostics.CaptureSensitiveTelemetry);
-        }
-
-        return builder.Build(services);
-    }
-
     private static ITextToSpeechClient WrapTextToSpeechClient(
         ITextToSpeechClient client,
         AudioConfig config,
@@ -523,7 +499,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         var hasAudioInput = HasAudioInputMode(effectiveConfig.IOMode);
         var hasAudioOutput = HasAudioOutputMode(effectiveConfig.IOMode);
 
-        if (SpeechToTextClient == null &&
+        if (SpeechRecognizer == null &&
             effectiveConfig.Stt != null &&
             !string.IsNullOrWhiteSpace(effectiveConfig.Stt.Provider) &&
             hasAudioInput)
@@ -531,14 +507,11 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             try
             {
                 var sttFactory = Stt.SttProviderDiscovery.GetFactory(effectiveConfig.Stt.Provider);
-                SpeechToTextClient = WrapSpeechToTextClient(
-                    sttFactory.CreateClient(effectiveConfig.Stt, services),
-                    effectiveConfig,
-                    services);
+                SpeechRecognizer = sttFactory.CreateRecognizer(effectiveConfig.Stt, services);
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to create STT client: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Failed to create speech recognizer: {ex.Message}");
             }
         }
 
@@ -737,7 +710,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         TimeSpan silenceDuration,
         CancellationToken cancellationToken)
     {
-        if (SpeechToTextClient == null || buffer.Length == 0)
+        if (SpeechRecognizer == null || buffer.Length == 0)
             return;
 
         var transcriptionId = Guid.NewGuid().ToString("N")[..8];
@@ -751,10 +724,76 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         string? transcript;
         try
         {
-            transcript = await TranscribeAudioAsync(
-                new DataContent(buffer.ToArray(), buffer.MimeType),
-                effectiveConfig.Stt,
-                cancellationToken).ConfigureAwait(false);
+            var turnController = new TurnController(CreateTurnControllerOptions(effectiveConfig, detectionMethod));
+            var preemptiveCoordinator = CreatePreemptiveGenerationCoordinator(effectiveConfig);
+            UserTurnReadyEvent? readyTurn = null;
+            UserTurnCommittedEvent? committedTurn = null;
+
+            await foreach (var recognitionEvent in RecognizeAudioAsync(
+                    new DataContent(buffer.ToArray(), buffer.MimeType),
+                    effectiveConfig.Stt,
+                    context.RuntimeId,
+                    buffer.SessionId,
+                    buffer.BranchId,
+                    cancellationToken)
+                .ConfigureAwait(false))
+            {
+                context.Emit(recognitionEvent);
+                ObservePreemptiveRecognition(context, preemptiveCoordinator, recognitionEvent);
+
+                if (recognitionEvent is SpeechRecognitionFinalEvent final &&
+                    !string.IsNullOrWhiteSpace(final.Transcript.Text))
+                {
+                    context.Emit(new TranscriptionDeltaEvent(transcriptionId, final.Transcript.Text, true, final.Transcript.Confidence)
+                    {
+                        Channel = EventChannel.Streaming
+                    });
+                }
+
+                foreach (var turnEvent in turnController.Process(recognitionEvent))
+                {
+                    context.Emit(turnEvent);
+
+                    if (turnEvent is UserTurnReadyEvent ready)
+                        readyTurn = ready;
+                    else if (turnEvent is UserTurnCommittedEvent committed)
+                    {
+                        committedTurn = committed;
+                        ObservePreemptiveCommit(context, preemptiveCoordinator, committed);
+                    }
+                }
+            }
+
+            if (committedTurn == null && readyTurn != null)
+            {
+                var endpointDueAt = readyTurn.Context.ObservedAt + readyTurn.Decision.Delay;
+                foreach (var turnEvent in turnController.AdvanceEndpointing(endpointDueAt))
+                {
+                    context.Emit(turnEvent);
+                    if (turnEvent is UserTurnCommittedEvent committed)
+                    {
+                        committedTurn = committed;
+                        ObservePreemptiveCommit(context, preemptiveCoordinator, committed);
+                    }
+                }
+            }
+
+            transcript = committedTurn?.Transcript.Text;
+            if (committedTurn == null && detectionMethod == AudioInputBuffer.FinalFrameCommitReason)
+            {
+                foreach (var turnEvent in turnController.ManualCommit(DateTimeOffset.UtcNow))
+                {
+                    context.Emit(turnEvent);
+                    if (turnEvent is UserTurnCommittedEvent committed)
+                    {
+                        committedTurn = committed;
+                        ObservePreemptiveCommit(context, preemptiveCoordinator, committed);
+                    }
+                }
+
+                transcript = committedTurn?.Transcript.Text;
+            }
+
         }
         catch (Exception ex)
         {
@@ -770,26 +809,12 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             return;
 
         var sttDuration = DateTime.UtcNow - startedAt;
-        context.Emit(new TranscriptionDeltaEvent(transcriptionId, transcript, true, null)
-        {
-            Channel = EventChannel.Streaming
-        });
         context.Emit(new TranscriptionCompletedEvent(transcriptionId, transcript, sttDuration)
         {
             Channel = EventChannel.Synchronous
         });
 
         var eotProbability = EotDetector?.GetEndOfTurnProbability(transcript) ?? 1.0f;
-        var eotConfig = effectiveConfig.Eot ?? new EotConfig();
-        var shouldCommit = detectionMethod == AudioInputBuffer.FinalFrameCommitReason ||
-            eotConfig.DetectorStrategy == EotDetectionStrategy.Disabled ||
-            EotDetector == null ||
-            eotProbability >= eotConfig.SilenceBoostMultiplier ||
-            CalculateEndpointingDelay(transcript, (float)silenceDuration.TotalSeconds, eotConfig) <= eotConfig.MinEndpointingDelay;
-
-        if (!shouldCommit)
-            return;
-
         context.Emit(new EotDetectedEvent(transcript, eotProbability, silenceDuration, detectionMethod)
         {
             Channel = EventChannel.Synchronous
@@ -881,7 +906,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         EnsureRuntimeProviders(effectiveConfig, context.Services);
 
         // Check if audio input processing is needed
-        if (!hasAudioInput || SpeechToTextClient == null)
+        if (!hasAudioInput || SpeechRecognizer == null)
             return;
 
         if (context.Messages == null || context.Messages.Count == 0)
@@ -1017,21 +1042,138 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         SttConfig? sttConfig,
         CancellationToken cancellationToken)
     {
-        if (SpeechToTextClient == null)
-            return null;
+        await foreach (var recognitionEvent in RecognizeAudioAsync(
+                audioContent,
+                sttConfig,
+                runtimeId: null,
+                sessionId: null,
+                branchId: null,
+                cancellationToken)
+            .ConfigureAwait(false))
+        {
+            if (recognitionEvent is SpeechRecognitionFinalEvent final &&
+                !string.IsNullOrWhiteSpace(final.Transcript.Text))
+            {
+                return final.Transcript.Text;
+            }
+        }
+
+        return null;
+    }
+
+    private async IAsyncEnumerable<SpeechRecognitionEvent> RecognizeAudioAsync(
+        DataContent audioContent,
+        SttConfig? sttConfig,
+        string? runtimeId,
+        string? sessionId,
+        string? branchId,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        if (SpeechRecognizer == null)
+            yield break;
 
         var audioData = audioContent.Data;
         if (audioData.IsEmpty)
-            return null;
+            yield break;
 
-        using var stream = new MemoryStream(audioData.ToArray());
+        var options = new SpeechRecognitionOptions
+        {
+            Provider = sttConfig?.Provider,
+            Model = sttConfig?.ModelId,
+            Language = sttConfig?.Language,
+            RuntimeId = runtimeId,
+            SessionId = sessionId,
+            BranchId = branchId,
+            AudioMimeType = audioContent.MediaType,
+            SampleRate = sttConfig?.SpeechSampleRate
+        };
 
-        var result = await SpeechToTextClient.GetTextAsync(
-            stream,
-            sttConfig?.ToOptions(),
-            cancellationToken);
+        await foreach (var recognitionEvent in SpeechRecognizer
+            .RecognizeAsync(
+                EnumerateSingleAudioFrame(audioData, audioContent.MediaType, sessionId, branchId, cancellationToken),
+                options,
+                cancellationToken)
+            .ConfigureAwait(false))
+        {
+            yield return recognitionEvent;
+        }
+    }
 
-        return result.Text;
+    private static async IAsyncEnumerable<AudioInputFrame> EnumerateSingleAudioFrame(
+        ReadOnlyMemory<byte> audioData,
+        string? mediaType,
+        string? sessionId,
+        string? branchId,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        yield return new AudioInputFrame(
+            SessionId: sessionId,
+            BranchId: branchId,
+            Audio: audioData,
+            MimeType: string.IsNullOrWhiteSpace(mediaType) ? "audio/pcm" : mediaType,
+            TimestampNs: 0,
+            IsFinal: true);
+        await Task.CompletedTask.ConfigureAwait(false);
+    }
+
+    private TurnControllerOptions CreateTurnControllerOptions(
+        AudioConfig effectiveConfig,
+        string detectionMethod)
+    {
+        var eotConfig = effectiveConfig.Eot ?? new EotConfig();
+        return new TurnControllerOptions
+        {
+            Mode = EndpointingMode.Hybrid,
+            MinEndpointingDelay = detectionMethod == AudioInputBuffer.FinalFrameCommitReason
+                ? TimeSpan.Zero
+                : TimeSpan.FromSeconds(eotConfig.MinEndpointingDelay),
+            MaxEndpointingDelay = TimeSpan.FromSeconds(eotConfig.MaxEndpointingDelay),
+            EotDetector = EotDetector
+        };
+    }
+
+    private static PreemptiveGenerationCoordinator? CreatePreemptiveGenerationCoordinator(AudioConfig effectiveConfig) =>
+        effectiveConfig.EnablePreemptiveGeneration == true
+            ? new PreemptiveGenerationCoordinator(new PreemptiveGenerationOptions
+            {
+                ConfidenceThreshold = effectiveConfig.PreemptiveGenerationThreshold ?? 0.7f
+            })
+            : null;
+
+    private static void ObservePreemptiveRecognition(
+        RuntimeHookContext context,
+        PreemptiveGenerationCoordinator? coordinator,
+        SpeechRecognitionEvent recognitionEvent)
+    {
+        if (coordinator is null || recognitionEvent is not SpeechRecognitionPreflightEvent preflight)
+            return;
+
+        var started = coordinator.TryStart(preflight);
+        if (started is not null)
+            context.Emit(started);
+    }
+
+    private static void ObservePreemptiveCommit(
+        RuntimeHookContext context,
+        PreemptiveGenerationCoordinator? coordinator,
+        UserTurnCommittedEvent committed)
+    {
+        if (coordinator is null)
+            return;
+
+        var decision = coordinator.EvaluateCommit(committed);
+        if (decision.ReuseCandidate || decision.Candidate is null)
+            return;
+
+        context.Emit(new PreemptiveGenerationDiscardedEvent(
+            decision.Candidate.GenerationId,
+            decision.Reason)
+        {
+            RecognitionId = decision.Candidate.RecognitionId,
+            UtteranceId = decision.Candidate.UtteranceId,
+            TranscriptRevisionId = decision.Candidate.TranscriptRevisionId
+        });
     }
 
     /// <summary>
@@ -1093,9 +1235,18 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     {
         // Create stream handle for interruption support (from Priority Streaming)
         var stream = request.Streams?.Create();
-        var sentenceBuffer = new StringBuilder();
         var synthesisId = Guid.NewGuid().ToString("N")[..8];
+        await using var outputSession = new SpeechOutputSession(
+            speechId: synthesisId,
+            streamId: stream?.StreamId ?? synthesisId,
+            sessionId: request.Session?.Id,
+            synthesisId: synthesisId);
+        RegisterActiveOutputSession(outputSession);
+        var outputEventPump = PumpSpeechOutputEventsAsync(outputSession, request.EventCoordinator, ct);
         var synthesisState = new SynthesisState();
+        var modelText = Channel.CreateUnbounded<string>(
+            new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
+        var pacer = new SentenceTtsPacer();
 
         // Resolve TTS settings (per-request overrides > middleware defaults)
         var ttsOptions = effectiveConfig.Tts?.ToOptions() ?? new TextToSpeechOptions();
@@ -1116,6 +1267,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         // Start filler monitoring task
         _fillerCts = new CancellationTokenSource();
         _fillerTask = MonitorForFillerAsync(request.EventCoordinator, stream, synthesisId, _fillerCts.Token);
+        Task? ttsPacingTask = null;
 
         try
         {
@@ -1125,67 +1277,77 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                 StreamId = stream?.StreamId
             });
 
+            ttsPacingTask = ProcessTtsPacingAsync(
+                modelText.Reader.ReadAllAsync(ct),
+                pacer,
+                outputSession,
+                request.EventCoordinator,
+                stream,
+                synthesisId,
+                ttsOptions,
+                synthesisState,
+                effectiveConfig,
+                firstAudio => firstAudioTime ??= firstAudio,
+                ct);
+
             await foreach (var update in handler(request).WithCancellation(ct))
             {
                 // Cancel filler as soon as first token arrives
                 _fillerCts?.Cancel();
                 // Extract text from update
                 var text = ExtractText(update);
-                if (text != null && (effectiveConfig.EnableQuickAnswer ?? true))
-                {
-                    sentenceBuffer.Append(text);
-
-                    // Quick Answer: synthesize on sentence boundary
-                    if (IsSentenceBoundary(sentenceBuffer.ToString()))
-                    {
-                        var textToSynthesize = FilterTextForTts(sentenceBuffer.ToString(), effectiveConfig);
-                        if (!string.IsNullOrWhiteSpace(textToSynthesize))
-                        {
-                            await foreach (var chunk in SynthesizeAndEmitAsync(
-                                request.EventCoordinator, textToSynthesize, stream, synthesisId, ttsOptions, synthesisState, ct))
-                            {
-                                // Track time to first audio
-                                firstAudioTime ??= DateTime.UtcNow;
-                            }
-                        }
-                        sentenceBuffer.Clear();
-                    }
-                }
+                if (text != null)
+                    await modelText.Writer.WriteAsync(text, ct).ConfigureAwait(false);
 
                 yield return update;
             }
 
-            // Flush remaining text
-            if (sentenceBuffer.Length > 0)
-            {
-                var textToSynthesize = FilterTextForTts(sentenceBuffer.ToString(), effectiveConfig);
-                if (!string.IsNullOrWhiteSpace(textToSynthesize))
-                {
-                    await foreach (var chunk in SynthesizeAndEmitAsync(
-                        request.EventCoordinator, textToSynthesize, stream, synthesisId, ttsOptions, synthesisState, ct))
-                    {
-                        // Track time to first audio
-                        firstAudioTime ??= DateTime.UtcNow;
-                    }
-                }
-            }
+            modelText.Writer.TryComplete();
+            await ttsPacingTask.ConfigureAwait(false);
+            ttsPacingTask = null;
         }
         finally
         {
-            // Ensure filler task is cancelled and awaited
-            _fillerCts?.Cancel();
-            if (_fillerTask != null)
-                await _fillerTask;
-
-            var wasInterrupted = stream?.IsInterrupted ?? false;
-
-            request.EventCoordinator?.Emit(new SynthesisCompletedEvent(synthesisId, wasInterrupted, synthesisState.ChunkIndex, synthesisState.ChunkIndex)
+            var wasInterrupted = false;
+            try
             {
-                Channel = EventChannel.Control,
-                StreamId = stream?.StreamId,
-                CanInterrupt = false
-            });
-            stream?.Complete();
+                modelText.Writer.TryComplete();
+                if (ttsPacingTask != null)
+                    await ttsPacingTask.ConfigureAwait(false);
+
+                // Ensure filler task is cancelled and awaited
+                _fillerCts?.Cancel();
+                if (_fillerTask != null)
+                    await _fillerTask;
+
+                wasInterrupted = stream?.IsInterrupted ?? false;
+
+                if (wasInterrupted)
+                {
+                    await outputSession.InterruptAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+                else
+                {
+                    if (outputSession.State.QueuedChunks > 0)
+                        await outputSession.MarkPlaybackFinishedAsync(CancellationToken.None).ConfigureAwait(false);
+
+                    await outputSession.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+                await outputEventPump.ConfigureAwait(false);
+                CaptureOutputExperienceMetrics(outputSession.State);
+
+                request.EventCoordinator?.Emit(new SynthesisCompletedEvent(synthesisId, wasInterrupted, synthesisState.ChunkIndex, synthesisState.ChunkIndex)
+                {
+                    Channel = EventChannel.Control,
+                    StreamId = stream?.StreamId,
+                    CanInterrupt = false
+                });
+                stream?.Complete();
+            }
+            finally
+            {
+                UnregisterActiveOutputSession(outputSession);
+            }
 
             // Upload assembled TTS audio to /artifacts if content store is available and synthesis produced audio
             if (synthesisState.AssembledAudio.Count > 0)
@@ -1424,99 +1586,114 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             Channel = EventChannel.Streaming
         });
 
+        EmitAudioExperienceMetrics(eventCoordinator);
+
         // Reset metrics for next turn
         _turnMetrics = null;
+    }
+
+    private void CaptureOutputExperienceMetrics(SpeechOutputState outputState)
+    {
+        if (_turnMetrics == null)
+            return;
+
+        _turnMetrics.AudioGeneratedDuration = outputState.GeneratedDuration;
+        _turnMetrics.AudioPlayedDuration = outputState.PlayedDuration;
+        _turnMetrics.AudioDiscardedDuration = outputState.DiscardedDuration;
+        _turnMetrics.PlaybackCompletionRatio = outputState.GeneratedDuration > TimeSpan.Zero
+            ? Math.Clamp(outputState.PlayedDuration.TotalMilliseconds / outputState.GeneratedDuration.TotalMilliseconds, 0, 1)
+            : outputState.QueuedChunks > 0 && !outputState.Interrupted
+                ? 1.0
+                : null;
+    }
+
+    private void EmitAudioExperienceMetrics(IEventCoordinator? eventCoordinator)
+    {
+        if (_turnMetrics == null)
+            return;
+
+        if (_turnMetrics.TimeToFirstAudio.HasValue)
+            EmitAudioExperienceMetric(eventCoordinator, "time_to_first_audio", _turnMetrics.TimeToFirstAudio.Value.TotalMilliseconds, "ms");
+
+        if (_turnMetrics.PlaybackCompletionRatio.HasValue)
+            EmitAudioExperienceMetric(eventCoordinator, "playback_completion_ratio", _turnMetrics.PlaybackCompletionRatio.Value, "ratio");
+
+        if (_turnMetrics.AudioGeneratedDuration.HasValue)
+            EmitAudioExperienceMetric(eventCoordinator, "audio_generated_duration", _turnMetrics.AudioGeneratedDuration.Value.TotalMilliseconds, "ms");
+
+        if (_turnMetrics.AudioPlayedDuration.HasValue)
+            EmitAudioExperienceMetric(eventCoordinator, "audio_played_duration", _turnMetrics.AudioPlayedDuration.Value.TotalMilliseconds, "ms");
+
+        if (_turnMetrics.AudioDiscardedDuration.HasValue)
+            EmitAudioExperienceMetric(eventCoordinator, "audio_discarded_duration", _turnMetrics.AudioDiscardedDuration.Value.TotalMilliseconds, "ms");
+    }
+
+    private static void EmitAudioExperienceMetric(
+        IEventCoordinator? eventCoordinator,
+        string metricName,
+        double value,
+        string? unit)
+    {
+        eventCoordinator?.Emit(new AudioExperienceMetricEvent(metricName, value, unit));
     }
 
     //
     // VAD INTERRUPT HANDLING (uses core IStreamRegistry)
     //
 
+    private void RegisterActiveOutputSession(ISpeechOutputSession outputSession)
+    {
+        lock (_interruptionLock)
+        {
+            _activeOutputSessions[outputSession.StreamId] = outputSession;
+            _interruptionController ??= new InterruptionController(CreateInterruptionControllerOptions());
+        }
+    }
+
+    private void UnregisterActiveOutputSession(ISpeechOutputSession outputSession)
+    {
+        lock (_interruptionLock)
+        {
+            _activeOutputSessions.Remove(outputSession.StreamId);
+            if (_activeOutputSessions.Count == 0)
+                _interruptionController = null;
+        }
+    }
+
+    private void ObserveSpeechOutputForInterruption(SpeechOutputEvent evt)
+    {
+        lock (_interruptionLock)
+        {
+            _interruptionController ??= new InterruptionController(CreateInterruptionControllerOptions());
+            _interruptionController.Process(evt);
+        }
+    }
+
     internal void OnVadStartOfSpeech(HookContext context, string? transcribedText)
     {
-        // Check backchannel strategy before interrupting
-        if (BackchannelStrategy == BackchannelStrategy.IgnoreShortUtterances)
+        var observedAt = DateTimeOffset.UtcNow;
+        var activeStream = TryGetFirstActiveStream(context);
+        InterruptionDecision decision;
+        lock (_interruptionLock)
         {
-            var wordCount = transcribedText?.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length ?? 0;
-            if (wordCount < MinWordsForInterruption)
-                return; // Don't interrupt for short utterances
-        }
+            _interruptionController ??= new InterruptionController(CreateInterruptionControllerOptions());
 
-        if (BackchannelStrategy == BackchannelStrategy.IgnoreKnownBackchannels)
-        {
-            if (IsKnownBackchannel(transcribedText))
-                return; // Don't interrupt for "uh-huh", etc.
-        }
+            if (activeStream is not null && !_activeOutputSessions.ContainsKey(activeStream.StreamId))
+                _interruptionController.Process(CreatePlaybackStartedForInterruption(activeStream, observedAt));
 
-        // FALSE INTERRUPTION RECOVERY: Pause first, confirm interruption after timeout/transcript
-        if (EnableFalseInterruptionRecovery && string.IsNullOrWhiteSpace(transcribedText))
-        {
-            lock (_pauseLock)
-            {
-                // If not already paused and have an active stream
-                if (_pausedSynthesis == null && context.Streams != null)
+            decision = string.IsNullOrWhiteSpace(transcribedText)
+                ? _interruptionController.Process(new SpeechRecognitionStartedEvent
                 {
-                    var activeStreams = context.Streams.GetType()
-                        .GetMethod("GetActiveStreams")
-                        ?.Invoke(context.Streams, null) as System.Collections.IEnumerable;
-
-                    IStreamHandle? activeStream = null;
-                    if (activeStreams != null)
-                    {
-                        foreach (var stream in activeStreams)
-                        {
-                            if (stream is IStreamHandle handle && !handle.IsInterrupted)
-                            {
-                                activeStream = handle;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (activeStream != null)
-                    {
-                        // Pause synthesis
-                        _pausedSynthesis = new PausedSynthesisState
-                        {
-                            SynthesisId = activeStream.StreamId,
-                            StreamHandle = activeStream,
-                            PausedAt = DateTime.UtcNow
-                        };
-
-                        context.Emit(new SpeechPausedEvent(
-                            activeStream.StreamId,
-                            "potential_interruption")
-                        {
-                            Channel = EventChannel.Control,
-                            StreamId = activeStream.StreamId
-                        });
-
-                        // Start timeout timer
-                        _ = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                await Task.Delay(
-                                    TimeSpan.FromSeconds(FalseInterruptionTimeout),
-                                    _pausedSynthesis.ResumeTimeoutCts.Token);
-
-                                // Timeout expired - resume if still paused
-                                await ResumeIfStillPausedAsync(context);
-                            }
-                            catch (OperationCanceledException)
-                            {
-                                // Cancelled - either resumed or interrupted
-                            }
-                        });
-
-                        return; // Don't interrupt yet, wait for confirmation
-                    }
-                }
-            }
+                    Context = CreateRecognitionContextForInterruption(observedAt)
+                })
+                : _interruptionController.Process(new SpeechRecognitionFinalEvent
+                {
+                    Context = CreateRecognitionContextForInterruption(observedAt),
+                    Transcript = new SpeechRecognitionTranscript(transcribedText, TranscriptRevisionId: Guid.NewGuid().ToString("N"))
+                });
         }
 
-        // Confirmed interruption (or false interruption recovery disabled)
-        ConfirmInterruption(context, transcribedText);
+        ApplyInterruptionDecision(context, activeStream, decision, transcribedText);
     }
 
     private async Task ResumeIfStillPausedAsync(HookContext context)
@@ -1558,15 +1735,136 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             Channel = EventChannel.Streaming
         });
 
-        await Task.CompletedTask;
+        context.Emit(new AudioExperienceMetricEvent(
+            "false_interruption_rate",
+            1,
+            "count",
+            SpeechId: stateToResume.OutputSession?.SpeechId,
+            OutputStreamId: stateToResume.StreamHandle.StreamId)
+        {
+            Channel = EventChannel.Streaming
+        });
+
+        context.Emit(new AudioExperienceMetricEvent(
+            "resume_false_interruption_rate",
+            1,
+            "count",
+            SpeechId: stateToResume.OutputSession?.SpeechId,
+            OutputStreamId: stateToResume.StreamHandle.StreamId)
+        {
+            Channel = EventChannel.Streaming
+        });
+
+        if (stateToResume.OutputSession is not null)
+            await stateToResume.OutputSession.ResumeAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
-    private void ConfirmInterruption(HookContext context, string? transcribedText)
+    private void ApplyInterruptionDecision(
+        HookContext context,
+        IStreamHandle? activeStream,
+        InterruptionDecision decision,
+        string? transcribedText)
+    {
+        switch (decision.Action)
+        {
+            case InterruptionAction.PauseOutput:
+                if (activeStream is not null)
+                {
+                    var outputSession = TryGetActiveOutputSession(activeStream.StreamId);
+                    if (outputSession is not null)
+                        _ = outputSession.PauseAsync(CancellationToken.None).AsTask();
+
+                    PauseForPotentialInterruption(context, activeStream, outputSession, decision.Reason);
+                }
+                else
+                {
+                    ConfirmInterruption(context, transcribedText, null);
+                }
+                break;
+
+            case InterruptionAction.ResumeOutput:
+                _ = ResumeIfStillPausedAsync(context);
+                break;
+
+            case InterruptionAction.InterruptOutput:
+                ISpeechOutputSession? interruptedOutput = null;
+                if (activeStream is not null &&
+                    TryGetActiveOutputSession(activeStream.StreamId) is { } interruptibleOutput)
+                {
+                    interruptedOutput = interruptibleOutput;
+                    _ = interruptibleOutput.InterruptAsync(CancellationToken.None).AsTask();
+                }
+
+                ConfirmInterruption(context, transcribedText, interruptedOutput);
+                break;
+        }
+    }
+
+    private ISpeechOutputSession? TryGetActiveOutputSession(string streamId)
+    {
+        lock (_interruptionLock)
+        {
+            return _activeOutputSessions.GetValueOrDefault(streamId);
+        }
+    }
+
+    private void PauseForPotentialInterruption(
+        HookContext context,
+        IStreamHandle activeStream,
+        ISpeechOutputSession? outputSession,
+        string reason)
     {
         lock (_pauseLock)
         {
+            if (_pausedSynthesis is not null)
+                return;
+
+            _pausedSynthesis = new PausedSynthesisState
+            {
+                SynthesisId = activeStream.StreamId,
+                StreamHandle = activeStream,
+                OutputSession = outputSession,
+                PausedAt = DateTime.UtcNow
+            };
+
+            context.Emit(new SpeechPausedEvent(
+                activeStream.StreamId,
+                reason)
+            {
+                Channel = EventChannel.Control,
+                StreamId = activeStream.StreamId
+            });
+
+            var resumeTimeoutCts = _pausedSynthesis.ResumeTimeoutCts;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(
+                        TimeSpan.FromSeconds(FalseInterruptionTimeout),
+                        resumeTimeoutCts.Token);
+
+                    await ResumeIfStillPausedAsync(context);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Cancelled because speech resumed or was confirmed as an interruption.
+                }
+            });
+        }
+    }
+
+    private void ConfirmInterruption(
+        HookContext context,
+        string? transcribedText,
+        ISpeechOutputSession? outputSession)
+    {
+        PausedSynthesisState? pausedState;
+        lock (_pauseLock)
+        {
             // Cancel resume timer if running
-            _pausedSynthesis?.ResumeTimeoutCts.Cancel();
+            pausedState = _pausedSynthesis;
+            pausedState?.ResumeTimeoutCts.Cancel();
             _pausedSynthesis = null;
         }
 
@@ -1577,7 +1875,81 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         {
             Channel = EventChannel.Control
         });
+
+        var bargeInStopLatency = pausedState is not null
+            ? DateTime.UtcNow - pausedState.PausedAt
+            : TimeSpan.Zero;
+
+        context.Emit(new AudioExperienceMetricEvent(
+            "barge_in_stop_latency",
+            Math.Max(0, bargeInStopLatency.TotalMilliseconds),
+            "ms",
+            SpeechId: outputSession?.SpeechId ?? pausedState?.OutputSession?.SpeechId,
+            OutputStreamId: outputSession?.StreamId ?? pausedState?.StreamHandle.StreamId)
+        {
+            Channel = EventChannel.Streaming
+        });
     }
+
+    private InterruptionControllerOptions CreateInterruptionControllerOptions() =>
+        new()
+        {
+            BackchannelStrategy = BackchannelStrategy,
+            MinWordsForInterruption = MinWordsForInterruption,
+            EnableFalseInterruptionRecovery = EnableFalseInterruptionRecovery,
+            FalseInterruptionTimeout = TimeSpan.FromSeconds(FalseInterruptionTimeout),
+            ResumeFalseInterruption = ResumeFalseInterruption
+        };
+
+    private static IStreamHandle? TryGetFirstActiveStream(HookContext context)
+    {
+        if (context.Streams is not { } streams)
+            return null;
+
+        foreach (var handle in streams.ActiveStreams)
+        {
+            if (!handle.IsInterrupted)
+                return handle;
+        }
+
+        return null;
+    }
+
+    private static SpeechOutputPlaybackStartedEvent CreatePlaybackStartedForInterruption(
+        IStreamHandle stream,
+        DateTimeOffset observedAt) =>
+        new()
+        {
+            Context = new SpeechOutputContext(
+                RuntimeId: null,
+                SessionId: null,
+                BranchId: null,
+                SpeechId: stream.StreamId,
+                StreamId: stream.StreamId,
+                SynthesisId: stream.StreamId,
+                Provider: null,
+                Model: null,
+                Voice: null,
+                SequenceNumber: null,
+                TimestampNs: null,
+                ObservedAt: observedAt),
+            State = new SpeechOutputState()
+        };
+
+    private static SpeechRecognitionContext CreateRecognitionContextForInterruption(DateTimeOffset observedAt) =>
+        new(
+            RuntimeId: null,
+            SessionId: null,
+            BranchId: null,
+            UtteranceId: Guid.NewGuid().ToString("N"),
+            RecognitionId: Guid.NewGuid().ToString("N"),
+            SegmentId: null,
+            ProviderRequestId: null,
+            Provider: null,
+            Model: null,
+            SequenceNumber: null,
+            TimestampNs: null,
+            ObservedAt: observedAt);
 
     //
     // SPEED ADAPTATION (built into middleware)
@@ -1829,6 +2201,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
     private async IAsyncEnumerable<AudioChunkEvent> SynthesizeAndEmitAsync(
         IEventCoordinator? eventCoordinator,
+        ISpeechOutputSession outputSession,
         string text,
         IStreamHandle? stream,
         string synthesisId,
@@ -1864,9 +2237,58 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                 CanInterrupt = true
             };
 
+            var frame = CreateAudioChunkFrame(audioChunk, audioBytes);
+            await outputSession.PushAudioAsync(frame, ct).ConfigureAwait(false);
             eventCoordinator?.Emit(audioChunk);
-            EmitAudioChunkFrame(audioFrameEmitter, audioChunk, audioBytes);
+            EmitAudioChunkFrame(audioFrameEmitter, frame);
+            if (!outputSession.State.IsPaused)
+            {
+                var playedDuration = outputSession.State.PlayedDuration + frame.Duration;
+                await outputSession.MarkPlaybackProgressAsync(
+                    playedDuration,
+                    playedDuration,
+                    ct).ConfigureAwait(false);
+            }
             yield return audioChunk;
+        }
+    }
+
+    private async Task ProcessTtsPacingAsync(
+        IAsyncEnumerable<string> modelText,
+        ITtsPacer pacer,
+        ISpeechOutputSession outputSession,
+        IEventCoordinator? eventCoordinator,
+        IStreamHandle? stream,
+        string synthesisId,
+        TextToSpeechOptions ttsOptions,
+        SynthesisState synthesisState,
+        AudioConfig effectiveConfig,
+        Action<DateTime> onFirstAudio,
+        CancellationToken cancellationToken)
+    {
+        var pacingOptions = new TtsPacingOptions
+        {
+            EnableQuickAnswer = effectiveConfig.EnableQuickAnswer ?? true,
+            TextFilter = text => FilterTextForTts(text, effectiveConfig)
+        };
+
+        await foreach (var segment in pacer
+            .SegmentAsync(modelText, outputSession.State, pacingOptions, cancellationToken)
+            .ConfigureAwait(false))
+        {
+            await outputSession.PushTextAsync(segment.Text, cancellationToken).ConfigureAwait(false);
+            await foreach (var _ in SynthesizeAndEmitAsync(
+                eventCoordinator,
+                outputSession,
+                segment.Text,
+                stream,
+                synthesisId,
+                ttsOptions,
+                synthesisState,
+                cancellationToken).ConfigureAwait(false))
+            {
+                onFirstAudio(DateTime.UtcNow);
+            }
         }
     }
 
@@ -1884,20 +2306,37 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         return null;
     }
 
+    private async Task PumpSpeechOutputEventsAsync(
+        ISpeechOutputSession outputSession,
+        IEventCoordinator? eventCoordinator,
+        CancellationToken cancellationToken)
+    {
+        await foreach (var evt in outputSession.Events.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            ObserveSpeechOutputForInterruption(evt);
+            eventCoordinator?.Emit(evt);
+        }
+    }
+
     private static StructEmitter<AudioChunkFrame>? CreateAudioChunkFrameEmitter(IEventCoordinator? eventCoordinator) =>
         eventCoordinator?.CreateStructEmitter<AudioChunkFrame>(
             new StructEmitterOptions<AudioChunkFrame> { AssignSequenceNumbers = true });
 
     private static void EmitAudioChunkFrame(
         StructEmitter<AudioChunkFrame>? emitter,
-        AudioChunkEvent audioChunk,
-        ReadOnlyMemory<byte> audioBytes)
+        AudioChunkFrame frame)
     {
         if (emitter is not { } audioFrames)
             return;
 
-        audioFrames.TryEmit(CreateAudioChunkFrame(audioChunk, audioBytes));
+        audioFrames.TryEmit(frame);
     }
+
+    private static void EmitAudioChunkFrame(
+        StructEmitter<AudioChunkFrame>? emitter,
+        AudioChunkEvent audioChunk,
+        ReadOnlyMemory<byte> audioBytes) =>
+        EmitAudioChunkFrame(emitter, CreateAudioChunkFrame(audioChunk, audioBytes));
 
     private static void EmitAudioChunkFrame(
         IEventCoordinator? eventCoordinator,
@@ -1905,7 +2344,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         ReadOnlyMemory<byte> audioBytes)
     {
         var emitter = CreateAudioChunkFrameEmitter(eventCoordinator);
-        EmitAudioChunkFrame(emitter, audioChunk, audioBytes);
+        EmitAudioChunkFrame(emitter, CreateAudioChunkFrame(audioChunk, audioBytes));
     }
 
     private static AudioChunkFrame CreateAudioChunkFrame(
@@ -1919,13 +2358,6 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             audioChunk.Duration,
             audioChunk.IsLast,
             DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1_000_000L);
-
-
-    private static bool IsSentenceBoundary(string text)
-    {
-        var trimmed = text.TrimEnd();
-        return trimmed.EndsWith('.') || trimmed.EndsWith('!') || trimmed.EndsWith('?');
-    }
 
     private static bool IsKnownBackchannel(string? text)
     {
@@ -2018,6 +2450,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     {
         public required string SynthesisId { get; init; }
         public required IStreamHandle StreamHandle { get; init; }
+        public ISpeechOutputSession? OutputSession { get; init; }
         public required DateTime PausedAt { get; init; }
         public Queue<AudioChunkEvent> BufferedChunks { get; } = new();
         public CancellationTokenSource ResumeTimeoutCts { get; init; } = new();
@@ -2096,5 +2529,9 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         public bool WasInterrupted { get; set; }
         public int TotalChunks { get; set; }
         public int DeliveredChunks { get; set; }
+        public TimeSpan? AudioGeneratedDuration { get; set; }
+        public TimeSpan? AudioPlayedDuration { get; set; }
+        public TimeSpan? AudioDiscardedDuration { get; set; }
+        public double? PlaybackCompletionRatio { get; set; }
     }
 }

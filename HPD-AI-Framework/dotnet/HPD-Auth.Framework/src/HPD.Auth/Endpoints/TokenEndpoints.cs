@@ -1,13 +1,16 @@
 using System.Security.Claims;
+using System.Text.Json.Serialization;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Events;
 using HPD.Auth.Core.Interfaces;
 using HPD.Auth.Core.Options;
+using HPD.Auth.Serialization;
 using HPD.Events;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Auth.Endpoints;
 
@@ -22,11 +25,30 @@ namespace HPD.Auth.Endpoints;
 /// </summary>
 public static class TokenEndpoints
 {
+    /// <summary>
+    /// Maps the OAuth 2.0-compatible token endpoint.
+    /// </summary>
     public static void Map(IEndpointRouteBuilder app)
     {
-        app.MapPost("/api/auth/token", TokenAsync)
+        app.MapPost("/api/auth/token", TokenRequestDelegate)
            .WithName("AuthToken")
            .WithSummary("OAuth 2.0 token endpoint. Supports grant_type=password and grant_type=refresh_token.");
+    }
+
+    private static async Task TokenRequestDelegate(HttpContext httpContext)
+    {
+        var services = httpContext.RequestServices;
+        var result = await TokenAsync(
+            httpContext,
+            services.GetRequiredService<UserManager<ApplicationUser>>(),
+            services.GetRequiredService<SignInManager<ApplicationUser>>(),
+            services.GetRequiredService<ITokenService>(),
+            services.GetRequiredService<IEventCoordinator>(),
+            services.GetRequiredService<IAuditLogger>(),
+            services.GetRequiredService<HPDAuthOptions>(),
+            httpContext.RequestAborted);
+
+        await result.ExecuteAsync(httpContext);
     }
 
     private static async Task<IResult> TokenAsync(
@@ -60,15 +82,18 @@ public static class TokenEndpoints
             TokenRequest? body;
             try
             {
-                body = await httpContext.Request.ReadFromJsonAsync<TokenRequest>(ct);
+                body = await AuthEndpointJson.ReadJsonAsync(
+                    httpContext,
+                    HPDAuthJsonSerializerContext.Default.TokenRequest,
+                    ct);
             }
             catch
             {
-                return Results.BadRequest(new AuthError("invalid_request", "Malformed request body."));
+                return AuthEndpointJson.BadRequest(new AuthError("invalid_request", "Malformed request body."));
             }
 
             if (body is null)
-                return Results.BadRequest(new AuthError("invalid_request", "Request body is required."));
+                return AuthEndpointJson.BadRequest(new AuthError("invalid_request", "Request body is required."));
 
             grantType = body.GrantType ?? httpContext.Request.Query["grant_type"].FirstOrDefault();
             username = body.Username ?? body.Email;
@@ -93,8 +118,8 @@ public static class TokenEndpoints
             "refresh_token" => await HandleRefreshGrantAsync(
                                    refreshToken, tokenService, auditLogger,
                                    ipAddress, userAgent, ct),
-            _ => Results.BadRequest(new AuthError("unsupported_grant_type",
-                                                  $"grant_type '{grantType}' is not supported. Use 'password' or 'refresh_token'."))
+            _ => AuthEndpointJson.BadRequest(new AuthError("unsupported_grant_type",
+                $"grant_type '{grantType}' is not supported. Use 'password' or 'refresh_token'."))
         };
     }
 
@@ -116,7 +141,7 @@ public static class TokenEndpoints
     {
         if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
         {
-            return Results.BadRequest(new AuthError(
+            return AuthEndpointJson.BadRequest(new AuthError(
                 "invalid_request",
                 "username (email) and password are required for grant_type=password."));
         }
@@ -127,12 +152,12 @@ public static class TokenEndpoints
 
         if (user is null)
         {
-            eventCoordinator.Emit(new LoginFailedEvent
+            await eventCoordinator.EmitAsync(new LoginFailedEvent
             {
                 Email = email,
                 Reason = "user_not_found",
                 AuthContext = authContext,
-            });
+            }, ct);
             await auditLogger.LogAsync(new AuditLogEntry(
                 Action: AuditActions.UserLoginFailed,
                 Category: AuditCategories.Authentication,
@@ -140,22 +165,22 @@ public static class TokenEndpoints
                 IpAddress: ipAddress,
                 UserAgent: userAgent,
                 ErrorMessage: "user_not_found",
-                Metadata: new { email }
+                Metadata: new Dictionary<string, string?> { ["email"] = email }
             ), ct);
 
-            return Results.BadRequest(new AuthError("invalid_grant", "Invalid email or password."));
+            return AuthEndpointJson.BadRequest(new AuthError("invalid_grant", "Invalid email or password."));
         }
 
         var signInResult = await signInManager.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true);
 
         if (signInResult.IsLockedOut)
         {
-            eventCoordinator.Emit(new LoginFailedEvent
+            await eventCoordinator.EmitAsync(new LoginFailedEvent
             {
                 Email = email,
                 Reason = "account_locked",
                 AuthContext = authContext,
-            });
+            }, ct);
             await auditLogger.LogAsync(new AuditLogEntry(
                 Action: AuditActions.UserLoginFailed,
                 Category: AuditCategories.Authentication,
@@ -164,20 +189,44 @@ public static class TokenEndpoints
                 IpAddress: ipAddress,
                 UserAgent: userAgent,
                 ErrorMessage: "account_locked",
-                Metadata: new { email }
+                Metadata: new Dictionary<string, string?> { ["email"] = email }
             ), ct);
 
             return Results.StatusCode(423);
         }
 
+        if (signInResult.IsNotAllowed)
+        {
+            await eventCoordinator.EmitAsync(new LoginFailedEvent
+            {
+                Email = email,
+                Reason = "not_allowed",
+                AuthContext = authContext,
+            }, ct);
+            await auditLogger.LogAsync(new AuditLogEntry(
+                Action: AuditActions.UserLoginFailed,
+                Category: AuditCategories.Authentication,
+                Success: false,
+                UserId: user.Id,
+                IpAddress: ipAddress,
+                UserAgent: userAgent,
+                ErrorMessage: "not_allowed",
+                Metadata: new Dictionary<string, string?> { ["email"] = email }
+            ), ct);
+
+            return AuthEndpointJson.BadRequest(new AuthError(
+                "invalid_grant",
+                "Email confirmation is required before login."));
+        }
+
         if (!signInResult.Succeeded)
         {
-            eventCoordinator.Emit(new LoginFailedEvent
+            await eventCoordinator.EmitAsync(new LoginFailedEvent
             {
                 Email = email,
                 Reason = "invalid_password",
                 AuthContext = authContext,
-            });
+            }, ct);
             await auditLogger.LogAsync(new AuditLogEntry(
                 Action: AuditActions.UserLoginFailed,
                 Category: AuditCategories.Authentication,
@@ -186,15 +235,17 @@ public static class TokenEndpoints
                 IpAddress: ipAddress,
                 UserAgent: userAgent,
                 ErrorMessage: "invalid_password",
-                Metadata: new { email }
+                Metadata: new Dictionary<string, string?> { ["email"] = email }
             ), ct);
 
-            return Results.BadRequest(new AuthError("invalid_grant", "Invalid email or password."));
+            return AuthEndpointJson.BadRequest(new AuthError("invalid_grant", "Invalid email or password."));
         }
 
         if (await signInManager.IsTwoFactorEnabledAsync(user))
         {
-            return Results.Ok(new { requires_two_factor = true });
+            return AuthEndpointJson.Ok(
+                new TwoFactorRequiredResponse(true),
+                HPDAuthJsonSerializerContext.Default.TwoFactorRequiredResponse);
         }
 
         user.LastLoginAt = DateTime.UtcNow;
@@ -204,13 +255,13 @@ public static class TokenEndpoints
 
         var tokenResponse = await tokenService.GenerateTokensAsync(user, ct);
 
-        eventCoordinator.Emit(new UserLoggedInEvent
+        await eventCoordinator.EmitAsync(new UserLoggedInEvent
         {
             UserId = user.Id,
             Email = user.Email!,
             AuthMethod = "password",
             AuthContext = authContext,
-        });
+        }, ct);
 
         await auditLogger.LogAsync(new AuditLogEntry(
             Action: AuditActions.UserLogin,
@@ -219,10 +270,14 @@ public static class TokenEndpoints
             UserId: user.Id,
             IpAddress: ipAddress,
             UserAgent: userAgent,
-            Metadata: new { email, auth_method = "password" }
+            Metadata: new Dictionary<string, string?>
+            {
+                ["email"] = email,
+                ["auth_method"] = "password"
+            }
         ), ct);
 
-        return Results.Ok(tokenResponse);
+        return AuthEndpointJson.Ok(tokenResponse, HPDAuthJsonSerializerContext.Default.TokenResponse);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -239,7 +294,7 @@ public static class TokenEndpoints
     {
         if (string.IsNullOrWhiteSpace(refreshToken))
         {
-            return Results.BadRequest(new AuthError(
+            return AuthEndpointJson.BadRequest(new AuthError(
                 "invalid_request",
                 "refresh_token is required for grant_type=refresh_token."));
         }
@@ -256,7 +311,7 @@ public static class TokenEndpoints
                 ErrorMessage: "invalid_or_expired_refresh_token"
             ), ct);
 
-            return Results.BadRequest(new AuthError(
+            return AuthEndpointJson.BadRequest(new AuthError(
                 "invalid_grant",
                 "The refresh token is invalid, expired, or has already been used."));
         }
@@ -270,7 +325,7 @@ public static class TokenEndpoints
             UserAgent: userAgent
         ), ct);
 
-        return Results.Ok(tokenResponse);
+        return AuthEndpointJson.Ok(tokenResponse, HPDAuthJsonSerializerContext.Default.TokenResponse);
     }
 }
 
@@ -290,3 +345,7 @@ internal sealed class TokenRequest
     public string? Password { get; set; }
     public string? RefreshToken { get; set; }
 }
+
+/// <summary>Response returned when password auth must continue through 2FA.</summary>
+internal sealed record TwoFactorRequiredResponse(
+    [property: JsonPropertyName("requires_two_factor")] bool RequiresTwoFactor);

@@ -4,14 +4,14 @@
 using System.Text.Json;
 using HPD.Agent.Audio;
 using HPD.Agent.Audio.OpenAI;
+using HPD.Agent.Audio.Recognition;
 using HPD.Agent.Audio.Stt;
-using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.AudioProviders.OpenAI.Stt;
 
 public class OpenAISttProviderFactory : ISttProviderFactory
 {
-    public ISpeechToTextClient CreateClient(SttConfig config, IServiceProvider? services = null)
+    public ISpeechRecognizer CreateRecognizer(SttConfig config, IServiceProvider? services = null)
     {
         // Deserialize provider-specific config
         var providerConfig = string.IsNullOrEmpty(config.ProviderOptionsJson)
@@ -23,17 +23,33 @@ public class OpenAISttProviderFactory : ISttProviderFactory
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException("OpenAI API key is required. Set it via ProviderOptionsJson or OPENAI_API_KEY environment variable.");
 
-        return new OpenAISpeechToTextClient(
+        var model = config.ModelId ?? "whisper-1";
+        var client = new OpenAISpeechToTextClient(
             apiKey: apiKey,
-            model: config.ModelId ?? "whisper-1",
+            model: model,
             baseUrl: providerConfig.BaseUrl);
+
+        return MeaiSpeechRecognizerFactory.Create(
+            client,
+            GetMetadata().Capabilities,
+            config.UseStreamingRecognition == true,
+            provider: "openai-audio",
+            model: model,
+            disposeClient: true);
     }
 
     public SttProviderMetadata GetMetadata() => new()
     {
         ProviderKey = "openai-audio",
         DisplayName = "OpenAI Whisper STT",
-        SupportsStreaming = false, // Whisper API doesn't support streaming
+        Capabilities = new SpeechRecognitionCapabilities
+        {
+            StreamingInput = false,
+            InterimResults = false,
+            PreflightResults = false,
+            FinalResults = true,
+            OfflineRecognize = true
+        },
         SupportedLanguages = null, // All languages supported
         SupportedFormats = ["mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm"],
         DocumentationUrl = "https://platform.openai.com/docs/guides/speech-to-text"

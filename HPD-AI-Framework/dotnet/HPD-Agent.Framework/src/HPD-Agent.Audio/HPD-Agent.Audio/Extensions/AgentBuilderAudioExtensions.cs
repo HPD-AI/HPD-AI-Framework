@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 using System.Text.Json;
+using HPD.Agent.Audio.Recognition;
 using HPD.Agent.Audio.Tts;
 using HPD.Agent.Audio.Stt;
 using HPD.Agent.Audio.Vad;
@@ -65,7 +66,7 @@ public static class AgentBuilderAudioExtensions
     /// </summary>
     /// <param name="builder">The agent builder.</param>
     /// <param name="ttsClient">The text-to-speech client to use.</param>
-    /// <param name="sttClient">The speech-to-text client to use (from Microsoft.Extensions.AI).</param>
+    /// <param name="speechRecognizer">The HPD speech recognizer to use.</param>
     /// <param name="vad">The voice activity detector to use.</param>
     /// <param name="eotDetector">The end-of-turn detector to use.</param>
     /// <param name="configure">Optional additional configuration.</param>
@@ -73,7 +74,7 @@ public static class AgentBuilderAudioExtensions
     public static AgentBuilder UseAudioPipeline(
         this AgentBuilder builder,
         ITextToSpeechClient? ttsClient,
-        Microsoft.Extensions.AI.ISpeechToTextClient? sttClient,
+        ISpeechRecognizer? speechRecognizer,
         IVoiceActivityDetector? vad = null,
         IEotDetector? eotDetector = null,
         Action<AudioPipelineMiddleware>? configure = null)
@@ -81,7 +82,7 @@ public static class AgentBuilderAudioExtensions
         var middleware = new AudioPipelineMiddleware
         {
             TextToSpeechClient = ttsClient,
-            SpeechToTextClient = sttClient,
+            SpeechRecognizer = speechRecognizer,
             Vad = vad,
             EotDetector = eotDetector ?? new HeuristicEotDetector()
         };
@@ -110,7 +111,7 @@ public static class AgentBuilderAudioExtensions
         if (config.Stt != null)
         {
             var sttFactory = SttProviderDiscovery.GetFactory(config.Stt.Provider);
-            middleware.SpeechToTextClient = sttFactory.CreateClient(config.Stt);
+            middleware.SpeechRecognizer = sttFactory.CreateRecognizer(config.Stt);
         }
 
         if (config.Vad != null)

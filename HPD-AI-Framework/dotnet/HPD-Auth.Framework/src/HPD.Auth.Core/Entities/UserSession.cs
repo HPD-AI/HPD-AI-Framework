@@ -32,7 +32,7 @@ public class UserSession
     /// - aal2: Password + TOTP/SMS/Email OTP
     /// - aal3: Password + Hardware Key/Passkey
     /// </summary>
-    [MaxLength(10)]
+    [StringLength(10)]
     public string AAL { get; set; } = "aal1";
 
     // ─────────────────────────────────────────────────────────────
@@ -42,13 +42,13 @@ public class UserSession
     /// <summary>
     /// v2.3 Sleeper: External IdP session identifier (SAML SessionIndex).
     /// </summary>
-    [MaxLength(256)]
+    [StringLength(256)]
     public string? BrokerSessionId { get; set; }
 
     /// <summary>
     /// v2.3 Sleeper: External IdP user identifier.
     /// </summary>
-    [MaxLength(256)]
+    [StringLength(256)]
     public string? BrokerUserId { get; set; }
 
     /// <summary>
@@ -74,7 +74,7 @@ public class UserSession
     /// <summary>
     /// v2.3 Sleeper: OAuth scopes granted to this session (space-separated).
     /// </summary>
-    [MaxLength(2000)]
+    [StringLength(2000)]
     public string? Scopes { get; set; }
 
     /// <summary>
@@ -88,7 +88,7 @@ public class UserSession
     /// v2.3 Sleeper: Session state for logout flow.
     /// Values: "active", "logging_out", "logged_out"
     /// </summary>
-    [MaxLength(20)]
+    [StringLength(20)]
     public string SessionState { get; set; } = "active";
 
     // ─────────────────────────────────────────────────────────────
@@ -98,19 +98,19 @@ public class UserSession
     /// <summary>
     /// IP address when session was created.
     /// </summary>
-    [MaxLength(45)]
+    [StringLength(45)]
     public string? IpAddress { get; set; }
 
     /// <summary>
     /// Full user agent string.
     /// </summary>
-    [MaxLength(1024)]
+    [StringLength(1024)]
     public string? UserAgent { get; set; }
 
     /// <summary>
     /// Parsed human-readable device description (e.g., "Chrome on Windows 11").
     /// </summary>
-    [MaxLength(500)]
+    [StringLength(500)]
     public string? DeviceInfo { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

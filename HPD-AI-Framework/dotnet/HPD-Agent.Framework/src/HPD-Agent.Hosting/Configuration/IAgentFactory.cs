@@ -3,14 +3,14 @@ using HPD.Agent;
 namespace HPD.Agent.Hosting.Configuration;
 
 /// <summary>
-/// Factory interface for creating agents per-session.
+/// Factory interface for creating agents by agent ID.
 /// Register in DI to override the default agent creation logic.
 /// </summary>
 /// <remarks>
 /// Use this for advanced scenarios like:
 /// - Multi-tenant (different API keys per tenant)
 /// - Per-user model selection
-/// - Dynamic harness loading based on session metadata
+/// - Dynamic harness loading based on stored agent metadata
 ///
 /// Resolution priority (highest to lowest):
 /// 1. IAgentFactory from DI
@@ -22,14 +22,14 @@ namespace HPD.Agent.Hosting.Configuration;
 public interface IAgentFactory
 {
     /// <summary>
-    /// Create an agent for the given session.
+    /// Create an agent for the given agent ID.
     /// </summary>
-    /// <param name="sessionId">The session this agent will serve</param>
+    /// <param name="agentId">The agent definition/runtime ID to create</param>
     /// <param name="store">The session store (pass to AgentBuilder.WithSessionStore)</param>
     /// <param name="ct">Cancellation token</param>
     /// <returns>A configured and built Agent instance</returns>
     Task<Agent> CreateAgentAsync(
-        string sessionId,
+        string agentId,
         ISessionStore store,
         CancellationToken ct = default);
 }

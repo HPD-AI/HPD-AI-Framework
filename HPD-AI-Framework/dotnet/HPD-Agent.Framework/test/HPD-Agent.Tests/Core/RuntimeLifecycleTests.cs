@@ -236,7 +236,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             await Task.Delay(10);
         }
 
-        predicate().Should().BeTrue();
+        Assert.True(predicate());
     }
 
     private sealed class RuntimeProbeObserver(
@@ -1991,7 +1991,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         await agent.RunAsync("hello", cancellationToken: TestCancellationToken);
         await WaitForAsync(() => order.Count >= 5);
 
-        order.Should().BeEquivalentTo(["typed-1", "typed-2", "any-1", "any-2", "observer"]);
+        Assert.Equal(["typed-1", "typed-2", "any-1", "any-2", "observer"], order);
     }
 
     [Fact]

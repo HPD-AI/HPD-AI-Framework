@@ -1,4 +1,7 @@
 using HPD.Agent.Audio;
+using HPD.Agent.Audio.Preemptive;
+using HPD.Agent.Audio.Recognition;
+using HPD.Agent.Audio.Turn;
 using HPD.Agent.Tests.Infrastructure;
 using Microsoft.Extensions.AI;
 using Xunit;
@@ -18,7 +21,7 @@ public sealed class AudioPipelineMiddlewareRuntimeInputTests : AgentTestBase
         var stt = new FakeSpeechToTextClient("hello from live audio");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
         var agent = CreateAgentWithMiddlewares(
@@ -28,6 +31,10 @@ public sealed class AudioPipelineMiddlewareRuntimeInputTests : AgentTestBase
         var transcriptionCompleted = new TaskCompletionSource<TranscriptionCompletedEvent>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var eotDetected = new TaskCompletionSource<EotDetectedEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var recognitionFinal = new TaskCompletionSource<SpeechRecognitionFinalEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var turnCommitted = new TaskCompletionSource<UserTurnCommittedEvent>(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
         agent.Subscribe<MessageTurnFinishedEvent>(_ => finished.TrySetResult());
@@ -39,6 +46,16 @@ public sealed class AudioPipelineMiddlewareRuntimeInputTests : AgentTestBase
         agent.Subscribe<EotDetectedEvent>(evt =>
         {
             eotDetected.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
+        agent.Subscribe<SpeechRecognitionFinalEvent>(evt =>
+        {
+            recognitionFinal.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
+        agent.Subscribe<UserTurnCommittedEvent>(evt =>
+        {
+            turnCommitted.TrySetResult(evt);
             return ValueTask.CompletedTask;
         });
 
@@ -61,14 +78,80 @@ public sealed class AudioPipelineMiddlewareRuntimeInputTests : AgentTestBase
         await finished.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         var completed = await transcriptionCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         var eot = await eotDetected.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        var final = await recognitionFinal.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        var committed = await turnCommitted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         Assert.Equal("hello from live audio", completed.FinalText);
         Assert.Equal("hello from live audio", eot.TranscribedText);
+        Assert.Equal("hello from live audio", final.Transcript.Text);
+        Assert.Equal("hello from live audio", committed.Transcript.Text);
         Assert.Equal(1, stt.CallCount);
         Assert.Equal([1, 2, 3, 4], stt.LastReceivedBytes);
         Assert.Single(chatClient.CapturedRequests);
         Assert.Contains(chatClient.CapturedRequests[0], message => message.Text == "hello from live audio");
+    }
+
+    [Fact]
+    public async Task StartedAgent_PreflightRecognition_StartsPreemptiveGenerationCandidate()
+    {
+        var chatClient = new FakeChatClient();
+        chatClient.EnqueueTextResponse("agent response");
+
+        var middleware = new AudioPipelineMiddleware
+        {
+            SpeechRecognizer = new ScriptedSpeechRecognizer("hello early"),
+            IOMode = AudioIOMode.AudioToText,
+            EnablePreemptiveGeneration = true,
+            PreemptiveGenerationThreshold = 0.7f
+        };
+        var agent = CreateAgentWithMiddlewares(
+            client: chatClient,
+            middlewares: [middleware]);
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var preemptiveStarted = new TaskCompletionSource<PreemptiveGenerationStartedEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var turnCommitted = new TaskCompletionSource<UserTurnCommittedEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        agent.Subscribe<MessageTurnFinishedEvent>(_ => finished.TrySetResult());
+        agent.Subscribe<PreemptiveGenerationStartedEvent>(evt =>
+        {
+            preemptiveStarted.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
+        agent.Subscribe<UserTurnCommittedEvent>(evt =>
+        {
+            turnCommitted.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        await agent.StartAsync(TestCancellationToken);
+        await agent.RunAsync(new AudioInputFrame(
+            SessionId: null,
+            BranchId: "main",
+            Audio: new byte[] { 1, 2 },
+            MimeType: "audio/pcm",
+            TimestampNs: 0,
+            IsFinal: false), TestCancellationToken);
+        await agent.RunAsync(new AudioInputFrame(
+            SessionId: null,
+            BranchId: "main",
+            Audio: new byte[] { 3, 4 },
+            MimeType: "audio/pcm",
+            TimestampNs: 1_000_000,
+            IsFinal: true), TestCancellationToken);
+
+        await finished.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        var started = await preemptiveStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        var committed = await turnCommitted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        await agent.StopAsync(TestCancellationToken);
+
+        Assert.Equal("hello early", started.Candidate.TranscriptText);
+        Assert.Equal("hello early", committed.Transcript.Text);
+        Assert.Equal(started.Candidate.TranscriptRevisionId, committed.Transcript.TranscriptRevisionId);
+        Assert.Single(chatClient.CapturedRequests);
+        Assert.Contains(chatClient.CapturedRequests[0], message => message.Text == "hello early");
     }
 
     [Fact]
@@ -80,7 +163,7 @@ public sealed class AudioPipelineMiddlewareRuntimeInputTests : AgentTestBase
         var stt = new FakeSpeechToTextClient("hello from vad.");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             Vad = new ScriptedVad(
                 new VadResult { State = VadState.Starting, SpeechProbability = 0.8f, IsSpeaking = true },
                 new VadResult { State = VadState.Speaking, SpeechProbability = 0.9f, IsSpeaking = true },
@@ -224,6 +307,84 @@ public sealed class AudioPipelineMiddlewareRuntimeInputTests : AgentTestBase
         public void Dispose()
         {
         }
+    }
+
+    private sealed class ScriptedSpeechRecognizer(string text) : ISpeechRecognizer
+    {
+        public SpeechRecognitionCapabilities Capabilities { get; } = new()
+        {
+            StreamingInput = true,
+            InterimResults = true,
+            PreflightResults = true,
+            FinalResults = true
+        };
+
+        public async IAsyncEnumerable<SpeechRecognitionEvent> RecognizeAsync(
+            IAsyncEnumerable<AudioInputFrame> audio,
+            SpeechRecognitionOptions options,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            AudioInputFrame? firstFrame = null;
+            AudioInputFrame? lastFrame = null;
+            await foreach (var frame in audio.WithCancellation(cancellationToken))
+            {
+                firstFrame ??= frame;
+                lastFrame = frame;
+            }
+
+            if (firstFrame is null)
+                yield break;
+
+            var recognitionId = Guid.NewGuid().ToString("N");
+            var utteranceId = Guid.NewGuid().ToString("N");
+            var revisionId = Guid.NewGuid().ToString("N");
+            var startContext = CreateContext(options, recognitionId, utteranceId, firstFrame.Value);
+            var finalContext = CreateContext(options, recognitionId, utteranceId, lastFrame ?? firstFrame.Value);
+
+            yield return new SpeechRecognitionStartedEvent { Context = startContext };
+            yield return new SpeechRecognitionPreflightEvent
+            {
+                Context = finalContext,
+                Transcript = new SpeechRecognitionTranscript(
+                    text,
+                    Confidence: 0.95f,
+                    TranscriptRevisionId: revisionId)
+            };
+            yield return new SpeechRecognitionFinalEvent
+            {
+                Context = finalContext,
+                Transcript = new SpeechRecognitionTranscript(
+                    text,
+                    Confidence: 0.99f,
+                    TranscriptRevisionId: revisionId)
+            };
+            yield return new SpeechRecognitionEndedEvent
+            {
+                Context = finalContext,
+                SpeechDuration = TimeSpan.FromMilliseconds(1)
+            };
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        private static SpeechRecognitionContext CreateContext(
+            SpeechRecognitionOptions options,
+            string recognitionId,
+            string utteranceId,
+            AudioInputFrame frame) =>
+            new(
+                RuntimeId: options.RuntimeId,
+                SessionId: options.SessionId ?? frame.SessionId,
+                BranchId: options.BranchId ?? frame.BranchId,
+                UtteranceId: utteranceId,
+                RecognitionId: recognitionId,
+                SegmentId: null,
+                ProviderRequestId: null,
+                Provider: "test",
+                Model: "scripted",
+                SequenceNumber: frame.SequenceNumber == 0 ? null : frame.SequenceNumber,
+                TimestampNs: frame.TimestampNs == 0 ? null : frame.TimestampNs,
+                ObservedAt: DateTimeOffset.UtcNow);
     }
 
     private sealed class ScriptedVad(params VadResult[] results) : IVoiceActivityDetector

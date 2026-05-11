@@ -1,11 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
-using HPD.Agent.Serialization;
 
 namespace HPD.Agent.AspNetCore.Tests.Integration;
 
@@ -23,7 +23,7 @@ public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
     }
 
     private static string CreateInputJson(string text) =>
-        AgentEventSerializer.ToJson(new UserTextInputEvent(text));
+        JsonSerializer.Serialize(new StreamTextRequest(text));
 
     private Task<HttpResponseMessage> PostInputAsync(string url, string json) =>
         _client.PostAsync(url, new StringContent(json, Encoding.UTF8, "application/json"));
@@ -112,7 +112,7 @@ public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
         var session = await createResponse.Content.ReadFromJsonAsync<SessionDto>();
 
         // Create second branch
-        await _client.PostAsJsonAsync($"/sessions/{session!.Id}/branches",
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{session!.Id}/branches",
             new CreateBranchRequest("branch2", "Branch 2", null, null));
 
         var request1 = CreateInputJson("Test 1");
@@ -120,9 +120,9 @@ public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
 
         // Act - Stream on both branches simultaneously
         var stream1Task = PostInputAsync(
-            $"/sessions/{session.Id}/branches/main/stream", request1);
+             $"/agents/test-agent/sessions/{session.Id}/branches/main/stream", request1);
         var stream2Task = PostInputAsync(
-            $"/sessions/{session.Id}/branches/branch2/stream", request2);
+             $"/agents/test-agent/sessions/{session.Id}/branches/branch2/stream", request2);
 
         await Task.WhenAll(stream1Task, stream2Task);
 
@@ -142,14 +142,14 @@ public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
 
         // Act - Start first stream (don't await)
         var stream1Task = PostInputAsync(
-            $"/sessions/{session!.Id}/branches/main/stream", request);
+             $"/agents/test-agent/sessions/{session!.Id}/branches/main/stream", request);
 
         // Give first stream time to acquire lock
         await Task.Delay(100);
 
         // Try second stream
         var stream2Response = await PostInputAsync(
-            $"/sessions/{session.Id}/branches/main/stream", request);
+             $"/agents/test-agent/sessions/{session.Id}/branches/main/stream", request);
 
         // Assert
         stream2Response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -190,7 +190,7 @@ public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
 
         // Act - Create 10 branches concurrently
         var tasks = Enumerable.Range(0, 10).Select(i =>
-            _client.PostAsJsonAsync($"/sessions/{session!.Id}/branches",
+            _client.PostAsJsonAsync($"/agents/test-agent/sessions/{session!.Id}/branches",
                 new CreateBranchRequest($"branch-{i}", $"Branch {i}", null, null))
         ).ToArray();
 

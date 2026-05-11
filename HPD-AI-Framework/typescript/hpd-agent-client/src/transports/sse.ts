@@ -36,6 +36,7 @@ import type {
   CostBreakdown,
 } from '../types/evals.js';
 import { SseParser } from '../parser.js';
+import type { TransportRequestOptions } from './options.js';
 
 /**
  * SSE (Server-Sent Events) transport implementation.
@@ -44,6 +45,8 @@ import { SseParser } from '../parser.js';
  */
 export class SseTransport implements AgentTransport {
   private baseUrl: string;
+  private requestOptions: TransportRequestOptions;
+  private agentId?: string;
   private sessionId?: string;
   private branchId?: string;
   private abortController?: AbortController;
@@ -52,9 +55,31 @@ export class SseTransport implements AgentTransport {
   private closeHandler?: () => void;
   private _connected = false;
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, requestOptions: TransportRequestOptions = {}) {
     // Remove trailing slash for consistent URL building
     this.baseUrl = baseUrl.replace(/\/$/, '');
+    this.requestOptions = requestOptions;
+  }
+
+  private fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+    const headers = {
+      ...(this.requestOptions.headers ?? {}),
+      ...((init.headers as Record<string, string> | undefined) ?? {}),
+    };
+
+    return globalThis.fetch(input, {
+      ...init,
+      credentials: this.requestOptions.credentials,
+      headers,
+    });
+  }
+
+  private url(path: string): URL {
+    const base = /^[a-z][a-z\d+.-]*:\/\//i.test(this.baseUrl)
+      ? this.baseUrl
+      : `${globalThis.location?.origin ?? 'http://localhost'}${this.baseUrl.startsWith('/') ? '' : '/'}${this.baseUrl}`;
+
+    return new URL(`${base}${path}`);
   }
 
   get connected(): boolean {
@@ -68,14 +93,17 @@ export class SseTransport implements AgentTransport {
 
     this.sessionId = scope?.sessionId;
     this.branchId = scope?.branchId || 'main';
+    this.agentId = scope?.agentId;
   }
 
   async run(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<void> {
     const sessionId = 'sessionId' in input ? input.sessionId : undefined;
     const branchId = 'branchId' in input ? input.branchId : undefined;
+    const agentId = 'agentId' in input ? input.agentId : undefined;
 
     this.sessionId = sessionId ?? this.sessionId;
     this.branchId = branchId ?? this.branchId ?? 'main';
+    this.agentId = agentId ?? this.agentId;
 
     if (this.isMiddlewareResponse(input)) {
       await this.postMiddlewareResponse(input);
@@ -90,6 +118,10 @@ export class SseTransport implements AgentTransport {
       throw new Error('Input event must include sessionId for SSE run()');
     }
 
+    if (!this.agentId) {
+      throw new Error('Input event must include agentId for SSE run()');
+    }
+
     this.abortController = new AbortController();
 
     // Combine user signal with our internal abort controller
@@ -97,19 +129,20 @@ export class SseTransport implements AgentTransport {
       ? this.combineSignals(options.signal, this.abortController.signal)
       : this.abortController.signal;
 
-    const url = `${this.baseUrl}/sessions/${this.sessionId}/branches/${this.branchId}/stream`;
+    const isTextInput = input.type === EventTypes.USER_TEXT_INPUT;
+    const url = isTextInput
+      ? `${this.baseUrl}/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/stream`
+      : `${this.baseUrl}/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/events/stream`;
 
-    const response = await fetch(url, {
+    const response = await this.fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
       },
-      body: JSON.stringify({
-        ...input,
-        sessionId: this.sessionId,
-        branchId: this.branchId,
-      }),
+      body: JSON.stringify(isTextInput
+        ? { text: input.text, runConfig: input.runConfig }
+        : input),
       signal,
     });
 
@@ -168,13 +201,13 @@ export class SseTransport implements AgentTransport {
   }
 
   private async postMiddlewareResponse(message: AgentRunInputEvent): Promise<void> {
-    if (!this.sessionId || !this.branchId) {
+    if (!this.agentId || !this.sessionId || !this.branchId) {
       throw new Error('Not connected');
     }
 
     const endpoint = this.getEndpointForMessage(message);
 
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+    const response = await this.fetch(`${this.baseUrl}${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(message),
@@ -189,13 +222,13 @@ export class SseTransport implements AgentTransport {
   private getEndpointForMessage(message: AgentRunInputEvent): string {
     switch (message.type) {
       case EventTypes.PERMISSION_RESPONSE:
-        return `/sessions/${this.sessionId}/branches/${this.branchId}/permissions/respond`;
+        return `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/permissions/respond`;
       case EventTypes.CONTINUATION_RESPONSE:
-        return `/sessions/${this.sessionId}/branches/${this.branchId}/continuation/respond`;
+        return `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/continuation/respond`;
       case EventTypes.CLARIFICATION_RESPONSE:
-        return `/sessions/${this.sessionId}/branches/${this.branchId}/clarifications/respond`;
+        return `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/clarifications/respond`;
       case EventTypes.CLIENT_TOOL_INVOKE_RESPONSE:
-        return `/sessions/${this.sessionId}/branches/${this.branchId}/client-tools/respond`;
+        return `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/client-tools/respond`;
       default:
         throw new Error(`Unknown message type: ${(message as { type: string }).type}`);
     }
@@ -241,14 +274,14 @@ export class SseTransport implements AgentTransport {
   // ============================================
 
   async listSessions(options?: ListSessionsOptions): Promise<Session[]> {
-    const url = new URL(`${this.baseUrl}/sessions`);
+    const url = this.url(`/sessions`);
 
     if (options?.limit) url.searchParams.set('limit', options.limit.toString());
     if (options?.offset) url.searchParams.set('offset', options.offset.toString());
     if (options?.sortBy) url.searchParams.set('sortBy', options.sortBy);
     if (options?.sortDirection) url.searchParams.set('sortDirection', options.sortDirection);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -262,7 +295,7 @@ export class SseTransport implements AgentTransport {
   }
 
   async getSession(sessionId: string): Promise<Session | null> {
-    const response = await fetch(`${this.baseUrl}/sessions/${sessionId}`, {
+    const response = await this.fetch(`${this.baseUrl}/sessions/${sessionId}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -280,7 +313,7 @@ export class SseTransport implements AgentTransport {
   }
 
   async createSession(options?: CreateSessionRequest): Promise<Session> {
-    const response = await fetch(`${this.baseUrl}/sessions`, {
+    const response = await this.fetch(`${this.baseUrl}/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(options || {}),
@@ -295,7 +328,7 @@ export class SseTransport implements AgentTransport {
   }
 
   async updateSession(sessionId: string, request: UpdateSessionRequest): Promise<Session> {
-    const response = await fetch(`${this.baseUrl}/sessions/${sessionId}`, {
+    const response = await this.fetch(`${this.baseUrl}/sessions/${sessionId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -310,7 +343,7 @@ export class SseTransport implements AgentTransport {
   }
 
   async deleteSession(sessionId: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/sessions/${sessionId}`, {
+    const response = await this.fetch(`${this.baseUrl}/sessions/${sessionId}`, {
       method: 'DELETE',
     });
 
@@ -325,7 +358,7 @@ export class SseTransport implements AgentTransport {
   // ============================================
 
   async listBranches(sessionId: string): Promise<Branch[]> {
-    const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/branches`, {
+    const response = await this.fetch(`${this.baseUrl}/sessions/${sessionId}/branches`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -339,7 +372,7 @@ export class SseTransport implements AgentTransport {
   }
 
   async getBranch(sessionId: string, branchId: string): Promise<Branch | null> {
-    const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/branches/${branchId}`, {
+    const response = await this.fetch(`${this.baseUrl}/sessions/${sessionId}/branches/${branchId}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -357,10 +390,16 @@ export class SseTransport implements AgentTransport {
   }
 
   async createBranch(sessionId: string, options?: CreateBranchRequest): Promise<Branch> {
-    const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/branches`, {
+    const agentId = options?.agentId ?? this.agentId;
+    if (!agentId) {
+      throw new Error('createBranch() requires agentId');
+    }
+
+    const { agentId: _agentId, ...body } = options ?? {};
+    const response = await this.fetch(`${this.baseUrl}/agents/${agentId}/sessions/${sessionId}/branches`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(options || {}),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -376,10 +415,16 @@ export class SseTransport implements AgentTransport {
     branchId: string,
     options: ForkBranchRequest
   ): Promise<Branch> {
-    const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/branches/${branchId}/fork`, {
+    const agentId = options.agentId ?? this.agentId;
+    if (!agentId) {
+      throw new Error('forkBranch() requires agentId');
+    }
+
+    const { agentId: _agentId, ...body } = options;
+    const response = await this.fetch(`${this.baseUrl}/agents/${agentId}/sessions/${sessionId}/branches/${branchId}/fork`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(options),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -391,9 +436,9 @@ export class SseTransport implements AgentTransport {
   }
 
   async deleteBranch(sessionId: string, branchId: string, options?: { recursive?: boolean }): Promise<void> {
-    const url = new URL(`${this.baseUrl}/sessions/${sessionId}/branches/${branchId}`);
+    const url = this.url(`/sessions/${sessionId}/branches/${branchId}`);
     if (options?.recursive) url.searchParams.set('recursive', 'true');
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'DELETE',
     });
 
@@ -404,7 +449,7 @@ export class SseTransport implements AgentTransport {
   }
 
   async getBranchMessages(sessionId: string, branchId: string): Promise<BranchMessage[]> {
-    const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/branches/${branchId}/messages`, {
+    const response = await this.fetch(`${this.baseUrl}/sessions/${sessionId}/branches/${branchId}/messages`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -422,7 +467,7 @@ export class SseTransport implements AgentTransport {
   // ============================================
 
   async getBranchSiblings(sessionId: string, branchId: string): Promise<SiblingBranch[]> {
-    const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/branches/${branchId}/siblings`, {
+    const response = await this.fetch(`${this.baseUrl}/sessions/${sessionId}/branches/${branchId}/siblings`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -459,7 +504,7 @@ export class SseTransport implements AgentTransport {
   // ============================================
 
   async listAgents(): Promise<AgentSummaryDto[]> {
-    const response = await fetch(`${this.baseUrl}/agents`, {
+    const response = await this.fetch(`${this.baseUrl}/agents`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -473,7 +518,7 @@ export class SseTransport implements AgentTransport {
   }
 
   async getAgent(agentId: string): Promise<StoredAgentDto | null> {
-    const response = await fetch(`${this.baseUrl}/agents/${agentId}`, {
+    const response = await this.fetch(`${this.baseUrl}/agents/${agentId}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -489,7 +534,7 @@ export class SseTransport implements AgentTransport {
   }
 
   async createAgent(request: CreateAgentRequest): Promise<StoredAgentDto> {
-    const response = await fetch(`${this.baseUrl}/agents`, {
+    const response = await this.fetch(`${this.baseUrl}/agents`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -504,7 +549,7 @@ export class SseTransport implements AgentTransport {
   }
 
   async updateAgent(agentId: string, request: UpdateAgentRequest): Promise<StoredAgentDto> {
-    const response = await fetch(`${this.baseUrl}/agents/${agentId}`, {
+    const response = await this.fetch(`${this.baseUrl}/agents/${agentId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -523,7 +568,7 @@ export class SseTransport implements AgentTransport {
   }
 
   async deleteAgent(agentId: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/agents/${agentId}`, {
+    const response = await this.fetch(`${this.baseUrl}/agents/${agentId}`, {
       method: 'DELETE',
     });
 
@@ -542,12 +587,12 @@ export class SseTransport implements AgentTransport {
   // ============================================
 
   async getScores(evaluatorName: string, from?: string, to?: string): Promise<ScoreRecord[]> {
-    const url = new URL(`${this.baseUrl}/evals/scores`);
+    const url = this.url(`/evals/scores`);
     url.searchParams.set('evaluatorName', evaluatorName);
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -561,11 +606,11 @@ export class SseTransport implements AgentTransport {
   }
 
   async getScoresByBranch(sessionId: string, branchId?: string): Promise<ScoreRecord[]> {
-    const url = new URL(`${this.baseUrl}/evals/scores/by-branch`);
+    const url = this.url(`/evals/scores/by-branch`);
     url.searchParams.set('sessionId', sessionId);
     if (branchId) url.searchParams.set('branchId', branchId);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -579,7 +624,7 @@ export class SseTransport implements AgentTransport {
   }
 
   async writeScore(record: Omit<ScoreRecord, 'id'>): Promise<ScoreRecord> {
-    const response = await fetch(`${this.baseUrl}/evals/scores`, {
+    const response = await this.fetch(`${this.baseUrl}/evals/scores`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(record),
@@ -594,11 +639,11 @@ export class SseTransport implements AgentTransport {
   }
 
   async getEvaluatorSummary(from?: string, to?: string): Promise<EvaluatorSummary[]> {
-    const url = new URL(`${this.baseUrl}/evals/evaluators`);
+    const url = this.url(`/evals/evaluators`);
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -612,11 +657,11 @@ export class SseTransport implements AgentTransport {
   }
 
   async getRiskAutonomyDistribution(from?: string, to?: string): Promise<RiskAutonomyDataPoint[]> {
-    const url = new URL(`${this.baseUrl}/evals/risk-autonomy`);
+    const url = this.url(`/evals/risk-autonomy`);
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -630,12 +675,12 @@ export class SseTransport implements AgentTransport {
   }
 
   async getTrend(evaluatorName: string, from: string, to: string, bucketSize?: string): Promise<ScoreTrend> {
-    const url = new URL(`${this.baseUrl}/evals/trend/${encodeURIComponent(evaluatorName)}`);
+    const url = this.url(`/evals/trend/${encodeURIComponent(evaluatorName)}`);
     url.searchParams.set('from', from);
     url.searchParams.set('to', to);
     if (bucketSize) url.searchParams.set('bucketSize', bucketSize);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -649,11 +694,11 @@ export class SseTransport implements AgentTransport {
   }
 
   async getPassRate(evaluatorName: string, from?: string, to?: string): Promise<PassRateResult> {
-    const url = new URL(`${this.baseUrl}/evals/pass-rate/${encodeURIComponent(evaluatorName)}`);
+    const url = this.url(`/evals/pass-rate/${encodeURIComponent(evaluatorName)}`);
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -667,11 +712,11 @@ export class SseTransport implements AgentTransport {
   }
 
   async getFailureRate(evaluatorName: string, from?: string, to?: string): Promise<FailureRateResult> {
-    const url = new URL(`${this.baseUrl}/evals/failure-rate/${encodeURIComponent(evaluatorName)}`);
+    const url = this.url(`/evals/failure-rate/${encodeURIComponent(evaluatorName)}`);
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -685,12 +730,12 @@ export class SseTransport implements AgentTransport {
   }
 
   async getAgentComparison(evaluatorName: string, agentNames: string[], from?: string, to?: string): Promise<AgentComparisonResult> {
-    const url = new URL(`${this.baseUrl}/evals/agent-comparison/${encodeURIComponent(evaluatorName)}`);
+    const url = this.url(`/evals/agent-comparison/${encodeURIComponent(evaluatorName)}`);
     url.searchParams.set('agentNames', agentNames.join(','));
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -704,13 +749,13 @@ export class SseTransport implements AgentTransport {
   }
 
   async getBranchComparison(sessionId: string, branchId1: string, branchId2: string, evaluatorNames: string[]): Promise<BranchComparisonResult> {
-    const url = new URL(`${this.baseUrl}/evals/branch-comparison`);
+    const url = this.url(`/evals/branch-comparison`);
     url.searchParams.set('sessionId', sessionId);
     url.searchParams.set('branchId1', branchId1);
     url.searchParams.set('branchId2', branchId2);
     url.searchParams.set('evaluatorNames', evaluatorNames.join(','));
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -724,11 +769,11 @@ export class SseTransport implements AgentTransport {
   }
 
   async getToolUsage(from?: string, to?: string): Promise<Record<string, ToolUsageSummary>> {
-    const url = new URL(`${this.baseUrl}/evals/tool-usage`);
+    const url = this.url(`/evals/tool-usage`);
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -742,11 +787,11 @@ export class SseTransport implements AgentTransport {
   }
 
   async getCost(from?: string, to?: string): Promise<CostBreakdown> {
-    const url = new URL(`${this.baseUrl}/evals/cost`);
+    const url = this.url(`/evals/cost`);
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -760,11 +805,11 @@ export class SseTransport implements AgentTransport {
   }
 
   async getScoresByVersion(evaluatorName: string, version: string): Promise<ScoreRecord[]> {
-    const url = new URL(`${this.baseUrl}/evals/scores/by-version`);
+    const url = this.url(`/evals/scores/by-version`);
     url.searchParams.set('evaluatorName', evaluatorName);
     url.searchParams.set('version', version);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -781,7 +826,7 @@ export class SseTransport implements AgentTransport {
     const form = new FormData();
     form.append('file', file, name ?? (file instanceof File ? file.name : 'upload'));
 
-    const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/assets`, {
+    const response = await this.fetch(`${this.baseUrl}/sessions/${sessionId}/assets`, {
       method: 'POST',
       body: form,
     });

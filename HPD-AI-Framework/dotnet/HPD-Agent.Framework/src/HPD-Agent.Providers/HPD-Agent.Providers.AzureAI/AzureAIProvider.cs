@@ -66,7 +66,7 @@ internal class AzureAIProvider : IProviderFeatures
         }
 
         // Get typed config
-        var azureConfig = config.GetTypedProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = config.GetProviderConfig<AzureAIProviderConfig>();
 
         // Determine authentication method
         bool useOAuth = azureConfig?.UseDefaultAzureCredential ?? false;
@@ -113,8 +113,7 @@ internal class AzureAIProvider : IProviderFeatures
         }
 
         // Apply client factory middleware if provided
-        if (config.AdditionalProperties?.TryGetValue("ClientFactory", out var factoryObj) == true &&
-            factoryObj is Func<IChatClient, IChatClient> clientFactory)
+        if (config.ClientFactory is { } clientFactory)
         {
             chatClient = clientFactory(chatClient);
         }
@@ -197,7 +196,7 @@ internal class AzureAIProvider : IProviderFeatures
         }
 
         // Validate Azure-specific config if present
-        var azureConfig = config.GetTypedProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = config.GetProviderConfig<AzureAIProviderConfig>();
         if (azureConfig != null)
         {
             // Validate Temperature range

@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="PublishAot;SelfContained;RuntimeIdentifier">
 
   <PropertyGroup>
     <!-- Source generators must target netstandard2.0 for Roslyn compatibility -->
@@ -12,6 +12,9 @@
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <IsRoslynComponent>true</IsRoslynComponent>
     <NoWarn>$(NoWarn);NETSDK1210</NoWarn>
+    <PublishAot>false</PublishAot>
+    <SelfContained>false</SelfContained>
+    <RuntimeIdentifier></RuntimeIdentifier>
 
     <!-- Package metadata -->
     <PackageId>HPD-Graph.SourceGenerator</PackageId>

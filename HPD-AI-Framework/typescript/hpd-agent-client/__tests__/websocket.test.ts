@@ -76,11 +76,12 @@ describe('WebSocketTransport', () => {
 
     await transport.connect({
       sessionId: 'test-123',
+      agentId: 'agent-1',
       branchId: 'main',
     });
 
     const ws = (transport as any).ws as MockWebSocket;
-    expect(ws.url).toBe('ws://localhost:5135/sessions/test-123/branches/main/ws');
+    expect(ws.url).toBe('ws://localhost:5135/agents/agent-1/sessions/test-123/branches/main/ws');
     expect(ws.sentMessages).toEqual([]);
   });
 
@@ -92,6 +93,7 @@ describe('WebSocketTransport', () => {
 
     await transport.connect({
       sessionId: 'test-123',
+      agentId: 'agent-1',
       branchId: 'main',
     });
 
@@ -110,6 +112,7 @@ describe('WebSocketTransport', () => {
 
     await transport.connect({
       sessionId: 'test-123',
+      agentId: 'agent-1',
       branchId: 'main',
     });
 
@@ -124,6 +127,7 @@ describe('WebSocketTransport', () => {
 
     await transport.connect({
       sessionId: 'test-123',
+      agentId: 'agent-1',
       branchId: 'main',
     });
 
@@ -143,6 +147,7 @@ describe('WebSocketTransport', () => {
         approved: true,
         sessionId: 'test-123',
         branchId: 'main',
+        agentId: 'agent-1',
       })
     );
   });
@@ -155,6 +160,7 @@ describe('WebSocketTransport', () => {
 
     await transport.connect({
       sessionId: 'test-123',
+      agentId: 'agent-1',
       branchId: 'main',
     });
 
@@ -183,6 +189,7 @@ describe('WebSocketTransport', () => {
 
     await transport.connect({
       sessionId: 'test-123',
+      agentId: 'agent-1',
       branchId: 'main',
     });
 
@@ -203,6 +210,7 @@ describe('WebSocketTransport', () => {
     await expect(
       transport.connect({
         sessionId: 'test-123',
+        agentId: 'agent-1',
         branchId: 'main',
         signal: controller.signal,
       })
@@ -249,6 +257,7 @@ describe('WebSocketTransport', () => {
     await expect(
       transport.connect({
         sessionId: 'test-123',
+        agentId: 'agent-1',
         branchId: 'main',
       })
     ).rejects.toThrow('WebSocket error');
@@ -503,11 +512,12 @@ describe('WebSocketTransport', () => {
 
       const result = await transport.createBranch('session-123', {
         branchId: 'new-branch',
+        agentId: 'agent-1',
         name: 'New Branch',
       });
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:5135/sessions/session-123/branches',
+        'http://localhost:5135/agents/agent-1/sessions/session-123/branches',
         expect.objectContaining({
           method: 'POST',
         })
@@ -544,11 +554,12 @@ describe('WebSocketTransport', () => {
 
       const result = await transport.forkBranch('session-123', 'main', {
         fromMessageIndex: 3,
+        agentId: 'agent-1',
         name: 'Forked',
       });
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:5135/sessions/session-123/branches/main/fork',
+        'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/fork',
         expect.objectContaining({
           method: 'POST',
         })

@@ -10,7 +10,7 @@ namespace HPD.Agent.AspNetCore.Tests.Integration;
 
 /// <summary>
 /// Integration tests for middleware response endpoints using event-based responses.
-/// Tests: POST /sessions/{sid}/branches/{bid}/permissions/respond, POST /sessions/{sid}/branches/{bid}/client-tools/respond
+/// Tests: POST /agents/{agentId}/sessions/{sid}/branches/{bid}/permissions/respond, POST /agents/{agentId}/sessions/{sid}/branches/{bid}/client-tools/respond
 /// </summary>
 public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplicationFactory>
 {
@@ -28,7 +28,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
         return session!.Id;
     }
 
-    #region POST /sessions/{sid}/branches/{bid}/permissions/respond
+    #region POST /agents/{agentId}/sessions/{sid}/branches/{bid}/permissions/respond
 
     [Fact]
     public async Task RespondToPermission_AcceptsPermissionResponseEvent_Returns200()
@@ -44,7 +44,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/permissions/respond",
+             $"/agents/test-agent/sessions/{sessionId}/branches/main/permissions/respond",
             evt);
 
         // Assert - Returns 200 or 404 depending on whether agent is running
@@ -64,7 +64,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/permissions/respond",
+             $"/agents/test-agent/sessions/{sessionId}/branches/main/permissions/respond",
             evt);
 
         // Assert
@@ -84,16 +84,53 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/permissions/respond",
+             $"/agents/test-agent/sessions/{sessionId}/branches/main/permissions/respond",
             evt);
 
         // Assert
         response.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task RespondToPermission_Returns404_WhenSessionMissing()
+    {
+        // Arrange
+        var evt = new PermissionResponseEvent(
+            PermissionId: "perm-missing-session",
+            SourceName: "TestSource",
+            Approved: true);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            "/agents/test-agent/sessions/missing-session/branches/main/permissions/respond",
+            evt);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task RespondToPermission_Returns404_WhenBranchMissing()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var evt = new PermissionResponseEvent(
+            PermissionId: "perm-missing-branch",
+            SourceName: "TestSource",
+            Approved: true);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/branches/missing-branch/permissions/respond",
+            evt);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
     #endregion
 
-    #region POST /sessions/{sid}/branches/{bid}/client-tools/respond
+    #region POST /agents/{agentId}/sessions/{sid}/branches/{bid}/client-tools/respond
 
     [Fact]
     public async Task RespondToClientTool_WithTextResult_Returns200()
@@ -107,7 +144,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/client-tools/respond",
+             $"/agents/test-agent/sessions/{sessionId}/branches/main/client-tools/respond",
             evt);
 
         // Assert
@@ -131,7 +168,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/client-tools/respond",
+             $"/agents/test-agent/sessions/{sessionId}/branches/main/client-tools/respond",
             evt);
 
         // Assert
@@ -151,11 +188,30 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/client-tools/respond",
+             $"/agents/test-agent/sessions/{sessionId}/branches/main/client-tools/respond",
             evt);
 
         // Assert
         response.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task RespondToClientTool_Returns404_WhenBranchMissing()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var evt = new ClientToolInvokeResponseEvent(
+            RequestId: "tool-missing-branch",
+            Content: new[] { new TextContent("Tool execution succeeded") },
+            Success: true);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/branches/missing-branch/client-tools/respond",
+            evt);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     #endregion

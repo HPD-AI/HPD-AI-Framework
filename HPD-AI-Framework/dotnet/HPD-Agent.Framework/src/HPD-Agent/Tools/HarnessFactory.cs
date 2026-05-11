@@ -128,6 +128,12 @@ public record HarnessFactory(
     /// </summary>
     Type? MetadataType = null,
 
+    /// <summary>
+    /// Delegate to deserialize typed metadata from JSON without reflection.
+    /// Generated when harness functions use [AIFunction&lt;TMetadata&gt;].
+    /// </summary>
+    Func<JsonElement, IToolMetadata?>? DeserializeMetadata = null,
+
     // ========== NEW: SELECTIVE FUNCTION REGISTRATION ==========
 
     /// <summary>
@@ -145,6 +151,12 @@ public record HarnessFactory(
     /// containing MCPServerRegistration objects that AgentBuilder processes at build time.
     /// </summary>
     bool HasMCPServers = false,
+
+    /// <summary>
+    /// Delegate to collect MCP server registrations from [MCPServer] methods.
+    /// Null when the harness has no MCP servers.
+    /// </summary>
+    Action<object, Action<McpServerSource>>? CollectMcpServers = null,
 
     // ========== NEW: OPENAPI SOURCE SUPPORT ==========
 

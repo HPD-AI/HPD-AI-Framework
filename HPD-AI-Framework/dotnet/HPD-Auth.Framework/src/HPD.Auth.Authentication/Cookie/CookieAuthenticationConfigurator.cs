@@ -1,3 +1,4 @@
+using HPD.Auth.Authentication;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Options;
 using Microsoft.AspNetCore.Authentication;
@@ -98,11 +99,11 @@ internal static class CookieAuthenticationConfigurator
                 {
                     context.Response.StatusCode  = StatusCodes.Status401Unauthorized;
                     context.Response.ContentType = "application/json";
-                    return context.Response.WriteAsJsonAsync(new
-                    {
-                        error             = "unauthorized",
-                        error_description = "Authentication is required to access this resource.",
-                    });
+                    return context.Response.WriteAsJsonAsync(
+                        new AuthenticationErrorResponse(
+                            "unauthorized",
+                            "Authentication is required to access this resource."),
+                        AuthenticationJsonContext.Default.AuthenticationErrorResponse);
                 }
 
                 context.Response.Redirect(context.RedirectUri);
@@ -117,11 +118,11 @@ internal static class CookieAuthenticationConfigurator
                 {
                     context.Response.StatusCode  = StatusCodes.Status403Forbidden;
                     context.Response.ContentType = "application/json";
-                    return context.Response.WriteAsJsonAsync(new
-                    {
-                        error             = "forbidden",
-                        error_description = "You do not have permission to access this resource.",
-                    });
+                    return context.Response.WriteAsJsonAsync(
+                        new AuthenticationErrorResponse(
+                            "forbidden",
+                            "You do not have permission to access this resource."),
+                        AuthenticationJsonContext.Default.AuthenticationErrorResponse);
                 }
 
                 context.Response.Redirect(context.RedirectUri);

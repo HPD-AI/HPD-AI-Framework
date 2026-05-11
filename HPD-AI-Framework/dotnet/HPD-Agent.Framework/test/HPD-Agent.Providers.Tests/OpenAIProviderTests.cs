@@ -111,7 +111,7 @@ public class OpenAIProviderTests
         {
             Temperature = 2.5f // Invalid: must be <= 2.0
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -136,7 +136,7 @@ public class OpenAIProviderTests
         {
             TopP = 1.5f // Invalid: must be <= 1.0
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -161,7 +161,7 @@ public class OpenAIProviderTests
         {
             FrequencyPenalty = 3.0f // Invalid: must be <= 2.0
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -186,7 +186,7 @@ public class OpenAIProviderTests
         {
             PresencePenalty = -3.0f // Invalid: must be >= -2.0
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -211,7 +211,7 @@ public class OpenAIProviderTests
         {
             StopSequences = new List<string> { "one", "two", "three", "four", "five" } // Max 4 allowed
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -236,7 +236,7 @@ public class OpenAIProviderTests
         {
             TopLogProbabilityCount = 25 // Invalid: must be <= 20
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -261,7 +261,7 @@ public class OpenAIProviderTests
         {
             ResponseFormat = "invalid_format"
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -288,7 +288,7 @@ public class OpenAIProviderTests
             JsonSchema = "{\"type\":\"object\"}"
             // Missing JsonSchemaName
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -315,7 +315,7 @@ public class OpenAIProviderTests
             JsonSchemaName = "TestSchema"
             // Missing JsonSchema
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -342,7 +342,7 @@ public class OpenAIProviderTests
             JsonSchemaName = "TestSchema",
             JsonSchema = "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}}}"
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -367,7 +367,7 @@ public class OpenAIProviderTests
         {
             ToolChoice = "invalid_choice"
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -392,7 +392,7 @@ public class OpenAIProviderTests
         {
             ReasoningEffortLevel = "ultra" // Invalid
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -417,7 +417,7 @@ public class OpenAIProviderTests
         {
             AudioVoice = "invalid_voice"
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -442,7 +442,7 @@ public class OpenAIProviderTests
         {
             AudioFormat = "aac" // Invalid
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -467,7 +467,7 @@ public class OpenAIProviderTests
         {
             ServiceTier = "premium" // Invalid
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -494,7 +494,7 @@ public class OpenAIProviderTests
             TopP = 1.5f, // Invalid
             FrequencyPenalty = 5.0f // Invalid
         };
-        config.SetTypedProviderConfig(openAIConfig);
+        config.SetProviderConfig(openAIConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -548,7 +548,7 @@ public class OpenAIProviderTests
         builder.Config.Provider.ModelName.Should().Be("gpt-4o");
         builder.Config.Provider.ApiKey.Should().Be("sk-test123");
 
-        var typedConfig = builder.Config.Provider.GetTypedProviderConfig<OpenAIProviderConfig>();
+        var typedConfig = builder.Config.Provider.GetProviderConfig<OpenAIProviderConfig>();
         typedConfig.Should().NotBeNull();
         typedConfig!.Temperature.Should().Be(0.7f);
         typedConfig.MaxOutputTokenCount.Should().Be(4096);
@@ -623,7 +623,7 @@ public class OpenAIProviderTests
         builder.Config.Provider.Endpoint.Should().Be("https://test.openai.azure.com");
         builder.Config.Provider.ApiKey.Should().Be("test-key");
 
-        var typedConfig = builder.Config.Provider.GetTypedProviderConfig<OpenAIProviderConfig>();
+        var typedConfig = builder.Config.Provider.GetProviderConfig<OpenAIProviderConfig>();
         typedConfig.Should().NotBeNull();
         typedConfig!.Temperature.Should().Be(0.5f);
         typedConfig.MaxOutputTokenCount.Should().Be(2048);

@@ -92,7 +92,6 @@ public class TeamsBotMessageTests
             ConversationId = "19:abc@thread.tacv2",
             ServiceUrl = "https://smba.trafficmanager.net/amer/",
             TenantId = "tenant-1",
-            ConversationJson = """{"conversation":{"id":"19:abc@thread.tacv2"}}""",
             Values = new Dictionary<string, string>
             {
                 ["channelData.team.id"] = "team-1",
@@ -109,8 +108,9 @@ public class TeamsBotMessageTests
 
             var session = await sessionManager.Store.LoadSessionAsync(sessionId);
             session!.Metadata["teams.serviceUrl"].Should().Be(turn.ServiceUrl);
+            session.Metadata["teams.conversationId"].Should().Be(turn.ConversationId);
             session.Metadata["teams.tenantId"].Should().Be("tenant-1");
-            session.Metadata["teams.conversationReference"].Should().Be(turn.ConversationJson);
+            session.Metadata.Should().NotContainKey("teams.conversationReference");
             session.Metadata["teams.channelContext"].Should().BeEquivalentTo(new Dictionary<string, string>
             {
                 ["teamId"] = "team-1",
@@ -175,7 +175,8 @@ public class TeamsBotMessageTests
         var options = Options.Create(new TeamsBotConfig
         {
             AppId = "app-id",
-            AppPassword = "secret"
+            AppPassword = "secret",
+            AgentId = "teams-test-agent"
         });
 
         return (new HPD.Agent.Bots.Teams.TeamsBot(options, sessionManager, agentManager, mapper), sessionManager);
@@ -272,8 +273,6 @@ public class TeamsBotMessageTests
         public string? ReplyToId { get; init; }
 
         public string? TenantId { get; init; }
-
-        public string? ConversationJson { get; init; }
 
         public IReadOnlyDictionary<string, string> Values { get; init; } = new Dictionary<string, string>();
 

@@ -92,8 +92,7 @@ internal class OpenAIProvider : IProviderFeatures
         client = responsesClient.AsIChatClient();
 
         // Apply client factory middleware if provided
-        if (config.AdditionalProperties?.TryGetValue("ClientFactory", out var factoryObj) == true &&
-            factoryObj is Func<IChatClient, IChatClient> clientFactory)
+        if (config.ClientFactory is { } clientFactory)
         {
             client = clientFactory(client);
         }
@@ -139,7 +138,7 @@ internal class OpenAIProvider : IProviderFeatures
             errors.Add("Model name is required for OpenAI");
 
         // Validate OpenAI-specific config if present
-        var openAIConfig = config.GetTypedProviderConfig<OpenAIProviderConfig>();
+        var openAIConfig = config.GetProviderConfig<OpenAIProviderConfig>();
         if (openAIConfig != null)
         {
             // Validate Temperature range
@@ -303,8 +302,7 @@ internal class AzureOpenAIProvider : IProviderFeatures
         IChatClient client = responsesClient.AsIChatClient();
 
         // Apply client factory middleware if provided
-        if (config.AdditionalProperties?.TryGetValue("ClientFactory", out var factoryObj) == true &&
-            factoryObj is Func<IChatClient, IChatClient> clientFactory)
+        if (config.ClientFactory is { } clientFactory)
         {
             client = clientFactory(client);
         }
@@ -355,7 +353,7 @@ internal class AzureOpenAIProvider : IProviderFeatures
             errors.Add("Model name (deployment name) is required for Azure OpenAI");
 
         // Validate OpenAI-specific config if present (same validation as OpenAI)
-        var openAIConfig = config.GetTypedProviderConfig<OpenAIProviderConfig>();
+        var openAIConfig = config.GetProviderConfig<OpenAIProviderConfig>();
         if (openAIConfig != null)
         {
             // Validate Temperature range

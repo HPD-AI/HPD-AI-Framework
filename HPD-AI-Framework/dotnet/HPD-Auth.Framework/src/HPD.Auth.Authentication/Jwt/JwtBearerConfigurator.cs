@@ -1,4 +1,5 @@
 using System.Text;
+using HPD.Auth.Authentication;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Options;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -111,13 +112,13 @@ internal static class JwtBearerConfigurator
                 context.Response.StatusCode  = StatusCodes.Status401Unauthorized;
                 context.Response.ContentType = "application/json";
 
-                return context.Response.WriteAsJsonAsync(new
-                {
-                    error             = "unauthorized",
-                    error_description = string.IsNullOrEmpty(context.ErrorDescription)
+                return context.Response.WriteAsJsonAsync(
+                    new AuthenticationErrorResponse(
+                        "unauthorized",
+                        string.IsNullOrEmpty(context.ErrorDescription)
                         ? "Authentication is required to access this resource."
-                        : context.ErrorDescription,
-                });
+                        : context.ErrorDescription),
+                    AuthenticationJsonContext.Default.AuthenticationErrorResponse);
             },
         };
     }

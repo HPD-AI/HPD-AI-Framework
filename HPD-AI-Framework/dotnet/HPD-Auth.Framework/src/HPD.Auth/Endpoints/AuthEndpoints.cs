@@ -5,11 +5,13 @@ using HPD.Auth.Core.Events;
 using HPD.Auth.Core.Interfaces;
 using HPD.Auth.Core.Models;
 using HPD.Auth.Core.Options;
+using HPD.Auth.Serialization;
 using HPD.Events;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Auth.Endpoints;
 
@@ -24,28 +26,160 @@ namespace HPD.Auth.Endpoints;
 /// </summary>
 public static class AuthEndpoints
 {
+    /// <summary>
+    /// Maps core signup, logout, and current-user endpoints.
+    /// </summary>
     public static void Map(IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/auth");
 
-        group.MapPost("/signup", SignUpAsync)
+        group.MapPost("/signup", SignUpRequestDelegate)
              .WithName("AuthSignUp")
              .WithSummary("Create a new user account. Returns tokens immediately unless RequireEmailConfirmation is true.");
 
-        group.MapPost("/logout", LogoutAsync)
+        group.MapPost("/logout", LogoutRequestDelegate)
              .WithName("AuthLogout")
              .WithSummary("Sign out the current user. Supports local, global, and others scopes.")
              .RequireAuthorization();
 
-        group.MapGet("/user", GetCurrentUserAsync)
+        group.MapGet("/user", GetCurrentUserRequestDelegate)
              .WithName("AuthGetUser")
              .WithSummary("Get the currently authenticated user.")
              .RequireAuthorization();
 
-        group.MapPut("/user", UpdateCurrentUserAsync)
+        group.MapPut("/user", UpdateCurrentUserRequestDelegate)
              .WithName("AuthUpdateUser")
              .WithSummary("Update mutable profile fields for the currently authenticated user.")
              .RequireAuthorization();
+    }
+
+    private static async Task SignUpRequestDelegate(HttpContext httpContext)
+    {
+        var ct = httpContext.RequestAborted;
+        SignUpRequest? request;
+        try
+        {
+            request = await AuthEndpointJson.ReadJsonAsync(
+                httpContext,
+                HPDAuthJsonSerializerContext.Default.SignUpRequest,
+                ct);
+        }
+        catch (JsonException)
+        {
+            await AuthEndpointJson.BadRequest(new AuthError("invalid_request", "Malformed request body."))
+                .ExecuteAsync(httpContext);
+            return;
+        }
+
+        if (request is null)
+        {
+            await AuthEndpointJson.BadRequest(new AuthError("invalid_request", "Request body is required."))
+                .ExecuteAsync(httpContext);
+            return;
+        }
+
+        var services = httpContext.RequestServices;
+        var result = await SignUpAsync(
+            request,
+            services.GetRequiredService<UserManager<ApplicationUser>>(),
+            services.GetRequiredService<RoleManager<ApplicationRole>>(),
+            services.GetRequiredService<SignInManager<ApplicationUser>>(),
+            services.GetRequiredService<ITokenService>(),
+            services.GetRequiredService<IHPDAuthEmailSender>(),
+            services.GetRequiredService<IEventCoordinator>(),
+            services.GetRequiredService<IAuditLogger>(),
+            services.GetRequiredService<HPDAuthOptions>(),
+            httpContext,
+            ct);
+
+        await result.ExecuteAsync(httpContext);
+    }
+
+    private static async Task LogoutRequestDelegate(HttpContext httpContext)
+    {
+        var ct = httpContext.RequestAborted;
+        LogoutRequest? request = null;
+        var contentType = httpContext.Request.ContentType ?? string.Empty;
+
+        if ((httpContext.Request.ContentLength is null or > 0)
+            && contentType.Contains("json", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                request = await AuthEndpointJson.ReadJsonAsync(
+                    httpContext,
+                    HPDAuthJsonSerializerContext.Default.LogoutRequest,
+                    ct);
+            }
+            catch (JsonException)
+            {
+                await AuthEndpointJson.BadRequest(new AuthError("invalid_request", "Malformed request body."))
+                    .ExecuteAsync(httpContext);
+                return;
+            }
+        }
+
+        var services = httpContext.RequestServices;
+        var result = await LogoutAsync(
+            request,
+            httpContext.User,
+            services.GetRequiredService<UserManager<ApplicationUser>>(),
+            services.GetRequiredService<SignInManager<ApplicationUser>>(),
+            services.GetRequiredService<ITokenService>(),
+            services.GetRequiredService<ISessionManager>(),
+            services.GetRequiredService<IEventCoordinator>(),
+            httpContext,
+            httpContext.Request.Query["scope"].FirstOrDefault(),
+            ct);
+
+        await result.ExecuteAsync(httpContext);
+    }
+
+    private static async Task GetCurrentUserRequestDelegate(HttpContext httpContext)
+    {
+        var result = await GetCurrentUserAsync(
+            httpContext.User,
+            httpContext.RequestServices.GetRequiredService<UserManager<ApplicationUser>>(),
+            httpContext.RequestAborted);
+
+        await result.ExecuteAsync(httpContext);
+    }
+
+    private static async Task UpdateCurrentUserRequestDelegate(HttpContext httpContext)
+    {
+        var ct = httpContext.RequestAborted;
+        UpdateUserRequest? request;
+        try
+        {
+            request = await AuthEndpointJson.ReadJsonAsync(
+                httpContext,
+                HPDAuthJsonSerializerContext.Default.UpdateUserRequest,
+                ct);
+        }
+        catch (JsonException)
+        {
+            await AuthEndpointJson.BadRequest(new AuthError("invalid_request", "Malformed request body."))
+                .ExecuteAsync(httpContext);
+            return;
+        }
+
+        if (request is null)
+        {
+            await AuthEndpointJson.BadRequest(new AuthError("invalid_request", "Request body is required."))
+                .ExecuteAsync(httpContext);
+            return;
+        }
+
+        var services = httpContext.RequestServices;
+        var result = await UpdateCurrentUserAsync(
+            request,
+            httpContext.User,
+            services.GetRequiredService<UserManager<ApplicationUser>>(),
+            services.GetRequiredService<IAuditLogger>(),
+            httpContext,
+            ct);
+
+        await result.ExecuteAsync(httpContext);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -55,6 +189,8 @@ public static class AuthEndpoints
     private static async Task<IResult> SignUpAsync(
         SignUpRequest request,
         UserManager<ApplicationUser> userManager,
+        RoleManager<ApplicationRole> roleManager,
+        SignInManager<ApplicationUser> signInManager,
         ITokenService tokenService,
         IHPDAuthEmailSender emailSender,
         IEventCoordinator eventCoordinator,
@@ -64,10 +200,10 @@ public static class AuthEndpoints
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(request.Email))
-            return Results.BadRequest(new AuthError("invalid_request", "Email is required."));
+            return AuthEndpointJson.BadRequest(new AuthError("invalid_request", "Email is required."));
 
         if (string.IsNullOrWhiteSpace(request.Password))
-            return Results.BadRequest(new AuthError("invalid_request", "Password is required."));
+            return AuthEndpointJson.BadRequest(new AuthError("invalid_request", "Password is required."));
 
         var user = new ApplicationUser
         {
@@ -80,24 +216,27 @@ public static class AuthEndpoints
         var result = await userManager.CreateAsync(user, request.Password);
         if (!result.Succeeded)
         {
-            return Results.BadRequest(new AuthError(
+            return AuthEndpointJson.BadRequest(new AuthError(
                 "validation_failed",
                 string.Join("; ", result.Errors.Select(e => e.Description))));
         }
 
         // Assign default "User" role.
+        if (!await roleManager.RoleExistsAsync("User"))
+            await roleManager.CreateAsync(new ApplicationRole("User"));
+
         await userManager.AddToRoleAsync(user, "User");
 
         var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
         var userAgent = httpContext.Request.Headers.UserAgent.ToString();
 
-        eventCoordinator.Emit(new UserRegisteredEvent
+        await eventCoordinator.EmitAsync(new UserRegisteredEvent
         {
             UserId = user.Id,
             Email = user.Email!,
             RegistrationMethod = "email",
             AuthContext = new AuthExecutionContext { IpAddress = ipAddress, UserAgent = userAgent },
-        });
+        }, ct);
 
         // If email confirmation is required, send the confirmation email and
         // return 200 with a message (no tokens yet).
@@ -106,12 +245,14 @@ public static class AuthEndpoints
             var token = await userManager.GenerateEmailConfirmationTokenAsync(user);
             await emailSender.SendEmailConfirmationAsync(user.Email!, user.Id.ToString(), token, ct);
 
-            return Results.Ok(new { message = "Registration successful. Please check your email to confirm your account." });
+            return AuthEndpointJson.Ok(
+                new MessageResponse("Registration successful. Please check your email to confirm your account."),
+                HPDAuthJsonSerializerContext.Default.MessageResponse);
         }
 
         // Email confirmation not required — issue tokens immediately.
         var tokenResponse = await tokenService.GenerateTokensAsync(user, ct);
-        return Results.Ok(tokenResponse);
+        return AuthEndpointJson.Ok(tokenResponse, HPDAuthJsonSerializerContext.Default.TokenResponse);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -168,18 +309,27 @@ public static class AuthEndpoints
             var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
             var userAgent = httpContext.Request.Headers.UserAgent.ToString();
 
-            eventCoordinator.Emit(new UserLoggedOutEvent
+            await eventCoordinator.EmitAsync(new UserLoggedOutEvent
             {
                 UserId = userGuid,
                 SessionId = Guid.Empty,
                 AuthContext = new AuthExecutionContext { IpAddress = ipAddress, UserAgent = userAgent },
-            });
+            }, ct);
         }
 
         // Sign out cookie session.
-        await signInManager.SignOutAsync();
+        try
+        {
+            await signInManager.SignOutAsync();
+        }
+        catch (InvalidOperationException)
+        {
+            // JWT-only hosts may not register the Identity.Application cookie scheme.
+        }
 
-        return Results.Ok(new { message = "Logout successful." });
+        return AuthEndpointJson.Ok(
+            new MessageResponse("Logout successful."),
+            HPDAuthJsonSerializerContext.Default.MessageResponse);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -199,10 +349,12 @@ public static class AuthEndpoints
 
         var user = await userManager.FindByIdAsync(userId);
         if (user is null)
-            return Results.NotFound(new AuthError("user_not_found", "User not found."));
+            return AuthEndpointJson.NotFound(new AuthError("user_not_found", "User not found."));
 
         var roles = await userManager.GetRolesAsync(user);
-        return Results.Ok(ToUserResponse(user, roles));
+        return AuthEndpointJson.Ok(
+            ToUserResponse(user, roles),
+            HPDAuthJsonSerializerContext.Default.UserTokenDto);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -225,7 +377,7 @@ public static class AuthEndpoints
 
         var user = await userManager.FindByIdAsync(userId);
         if (user is null)
-            return Results.NotFound(new AuthError("user_not_found", "User not found."));
+            return AuthEndpointJson.NotFound(new AuthError("user_not_found", "User not found."));
 
         if (request.FirstName is not null)
             user.FirstName = request.FirstName;
@@ -244,7 +396,7 @@ public static class AuthEndpoints
         var result = await userManager.UpdateAsync(user);
         if (!result.Succeeded)
         {
-            return Results.BadRequest(new AuthError(
+            return AuthEndpointJson.BadRequest(new AuthError(
                 "validation_failed",
                 string.Join("; ", result.Errors.Select(e => e.Description))));
         }
@@ -256,11 +408,13 @@ public static class AuthEndpoints
             Success: true,
             UserId: user.Id,
             IpAddress: ipAddress,
-            Metadata: new { action = "user_self_update" }
+            Metadata: new Dictionary<string, string?> { ["action"] = "user_self_update" }
         ), ct);
 
         var roles = await userManager.GetRolesAsync(user);
-        return Results.Ok(ToUserResponse(user, roles));
+        return AuthEndpointJson.Ok(
+            ToUserResponse(user, roles),
+            HPDAuthJsonSerializerContext.Default.UserTokenDto);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -329,3 +483,6 @@ public record AuthError(
     string ErrorDescription,
     string? ErrorUri = null
 );
+
+/// <summary>Generic message response used by auth endpoints.</summary>
+public record MessageResponse(string Message);

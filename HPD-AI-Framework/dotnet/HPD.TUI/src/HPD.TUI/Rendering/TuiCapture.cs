@@ -1,0 +1,188 @@
+using HPD.TUI.Core;
+using HPD.TUI.Terminal;
+
+namespace HPD.TUI.Rendering;
+
+public static class TuiCapture
+{
+    public static TerminalGrid RenderToGrid(
+        IComponent component,
+        int width,
+        int height,
+        Theme? theme = null,
+        ColorSystem colorSystem = ColorSystem.TrueColor,
+        TimeSpan elapsed = default)
+    {
+        ArgumentNullException.ThrowIfNull(component);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+
+        var context = new RenderContext(width, height, theme ?? Theme.Default, colorSystem, elapsed);
+        var grid = new TerminalGrid(width, height);
+        var writer = new SegmentWriter(grid);
+        component.Render(in context, width, ref writer);
+        return grid;
+    }
+
+    public static string[] RenderToLines(
+        IComponent component,
+        int width,
+        int height,
+        Theme? theme = null,
+        bool trimTrailingBlankLines = false,
+        ColorSystem colorSystem = ColorSystem.TrueColor,
+        TimeSpan elapsed = default)
+    {
+        using var grid = RenderToGrid(component, width, height, theme, colorSystem, elapsed);
+        return ToPlainTextLines(grid, trimTrailingBlankLines);
+    }
+
+    public static string RenderToString(
+        IComponent component,
+        int width,
+        int height,
+        Theme? theme = null,
+        bool trimTrailingBlankLines = false,
+        ColorSystem colorSystem = ColorSystem.TrueColor,
+        TimeSpan elapsed = default)
+    {
+        return string.Join('\n', RenderToLines(component, width, height, theme, trimTrailingBlankLines, colorSystem, elapsed));
+    }
+
+    public static string RenderToAnsi(
+        IComponent component,
+        int width,
+        int height,
+        Theme? theme = null,
+        ColorSystem colorSystem = ColorSystem.TrueColor,
+        TimeSpan elapsed = default)
+    {
+        using var grid = RenderToGrid(component, width, height, theme, colorSystem, elapsed);
+        return ToAnsi(grid);
+    }
+
+    public static string[] ToPlainTextLines(TerminalGrid grid, bool trimTrailingBlankLines = false)
+    {
+        ArgumentNullException.ThrowIfNull(grid);
+
+        var lineCount = grid.Height;
+        if (trimTrailingBlankLines)
+        {
+            while (lineCount > 0 && IsBlankLine(grid, lineCount - 1))
+            {
+                lineCount--;
+            }
+        }
+
+        var lines = new string[lineCount];
+        for (var y = 0; y < lineCount; y++)
+        {
+            lines[y] = ToPlainTextLine(grid, y);
+        }
+
+        return lines;
+    }
+
+    public static string ToPlainTextLine(TerminalGrid grid, int y)
+    {
+        ArgumentNullException.ThrowIfNull(grid);
+        ArgumentOutOfRangeException.ThrowIfNegative(y);
+        if (y >= grid.Height)
+        {
+            throw new ArgumentOutOfRangeException(nameof(y));
+        }
+
+        var builder = new StringBuilder(grid.Width);
+        Span<char> runeBuffer = stackalloc char[2];
+        for (var x = 0; x < grid.Width; x++)
+        {
+            var cell = grid.GetCell(x, y);
+            if (cell.IsContinuation)
+            {
+                continue;
+            }
+
+            if (cell.Rune.TryEncodeToUtf16(runeBuffer, out var written))
+            {
+                builder.Append(runeBuffer[..written]);
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    public static int GetUsedLineCount(TerminalGrid grid)
+    {
+        ArgumentNullException.ThrowIfNull(grid);
+
+        var lineCount = Math.Clamp(grid.CursorY + 1, 1, grid.Height);
+        while (lineCount > 1 && IsBlankLine(grid, lineCount - 1))
+        {
+            lineCount--;
+        }
+
+        return lineCount;
+    }
+
+    public static void WriteLineTo(TerminalGrid grid, int y, ref SegmentWriter output)
+    {
+        ArgumentNullException.ThrowIfNull(grid);
+        ArgumentOutOfRangeException.ThrowIfNegative(y);
+        if (y >= grid.Height)
+        {
+            throw new ArgumentOutOfRangeException(nameof(y));
+        }
+
+        Span<char> runeBuffer = stackalloc char[2];
+        for (var x = 0; x < grid.Width; x++)
+        {
+            var cell = grid.GetCell(x, y);
+            if (cell.IsContinuation)
+            {
+                continue;
+            }
+
+            if (cell.Rune.TryEncodeToUtf16(runeBuffer, out var written))
+            {
+                output.Write(runeBuffer[..written], cell.Style);
+            }
+        }
+    }
+
+    public static string ToAnsi(TerminalGrid grid)
+    {
+        ArgumentNullException.ThrowIfNull(grid);
+
+        var size = Math.Max(64, grid.Width * grid.Height * 80);
+        while (true)
+        {
+            var buffer = new char[size];
+            var written = grid.WriteAnsi(buffer);
+            if (written < buffer.Length)
+            {
+                return new string(buffer, 0, written);
+            }
+
+            size *= 2;
+        }
+    }
+
+    private static bool IsBlankLine(TerminalGrid grid, int y)
+    {
+        for (var x = 0; x < grid.Width; x++)
+        {
+            var cell = grid.GetCell(x, y);
+            if (cell.IsContinuation)
+            {
+                continue;
+            }
+
+            if (cell.Rune.Value != ' ')
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}

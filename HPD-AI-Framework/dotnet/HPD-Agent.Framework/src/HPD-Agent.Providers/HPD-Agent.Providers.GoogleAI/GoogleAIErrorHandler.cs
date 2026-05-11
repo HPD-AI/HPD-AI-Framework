@@ -1,6 +1,7 @@
 using System;
 using System.Net.Http;
 using System.Text.RegularExpressions;
+using GenerativeAI.Exceptions;
 using HPD.Agent.ErrorHandling;
 
 namespace HPD.Agent.Providers.GoogleAI;
@@ -26,29 +27,17 @@ internal partial class GoogleAIErrorHandler : IProviderErrorHandler
 
     public ProviderErrorDetails? ParseError(Exception exception)
     {
-        // Handle Google AI specific exceptions
-        var exceptionTypeName = exception.GetType().FullName;
-
-        // ApiException - from GenerativeAI.Exceptions namespace
-        if (exceptionTypeName == "GenerativeAI.Exceptions.ApiException")
+        if (exception is ApiException apiException)
         {
-            return ParseApiException(exception);
+            return ParseApiException(apiException);
         }
 
-        // GenerativeAIException - from GenerativeAI.Exceptions namespace
-        if (exceptionTypeName == "GenerativeAI.Exceptions.GenerativeAIException")
+        if (exception is VertexAIException vertexAIException)
         {
-            return ParseGenerativeAIException(exception);
+            return ParseVertexAIException(vertexAIException);
         }
 
-        // VertexAIException - from GenerativeAI.Exceptions namespace
-        if (exceptionTypeName == "GenerativeAI.Exceptions.VertexAIException")
-        {
-            return ParseVertexAIException(exception);
-        }
-
-        // FileTooLargeException - from GenerativeAI.Exceptions namespace
-        if (exceptionTypeName == "GenerativeAI.Exceptions.FileTooLargeException")
+        if (exception is FileTooLargeException)
         {
             return new ProviderErrorDetails
             {
@@ -57,6 +46,11 @@ internal partial class GoogleAIErrorHandler : IProviderErrorHandler
                 Message = exception.Message,
                 ErrorCode = "FILE_TOO_LARGE"
             };
+        }
+
+        if (exception is GenerativeAIException generativeAIException)
+        {
+            return ParseGenerativeAIException(generativeAIException);
         }
 
         // HttpRequestException - fallback for HTTP errors
@@ -75,93 +69,47 @@ internal partial class GoogleAIErrorHandler : IProviderErrorHandler
         return null;
     }
 
-    private static ProviderErrorDetails ParseApiException(Exception exception)
+    private static ProviderErrorDetails ParseApiException(ApiException exception)
     {
-        // Use duck typing to access ApiException properties (AOT-safe)
-        try
-        {
-            dynamic apiEx = exception;
-            int errorCode = apiEx.ErrorCode;
-            string errorMessage = apiEx.ErrorMessage ?? exception.Message;
-            string errorStatus = apiEx.ErrorStatus ?? "Unknown";
+        var errorCode = exception.ErrorCode;
+        var errorMessage = exception.ErrorMessage ?? exception.Message;
+        var errorStatus = exception.ErrorStatus ?? "Unknown";
 
-            return new ProviderErrorDetails
-            {
-                StatusCode = errorCode,
-                Category = ClassifyError(errorCode, errorMessage),
-                Message = errorMessage,
-                ErrorCode = errorStatus
-            };
-        }
-        catch
+        return new ProviderErrorDetails
         {
-            // Fallback to message parsing
-            return new ProviderErrorDetails
-            {
-                StatusCode = ExtractStatusCodeFromMessage(exception.Message),
-                Category = ClassifyError(null, exception.Message),
-                Message = exception.Message,
-                ErrorCode = ExtractErrorCode(exception.Message)
-            };
-        }
+            StatusCode = errorCode,
+            Category = ClassifyError(errorCode, errorMessage),
+            Message = errorMessage,
+            ErrorCode = errorStatus
+        };
     }
 
-    private static ProviderErrorDetails ParseGenerativeAIException(Exception exception)
+    private static ProviderErrorDetails ParseGenerativeAIException(GenerativeAIException exception)
     {
-        // Use duck typing to access GenerativeAIException.Details property (AOT-safe)
-        try
-        {
-            dynamic genAiEx = exception;
-            string details = genAiEx.Details ?? "";
+        var details = exception.Details ?? "";
+        var combinedMessage = string.Concat(exception.Message, " ", details);
 
-            return new ProviderErrorDetails
-            {
-                StatusCode = ExtractStatusCodeFromMessage(exception.Message + " " + details),
-                Category = ClassifyError(null, exception.Message + " " + details),
-                Message = exception.Message,
-                ErrorCode = ExtractErrorCode(exception.Message + " " + details)
-            };
-        }
-        catch
+        return new ProviderErrorDetails
         {
-            return new ProviderErrorDetails
-            {
-                StatusCode = ExtractStatusCodeFromMessage(exception.Message),
-                Category = ClassifyError(null, exception.Message),
-                Message = exception.Message,
-                ErrorCode = ExtractErrorCode(exception.Message)
-            };
-        }
+            StatusCode = ExtractStatusCodeFromMessage(combinedMessage),
+            Category = ClassifyError(null, combinedMessage),
+            Message = exception.Message,
+            ErrorCode = ExtractErrorCode(combinedMessage)
+        };
     }
 
-    private static ProviderErrorDetails ParseVertexAIException(Exception exception)
+    private static ProviderErrorDetails ParseVertexAIException(VertexAIException exception)
     {
-        // VertexAIException contains GoogleRpcStatus with detailed error info
-        try
-        {
-            dynamic vertexEx = exception;
-            var status = vertexEx.Status;
-            int? code = status?.Code;
-            string? message = status?.Message ?? exception.Message;
+        var code = exception.Status?.Code;
+        var message = exception.Status?.Message ?? exception.Message;
 
-            return new ProviderErrorDetails
-            {
-                StatusCode = code,
-                Category = ClassifyError(code, message ?? exception.Message),
-                Message = message ?? exception.Message,
-                ErrorCode = ExtractErrorCode(message ?? exception.Message)
-            };
-        }
-        catch
+        return new ProviderErrorDetails
         {
-            return new ProviderErrorDetails
-            {
-                StatusCode = ExtractStatusCodeFromMessage(exception.Message),
-                Category = ClassifyError(null, exception.Message),
-                Message = exception.Message,
-                ErrorCode = ExtractErrorCode(exception.Message)
-            };
-        }
+            StatusCode = code,
+            Category = ClassifyError(code, message),
+            Message = message,
+            ErrorCode = ExtractErrorCode(message)
+        };
     }
 
     public TimeSpan? GetRetryDelay(ProviderErrorDetails details, int attempt, TimeSpan initialDelay, double multiplier, TimeSpan maxDelay)

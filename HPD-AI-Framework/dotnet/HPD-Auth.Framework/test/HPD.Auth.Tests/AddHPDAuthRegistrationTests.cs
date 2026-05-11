@@ -4,6 +4,8 @@ using HPD.Auth.Core.Interfaces;
 using HPD.Auth.Infrastructure.Data;
 using HPD.Auth.Infrastructure.Stores;
 using HPD.Auth.Tests.Helpers;
+using HPD.Events;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -57,6 +59,31 @@ public class AddHPDAuthRegistrationTests
 
         service.Should().NotBeNull();
         service.Should().BeOfType<RefreshTokenStore>();
+    }
+
+    // ── 1.3b ─────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void AddHPDAuth_Registers_IEventCoordinator()
+    {
+        var sp = ServiceProviderBuilder.Build(appName: "Reg_EventCoordinator");
+        using var scope = sp.CreateScope();
+
+        var service = scope.ServiceProvider.GetService<IEventCoordinator>();
+
+        service.Should().NotBeNull();
+    }
+
+    // ── 1.3c ─────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void AddHPDAuth_Registers_IMemoryCache()
+    {
+        var sp = ServiceProviderBuilder.Build(appName: "Reg_MemoryCache");
+
+        var service = sp.GetService<IMemoryCache>();
+
+        service.Should().NotBeNull();
     }
 
     // ── 1.4 ──────────────────────────────────────────────────────────────────────

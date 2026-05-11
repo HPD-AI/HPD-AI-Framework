@@ -232,11 +232,9 @@ internal sealed class SpyUserRegisteredObserver : IAuthEventObserver<UserRegiste
 {
     public List<UserRegisteredEvent> Received { get; } = [];
 
-    public bool ShouldProcess(UserRegisteredEvent evt) => true;
-
-    public Task OnEventAsync(UserRegisteredEvent evt, CancellationToken ct = default)
+    public ValueTask HandleAsync(UserRegisteredEvent evt, CancellationToken ct = default)
     {
         Received.Add(evt);
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 }

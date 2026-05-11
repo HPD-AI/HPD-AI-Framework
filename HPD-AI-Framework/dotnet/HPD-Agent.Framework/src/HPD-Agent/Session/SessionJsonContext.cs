@@ -58,6 +58,11 @@ public partial class SessionJsonContext : JsonSerializerContext
     /// </summary>
     public static JsonSerializerOptions CombinedOptions { get; } = CreateCombinedOptions();
 
+    /// <summary>
+    /// Combined source-generated context with M.E.AI and HPD custom content resolvers.
+    /// </summary>
+    public static SessionJsonContext Combined { get; } = new(new JsonSerializerOptions(CombinedOptions));
+
     private static JsonSerializerOptions CreateCombinedOptions()
     {
         var options = new JsonSerializerOptions

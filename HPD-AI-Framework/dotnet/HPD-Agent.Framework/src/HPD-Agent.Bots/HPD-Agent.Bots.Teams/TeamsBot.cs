@@ -3,6 +3,7 @@ using HPD.Agent.Bots.Cards;
 using HPD.Agent.Bots.Contracts;
 using HPD.Agent.Bots.Session;
 using HPD.Agent.Hosting.Lifecycle;
+using HPD.Events;
 using Microsoft.Agents.Builder;
 using Microsoft.Agents.Builder.App;
 using Microsoft.Agents.Builder.State;
@@ -133,7 +134,7 @@ public sealed class TeamsBot(
             return;
 
         var approved = string.Equals(actionId, PermissionApproveActionId, StringComparison.Ordinal);
-        var agent = await _agentManager.GetOrBuildAgentAsync(_config.AgentName ?? "default", ct);
+        var agent = await _agentManager.GetOrBuildAgentAsync(_config.ResolveAgentId(), ct);
 
         await agent.RespondAsync(new PermissionResponseEvent(
             PermissionId: permissionId,
@@ -171,8 +172,11 @@ public sealed class TeamsBot(
             await turn.QueueInformativeUpdateAsync("Thinking...", ct);
             streamStarted = true;
 
-            var agent = await _agentManager.GetOrBuildAgentAsync(_config.AgentName ?? "default", ct);
-            using var subscription = agent.SubscribeAny((Func<AgentEvent, Task>)(async evt =>
+            var agentId = _config.ResolveAgentId();
+            var agent = await _agentManager.GetOrBuildAgentAsync(agentId, ct);
+            await using var subscription = agent.EventCoordinator.SubscribeStream<AgentEvent>();
+
+            async Task HandleEventAsync(AgentEvent evt)
             {
                 switch (evt)
                 {
@@ -188,14 +192,15 @@ public sealed class TeamsBot(
                         await turn.SendCardAsync(BuildPermissionCard(permission), ct);
                         break;
                 }
-            }));
+            }
 
             var attachments = MapInputFiles(turn.InputFiles);
             var contents = new List<AIContent> { new TextContent(text) };
             contents.AddRange(attachments);
 
-            await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, contents)])
+            var runTask = agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, contents)])
             {
+                AgentId = agentId,
                 SessionId = sessionId,
                 BranchId = branchId,
                 RunConfig = attachments.Count > 0
@@ -206,6 +211,8 @@ public sealed class TeamsBot(
                     }
                     : null,
             }, ct);
+            await DrainEventsUntilRunCompletesAsync(subscription, runTask, HandleEventAsync, ct);
+            await runTask.ConfigureAwait(false);
 
             return true;
         }
@@ -214,6 +221,33 @@ public sealed class TeamsBot(
             if (streamStarted)
                 await turn.EndStreamAsync(ct);
             _sessionManager.ReleaseStreamLock(sessionId, branchId);
+        }
+    }
+
+    private static async Task DrainEventsUntilRunCompletesAsync(
+        EventStreamSubscription<AgentEvent> subscription,
+        Task runTask,
+        Func<AgentEvent, Task> handleEventAsync,
+        CancellationToken ct)
+    {
+        while (true)
+        {
+            while (subscription.Reader.TryRead(out var evt))
+                await handleEventAsync(evt).ConfigureAwait(false);
+
+            if (runTask.IsCompleted)
+                return;
+
+            var waitForEventTask = subscription.Reader.WaitToReadAsync(ct).AsTask();
+            var completed = await Task.WhenAny(runTask, waitForEventTask).ConfigureAwait(false);
+            if (completed == runTask)
+            {
+                await runTask.ConfigureAwait(false);
+                continue;
+            }
+
+            if (!await waitForEventTask.ConfigureAwait(false))
+                return;
         }
     }
 
@@ -325,10 +359,8 @@ public sealed class TeamsBot(
             return;
 
         session.Metadata["platformKey"] = platformKey;
+        session.Metadata["teams.conversationId"] = turn.ConversationId;
         session.Metadata["teams.serviceUrl"] = turn.ServiceUrl;
-
-        if (!string.IsNullOrWhiteSpace(turn.ConversationJson))
-            session.Metadata["teams.conversationReference"] = turn.ConversationJson;
 
         if (!string.IsNullOrWhiteSpace(turn.TenantId))
             session.Metadata["teams.tenantId"] = turn.TenantId;

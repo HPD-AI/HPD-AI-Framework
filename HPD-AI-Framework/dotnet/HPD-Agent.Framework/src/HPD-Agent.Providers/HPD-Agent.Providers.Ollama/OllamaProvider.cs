@@ -2,8 +2,6 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Collections.Generic;
 using OllamaSharp;
-using OllamaSharp.Models;
-using OllamaSharp.Models.Chat;
 using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.ErrorHandling;
@@ -25,8 +23,8 @@ namespace HPD.Agent.Providers.Ollama;
 /// - Remote: http://your-server:11434
 /// </para>
 /// <para>
-/// The provider maps OllamaProviderConfig to OllamaSharp's RequestOptions for
-/// complete control over model behavior.
+/// Provider-specific options are stored in ProviderOptionsJson and validated through
+/// OllamaProviderConfig.
 /// </para>
 /// </remarks>
 internal class OllamaProvider : IProviderFeatures
@@ -50,89 +48,14 @@ internal class OllamaProvider : IProviderFeatures
         // Create the base Ollama client
         var client = new OllamaApiClient(endpoint, config.ModelName);
 
-        // Get typed config if available
-        var ollamaConfig = config.GetTypedProviderConfig<OllamaProviderConfig>();
-
-        // Apply configuration options if provided
-        if (ollamaConfig != null)
-        {
-            // Note: OllamaSharp's OllamaApiClient applies RequestOptions per-request,
-            // not at the client level. The options will be applied through the
-            // Microsoft.Extensions.AI integration layer or by wrapping the client.
-            // For now, we store the config in AdditionalProperties for potential
-            // middleware or wrapper usage.
-            config.AdditionalProperties ??= new Dictionary<string, object>();
-            config.AdditionalProperties["OllamaRequestOptions"] = CreateRequestOptions(ollamaConfig);
-        }
-
         // Apply client factory middleware if provided
         IChatClient chatClient = client;
-        if (config.AdditionalProperties?.TryGetValue("ClientFactory", out var factoryObj) == true &&
-            factoryObj is Func<IChatClient, IChatClient> clientFactory)
+        if (config.ClientFactory is { } clientFactory)
         {
             chatClient = clientFactory(chatClient);
         }
 
         return chatClient;
-    }
-
-    /// <summary>
-    /// Creates OllamaSharp RequestOptions from OllamaProviderConfig.
-    /// </summary>
-    private static RequestOptions CreateRequestOptions(OllamaProviderConfig config)
-    {
-        var options = new RequestOptions();
-
-        // Core parameters
-        if (config.NumPredict.HasValue) options.NumPredict = config.NumPredict.Value;
-        if (config.NumCtx.HasValue) options.NumCtx = config.NumCtx.Value;
-
-        // Sampling parameters
-        if (config.Temperature.HasValue) options.Temperature = config.Temperature.Value;
-        if (config.TopP.HasValue) options.TopP = config.TopP.Value;
-        if (config.TopK.HasValue) options.TopK = config.TopK.Value;
-        if (config.MinP.HasValue) options.MinP = config.MinP.Value;
-        if (config.TypicalP.HasValue) options.TypicalP = config.TypicalP.Value;
-        if (config.TfsZ.HasValue) options.TfsZ = config.TfsZ.Value;
-
-        // Repetition control
-        if (config.RepeatPenalty.HasValue) options.RepeatPenalty = config.RepeatPenalty.Value;
-        if (config.RepeatLastN.HasValue) options.RepeatLastN = config.RepeatLastN.Value;
-        if (config.PresencePenalty.HasValue) options.PresencePenalty = config.PresencePenalty.Value;
-        if (config.FrequencyPenalty.HasValue) options.FrequencyPenalty = config.FrequencyPenalty.Value;
-        if (config.PenalizeNewline.HasValue) options.PenalizeNewline = config.PenalizeNewline.Value;
-
-        // Determinism
-        if (config.Seed.HasValue) options.Seed = config.Seed.Value;
-        if (config.Stop != null) options.Stop = config.Stop;
-
-        // Mirostat sampling
-        if (config.MiroStat.HasValue) options.MiroStat = config.MiroStat.Value;
-        if (config.MiroStatEta.HasValue) options.MiroStatEta = config.MiroStatEta.Value;
-        if (config.MiroStatTau.HasValue) options.MiroStatTau = config.MiroStatTau.Value;
-
-        // Context and memory
-        if (config.NumKeep.HasValue) options.NumKeep = config.NumKeep.Value;
-
-        // Performance and hardware
-        if (config.NumGpu.HasValue) options.NumGpu = config.NumGpu.Value;
-        if (config.MainGpu.HasValue) options.MainGpu = config.MainGpu.Value;
-        if (config.LowVram.HasValue) options.LowVram = config.LowVram.Value;
-        if (config.F16kv.HasValue) options.F16kv = config.F16kv.Value;
-        if (config.LogitsAll.HasValue) options.LogitsAll = config.LogitsAll.Value;
-
-        // Threading and batch processing
-        if (config.NumThread.HasValue) options.NumThread = config.NumThread.Value;
-        if (config.NumBatch.HasValue) options.NumBatch = config.NumBatch.Value;
-        if (config.NumGqa.HasValue) options.NumGqa = config.NumGqa.Value;
-
-        // Memory management
-        if (config.UseMmap.HasValue) options.UseMmap = config.UseMmap.Value;
-        if (config.UseMlock.HasValue) options.UseMlock = config.UseMlock.Value;
-        if (config.Numa.HasValue) options.Numa = config.Numa.Value;
-        if (config.VocabOnly.HasValue) options.VocabOnly = config.VocabOnly.Value;
-
-        return options;
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -165,7 +88,7 @@ internal class OllamaProvider : IProviderFeatures
             errors.Add("Endpoint must be a valid, absolute URI");
 
         // Validate Ollama-specific config if present
-        var ollamaConfig = config.GetTypedProviderConfig<OllamaProviderConfig>();
+        var ollamaConfig = config.GetProviderConfig<OllamaProviderConfig>();
         if (ollamaConfig != null)
         {
             // Validate Temperature range

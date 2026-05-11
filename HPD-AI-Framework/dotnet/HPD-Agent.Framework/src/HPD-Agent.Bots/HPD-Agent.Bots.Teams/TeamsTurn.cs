@@ -1,9 +1,7 @@
 using Microsoft.Agents.Builder;
 using Microsoft.Agents.Builder.App;
-using Microsoft.Agents.Builder.App.Proactive;
 using Microsoft.Agents.Builder.State;
 using Microsoft.Agents.Core.Models;
-using Microsoft.Agents.Core.Serialization;
 
 namespace HPD.Agent.Bots.Teams;
 
@@ -24,8 +22,6 @@ public interface ITeamsTurn
     string? ReplyToId { get; }
 
     string? TenantId { get; }
-
-    string? ConversationJson { get; }
 
     IReadOnlyDictionary<string, string> Values { get; }
 
@@ -58,9 +54,6 @@ internal sealed class TeamsSdkTurn(ITurnContext context, ITurnState? turnState =
 
     public string? TenantId
         => Values.TryGetValue("tenant.id", out var tenantId) ? tenantId : null;
-
-    public string? ConversationJson
-        => ProtocolJsonSerializer.ToJson(new Conversation(context));
 
     public IReadOnlyDictionary<string, string> Values
         => TeamsActivityValueReader.Read(context.Activity.Value);

@@ -66,26 +66,22 @@ public static class AgentConfigValidator
     {
         if (config.Provider == null)
         {
-            errors.Add("A provider must be configured for the agent.");
             return;
         }
 
-        // Model name validation
-        if (string.IsNullOrEmpty(config.Provider.ModelName))
+        // Provider/model are optional at setup time. If one is partially configured,
+        // runtime can complete it via AgentRunConfig.
+        if (string.IsNullOrEmpty(config.Provider.ProviderKey) && string.IsNullOrEmpty(config.Provider.ModelName))
         {
-            errors.Add("Provider model name must be specified.");
+            return;
         }
 
         // Provider-specific validation
         var providerKey = config.Provider.ProviderKey?.ToLowerInvariant();
 
-        if (providerKey == "azureopenai")
+        if (providerKey == "azureopenai" && !string.IsNullOrEmpty(config.Provider.Endpoint))
         {
-            if (string.IsNullOrEmpty(config.Provider.Endpoint))
-            {
-                errors.Add("Azure OpenAI requires an endpoint URL.");
-            }
-            else if (!IsValidUri(config.Provider.Endpoint))
+            if (!IsValidUri(config.Provider.Endpoint))
             {
                 errors.Add("Azure OpenAI endpoint must be a valid URI.");
             }
@@ -106,7 +102,7 @@ public static class AgentConfigValidator
         }
 
         // Model combination validation
-        if (!IsValidProviderModelCombination(config))
+        if (!string.IsNullOrEmpty(config.Provider.ModelName) && !IsValidProviderModelCombination(config))
         {
             errors.Add("The specified model is not supported by the selected provider.");
         }

@@ -1,5 +1,6 @@
 using System;
 using System.Text.RegularExpressions;
+using Azure;
 using HPD.Agent.ErrorHandling;
 
 namespace HPD.Agent.Providers.AzureAIInference;
@@ -22,20 +23,13 @@ internal partial class AzureAIInferenceErrorHandler : IProviderErrorHandler
     public ProviderErrorDetails? ParseError(Exception exception)
     {
         // Azure AI Inference uses Azure.RequestFailedException
-        var exceptionTypeName = exception.GetType().FullName;
-        if (exceptionTypeName != "Azure.RequestFailedException")
+        if (exception is not RequestFailedException requestFailedException)
         {
             return null;
         }
 
         var message = exception.Message;
-
-        // Try to get status code from the exception using duck typing (AOT-safe)
-        // RequestFailedException has a Status property, but we can't use reflection
-        int? status = ExtractStatusCodeFromException(exception);
-
-        // Fallback to message parsing if we couldn't get it from the exception
-        status ??= ExtractStatusCodeFromMessage(message);
+        int? status = requestFailedException.Status;
 
         return new ProviderErrorDetails
         {
@@ -60,24 +54,6 @@ internal partial class AzureAIInferenceErrorHandler : IProviderErrorHandler
     public bool RequiresSpecialHandling(ProviderErrorDetails details)
     {
         return details.Category == ErrorCategory.AuthError;
-    }
-
-    private static int? ExtractStatusCodeFromException(Exception exception)
-    {
-        // Try to get Status property using dynamic (AOT-compatible when the type is known at compile time)
-        // This avoids reflection while still accessing the property
-        try
-        {
-            // We know RequestFailedException has a Status property of type int
-            // Using dynamic allows us to access it without reflection
-            dynamic ex = exception;
-            return (int)ex.Status;
-        }
-        catch
-        {
-            // If the property doesn't exist or can't be accessed, fall back to message parsing
-            return null;
-        }
     }
 
     private static int? ExtractStatusCodeFromMessage(string message)

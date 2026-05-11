@@ -251,7 +251,7 @@ public sealed class OpenApiOperationRunner
 
             if (arguments.TryGetValue(argName, out var value) && value != null)
             {
-                result.Add(prop.Name, JsonValue.Create(value));
+                result.Add(prop.Name, CreateJsonNode(value));
                 continue;
             }
 
@@ -260,6 +260,32 @@ public sealed class OpenApiOperationRunner
                     $"Required payload property '{prop.Name}' is missing.");
         }
         return result;
+    }
+
+    private static JsonNode? CreateJsonNode(object value)
+    {
+        return value switch
+        {
+            JsonNode node => node.DeepClone(),
+            JsonElement element => JsonNode.Parse(element.GetRawText()),
+            string str => JsonValue.Create(str),
+            bool boolean => JsonValue.Create(boolean),
+            byte number => JsonValue.Create(number),
+            sbyte number => JsonValue.Create(number),
+            short number => JsonValue.Create(number),
+            ushort number => JsonValue.Create(number),
+            int number => JsonValue.Create(number),
+            uint number => JsonValue.Create(number),
+            long number => JsonValue.Create(number),
+            ulong number => JsonValue.Create(number),
+            float number => JsonValue.Create(number),
+            double number => JsonValue.Create(number),
+            decimal number => JsonValue.Create(number),
+            Guid guid => JsonValue.Create(guid.ToString()),
+            DateTime dateTime => JsonValue.Create(dateTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture)),
+            DateTimeOffset dateTime => JsonValue.Create(dateTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture)),
+            _ => JsonValue.Create(value.ToString())
+        };
     }
 
     private async Task<object?> ProcessResponseAsync(

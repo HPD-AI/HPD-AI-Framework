@@ -94,6 +94,28 @@ internal class MCPServerCapability : BaseCapability
     }
 
     /// <summary>
+    /// Generates reflection-free core MCP source registration code.
+    /// </summary>
+    public string GenerateSourceCode(object parent)
+    {
+        var harness = (HarnessInfo)parent;
+        var provider = IsStatic
+            ? $"static _ => {harness.Name}.{MethodName}()"
+            : $"static instance => (({harness.Name})instance!).{MethodName}()";
+
+        return
+            "            __mcpCollector(new HPD.Agent.McpServerSource(\n" +
+            $"                Name: \"{EscapeString(Name)}\",\n" +
+            $"                Description: \"{EscapeString(Description)}\",\n" +
+            $"                ParentHarness: \"{harness.Name}\",\n" +
+            $"                CollapseWithinHarness: {CollapseWithinHarness.ToString().ToLower()},\n" +
+            $"                FromManifest: {(FromManifest is null ? "null" : $"\"{EscapeString(FromManifest)}\"")},\n" +
+            $"                ManifestServerName: {(FromManifest is null ? "null" : $"\"{EscapeString(ManifestServerName ?? Name)}\"")},\n" +
+            $"                RequiresPermissionOverride: {(RequiresPermission ? "true" : "null")},\n" +
+            $"                ConfigProvider: {provider}));";
+    }
+
+    /// <summary>
     /// MCPServers are NOT containers at source-gen time.
     /// </summary>
     public override string? GenerateContainerCode() => null;

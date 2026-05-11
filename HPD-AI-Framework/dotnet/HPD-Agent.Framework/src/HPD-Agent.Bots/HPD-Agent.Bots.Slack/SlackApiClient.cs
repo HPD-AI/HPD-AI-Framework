@@ -1,7 +1,8 @@
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using HPD.Agent.Bots.Slack.Payloads;
 using HPD.Agent.Secrets;
 using Microsoft.Extensions.Options;
@@ -53,6 +54,14 @@ public record SlackUserProfile(
     [property: JsonPropertyName("real_name")]     string? RealName
 );
 
+internal sealed record SlackEphemeralMessageEnvelope(
+    string ResponseUrl,
+    string UserId);
+
+internal sealed record SlackFileCompletion(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("title")] string Title);
+
 // ── API client ─────────────────────────────────────────────────────────────────
 
 /// <summary>
@@ -84,27 +93,39 @@ public sealed class SlackApiClient(
     public async Task<string> PostMessageAsync(
         string channel, string threadTs, string text, CancellationToken ct)
     {
-        var body = new { channel, thread_ts = NullIfEmpty(threadTs), text };
+        var body = JsonBody(
+            ("channel", JsonValue.Create(channel)),
+            ("thread_ts", StringOrNull(threadTs)),
+            ("text", JsonValue.Create(text)));
         return await PostAndGetTsAsync("chat.postMessage", body, null, ct);
     }
 
     public async Task<string> PostMessageAsync(
         string channel, string threadTs, IReadOnlyList<SlackBlock> blocks, CancellationToken ct)
     {
-        var body = new { channel, thread_ts = NullIfEmpty(threadTs), blocks };
+        var body = JsonBody(
+            ("channel", JsonValue.Create(channel)),
+            ("thread_ts", StringOrNull(threadTs)),
+            ("blocks", BlocksNode(blocks)));
         return await PostAndGetTsAsync("chat.postMessage", body, null, ct);
     }
 
     public Task UpdateMessageAsync(string channel, string ts, string text, CancellationToken ct)
     {
-        var body = new { channel, ts, text };
+        var body = JsonBody(
+            ("channel", JsonValue.Create(channel)),
+            ("ts", JsonValue.Create(ts)),
+            ("text", JsonValue.Create(text)));
         return PostAsync("chat.update", body, null, ct);
     }
 
     public Task UpdateMessageAsync(
         string channel, string ts, IReadOnlyList<SlackBlock> blocks, CancellationToken ct)
     {
-        var body = new { channel, ts, blocks };
+        var body = JsonBody(
+            ("channel", JsonValue.Create(channel)),
+            ("ts", JsonValue.Create(ts)),
+            ("blocks", BlocksNode(blocks)));
         return PostAsync("chat.update", body, null, ct);
     }
 
@@ -112,20 +133,29 @@ public sealed class SlackApiClient(
         string channel, string ts, string fallbackText,
         IReadOnlyList<SlackBlock> blocks, CancellationToken ct)
     {
-        var body = new { channel, ts, text = fallbackText, blocks };
+        var body = JsonBody(
+            ("channel", JsonValue.Create(channel)),
+            ("ts", JsonValue.Create(ts)),
+            ("text", JsonValue.Create(fallbackText)),
+            ("blocks", BlocksNode(blocks)));
         return PostAsync("chat.update", body, null, ct);
     }
 
     public Task DeleteMessageAsync(string channel, string ts, CancellationToken ct)
     {
-        var body = new { channel, ts };
+        var body = JsonBody(
+            ("channel", JsonValue.Create(channel)),
+            ("ts", JsonValue.Create(ts)));
         return PostAsync("chat.delete", body, null, ct);
     }
 
     public Task PostEphemeralAsync(
         string channel, string userId, string text, CancellationToken ct)
     {
-        var body = new { channel, user = userId, text };
+        var body = JsonBody(
+            ("channel", JsonValue.Create(channel)),
+            ("user", JsonValue.Create(userId)),
+            ("text", JsonValue.Create(text)));
         return PostAsync("chat.postEphemeral", body, null, ct);
     }
 
@@ -136,7 +166,9 @@ public sealed class SlackApiClient(
 
     public string EncodeEphemeralMessageId(string messageTs, string responseUrl, string userId)
     {
-        var json = JsonSerializer.Serialize(new { responseUrl, userId });
+        var json = JsonSerializer.Serialize(
+            new SlackEphemeralMessageEnvelope(responseUrl, userId),
+            SlackBotJsonContext.Default.SlackEphemeralMessageEnvelope);
         return $"ephemeral:{messageTs}:{Convert.ToBase64String(Encoding.UTF8.GetBytes(json))}";
     }
 
@@ -145,8 +177,9 @@ public sealed class SlackApiClient(
         var parts = messageId.Split(':', 3);
         var json = Encoding.UTF8.GetString(Convert.FromBase64String(parts[2]));
         using var doc = JsonDocument.Parse(json);
-        return (doc.RootElement.GetProperty("responseUrl").GetString()!,
-                doc.RootElement.GetProperty("userId").GetString()!);
+        var envelope = doc.RootElement.Deserialize(SlackBotJsonContext.Default.SlackEphemeralMessageEnvelope)
+            ?? throw new InvalidOperationException("Invalid Slack ephemeral message envelope.");
+        return (envelope.ResponseUrl, envelope.UserId);
     }
 
     public bool IsEphemeralMessageId(string messageId) =>
@@ -158,8 +191,11 @@ public sealed class SlackApiClient(
     {
         // POST directly to responseUrl — no auth header needed for response_url calls.
         var body = blocks is not null
-            ? (object)new { replace_original = action == "replace", blocks, delete_original = action == "delete" }
-            : new { delete_original = true };
+            ? JsonBody(
+                ("replace_original", JsonValue.Create(action == "replace")),
+                ("blocks", BlocksNode(blocks)),
+                ("delete_original", JsonValue.Create(action == "delete")))
+            : JsonBody(("delete_original", JsonValue.Create(true)));
         return PostRawAsync(responseUrl, body, ct);
     }
 
@@ -167,13 +203,19 @@ public sealed class SlackApiClient(
 
     public Task AddReactionAsync(string channel, string ts, string emoji, CancellationToken ct)
     {
-        var body = new { channel, timestamp = ts, name = BotEmojiResolver.ToSlackName(emoji) };
+        var body = JsonBody(
+            ("channel", JsonValue.Create(channel)),
+            ("timestamp", JsonValue.Create(ts)),
+            ("name", JsonValue.Create(BotEmojiResolver.ToSlackName(emoji))));
         return PostAsync("reactions.add", body, null, ct);
     }
 
     public Task RemoveReactionAsync(string channel, string ts, string emoji, CancellationToken ct)
     {
-        var body = new { channel, timestamp = ts, name = BotEmojiResolver.ToSlackName(emoji) };
+        var body = JsonBody(
+            ("channel", JsonValue.Create(channel)),
+            ("timestamp", JsonValue.Create(ts)),
+            ("name", JsonValue.Create(BotEmojiResolver.ToSlackName(emoji))));
         return PostAsync("reactions.remove", body, null, ct);
     }
 
@@ -181,17 +223,21 @@ public sealed class SlackApiClient(
 
     public async Task<string> OpenModalAsync(string triggerId, SlackView view, CancellationToken ct)
     {
-        var body = new { trigger_id = triggerId, view };
+        var body = JsonBody(
+            ("trigger_id", JsonValue.Create(triggerId)),
+            ("view", ViewNode(view)));
         using var response = await PostJsonAsync("views.open", body, null, ct);
-        var doc = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
+        using var doc = await ReadJsonDocumentAsync(response.Content, ct);
         return doc!.RootElement.GetProperty("view").GetProperty("id").GetString()!;
     }
 
     public async Task<string> UpdateModalAsync(string viewId, SlackView view, CancellationToken ct)
     {
-        var body = new { view_id = viewId, view };
+        var body = JsonBody(
+            ("view_id", JsonValue.Create(viewId)),
+            ("view", ViewNode(view)));
         using var response = await PostJsonAsync("views.update", body, null, ct);
-        var doc = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
+        using var doc = await ReadJsonDocumentAsync(response.Content, ct);
         return doc!.RootElement.GetProperty("view").GetProperty("id").GetString()!;
     }
 
@@ -204,19 +250,20 @@ public sealed class SlackApiClient(
         string? recipientUserId, string? recipientTeamId,
         CancellationToken ct)
     {
-        var body = new
-        {
-            channel_id = channelId,
-            thread_ts  = NullIfEmpty(threadTs),
-            recipient_user_id = recipientUserId,
-            recipient_team_id = recipientTeamId
-        };
+        var body = JsonBody(
+            ("channel_id", JsonValue.Create(channelId)),
+            ("thread_ts", StringOrNull(threadTs)),
+            ("recipient_user_id", StringOrNull(recipientUserId)),
+            ("recipient_team_id", StringOrNull(recipientTeamId)));
         return await PostAndGetTsAsync("chat.startStream", body, null, ct);
     }
 
     public Task AppendStreamAsync(string channelId, string ts, string markdownText, CancellationToken ct)
     {
-        var body = new { channel_id = channelId, ts, markdown_text = markdownText };
+        var body = JsonBody(
+            ("channel_id", JsonValue.Create(channelId)),
+            ("ts", JsonValue.Create(ts)),
+            ("markdown_text", JsonValue.Create(markdownText)));
         return PostAsync("chat.appendStream", body, null, ct);
     }
 
@@ -225,8 +272,15 @@ public sealed class SlackApiClient(
         IReadOnlyList<SlackBlock>? blocks, CancellationToken ct)
     {
         var body = blocks is not null
-            ? (object)new { channel_id = channelId, ts, markdown_text = markdownText, blocks }
-            : new { channel_id = channelId, ts, markdown_text = markdownText };
+            ? JsonBody(
+                ("channel_id", JsonValue.Create(channelId)),
+                ("ts", JsonValue.Create(ts)),
+                ("markdown_text", JsonValue.Create(markdownText)),
+                ("blocks", BlocksNode(blocks)))
+            : JsonBody(
+                ("channel_id", JsonValue.Create(channelId)),
+                ("ts", JsonValue.Create(ts)),
+                ("markdown_text", JsonValue.Create(markdownText)));
         return PostAsync("chat.stopStream", body, null, ct);
     }
 
@@ -238,8 +292,15 @@ public sealed class SlackApiClient(
         IReadOnlyList<string>? loadingMessages, CancellationToken ct)
     {
         var body = loadingMessages is not null
-            ? (object)new { channel_id = channelId, thread_ts = threadTs, status, loading_messages = loadingMessages }
-            : new { channel_id = channelId, thread_ts = threadTs, status };
+            ? JsonBody(
+                ("channel_id", JsonValue.Create(channelId)),
+                ("thread_ts", JsonValue.Create(threadTs)),
+                ("status", JsonValue.Create(status)),
+                ("loading_messages", StringArrayNode(loadingMessages)))
+            : JsonBody(
+                ("channel_id", JsonValue.Create(channelId)),
+                ("thread_ts", JsonValue.Create(threadTs)),
+                ("status", JsonValue.Create(status)));
         return PostAsync("assistant.threads.setStatus", body, null, ct);
     }
 
@@ -259,7 +320,10 @@ public sealed class SlackApiClient(
     public Task SetAssistantTitleAsync(
         string channelId, string threadTs, string title, CancellationToken ct)
     {
-        var body = new { channel_id = channelId, thread_ts = threadTs, title };
+        var body = JsonBody(
+            ("channel_id", JsonValue.Create(channelId)),
+            ("thread_ts", JsonValue.Create(threadTs)),
+            ("title", JsonValue.Create(title)));
         return PostAsync("assistant.threads.setTitle", body, null, ct);
     }
 
@@ -270,8 +334,15 @@ public sealed class SlackApiClient(
         CancellationToken ct)
     {
         var body = title is not null
-            ? (object)new { channel_id = channelId, thread_ts = threadTs, prompts, title }
-            : new { channel_id = channelId, thread_ts = threadTs, prompts };
+            ? JsonBody(
+                ("channel_id", JsonValue.Create(channelId)),
+                ("thread_ts", JsonValue.Create(threadTs)),
+                ("prompts", SuggestedPromptsNode(prompts)),
+                ("title", JsonValue.Create(title)))
+            : JsonBody(
+                ("channel_id", JsonValue.Create(channelId)),
+                ("thread_ts", JsonValue.Create(threadTs)),
+                ("prompts", SuggestedPromptsNode(prompts)));
         return PostAsync("assistant.threads.setSuggestedPrompts", body, null, ct);
     }
 
@@ -285,14 +356,16 @@ public sealed class SlackApiClient(
         IReadOnlyList<SlackFileUpload> files,
         string channelId, string? threadTs, CancellationToken ct)
     {
-        var completions = new List<object>(files.Count);
+        var completions = new List<SlackFileCompletion>(files.Count);
 
         foreach (var file in files)
         {
             // Step 1: get upload URL
-            var urlBody = new { filename = file.FileName, length = file.Content.Length };
+            var urlBody = JsonBody(
+                ("filename", JsonValue.Create(file.FileName)),
+                ("length", JsonValue.Create(file.Content.Length)));
             using var urlResp = await PostJsonAsync("files.getUploadURLExternal", urlBody, null, ct);
-            using var urlDoc  = await urlResp.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
+            using var urlDoc  = await ReadJsonDocumentAsync(urlResp.Content, ct);
             var uploadUrl = urlDoc!.RootElement.GetProperty("upload_url").GetString()!;
             var fileId    = urlDoc!.RootElement.GetProperty("file_id").GetString()!;
 
@@ -303,16 +376,14 @@ public sealed class SlackApiClient(
             using var uploadResp = await http.PostAsync(uploadUrl, content, ct);
             uploadResp.EnsureSuccessStatusCode();
 
-            completions.Add(new { id = fileId, title = file.Title ?? file.FileName });
+            completions.Add(new SlackFileCompletion(fileId, file.Title ?? file.FileName));
         }
 
         // Step 3: complete all files in a single call
-        var completeBody = new
-        {
-            files      = completions,
-            channel_id = channelId,
-            thread_ts  = NullIfEmpty(threadTs ?? "")
-        };
+        var completeBody = JsonBody(
+            ("files", FileCompletionsNode(completions)),
+            ("channel_id", JsonValue.Create(channelId)),
+            ("thread_ts", StringOrNull(threadTs)));
         await PostAsync("files.completeUploadExternal", completeBody, null, ct);
     }
 
@@ -373,9 +444,9 @@ public sealed class SlackApiClient(
         using var http = await CreateAuthenticatedClientAsync(null, ct);
         using var resp = await http.GetAsync($"{ApiBase}conversations.info{qs}", ct);
         resp.EnsureSuccessStatusCode();
-        using var doc = await resp.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
+        using var doc = await ReadJsonDocumentAsync(resp.Content, ct);
         return doc!.RootElement.TryGetProperty("channel", out var ch)
-            ? ch.Deserialize<SlackChannelInfo>()
+            ? ch.Deserialize(SlackBotJsonContext.Default.SlackChannelInfo)
             : null;
     }
 
@@ -387,9 +458,9 @@ public sealed class SlackApiClient(
         using var http = await CreateAuthenticatedClientAsync(null, ct);
         using var resp = await http.GetAsync($"{ApiBase}users.info{qs}", ct);
         resp.EnsureSuccessStatusCode();
-        using var doc = await resp.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
+        using var doc = await ReadJsonDocumentAsync(resp.Content, ct);
         return doc!.RootElement.TryGetProperty("user", out var u)
-            ? u.Deserialize<SlackUserInfo>()
+            ? u.Deserialize(SlackBotJsonContext.Default.SlackUserInfo)
             : null;
     }
 
@@ -399,7 +470,7 @@ public sealed class SlackApiClient(
         using var http = await CreateAuthenticatedClientAsync(null, ct);
         using var resp = await http.GetAsync($"{ApiBase}auth.test", ct);
         resp.EnsureSuccessStatusCode();
-        using var doc = await resp.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
+        using var doc = await ReadJsonDocumentAsync(resp.Content, ct);
         _botUserId = doc!.RootElement.GetProperty("user_id").GetString();
         return _botUserId;
     }
@@ -408,9 +479,9 @@ public sealed class SlackApiClient(
 
     public async Task<string> OpenDMAsync(string userId, CancellationToken ct)
     {
-        var body = new { users = userId };
+        var body = JsonBody(("users", JsonValue.Create(userId)));
         using var response = await PostJsonAsync("conversations.open", body, null, ct);
-        var doc = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
+        using var doc = await ReadJsonDocumentAsync(response.Content, ct);
         return doc!.RootElement.GetProperty("channel").GetProperty("id").GetString()!;
     }
 
@@ -418,40 +489,45 @@ public sealed class SlackApiClient(
 
     public Task PublishHomeViewAsync(string userId, SlackView view, CancellationToken ct)
     {
-        var body = new { user_id = userId, view };
+        var body = JsonBody(
+            ("user_id", JsonValue.Create(userId)),
+            ("view", ViewNode(view)));
         return PostAsync("views.publish", body, null, ct);
     }
 
     // ── Private helpers ────────────────────────────────────────────────────────
 
-    private async Task PostAsync(string method, object body, string? teamId, CancellationToken ct)
+    private async Task PostAsync(string method, JsonObject body, string? teamId, CancellationToken ct)
     {
         using var response = await PostJsonAsync(method, body, teamId, ct);
-        ThrowIfSlackError(response, await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct));
+        using var doc = await ReadJsonDocumentAsync(response.Content, ct);
+        ThrowIfSlackError(response, doc);
     }
 
     private async Task<string> PostAndGetTsAsync(
-        string method, object body, string? teamId, CancellationToken ct)
+        string method, JsonObject body, string? teamId, CancellationToken ct)
     {
         using var response = await PostJsonAsync(method, body, teamId, ct);
-        var doc = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
+        using var doc = await ReadJsonDocumentAsync(response.Content, ct);
         ThrowIfSlackError(response, doc);
         return doc!.RootElement.GetProperty("ts").GetString()!;
     }
 
     private async Task<HttpResponseMessage> PostJsonAsync(
-        string method, object body, string? teamId, CancellationToken ct)
+        string method, JsonObject body, string? teamId, CancellationToken ct)
     {
         using var http = await CreateAuthenticatedClientAsync(teamId, ct);
-        var response = await http.PostAsJsonAsync($"{ApiBase}{method}", body, ct);
+        using var content = ToJsonContent(body);
+        var response = await http.PostAsync($"{ApiBase}{method}", content, ct);
         response.EnsureSuccessStatusCode();
         return response;
     }
 
-    private async Task PostRawAsync(string url, object body, CancellationToken ct)
+    private async Task PostRawAsync(string url, JsonObject body, CancellationToken ct)
     {
         using var http = httpClientFactory.CreateClient();
-        var response = await http.PostAsJsonAsync(url, body, ct);
+        using var content = ToJsonContent(body);
+        var response = await http.PostAsync(url, content, ct);
         response.EnsureSuccessStatusCode();
     }
 
@@ -461,11 +537,11 @@ public sealed class SlackApiClient(
         using var http = await CreateAuthenticatedClientAsync(null, ct);
         using var resp = await http.GetAsync($"{ApiBase}{method}{queryString}", ct);
         resp.EnsureSuccessStatusCode();
-        using var doc = await resp.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
+        using var doc = await ReadJsonDocumentAsync(resp.Content, ct);
 
         var items = doc!.RootElement.GetProperty(itemsField)
             .EnumerateArray()
-            .Select(e => e.Deserialize<T>()!)
+            .Select(e => e.Deserialize(GetPageItemTypeInfo<T>())!)
             .ToList();
 
         string? cursor = null;
@@ -513,4 +589,65 @@ public sealed class SlackApiClient(
     }
 
     private static string? NullIfEmpty(string s) => string.IsNullOrEmpty(s) ? null : s;
+
+    private static JsonObject JsonBody(params (string Name, JsonNode? Value)[] properties)
+    {
+        var body = new JsonObject();
+        foreach (var (name, value) in properties)
+        {
+            if (value is not null)
+                body[name] = value;
+        }
+
+        return body;
+    }
+
+    private static JsonValue? StringOrNull(string? value)
+        => string.IsNullOrEmpty(value) ? null : JsonValue.Create(value);
+
+    private static JsonNode? BlocksNode(IReadOnlyList<SlackBlock>? blocks)
+        => blocks is null
+            ? null
+            : JsonSerializer.SerializeToNode(blocks.ToArray(), SlackBotJsonContext.Default.SlackBlockArray);
+
+    private static JsonNode? ViewNode(SlackView? view)
+        => view is null
+            ? null
+            : JsonSerializer.SerializeToNode(view, SlackBotJsonContext.Default.SlackView);
+
+    private static JsonNode? SuggestedPromptsNode(IReadOnlyList<SlackSuggestedPrompt>? prompts)
+        => prompts is null
+            ? null
+            : JsonSerializer.SerializeToNode(prompts.ToArray(), SlackBotJsonContext.Default.SlackSuggestedPromptArray);
+
+    private static JsonNode? FileCompletionsNode(IReadOnlyList<SlackFileCompletion>? files)
+        => files is null
+            ? null
+            : JsonSerializer.SerializeToNode(files.ToArray(), SlackBotJsonContext.Default.SlackFileCompletionArray);
+
+    private static JsonArray? StringArrayNode(IReadOnlyList<string>? values)
+    {
+        if (values is null)
+            return null;
+
+        var array = new JsonArray();
+        foreach (var value in values)
+            array.Add((JsonNode?)JsonValue.Create(value));
+
+        return array;
+    }
+
+    private static StringContent ToJsonContent(JsonObject body)
+        => new(body.ToJsonString(), Encoding.UTF8, "application/json");
+
+    private static async Task<JsonDocument> ReadJsonDocumentAsync(HttpContent content, CancellationToken ct)
+    {
+        var json = await content.ReadAsStringAsync(ct);
+        return JsonDocument.Parse(json);
+    }
+
+    private static JsonTypeInfo<T> GetPageItemTypeInfo<T>()
+        => typeof(T) == typeof(SlackMessage)
+            ? (JsonTypeInfo<T>)(object)SlackBotJsonContext.Default.SlackMessage
+            : throw new NotSupportedException($"Slack page item type '{typeof(T).Name}' is not registered.");
 }

@@ -1,6 +1,5 @@
-using System.Runtime.CompilerServices;
-using System.Diagnostics.CodeAnalysis;
 using HPD.Agent;
+using System.Runtime.CompilerServices;
 
 namespace HPD.Agent.MCP;
 
@@ -21,20 +20,13 @@ internal static class MCPAutoDiscovery
 #pragma warning disable CA2255 // The 'ModuleInitializer' attribute should not be used in libraries
     [ModuleInitializer]
 #pragma warning restore CA2255 // The 'ModuleInitializer' attribute should not be used in libraries
-    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(MCPClientManager))]
-    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(MCPManifest))]
-    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(MCPServerConfig))]
-    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(MCPOptions))]
-    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(AgentBuilderMcpExtensions))]
     public static void Initialize()
     {
         lock (_lock)
         {
             if (_initialized) return;
 
-            // MCP module is now loaded and available
-            // The AgentBuilderMcpExtensions.WithMCP() methods are now callable
-            // via using HPD.Agent.MCP; in client code
+            AgentBuilder.RegisterMcpToolLoader(new McpToolLoader());
 
             _initialized = true;
         }

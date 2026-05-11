@@ -40,10 +40,13 @@ public class SlackBotConfig
     public string? BotUserId { get; set; }
 
     /// <summary>
-    /// Which HPD agent to route inbound messages to.
-    /// Defaults to the agent registered as <c>DefaultName</c> in <c>AddHPDAgent()</c>.
+    /// HPD agent ID to route inbound messages to.
     /// </summary>
-    public string? AgentName { get; set; }
+    public string? AgentId { get; set; }
+
+    internal string ResolveAgentId()
+        => FirstNonWhiteSpace(AgentId)
+            ?? throw new InvalidOperationException("SlackBotConfig.AgentId is required.");
 
     /// <summary>
     /// Overrides the generated streaming debounce interval when set.
@@ -74,4 +77,15 @@ public class SlackBotConfig
     /// When null (default), HTTP Events API mode is used (<c>MapSlackWebhook()</c> required).
     /// </summary>
     public string? AppToken { get; set; }
+
+    private static string? FirstNonWhiteSpace(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                return value.Trim();
+        }
+
+        return null;
+    }
 }

@@ -133,7 +133,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches",
+            $"/agents/test-agent/sessions/{sessionId}/branches",
             request);
 
         // Assert
@@ -154,7 +154,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches",
+            $"/agents/test-agent/sessions/{sessionId}/branches",
             request);
 
         // Assert
@@ -171,7 +171,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches",
+            $"/agents/test-agent/sessions/{sessionId}/branches",
             request);
 
         // Assert
@@ -193,7 +193,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches",
+            $"/agents/test-agent/sessions/{sessionId}/branches",
             request);
 
         // Assert
@@ -210,7 +210,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            "/sessions/nonexistent/branches",
+            "/agents/test-agent/sessions/nonexistent/branches",
             request);
 
         // Assert
@@ -226,7 +226,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
         // Act - Try to create a branch with ID "main" (already exists)
         var request = new CreateBranchRequest("main", "Duplicate", null, null);
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches",
+            $"/agents/test-agent/sessions/{sessionId}/branches",
             request);
 
         // Assert
@@ -251,7 +251,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/fork",
+            $"/agents/test-agent/sessions/{sessionId}/branches/main/fork",
             request);
 
         // Assert
@@ -273,7 +273,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/fork",
+            $"/agents/test-agent/sessions/{sessionId}/branches/main/fork",
             request);
 
         // Assert
@@ -289,7 +289,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/fork",
+            $"/agents/test-agent/sessions/{sessionId}/branches/main/fork",
             request);
 
         // Assert
@@ -307,7 +307,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/fork",
+            $"/agents/test-agent/sessions/{sessionId}/branches/main/fork",
             request);
 
         // Assert
@@ -325,7 +325,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/nonexistent/fork",
+            $"/agents/test-agent/sessions/{sessionId}/branches/nonexistent/fork",
             request);
 
         // Assert
@@ -341,7 +341,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{sessionId}/branches/main/fork",
+            $"/agents/test-agent/sessions/{sessionId}/branches/main/fork",
             request);
 
         // Assert
@@ -358,7 +358,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
         // Arrange
         var sessionId = await CreateTestSession();
         var createRequest = new CreateBranchRequest("to-delete", "Delete Me", null, null);
-        await _client.PostAsJsonAsync($"/sessions/{sessionId}/branches", createRequest);
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/branches", createRequest);
 
         // Act
         var response = await _client.DeleteAsync($"/sessions/{sessionId}/branches/to-delete");
@@ -452,9 +452,9 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
 
         // Create sibling branches
-        await _client.PostAsJsonAsync($"/sessions/{sessionId}/branches/main/fork",
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/fork",
             new ForkBranchRequest("sibling1", 0, null, null, null));
-        await _client.PostAsJsonAsync($"/sessions/{sessionId}/branches/main/fork",
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/fork",
             new ForkBranchRequest("sibling2", 0, null, null, null));
 
         // Act
@@ -562,7 +562,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
         // Arrange
         var sessionId = await CreateTestSession();
         var createReq = new CreateBranchRequest("upd-test", "Original Name", "Original Desc", null);
-        await _client.PostAsJsonAsync($"/sessions/{sessionId}/branches", createReq);
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/branches", createReq);
 
         // Act
         var patchReq = new UpdateBranchRequest("Renamed Branch", null, null);
@@ -581,7 +581,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
         // Arrange
         var sessionId = await CreateTestSession();
         var createReq = new CreateBranchRequest("partial-upd", "Original Name", "Keep This Desc", null);
-        await _client.PostAsJsonAsync($"/sessions/{sessionId}/branches", createReq);
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/branches", createReq);
 
         // Act — only update name, leave description null (omitted)
         var patchReq = new UpdateBranchRequest("New Name", null, null);
@@ -609,7 +609,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        await _client.PostAsJsonAsync($"/sessions/{sessionId}/branches",
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/branches",
             new CreateBranchRequest("tag-test", "T", null, null));
 
         // Act
@@ -628,7 +628,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        await _client.PostAsJsonAsync($"/sessions/{sessionId}/branches",
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/branches",
             new CreateBranchRequest("ts-test", "T", null, null));
 
         var before = DateTime.UtcNow.AddSeconds(-1);
@@ -647,7 +647,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        await _client.PostAsJsonAsync($"/sessions/{sessionId}/branches",
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/branches",
             new CreateBranchRequest("persist-test", "Before", null, null));
 
         // Act

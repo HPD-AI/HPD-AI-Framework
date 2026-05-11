@@ -39,6 +39,7 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(CreateBranchRequest))]
 [JsonSerializable(typeof(UpdateBranchRequest))]
 [JsonSerializable(typeof(ForkBranchRequest))]
+[JsonSerializable(typeof(StreamTextRequest))]
 // Note: Agent input/output events are covered by AgentEventJsonContext.
 [JsonSerializable(typeof(ClientToolContentDto))]
 [JsonSerializable(typeof(ClientToolContentDto[]))]

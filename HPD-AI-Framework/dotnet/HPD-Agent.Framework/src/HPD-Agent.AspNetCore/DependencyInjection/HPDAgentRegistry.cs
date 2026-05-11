@@ -40,7 +40,13 @@ internal sealed class HPDAgentRegistry
         var agentFactory = _serviceProvider.GetService<IAgentFactory>();
 
         var sessionManager = new AspNetCoreSessionManager(sessionStore, optionsMonitor, name);
-        var agentManager = new AspNetCoreAgentManager(agentStore, sessionManager, optionsMonitor, name, agentFactory);
+        var agentManager = new AspNetCoreAgentManager(
+            agentStore,
+            sessionManager,
+            optionsMonitor,
+            _serviceProvider,
+            name,
+            agentFactory);
 
         return new HPDAgentPair(agentManager, sessionManager);
     }

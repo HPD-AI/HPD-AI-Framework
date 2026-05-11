@@ -348,7 +348,7 @@ public partial class DiscordBot(
             var streaming = ResolveStreamingOptions();
             await runner.RunAsync(
                 new BotStreamingRequest<DiscordStreamContext>(
-                    AgentName: _config.AgentName ?? "default",
+                    AgentId: _config.ResolveAgentId(),
                     SessionId: sessionId,
                     BranchId: branchId,
                     Text: input.Text,

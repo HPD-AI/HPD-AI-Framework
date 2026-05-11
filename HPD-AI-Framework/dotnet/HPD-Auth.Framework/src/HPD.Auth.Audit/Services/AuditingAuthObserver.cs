@@ -100,26 +100,26 @@ public sealed class AuditingAuthObserver
             Action: AuditActions.UserLogin,
             Category: AuditCategories.Authentication,
             UserId: e.UserId,
-            Metadata: new { e.AuthMethod }),
+            Metadata: new Dictionary<string, string?> { ["auth_method"] = e.AuthMethod }),
 
         UserLoggedOutEvent e => new AuditLogEntry(
             Action: AuditActions.UserLogout,
             Category: AuditCategories.Authentication,
             UserId: e.UserId,
-            Metadata: new { e.SessionId }),
+            Metadata: new Dictionary<string, string?> { ["session_id"] = e.SessionId.ToString() }),
 
         UserRegisteredEvent e => new AuditLogEntry(
             Action: AuditActions.UserRegister,
             Category: AuditCategories.Authentication,
             UserId: e.UserId,
-            Metadata: new { e.RegistrationMethod }),
+            Metadata: new Dictionary<string, string?> { ["registration_method"] = e.RegistrationMethod }),
 
         LoginFailedEvent e => new AuditLogEntry(
             Action: AuditActions.UserLoginFailed,
             Category: AuditCategories.Authentication,
             Success: false,
             ErrorMessage: e.Reason,
-            Metadata: new { e.Email }),
+            Metadata: new Dictionary<string, string?> { ["email"] = e.Email }),
 
         PasswordChangedEvent e => new AuditLogEntry(
             Action: AuditActions.PasswordChange,
@@ -130,25 +130,29 @@ public sealed class AuditingAuthObserver
             Action: AuditActions.PasswordResetRequest,
             Category: AuditCategories.Authentication,
             UserId: e.UserId,
-            Metadata: new { e.Email }),
+            Metadata: new Dictionary<string, string?> { ["email"] = e.Email }),
 
         EmailConfirmedEvent e => new AuditLogEntry(
             Action: AuditActions.EmailConfirm,
             Category: AuditCategories.Authentication,
             UserId: e.UserId,
-            Metadata: new { e.Email }),
+            Metadata: new Dictionary<string, string?> { ["email"] = e.Email }),
 
         TwoFactorEnabledEvent e => new AuditLogEntry(
             Action: AuditActions.TwoFactorEnable,
             Category: AuditCategories.Authentication,
             UserId: e.UserId,
-            Metadata: new { e.Method }),
+            Metadata: new Dictionary<string, string?> { ["method"] = e.Method }),
 
         SessionRevokedEvent e => new AuditLogEntry(
             Action: AuditActions.SessionRevoke,
             Category: AuditCategories.Authentication,
             UserId: e.UserId,
-            Metadata: new { e.SessionId, e.RevokedBy }),
+            Metadata: new Dictionary<string, string?>
+            {
+                ["session_id"] = e.SessionId.ToString(),
+                ["revoked_by"] = e.RevokedBy.ToString()
+            }),
 
         _ => null,
     };

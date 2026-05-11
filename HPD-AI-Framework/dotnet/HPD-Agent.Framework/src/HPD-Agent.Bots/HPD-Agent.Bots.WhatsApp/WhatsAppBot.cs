@@ -516,7 +516,7 @@ public partial class WhatsAppBot
             var context = new WhatsAppStreamContext(message.ThreadId);
             await runner.RunAsync(
                 new BotStreamingRequest<WhatsAppStreamContext>(
-                    AgentName: _config.AgentName ?? "default",
+                    AgentId: _config.ResolveAgentId(),
                     SessionId: sessionId,
                     BranchId: branchId,
                     Text: message.Text,

@@ -9,6 +9,7 @@ using Microsoft.Agents.Storage;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Graph;
 
 namespace HPD.Agent.Bots.Teams;
 
@@ -58,7 +59,7 @@ public static class TeamsBotServiceCollectionExtensions
         services.TryAddSingleton<TeamsCardRenderer>();
         services.TryAddSingleton<TeamsFormatConverter>();
         services.TryAddSingleton<TeamsModalConverter>();
-        services.TryAddSingleton<TeamsGraphService>();
+        services.TryAddSingleton<ITeamsHistoryService, NoopTeamsHistoryService>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBotRegistryProvider, TeamsBotRegistryProvider>());
         services.TryAddSingleton<PlatformSessionMapper>();
         services.Configure<BotStreamingOptions>("teams", options =>
@@ -72,6 +73,23 @@ public static class TeamsBotServiceCollectionExtensions
             services.AddHttpClient();
             services.TryAddSingleton<IStorage, MemoryStorage>();
         }
+
+        return services;
+    }
+
+    /// <summary>
+    /// Enables Microsoft Graph backed Teams history APIs. The default Teams bot
+    /// registration does not create Graph history services unless a host explicitly supplies a client.
+    /// </summary>
+    public static IServiceCollection AddTeamsGraphHistory(
+        this IServiceCollection services,
+        GraphServiceClient graphClient)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(graphClient);
+
+        services.AddSingleton(graphClient);
+        services.Replace(ServiceDescriptor.Singleton<ITeamsHistoryService, TeamsGraphService>());
 
         return services;
     }

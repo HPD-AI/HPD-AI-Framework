@@ -258,6 +258,31 @@ public class EventCoordinatorTests
     }
 
     [Fact]
+    public async Task EmitAsync_DoesNotWaitForHandlerPumpCompletion()
+    {
+        using var coordinator = new EventCoordinator();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var handlerStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseHandler = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handlerCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var subscription = coordinator.Subscribe<TestEvent>(async _ =>
+        {
+            handlerStarted.SetResult();
+            await releaseHandler.Task.WaitAsync(cts.Token);
+            handlerCompleted.SetResult();
+        });
+
+        await coordinator.EmitAsync(new TestEvent("queued"), cts.Token);
+        await handlerStarted.Task.WaitAsync(cts.Token);
+
+        Assert.False(handlerCompleted.Task.IsCompleted);
+
+        releaseHandler.SetResult();
+        await handlerCompleted.Task.WaitAsync(cts.Token);
+    }
+
+    [Fact]
     public async Task HandlerException_FaultsOnlyThatSubscriptionAndEmitsDiagnostic()
     {
         using var coordinator = new EventCoordinator();

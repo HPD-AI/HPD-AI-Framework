@@ -71,9 +71,9 @@ public class LocalFileContentStore : IContentStore
                 var nameIndex = ReadNameIndex(scopePath);
                 if (nameIndex.TryGetValue(name, out var existingId))
                 {
-                    var existingMeta = ReadMetaFile(scopePath, existingId);
-                    var newHash = ComputeHash(data);
-                    var existingHash = existingMeta?.GetValueOrDefault("contentHash") as string;
+                var existingMeta = ReadMetaFile(scopePath, existingId);
+                var newHash = ComputeHash(data);
+                    var existingHash = existingMeta?.ContentHash;
                     if (existingHash == newHash)
                     {
                         // Same content — no-op
@@ -172,7 +172,7 @@ public class LocalFileContentStore : IContentStore
         {
             // Read metadata to find name before deleting
             var metaRaw = ReadMetaFile(scopePath, contentId);
-            var name = metaRaw?.GetValueOrDefault("name") as string;
+            var name = metaRaw?.Name;
 
             // Delete content + meta files
             foreach (var file in Directory.GetFiles(scopePath, $"{contentId}.*"))
@@ -261,62 +261,55 @@ public class LocalFileContentStore : IContentStore
     private static void WriteMetaFile(string scopePath, string contentId, string contentType,
         ContentMetadata? metadata, string? contentHash)
     {
-        var dict = new Dictionary<string, object> { ["contentType"] = contentType };
-        if (metadata?.Name != null) dict["name"] = metadata.Name;
-        if (metadata?.Description != null) dict["description"] = metadata.Description;
-        if (metadata?.Origin != null) dict["origin"] = metadata.Origin.ToString()!;
-        if (metadata?.OriginalSource != null) dict["originalSource"] = metadata.OriginalSource;
-        if (metadata?.Tags != null) dict["tags"] = metadata.Tags;
-        if (contentHash != null) dict["contentHash"] = contentHash;
-
+        var meta = new LocalContentMetadata(
+            ContentType: contentType,
+            Name: metadata?.Name,
+            Description: metadata?.Description,
+            Origin: metadata?.Origin?.ToString(),
+            OriginalSource: metadata?.OriginalSource,
+            Tags: metadata?.Tags is null
+                ? null
+                : new Dictionary<string, string>(metadata.Tags, StringComparer.Ordinal),
+            ContentHash: contentHash);
         var metaPath = Path.Combine(scopePath, $"{contentId}.meta");
-        File.WriteAllText(metaPath, System.Text.Json.JsonSerializer.Serialize(dict));
+        File.WriteAllText(metaPath, System.Text.Json.JsonSerializer.Serialize(meta, HPDJsonContext.Default.LocalContentMetadata));
     }
 
-    private static Dictionary<string, object>? ReadMetaFile(string scopePath, string contentId)
+    private static LocalContentMetadata? ReadMetaFile(string scopePath, string contentId)
     {
         var metaPath = Path.Combine(scopePath, $"{contentId}.meta");
         if (!File.Exists(metaPath)) return null;
         try
         {
             var json = File.ReadAllText(metaPath);
-            return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(json);
+            return System.Text.Json.JsonSerializer.Deserialize(json, HPDJsonContext.Default.LocalContentMetadata);
         }
         catch { return null; }
     }
 
-    private static ContentMetadata? DeserializeMetadata(Dictionary<string, object>? raw)
+    private static ContentMetadata? DeserializeMetadata(LocalContentMetadata? raw)
     {
         if (raw == null) return null;
 
-        IReadOnlyDictionary<string, string>? tags = null;
-        if (raw.TryGetValue("tags", out var tagsObj) && tagsObj is System.Text.Json.JsonElement tagsEl)
-        {
-            var d = new Dictionary<string, string>();
-            foreach (var prop in tagsEl.EnumerateObject())
-                d[prop.Name] = prop.Value.GetString() ?? "";
-            tags = d;
-        }
-
         ContentSource? origin = null;
-        if (raw.TryGetValue("origin", out var originObj) &&
-            Enum.TryParse<ContentSource>(originObj?.ToString(), out var parsed))
+        if (raw.Origin is not null &&
+            Enum.TryParse<ContentSource>(raw.Origin, out var parsed))
             origin = parsed;
 
         return new ContentMetadata
         {
-            Name = raw.GetValueOrDefault("name")?.ToString(),
-            Description = raw.GetValueOrDefault("description")?.ToString(),
-            OriginalSource = raw.GetValueOrDefault("originalSource")?.ToString(),
+            Name = raw.Name,
+            Description = raw.Description,
+            OriginalSource = raw.OriginalSource,
             Origin = origin,
-            Tags = tags
+            Tags = raw.Tags
         };
     }
 
     private static ContentInfo BuildContentInfo(string contentId, string contentType, long sizeBytes,
-        DateTime createdAt, DateTime lastModified, ContentMetadata? metadata, Dictionary<string, object>? metaRaw)
+        DateTime createdAt, DateTime lastModified, ContentMetadata? metadata, LocalContentMetadata? metaRaw)
     {
-        var hash = metaRaw?.GetValueOrDefault("contentHash")?.ToString();
+        var hash = metaRaw?.ContentHash;
         var extendedMeta = hash != null
             ? (IReadOnlyDictionary<string, object>)new Dictionary<string, object> { ["contentHash"] = hash }
             : null;
@@ -349,7 +342,7 @@ public class LocalFileContentStore : IContentStore
         try
         {
             var json = File.ReadAllText(indexPath);
-            return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json)
+            return System.Text.Json.JsonSerializer.Deserialize(json, HPDJsonContext.Default.DictionaryStringString)
                    ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
         catch { return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); }
@@ -358,7 +351,7 @@ public class LocalFileContentStore : IContentStore
     private static void WriteNameIndex(string scopePath, Dictionary<string, string> index)
     {
         var indexPath = Path.Combine(scopePath, ".nameindex");
-        File.WriteAllText(indexPath, System.Text.Json.JsonSerializer.Serialize(index));
+        File.WriteAllText(indexPath, System.Text.Json.JsonSerializer.Serialize(index, HPDJsonContext.Default.DictionaryStringString));
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -433,3 +426,12 @@ public class LocalFileContentStore : IContentStore
             _ => "application/octet-stream"
         };
 }
+
+public sealed record LocalContentMetadata(
+    string ContentType,
+    string? Name = null,
+    string? Description = null,
+    string? Origin = null,
+    string? OriginalSource = null,
+    Dictionary<string, string>? Tags = null,
+    string? ContentHash = null);

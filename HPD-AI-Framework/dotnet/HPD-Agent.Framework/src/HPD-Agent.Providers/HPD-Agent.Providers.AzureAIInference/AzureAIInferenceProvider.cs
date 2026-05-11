@@ -65,8 +65,7 @@ internal class AzureAIInferenceProvider : IProviderFeatures
         // for advanced features like ResponseFormat, Seed, FrequencyPenalty, etc.
 
         // Apply client factory middleware if provided
-        if (config.AdditionalProperties?.TryGetValue("ClientFactory", out var factoryObj) == true &&
-            factoryObj is Func<IChatClient, IChatClient> clientFactory)
+        if (config.ClientFactory is { } clientFactory)
         {
             chatClient = clientFactory(chatClient);
         }
@@ -113,7 +112,7 @@ internal class AzureAIInferenceProvider : IProviderFeatures
         }
 
         // Validate provider-specific config if present
-        var azureConfig = config.GetTypedProviderConfig<AzureAIInferenceProviderConfig>();
+        var azureConfig = config.GetProviderConfig<AzureAIInferenceProviderConfig>();
         if (azureConfig != null)
         {
             // Validate Temperature range

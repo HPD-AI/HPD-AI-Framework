@@ -4,6 +4,7 @@ using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.AspNetCore.Lifecycle;
 using HPD.Agent.AspNetCore.Streaming;
+using HPD.Agent.Hosting.Data;
 using HPD.Agent.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -26,24 +27,76 @@ internal static class StreamingEndpoints
         AspNetCoreSessionManager sessionManager,
         AspNetCoreAgentManager agentManager)
     {
-        // POST /sessions/{sid}/branches/{bid}/stream - SSE streaming
-        endpoints.MapPost("/sessions/{sid}/branches/{bid}/stream",
-                async (string sid, string bid, JsonElement request, HttpContext context, CancellationToken ct) =>
-                    await StreamWithSse(sid, bid, request, context, sessionManager, agentManager, ct))
+        // POST /agents/{agentId}/sessions/{sid}/branches/{bid}/stream - SSE text streaming
+        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/stream",
+                async (string agentId, string sid, string bid, StreamTextRequest request, HttpContext context, CancellationToken ct) =>
+                    await StreamTextWithSse(agentId, sid, bid, request, context, sessionManager, agentManager, ct))
             .WithName("StreamWithSse")
             .WithSummary("Stream agent events using Server-Sent Events (SSE)");
 
-        // GET /sessions/{sid}/branches/{bid}/ws - WebSocket streaming
-        endpoints.MapGet("/sessions/{sid}/branches/{bid}/ws", (string sid, string bid, HttpContext context, CancellationToken ct) =>
-                StreamWithWebSocket(sid, bid, context, sessionManager, agentManager, ct))
+        // POST /agents/{agentId}/sessions/{sid}/branches/{bid}/events/stream - SSE raw event streaming
+        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/events/stream",
+                async (string agentId, string sid, string bid, JsonElement request, HttpContext context, CancellationToken ct) =>
+                    await StreamEventWithSse(agentId, sid, bid, request, context, sessionManager, agentManager, ct))
+            .WithName("StreamRawEventWithSse")
+            .WithSummary("Stream agent events using Server-Sent Events (SSE) from a raw event envelope");
+
+        // GET /agents/{agentId}/sessions/{sid}/branches/{bid}/ws - WebSocket streaming
+        endpoints.MapGet("/agents/{agentId}/sessions/{sid}/branches/{bid}/ws", (string agentId, string sid, string bid, HttpContext context, CancellationToken ct) =>
+                StreamWithWebSocket(agentId, sid, bid, context, sessionManager, agentManager, ct))
             .WithName("StreamWithWebSocket")
             .WithSummary("Stream agent responses using WebSocket");
     }
 
-    private static async Task StreamWithSse(
+    private static async Task StreamTextWithSse(
+        string agentId,
+        string sid,
+        string bid,
+        StreamTextRequest request,
+        HttpContext context,
+        AspNetCoreSessionManager sessionManager,
+        AspNetCoreAgentManager agentManager,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.Text))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+
+        var input = new UserTextInputEvent(request.Text)
+        {
+            RunConfig = request.RunConfig
+        };
+
+        await StreamInputWithSse(agentId, sid, bid, input, context, sessionManager, agentManager, ct);
+    }
+
+    private static async Task StreamEventWithSse(
+        string agentId,
         string sid,
         string bid,
         JsonElement request,
+        HttpContext context,
+        AspNetCoreSessionManager sessionManager,
+        AspNetCoreAgentManager agentManager,
+        CancellationToken ct = default)
+    {
+        var input = ParseInputEvent(request);
+        if (input == null)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+
+        await StreamInputWithSse(agentId, sid, bid, input, context, sessionManager, agentManager, ct);
+    }
+
+    private static async Task StreamInputWithSse(
+        string agentId,
+        string sid,
+        string bid,
+        AgentInputEvent input,
         HttpContext context,
         AspNetCoreSessionManager sessionManager,
         AspNetCoreAgentManager agentManager,
@@ -80,17 +133,7 @@ internal static class StreamingEndpoints
 
         try
         {
-            var input = ParseInputEvent(request);
-            if (input == null)
-            {
-                context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                return;
-            }
-
-            input = ApplyRouteScope(input, sid, bid);
-
-            // Get or build the agent (keyed by event AgentId, defaults to "default")
-            var agentId = input.AgentId ?? "default";
+            input = ApplyRouteScope(input, agentId, sid, bid);
             var agent = await agentManager.GetOrBuildAgentAsync(agentId, ct);
 
             // Stream events using SSE - this sends headers and starts streaming
@@ -116,6 +159,7 @@ internal static class StreamingEndpoints
     }
 
     private static async Task<Results<Ok, NotFound, Conflict, ValidationProblem>> StreamWithWebSocket(
+        string agentId,
         string sid,
         string bid,
         HttpContext context,
@@ -171,7 +215,7 @@ internal static class StreamingEndpoints
 
             using var webSocket = await acceptTask;
 
-            Agent? agent = null;
+            var agent = await agentManager.GetOrBuildAgentAsync(agentId, ct);
             IDisposable? subscription = null;
             var runtimeStarted = false;
 
@@ -198,11 +242,8 @@ internal static class StreamingEndpoints
                         return TypedResults.Ok();
                     }
 
-                    if (agent == null)
+                    if (subscription == null)
                     {
-                        var agentId = input?.AgentId ?? "default";
-
-                        agent = await agentManager.GetOrBuildAgentAsync(agentId, ct);
                         subscription = agent.SubscribeAny((Func<AgentEvent, Task>)(async evt =>
                         {
                             var eventJson = AgentEventSerializer.ToJson(evt);
@@ -224,7 +265,7 @@ internal static class StreamingEndpoints
 
                     if (input is not null)
                     {
-                        input = ApplyRouteScope(input, sid, bid);
+                        input = ApplyRouteScope(input, agentId, sid, bid);
                         await agent.RunAsync(input, ct);
                     }
                     else
@@ -239,7 +280,7 @@ internal static class StreamingEndpoints
 
                 if (runtimeStarted)
                 {
-                    await agent!.StopAsync(CancellationToken.None);
+                    await agent.StopAsync(CancellationToken.None);
                 }
             }
 
@@ -265,19 +306,21 @@ internal static class StreamingEndpoints
         return AgentEventSerializer.FromJson(request.GetRawText()) as AgentInputEvent;
     }
 
-    private static AgentInputEvent ApplyRouteScope(AgentInputEvent input, string sid, string bid)
+    private static AgentInputEvent ApplyRouteScope(AgentInputEvent input, string agentId, string sid, string bid)
     {
         return input switch
         {
             UserTextInputEvent text => text with
             {
-                SessionId = text.SessionId ?? sid,
-                BranchId = text.BranchId ?? bid
+                AgentId = agentId,
+                SessionId = sid,
+                BranchId = bid
             },
             UserMessagesInputEvent messages => messages with
             {
-                SessionId = messages.SessionId ?? sid,
-                BranchId = messages.BranchId ?? bid
+                AgentId = agentId,
+                SessionId = sid,
+                BranchId = bid
             },
             _ => input
         };

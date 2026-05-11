@@ -36,7 +36,7 @@ public class ChatClientInheritanceTests
     }
 
     [Fact]
-    public async Task ConfigAgentFactory_WithNullFallback_AndNoProvider_Throws()
+    public async Task ConfigAgentFactory_WithNullFallback_AndNoProvider_BuildsDeferredAgent()
     {
         // Arrange
         var config = new AgentConfig
@@ -47,9 +47,12 @@ public class ChatClientInheritanceTests
         };
         var factory = CreateConfigAgentFactory(config);
 
-        // Act & Assert - building without any chat client should throw (validation or argument exception)
-        await Assert.ThrowsAnyAsync<Exception>(async () =>
-            await factory.BuildAsync(null, CancellationToken.None));
+        // Act
+        var agent = await factory.BuildAsync(null, CancellationToken.None);
+
+        // Assert
+        agent.Should().NotBeNull();
+        agent.Name.Should().Be("TestAgent");
     }
 
     #endregion
@@ -126,7 +129,7 @@ public class ChatClientInheritanceTests
     }
 
     [Fact]
-    public async Task AgentBuilder_WithDeferredProvider_StillRequiresChatClient()
+    public async Task AgentBuilder_WithDeferredProvider_BuildsWithoutChatClient()
     {
         // Arrange
         var config = new AgentConfig
@@ -138,10 +141,34 @@ public class ChatClientInheritanceTests
 
         var builder = new AgentBuilder(config).WithDeferredProvider();
 
-        // Act & Assert - deferred provider skips provider validation but still needs client at runtime
-        // The client must be provided via OverrideChatClient in RunConfig
-        await Assert.ThrowsAsync<ArgumentNullException>(async () =>
-            await builder.BuildAsync(CancellationToken.None));
+        // Act
+        var agent = await builder.BuildAsync(CancellationToken.None);
+
+        // Assert
+        agent.Should().NotBeNull();
+        agent.Name.Should().Be("DeferredAgent");
+    }
+
+    [Fact]
+    public async Task AgentBuilder_WithoutProvider_ThrowsWhenRunWithoutRuntimeModel()
+    {
+        // Arrange
+        var config = new AgentConfig
+        {
+            Name = "RuntimeConfiguredAgent",
+            SystemInstructions = "Test",
+            Provider = null
+        };
+
+        var agent = await new AgentBuilder(config).BuildAsync(CancellationToken.None);
+
+        // Act
+        var act = () => agent.RunAsync("hello", cancellationToken: CancellationToken.None);
+
+        // Assert
+        await act.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("*No chat model is configured for this agent run*");
     }
 
     [Fact]

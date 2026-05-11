@@ -1,11 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
-using HPD.Agent.Serialization;
 
 namespace HPD.Agent.AspNetCore.Tests.Integration;
 
@@ -23,7 +23,7 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     private static string CreateInputJson(string text) =>
-        AgentEventSerializer.ToJson(new UserTextInputEvent(text));
+        JsonSerializer.Serialize(new StreamTextRequest(text));
 
     private Task<HttpResponseMessage> PostInputAsync(string url, string json) =>
         _client.PostAsync(url, new StringContent(json, Encoding.UTF8, "application/json"));
@@ -35,7 +35,7 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
     {
         // Act - Try various 404 scenarios
         var sessionResponse = await _client.GetAsync("/sessions/nonexistent");
-        var branchResponse = await _client.GetAsync("/sessions/nonexistent/branches/main");
+        var branchResponse = await _client.GetAsync("/agents/test-agent/sessions/nonexistent/branches/main");
         var assetResponse = await _client.GetAsync("/sessions/nonexistent/assets");
 
         // Assert
@@ -54,7 +54,7 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
         // Act - Try to fork at invalid index
         var forkRequest = new ForkBranchRequest("fork", 9999, null, null, null);
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{session!.Id}/branches/main/fork",
+            $"/agents/test-agent/sessions/{session!.Id}/branches/main/fork",
             forkRequest);
 
         // Assert
@@ -71,7 +71,7 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
         // Act - Try to create duplicate branch
         var request = new CreateBranchRequest("main", "Duplicate", null, null);
         var response = await _client.PostAsJsonAsync(
-            $"/sessions/{session!.Id}/branches",
+            $"/agents/test-agent/sessions/{session!.Id}/branches",
             request);
 
         // Assert
@@ -124,7 +124,7 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
         // Try to create branch with missing data
         var emptyContent = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
         var response = await _client.PostAsync(
-            $"/sessions/{session!.Id}/branches",
+            $"/agents/test-agent/sessions/{session!.Id}/branches",
             emptyContent);
 
         // Assert - Should handle gracefully
@@ -149,7 +149,7 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await PostInputAsync(
-            $"/sessions/{session!.Id}/branches/main/stream",
+             $"/agents/test-agent/sessions/{session!.Id}/branches/main/stream",
             streamRequest);
 
         // Assert - Should establish connection even if agent errors

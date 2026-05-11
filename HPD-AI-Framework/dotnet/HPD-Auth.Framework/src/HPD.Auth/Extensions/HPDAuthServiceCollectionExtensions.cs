@@ -2,13 +2,20 @@ using HPD.Auth.Builder;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
 using HPD.Auth.Core.Options;
+using HPD.Auth.Serialization;
 using HPD.Auth.Infrastructure.Data;
+using HPD.Events;
+using HPD.Events.Core;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace HPD.Auth.Extensions;
 
@@ -41,7 +48,8 @@ public static class HPDAuthServiceCollectionExtensions
     /// 4. Register ASP.NET Core Identity (<see cref="UserManager{TUser}"/>, <see cref="SignInManager{TUser}"/>, etc.).
     /// 5. Register ASP.NET Data Protection, persisting keys to the database.
     /// 6. Register HPD store implementations (<see cref="IAuditLogger"/>, <see cref="ISessionManager"/>, <see cref="IRefreshTokenStore"/>).
-    /// 7. Register no-op email and SMS senders (replaced by real implementations via TryAdd semantics).
+    /// 7. Register infrastructure required by auth endpoints, including memory cache and event coordination.
+    /// 8. Register no-op email and SMS senders (replaced by real implementations via TryAdd semantics).
     /// </summary>
     /// <param name="services">The application's <see cref="IServiceCollection"/>.</param>
     /// <param name="configure">
@@ -99,7 +107,9 @@ public static class HPDAuthServiceCollectionExtensions
 
         // ── Step 4: Register ASP.NET Core Identity ────────────────────────────────
         // Map HPDAuthOptions → IdentityOptions for password policy, lockout, and sign-in.
-        services.AddIdentity<ApplicationUser, ApplicationRole>(identityOptions =>
+        services.AddAuthenticationCore();
+
+        var identityBuilder = services.AddIdentityCore<ApplicationUser>(identityOptions =>
         {
             // Password policy
             identityOptions.Password.RequiredLength = options.Password.RequiredLength;
@@ -123,9 +133,26 @@ public static class HPDAuthServiceCollectionExtensions
             // Enable passkey (FIDO2) support — requires Identity schema v3
             // which adds the IdentityUserPasskey<TKey> entity to the model.
             identityOptions.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
-        })
-        .AddEntityFrameworkStores<HPDAuthDbContext>()
-        .AddDefaultTokenProviders();
+        });
+
+        identityBuilder
+            .AddRoles<ApplicationRole>()
+            .AddSignInManager()
+            .AddDefaultTokenProviders();
+
+        services.TryAddScoped<IUserStore<ApplicationUser>,
+            UserStore<ApplicationUser, ApplicationRole, HPDAuthDbContext, Guid,
+                IdentityUserClaim<Guid>,
+                IdentityUserRole<Guid>,
+                IdentityUserLogin<Guid>,
+                IdentityUserToken<Guid>,
+                IdentityRoleClaim<Guid>,
+                IdentityUserPasskey<Guid>>>();
+
+        services.TryAddScoped<IRoleStore<ApplicationRole>,
+            RoleStore<ApplicationRole, HPDAuthDbContext, Guid,
+                IdentityUserRole<Guid>,
+                IdentityRoleClaim<Guid>>>();
 
         // ── Step 5: Register ASP.NET Data Protection ──────────────────────────────
         // Persist encryption keys to the database so they survive app restarts and
@@ -140,7 +167,24 @@ public static class HPDAuthServiceCollectionExtensions
         services.AddScoped<ISessionManager, HPD.Auth.Infrastructure.Stores.SessionStore>();
         services.AddScoped<IRefreshTokenStore, HPD.Auth.Infrastructure.Stores.RefreshTokenStore>();
 
-        // ── Step 7: Register no-op email and SMS senders ─────────────────────────
+        // ── Step 7: Register auth endpoint infrastructure ───────────────────────
+        // Register source-generated JSON metadata for Minimal API request/response
+        // types so HPD.Auth can run in apps that disable reflection JSON fallback.
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IConfigureOptions<JsonOptions>,
+                HPDAuthJsonOptionsSetup>());
+
+        // Password resend endpoints use IMemoryCache for short-lived cooldowns.
+        // Register it here so MapHPDAuthEndpoints() works after AddHPDAuth()
+        // without requiring host apps to know endpoint internals.
+        services.AddMemoryCache();
+
+        // Core auth endpoints emit AuthEvent instances for signup, login, logout,
+        // password reset, etc. The coordinator is required even when callers do not
+        // opt into the audit package; AddAudit() only attaches observers.
+        services.TryAddScoped<IEventCoordinator>(_ => new EventCoordinator());
+
+        // ── Step 8: Register no-op email and SMS senders ─────────────────────────
         // TryAdd ensures these are skipped if the caller has already registered a
         // real sender before calling AddHPDAuth() — or can be replaced afterwards
         // by calling services.AddScoped<IHPDAuthEmailSender, RealEmailSender>() before
@@ -278,5 +322,17 @@ public static class HPDAuthServiceCollectionExtensions
                 phoneNumber, code);
             return Task.CompletedTask;
         }
+    }
+}
+
+/// <summary>
+/// Configures JSON serialization for HPD.Auth core endpoint DTOs.
+/// </summary>
+internal sealed class HPDAuthJsonOptionsSetup : IConfigureOptions<JsonOptions>
+{
+    public void Configure(JsonOptions options)
+    {
+        options.SerializerOptions.TypeInfoResolverChain.Insert(0,
+            HPDAuthJsonSerializerContext.Default);
     }
 }

@@ -43,6 +43,7 @@ import type {
 import { SseTransport } from './transports/sse.js';
 import { WebSocketTransport } from './transports/websocket.js';
 import { MauiTransport } from './transports/maui.js';
+import type { TransportRequestOptions } from './transports/options.js';
 
 export type MaybePromise<T> = T | Promise<T>;
 
@@ -66,8 +67,11 @@ export interface AgentClientConfig {
   /** Transport type (default: 'sse') */
   transport?: TransportType;
 
-  /** Custom headers for requests (SSE only) */
+  /** Custom headers for HTTP requests */
   headers?: Record<string, string>;
+
+  /** Fetch credentials mode for HTTP requests. Use 'include' for cookie-backed auth. */
+  credentials?: RequestCredentials;
 
   /** Client tool groups registered locally for browser-side invocation */
   clientHarnesses?: clientHarnessDefinition[];
@@ -109,15 +113,19 @@ export class AgentClient {
 
   private createTransport(): AgentTransport {
     const type = this.config.transport ?? 'sse';
+    const requestOptions: TransportRequestOptions = {
+      headers: this.config.headers,
+      credentials: this.config.credentials,
+    };
 
     switch (type) {
       case 'websocket':
-        return new WebSocketTransport(this.config.baseUrl);
+        return new WebSocketTransport(this.config.baseUrl, requestOptions);
       case 'maui':
         return new MauiTransport();
       case 'sse':
       default:
-        return new SseTransport(this.config.baseUrl);
+        return new SseTransport(this.config.baseUrl, requestOptions);
     }
   }
 

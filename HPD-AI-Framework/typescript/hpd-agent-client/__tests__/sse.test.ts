@@ -39,6 +39,7 @@ describe('SseTransport', () => {
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'test-123',
       branchId: 'main',
+      agentId: 'agent-1',
       text: 'Hi',
     });
 
@@ -62,6 +63,7 @@ describe('SseTransport', () => {
       transport.run({
         type: EventTypes.USER_TEXT_INPUT,
         sessionId: 'test-123',
+        agentId: 'agent-1',
         branchId: 'main',
         text: 'Hi',
       })
@@ -81,6 +83,7 @@ describe('SseTransport', () => {
       transport.run({
         type: EventTypes.USER_TEXT_INPUT,
         sessionId: 'test-123',
+        agentId: 'agent-1',
         branchId: 'main',
         text: 'Hi',
       })
@@ -109,6 +112,7 @@ describe('SseTransport', () => {
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'test-123',
       branchId: 'main',
+      agentId: 'agent-1',
       text: 'Hi',
     });
 
@@ -139,6 +143,7 @@ describe('SseTransport', () => {
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'test-123',
       branchId: 'main',
+      agentId: 'agent-1',
       text: 'Hi',
     });
 
@@ -160,6 +165,7 @@ describe('SseTransport', () => {
     const transport = new SseTransport('http://localhost:5135');
     (transport as any).sessionId = 'test-123';
     (transport as any).branchId = 'main';
+    (transport as any).agentId = 'agent-1';
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
@@ -175,7 +181,7 @@ describe('SseTransport', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/sessions/test-123/branches/main/permissions/respond',
+      'http://localhost:5135/agents/agent-1/sessions/test-123/branches/main/permissions/respond',
       expect.objectContaining({
         method: 'POST',
         body: expect.any(String),
@@ -187,6 +193,7 @@ describe('SseTransport', () => {
     const transport = new SseTransport('http://localhost:5135');
     (transport as any).sessionId = 'test-123';
     (transport as any).branchId = 'main';
+    (transport as any).agentId = 'agent-1';
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
@@ -202,7 +209,7 @@ describe('SseTransport', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/sessions/test-123/branches/main/clarifications/respond',
+      'http://localhost:5135/agents/agent-1/sessions/test-123/branches/main/clarifications/respond',
       expect.objectContaining({
         method: 'POST',
       })
@@ -213,6 +220,7 @@ describe('SseTransport', () => {
     const transport = new SseTransport('http://localhost:5135');
     (transport as any).sessionId = 'test-123';
     (transport as any).branchId = 'main';
+    (transport as any).agentId = 'agent-1';
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
@@ -227,7 +235,7 @@ describe('SseTransport', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/sessions/test-123/branches/main/continuation/respond',
+      'http://localhost:5135/agents/agent-1/sessions/test-123/branches/main/continuation/respond',
       expect.objectContaining({
         method: 'POST',
       })
@@ -526,11 +534,12 @@ describe('SseTransport', () => {
 
       const result = await transport.createBranch('session-123', {
         branchId: 'new-branch',
+        agentId: 'agent-1',
         name: 'New Branch',
       });
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:5135/sessions/session-123/branches',
+        'http://localhost:5135/agents/agent-1/sessions/session-123/branches',
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
@@ -570,11 +579,12 @@ describe('SseTransport', () => {
 
       const result = await transport.forkBranch('session-123', 'main', {
         fromMessageIndex: 3,
+        agentId: 'agent-1',
         name: 'Forked Branch',
       });
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:5135/sessions/session-123/branches/main/fork',
+        'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/fork',
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({

@@ -50,7 +50,7 @@ internal class BedrockProvider : IProviderFeatures
     public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null)
     {
         // Get typed config
-        var bedrockConfig = config.GetTypedProviderConfig<BedrockProviderConfig>();
+        var bedrockConfig = config.GetProviderConfig<BedrockProviderConfig>();
 
         // Resolve region from multiple sources
         string? region = bedrockConfig?.Region
@@ -77,8 +77,7 @@ internal class BedrockProvider : IProviderFeatures
         IChatClient chatClient = bedrockRuntime.AsIChatClient(modelName);
 
         // Apply client factory middleware if provided
-        if (config.AdditionalProperties?.TryGetValue("ClientFactory", out var factoryObj) == true &&
-            factoryObj is Func<IChatClient, IChatClient> clientFactory)
+        if (config.ClientFactory is { } clientFactory)
         {
             chatClient = clientFactory(chatClient);
         }
@@ -198,7 +197,7 @@ internal class BedrockProvider : IProviderFeatures
             errors.Add("Model name (model ID) is required for AWS Bedrock");
 
         // Get typed config for validation
-        var bedrockConfig = config.GetTypedProviderConfig<BedrockProviderConfig>();
+        var bedrockConfig = config.GetProviderConfig<BedrockProviderConfig>();
 
         // Validate region from multiple sources
         string? region = bedrockConfig?.Region

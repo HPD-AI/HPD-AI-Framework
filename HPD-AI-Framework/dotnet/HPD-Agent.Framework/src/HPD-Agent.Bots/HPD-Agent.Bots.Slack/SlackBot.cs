@@ -306,7 +306,7 @@ public partial class SlackBot(
             // block_id carries the sessionId set when BuildPermissionBlocks posted the message.
             if (IsPermissionAction(action.ActionId))
             {
-                var agent = agentManager.GetAgent(_config.AgentName ?? "default");
+                var agent = agentManager.GetAgent(_config.ResolveAgentId());
                 if (agent is not null)
                 {
                     var approved = action.Value == "approve";
@@ -388,9 +388,10 @@ public partial class SlackBot(
 
             var runner = new BotStreamingRunner(sessionManager, agentManager);
             var streaming = ResolveStreamingOptions();
+            var agentId = _config.ResolveAgentId();
             var started = await runner.RunAsync(
                 new BotStreamingRequest<SlackStreamContext>(
-                    AgentName: _config.AgentName ?? "default",
+                    AgentId: agentId,
                     SessionId: sessionId,
                     BranchId: branchId,
                     Text: input.Text,
@@ -585,7 +586,23 @@ public partial class SlackBot(
         Guid.TryParse(actionId, out _);
 
     private static TEvent? DeserializeEvent<TEvent>(JsonElement? element) where TEvent : class
-        => element?.Deserialize<TEvent>(SlackBotJsonContext.Default.Options);
+    {
+        if (element is null)
+            return null;
+
+        if (typeof(TEvent) == typeof(SlackMessageEvent))
+            return (TEvent?)(object?)element.Value.Deserialize(SlackBotJsonContext.Default.SlackMessageEvent);
+        if (typeof(TEvent) == typeof(SlackReactionEvent))
+            return (TEvent?)(object?)element.Value.Deserialize(SlackBotJsonContext.Default.SlackReactionEvent);
+        if (typeof(TEvent) == typeof(SlackAssistantThreadStartedEvent))
+            return (TEvent?)(object?)element.Value.Deserialize(SlackBotJsonContext.Default.SlackAssistantThreadStartedEvent);
+        if (typeof(TEvent) == typeof(SlackAssistantContextChangedEvent))
+            return (TEvent?)(object?)element.Value.Deserialize(SlackBotJsonContext.Default.SlackAssistantContextChangedEvent);
+        if (typeof(TEvent) == typeof(SlackAppHomeOpenedPayload))
+            return (TEvent?)(object?)element.Value.Deserialize(SlackBotJsonContext.Default.SlackAppHomeOpenedPayload);
+
+        throw new NotSupportedException($"Slack event type '{typeof(TEvent).Name}' is not registered.");
+    }
 
     private static Dictionary<string, string> FlattenViewState(
         Dictionary<string, Dictionary<string, SlackViewStateValue>> values)
@@ -617,7 +634,7 @@ public partial class SlackBot(
         {
             case "events_api":
             {
-                var inner = envelope.Payload?.Deserialize<SlackEventEnvelope>(SlackBotJsonContext.Default.Options);
+                var inner = envelope.Payload?.Deserialize(SlackBotJsonContext.Default.SlackEventEnvelope);
                 if (inner is null) return true;
                 switch (inner.Event?.GetProperty("type").GetString())
                 {
@@ -671,7 +688,7 @@ public partial class SlackBot(
             }
             case "interactive":
             {
-                var payload = envelope.Payload?.Deserialize<SlackBlockActionsPayload>(SlackBotJsonContext.Default.Options);
+                var payload = envelope.Payload?.Deserialize(SlackBotJsonContext.Default.SlackBlockActionsPayload);
                 if (payload is not null)
                 {
                     // Reuse the same block actions logic as the HTTP path (synthetic HttpContext not needed).
@@ -679,7 +696,7 @@ public partial class SlackBot(
                     {
                         if (IsPermissionAction(action.ActionId))
                         {
-                            var agent = agentManager.GetAgent(_config.AgentName ?? "default");
+                            var agent = agentManager.GetAgent(_config.ResolveAgentId());
                             if (agent is not null)
                             {
                                 var approved = action.Value == "approve";
@@ -750,6 +767,14 @@ public partial class SlackBot(
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackAssistantContextChangedEvent))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackAppHomeOpenedPayload))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackSlashCommandPayload))]
+// Web API helper types
+[System.Text.Json.Serialization.JsonSerializable(typeof(SlackEphemeralMessageEnvelope))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(SlackChannelInfo))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(SlackUserInfo))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(SlackUserProfile))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(SlackMessage))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(SlackSuggestedPrompt[]))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(SlackFileCompletion[]))]
 // Block Kit outbound types
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackBlock[]))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackSectionBlock))]
@@ -764,6 +789,7 @@ public partial class SlackBot(
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackConfirmationDialog))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackOption))]
 // Modal view types
+[System.Text.Json.Serialization.JsonSerializable(typeof(SlackView))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackModalView))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackModalInputBlock))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackPlainTextInput))]

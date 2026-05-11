@@ -134,7 +134,7 @@ public static class AgentBuilderExtensions
         };
 
         // Store the typed config
-        builder.Config.Provider.SetTypedProviderConfig(providerConfig);
+        builder.Config.Provider.SetProviderConfig(providerConfig);
 
         return builder;
     }

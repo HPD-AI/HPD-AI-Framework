@@ -1,10 +1,14 @@
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
+using HPD.Auth.Infrastructure.Serialization;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace HPD.Auth.Infrastructure.Data;
 
@@ -49,6 +53,7 @@ public class HPDAuthDbContext
       IDataProtectionKeyContext
 {
     private readonly ITenantContext _tenantContext;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _initializedDatabases = new();
 
     // ─────────────────────────────────────────────────────────────
     // Custom DbSets (beyond what IdentityDbContext provides)
@@ -64,7 +69,7 @@ public class HPDAuthDbContext
     public DbSet<UserIdentity> UserIdentities => Set<UserIdentity>();
 
     /// <summary>FIDO2/WebAuthn passkey credentials.</summary>
-    public DbSet<UserPasskey> UserPasskeys => Set<UserPasskey>();
+    public new DbSet<UserPasskey> UserPasskeys => Set<UserPasskey>();
 
     /// <summary>
     /// Immutable audit log. Write only — never update or delete rows.
@@ -98,9 +103,10 @@ public class HPDAuthDbContext
     /// returns Guid.Empty. In multi-tenant SaaS this is resolved from the JWT claim
     /// or HTTP header. Injected by DI — never hardcoded.
     /// </param>
-    // Track which SQLite in-memory databases have had their schema created.
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _initializedDatabases = new();
-
+    [UnconditionalSuppressMessage(
+        "AOT",
+        "IL3050",
+        Justification = "SQLite in-memory EnsureCreated is guarded by RuntimeFeature.IsDynamicCodeSupported and is skipped in Native AOT.")]
     public HPDAuthDbContext(
         DbContextOptions<HPDAuthDbContext> options,
         ITenantContext tenantContext)
@@ -112,14 +118,22 @@ public class HPDAuthDbContext
         // EnsureCreated is idempotent but expensive to call every time,
         // so we track initialization per connection string.
         var connStr = Database.GetConnectionString();
-        if (connStr != null && connStr.Contains("mode=memory", StringComparison.OrdinalIgnoreCase))
+        if (RuntimeFeature.IsDynamicCodeSupported
+            && connStr != null
+            && connStr.Contains("mode=memory", StringComparison.OrdinalIgnoreCase))
         {
             _initializedDatabases.GetOrAdd(connStr, _ =>
             {
-                Database.EnsureCreated();
+                EnsureInMemorySchemaCreated(Database);
                 return true;
             });
         }
+    }
+
+    [RequiresDynamicCode("EnsureCreated builds the EF design-time model and is only used for dynamic-code SQLite in-memory development/test databases.")]
+    private static void EnsureInMemorySchemaCreated(DatabaseFacade database)
+    {
+        database.EnsureCreated();
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -179,8 +193,12 @@ public class HPDAuthDbContext
             // mutations (e.g., list.Remove / list.Add) and marks the entity dirty.
             entity.Property(u => u.RequiredActions)
                   .HasConversion(
-                      v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
-                      v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new List<string>())
+                      v => System.Text.Json.JsonSerializer.Serialize(
+                          v,
+                          HPDAuthInfrastructureJsonSerializerContext.Default.ListString),
+                      v => System.Text.Json.JsonSerializer.Deserialize(
+                          v,
+                          HPDAuthInfrastructureJsonSerializerContext.Default.ListString) ?? new List<string>())
                   .Metadata.SetValueComparer(new ValueComparer<List<string>>(
                       (a, b) => a != null && b != null && a.SequenceEqual(b),
                       v => v.Aggregate(0, (h, s) => HashCode.Combine(h, s.GetHashCode())),

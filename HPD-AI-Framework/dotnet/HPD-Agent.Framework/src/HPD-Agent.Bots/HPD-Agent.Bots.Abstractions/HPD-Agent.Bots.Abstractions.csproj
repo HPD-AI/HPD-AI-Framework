@@ -21,7 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="../../HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
     <!-- Source generator is a build-time analyzer, not a runtime reference -->
-    <ProjectReference Include="../HPD-Agent.Bots.SourceGenerator/HPD-Agent.Bots.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../HPD-Agent.Bots.SourceGenerator/HPD-Agent.Bots.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier" AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
   </ItemGroup>
 
   <ItemGroup>

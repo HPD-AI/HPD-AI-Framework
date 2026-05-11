@@ -184,6 +184,7 @@ describe('AgentClient.run() — runConfig threading', () => {
     await client.run({
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'sess-1',
+      agentId: 'agent-1',
       branchId: 'main',
       text: 'hi',
       runConfig,
@@ -208,6 +209,7 @@ describe('AgentClient.run() — runConfig threading', () => {
     await client.run({
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'sess-1',
+      agentId: 'agent-1',
       branchId: 'main',
       text: 'hi',
     }, { signal }).catch(() => {});
@@ -245,6 +247,7 @@ describe('SseTransport — runConfig in POST body', () => {
     await transport.run({
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'sess-1',
+      agentId: 'agent-1',
       branchId: 'main',
       text: 'hi',
       runConfig,
@@ -274,6 +277,7 @@ describe('SseTransport — runConfig in POST body', () => {
     await transport.run({
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'sess-1',
+      agentId: 'agent-1',
       branchId: 'main',
       text: 'hi',
     }).catch(() => {});

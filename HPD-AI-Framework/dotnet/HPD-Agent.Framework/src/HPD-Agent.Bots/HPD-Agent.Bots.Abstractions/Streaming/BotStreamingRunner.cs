@@ -2,12 +2,13 @@ using System.Text;
 using HPD.Agent;
 using HPD.Agent.Bots.Cards;
 using HPD.Agent.Hosting.Lifecycle;
+using HPD.Events;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Bots.Streaming;
 
 /// <summary>Describes one platform adapter stream into an HPD agent.</summary>
-/// <param name="AgentName">Agent definition name or ID to run.</param>
+/// <param name="AgentId">Agent definition ID to run.</param>
 /// <param name="SessionId">Session scope for the user input.</param>
 /// <param name="BranchId">Branch scope for the user input.</param>
 /// <param name="Text">Plain user input text sent to the agent.</param>
@@ -15,15 +16,17 @@ namespace HPD.Agent.Bots.Streaming;
 /// <param name="Strategy">How streamed agent output is delivered to the platform.</param>
 /// <param name="DebounceMs">Minimum time between streaming text update callbacks.</param>
 /// <param name="Attachments">Optional binary user attachments for the agent turn.</param>
+/// <param name="RunConfig">Optional runtime configuration for this agent turn.</param>
 public sealed record BotStreamingRequest<TContext>(
-    string AgentName,
+    string AgentId,
     string SessionId,
     string BranchId,
     string Text,
     TContext Context,
     StreamingStrategy Strategy,
     int DebounceMs,
-    IReadOnlyList<DataContent>? Attachments = null);
+    IReadOnlyList<DataContent>? Attachments = null,
+    AgentRunConfig? RunConfig = null);
 
 /// <summary>
 /// Platform-specific operations used by <see cref="BotStreamingRunner"/> while
@@ -75,11 +78,13 @@ public sealed class BotStreamingRunner(
             if (callbacks.InitializeAsync is not null)
                 await callbacks.InitializeAsync(request.Context, ct);
 
-            var agent = await agentManager.GetOrBuildAgentAsync(request.AgentName, ct);
+            var agent = await agentManager.GetOrBuildAgentAsync(request.AgentId, ct);
             var buffer = new StringBuilder();
             using var debounce = new BotDebounceTimer(request.DebounceMs);
 
-            using var subscription = agent.SubscribeAny((Func<AgentEvent, Task>)(async evt =>
+            await using var subscription = agent.EventCoordinator.SubscribeStream<AgentEvent>();
+
+            async Task HandleEventAsync(AgentEvent evt)
             {
                 switch (evt)
                 {
@@ -111,40 +116,80 @@ public sealed class BotStreamingRunner(
                             await callbacks.HandlePermissionAsync(request.Context, agent, permission, ct);
                         break;
                 }
-            }));
-
-            if (request.Attachments is { Count: > 0 })
-            {
-                var contents = new List<AIContent>();
-                if (!string.IsNullOrWhiteSpace(request.Text))
-                    contents.Add(new TextContent(request.Text));
-                contents.AddRange(request.Attachments);
-
-                await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, contents)])
-                {
-                    SessionId = request.SessionId,
-                    BranchId = request.BranchId,
-                    RunConfig = new AgentRunConfig
-                    {
-                        UserMessage = request.Text,
-                        Attachments = request.Attachments,
-                    },
-                }, ct);
             }
-            else
-            {
-                await agent.RunAsync(new UserTextInputEvent(request.Text)
-                {
-                    SessionId = request.SessionId,
-                    BranchId = request.BranchId,
-                }, ct);
-            }
+
+            var runTask = RunAgentAsync(agent, request, ct);
+            await DrainEventsUntilRunCompletesAsync(subscription, runTask, HandleEventAsync, ct);
+            await runTask.ConfigureAwait(false);
 
             return true;
         }
         finally
         {
             sessionManager.ReleaseStreamLock(request.SessionId, request.BranchId);
+        }
+    }
+
+    private static async Task RunAgentAsync<TContext>(
+        Agent agent,
+        BotStreamingRequest<TContext> request,
+        CancellationToken ct)
+    {
+        if (request.Attachments is { Count: > 0 })
+        {
+            var contents = new List<AIContent>();
+            if (!string.IsNullOrWhiteSpace(request.Text))
+                contents.Add(new TextContent(request.Text));
+            contents.AddRange(request.Attachments);
+
+            var runConfig = request.RunConfig ?? new AgentRunConfig();
+            runConfig.UserMessage ??= request.Text;
+            runConfig.Attachments ??= request.Attachments;
+
+            await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, contents)])
+            {
+                AgentId = request.AgentId,
+                SessionId = request.SessionId,
+                BranchId = request.BranchId,
+                RunConfig = runConfig,
+            }, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            await agent.RunAsync(new UserTextInputEvent(request.Text)
+            {
+                AgentId = request.AgentId,
+                SessionId = request.SessionId,
+                BranchId = request.BranchId,
+                RunConfig = request.RunConfig,
+            }, ct).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task DrainEventsUntilRunCompletesAsync(
+        EventStreamSubscription<AgentEvent> subscription,
+        Task runTask,
+        Func<AgentEvent, Task> handleEventAsync,
+        CancellationToken ct)
+    {
+        while (true)
+        {
+            while (subscription.Reader.TryRead(out var evt))
+                await handleEventAsync(evt).ConfigureAwait(false);
+
+            if (runTask.IsCompleted)
+                return;
+
+            var waitForEventTask = subscription.Reader.WaitToReadAsync(ct).AsTask();
+            var completed = await Task.WhenAny(runTask, waitForEventTask).ConfigureAwait(false);
+            if (completed == runTask)
+            {
+                await runTask.ConfigureAwait(false);
+                continue;
+            }
+
+            if (!await waitForEventTask.ConfigureAwait(false))
+                return;
         }
     }
 }

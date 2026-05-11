@@ -57,6 +57,7 @@ describe('AgentClient', () => {
       type: EventTypes.USER_TEXT_INPUT,
       text: 'Hi',
       sessionId: 'session-123',
+      agentId: 'agent-1',
       branchId: 'main',
     });
 
@@ -85,6 +86,7 @@ describe('AgentClient', () => {
       type: EventTypes.USER_TEXT_INPUT,
       text: 'Hi',
       sessionId: 'session-123',
+      agentId: 'agent-1',
       branchId: 'main',
     });
 
@@ -101,22 +103,47 @@ describe('AgentClient', () => {
       type: EventTypes.USER_TEXT_INPUT,
       text: 'Hello',
       sessionId: 'session-123',
-      branchId: 'main',
       agentId: 'agent-1',
+      branchId: 'main',
       runConfig,
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/sessions/session-123/branches/main/stream',
+      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/stream',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
-          type: EventTypes.USER_TEXT_INPUT,
           text: 'Hello',
-          sessionId: 'session-123',
-          branchId: 'main',
-          agentId: 'agent-1',
           runConfig,
+        }),
+      })
+    );
+  });
+
+  it('passes configured headers and credentials through HTTP transports', async () => {
+    const client = new AgentClient({
+      baseUrl: 'http://localhost:5135',
+      headers: { Authorization: 'Bearer test-token' },
+      credentials: 'include',
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okStream());
+
+    await client.run({
+      type: EventTypes.USER_TEXT_INPUT,
+      text: 'Hello',
+      sessionId: 'session-123',
+      agentId: 'agent-1',
+      branchId: 'main',
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/stream',
+      expect.objectContaining({
+        credentials: 'include',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer test-token',
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
         }),
       })
     );
@@ -129,7 +156,7 @@ describe('AgentClient', () => {
       text: async () => '',
     } as Response);
 
-    await client.start({ sessionId: 'session-123', branchId: 'main' });
+    await client.start({ agentId: 'agent-1', sessionId: 'session-123', branchId: 'main' });
     await client.run({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'perm-1',
@@ -139,7 +166,7 @@ describe('AgentClient', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/sessions/session-123/branches/main/permissions/respond',
+      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/permissions/respond',
       expect.objectContaining({ method: 'POST' })
     );
   });
@@ -163,6 +190,7 @@ describe('AgentClient', () => {
       type: EventTypes.USER_TEXT_INPUT,
       text: 'Hi',
       sessionId: 'session-123',
+      agentId: 'agent-1',
       branchId: 'main',
     });
 
@@ -196,11 +224,12 @@ describe('AgentClient', () => {
       type: EventTypes.USER_TEXT_INPUT,
       text: 'invoke',
       sessionId: 'session-123',
+      agentId: 'agent-1',
       branchId: 'main',
     });
 
     expect(fetchSpy).toHaveBeenLastCalledWith(
-      'http://localhost:5135/sessions/session-123/branches/main/client-tools/respond',
+      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/client-tools/respond',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
@@ -253,6 +282,7 @@ describe('AgentClient', () => {
       type: EventTypes.USER_TEXT_INPUT,
       text: 'Hi',
       sessionId: 'session-123',
+      agentId: 'agent-1',
       branchId: 'main',
     });
 
@@ -283,6 +313,7 @@ describe('AgentClient', () => {
       type: EventTypes.USER_TEXT_INPUT,
       text: 'Hi',
       sessionId: 'session-123',
+      agentId: 'agent-1',
       branchId: 'main',
     });
 

@@ -1,6 +1,11 @@
 // Copyright (c) 2025 Einstein Essibu. All rights reserved.
 
 using HPD.Agent.Audio;
+using HPD.Agent.Audio.Output;
+using HPD.Agent.Audio.Preemptive;
+using HPD.Agent.Audio.Recognition;
+using HPD.Agent.Audio.Serialization;
+using HPD.Agent.Audio.Turn;
 using HPD.Events;
 using System.Text.Json;
 using Xunit;
@@ -87,6 +92,150 @@ public class AudioEventsTests
     }
 
     [Fact]
+    public void AudioInputFrame_WithSequenceNumber_ReturnsSequencedCopy()
+    {
+        var frame = new AudioInputFrame(
+            SessionId: "session-1",
+            BranchId: "main",
+            Audio: new byte[] { 1, 2, 3 },
+            MimeType: "audio/pcm",
+            TimestampNs: 123,
+            IsFinal: false);
+
+        var sequenced = frame.WithSequenceNumber(42);
+
+        Assert.Equal(0, frame.SequenceNumber);
+        Assert.Equal(42, sequenced.SequenceNumber);
+        Assert.Equal(frame.Audio, sequenced.Audio);
+    }
+
+    [Fact]
+    public void SpeechRecognitionFinalEvent_CanBeCreated()
+    {
+        var context = CreateRecognitionContext();
+        var transcript = new SpeechRecognitionTranscript(
+            Text: "Hello world",
+            Confidence: 0.94f,
+            Language: "en",
+            TranscriptRevisionId: "rev-1");
+
+        var evt = new SpeechRecognitionFinalEvent
+        {
+            Context = context,
+            Transcript = transcript
+        };
+
+        Assert.Equal(context, evt.Context);
+        Assert.Equal("Hello world", evt.Transcript.Text);
+        Assert.Equal(EventChannel.Synchronous, evt.Channel);
+    }
+
+    [Fact]
+    public void SpeechRecognitionEvent_SerializesWithType()
+    {
+        var evt = new SpeechRecognitionInterimEvent
+        {
+            Context = CreateRecognitionContext(),
+            Transcript = new SpeechRecognitionTranscript("Hel")
+        };
+
+        var json = AudioEventSerializer.ToJson(evt);
+
+        Assert.Contains("\"type\":\"SPEECH_RECOGNITION_INTERIM\"", json);
+        Assert.Contains("\"text\":\"Hel\"", json);
+    }
+
+    [Fact]
+    public void SpeechOutputAudioQueuedEvent_CanBeCreated()
+    {
+        var context = CreateOutputContext();
+        var frame = new AudioChunkFrame(
+            SynthesisId: "synth-1",
+            Audio: new byte[] { 1, 2, 3 },
+            MimeType: "audio/mpeg",
+            ChunkIndex: 0,
+            Duration: TimeSpan.FromMilliseconds(80),
+            IsLast: false,
+            TimestampNs: 123,
+            SequenceNumber: 7);
+        var state = new SpeechOutputState
+        {
+            GeneratedDuration = frame.Duration,
+            QueuedDuration = frame.Duration,
+            QueuedChunks = 1,
+            EmittedChunks = 1
+        };
+
+        var evt = new SpeechOutputAudioQueuedEvent
+        {
+            Context = context,
+            Frame = frame,
+            State = state
+        };
+
+        Assert.Equal(context, evt.Context);
+        Assert.Equal(frame, evt.Frame);
+        Assert.Equal(1, evt.State.QueuedChunks);
+        Assert.Equal(EventChannel.Streaming, evt.Channel);
+    }
+
+    [Fact]
+    public void SpeechOutputEvent_SerializesWithType()
+    {
+        var evt = new SpeechOutputTextQueuedEvent
+        {
+            Context = CreateOutputContext(),
+            Text = "Hello from output"
+        };
+
+        var json = AudioEventSerializer.ToJson(evt);
+
+        Assert.Contains("\"type\":\"SPEECH_OUTPUT_TEXT_QUEUED\"", json);
+        Assert.Contains("\"text\":\"Hello from output\"", json);
+    }
+
+    [Fact]
+    public void UserTurnCommittedEvent_CanBeCreated()
+    {
+        var transcript = new SpeechRecognitionTranscript(
+            Text: "Please continue.",
+            Confidence: 0.9f,
+            TranscriptRevisionId: "rev-1");
+        var evt = new UserTurnCommittedEvent
+        {
+            Context = CreateTurnContext(),
+            Transcript = transcript,
+            Reason = EndpointingReason.VadEndMinDelay
+        };
+
+        Assert.Equal("turn-1", evt.Context.TurnId);
+        Assert.Equal("Please continue.", evt.Transcript.Text);
+        Assert.Equal(EndpointingReason.VadEndMinDelay, evt.Reason);
+        Assert.Equal(EventChannel.Synchronous, evt.Channel);
+    }
+
+    [Fact]
+    public void UserTurnEvent_SerializesWithType()
+    {
+        var evt = new UserTurnReadyEvent
+        {
+            Context = CreateTurnContext(),
+            Transcript = new SpeechRecognitionTranscript("Hello."),
+            Decision = new EndpointingDecision
+            {
+                Delay = TimeSpan.FromMilliseconds(300),
+                EotProbability = 0.9f,
+                Reason = EndpointingReason.EotHighConfidence
+            }
+        };
+
+        var json = AudioEventSerializer.ToJson(evt);
+
+        Assert.Contains("\"type\":\"USER_TURN_READY\"", json);
+        Assert.Contains("\"reason\":\"eot_high_confidence\"", json);
+    }
+
+    [Fact]
     public void UserInterruptedEvent_CanBeCreated()
     {
         // Act
@@ -132,22 +281,35 @@ public class AudioEventsTests
     public void PreemptiveGenerationStartedEvent_CanBeCreated()
     {
         // Act
-        var evt = new PreemptiveGenerationStartedEvent("gen-123", 0.85f);
+        var candidate = new PreemptiveGenerationCandidate
+        {
+            GenerationId = "gen-123",
+            RecognitionId = "rec-1",
+            UtteranceId = "utt-1",
+            TranscriptRevisionId = "rev-1",
+            TranscriptText = "Hello",
+            Confidence = 0.85f,
+            CreatedAt = DateTimeOffset.UnixEpoch
+        };
+        var evt = new PreemptiveGenerationStartedEvent(candidate);
 
         // Assert
         Assert.Equal("gen-123", evt.GenerationId);
         Assert.Equal(0.85f, evt.EndOfTurnProbability);
+        Assert.Equal(candidate, evt.Candidate);
     }
 
     [Fact]
     public void PreemptiveGenerationDiscardedEvent_CanBeCreated()
     {
         // Act
-        var evt = new PreemptiveGenerationDiscardedEvent("gen-123", "user_continued");
+        var evt = new PreemptiveGenerationDiscardedEvent(
+            "gen-123",
+            PreemptiveGenerationReason.UserContinued);
 
         // Assert
         Assert.Equal("gen-123", evt.GenerationId);
-        Assert.Equal("user_continued", evt.Reason);
+        Assert.Equal(PreemptiveGenerationReason.UserContinued, evt.Reason);
     }
 
     [Fact]
@@ -191,6 +353,44 @@ public class AudioEventsTests
         Assert.Equal("time_to_first_audio", evt.MetricName);
         Assert.Equal(150.5, evt.Value);
         Assert.Equal("ms", evt.Unit);
+    }
+
+    [Fact]
+    public void AudioExperienceMetricEvent_CanBeCreated()
+    {
+        // Act
+        var evt = new AudioExperienceMetricEvent(
+            "playback_completion_ratio",
+            0.75,
+            "ratio",
+            SpeechId: "speech-1",
+            OutputStreamId: "stream-1");
+
+        // Assert
+        Assert.Equal("playback_completion_ratio", evt.MetricName);
+        Assert.Equal(0.75, evt.Value);
+        Assert.Equal("ratio", evt.Unit);
+        Assert.Equal("speech-1", evt.SpeechId);
+        Assert.Equal("stream-1", evt.OutputStreamId);
+        Assert.Equal(EventKind.Diagnostic, evt.Kind);
+        Assert.Equal(EventChannel.Streaming, evt.Channel);
+    }
+
+    [Fact]
+    public void AudioExperienceMetricEvent_SerializesWithDiscriminator()
+    {
+        // Arrange
+        var evt = new AudioExperienceMetricEvent(
+            "audio_played_duration",
+            120,
+            "ms");
+
+        // Act
+        var json = AudioEventSerializer.ToJson(evt);
+
+        // Assert
+        Assert.Contains("\"type\":\"AUDIO_EXPERIENCE_METRIC\"", json);
+        Assert.Contains("\"metricName\":\"audio_played_duration\"", json);
     }
 
     [Fact]
@@ -238,8 +438,14 @@ public class AudioEventsTests
         Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(VadStartOfSpeechEvent)));
         Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(VadEndOfSpeechEvent)));
         Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(AudioPipelineMetricsEvent)));
+        Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(AudioExperienceMetricEvent)));
         Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(EotDetectedEvent)));
         Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(FillerAudioPlayedEvent)));
+        Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(SpeechOutputStartedEvent)));
+        Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(SpeechOutputAudioQueuedEvent)));
+        Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(SpeechOutputCompletedEvent)));
+        Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(UserTurnStartedEvent)));
+        Assert.True(typeof(AgentEvent).IsAssignableFrom(typeof(UserTurnCommittedEvent)));
     }
 
     [Fact]
@@ -264,6 +470,49 @@ public class AudioEventsTests
         Assert.Equal("stream-456", evt.StreamId);
         Assert.True(evt.CanInterrupt);
     }
+
+    private static SpeechRecognitionContext CreateRecognitionContext() =>
+        new(
+            RuntimeId: "runtime-1",
+            SessionId: "session-1",
+            BranchId: "main",
+            UtteranceId: "utt-1",
+            RecognitionId: "rec-1",
+            SegmentId: "seg-1",
+            ProviderRequestId: "provider-request-1",
+            Provider: "test",
+            Model: "test-model",
+            SequenceNumber: 7,
+            TimestampNs: 123,
+            ObservedAt: DateTimeOffset.UnixEpoch);
+
+    private static SpeechOutputContext CreateOutputContext() =>
+        new(
+            RuntimeId: "runtime-1",
+            SessionId: "session-1",
+            BranchId: "main",
+            SpeechId: "speech-1",
+            StreamId: "stream-1",
+            SynthesisId: "synth-1",
+            Provider: "test",
+            Model: "test-model",
+            Voice: "voice-1",
+            SequenceNumber: 7,
+            TimestampNs: 123,
+            ObservedAt: DateTimeOffset.UnixEpoch);
+
+    private static UserTurnContext CreateTurnContext() =>
+        new(
+            RuntimeId: "runtime-1",
+            SessionId: "session-1",
+            BranchId: "main",
+            TurnId: "turn-1",
+            UtteranceId: "utt-1",
+            RecognitionId: "rec-1",
+            TranscriptRevisionId: "rev-1",
+            SequenceNumber: 7,
+            TimestampNs: 123,
+            ObservedAt: DateTimeOffset.UnixEpoch);
 
     [Fact]
     public void SynthesisCompletedEvent_CanSetControlChannel()

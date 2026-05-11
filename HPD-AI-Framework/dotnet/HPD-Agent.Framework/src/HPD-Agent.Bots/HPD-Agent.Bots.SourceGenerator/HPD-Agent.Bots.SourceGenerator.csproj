@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="PublishAot;SelfContained;RuntimeIdentifier">
 
   <PropertyGroup>
     <PackageId>HPD-Agent.Bots.SourceGenerator</PackageId>
@@ -13,6 +13,9 @@
     <IsRoslynComponent>true</IsRoslynComponent>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <NoWarn>CS8600;CS8601;CS8602;CS8604;RS2008;CS1591</NoWarn>
+    <PublishAot>false</PublishAot>
+    <SelfContained>false</SelfContained>
+    <RuntimeIdentifier></RuntimeIdentifier>
     <!-- Not packaged standalone — included as analyzer in HPD-Agent.Bots.Abstractions -->
     <IsPackable>false</IsPackable>
   </PropertyGroup>

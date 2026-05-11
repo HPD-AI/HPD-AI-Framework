@@ -1,2 +1,19 @@
 **/obj/
 **/bin/
+
+# OS/editor noise
+.DS_Store
+**/.DS_Store
+
+# HPDOS generated publish/build output
+HPDOS/backend/artifacts/
+
+# HPDOS local runtime state
+HPDOS/backend/.hpdos/sessions/
+HPDOS/backend/.hpdos/auth/
+HPDOS/backend/.hpdos/**/*.db
+HPDOS/backend/.hpdos/**/*.db-shm
+HPDOS/backend/.hpdos/**/*.db-wal
+HPDOS/backend/.hpdos/**/*.sqlite
+HPDOS/backend/.hpdos/**/*.sqlite-shm
+HPDOS/backend/.hpdos/**/*.sqlite-wal

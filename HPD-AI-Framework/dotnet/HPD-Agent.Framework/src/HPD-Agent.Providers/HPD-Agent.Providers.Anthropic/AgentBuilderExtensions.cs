@@ -112,15 +112,8 @@ public static class AgentBuilderExtensions
         };
 
         // Store the typed config
-        builder.Config.Provider.SetTypedProviderConfig(providerConfig);
-
-        // Store the client factory if provided
-        if (clientFactory != null)
-        {
-            // Store in AdditionalProperties for the provider to retrieve during CreateChatClient
-            builder.Config.Provider.AdditionalProperties ??= new System.Collections.Generic.Dictionary<string, object>();
-            builder.Config.Provider.AdditionalProperties["ClientFactory"] = clientFactory;
-        }
+        builder.Config.Provider.SetProviderConfig(providerConfig);
+        builder.Config.Provider.ClientFactory = clientFactory;
 
         return builder;
     }

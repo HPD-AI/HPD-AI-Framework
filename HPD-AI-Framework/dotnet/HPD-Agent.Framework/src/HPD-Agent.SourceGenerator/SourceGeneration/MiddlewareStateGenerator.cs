@@ -291,7 +291,9 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
         sb.AppendLine("using System;");
+        sb.AppendLine("using System.Runtime.CompilerServices;");
         sb.AppendLine("using System.Text.Json;");
+        sb.AppendLine("using System.Text.Json.Serialization.Metadata;");
         sb.AppendLine("using HPD.Agent;");
         sb.AppendLine("using Microsoft.Extensions.AI;");
         sb.AppendLine();
@@ -318,12 +320,34 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
             sb.AppendLine($"            Version: {stateInfo.Version},");
             sb.AppendLine($"            Persistent: {(stateInfo.Persistent ? "true" : "false")},");
             sb.AppendLine($"            Scope: StateScope.{stateInfo.Scope},");
-            sb.AppendLine($"            Deserialize: json => JsonSerializer.Deserialize<{stateInfo.FullyQualifiedName}>(json, AIJsonUtilities.DefaultOptions),");
-            sb.AppendLine($"            Serialize: state => JsonSerializer.Serialize(({stateInfo.FullyQualifiedName})state, AIJsonUtilities.DefaultOptions)");
+            sb.AppendLine($"            Deserialize: json => JsonSerializer.Deserialize(json, GetJsonTypeInfo<{stateInfo.FullyQualifiedName}>()),");
+            sb.AppendLine($"            Serialize: state => JsonSerializer.Serialize(({stateInfo.FullyQualifiedName})state, GetJsonTypeInfo<{stateInfo.FullyQualifiedName}>())");
             sb.AppendLine($"        ),");
         }
 
         sb.AppendLine("    };");
+        sb.AppendLine();
+        sb.AppendLine("    private static JsonTypeInfo<T> GetJsonTypeInfo<T>()");
+        sb.AppendLine("    {");
+        sb.AppendLine("        foreach (var resolver in AIJsonUtilities.DefaultOptions.TypeInfoResolverChain)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (resolver.GetTypeInfo(typeof(T), AIJsonUtilities.DefaultOptions) is JsonTypeInfo<T> typeInfo)");
+        sb.AppendLine("                return typeInfo;");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine("        if (HPDJsonContext.Default.GetTypeInfo(typeof(T)) is JsonTypeInfo<T> hpdTypeInfo)");
+        sb.AppendLine("            return hpdTypeInfo;");
+        sb.AppendLine();
+        sb.AppendLine("        throw new NotSupportedException($\"No JSON metadata is registered for middleware state type '{typeof(T).FullName}'.\");");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("#pragma warning disable CA2255");
+        sb.AppendLine("    [ModuleInitializer]");
+        sb.AppendLine("    internal static void RegisterGeneratedCatalog()");
+        sb.AppendLine("#pragma warning restore CA2255");
+        sb.AppendLine("    {");
+        sb.AppendLine("        AgentGeneratedRegistry.Register(states: All);");
+        sb.AppendLine("    }");
         sb.AppendLine("}");
 
         context.AddSource("MiddlewareStateRegistry.g.cs", sb.ToString());

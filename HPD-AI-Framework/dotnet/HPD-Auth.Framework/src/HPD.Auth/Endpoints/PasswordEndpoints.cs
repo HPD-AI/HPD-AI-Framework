@@ -1,12 +1,14 @@
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Events;
 using HPD.Auth.Core.Interfaces;
+using HPD.Auth.Serialization;
 using HPD.Events;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Auth.Endpoints;
 
@@ -22,21 +24,138 @@ public static class PasswordEndpoints
 {
     private const int ResendCooldownMinutes = 5;
 
+    /// <summary>
+    /// Maps password recovery, OTP verification, and resend endpoints.
+    /// </summary>
     public static void Map(IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/auth");
 
-        group.MapPost("/recover", RecoverAsync)
+        group.MapPost("/recover", RecoverRequestDelegate)
              .WithName("AuthRecover")
              .WithSummary("Request a password reset email. Always returns 200 to prevent email enumeration.");
 
-        group.MapPost("/verify", VerifyAsync)
+        group.MapPost("/verify", VerifyRequestDelegate)
              .WithName("AuthVerify")
              .WithSummary("Verify an OTP token. type=recovery resets password; type=signup confirms email.");
 
-        group.MapPost("/resend", ResendAsync)
+        group.MapPost("/resend", ResendRequestDelegate)
              .WithName("AuthResend")
              .WithSummary("Resend a verification/confirmation email. Rate-limited to one request per 5 minutes.");
+    }
+
+    private static async Task RecoverRequestDelegate(HttpContext httpContext)
+    {
+        var ct = httpContext.RequestAborted;
+        RecoverRequest? request;
+        try
+        {
+            request = await AuthEndpointJson.ReadJsonAsync(
+                httpContext,
+                HPDAuthJsonSerializerContext.Default.RecoverRequest,
+                ct);
+        }
+        catch
+        {
+            await AuthEndpointJson.BadRequest(new AuthError("invalid_request", "Malformed request body."))
+                .ExecuteAsync(httpContext);
+            return;
+        }
+
+        if (request is null)
+        {
+            await AuthEndpointJson.BadRequest(new AuthError("invalid_request", "Request body is required."))
+                .ExecuteAsync(httpContext);
+            return;
+        }
+
+        var services = httpContext.RequestServices;
+        var result = await RecoverAsync(
+            request,
+            services.GetRequiredService<UserManager<ApplicationUser>>(),
+            services.GetRequiredService<IHPDAuthEmailSender>(),
+            services.GetRequiredService<IEventCoordinator>(),
+            services.GetRequiredService<IAuditLogger>(),
+            httpContext,
+            ct);
+
+        await result.ExecuteAsync(httpContext);
+    }
+
+    private static async Task VerifyRequestDelegate(HttpContext httpContext)
+    {
+        var ct = httpContext.RequestAborted;
+        VerifyRequest? request;
+        try
+        {
+            request = await AuthEndpointJson.ReadJsonAsync(
+                httpContext,
+                HPDAuthJsonSerializerContext.Default.VerifyRequest,
+                ct);
+        }
+        catch
+        {
+            await AuthEndpointJson.BadRequest(new AuthError("invalid_request", "Malformed request body."))
+                .ExecuteAsync(httpContext);
+            return;
+        }
+
+        if (request is null)
+        {
+            await AuthEndpointJson.BadRequest(new AuthError("invalid_request", "Request body is required."))
+                .ExecuteAsync(httpContext);
+            return;
+        }
+
+        var services = httpContext.RequestServices;
+        var result = await VerifyAsync(
+            request,
+            services.GetRequiredService<UserManager<ApplicationUser>>(),
+            services.GetRequiredService<ITokenService>(),
+            services.GetRequiredService<IEventCoordinator>(),
+            services.GetRequiredService<IAuditLogger>(),
+            httpContext,
+            ct);
+
+        await result.ExecuteAsync(httpContext);
+    }
+
+    private static async Task ResendRequestDelegate(HttpContext httpContext)
+    {
+        var ct = httpContext.RequestAborted;
+        ResendRequest? request;
+        try
+        {
+            request = await AuthEndpointJson.ReadJsonAsync(
+                httpContext,
+                HPDAuthJsonSerializerContext.Default.ResendRequest,
+                ct);
+        }
+        catch
+        {
+            await AuthEndpointJson.BadRequest(new AuthError("invalid_request", "Malformed request body."))
+                .ExecuteAsync(httpContext);
+            return;
+        }
+
+        if (request is null)
+        {
+            await AuthEndpointJson.BadRequest(new AuthError("invalid_request", "Request body is required."))
+                .ExecuteAsync(httpContext);
+            return;
+        }
+
+        var services = httpContext.RequestServices;
+        var result = await ResendAsync(
+            request,
+            services.GetRequiredService<UserManager<ApplicationUser>>(),
+            services.GetRequiredService<IHPDAuthEmailSender>(),
+            services.GetRequiredService<IAuditLogger>(),
+            services.GetRequiredService<IMemoryCache>(),
+            httpContext,
+            ct);
+
+        await result.ExecuteAsync(httpContext);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -55,7 +174,9 @@ public static class PasswordEndpoints
         const string successMessage = "If your email is registered, you will receive a reset link.";
 
         if (string.IsNullOrWhiteSpace(request.Email))
-            return Results.Ok(new { message = successMessage });
+            return AuthEndpointJson.Ok(
+                new MessageResponse(successMessage),
+                HPDAuthJsonSerializerContext.Default.MessageResponse);
 
         var user = await userManager.FindByEmailAsync(request.Email);
 
@@ -66,12 +187,12 @@ public static class PasswordEndpoints
 
             var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
 
-            eventCoordinator.Emit(new PasswordResetRequestedEvent
+            await eventCoordinator.EmitAsync(new PasswordResetRequestedEvent
             {
                 UserId = user.Id,
                 Email = user.Email!,
                 AuthContext = new AuthExecutionContext { IpAddress = ipAddress },
-            });
+            }, ct);
 
             await auditLogger.LogAsync(new AuditLogEntry(
                 Action: AuditActions.PasswordResetRequest,
@@ -79,11 +200,13 @@ public static class PasswordEndpoints
                 Success: true,
                 UserId: user.Id,
                 IpAddress: ipAddress,
-                Metadata: new { email = request.Email }
+                Metadata: new Dictionary<string, string?> { ["email"] = request.Email }
             ), ct);
         }
 
-        return Results.Ok(new { message = successMessage });
+        return AuthEndpointJson.Ok(
+            new MessageResponse(successMessage),
+            HPDAuthJsonSerializerContext.Default.MessageResponse);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -100,10 +223,10 @@ public static class PasswordEndpoints
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(request.Token))
-            return Results.BadRequest(new AuthError("invalid_request", "token is required."));
+            return AuthEndpointJson.BadRequest(new AuthError("invalid_request", "token is required."));
 
         if (string.IsNullOrWhiteSpace(request.Type))
-            return Results.BadRequest(new AuthError("invalid_request", "type is required (recovery|signup|email_change)."));
+            return AuthEndpointJson.BadRequest(new AuthError("invalid_request", "type is required (recovery|signup|email_change)."));
 
         var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
 
@@ -116,7 +239,7 @@ public static class PasswordEndpoints
                                   request, userManager, auditLogger, ipAddress, ct),
             "email_change" => await HandleEmailChangeVerifyAsync(
                                   request, userManager, auditLogger, ipAddress, ct),
-            _              => Results.BadRequest(new AuthError(
+            _              => AuthEndpointJson.BadRequest(new AuthError(
                                   "invalid_request",
                                   $"Unknown type '{request.Type}'. Expected 'recovery', 'signup', or 'email_change'."))
         };
@@ -132,19 +255,19 @@ public static class PasswordEndpoints
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Email))
-            return Results.BadRequest(new AuthError("invalid_request", "email is required for type=recovery."));
+            return AuthEndpointJson.BadRequest(new AuthError("invalid_request", "email is required for type=recovery."));
 
         if (string.IsNullOrWhiteSpace(request.NewPassword))
-            return Results.BadRequest(new AuthError("invalid_request", "new_password is required for type=recovery."));
+            return AuthEndpointJson.BadRequest(new AuthError("invalid_request", "new_password is required for type=recovery."));
 
         var user = await userManager.FindByEmailAsync(request.Email);
         if (user is null)
-            return Results.BadRequest(new AuthError("invalid_grant", "Invalid or expired reset token."));
+            return AuthEndpointJson.BadRequest(new AuthError("invalid_grant", "Invalid or expired reset token."));
 
         var result = await userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
         if (!result.Succeeded)
         {
-            return Results.BadRequest(new AuthError(
+            return AuthEndpointJson.BadRequest(new AuthError(
                 "invalid_grant",
                 string.Join("; ", result.Errors.Select(e => e.Description))));
         }
@@ -152,11 +275,11 @@ public static class PasswordEndpoints
         await userManager.UpdateSecurityStampAsync(user);
         await tokenService.RevokeAllForUserAsync(user.Id, ct);
 
-        eventCoordinator.Emit(new PasswordChangedEvent
+        await eventCoordinator.EmitAsync(new PasswordChangedEvent
         {
             UserId = user.Id,
             AuthContext = new AuthExecutionContext { IpAddress = ipAddress },
-        });
+        }, ct);
 
         await auditLogger.LogAsync(new AuditLogEntry(
             Action: AuditActions.PasswordReset,
@@ -164,10 +287,12 @@ public static class PasswordEndpoints
             Success: true,
             UserId: user.Id,
             IpAddress: ipAddress,
-            Metadata: new { email = request.Email }
+            Metadata: new Dictionary<string, string?> { ["email"] = request.Email }
         ), ct);
 
-        return Results.Ok(new { message = "Password has been reset successfully." });
+        return AuthEndpointJson.Ok(
+            new MessageResponse("Password has been reset successfully."),
+            HPDAuthJsonSerializerContext.Default.MessageResponse);
     }
 
     private static async Task<IResult> HandleSignupVerifyAsync(
@@ -178,16 +303,16 @@ public static class PasswordEndpoints
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Email))
-            return Results.BadRequest(new AuthError("invalid_request", "email is required for type=signup."));
+            return AuthEndpointJson.BadRequest(new AuthError("invalid_request", "email is required for type=signup."));
 
         var user = await userManager.FindByEmailAsync(request.Email);
         if (user is null)
-            return Results.BadRequest(new AuthError("invalid_grant", "Invalid confirmation token."));
+            return AuthEndpointJson.BadRequest(new AuthError("invalid_grant", "Invalid confirmation token."));
 
         var result = await userManager.ConfirmEmailAsync(user, request.Token);
         if (!result.Succeeded)
         {
-            return Results.BadRequest(new AuthError(
+            return AuthEndpointJson.BadRequest(new AuthError(
                 "invalid_grant",
                 string.Join("; ", result.Errors.Select(e => e.Description))));
         }
@@ -202,10 +327,12 @@ public static class PasswordEndpoints
             Success: true,
             UserId: user.Id,
             IpAddress: ipAddress,
-            Metadata: new { email = request.Email }
+            Metadata: new Dictionary<string, string?> { ["email"] = request.Email }
         ), ct);
 
-        return Results.Ok(new { message = "Email confirmed successfully." });
+        return AuthEndpointJson.Ok(
+            new MessageResponse("Email confirmed successfully."),
+            HPDAuthJsonSerializerContext.Default.MessageResponse);
     }
 
     private static async Task<IResult> HandleEmailChangeVerifyAsync(
@@ -232,7 +359,9 @@ public static class PasswordEndpoints
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(request.Email))
-            return Results.Ok(new { message = "If your email is registered, a verification email has been sent." });
+            return AuthEndpointJson.Ok(
+                new MessageResponse("If your email is registered, a verification email has been sent."),
+                HPDAuthJsonSerializerContext.Default.MessageResponse);
 
         var cacheKey = $"resend:{request.Type}:{request.Email.ToLowerInvariant()}";
         if (cache.TryGetValue(cacheKey, out _))
@@ -254,11 +383,17 @@ public static class PasswordEndpoints
                 Success: true,
                 UserId: user.Id,
                 IpAddress: ipAddress,
-                Metadata: new { email = request.Email, type = request.Type }
+                Metadata: new Dictionary<string, string?>
+                {
+                    ["email"] = request.Email,
+                    ["type"] = request.Type
+                }
             ), ct);
         }
 
-        return Results.Ok(new { message = "If your email is registered, a verification email has been sent." });
+        return AuthEndpointJson.Ok(
+            new MessageResponse("If your email is registered, a verification email has been sent."),
+            HPDAuthJsonSerializerContext.Default.MessageResponse);
     }
 }
 

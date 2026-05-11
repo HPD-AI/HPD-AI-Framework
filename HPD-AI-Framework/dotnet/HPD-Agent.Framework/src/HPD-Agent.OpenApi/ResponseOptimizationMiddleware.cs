@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization;
 using HPD.Agent.Middleware;
 using HPD.OpenApi.Core;
 
@@ -29,11 +28,6 @@ public sealed class ResponseOptimizationMiddleware : IAgentMiddleware
     /// </summary>
     public int DefaultMaxLength { get; set; } = 4000;
 
-    private static readonly JsonSerializerOptions s_serializeOptions = new()
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-    };
-
     public Task AfterFunctionAsync(AfterFunctionContext context, CancellationToken ct)
     {
         if (!context.IsSuccess) return Task.CompletedTask;
@@ -47,8 +41,46 @@ public sealed class ResponseOptimizationMiddleware : IAgentMiddleware
         // then re-serialize the whole envelope so the LLM sees:
         // { "content": <processed>, "status": 200, "expectedSchema": {...} }
         response.Content = ProcessContent(response.Content, props);
-        context.Result = JsonSerializer.Serialize(response, s_serializeOptions);
+        context.Result = SerializeResponse(response);
         return Task.CompletedTask;
+    }
+
+    private static string SerializeResponse(OpenApiOperationResponse response)
+    {
+        var envelope = new JsonObject
+        {
+            ["content"] = ToJsonNode(response.Content),
+            ["status"] = response.StatusCode
+        };
+
+        if (response.ExpectedSchema.HasValue)
+            envelope["expectedSchema"] = JsonNode.Parse(response.ExpectedSchema.Value.GetRawText());
+
+        return envelope.ToJsonString();
+    }
+
+    private static JsonNode? ToJsonNode(object? value)
+    {
+        return value switch
+        {
+            null => null,
+            JsonNode node => node.DeepClone(),
+            JsonElement element => JsonNode.Parse(element.GetRawText()),
+            string str => JsonValue.Create(str),
+            bool boolean => JsonValue.Create(boolean),
+            byte number => JsonValue.Create(number),
+            sbyte number => JsonValue.Create(number),
+            short number => JsonValue.Create(number),
+            ushort number => JsonValue.Create(number),
+            int number => JsonValue.Create(number),
+            uint number => JsonValue.Create(number),
+            long number => JsonValue.Create(number),
+            ulong number => JsonValue.Create(number),
+            float number => JsonValue.Create(number),
+            double number => JsonValue.Create(number),
+            decimal number => JsonValue.Create(number),
+            _ => JsonValue.Create(value.ToString())
+        };
     }
 
     /// <summary>

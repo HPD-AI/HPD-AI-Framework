@@ -26,6 +26,12 @@ app.Run();
 
 `AddTeamsBot()` also registers the SDK's M365 attachment downloader. Teams file uploads are downloaded by the Agents SDK and exposed through turn-state input files before HPD message processing runs.
 
+Graph-backed history APIs are opt-in. Register them only when the host already has a configured Microsoft Graph client:
+
+```csharp
+builder.Services.AddTeamsGraphHistory(graphClient);
+```
+
 ## Configuration Shape
 
 The host app must also provide the Agents SDK auth settings expected by `Microsoft.Agents.Hosting.AspNetCore`. The exact values depend on tenant/app registration, but the shape mirrors the official M365 Agents samples:
@@ -69,4 +75,4 @@ The host app must also provide the Agents SDK auth settings expected by `Microso
 }
 ```
 
-Inbound turns persist `teams.conversationReference` into HPD session metadata so proactive flows have the SDK conversation material available later. Live proactive DM and Graph history behavior still need validation against a real Microsoft 365 tenant.
+Inbound turns persist compact Teams routing metadata such as `teams.conversationId`, `teams.serviceUrl`, `teams.tenantId`, and `teams.channelContext`. Live proactive DM and Graph history behavior still need validation against a real Microsoft 365 tenant.

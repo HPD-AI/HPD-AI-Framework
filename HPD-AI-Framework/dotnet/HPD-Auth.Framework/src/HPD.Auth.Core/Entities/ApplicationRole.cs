@@ -14,7 +14,7 @@ public class ApplicationRole : IdentityRole<Guid>
     /// </summary>
     public Guid InstanceId { get; set; } = Guid.Empty;
 
-    [MaxLength(500)]
+    [StringLength(500)]
     public string? Description { get; set; }
 
     public DateTime Created { get; set; } = DateTime.UtcNow;

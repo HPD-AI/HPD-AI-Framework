@@ -159,8 +159,9 @@ namespace TestHarneses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        // Should generate MCPServerRegistration code
-        Assert.Contains("MCPServerRegistration", generatedCode!);
+        // Should generate reflection-free MCP server source collection code.
+        Assert.Contains("McpServerSource", generatedCode!);
+        Assert.Contains("CollectMcpServers", generatedCode!);
     }
 
     [Fact]
@@ -182,7 +183,8 @@ namespace TestHarneses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("MCPServerRegistration", generatedCode!);
+        Assert.Contains("McpServerSource", generatedCode!);
+        Assert.Contains("CollectMcpServers", generatedCode!);
     }
 
     #endregion
@@ -402,7 +404,7 @@ namespace TestHarneses
 
         Assert.NotNull(generatedCode);
         // Name defaults to method name "WolframServer"
-        Assert.Contains("Name = \"WolframServer\"", generatedCode!);
+        Assert.Contains("Name: \"WolframServer\"", generatedCode!);
     }
 
     [Fact]
@@ -424,8 +426,8 @@ namespace TestHarneses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("ManifestServerName = \"filesystem\"", generatedCode!);
-        Assert.Contains("FromManifest = \"mcp.json\"", generatedCode!);
+        Assert.Contains("ManifestServerName: \"filesystem\"", generatedCode!);
+        Assert.Contains("FromManifest: \"mcp.json\"", generatedCode!);
     }
 
     [Fact]
@@ -451,7 +453,7 @@ namespace TestHarneses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("Name = \"CustomName\"", generatedCode!);
+        Assert.Contains("Name: \"CustomName\"", generatedCode!);
     }
 
     [Fact]
@@ -477,7 +479,7 @@ namespace TestHarneses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("Description = \"A test MCP server\"", generatedCode!);
+        Assert.Contains("Description: \"A test MCP server\"", generatedCode!);
     }
 
     [Fact]
@@ -503,7 +505,7 @@ namespace TestHarneses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("CollapseWithinHarness = true", generatedCode!);
+        Assert.Contains("CollapseWithinHarness: true", generatedCode!);
     }
 
     [Fact]
@@ -530,7 +532,7 @@ namespace TestHarneses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("RequiresPermissionOverride = true", generatedCode!);
+        Assert.Contains("RequiresPermissionOverride: true", generatedCode!);
     }
 
     [Fact]
@@ -556,7 +558,8 @@ namespace TestHarneses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.DoesNotContain("RequiresPermissionOverride", generatedCode!);
+        Assert.Contains("RequiresPermissionOverride: null", generatedCode!);
+        Assert.DoesNotContain("RequiresPermissionOverride: true", generatedCode!);
     }
 
     #endregion
@@ -586,7 +589,7 @@ namespace TestHarneses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("StaticConfigProvider", generatedCode!);
+        Assert.Contains("ConfigProvider: static _ =>", generatedCode!);
         Assert.Contains("TestHarness.StaticServer()", generatedCode!);
     }
 
@@ -613,8 +616,8 @@ namespace TestHarneses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("InstanceConfigProvider", generatedCode!);
-        Assert.Contains("((TestHarness)instance).InstanceServer()", generatedCode!);
+        Assert.Contains("ConfigProvider: static instance =>", generatedCode!);
+        Assert.Contains("((TestHarness)instance!).InstanceServer()", generatedCode!);
     }
 
     #endregion
@@ -743,11 +746,11 @@ namespace TestHarneses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        // Should generate MCPServers static property
-        Assert.Contains("MCPServerRegistration", generatedCode!);
-        Assert.Contains("MCPServers", generatedCode!);
+        // Should generate MCP server source collection.
+        Assert.Contains("McpServerSource", generatedCode!);
+        Assert.Contains("CollectMcpServers", generatedCode!);
         // Should contain both server registrations
-        Assert.Contains("ParentHarness = \"TestHarness\"", generatedCode!);
+        Assert.Contains("ParentHarness: \"TestHarness\"", generatedCode!);
     }
 
     #endregion
@@ -777,7 +780,7 @@ namespace TestHarneses
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.NotNull(generatedCode);
-        Assert.Contains("ParentHarness = \"SearchHarness\"", generatedCode!);
+        Assert.Contains("ParentHarness: \"SearchHarness\"", generatedCode!);
     }
 
     #endregion
@@ -849,7 +852,8 @@ namespace TestHarneses
 
         Assert.NotNull(generatedCode);
         // Both types detected
-        Assert.Contains("MCPServerRegistration", generatedCode!);
+        Assert.Contains("McpServerSource", generatedCode!);
+        Assert.Contains("CollectMcpServers", generatedCode!);
         Assert.Contains("HPDAIFunctionFactory.Create", generatedCode!);
     }
 
@@ -928,10 +932,11 @@ namespace TestHarneses
         // Container generated for [Collapse]
         Assert.Contains("CreateDevHarnessContainer", generatedCode!);
 
-        // MCPServer registration generated
-        Assert.Contains("MCPServerRegistration", generatedCode!);
-        Assert.Contains("ParentHarness = \"DevHarness\"", generatedCode!);
-        Assert.Contains("CollapseWithinHarness = true", generatedCode!);
+        // MCP server source collection generated.
+        Assert.Contains("McpServerSource", generatedCode!);
+        Assert.Contains("CollectMcpServers", generatedCode!);
+        Assert.Contains("ParentHarness: \"DevHarness\"", generatedCode!);
+        Assert.Contains("CollapseWithinHarness: true", generatedCode!);
 
         // HasMCPServers flag set
         Assert.Contains("HasMCPServers: true", generatedCode!);
@@ -974,11 +979,11 @@ namespace TestHarneses
 
         Assert.NotNull(generatedCode);
 
-        // MCPServerRegistration should exist in the MCPServers property
-        Assert.Contains("MCPServerRegistration", generatedCode!);
-        Assert.Contains("MCPServers", generatedCode!);
+        // MCP server source collection should exist.
+        Assert.Contains("McpServerSource", generatedCode!);
+        Assert.Contains("CollectMcpServers", generatedCode!);
 
-        // MCPServerRegistration must NOT appear inside functions.Add(...)
+        // MCP server source collection must NOT be emitted inside functions.Add(...)
         Assert.DoesNotContain("functions.Add(new HPD.Agent.MCP.MCPServerRegistration", generatedCode!);
 
         // The AIFunction should be in functions.Add(...)
@@ -1023,8 +1028,9 @@ namespace TestHarneses
         Assert.Contains("functions.Add(", generatedCode!);
         Assert.Contains("ReadFile", generatedCode!);
 
-        // MCPServer dispatched to MCPServers property
-        Assert.Contains("MCPServerRegistration", generatedCode!);
+        // MCPServer dispatched to source collection
+        Assert.Contains("McpServerSource", generatedCode!);
+        Assert.Contains("CollectMcpServers", generatedCode!);
         Assert.DoesNotContain("functions.Add(new HPD.Agent.MCP.MCPServerRegistration", generatedCode!);
     }
 

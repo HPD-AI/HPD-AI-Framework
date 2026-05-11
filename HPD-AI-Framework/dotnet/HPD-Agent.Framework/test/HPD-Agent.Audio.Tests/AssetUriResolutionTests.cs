@@ -2,6 +2,7 @@
 
 using HPD.Agent;
 using HPD.Agent.Audio;
+using HPD.Agent.Audio.Recognition;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 using System.Runtime.CompilerServices;
@@ -34,7 +35,7 @@ public class AssetUriResolutionTests
         var stt = new CapturingSttClient("transcribed audio");
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 
@@ -73,7 +74,7 @@ public class AssetUriResolutionTests
         var stt = new SequentialCapturingSttClient(["first", "second"]);
         var middleware = new AudioPipelineMiddleware
         {
-            SpeechToTextClient = stt,
+            SpeechRecognizer = new MeaiBatchSpeechRecognizer(stt),
             IOMode = AudioIOMode.AudioToText
         };
 

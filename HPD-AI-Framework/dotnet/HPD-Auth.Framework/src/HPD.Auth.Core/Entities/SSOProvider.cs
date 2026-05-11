@@ -22,13 +22,13 @@ public class SSOProvider
     /// Provider identifier (e.g., "google", "github", "microsoft", "apple").
     /// For SAML: use descriptive name (e.g., "okta-corp", "azure-ad").
     /// </summary>
-    [MaxLength(50)]
+    [StringLength(50)]
     public string ProviderId { get; set; } = string.Empty;
 
     /// <summary>
     /// OAuth Client ID (for OIDC/OAuth2).
     /// </summary>
-    [MaxLength(256)]
+    [StringLength(256)]
     public string ClientId { get; set; } = string.Empty;
 
     /// <summary>
@@ -39,7 +39,7 @@ public class SSOProvider
     /// <summary>
     /// OAuth scopes as a space-separated string (e.g., "openid email profile").
     /// </summary>
-    [MaxLength(1000)]
+    [StringLength(1000)]
     public string Scopes { get; set; } = string.Empty;
 
     // ─────────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ public class SSOProvider
     /// v2.3 Sleeper: SAML Entity ID (SP or IdP identifier).
     /// Example: "https://idp.example.com/saml/metadata"
     /// </summary>
-    [MaxLength(2048)]
+    [StringLength(2048)]
     public string? EntityId { get; set; }
 
     /// <summary>
@@ -68,7 +68,7 @@ public class SSOProvider
     /// v2.3 Sleeper: SAML NameID format preference.
     /// Example: "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
     /// </summary>
-    [MaxLength(256)]
+    [StringLength(256)]
     public string? NameIdFormat { get; set; }
 
     /// <summary>

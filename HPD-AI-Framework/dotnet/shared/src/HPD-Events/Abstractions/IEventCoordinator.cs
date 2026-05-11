@@ -3,8 +3,12 @@ using System.Threading.Channels;
 namespace HPD.Events;
 
 /// <summary>
-/// Event coordinator - manages event emission, streaming, and hierarchical bubbling.
+/// Event coordinator - manages event publication, streaming, and hierarchical bubbling.
 /// Non-generic design works with any Event subclass without type conversions.
+///
+/// Events are delivered through per-subscriber mailboxes. Handler subscriptions are
+/// processed by background pumps, so publishing an event does not mean every handler
+/// has finished running.
 ///
 /// Key Features:
 /// - Fan-out event routing with per-subscriber mailboxes
@@ -16,30 +20,53 @@ namespace HPD.Events;
 public interface IEventCoordinator
 {
     /// <summary>
-    /// Emit an event downstream (fire-and-forget).
-    /// Event is assigned a sequence number and routed to its declared channel.
+    /// Publish an event downstream without waiting for subscriber mailbox capacity.
+    /// The event is assigned a sequence number and routed to matching subscriber mailboxes.
     /// If a parent coordinator is set, event bubbles up automatically.
     /// </summary>
+    /// <remarks>
+    /// This method only publishes into subscriber mailboxes. Handlers registered with
+    /// <see cref="Subscribe{TEvent}"/> or <see cref="SubscribeAny"/> run on their
+    /// own pumps and may still be executing after this method returns.
+    /// </remarks>
     /// <param name="evt">Event to emit</param>
     void Emit(Event evt);
 
     /// <summary>
-    /// Emit an event asynchronously. Subscriber mailboxes configured with
-    /// <see cref="BoundedChannelFullMode.Wait"/> wait for capacity.
+    /// Publish an event asynchronously, waiting only when subscriber mailboxes request
+    /// backpressure.
     /// </summary>
+    /// <remarks>
+    /// Awaiting this method means the event was accepted by matching subscriber mailboxes
+    /// (and parent coordinators) according to their backpressure settings. It does not
+    /// wait for handler callbacks to finish processing the event. Use an explicit
+    /// request/response event, <see cref="WaitForResponseAsync{TResponse}"/>, or a
+    /// synchronous application path when the caller must observe handler completion.
+    /// </remarks>
     ValueTask EmitAsync(Event evt, CancellationToken ct = default);
 
     /// <summary>
-    /// Register a removable typed handler.
+    /// Register a removable typed handler processed by a background subscriber pump.
     /// </summary>
+    /// <remarks>
+    /// Do not capture request-scoped services in long-lived subscriptions unless the
+    /// subscription lifetime is tied to that request. For work that uses scoped services,
+    /// create a scope inside the handler or delegate to a scoped worker.
+    /// </remarks>
     IDisposable Subscribe<TEvent>(
         Func<TEvent, ValueTask> handler,
         EventSubscriptionOptions? options = null)
         where TEvent : Event;
 
     /// <summary>
-    /// Register a removable broad observer that receives every class event from every channel.
+    /// Register a removable broad observer that receives every class event from every channel
+    /// on a background subscriber pump.
     /// </summary>
+    /// <remarks>
+    /// Do not capture request-scoped services in long-lived subscriptions unless the
+    /// subscription lifetime is tied to that request. For work that uses scoped services,
+    /// create a scope inside the handler or delegate to a scoped worker.
+    /// </remarks>
     IDisposable SubscribeAny(
         Func<Event, ValueTask> handler,
         EventSubscriptionOptions? options = null);
@@ -64,7 +91,8 @@ public interface IEventCoordinator
     bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent;
 
     /// <summary>
-    /// Emit a local struct event asynchronously, waiting when subscriber options request backpressure.
+    /// Publish a local struct event asynchronously, waiting only when subscriber mailboxes
+    /// request backpressure. Handler callbacks run on subscriber pumps.
     /// </summary>
     ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default)
         where TEvent : struct, IStructEvent;
@@ -76,7 +104,8 @@ public interface IEventCoordinator
         where TEvent : struct, IStructEvent;
 
     /// <summary>
-    /// Register a removable handler for an exact local struct event type.
+    /// Register a removable handler for an exact local struct event type. The handler is
+    /// processed by a background subscriber pump.
     /// </summary>
     IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler)
         where TEvent : struct, IStructEvent;

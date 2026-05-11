@@ -168,14 +168,8 @@ public static class AgentBuilderExtensions
         };
 
         // Store the typed config
-        builder.Config.Provider.SetTypedProviderConfig(providerConfig);
-
-        // Store the client factory if provided
-        if (clientFactory != null)
-        {
-            builder.Config.Provider.AdditionalProperties ??= new Dictionary<string, object>();
-            builder.Config.Provider.AdditionalProperties["ClientFactory"] = clientFactory;
-        }
+        builder.Config.Provider.SetProviderConfig(providerConfig);
+        builder.Config.Provider.ClientFactory = clientFactory;
 
         return builder;
     }

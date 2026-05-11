@@ -21,6 +21,7 @@ import type {
   CreateAgentRequest,
   UpdateAgentRequest,
 } from '../types/agent.js';
+import type { TransportRequestOptions } from './options.js';
 import type {
   ScoreRecord,
   EvaluatorSummary,
@@ -41,13 +42,16 @@ import type {
 export class WebSocketTransport implements AgentTransport {
   private baseUrl: string;
   private httpBaseUrl: string; // HTTP base URL for CRUD operations
+  private requestOptions: TransportRequestOptions;
   private ws?: WebSocket;
   private scope?: RuntimeScope;
   private eventHandler?: (event: AgentEvent) => void;
   private errorHandler?: (error: Error) => void;
   private closeHandler?: () => void;
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, requestOptions: TransportRequestOptions = {}) {
+    this.requestOptions = requestOptions;
+
     // Convert ws(s) to http(s) for CRUD HTTP operations
     this.httpBaseUrl = baseUrl
       .replace(/^ws:/, 'http:')
@@ -59,6 +63,27 @@ export class WebSocketTransport implements AgentTransport {
       .replace(/^http:/, 'ws:')
       .replace(/^https:/, 'wss:')
       .replace(/\/$/, '');
+  }
+
+  private fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+    const headers = {
+      ...(this.requestOptions.headers ?? {}),
+      ...((init.headers as Record<string, string> | undefined) ?? {}),
+    };
+
+    return globalThis.fetch(input, {
+      ...init,
+      credentials: this.requestOptions.credentials,
+      headers,
+    });
+  }
+
+  private url(path: string): URL {
+    const base = /^[a-z][a-z\d+.-]*:\/\//i.test(this.httpBaseUrl)
+      ? this.httpBaseUrl
+      : `${globalThis.location?.origin ?? 'http://localhost'}${this.httpBaseUrl.startsWith('/') ? '' : '/'}${this.httpBaseUrl}`;
+
+    return new URL(`${base}${path}`);
   }
 
   get connected(): boolean {
@@ -76,10 +101,15 @@ export class WebSocketTransport implements AgentTransport {
         return;
       }
 
+      if (!scope.agentId) {
+        reject(new Error('WebSocket connect() requires agentId'));
+        return;
+      }
+
       this.scope = scope;
       const sessionId = scope.sessionId;
       const branchId = scope.branchId || 'main';
-      const url = `${this.baseUrl}/sessions/${sessionId}/branches/${branchId}/ws`;
+      const url = `${this.baseUrl}/agents/${scope.agentId}/sessions/${sessionId}/branches/${branchId}/ws`;
 
       try {
         this.ws = new WebSocket(url);
@@ -171,14 +201,14 @@ export class WebSocketTransport implements AgentTransport {
   // ============================================
 
   async listSessions(options?: ListSessionsOptions): Promise<Session[]> {
-    const url = new URL(`${this.httpBaseUrl}/sessions`);
+    const url = this.url(`/sessions`);
 
     if (options?.limit) url.searchParams.set('limit', options.limit.toString());
     if (options?.offset) url.searchParams.set('offset', options.offset.toString());
     if (options?.sortBy) url.searchParams.set('sortBy', options.sortBy);
     if (options?.sortDirection) url.searchParams.set('sortDirection', options.sortDirection);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -192,7 +222,7 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async getSession(sessionId: string): Promise<Session | null> {
-    const response = await fetch(`${this.httpBaseUrl}/sessions/${sessionId}`, {
+    const response = await this.fetch(`${this.httpBaseUrl}/sessions/${sessionId}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -210,7 +240,7 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async createSession(options?: CreateSessionRequest): Promise<Session> {
-    const response = await fetch(`${this.httpBaseUrl}/sessions`, {
+    const response = await this.fetch(`${this.httpBaseUrl}/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(options || {}),
@@ -225,7 +255,7 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async updateSession(sessionId: string, request: UpdateSessionRequest): Promise<Session> {
-    const response = await fetch(`${this.httpBaseUrl}/sessions/${sessionId}`, {
+    const response = await this.fetch(`${this.httpBaseUrl}/sessions/${sessionId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -240,7 +270,7 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async deleteSession(sessionId: string): Promise<void> {
-    const response = await fetch(`${this.httpBaseUrl}/sessions/${sessionId}`, {
+    const response = await this.fetch(`${this.httpBaseUrl}/sessions/${sessionId}`, {
       method: 'DELETE',
     });
 
@@ -255,7 +285,7 @@ export class WebSocketTransport implements AgentTransport {
   // ============================================
 
   async listBranches(sessionId: string): Promise<Branch[]> {
-    const response = await fetch(`${this.httpBaseUrl}/sessions/${sessionId}/branches`, {
+    const response = await this.fetch(`${this.httpBaseUrl}/sessions/${sessionId}/branches`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -269,7 +299,7 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async getBranch(sessionId: string, branchId: string): Promise<Branch | null> {
-    const response = await fetch(`${this.httpBaseUrl}/sessions/${sessionId}/branches/${branchId}`, {
+    const response = await this.fetch(`${this.httpBaseUrl}/sessions/${sessionId}/branches/${branchId}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -287,10 +317,16 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async createBranch(sessionId: string, options?: CreateBranchRequest): Promise<Branch> {
-    const response = await fetch(`${this.httpBaseUrl}/sessions/${sessionId}/branches`, {
+    const agentId = options?.agentId ?? this.scope?.agentId;
+    if (!agentId) {
+      throw new Error('createBranch() requires agentId');
+    }
+
+    const { agentId: _agentId, ...body } = options ?? {};
+    const response = await this.fetch(`${this.httpBaseUrl}/agents/${agentId}/sessions/${sessionId}/branches`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(options || {}),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -306,10 +342,16 @@ export class WebSocketTransport implements AgentTransport {
     branchId: string,
     options: ForkBranchRequest
   ): Promise<Branch> {
-    const response = await fetch(`${this.httpBaseUrl}/sessions/${sessionId}/branches/${branchId}/fork`, {
+    const agentId = options.agentId ?? this.scope?.agentId;
+    if (!agentId) {
+      throw new Error('forkBranch() requires agentId');
+    }
+
+    const { agentId: _agentId, ...body } = options;
+    const response = await this.fetch(`${this.httpBaseUrl}/agents/${agentId}/sessions/${sessionId}/branches/${branchId}/fork`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(options),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -321,9 +363,9 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async deleteBranch(sessionId: string, branchId: string, options?: { recursive?: boolean }): Promise<void> {
-    const url = new URL(`${this.httpBaseUrl}/sessions/${sessionId}/branches/${branchId}`);
+    const url = this.url(`/sessions/${sessionId}/branches/${branchId}`);
     if (options?.recursive) url.searchParams.set('recursive', 'true');
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'DELETE',
     });
 
@@ -334,7 +376,7 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async getBranchMessages(sessionId: string, branchId: string): Promise<BranchMessage[]> {
-    const response = await fetch(`${this.httpBaseUrl}/sessions/${sessionId}/branches/${branchId}/messages`, {
+    const response = await this.fetch(`${this.httpBaseUrl}/sessions/${sessionId}/branches/${branchId}/messages`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -352,7 +394,7 @@ export class WebSocketTransport implements AgentTransport {
   // ============================================
 
   async getBranchSiblings(sessionId: string, branchId: string): Promise<SiblingBranch[]> {
-    const response = await fetch(`${this.httpBaseUrl}/sessions/${sessionId}/branches/${branchId}/siblings`, {
+    const response = await this.fetch(`${this.httpBaseUrl}/sessions/${sessionId}/branches/${branchId}/siblings`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -389,7 +431,7 @@ export class WebSocketTransport implements AgentTransport {
   // ============================================
 
   async listAgents(): Promise<AgentSummaryDto[]> {
-    const response = await fetch(`${this.httpBaseUrl}/agents`, {
+    const response = await this.fetch(`${this.httpBaseUrl}/agents`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -403,7 +445,7 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async getAgent(agentId: string): Promise<StoredAgentDto | null> {
-    const response = await fetch(`${this.httpBaseUrl}/agents/${agentId}`, {
+    const response = await this.fetch(`${this.httpBaseUrl}/agents/${agentId}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -419,7 +461,7 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async createAgent(request: CreateAgentRequest): Promise<StoredAgentDto> {
-    const response = await fetch(`${this.httpBaseUrl}/agents`, {
+    const response = await this.fetch(`${this.httpBaseUrl}/agents`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -434,7 +476,7 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async updateAgent(agentId: string, request: UpdateAgentRequest): Promise<StoredAgentDto> {
-    const response = await fetch(`${this.httpBaseUrl}/agents/${agentId}`, {
+    const response = await this.fetch(`${this.httpBaseUrl}/agents/${agentId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -453,7 +495,7 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async deleteAgent(agentId: string): Promise<void> {
-    const response = await fetch(`${this.httpBaseUrl}/agents/${agentId}`, {
+    const response = await this.fetch(`${this.httpBaseUrl}/agents/${agentId}`, {
       method: 'DELETE',
     });
 
@@ -472,12 +514,12 @@ export class WebSocketTransport implements AgentTransport {
   // ============================================
 
   async getScores(evaluatorName: string, from?: string, to?: string): Promise<ScoreRecord[]> {
-    const url = new URL(`${this.httpBaseUrl}/evals/scores`);
+    const url = this.url(`/evals/scores`);
     url.searchParams.set('evaluatorName', evaluatorName);
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -491,11 +533,11 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async getScoresByBranch(sessionId: string, branchId?: string): Promise<ScoreRecord[]> {
-    const url = new URL(`${this.httpBaseUrl}/evals/scores/by-branch`);
+    const url = this.url(`/evals/scores/by-branch`);
     url.searchParams.set('sessionId', sessionId);
     if (branchId) url.searchParams.set('branchId', branchId);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -509,7 +551,7 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async writeScore(record: Omit<ScoreRecord, 'id'>): Promise<ScoreRecord> {
-    const response = await fetch(`${this.httpBaseUrl}/evals/scores`, {
+    const response = await this.fetch(`${this.httpBaseUrl}/evals/scores`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(record),
@@ -524,11 +566,11 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async getEvaluatorSummary(from?: string, to?: string): Promise<EvaluatorSummary[]> {
-    const url = new URL(`${this.httpBaseUrl}/evals/evaluators`);
+    const url = this.url(`/evals/evaluators`);
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -542,11 +584,11 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async getRiskAutonomyDistribution(from?: string, to?: string): Promise<RiskAutonomyDataPoint[]> {
-    const url = new URL(`${this.httpBaseUrl}/evals/risk-autonomy`);
+    const url = this.url(`/evals/risk-autonomy`);
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -560,12 +602,12 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async getTrend(evaluatorName: string, from: string, to: string, bucketSize?: string): Promise<ScoreTrend> {
-    const url = new URL(`${this.httpBaseUrl}/evals/trend/${encodeURIComponent(evaluatorName)}`);
+    const url = this.url(`/evals/trend/${encodeURIComponent(evaluatorName)}`);
     url.searchParams.set('from', from);
     url.searchParams.set('to', to);
     if (bucketSize) url.searchParams.set('bucketSize', bucketSize);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -579,11 +621,11 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async getPassRate(evaluatorName: string, from?: string, to?: string): Promise<PassRateResult> {
-    const url = new URL(`${this.httpBaseUrl}/evals/pass-rate/${encodeURIComponent(evaluatorName)}`);
+    const url = this.url(`/evals/pass-rate/${encodeURIComponent(evaluatorName)}`);
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -597,11 +639,11 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async getFailureRate(evaluatorName: string, from?: string, to?: string): Promise<FailureRateResult> {
-    const url = new URL(`${this.httpBaseUrl}/evals/failure-rate/${encodeURIComponent(evaluatorName)}`);
+    const url = this.url(`/evals/failure-rate/${encodeURIComponent(evaluatorName)}`);
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -615,12 +657,12 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async getAgentComparison(evaluatorName: string, agentNames: string[], from?: string, to?: string): Promise<AgentComparisonResult> {
-    const url = new URL(`${this.httpBaseUrl}/evals/agent-comparison/${encodeURIComponent(evaluatorName)}`);
+    const url = this.url(`/evals/agent-comparison/${encodeURIComponent(evaluatorName)}`);
     url.searchParams.set('agentNames', agentNames.join(','));
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -634,13 +676,13 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async getBranchComparison(sessionId: string, branchId1: string, branchId2: string, evaluatorNames: string[]): Promise<BranchComparisonResult> {
-    const url = new URL(`${this.httpBaseUrl}/evals/branch-comparison`);
+    const url = this.url(`/evals/branch-comparison`);
     url.searchParams.set('sessionId', sessionId);
     url.searchParams.set('branchId1', branchId1);
     url.searchParams.set('branchId2', branchId2);
     url.searchParams.set('evaluatorNames', evaluatorNames.join(','));
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -654,11 +696,11 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async getToolUsage(from?: string, to?: string): Promise<Record<string, ToolUsageSummary>> {
-    const url = new URL(`${this.httpBaseUrl}/evals/tool-usage`);
+    const url = this.url(`/evals/tool-usage`);
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -672,11 +714,11 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async getCost(from?: string, to?: string): Promise<CostBreakdown> {
-    const url = new URL(`${this.httpBaseUrl}/evals/cost`);
+    const url = this.url(`/evals/cost`);
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -690,11 +732,11 @@ export class WebSocketTransport implements AgentTransport {
   }
 
   async getScoresByVersion(evaluatorName: string, version: string): Promise<ScoreRecord[]> {
-    const url = new URL(`${this.httpBaseUrl}/evals/scores/by-version`);
+    const url = this.url(`/evals/scores/by-version`);
     url.searchParams.set('evaluatorName', evaluatorName);
     url.searchParams.set('version', version);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -711,7 +753,7 @@ export class WebSocketTransport implements AgentTransport {
     const form = new FormData();
     form.append('file', file, name ?? (file instanceof File ? file.name : 'upload'));
 
-    const response = await fetch(`${this.httpBaseUrl}/sessions/${sessionId}/assets`, {
+    const response = await this.fetch(`${this.httpBaseUrl}/sessions/${sessionId}/assets`, {
       method: 'POST',
       body: form,
     });

@@ -24,7 +24,7 @@
     <ProjectReference Include="../HPD-Agent.Bots.Abstractions/HPD-Agent.Bots.Abstractions.csproj" />
     <ProjectReference Include="../HPD-Agent.Bots.AspNetCore/HPD-Agent.Bots.AspNetCore.csproj" />
     <ProjectReference Include="../../HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
-    <ProjectReference Include="../HPD-Agent.Bots.SourceGenerator/HPD-Agent.Bots.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../HPD-Agent.Bots.SourceGenerator/HPD-Agent.Bots.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier" AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
   </ItemGroup>
 
   <ItemGroup>

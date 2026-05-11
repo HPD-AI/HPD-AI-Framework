@@ -1427,6 +1427,7 @@ public sealed record StructuredOutputErrorEvent(
     string RawJson,
     string ErrorMessage,
     string ExpectedTypeName,
+    [property: System.Text.Json.Serialization.JsonIgnore]
     Exception? Exception = null
 ) : AgentEvent, IErrorEvent
 {

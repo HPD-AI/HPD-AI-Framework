@@ -67,13 +67,16 @@ public sealed class TeamsBotConfig
     }
 
     /// <summary>
-    /// Optional HPD agent name to route inbound Teams messages to.
+    /// HPD agent ID to route inbound Teams messages to.
     /// </summary>
-    public string? AgentName
+    public string? AgentId
     {
         get;
         set => field = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
+
+    internal string ResolveAgentId()
+        => AgentId ?? throw new InvalidOperationException("TeamsBotConfig.AgentId is required.");
 
     /// <summary>
     /// Validates configuration values that span multiple properties.

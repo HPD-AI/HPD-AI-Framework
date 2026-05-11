@@ -46,9 +46,13 @@ public class DiscordBotConfig
     public IReadOnlyList<string> MentionRoleIds { get; set; } = [];
 
     /// <summary>
-    /// Optional HPD agent name to route inbound messages to.
+    /// HPD agent ID to route inbound messages to.
     /// </summary>
-    public string? AgentName { get; set; }
+    public string? AgentId { get; set; }
+
+    internal string ResolveAgentId()
+        => FirstNonWhiteSpace(AgentId)
+            ?? throw new InvalidOperationException("DiscordBotConfig.AgentId is required.");
 
     /// <summary>
     /// Overrides the generated streaming debounce interval when set.
@@ -71,4 +75,15 @@ public class DiscordBotConfig
     /// How long a Gateway session runs before reconnecting.
     /// </summary>
     public TimeSpan GatewaySessionDuration { get; set; } = TimeSpan.FromMinutes(10);
+
+    private static string? FirstNonWhiteSpace(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                return value.Trim();
+        }
+
+        return null;
+    }
 }

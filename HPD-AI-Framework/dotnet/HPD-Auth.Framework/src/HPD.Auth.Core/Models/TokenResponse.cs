@@ -77,6 +77,7 @@ public sealed class UserTokenDto
     /// Null if email has not been confirmed yet.
     /// </summary>
     [JsonPropertyName("email_confirmed_at")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public required DateTime? EmailConfirmedAt { get; init; }
 
     /// <summary>

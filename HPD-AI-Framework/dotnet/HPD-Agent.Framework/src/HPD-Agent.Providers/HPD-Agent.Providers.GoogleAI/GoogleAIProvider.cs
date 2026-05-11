@@ -81,8 +81,7 @@ internal class GoogleAIProvider : IProviderFeatures
 
         // Apply client factory middleware if provided
         IChatClient finalClient = chatClient;
-        if (config.AdditionalProperties?.TryGetValue("ClientFactory", out var factoryObj) == true &&
-            factoryObj is Func<IChatClient, IChatClient> clientFactory)
+        if (config.ClientFactory is { } clientFactory)
         {
             finalClient = clientFactory(chatClient);
         }
@@ -125,7 +124,7 @@ internal class GoogleAIProvider : IProviderFeatures
             errors.Add("Model name is required");
 
         // Validate Google-specific config if present
-        var googleConfig = config.GetTypedProviderConfig<GoogleAIProviderConfig>();
+        var googleConfig = config.GetProviderConfig<GoogleAIProviderConfig>();
         if (googleConfig != null)
         {
             // Validate Temperature range

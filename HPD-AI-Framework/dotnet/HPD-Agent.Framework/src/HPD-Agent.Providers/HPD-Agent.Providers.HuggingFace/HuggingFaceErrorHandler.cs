@@ -2,6 +2,7 @@ using System;
 using System.Net;
 using System.Net.Http;
 using System.Text.RegularExpressions;
+using HuggingFace;
 using HPD.Agent.ErrorHandling;
 
 namespace HPD.Agent.Providers.HuggingFace;
@@ -27,12 +28,24 @@ internal partial class HuggingFaceErrorHandler : IProviderErrorHandler
 
     public ProviderErrorDetails? ParseError(Exception exception)
     {
-        // Check if this is the HuggingFace ApiException type
-        var exceptionTypeName = exception.GetType().FullName;
-        if (exceptionTypeName == "HuggingFace.ApiException" ||
-            exceptionTypeName?.StartsWith("HuggingFace.ApiException`") == true)
+        if (exception is ApiException<ErrorResponse> typedApiException)
         {
-            return ParseApiException(exception);
+            return ParseApiException(
+                typedApiException.StatusCode,
+                typedApiException.Message,
+                typedApiException.ResponseBody,
+                typedApiException.ResponseObject is { } errorResponse
+                    ? errorResponse.Error.ToString()
+                    : null);
+        }
+
+        if (exception is ApiException apiException)
+        {
+            return ParseApiException(
+                apiException.StatusCode,
+                apiException.Message,
+                apiException.ResponseBody,
+                errorCode: null);
         }
 
         // Handle standard HttpRequestException
@@ -68,65 +81,13 @@ internal partial class HuggingFaceErrorHandler : IProviderErrorHandler
         return details.Category == ErrorCategory.AuthError;
     }
 
-    private static ProviderErrorDetails ParseApiException(Exception exception)
+    private static ProviderErrorDetails ParseApiException(
+        HttpStatusCode httpStatusCode,
+        string message,
+        string? responseBody,
+        string? errorCode)
     {
-        // Extract status code from ApiException using reflection (AOT-safe)
-        int? statusCode = null;
-        try
-        {
-            // Both ApiException and ApiException<T> have a StatusCode property of type HttpStatusCode
-            var statusCodeProp = exception.GetType().GetProperty("StatusCode");
-            if (statusCodeProp != null)
-            {
-                var statusCodeValue = statusCodeProp.GetValue(exception);
-                if (statusCodeValue is HttpStatusCode httpStatusCode)
-                {
-                    statusCode = (int)httpStatusCode;
-                }
-            }
-        }
-        catch
-        {
-            // If we can't get the status code, fall back to null
-        }
-
-        var message = exception.Message;
-
-        // Try to get response body if available
-        string? responseBody = null;
-        string? errorCode = null;
-        try
-        {
-            // Get ResponseBody property using reflection
-            var responseBodyProp = exception.GetType().GetProperty("ResponseBody");
-            if (responseBodyProp != null)
-            {
-                responseBody = responseBodyProp.GetValue(exception) as string;
-            }
-
-            // Try to extract error from ErrorResponse if available
-            var responseObjectProp = exception.GetType().GetProperty("ResponseObject");
-            if (responseObjectProp != null)
-            {
-                var responseObj = responseObjectProp.GetValue(exception);
-                if (responseObj is not null)
-                {
-                    var errorProp = responseObj.GetType().GetProperty("Error");
-                    if (errorProp != null)
-                    {
-                        var error = errorProp.GetValue(responseObj);
-                        if (error != null)
-                        {
-                            errorCode = error.ToString();
-                        }
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // If we can't get response details, continue with what we have
-        }
+        var statusCode = (int)httpStatusCode;
 
         // Use response body for classification if available
         var classificationMessage = responseBody ?? message;

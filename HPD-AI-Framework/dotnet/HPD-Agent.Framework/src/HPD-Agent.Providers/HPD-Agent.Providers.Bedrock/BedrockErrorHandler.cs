@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.RegularExpressions;
+using Amazon.Runtime;
 using HPD.Agent.ErrorHandling;
 
 namespace HPD.Agent.Providers.Bedrock;
@@ -26,23 +27,15 @@ internal partial class BedrockErrorHandler : IProviderErrorHandler
     public ProviderErrorDetails? ParseError(Exception exception)
     {
         // AWS SDK exceptions inherit from AmazonServiceException
-        var exceptionTypeName = exception.GetType().FullName ?? string.Empty;
-
-        // Check if this is an AWS exception
-        if (!exceptionTypeName.Contains("Amazon") && !exceptionTypeName.Contains("AWS"))
+        if (exception is not AmazonServiceException amazonException)
         {
             return null;
         }
 
+        var exceptionTypeName = exception.GetType().FullName ?? string.Empty;
         var message = exception.Message;
-
-        // Try to get status code and error code from the exception using duck typing (AOT-safe)
-        int? statusCode = ExtractStatusCodeFromException(exception);
-        string? errorCode = ExtractErrorCodeFromException(exception);
-
-        // Fallback to message parsing if we couldn't get it from the exception
-        statusCode ??= ExtractStatusCodeFromMessage(message);
-        errorCode ??= ExtractErrorCodeFromMessage(message);
+        int? statusCode = (int)amazonException.StatusCode;
+        string? errorCode = amazonException.ErrorCode;
 
         return new ProviderErrorDetails
         {
@@ -67,42 +60,6 @@ internal partial class BedrockErrorHandler : IProviderErrorHandler
     public bool RequiresSpecialHandling(ProviderErrorDetails details)
     {
         return details.Category == ErrorCategory.AuthError;
-    }
-
-    private static int? ExtractStatusCodeFromException(Exception exception)
-    {
-        // Try to get StatusCode property using dynamic (AOT-compatible when the type is known at compile time)
-        // We intentionally use dynamic here for duck typing to avoid reflection
-#pragma warning disable IL2026, IL3050 // Dynamic code is intentional for AWS SDK exception handling
-        try
-        {
-            // AmazonServiceException has a StatusCode property of type HttpStatusCode
-            dynamic ex = exception;
-            HttpStatusCode statusCode = ex.StatusCode;
-            return (int)statusCode;
-        }
-        catch
-        {
-            // If the property doesn't exist or can't be accessed, fall back to message parsing
-            return null;
-        }
-#pragma warning restore IL2026, IL3050
-    }
-
-    private static string? ExtractErrorCodeFromException(Exception exception)
-    {
-        // Try to get ErrorCode property using dynamic
-#pragma warning disable IL2026, IL3050 // Dynamic code is intentional for AWS SDK exception handling
-        try
-        {
-            dynamic ex = exception;
-            return ex.ErrorCode as string;
-        }
-        catch
-        {
-            return null;
-        }
-#pragma warning restore IL2026, IL3050
     }
 
     private static int? ExtractStatusCodeFromMessage(string message)
@@ -345,4 +302,3 @@ internal partial class BedrockErrorHandler : IProviderErrorHandler
         return ErrorCategory.Unknown;
     }
 }
-

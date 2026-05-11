@@ -25,7 +25,7 @@ namespace HPD.Agent;
 /// </summary>
 public sealed class Agent
 {
-    private readonly IChatClient _baseClient;
+    private readonly IChatClient? _baseClient;
     private readonly string _name;
     private readonly ChatClientMetadata _metadata;
     // OpenTelemetry Activity Source for telemetry
@@ -80,7 +80,9 @@ public sealed class Agent
     /// Gets the base chat client used by this agent.
     /// This can be used by SubAgents to inherit the parent's client when no provider is specified.
     /// </summary>
-    public IChatClient BaseClient => _baseClient;
+    public IChatClient BaseClient => _baseClient
+        ?? throw new InvalidOperationException(
+            "This agent does not have a default chat client. Configure a provider/model on the agent or pass one in AgentRunConfig.");
 
     /// <summary>
     /// Gets the middleware state factories registered for this agent.
@@ -180,7 +182,7 @@ public sealed class Agent
     /// </summary>
     public Agent(
         AgentConfig config,
-        IChatClient baseClient,
+        IChatClient? baseClient,
         ChatOptions? mergedOptions,
         IReadOnlyDictionary<string, string>? functionToHarnessMap = null,
         IReadOnlyDictionary<string, string>? functionToSkillMap = null,
@@ -197,7 +199,7 @@ public sealed class Agent
             ?? ImmutableDictionary<string, MiddlewareStateFactory>.Empty;
         _ownedHttpClients = ownedHttpClients;
         Config = config ?? throw new ArgumentNullException(nameof(config));
-        _baseClient = baseClient ?? throw new ArgumentNullException(nameof(baseClient));
+        _baseClient = baseClient;
         _name = config.Name ?? "Agent"; // Default to "Agent" to prevent null dictionary key exceptions
 
         // Initialize unified middleware pipeline
@@ -1753,9 +1755,16 @@ public sealed class Agent
                         { TraceId = traceId };
 
                         // CREATE MODEL REQUEST (V2 - immutable request pattern)
+                        var model = overrideClient ?? _baseClient;
+                        if (model == null)
+                        {
+                            throw new InvalidOperationException(
+                                "No chat model is configured for this agent run. Configure Provider/ModelName on AgentConfig or pass ProviderKey/ModelId or OverrideChatClient in AgentRunConfig.");
+                        }
+
                         var modelRequest = new Middleware.ModelRequest
                         {
-                            Model = overrideClient ?? _baseClient,
+                            Model = model,
                             Messages = messagesToSend.ToList(),
                             Options = CollapsedOptions,
                             State = agentContext.State,
@@ -3963,43 +3972,50 @@ public sealed class Agent
             return options.OverrideChatClient;
 
         // ProviderKey/ModelId: use registry to create client
-        if (!string.IsNullOrEmpty(options?.ProviderKey))
+        var requestedProviderKey = options?.ProviderKey
+            ?? (!string.IsNullOrEmpty(options?.ModelId) ? Config?.Provider?.ProviderKey : null);
+
+        if (!string.IsNullOrEmpty(requestedProviderKey))
         {
             if (_providerRegistry == null)
             {
                 throw new InvalidOperationException(
-                    $"Cannot switch to provider '{options.ProviderKey}' - no provider registry available. " +
+                    $"Cannot switch to provider '{requestedProviderKey}' - no provider registry available. " +
                     "Ensure the agent was built with a provider registry.");
             }
 
-            var provider = _providerRegistry.GetProvider(options.ProviderKey);
+            var provider = _providerRegistry.GetProvider(requestedProviderKey);
             if (provider == null)
             {
                 throw new InvalidOperationException(
-                    $"Provider '{options.ProviderKey}' is not registered. " +
+                    $"Provider '{requestedProviderKey}' is not registered. " +
                     $"Available providers: {string.Join(", ", _providerRegistry.GetRegisteredProviders())}");
             }
 
             // Build provider config for the new client
             // Priority for API key: options.ApiKey > inherit if same provider > null
-            var isSameProvider = string.Equals(Config?.Provider?.ProviderKey, options.ProviderKey, StringComparison.OrdinalIgnoreCase);
+            var isSameProvider = string.Equals(Config?.Provider?.ProviderKey, requestedProviderKey, StringComparison.OrdinalIgnoreCase);
+            var modelId = options?.ModelId ?? Config?.Provider?.ModelName;
+            if (string.IsNullOrEmpty(modelId))
+            {
+                throw new InvalidOperationException(
+                    $"No model is configured for provider '{requestedProviderKey}'. Configure Provider.ModelName on AgentConfig or pass ModelId in AgentRunConfig.");
+            }
+
             var providerConfig = new ProviderConfig
             {
-                ProviderKey = options.ProviderKey,
-                // Use specified ModelId, or fall back to agent's configured model, or provider default
-                ModelName = options.ModelId
-                    ?? Config?.Provider?.ModelName
-                    ?? "default",
+                ProviderKey = requestedProviderKey,
+                ModelName = modelId,
                 // Priority: explicit ApiKey from options > inherit if same provider > null
-                ApiKey = options.ApiKey
+                ApiKey = options?.ApiKey
                     ?? (isSameProvider ? Config?.Provider?.ApiKey : null),
                 // Priority: explicit Endpoint from options > inherit if same provider > null
-                Endpoint = options.ProviderEndpoint
+                Endpoint = options?.ProviderEndpoint
                     ?? (isSameProvider ? Config?.Provider?.Endpoint : null),
                 // Inherit default chat options from agent config
                 DefaultChatOptions = Config?.Provider?.DefaultChatOptions,
                 // Priority: explicit CustomHeaders from options > inherit if same provider > null
-                CustomHeaders = options.CustomHeaders
+                CustomHeaders = options?.CustomHeaders
                     ?? (isSameProvider ? Config?.Provider?.CustomHeaders : null)
             };
 
@@ -6989,7 +7005,7 @@ internal class MessageProcessor
 /// </summary>
 internal class AgentTurn
 {
-    private readonly IChatClient _baseClient;
+    private readonly IChatClient? _baseClient;
     private readonly Action<ChatOptions>? _configureOptions;
     private readonly List<Func<IChatClient, IServiceProvider?, IChatClient>>? _middleware;
     private readonly IServiceProvider? _serviceProvider;
@@ -7008,12 +7024,12 @@ internal class AgentTurn
     /// <param name="middleware">Optional middleware to wrap the client dynamically on each request</param>
     /// <param name="serviceProvider">Optional service provider for middleware dependency injection</param>
     public AgentTurn(
-        IChatClient baseClient,
+        IChatClient? baseClient,
         Action<ChatOptions>? configureOptions = null,
         List<Func<IChatClient, IServiceProvider?, IChatClient>>? middleware = null,
         IServiceProvider? serviceProvider = null)
     {
-        _baseClient = baseClient ?? throw new ArgumentNullException(nameof(baseClient));
+        _baseClient = baseClient;
         _configureOptions = configureOptions;
         _middleware = middleware;
         _serviceProvider = serviceProvider;
@@ -7092,6 +7108,12 @@ internal class AgentTurn
         // This allows runtime provider switching - new providers automatically get wrapped
         // Use override client if provided (from AgentRunConfig), otherwise use base client
         var effectiveClient = overrideClient ?? _baseClient;
+        if (effectiveClient == null)
+        {
+            throw new InvalidOperationException(
+                "No chat model is configured for this agent run. Configure Provider/ModelName on AgentConfig or pass ProviderKey/ModelId or OverrideChatClient in AgentRunConfig.");
+        }
+
         if (_middleware != null && _middleware.Count > 0)
         {
             foreach (var mw in _middleware)

@@ -1,6 +1,6 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace HPD.Agent.TextExtraction.Models
@@ -45,7 +45,7 @@ namespace HPD.Agent.TextExtraction.Models
         {
             get
             {
-                return this.Metadata.TryGetValue(MetaSentencesAreComplete, out var value) && JsonSerializer.Deserialize<bool>(value);
+                return this.Metadata.TryGetValue(MetaSentencesAreComplete, out var value) && bool.Parse(value);
             }
         }
 
@@ -56,7 +56,7 @@ namespace HPD.Agent.TextExtraction.Models
             {
                 if (this.Metadata.TryGetValue(MetaPageNumber, out var value))
                 {
-                    return JsonSerializer.Deserialize<int>(value);
+                    return int.Parse(value, CultureInfo.InvariantCulture);
                 }
 
                 return -1;
@@ -125,12 +125,12 @@ namespace HPD.Agent.TextExtraction.Models
 
             if (sentencesAreComplete.HasValue)
             {
-                result.Add(MetaSentencesAreComplete, JsonSerializer.Serialize(sentencesAreComplete.Value));
+                result.Add(MetaSentencesAreComplete, sentencesAreComplete.Value.ToString());
             }
 
             if (pageNumber.HasValue)
             {
-                result.Add(MetaPageNumber, JsonSerializer.Serialize(pageNumber.Value));
+                result.Add(MetaPageNumber, pageNumber.Value.ToString(CultureInfo.InvariantCulture));
             }
 
             return result;

@@ -12,7 +12,7 @@ public sealed class TelegramBotConfig
 
     public string? ApiBaseUrl { get; set; }
 
-    public string? AgentName { get; set; }
+    public string? AgentId { get; set; }
 
     public TelegramBotMode Mode { get; set; } = TelegramBotMode.Auto;
 
@@ -34,6 +34,10 @@ public sealed class TelegramBotConfig
 
     internal string? ResolveUserName()
         => FirstNonWhiteSpace(UserName, Environment.GetEnvironmentVariable("TELEGRAM_BOT_USERNAME"));
+
+    internal string ResolveAgentId()
+        => FirstNonWhiteSpace(AgentId)
+            ?? throw new InvalidOperationException("TelegramBotConfig.AgentId is required.");
 
     private static string? FirstNonWhiteSpace(params string?[] values)
     {

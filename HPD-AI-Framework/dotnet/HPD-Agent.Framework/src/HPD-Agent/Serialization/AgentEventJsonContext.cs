@@ -44,8 +44,6 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(ErrorContent), TypeInfoPropertyName = "MicrosoftExtensionsAiErrorContent")]
 [JsonSerializable(typeof(ToolCallContent), TypeInfoPropertyName = "MicrosoftExtensionsAiToolCallContent")]
 [JsonSerializable(typeof(ToolResultContent), TypeInfoPropertyName = "MicrosoftExtensionsAiToolResultContent")]
-[JsonSerializable(typeof(FunctionCallContent), TypeInfoPropertyName = "MicrosoftExtensionsAiFunctionCallContent")]
-[JsonSerializable(typeof(FunctionResultContent), TypeInfoPropertyName = "MicrosoftExtensionsAiFunctionResultContent")]
 [JsonSerializable(typeof(UsageContent), TypeInfoPropertyName = "MicrosoftExtensionsAiUsageContent")]
 [JsonSerializable(typeof(TextReasoningContent), TypeInfoPropertyName = "MicrosoftExtensionsAiTextReasoningContent")]
 [JsonSerializable(typeof(ToolApprovalRequestContent), TypeInfoPropertyName = "MicrosoftExtensionsAiToolApprovalRequestContent")]
@@ -57,7 +55,6 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(McpServerToolCallContent), TypeInfoPropertyName = "MicrosoftExtensionsAiMcpServerToolCallContent")]
 [JsonSerializable(typeof(McpServerToolResultContent), TypeInfoPropertyName = "MicrosoftExtensionsAiMcpServerToolResultContent")]
 [JsonSerializable(typeof(WebSearchToolCallContent), TypeInfoPropertyName = "MicrosoftExtensionsAiWebSearchToolCallContent")]
-[JsonSerializable(typeof(WebSearchToolResultContent), TypeInfoPropertyName = "MicrosoftExtensionsAiWebSearchToolResultContent")]
 [JsonSerializable(typeof(HostedFileContent), TypeInfoPropertyName = "MicrosoftExtensionsAiHostedFileContent")]
 [JsonSerializable(typeof(HostedVectorStoreContent), TypeInfoPropertyName = "MicrosoftExtensionsAiHostedVectorStoreContent")]
 [JsonSerializable(typeof(InputRequestContent), TypeInfoPropertyName = "MicrosoftExtensionsAiInputRequestContent")]
@@ -186,6 +183,5 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(double))]
 [JsonSerializable(typeof(float))]
 [JsonSerializable(typeof(bool))]
-[JsonSerializable(typeof(object))]
 
 public partial class AgentEventJsonContext : JsonSerializerContext { }

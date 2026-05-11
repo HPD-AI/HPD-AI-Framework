@@ -79,7 +79,7 @@ public class BedrockProviderTests
         {
             Region = "us-east-1"
         };
-        config.SetTypedProviderConfig(bedrockConfig);
+        config.SetProviderConfig(bedrockConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -102,7 +102,7 @@ public class BedrockProviderTests
         {
             Region = "us-east-1"
         };
-        config.SetTypedProviderConfig(bedrockConfig);
+        config.SetProviderConfig(bedrockConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -145,7 +145,7 @@ public class BedrockProviderTests
             Region = "us-east-1",
             Temperature = 1.5f // Invalid: must be <= 1.0 for Bedrock
         };
-        config.SetTypedProviderConfig(bedrockConfig);
+        config.SetProviderConfig(bedrockConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -170,7 +170,7 @@ public class BedrockProviderTests
             Region = "us-east-1",
             Temperature = -0.1f // Invalid: must be >= 0
         };
-        config.SetTypedProviderConfig(bedrockConfig);
+        config.SetProviderConfig(bedrockConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -195,7 +195,7 @@ public class BedrockProviderTests
             Region = "us-east-1",
             Temperature = 0.7f // Valid for Bedrock (0-1)
         };
-        config.SetTypedProviderConfig(bedrockConfig);
+        config.SetProviderConfig(bedrockConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -220,7 +220,7 @@ public class BedrockProviderTests
             Region = "us-east-1",
             TopP = 1.5f // Invalid: must be <= 1.0
         };
-        config.SetTypedProviderConfig(bedrockConfig);
+        config.SetProviderConfig(bedrockConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -245,7 +245,7 @@ public class BedrockProviderTests
             Region = "us-east-1",
             MaxTokens = 0 // Invalid: must be >= 1
         };
-        config.SetTypedProviderConfig(bedrockConfig);
+        config.SetProviderConfig(bedrockConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -270,7 +270,7 @@ public class BedrockProviderTests
             Region = "us-east-1",
             StopSequences = Enumerable.Range(0, 2501).Select(i => $"stop{i}").ToList() // Invalid: max 2500
         };
-        config.SetTypedProviderConfig(bedrockConfig);
+        config.SetProviderConfig(bedrockConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -295,7 +295,7 @@ public class BedrockProviderTests
             Region = "us-east-1",
             ToolChoice = "invalid_choice"
         };
-        config.SetTypedProviderConfig(bedrockConfig);
+        config.SetProviderConfig(bedrockConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -321,7 +321,7 @@ public class BedrockProviderTests
             ToolChoice = "tool"
             // Missing ToolChoiceName
         };
-        config.SetTypedProviderConfig(bedrockConfig);
+        config.SetProviderConfig(bedrockConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -347,7 +347,7 @@ public class BedrockProviderTests
             GuardrailIdentifier = "my-guardrail"
             // Missing GuardrailVersion
         };
-        config.SetTypedProviderConfig(bedrockConfig);
+        config.SetProviderConfig(bedrockConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -372,7 +372,7 @@ public class BedrockProviderTests
             Region = "us-east-1",
             GuardrailTrace = "invalid"
         };
-        config.SetTypedProviderConfig(bedrockConfig);
+        config.SetProviderConfig(bedrockConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -398,7 +398,7 @@ public class BedrockProviderTests
             AccessKeyId = "AKIAIOSFODNN7EXAMPLE"
             // Missing SecretAccessKey
         };
-        config.SetTypedProviderConfig(bedrockConfig);
+        config.SetProviderConfig(bedrockConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -424,7 +424,7 @@ public class BedrockProviderTests
             SecretAccessKey = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
             // Missing AccessKeyId
         };
-        config.SetTypedProviderConfig(bedrockConfig);
+        config.SetProviderConfig(bedrockConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -458,7 +458,7 @@ public class BedrockProviderTests
             AccessKeyId = "AKIAIOSFODNN7EXAMPLE",
             SecretAccessKey = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
         };
-        config.SetTypedProviderConfig(bedrockConfig);
+        config.SetProviderConfig(bedrockConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -651,7 +651,7 @@ public class BedrockProviderTests
             Temperature = 0.7f,
             TopP = 0.9f
         };
-        config.Provider.SetTypedProviderConfig(bedrockOpts);
+        config.Provider.SetProviderConfig(bedrockOpts);
 
         // Act
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
@@ -698,7 +698,7 @@ public class BedrockProviderTests
         config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
 
         // Verify typed config can be retrieved
-        var bedrockConfig = config.Provider.GetTypedProviderConfig<BedrockProviderConfig>();
+        var bedrockConfig = config.Provider.GetProviderConfig<BedrockProviderConfig>();
         bedrockConfig.Should().NotBeNull();
         bedrockConfig!.Region.Should().Be("us-east-1");
         bedrockConfig.MaxTokens.Should().Be(4096);
@@ -736,7 +736,7 @@ public class BedrockProviderTests
             AccessKeyId = "AKIAIOSFODNN7EXAMPLE",
             SecretAccessKey = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
         };
-        originalConfig.Provider.SetTypedProviderConfig(originalBedrockOpts);
+        originalConfig.Provider.SetProviderConfig(originalBedrockOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(originalConfig, HPDJsonContext.Default.AgentConfig);
@@ -754,7 +754,7 @@ public class BedrockProviderTests
         deserializedConfig.Provider.ModelName.Should().Be("anthropic.claude-3-5-sonnet-20241022-v2:0");
 
         // Assert - Bedrock-specific config
-        var deserializedBedrockOpts = deserializedConfig.Provider.GetTypedProviderConfig<BedrockProviderConfig>();
+        var deserializedBedrockOpts = deserializedConfig.Provider.GetProviderConfig<BedrockProviderConfig>();
         deserializedBedrockOpts.Should().NotBeNull();
         deserializedBedrockOpts!.Region.Should().Be("us-west-2");
         deserializedBedrockOpts.MaxTokens.Should().Be(8192);
@@ -772,7 +772,7 @@ public class BedrockProviderTests
     }
 
     [Fact]
-    public void AgentConfig_SetTypedProviderConfig_ShouldUpdateProviderOptionsJson()
+    public void AgentConfig_SetProviderConfig_ShouldUpdateProviderOptionsJson()
     {
         // Arrange
         var config = new AgentConfig
@@ -791,7 +791,7 @@ public class BedrockProviderTests
             MaxTokens = 4096,
             Temperature = 0.5f
         };
-        config.Provider.SetTypedProviderConfig(bedrockOpts);
+        config.Provider.SetProviderConfig(bedrockOpts);
 
         // Assert - ProviderOptionsJson should be populated
         config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
@@ -803,7 +803,7 @@ public class BedrockProviderTests
         config.Provider.ProviderOptionsJson.Should().Contain("0.5");
 
         // Verify we can retrieve it back
-        var retrieved = config.Provider.GetTypedProviderConfig<BedrockProviderConfig>();
+        var retrieved = config.Provider.GetProviderConfig<BedrockProviderConfig>();
         retrieved.Should().NotBeNull();
         retrieved!.Region.Should().Be("us-east-1");
         retrieved.MaxTokens.Should().Be(4096);
@@ -835,7 +835,7 @@ public class BedrockProviderTests
         builder.Config.Provider!.ProviderKey.Should().Be("bedrock");
         builder.Config.Provider.ModelName.Should().Be("anthropic.claude-3-5-sonnet-20241022-v2:0");
 
-        var bedrockConfig = builder.Config.Provider.GetTypedProviderConfig<BedrockProviderConfig>();
+        var bedrockConfig = builder.Config.Provider.GetProviderConfig<BedrockProviderConfig>();
         bedrockConfig.Should().NotBeNull();
         bedrockConfig!.Region.Should().Be("us-east-1");
         bedrockConfig.MaxTokens.Should().Be(4096);
@@ -860,7 +860,7 @@ public class BedrockProviderTests
             });
 
         // Assert
-        var bedrockConfig = builder.Config.Provider!.GetTypedProviderConfig<BedrockProviderConfig>();
+        var bedrockConfig = builder.Config.Provider!.GetProviderConfig<BedrockProviderConfig>();
         bedrockConfig.Should().NotBeNull();
         bedrockConfig!.AccessKeyId.Should().Be("AKIAIOSFODNN7EXAMPLE");
         bedrockConfig.SecretAccessKey.Should().Be("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
@@ -931,7 +931,7 @@ public class BedrockProviderTests
             });
 
         // Assert
-        var bedrockConfig = builder.Config.Provider!.GetTypedProviderConfig<BedrockProviderConfig>();
+        var bedrockConfig = builder.Config.Provider!.GetProviderConfig<BedrockProviderConfig>();
         bedrockConfig.Should().NotBeNull();
         bedrockConfig!.GuardrailIdentifier.Should().Be("my-guardrail");
         bedrockConfig.GuardrailVersion.Should().Be("1");

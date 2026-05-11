@@ -35,26 +35,26 @@ public class AuditLog
     /// Specific action performed. Use dot-notation convention.
     /// Examples: "user.login", "user.created", "admin.password_reset"
     /// </summary>
-    [MaxLength(100)]
+    [StringLength(100)]
     public string Action { get; init; } = string.Empty;
 
     /// <summary>
     /// Category grouping for the action.
     /// Values: "authentication", "authorization", "user_management", "admin"
     /// </summary>
-    [MaxLength(50)]
+    [StringLength(50)]
     public string Category { get; init; } = string.Empty;
 
     /// <summary>
     /// Client IP address at the time of the action.
     /// </summary>
-    [MaxLength(45)]
+    [StringLength(45)]
     public string? IpAddress { get; init; }
 
     /// <summary>
     /// User agent string from the request.
     /// </summary>
-    [MaxLength(1024)]
+    [StringLength(1024)]
     public string? UserAgent { get; init; }
 
     /// <summary>
@@ -65,7 +65,7 @@ public class AuditLog
     /// <summary>
     /// Error message or failure reason if Success is false.
     /// </summary>
-    [MaxLength(2000)]
+    [StringLength(2000)]
     public string? ErrorMessage { get; init; }
 
     /// <summary>

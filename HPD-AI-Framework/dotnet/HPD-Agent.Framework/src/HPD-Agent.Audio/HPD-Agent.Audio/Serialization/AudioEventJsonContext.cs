@@ -4,6 +4,10 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent.Audio.Eot;
+using HPD.Agent.Audio.Output;
+using HPD.Agent.Audio.Preemptive;
+using HPD.Agent.Audio.Recognition;
+using HPD.Agent.Audio.Turn;
 
 namespace HPD.Agent.Audio.Serialization;
 
@@ -25,12 +29,50 @@ namespace HPD.Agent.Audio.Serialization;
 [JsonSerializable(typeof(TranscriptionDeltaEvent))]
 [JsonSerializable(typeof(TranscriptionCompletedEvent))]
 
+// Speech Recognition Events
+[JsonSerializable(typeof(SpeechRecognitionContext))]
+[JsonSerializable(typeof(SpeechRecognitionTranscript))]
+[JsonSerializable(typeof(SpeechRecognitionWord))]
+[JsonSerializable(typeof(SpeechRecognitionStartedEvent))]
+[JsonSerializable(typeof(SpeechRecognitionInterimEvent))]
+[JsonSerializable(typeof(SpeechRecognitionPreflightEvent))]
+[JsonSerializable(typeof(SpeechRecognitionFinalEvent))]
+[JsonSerializable(typeof(SpeechRecognitionUsageEvent))]
+[JsonSerializable(typeof(SpeechRecognitionEndedEvent))]
+[JsonSerializable(typeof(SpeechRecognitionErrorEvent))]
+
+// Speech Output Events
+[JsonSerializable(typeof(SpeechOutputContext))]
+[JsonSerializable(typeof(SpeechOutputState))]
+[JsonSerializable(typeof(AudioChunkFrame))]
+[JsonSerializable(typeof(SpeechOutputStartedEvent))]
+[JsonSerializable(typeof(SpeechOutputTextQueuedEvent))]
+[JsonSerializable(typeof(SpeechOutputAudioQueuedEvent))]
+[JsonSerializable(typeof(SpeechOutputPlaybackStartedEvent))]
+[JsonSerializable(typeof(SpeechOutputPlaybackProgressEvent))]
+[JsonSerializable(typeof(SpeechOutputPlaybackFinishedEvent))]
+[JsonSerializable(typeof(SpeechOutputPausedEvent))]
+[JsonSerializable(typeof(SpeechOutputResumedEvent))]
+[JsonSerializable(typeof(SpeechOutputInterruptedEvent))]
+[JsonSerializable(typeof(SpeechOutputCompletedEvent))]
+[JsonSerializable(typeof(SpeechOutputErrorEvent))]
+
+// User Turn Events
+[JsonSerializable(typeof(UserTurnContext))]
+[JsonSerializable(typeof(EndpointingDecision))]
+[JsonSerializable(typeof(UserTurnStartedEvent))]
+[JsonSerializable(typeof(UserTurnUpdatedEvent))]
+[JsonSerializable(typeof(UserTurnReadyEvent))]
+[JsonSerializable(typeof(UserTurnCommittedEvent))]
+[JsonSerializable(typeof(UserTurnCancelledEvent))]
+
 // Interruption Events
 [JsonSerializable(typeof(UserInterruptedEvent))]
 [JsonSerializable(typeof(SpeechPausedEvent))]
 [JsonSerializable(typeof(SpeechResumedEvent))]
 
 // Preemptive Generation Events
+[JsonSerializable(typeof(PreemptiveGenerationCandidate))]
 [JsonSerializable(typeof(PreemptiveGenerationStartedEvent))]
 [JsonSerializable(typeof(PreemptiveGenerationDiscardedEvent))]
 
@@ -40,6 +82,7 @@ namespace HPD.Agent.Audio.Serialization;
 
 // Metrics Events
 [JsonSerializable(typeof(AudioPipelineMetricsEvent))]
+[JsonSerializable(typeof(AudioExperienceMetricEvent))]
 
 // EOT Events
 [JsonSerializable(typeof(EotDetectedEvent))]
@@ -51,12 +94,16 @@ namespace HPD.Agent.Audio.Serialization;
 [JsonSerializable(typeof(AudioProcessingMode))]
 [JsonSerializable(typeof(AudioIOMode))]
 [JsonSerializable(typeof(EotDetectionStrategy))]
+[JsonSerializable(typeof(EndpointingMode))]
+[JsonSerializable(typeof(TurnControllerState))]
 [JsonSerializable(typeof(BackchannelStrategy))]
 
 // Audio Configuration
 [JsonSerializable(typeof(AudioConfig))]
 [JsonSerializable(typeof(AudioDiagnosticsConfig))]
 [JsonSerializable(typeof(EotConfig))]
+[JsonSerializable(typeof(SpeechRecognitionCapabilities))]
+[JsonSerializable(typeof(SpeechRecognitionOptions))]
 
 // Common types
 [JsonSerializable(typeof(TimeSpan))]

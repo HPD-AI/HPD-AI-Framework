@@ -20,7 +20,9 @@
     <!-- Source Generator Reference -->
     <ProjectReference Include="..\HPD-Graph.Connectors.SourceGenerator\HPD-Graph.Connectors.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
-                      ReferenceOutputAssembly="false" />
+                      ReferenceOutputAssembly="false"
+                      GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier"
+                      AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
   </ItemGroup>
 
 </Project>

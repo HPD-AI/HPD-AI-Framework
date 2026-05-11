@@ -664,7 +664,7 @@ public partial class TelegramBot
             var attachments = await DownloadAttachmentsAsync(message.Attachments, ct);
             await runner.RunAsync(
                 new BotStreamingRequest<TelegramStreamContext>(
-                    AgentName: _config.AgentName ?? "default",
+                    AgentId: _config.ResolveAgentId(),
                     SessionId: sessionId,
                     BranchId: branchId,
                     Text: message.Text,

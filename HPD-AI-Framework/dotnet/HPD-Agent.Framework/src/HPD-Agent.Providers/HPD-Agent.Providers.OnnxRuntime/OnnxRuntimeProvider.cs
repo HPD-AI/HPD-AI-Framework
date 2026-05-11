@@ -45,7 +45,7 @@ internal class OnnxRuntimeProvider : IProviderFeatures
     public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null)
     {
         // Get typed config
-        var onnxConfig = config.GetTypedProviderConfig<OnnxRuntimeProviderConfig>();
+        var onnxConfig = config.GetProviderConfig<OnnxRuntimeProviderConfig>();
 
         // Resolve model path
         string? modelPath = onnxConfig?.ModelPath ?? Environment.GetEnvironmentVariable("ONNX_MODEL_PATH");
@@ -112,9 +112,8 @@ internal class OnnxRuntimeProvider : IProviderFeatures
             PromptFormatter = null // Will use default formatter unless overridden
         };
 
-        // Get prompt formatter from AdditionalProperties if provided
-        if (config.AdditionalProperties?.TryGetValue("PromptFormatter", out var formatterObj) == true &&
-            formatterObj is Func<IEnumerable<ChatMessage>, ChatOptions?, string> formatter)
+        // Get prompt formatter from the runtime-only ProviderConfig hook if provided.
+        if (config.PromptFormatter is { } formatter)
         {
             clientOptions.PromptFormatter = formatter;
         }
@@ -128,8 +127,7 @@ internal class OnnxRuntimeProvider : IProviderFeatures
 
         // Apply client factory middleware if provided
         IChatClient finalClient = wrappedClient;
-        if (config.AdditionalProperties?.TryGetValue("ClientFactory", out var factoryObj) == true &&
-            factoryObj is Func<IChatClient, IChatClient> clientFactory)
+        if (config.ClientFactory is { } clientFactory)
         {
             finalClient = clientFactory(finalClient);
         }
@@ -160,7 +158,7 @@ internal class OnnxRuntimeProvider : IProviderFeatures
         var errors = new List<string>();
 
         // Get typed config
-        var onnxConfig = config.GetTypedProviderConfig<OnnxRuntimeProviderConfig>();
+        var onnxConfig = config.GetProviderConfig<OnnxRuntimeProviderConfig>();
 
         // Validate model path
         string? modelPath = onnxConfig?.ModelPath ?? Environment.GetEnvironmentVariable("ONNX_MODEL_PATH");

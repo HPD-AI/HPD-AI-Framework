@@ -72,6 +72,14 @@ public record JsonContent(JsonElement Value) : IToolResultContent
     public string Type => "json";
 }
 
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(TextContent))]
+[JsonSerializable(typeof(BinaryContent))]
+[JsonSerializable(typeof(JsonContent))]
+internal partial class ToolResultContentJsonContext : JsonSerializerContext
+{
+}
+
 /// <summary>
 /// JSON converter for tool result content payloads.
 /// </summary>
@@ -89,13 +97,12 @@ public sealed class ToolResultContentJsonConverter : JsonConverter<IToolResultCo
         }
 
         var type = typeElement.GetString();
-        var json = root.GetRawText();
 
         return type switch
         {
-            "text" => JsonSerializer.Deserialize<TextContent>(json, options),
-            "binary" => JsonSerializer.Deserialize<BinaryContent>(json, options),
-            "json" => JsonSerializer.Deserialize<JsonContent>(json, options),
+            "text" => root.Deserialize(ToolResultContentJsonContext.Default.TextContent),
+            "binary" => root.Deserialize(ToolResultContentJsonContext.Default.BinaryContent),
+            "json" => root.Deserialize(ToolResultContentJsonContext.Default.JsonContent),
             _ => throw new JsonException($"Unsupported tool result content type '{type}'.")
         };
     }
@@ -106,13 +113,13 @@ public sealed class ToolResultContentJsonConverter : JsonConverter<IToolResultCo
         switch (value)
         {
             case TextContent text:
-                JsonSerializer.Serialize(writer, text, options);
+                JsonSerializer.Serialize(writer, text, ToolResultContentJsonContext.Default.TextContent);
                 return;
             case BinaryContent binary:
-                JsonSerializer.Serialize(writer, binary, options);
+                JsonSerializer.Serialize(writer, binary, ToolResultContentJsonContext.Default.BinaryContent);
                 return;
             case JsonContent json:
-                JsonSerializer.Serialize(writer, json, options);
+                JsonSerializer.Serialize(writer, json, ToolResultContentJsonContext.Default.JsonContent);
                 return;
             default:
                 throw new JsonException($"Unsupported tool result content runtime type '{value.GetType().FullName}'.");

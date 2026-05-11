@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 
@@ -138,6 +139,7 @@ public static partial class AgentEventSerializer
         };
 
         options.TypeInfoResolverChain.Add(AgentEventJsonContext.Default);
+        options.TypeInfoResolverChain.Add(HPDJsonContext.Default);
 
         foreach (var resolver in Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions.TypeInfoResolverChain)
         {
@@ -264,6 +266,7 @@ public static partial class AgentEventSerializer
     // Reverse lookup: SCREAMING_SNAKE_CASE discriminator → concrete event type
     private static readonly Dictionary<string, Type> DiscriminatorToType =
         new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<Type, JsonTypeInfo> TypeInfos = new();
 
     // Initialise reverse lookup from TypeNames at startup
     static AgentEventSerializer()
@@ -273,7 +276,8 @@ public static partial class AgentEventSerializer
             DiscriminatorToType[discriminator] = type;
             // Warm up the STJ source-gen context so every registered type has metadata
             // available before the first Serialize call.
-            StandardJsonOptions.TypeInfoResolver?.GetTypeInfo(type, StandardJsonOptions);
+            if (StandardJsonOptions.TypeInfoResolver?.GetTypeInfo(type, StandardJsonOptions) is { } typeInfo)
+                TypeInfos[type] = typeInfo;
         }
     }
 
@@ -308,7 +312,7 @@ public static partial class AgentEventSerializer
             ? typeName
             : ToScreamingSnakeCase(concreteType.Name);
 
-        var eventJson = JsonSerializer.Serialize(value, concreteType, StandardJsonOptions);
+        var eventJson = JsonSerializer.Serialize(value, GetTypeInfo(concreteType));
         var prefix = $"\"version\":\"{version}\",\"type\":\"{eventType}\"";
 
         return eventJson == "{}"
@@ -326,7 +330,18 @@ public static partial class AgentEventSerializer
         if (discriminator == null || !DiscriminatorToType.TryGetValue(discriminator, out var concreteType))
             return null;
 
-        return doc.RootElement.Deserialize(concreteType, StandardJsonOptions);
+        return doc.RootElement.Deserialize(GetTypeInfo(concreteType));
+    }
+
+    private static JsonTypeInfo GetTypeInfo(Type concreteType)
+    {
+        if (TypeInfos.TryGetValue(concreteType, out var typeInfo))
+            return typeInfo;
+
+        typeInfo = StandardJsonOptions.TypeInfoResolver?.GetTypeInfo(concreteType, StandardJsonOptions)
+            ?? throw new JsonException($"No JSON metadata registered for event type '{concreteType.FullName}'.");
+        TypeInfos[concreteType] = typeInfo;
+        return typeInfo;
     }
 
     /// <summary>

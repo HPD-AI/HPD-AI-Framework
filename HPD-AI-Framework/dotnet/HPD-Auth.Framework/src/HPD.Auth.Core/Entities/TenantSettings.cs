@@ -25,19 +25,19 @@ public class TenantSettings
     /// Tenant display name (e.g., "Acme Corp").
     /// Used in emails, UI, and OpenAPI docs.
     /// </summary>
-    [MaxLength(200)]
+    [StringLength(200)]
     public string? DisplayName { get; set; }
 
     /// <summary>
     /// Logo URL for emails and UI.
     /// </summary>
-    [MaxLength(2048)]
+    [StringLength(2048)]
     public string? LogoUrl { get; set; }
 
     /// <summary>
     /// Favicon URL.
     /// </summary>
-    [MaxLength(2048)]
+    [StringLength(2048)]
     public string? FaviconUrl { get; set; }
 
     // ─────────────────────────────────────────────────────────────
@@ -47,13 +47,13 @@ public class TenantSettings
     /// <summary>
     /// Primary brand color in hex format (e.g., "#003366").
     /// </summary>
-    [MaxLength(7)]
+    [StringLength(7)]
     public string? PrimaryColor { get; set; }
 
     /// <summary>
     /// Secondary/accent color in hex format.
     /// </summary>
-    [MaxLength(7)]
+    [StringLength(7)]
     public string? AccentColor { get; set; }
 
     // ─────────────────────────────────────────────────────────────
@@ -63,13 +63,13 @@ public class TenantSettings
     /// <summary>
     /// Email "From" display name (e.g., "Acme Support").
     /// </summary>
-    [MaxLength(200)]
+    [StringLength(200)]
     public string? EmailFromName { get; set; }
 
     /// <summary>
     /// Email "From" address (e.g., "noreply@acme.com").
     /// </summary>
-    [MaxLength(320)]
+    [StringLength(320)]
     public string? EmailFromAddress { get; set; }
 
     // ─────────────────────────────────────────────────────────────
@@ -79,13 +79,13 @@ public class TenantSettings
     /// <summary>
     /// Primary site URL for redirects and email links.
     /// </summary>
-    [MaxLength(2048)]
+    [StringLength(2048)]
     public string? SiteUrl { get; set; }
 
     /// <summary>
     /// Support email for user inquiries.
     /// </summary>
-    [MaxLength(320)]
+    [StringLength(320)]
     public string? SupportEmail { get; set; }
 
     // ─────────────────────────────────────────────────────────────

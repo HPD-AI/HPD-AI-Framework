@@ -1,20 +1,20 @@
 // Copyright 2026 Einstein Essibu
 // SPDX-License-Identifier: AGPL-3.0-only
 
-using Microsoft.Extensions.AI;
+using HPD.Agent.Audio.Recognition;
 
 namespace HPD.Agent.Audio.Stt;
 
 /// <summary>
-/// Factory for creating STT clients.
+/// Factory for creating HPD speech recognizers.
 /// Registered via SttProviderDiscovery in module initializer.
 /// </summary>
 public interface ISttProviderFactory
 {
     /// <summary>
-    /// Creates an STT client from configuration.
+    /// Creates a speech recognizer from configuration.
     /// </summary>
-    ISpeechToTextClient CreateClient(SttConfig config, IServiceProvider? services = null);
+    ISpeechRecognizer CreateRecognizer(SttConfig config, IServiceProvider? services = null);
 
     /// <summary>
     /// Gets metadata about this STT provider's capabilities.

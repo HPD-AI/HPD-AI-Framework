@@ -27,13 +27,13 @@ public class UserIdentity
     /// OAuth provider name (e.g., "google", "github", "microsoft").
     /// For SSO: prefixed with "sso:" (e.g., "sso:okta-corp").
     /// </summary>
-    [MaxLength(50)]
+    [StringLength(50)]
     public string Provider { get; set; } = string.Empty;
 
     /// <summary>
     /// User's ID from the external provider.
     /// </summary>
-    [MaxLength(256)]
+    [StringLength(256)]
     public string ProviderId { get; set; } = string.Empty;
 
     /// <summary>

@@ -165,7 +165,7 @@ internal static partial class OpenApiFunctionFactory
             }
 
             properties.Add(param.Name, paramSchema);
-            if (param.IsRequired) required.Add(param.Name);
+            if (param.IsRequired) required.Add((JsonNode?)JsonValue.Create(param.Name));
         }
 
         if (operation.Payload != null)
@@ -179,7 +179,7 @@ internal static partial class OpenApiFunctionFactory
                     ["type"] = "string",
                     ["description"] = operation.Payload.Description ?? "The request body as a JSON string"
                 });
-                required.Add("payload");
+                required.Add((JsonNode?)JsonValue.Create("payload"));
             }
         }
 
@@ -194,12 +194,12 @@ internal static partial class OpenApiFunctionFactory
         // Apply AIJsonUtilities transform pipeline if configured.
         if (config.SchemaTransformOptions is { } opts)
         {
-            var element = JsonSerializer.Deserialize<JsonElement>(schema.ToJsonString());
+            var element = ParseJsonElement(schema);
             var transformed = AIJsonUtilities.TransformSchema(element, opts);
             return transformed;
         }
 
-        return JsonSerializer.Deserialize<JsonElement>(schema.ToJsonString());
+        return ParseJsonElement(schema);
     }
 
     private static void AddPayloadProperties(
@@ -220,8 +220,14 @@ internal static partial class OpenApiFunctionFactory
             }
 
             properties.Add(prop.Name, propSchema);
-            if (prop.IsRequired) required.Add(prop.Name);
+            if (prop.IsRequired) required.Add((JsonNode?)JsonValue.Create(prop.Name));
         }
+    }
+
+    private static JsonElement ParseJsonElement(JsonNode node)
+    {
+        using var document = JsonDocument.Parse(node.ToJsonString());
+        return document.RootElement.Clone();
     }
 
     private static string BuildFunctionName(RestApiOperation operation, string? prefix)

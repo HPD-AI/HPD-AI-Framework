@@ -1,7 +1,6 @@
 using System;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.AI;
 using HPD.Agent;
 
@@ -555,57 +554,50 @@ public class ProviderConfig
     public string? ProviderOptionsJson { get; set; }
 
     /// <summary>
-    /// Provider-specific configuration as key-value pairs.
-    /// Legacy approach - prefer ProviderOptionsJson for FFI compatibility.
-    /// See provider documentation for available options.
-    ///
-    /// Examples:
-    /// - OpenAI: { "Organization": "org-123", "StrictJsonSchema": true }
-    /// - Anthropic: { "PromptCachingType": "AutomaticToolsAndSystem" }
-    /// - OpenRouter: { "HttpReferer": "https://myapp.com" }
-    /// - Ollama: { "NumCtx": 8192, "KeepAlive": "5m" }
+    /// Optional OpenRouter HTTP-Referer attribution header.
     /// </summary>
-    public Dictionary<string, object>? AdditionalProperties { get; set; }
+    public string? HttpReferer { get; set; }
+
+    /// <summary>
+    /// Optional OpenRouter X-Title attribution header.
+    /// </summary>
+    public string? AppName { get; set; }
+
+    /// <summary>
+    /// Optional runtime-only hook for wrapping the provider-created chat client.
+    /// </summary>
+    [JsonIgnore]
+    public Func<IChatClient, IChatClient>? ClientFactory { get; set; }
+
+    /// <summary>
+    /// Optional runtime-only prompt formatter for local providers that expose formatter hooks.
+    /// </summary>
+    [JsonIgnore]
+    public Func<IEnumerable<ChatMessage>, ChatOptions?, string>? PromptFormatter { get; set; }
 
     // Cache for deserialized provider config (avoids repeated deserialization)
     [System.Text.Json.Serialization.JsonIgnore]
     private object? _cachedProviderConfig;
 
     /// <summary>
-    /// Gets the provider-specific configuration using the registered deserializer.
-    /// Prefers ProviderOptionsJson (FFI-friendly), falls back to AdditionalProperties.
-    /// Uses the provider's registered deserializer from ProviderDiscovery for AOT compatibility.
-    ///
-    /// Usage in providers:
-    /// <code>
-    /// var myConfig = config.GetTypedProviderConfig&lt;AnthropicProviderConfig&gt;();
-    /// </code>
+    /// Gets provider-specific configuration from <see cref="ProviderOptionsJson"/> using the provider's
+    /// registered source-generated serializer.
     /// </summary>
-    /// <typeparam name="T">The strongly-typed configuration class</typeparam>
-    /// <returns>Parsed configuration object, or null if no config is present</returns>
-    [RequiresUnreferencedCode("Provider configuration deserialization requires runtime type information. For AOT, use ProviderOptionsJson with registered deserializer.")]
-    public T? GetTypedProviderConfig<T>() where T : class
+    public T? GetProviderConfig<T>() where T : class
     {
-        // Return cached value if available and correct type
         if (_cachedProviderConfig is T cached)
             return cached;
 
-        // Priority 1: Use ProviderOptionsJson with registered deserializer
-        if (!string.IsNullOrWhiteSpace(ProviderOptionsJson))
-        {
-            var registration = Providers.ProviderDiscovery.GetProviderConfigType(ProviderKey);
-            if (registration != null && registration.ConfigType == typeof(T))
-            {
-                var result = registration.Deserialize(ProviderOptionsJson) as T;
-                _cachedProviderConfig = result;
-                return result;
-            }
-        }
+        if (string.IsNullOrWhiteSpace(ProviderOptionsJson))
+            return null;
 
-        // Priority 2: Fall back to AdditionalProperties (legacy)
-        var legacyConfig = GetProviderConfig<T>();
-        _cachedProviderConfig = legacyConfig;
-        return legacyConfig;
+        var registration = Providers.ProviderDiscovery.GetProviderConfigType(ProviderKey);
+        if (registration is null || registration.ConfigType != typeof(T))
+            return null;
+
+        var result = registration.Deserialize(ProviderOptionsJson) as T;
+        _cachedProviderConfig = result;
+        return result;
     }
 
     /// <summary>
@@ -614,7 +606,7 @@ public class ProviderConfig
     /// </summary>
     /// <typeparam name="T">The strongly-typed configuration class</typeparam>
     /// <param name="config">The configuration object to set</param>
-    public void SetTypedProviderConfig<T>(T config) where T : class
+    public void SetProviderConfig<T>(T config) where T : class
     {
         _cachedProviderConfig = config;
 
@@ -626,52 +618,6 @@ public class ProviderConfig
         }
     }
 
-    /// <summary>
-    /// Deserializes AdditionalProperties to a strongly-typed configuration class.
-    /// Legacy method - prefer GetTypedProviderConfig for FFI/AOT compatibility.
-    ///
-    /// Usage in providers:
-    /// <code>
-    /// var myConfig = config.GetProviderConfig&lt;MyProviderConfig&gt;();
-    /// </code>
-    /// </summary>
-    /// <typeparam name="T">The strongly-typed configuration class</typeparam>
-    /// <returns>Parsed configuration object, or null if AdditionalProperties is empty</returns>
-    /// <exception cref="InvalidOperationException">Thrown when configuration parsing fails</exception>
-    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Generic deserialization requires runtime type information. Use type-safe provider config methods for AOT.")]
-    public T? GetProviderConfig<T>() where T : class
-    {
-        if (AdditionalProperties == null || AdditionalProperties.Count == 0)
-            return null;
-
-        try
-        {
-            // Convert dictionary to JSON using source-generated context (AOT-safe)
-            var json = System.Text.Json.JsonSerializer.Serialize(
-                AdditionalProperties, 
-                typeof(Dictionary<string, object>),
-                HPDJsonContext.Default);
-            
-            // Deserialize using source-generated context for AOT compatibility
-            var result = System.Text.Json.JsonSerializer.Deserialize(
-                json,
-                typeof(T),
-                HPDJsonContext.Default) as T;
-            return result;
-        }
-        catch (System.Text.Json.JsonException ex)
-        {
-            throw new InvalidOperationException(
-                $"Failed to parse provider configuration for {typeof(T).Name}. " +
-                $"Please check that your AdditionalProperties match the expected structure. " +
-                $"Error: {ex.Message}", ex);
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException(
-                $"Unexpected error parsing provider configuration for {typeof(T).Name}: {ex.Message}", ex);
-        }
-    }
 }
 
 /// <summary>

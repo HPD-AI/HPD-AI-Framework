@@ -51,6 +51,9 @@ public static class HPDAgentServiceCollectionExtensions
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IConfigureOptions<JsonOptions>,
                 HPDAgentApiJsonOptionsSetup>());
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IPostConfigureOptions<JsonOptions>,
+                HPDJsonOptionsReadOnlyPostConfigure>());
 
         return services;
     }
@@ -76,8 +79,20 @@ internal class HPDAgentApiJsonOptionsSetup : IConfigureOptions<JsonOptions>
         options.SerializerOptions.TypeInfoResolverChain.Insert(3,
             HPDJsonContext.Default);
 
-        // Make options read-only to enforce source-gen-only JSON serialization when IsAotCompatible is true
-        // This prevents reflection fallback and ensures all types must be explicitly registered
-        options.SerializerOptions.MakeReadOnly();
+    }
+}
+
+/// <summary>
+/// Freezes HTTP JSON options after every library has had a chance to register
+/// its source-generated contexts.
+/// </summary>
+internal sealed class HPDJsonOptionsReadOnlyPostConfigure : IPostConfigureOptions<JsonOptions>
+{
+    public void PostConfigure(string? name, JsonOptions options)
+    {
+        // Make options read-only to enforce source-gen-only JSON serialization when IsAotCompatible is true.
+        // Post-configure keeps this composable with other HPD packages that add their own contexts.
+        if (!options.SerializerOptions.IsReadOnly)
+            options.SerializerOptions.MakeReadOnly();
     }
 }

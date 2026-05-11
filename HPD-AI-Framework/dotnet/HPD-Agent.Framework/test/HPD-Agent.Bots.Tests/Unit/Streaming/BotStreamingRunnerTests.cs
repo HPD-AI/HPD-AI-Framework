@@ -26,7 +26,7 @@ public class BotStreamingRunnerTests
 
         var started = await runner.RunAsync(
             new BotStreamingRequest<object>(
-                AgentName: "default",
+                AgentId: "test-agent",
                 SessionId: "session-1",
                 BranchId: "main",
                 Text: "hello",
@@ -69,7 +69,7 @@ public class BotStreamingRunnerTests
 
         var started = await runner.RunAsync(
             new BotStreamingRequest<object>(
-                AgentName: "default",
+                AgentId: "test-agent",
                 SessionId: "session-1",
                 BranchId: "main",
                 Text: "hello",

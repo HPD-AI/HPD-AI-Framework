@@ -15,6 +15,7 @@ internal class AspNetCoreAgentManager : AgentManager
 {
     private readonly AspNetCoreSessionManager _sessionManager;
     private readonly IOptionsMonitor<HPDAgentConfig> _optionsMonitor;
+    private readonly IServiceProvider _serviceProvider;
     private readonly string _name;
     private readonly IAgentFactory? _agentFactory;
 
@@ -22,12 +23,14 @@ internal class AspNetCoreAgentManager : AgentManager
         IAgentStore agentStore,
         AspNetCoreSessionManager sessionManager,
         IOptionsMonitor<HPDAgentConfig> optionsMonitor,
+        IServiceProvider serviceProvider,
         string name,
         IAgentFactory? agentFactory = null)
         : base(agentStore)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _optionsMonitor = optionsMonitor ?? throw new ArgumentNullException(nameof(optionsMonitor));
+        _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _name = name ?? throw new ArgumentNullException(nameof(name));
         _agentFactory = agentFactory;
     }
@@ -52,7 +55,7 @@ internal class AspNetCoreAgentManager : AgentManager
         else if (opts.DefaultAgentConfigPath != null)
         {
             var json = await File.ReadAllTextAsync(opts.DefaultAgentConfigPath, ct);
-            var loaded = JsonSerializer.Deserialize<AgentConfig>(json)
+            var loaded = JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentConfig)
                 ?? throw new InvalidOperationException(
                     $"Failed to deserialize AgentConfig from {opts.DefaultAgentConfigPath}");
             builder = new AgentBuilder(loaded);
@@ -63,6 +66,7 @@ internal class AspNetCoreAgentManager : AgentManager
         }
 
         builder
+            .WithServiceProvider(_serviceProvider)
             .WithAgentId(agentId)
             .WithAgentStore(AgentStore, opts.PersistAgentDefinitionsOnBuild)
             .WithSessionStore(_sessionManager.Store, opts.PersistAfterTurn);

@@ -25,42 +25,47 @@ internal static class MiddlewareResponseEndpoints
         AspNetCoreSessionManager sessionManager,
         AspNetCoreAgentManager agentManager)
     {
-        // POST /sessions/{sid}/branches/{bid}/permissions/respond - Permission decision
-        endpoints.MapPost("/sessions/{sid}/branches/{bid}/permissions/respond", (string sid, string bid, PermissionResponseEvent evt, CancellationToken ct) =>
-                RespondToPermission(sid, bid, evt, agentManager, ct))
+        // POST /agents/{agentId}/sessions/{sid}/branches/{bid}/permissions/respond - Permission decision
+        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/permissions/respond", (string agentId, string sid, string bid, PermissionResponseEvent evt, CancellationToken ct) =>
+                RespondToPermission(agentId, sid, bid, evt, sessionManager, agentManager, ct))
             .WithName("RespondToPermission")
             .WithSummary("Respond to a permission request from the agent");
 
-        // POST /sessions/{sid}/branches/{bid}/continuation/respond - Continuation decision
-        endpoints.MapPost("/sessions/{sid}/branches/{bid}/continuation/respond", (string sid, string bid, ContinuationResponseEvent evt, CancellationToken ct) =>
-                RespondToContinuation(sid, bid, evt, agentManager, ct))
+        // POST /agents/{agentId}/sessions/{sid}/branches/{bid}/continuation/respond - Continuation decision
+        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/continuation/respond", (string agentId, string sid, string bid, ContinuationResponseEvent evt, CancellationToken ct) =>
+                RespondToContinuation(agentId, sid, bid, evt, sessionManager, agentManager, ct))
             .WithName("RespondToContinuation")
             .WithSummary("Respond to a continuation request from the agent");
 
-        // POST /sessions/{sid}/branches/{bid}/clarifications/respond - Clarification answer
-        endpoints.MapPost("/sessions/{sid}/branches/{bid}/clarifications/respond", (string sid, string bid, ClarificationResponseEvent evt, CancellationToken ct) =>
-                RespondToClarification(sid, bid, evt, agentManager, ct))
+        // POST /agents/{agentId}/sessions/{sid}/branches/{bid}/clarifications/respond - Clarification answer
+        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/clarifications/respond", (string agentId, string sid, string bid, ClarificationResponseEvent evt, CancellationToken ct) =>
+                RespondToClarification(agentId, sid, bid, evt, sessionManager, agentManager, ct))
             .WithName("RespondToClarification")
             .WithSummary("Respond to a clarification request from the agent");
 
-        // POST /sessions/{sid}/branches/{bid}/client-tools/respond - Client tool result
-        endpoints.MapPost("/sessions/{sid}/branches/{bid}/client-tools/respond", (string sid, string bid, ClientToolInvokeResponseEvent evt, CancellationToken ct) =>
-                RespondToClientTool(sid, bid, evt, agentManager, ct))
+        // POST /agents/{agentId}/sessions/{sid}/branches/{bid}/client-tools/respond - Client tool result
+        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/client-tools/respond", (string agentId, string sid, string bid, ClientToolInvokeResponseEvent evt, CancellationToken ct) =>
+                RespondToClientTool(agentId, sid, bid, evt, sessionManager, agentManager, ct))
             .WithName("RespondToClientTool")
             .WithSummary("Respond to a client tool execution request from the agent");
     }
 
     private static async Task<Results<Ok, NotFound, ValidationProblem>> RespondToPermission(
+        string agentId,
         string sid,
         string bid,
         PermissionResponseEvent evt,
+        AspNetCoreSessionManager sessionManager,
         AspNetCoreAgentManager agentManager,
         CancellationToken ct = default)
     {
         try
         {
-            // Get the cached agent (defaults to "default" for single-agent deployments)
-            var agentId = "default"; // PermissionResponseEvent doesn't carry AgentId; default to "default"
+            if (!await RouteScopeExistsAsync(sessionManager, sid, bid, ct))
+            {
+                return TypedResults.NotFound();
+            }
+
             var agent = agentManager.GetAgent(agentId);
             if (agent == null)
             {
@@ -82,16 +87,21 @@ internal static class MiddlewareResponseEndpoints
     }
 
     private static async Task<Results<Ok, NotFound, ValidationProblem>> RespondToContinuation(
+        string agentId,
         string sid,
         string bid,
         ContinuationResponseEvent evt,
+        AspNetCoreSessionManager sessionManager,
         AspNetCoreAgentManager agentManager,
         CancellationToken ct = default)
     {
         try
         {
-            // Get the cached agent (defaults to "default" for single-agent deployments)
-            var agentId = "default"; // ContinuationResponseEvent doesn't carry AgentId; default to "default"
+            if (!await RouteScopeExistsAsync(sessionManager, sid, bid, ct))
+            {
+                return TypedResults.NotFound();
+            }
+
             var agent = agentManager.GetAgent(agentId);
             if (agent == null)
             {
@@ -113,15 +123,21 @@ internal static class MiddlewareResponseEndpoints
     }
 
     private static async Task<Results<Ok, NotFound, ValidationProblem>> RespondToClarification(
+        string agentId,
         string sid,
         string bid,
         ClarificationResponseEvent evt,
+        AspNetCoreSessionManager sessionManager,
         AspNetCoreAgentManager agentManager,
         CancellationToken ct = default)
     {
         try
         {
-            var agentId = "default"; // ClarificationResponseEvent doesn't carry AgentId; default to "default"
+            if (!await RouteScopeExistsAsync(sessionManager, sid, bid, ct))
+            {
+                return TypedResults.NotFound();
+            }
+
             var agent = agentManager.GetAgent(agentId);
             if (agent == null)
             {
@@ -142,16 +158,21 @@ internal static class MiddlewareResponseEndpoints
     }
 
     private static async Task<Results<Ok, NotFound, ValidationProblem>> RespondToClientTool(
+        string agentId,
         string sid,
         string bid,
         ClientToolInvokeResponseEvent evt,
+        AspNetCoreSessionManager sessionManager,
         AspNetCoreAgentManager agentManager,
         CancellationToken ct = default)
     {
         try
         {
-            // Get the cached agent (defaults to "default" for single-agent deployments)
-            var agentId = "default"; // ClientToolInvokeResponseEvent doesn't carry AgentId; default to "default"
+            if (!await RouteScopeExistsAsync(sessionManager, sid, bid, ct))
+            {
+                return TypedResults.NotFound();
+            }
+
             var agent = agentManager.GetAgent(agentId);
             if (agent == null)
             {
@@ -170,5 +191,19 @@ internal static class MiddlewareResponseEndpoints
                 ["ClientToolResponseError"] = [ex.Message]
             });
         }
+    }
+
+    private static async Task<bool> RouteScopeExistsAsync(
+        AspNetCoreSessionManager sessionManager,
+        string sid,
+        string bid,
+        CancellationToken ct)
+    {
+        var session = await sessionManager.Store.LoadSessionAsync(sid, ct);
+        if (session == null)
+            return false;
+
+        var branch = await sessionManager.Store.LoadBranchAsync(sid, bid, ct);
+        return branch != null;
     }
 }

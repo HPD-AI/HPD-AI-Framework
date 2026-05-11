@@ -65,6 +65,11 @@ public class SttConfig
     /// </summary>
     public Dictionary<string, object>? AdditionalProperties { get; set; }
 
+    /// <summary>
+    /// Requests the provider's streaming-shaped recognition path when the provider declares truthful streaming capabilities.
+    /// </summary>
+    public bool? UseStreamingRecognition { get; set; }
+
     //
     // PROVIDER SELECTION
     //

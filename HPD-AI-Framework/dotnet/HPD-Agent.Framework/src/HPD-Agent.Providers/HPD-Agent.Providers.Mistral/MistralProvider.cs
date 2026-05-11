@@ -60,15 +60,14 @@ internal class MistralProvider : IProviderFeatures
         }
 
         // Get typed config (may be null if not configured)
-        var mistralConfig = config.GetTypedProviderConfig<MistralProviderConfig>();
+        var mistralConfig = config.GetProviderConfig<MistralProviderConfig>();
 
         // Create Mistral client
         var client = new MistralClient(apiKey);
         IChatClient chatClient = client.Completions;
 
         // Apply client factory middleware if provided
-        if (config.AdditionalProperties?.TryGetValue("ClientFactory", out var factoryObj) == true &&
-            factoryObj is Func<IChatClient, IChatClient> clientFactory)
+        if (config.ClientFactory is { } clientFactory)
         {
             chatClient = clientFactory(chatClient);
         }
@@ -111,7 +110,7 @@ internal class MistralProvider : IProviderFeatures
         }
 
         // Validate Mistral-specific config if present
-        var mistralConfig = config.GetTypedProviderConfig<MistralProviderConfig>();
+        var mistralConfig = config.GetProviderConfig<MistralProviderConfig>();
         if (mistralConfig != null)
         {
             // Validate Temperature range (0.0 - 1.0)

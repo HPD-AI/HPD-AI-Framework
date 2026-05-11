@@ -69,7 +69,7 @@ public class OnnxRuntimeProviderTests
         {
             ModelPath = "/non/existent/path"
         };
-        config.SetTypedProviderConfig(onnxConfig);
+        config.SetProviderConfig(onnxConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -96,7 +96,7 @@ public class OnnxRuntimeProviderTests
             ModelPath = ".", // Current directory exists
             MaxLength = maxLength
         };
-        config.SetTypedProviderConfig(onnxConfig);
+        config.SetProviderConfig(onnxConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -120,7 +120,7 @@ public class OnnxRuntimeProviderTests
             ModelPath = ".",
             MinLength = -1
         };
-        config.SetTypedProviderConfig(onnxConfig);
+        config.SetProviderConfig(onnxConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -145,7 +145,7 @@ public class OnnxRuntimeProviderTests
             MinLength = 100,
             MaxLength = 50
         };
-        config.SetTypedProviderConfig(onnxConfig);
+        config.SetProviderConfig(onnxConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -171,7 +171,7 @@ public class OnnxRuntimeProviderTests
             ModelPath = ".",
             Temperature = temperature
         };
-        config.SetTypedProviderConfig(onnxConfig);
+        config.SetProviderConfig(onnxConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -197,7 +197,7 @@ public class OnnxRuntimeProviderTests
             ModelPath = ".",
             TopP = topP
         };
-        config.SetTypedProviderConfig(onnxConfig);
+        config.SetProviderConfig(onnxConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -223,7 +223,7 @@ public class OnnxRuntimeProviderTests
             ModelPath = ".",
             TopK = topK
         };
-        config.SetTypedProviderConfig(onnxConfig);
+        config.SetProviderConfig(onnxConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -249,7 +249,7 @@ public class OnnxRuntimeProviderTests
             ModelPath = ".",
             RepetitionPenalty = penalty
         };
-        config.SetTypedProviderConfig(onnxConfig);
+        config.SetProviderConfig(onnxConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -275,7 +275,7 @@ public class OnnxRuntimeProviderTests
             ModelPath = ".",
             NumBeams = numBeams
         };
-        config.SetTypedProviderConfig(onnxConfig);
+        config.SetProviderConfig(onnxConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -301,7 +301,7 @@ public class OnnxRuntimeProviderTests
             ModelPath = ".",
             NumReturnSequences = numReturnSequences
         };
-        config.SetTypedProviderConfig(onnxConfig);
+        config.SetProviderConfig(onnxConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -326,7 +326,7 @@ public class OnnxRuntimeProviderTests
             NumBeams = 3,
             NumReturnSequences = 5
         };
-        config.SetTypedProviderConfig(onnxConfig);
+        config.SetProviderConfig(onnxConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -350,7 +350,7 @@ public class OnnxRuntimeProviderTests
             ModelPath = ".",
             AdapterPath = "/non/existent/adapter.onnx_adapter"
         };
-        config.SetTypedProviderConfig(onnxConfig);
+        config.SetProviderConfig(onnxConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -382,7 +382,7 @@ public class OnnxRuntimeProviderTests
             NumBeams = 4,
             NumReturnSequences = 2
         };
-        config.SetTypedProviderConfig(onnxConfig);
+        config.SetProviderConfig(onnxConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -457,7 +457,7 @@ public class OnnxRuntimeProviderTests
         builder.Config.Provider.Should().NotBeNull();
         builder.Config.Provider!.ProviderKey.Should().Be("onnx-runtime");
 
-        var config = builder.Config.Provider.GetTypedProviderConfig<OnnxRuntimeProviderConfig>();
+        var config = builder.Config.Provider.GetProviderConfig<OnnxRuntimeProviderConfig>();
         config.Should().NotBeNull();
         config!.ModelPath.Should().Be(".");
         config.MaxLength.Should().Be(2048);

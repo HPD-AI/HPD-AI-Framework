@@ -109,7 +109,7 @@ public class OllamaProviderTests
             ModelName = "llama3:8b"
         };
         var ollamaConfig = new OllamaProviderConfig { Temperature = 3.0f };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -129,7 +129,7 @@ public class OllamaProviderTests
             ModelName = "llama3:8b"
         };
         var ollamaConfig = new OllamaProviderConfig { TopP = 1.5f };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -149,7 +149,7 @@ public class OllamaProviderTests
             ModelName = "llama3:8b"
         };
         var ollamaConfig = new OllamaProviderConfig { MinP = 1.5f };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -169,7 +169,7 @@ public class OllamaProviderTests
             ModelName = "llama3:8b"
         };
         var ollamaConfig = new OllamaProviderConfig { TypicalP = -0.5f };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -189,7 +189,7 @@ public class OllamaProviderTests
             ModelName = "llama3:8b"
         };
         var ollamaConfig = new OllamaProviderConfig { TfsZ = -1.0f };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -209,7 +209,7 @@ public class OllamaProviderTests
             ModelName = "llama3:8b"
         };
         var ollamaConfig = new OllamaProviderConfig { RepeatPenalty = -0.5f };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -229,7 +229,7 @@ public class OllamaProviderTests
             ModelName = "llama3:8b"
         };
         var ollamaConfig = new OllamaProviderConfig { PresencePenalty = 3.0f };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -249,7 +249,7 @@ public class OllamaProviderTests
             ModelName = "llama3:8b"
         };
         var ollamaConfig = new OllamaProviderConfig { FrequencyPenalty = -1.0f };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -269,7 +269,7 @@ public class OllamaProviderTests
             ModelName = "llama3:8b"
         };
         var ollamaConfig = new OllamaProviderConfig { MiroStat = 3 };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -289,7 +289,7 @@ public class OllamaProviderTests
             ModelName = "llama3:8b"
         };
         var ollamaConfig = new OllamaProviderConfig { MiroStatEta = -0.1f };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -309,7 +309,7 @@ public class OllamaProviderTests
             ModelName = "llama3:8b"
         };
         var ollamaConfig = new OllamaProviderConfig { MiroStatTau = -1.0f };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -329,7 +329,7 @@ public class OllamaProviderTests
             ModelName = "llama3:8b"
         };
         var ollamaConfig = new OllamaProviderConfig { NumPredict = -3 };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -349,7 +349,7 @@ public class OllamaProviderTests
             ModelName = "llama3:8b"
         };
         var ollamaConfig = new OllamaProviderConfig { NumCtx = 0 };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -369,7 +369,7 @@ public class OllamaProviderTests
             ModelName = "llama3:8b"
         };
         var ollamaConfig = new OllamaProviderConfig { TopK = 0 };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -405,7 +405,7 @@ public class OllamaProviderTests
             NumCtx = 1,
             TopK = 1
         };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -430,7 +430,7 @@ public class OllamaProviderTests
             TopP = 2.0f,
             NumCtx = -1
         };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -502,7 +502,7 @@ public class OllamaProviderTests
     }
 
     [Fact]
-    public void CreateChatClient_WithOllamaConfig_ShouldStoreRequestOptions()
+    public void CreateChatClient_WithOllamaConfig_ShouldCreateClient()
     {
         // Arrange
         var config = new ProviderConfig
@@ -520,18 +520,15 @@ public class OllamaProviderTests
             TopK = 40,
             Seed = 42
         };
-        config.SetTypedProviderConfig(ollamaConfig);
+        config.SetProviderConfig(ollamaConfig);
 
         // Act
         var client = _provider.CreateChatClient(config);
 
         // Assert
         client.Should().NotBeNull();
-        config.AdditionalProperties.Should().ContainKey("OllamaRequestOptions");
+        config.GetProviderConfig<OllamaProviderConfig>().Should().BeSameAs(ollamaConfig);
     }
-
-    // Note: ClientFactory test is intentionally omitted as it conflicts with JSON serialization
-    // in GetTypedProviderConfig. The functionality is tested through AgentBuilder extension tests.
 
     #endregion
 
@@ -725,7 +722,7 @@ public class OllamaProviderTests
             });
 
         // Assert
-        var config = builder.Config.Provider!.GetTypedProviderConfig<OllamaProviderConfig>();
+        var config = builder.Config.Provider!.GetProviderConfig<OllamaProviderConfig>();
         config.Should().NotBeNull();
         config!.Temperature.Should().Be(0.7f);
         config.NumPredict.Should().Be(2048);

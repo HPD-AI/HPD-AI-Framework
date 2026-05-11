@@ -112,36 +112,11 @@ internal static class AutoDiscovery
     {
         try
         {
-            // Get the directory containing HPD-Agent assembly
-            var hpdAgentAssembly = typeof(AgentBuilder).Assembly;
-#pragma warning disable IL3000 // Intentional fallback handling for single-file apps
-            var assemblyPath = hpdAgentAssembly.Location;
-#pragma warning restore IL3000
-
-            if (string.IsNullOrEmpty(assemblyPath))
-            {
-                // In single-file publish, Location is empty. Use AppContext.BaseDirectory
-                assemblyPath = AppContext.BaseDirectory;
-            }
-
-            if (string.IsNullOrEmpty(assemblyPath))
-            {
-                // Final fallback: try entry assembly
-                var entryAssembly = Assembly.GetEntryAssembly();
-                if (entryAssembly != null)
-                {
-#pragma warning disable IL3000 // Intentional fallback handling for single-file apps
-                    assemblyPath = entryAssembly.Location;
-#pragma warning restore IL3000
-                }
-            }
-
-            if (string.IsNullOrEmpty(assemblyPath))
-                return;
-
-            var directory = Path.GetDirectoryName(assemblyPath);
+            var directory = AppContext.BaseDirectory;
             if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
                 return;
+
+            directory = Path.GetFullPath(directory);
 
             // 1. Load extension libraries (which may auto-discover their own providers)
             TryLoadExtensionLibrary(directory, "HPD-Agent.Audio.dll");

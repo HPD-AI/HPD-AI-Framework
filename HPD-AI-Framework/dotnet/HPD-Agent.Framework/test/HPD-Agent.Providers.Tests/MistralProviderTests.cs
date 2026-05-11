@@ -110,7 +110,7 @@ public class MistralProviderTests
         {
             Temperature = 1.5m // Invalid: must be <= 1.0
         };
-        config.SetTypedProviderConfig(mistralConfig);
+        config.SetProviderConfig(mistralConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -135,7 +135,7 @@ public class MistralProviderTests
         {
             Temperature = -0.1m // Invalid: must be >= 0
         };
-        config.SetTypedProviderConfig(mistralConfig);
+        config.SetProviderConfig(mistralConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -160,7 +160,7 @@ public class MistralProviderTests
         {
             Temperature = 0.7m // Valid: between 0.0 and 1.0
         };
-        config.SetTypedProviderConfig(mistralConfig);
+        config.SetProviderConfig(mistralConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -185,7 +185,7 @@ public class MistralProviderTests
         {
             TopP = 1.5m // Invalid: must be <= 1.0
         };
-        config.SetTypedProviderConfig(mistralConfig);
+        config.SetProviderConfig(mistralConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -210,7 +210,7 @@ public class MistralProviderTests
         {
             ResponseFormat = "invalid_format"
         };
-        config.SetTypedProviderConfig(mistralConfig);
+        config.SetProviderConfig(mistralConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -235,7 +235,7 @@ public class MistralProviderTests
         {
             ToolChoice = "invalid_choice"
         };
-        config.SetTypedProviderConfig(mistralConfig);
+        config.SetProviderConfig(mistralConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -267,7 +267,7 @@ public class MistralProviderTests
             ToolChoice = "auto",
             ParallelToolCalls = true
         };
-        config.SetTypedProviderConfig(mistralConfig);
+        config.SetProviderConfig(mistralConfig);
 
         // Act
         var result = _provider.ValidateConfiguration(config);
@@ -436,7 +436,7 @@ public class MistralProviderTests
             TopP = 0.9m,
             RandomSeed = 12345
         };
-        config.Provider.SetTypedProviderConfig(mistralOpts);
+        config.Provider.SetProviderConfig(mistralOpts);
 
         // Act
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
@@ -487,7 +487,7 @@ public class MistralProviderTests
         config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
 
         // Verify typed config can be retrieved
-        var mistralConfig = config.Provider.GetTypedProviderConfig<MistralProviderConfig>();
+        var mistralConfig = config.Provider.GetProviderConfig<MistralProviderConfig>();
         mistralConfig.Should().NotBeNull();
         mistralConfig!.MaxTokens.Should().Be(4096);
         mistralConfig.Temperature.Should().Be(0.7m);
@@ -523,7 +523,7 @@ public class MistralProviderTests
             ToolChoice = "auto",
             ParallelToolCalls = true
         };
-        originalConfig.Provider.SetTypedProviderConfig(originalMistralOpts);
+        originalConfig.Provider.SetProviderConfig(originalMistralOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(originalConfig, HPDJsonContext.Default.AgentConfig);
@@ -542,7 +542,7 @@ public class MistralProviderTests
         deserializedConfig.Provider.ApiKey.Should().Be("test-key");
 
         // Assert - Mistral-specific config
-        var deserializedMistralOpts = deserializedConfig.Provider.GetTypedProviderConfig<MistralProviderConfig>();
+        var deserializedMistralOpts = deserializedConfig.Provider.GetProviderConfig<MistralProviderConfig>();
         deserializedMistralOpts.Should().NotBeNull();
         deserializedMistralOpts!.MaxTokens.Should().Be(4096);
         deserializedMistralOpts.Temperature.Should().Be(0.7m);
@@ -555,7 +555,7 @@ public class MistralProviderTests
     }
 
     [Fact]
-    public void AgentConfig_SetTypedProviderConfig_ShouldUpdateProviderOptionsJson()
+    public void AgentConfig_SetProviderConfig_ShouldUpdateProviderOptionsJson()
     {
         // Arrange
         var config = new AgentConfig
@@ -573,7 +573,7 @@ public class MistralProviderTests
             MaxTokens = 4096,
             Temperature = 0.5m
         };
-        config.Provider.SetTypedProviderConfig(mistralOpts);
+        config.Provider.SetProviderConfig(mistralOpts);
 
         // Assert - ProviderOptionsJson should be populated
         config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
@@ -583,14 +583,14 @@ public class MistralProviderTests
         config.Provider.ProviderOptionsJson.Should().Contain("0.5");
 
         // Verify we can retrieve it back
-        var retrieved = config.Provider.GetTypedProviderConfig<MistralProviderConfig>();
+        var retrieved = config.Provider.GetProviderConfig<MistralProviderConfig>();
         retrieved.Should().NotBeNull();
         retrieved!.MaxTokens.Should().Be(4096);
         retrieved.Temperature.Should().Be(0.5m);
     }
 
     [Fact]
-    public void AgentConfig_GetTypedProviderConfig_ShouldCacheResult()
+    public void AgentConfig_GetProviderConfig_ShouldCacheResult()
     {
         // Arrange
         var config = new AgentConfig
@@ -607,11 +607,11 @@ public class MistralProviderTests
             MaxTokens = 4096,
             Temperature = 0.7m
         };
-        config.Provider.SetTypedProviderConfig(mistralOpts);
+        config.Provider.SetProviderConfig(mistralOpts);
 
-        // Act - Call GetTypedProviderConfig multiple times
-        var first = config.Provider.GetTypedProviderConfig<MistralProviderConfig>();
-        var second = config.Provider.GetTypedProviderConfig<MistralProviderConfig>();
+        // Act - Call GetProviderConfig multiple times
+        var first = config.Provider.GetProviderConfig<MistralProviderConfig>();
+        var second = config.Provider.GetProviderConfig<MistralProviderConfig>();
 
         // Assert - Should return the same cached instance
         first.Should().BeSameAs(second);
@@ -637,14 +637,14 @@ public class MistralProviderTests
             MaxTokens = 4096
             // Leave Temperature, TopP, etc. as null
         };
-        config.Provider.SetTypedProviderConfig(mistralOpts);
+        config.Provider.SetProviderConfig(mistralOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
         var deserialized = System.Text.Json.JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentConfig);
 
         // Assert
-        var deserializedOpts = deserialized!.Provider.GetTypedProviderConfig<MistralProviderConfig>();
+        var deserializedOpts = deserialized!.Provider.GetProviderConfig<MistralProviderConfig>();
         deserializedOpts.Should().NotBeNull();
         deserializedOpts!.MaxTokens.Should().Be(4096);
         deserializedOpts.Temperature.Should().BeNull();
@@ -680,7 +680,7 @@ public class MistralProviderTests
         builder.Config.Provider.ModelName.Should().Be("mistral-large-latest");
         builder.Config.Provider.ApiKey.Should().Be("test-api-key");
 
-        var mistralConfig = builder.Config.Provider.GetTypedProviderConfig<MistralProviderConfig>();
+        var mistralConfig = builder.Config.Provider.GetProviderConfig<MistralProviderConfig>();
         mistralConfig.Should().NotBeNull();
         mistralConfig!.MaxTokens.Should().Be(4096);
         mistralConfig.Temperature.Should().Be(0.7m);
@@ -722,14 +722,14 @@ public class MistralProviderTests
             });
 
         // Assert
-        var mistralConfig = builder.Config.Provider!.GetTypedProviderConfig<MistralProviderConfig>();
+        var mistralConfig = builder.Config.Provider!.GetProviderConfig<MistralProviderConfig>();
         mistralConfig.Should().NotBeNull();
         mistralConfig!.ResponseFormat.Should().Be("json_object");
         mistralConfig.Temperature.Should().Be(0.3m);
     }
 
     [Fact]
-    public void WithMistral_WithClientFactory_ShouldStoreInAdditionalProperties()
+    public void WithMistral_WithClientFactory_ShouldStoreClientFactory()
     {
         // Arrange
         var builder = new AgentBuilder();
@@ -748,9 +748,7 @@ public class MistralProviderTests
 
         // Assert
         builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.AdditionalProperties.Should().NotBeNull();
-        builder.Config.Provider.AdditionalProperties.Should().ContainKey("ClientFactory");
-        builder.Config.Provider.AdditionalProperties!["ClientFactory"].Should().BeSameAs(clientFactory);
+        builder.Config.Provider!.ClientFactory.Should().BeSameAs(clientFactory);
     }
 
     [Fact]
@@ -842,7 +840,7 @@ public class MistralProviderTests
             configure: opts => opts.Temperature = 0.7m);
 
         // Assert
-        var mistralConfig = builder.Config.Provider!.GetTypedProviderConfig<MistralProviderConfig>();
+        var mistralConfig = builder.Config.Provider!.GetProviderConfig<MistralProviderConfig>();
         mistralConfig.Should().NotBeNull();
         mistralConfig!.Temperature.Should().Be(0.7m);
     }
@@ -918,7 +916,7 @@ public class MistralProviderTests
             });
 
         // Assert
-        var mistralConfig = builder.Config.Provider!.GetTypedProviderConfig<MistralProviderConfig>();
+        var mistralConfig = builder.Config.Provider!.GetProviderConfig<MistralProviderConfig>();
         mistralConfig.Should().NotBeNull();
         mistralConfig!.MaxTokens.Should().Be(4096);
         mistralConfig.Temperature.Should().Be(0.7m);
