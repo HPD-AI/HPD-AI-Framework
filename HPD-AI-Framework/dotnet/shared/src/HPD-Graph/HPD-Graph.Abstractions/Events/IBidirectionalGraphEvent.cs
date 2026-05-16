@@ -8,7 +8,7 @@ namespace HPDAgent.Graph.Abstractions.Events;
 /// Events implementing this interface can:
 /// - Be emitted during node/graph execution
 /// - Bubble to parent coordinators via SetParent()
-/// - Wait for responses using WaitForResponseAsync()
+/// - Participate in RequestAsync/Respond request-response flows
 /// </summary>
 /// <remarks>
 /// Used for Human-in-the-Loop (HITL) scenarios in graph execution:

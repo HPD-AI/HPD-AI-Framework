@@ -147,13 +147,13 @@ internal static class CapabilityAnalyzer
         // 1. Check for [Skill] attribute
         if (HasAttribute(attrs, "Skill"))
         {
-            return AnalyzeSkillCapability(method, attrs, semanticModel, context, className, namespaceName);
+            return AnalyzeSkillCapability(method, attrs, semanticModel, context, className, namespaceName, diagnostics);
         }
 
         // 2. Check for [SubAgent] attribute
         if (HasAttribute(attrs, "SubAgent"))
         {
-            return AnalyzeSubAgentCapability(method, attrs, semanticModel, context, className, namespaceName);
+            return AnalyzeSubAgentCapability(method, attrs, semanticModel, context, className, namespaceName, diagnostics);
         }
 
         // 3. Check for [MultiAgent] attribute
@@ -213,7 +213,7 @@ internal static class CapabilityAnalyzer
         // 6. Check for [AIFunction] attribute
         if (HasAttribute(attrs, "AIFunction"))
         {
-            return AnalyzeFunctionCapability(method, attrs, semanticModel, context, className, namespaceName);
+            return AnalyzeFunctionCapability(method, attrs, semanticModel, context, className, namespaceName, diagnostics);
         }
 
         // Not a capability
@@ -232,7 +232,8 @@ internal static class CapabilityAnalyzer
         SemanticModel semanticModel,
         GeneratorSyntaxContext context,
         string className,
-        string namespaceName)
+        string namespaceName,
+        List<Diagnostic> diagnostics)
     {
         // Validate return type is Skill
         var returnType = semanticModel.GetTypeInfo(method.ReturnType).Type;
@@ -431,7 +432,8 @@ internal static class CapabilityAnalyzer
         SemanticModel semanticModel,
         GeneratorSyntaxContext context,
         string className,
-        string namespaceName)
+        string namespaceName,
+        List<Diagnostic> diagnostics)
     {
         // Validate return type is SubAgent
         var returnType = semanticModel.GetTypeInfo(method.ReturnType).Type;
@@ -910,7 +912,8 @@ internal static class CapabilityAnalyzer
         SemanticModel semanticModel,
         GeneratorSyntaxContext context,
         string className,
-        string namespaceName)
+        string namespaceName,
+        List<Diagnostic> diagnostics)
     {
         var symbol = semanticModel.GetDeclaredSymbol(method);
         if (symbol == null) return null;
@@ -923,18 +926,7 @@ internal static class CapabilityAnalyzer
         var conditionalExpression = GetConditionalExpression(attrs);
         var contextTypeName = GetMetadataTypeName(method, semanticModel);
 
-        // Analyze parameters
-        var parameters = method.ParameterList.Parameters
-            .Select(param => new ParameterInfo
-            {
-                Name = param.Identifier.ValueText,
-                Type = param.Type?.ToString() ?? "object",
-                Description = GetParameterDescription(param),
-                HasDefaultValue = param.Default != null,
-                DefaultValue = param.Default?.Value?.ToString(),
-                ConditionalExpression = GetParameterConditionalExpression(param)
-            })
-            .ToList();
+        var parameters = ParameterAnalyzer.Analyze(method.ParameterList, semanticModel, out var parameterDiagnostics);
 
         // Get return type
         var returnType = method.ReturnType.ToString();
@@ -974,6 +966,7 @@ internal static class CapabilityAnalyzer
             // TODO Phase 2: Add validation data
         };
 
+        diagnostics.AddRange(parameterDiagnostics);
         return functionCapability;
     }
 
@@ -1146,53 +1139,6 @@ internal static class CapabilityAnalyzer
     {
         // TODO Phase 2: Extract permission strings
         return System.Array.Empty<string>();
-    }
-
-    /// <summary>
-    /// Extracts parameter description from [AIDescription] or [Description] attribute.
-    /// </summary>
-    private static string GetParameterDescription(ParameterSyntax param)
-    {
-        var attrs = param.AttributeLists.SelectMany(al => al.Attributes).ToList();
-
-        // Check for [AIDescription] first
-        var aiDescAttr = attrs.FirstOrDefault(a => a.Name.ToString().Contains("AIDescription"));
-        if (aiDescAttr != null)
-        {
-            var arg = aiDescAttr.ArgumentList?.Arguments.FirstOrDefault();
-            if (arg?.Expression is LiteralExpressionSyntax literal)
-                return literal.Token.ValueText;
-        }
-
-        // Fallback to [Description]
-        var descAttr = attrs.FirstOrDefault(a =>
-            a.Name.ToString().Contains("Description") &&
-            !a.Name.ToString().Contains("AIDescription"));
-        if (descAttr != null)
-        {
-            var arg = descAttr.ArgumentList?.Arguments.FirstOrDefault();
-            if (arg?.Expression is LiteralExpressionSyntax literal)
-                return literal.Token.ValueText;
-        }
-
-        return string.Empty;
-    }
-
-    /// <summary>
-    /// Extracts conditional expression for parameter from [ConditionalParameter] attribute.
-    /// </summary>
-    private static string? GetParameterConditionalExpression(ParameterSyntax param)
-    {
-        var attrs = param.AttributeLists.SelectMany(al => al.Attributes).ToList();
-        var conditionalAttr = attrs.FirstOrDefault(a => a.Name.ToString().Contains("ConditionalParameter"));
-        if (conditionalAttr != null)
-        {
-            var arg = conditionalAttr.ArgumentList?.Arguments.FirstOrDefault();
-            if (arg?.Expression is LiteralExpressionSyntax literal)
-                return literal.Token.ValueText;
-        }
-
-        return null;
     }
 
     // ========== Skill Helper Methods (Phase 5: Migrated from SkillAnalyzer) ==========

@@ -134,11 +134,8 @@ public class ContinuationPermissionMiddleware : IAgentMiddleware
                 context.Iteration + 1,  // Display as 1-based for user
                 currentState.CurrentExtendedLimit);
 
-            // Emit continuation request event
-            context.Emit(evt);
-
             // Wait for response from external handler (BLOCKS during user interaction)
-            var response = await context.Base.WaitForResponseAsync<ContinuationResponseEvent>(continuationId)
+            var response = await context.Base.RequestAsync<ContinuationRequestEvent, ContinuationResponseEvent>(evt)
                 .ConfigureAwait(false);
 
             if (response.Approved)

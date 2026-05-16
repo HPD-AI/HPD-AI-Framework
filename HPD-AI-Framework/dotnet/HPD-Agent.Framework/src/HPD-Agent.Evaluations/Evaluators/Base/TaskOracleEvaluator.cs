@@ -52,7 +52,7 @@ public abstract class TaskOracleEvaluator : HpdEvaluatorBase
         {
             metric.AddDiagnostics(EvaluationDiagnostic.Error(
                 "TurnEvaluationContext not available. TaskOracleEvaluator requires " +
-                "EvaluationMiddleware to inject TurnEvaluationContextWrapper."));
+                "LiveEvaluationMiddleware to inject TurnEvaluationContextWrapper."));
             return result;
         }
 
@@ -86,7 +86,7 @@ public sealed record OracleResult(bool Passed, string? Reason = null)
 }
 
 /// <summary>
-/// Internal EvaluationContext subclass injected by EvaluationMiddleware into every
+/// Internal EvaluationContext subclass injected by LiveEvaluationMiddleware into every
 /// additionalContext array so TaskOracleEvaluator subclasses can access the full
 /// TurnEvaluationContext without breaking the MS IEvaluator signature.
 /// </summary>

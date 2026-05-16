@@ -90,6 +90,10 @@ public static partial class EventTypes
         public const string TOOL_CALL_ARGS = "TOOL_CALL_ARGS";
         public const string TOOL_CALL_END = "TOOL_CALL_END";
         public const string TOOL_CALL_RESULT = "TOOL_CALL_RESULT";
+        public const string TOOL_CALL_BACKGROUND_TASK_STARTED = "TOOL_CALL_BACKGROUND_TASK_STARTED";
+        public const string TOOL_CALL_BACKGROUND_TASK_COMPLETED = "TOOL_CALL_BACKGROUND_TASK_COMPLETED";
+        public const string TOOL_CALL_BACKGROUND_TASK_CANCELLED = "TOOL_CALL_BACKGROUND_TASK_CANCELLED";
+        public const string TOOL_CALL_BACKGROUND_TASK_FAULTED = "TOOL_CALL_BACKGROUND_TASK_FAULTED";
     }
 
     #endregion
@@ -181,7 +185,9 @@ public static partial class EventTypes
         public const string BIDIRECTIONAL_EVENT_PROCESSED = "BIDIRECTIONAL_EVENT_PROCESSED";
         public const string AGENT_DECISION = "AGENT_DECISION";
         public const string AGENT_COMPLETION = "AGENT_COMPLETION";
-        public const string ITERATION_MESSAGES = "ITERATION_MESSAGES";
+        public const string ITERATION_CONTEXT_SNAPSHOT = "ITERATION_CONTEXT_SNAPSHOT";
+        public const string MIDDLEWARE_STATE_SNAPSHOT = "MIDDLEWARE_STATE_SNAPSHOT";
+        public const string MIDDLEWARE_STATE_CHANGED = "MIDDLEWARE_STATE_CHANGED";
         public const string SCHEMA_CHANGED = "SCHEMA_CHANGED";
         public const string COLLAPSING_STATE = "COLLAPSING_STATE";
         public const string EVENT_DROPPED = "EVENT_DROPPED";

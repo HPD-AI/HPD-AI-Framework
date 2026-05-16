@@ -126,12 +126,30 @@ public class CharacterizationTests : AgentTestBase
         var messages = CreateSimpleConversation("Use the failing tool");
 
         var capturedEvents = new List<AgentEvent>();
+        var subscribedText = new List<string>();
+        var subscribedTextGate = new object();
+
+        using var textSubscription = agent.Subscribe<TextDeltaEvent>(evt =>
+        {
+            lock (subscribedTextGate)
+                subscribedText.Add(evt.Text);
+        });
 
         // Act
         await foreach (var evt in agent.RunAgenticLoopAsync(messages, cancellationToken: TestCancellationToken))
         {
             capturedEvents.Add(evt);
         }
+
+        await WaitForAsync(() =>
+        {
+            lock (subscribedTextGate)
+                return subscribedText.Any(t =>
+                    t.Contains("Circuit breaker", StringComparison.OrdinalIgnoreCase) ||
+                    t.Contains("circuit", StringComparison.OrdinalIgnoreCase) ||
+                    t.Contains("consecutive", StringComparison.OrdinalIgnoreCase) ||
+                    t.Contains("repeated", StringComparison.OrdinalIgnoreCase));
+        });
 
         // Assert - CURRENT behavior
         // Should terminate after hitting circuit breaker (3 consecutive identical calls)
@@ -140,7 +158,11 @@ public class CharacterizationTests : AgentTestBase
 
         // Should have circuit breaker message or error message
         var textDeltas = capturedEvents.OfType<TextDeltaEvent>().ToList();
-        var allText = string.Concat(textDeltas.Select(e => e.Text));
+        string subscribedAllText;
+        lock (subscribedTextGate)
+            subscribedAllText = string.Concat(subscribedText);
+
+        var allText = string.Concat(textDeltas.Select(e => e.Text)) + subscribedAllText;
         allText.Should().ContainAny("Circuit breaker", "circuit", "consecutive", "repeated");
     }
 
@@ -313,6 +335,14 @@ public class CharacterizationTests : AgentTestBase
         var messages = CreateSimpleConversation("Use the error tool");
 
         var capturedEvents = new List<AgentEvent>();
+        var subscribedText = new List<string>();
+        var subscribedTextGate = new object();
+
+        using var textSubscription = agent.Subscribe<TextDeltaEvent>(evt =>
+        {
+            lock (subscribedTextGate)
+                subscribedText.Add(evt.Text);
+        });
 
         // Act
         await foreach (var evt in agent.RunAgenticLoopAsync(messages, cancellationToken: TestCancellationToken))
@@ -320,18 +350,45 @@ public class CharacterizationTests : AgentTestBase
             capturedEvents.Add(evt);
         }
 
+        await WaitForAsync(() =>
+        {
+            lock (subscribedTextGate)
+                return subscribedText.Any(t =>
+                    t.Contains("consecutive errors", StringComparison.OrdinalIgnoreCase) ||
+                    t.Contains("Exceeded maximum", StringComparison.OrdinalIgnoreCase) ||
+                    t.Contains("unable to proceed", StringComparison.OrdinalIgnoreCase));
+        });
+
         // Assert - Should terminate after MaxConsecutiveErrors
         var agentTurnStarts = capturedEvents.OfType<AgentTurnStartedEvent>().ToList();
         agentTurnStarts.Should().HaveCountLessThanOrEqualTo(4, "should stop after max consecutive errors (3) + initial turn");
 
         // Should have error message indicating consecutive errors
         var textDeltas = capturedEvents.OfType<TextDeltaEvent>().ToList();
-        var allText = string.Concat(textDeltas.Select(e => e.Text));
+        string subscribedAllText;
+        lock (subscribedTextGate)
+            subscribedAllText = string.Concat(subscribedText);
+
+        var allText = string.Concat(textDeltas.Select(e => e.Text)) + subscribedAllText;
         allText.Should().ContainAny("consecutive errors", "Exceeded maximum", "unable to proceed");
 
         // Should have termination events
         capturedEvents.OfType<TextMessageStartEvent>().Should().NotBeEmpty("should have text message start");
         capturedEvents.OfType<TextMessageEndEvent>().Should().NotBeEmpty("should have text message end");
+    }
+
+    private static async Task WaitForAsync(Func<bool> predicate)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(2);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (predicate())
+                return;
+
+            await Task.Delay(10);
+        }
+
+        predicate().Should().BeTrue();
     }
 
     // Helper method for calculator

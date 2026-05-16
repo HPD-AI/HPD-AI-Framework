@@ -86,7 +86,7 @@ function mapToUIMessages(raw: BranchMessage[]): Message[] {
 				const fr = item as import('@hpd/hpd-agent-client').AiFunctionResultContent;
 				const match = toolCalls.find((tc) => tc.callId === fr.callId);
 				if (match) {
-					match.result =
+					match.resultText =
 						typeof fr.result === 'string' ? fr.result : JSON.stringify(fr.result);
 				}
 			}

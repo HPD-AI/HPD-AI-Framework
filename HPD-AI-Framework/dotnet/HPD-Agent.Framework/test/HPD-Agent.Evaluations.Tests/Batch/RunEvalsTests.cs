@@ -10,8 +10,12 @@ using HPD.Agent.Evaluations.RedTeam;
 using HPD.Agent.Evaluations.Storage;
 using HPD.Agent.Evaluations.Tests.Infrastructure;
 using HPD.Agent.Evaluations.Tests.Integration;
+using HPD.Agent.Middleware;
+using HPD.Agent.Providers;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
 
 namespace HPD.Agent.Evaluations.Tests.Batch;
 
@@ -30,7 +34,7 @@ public sealed class RunEvalsTests
             ContextOverrides = new() { ["tenant"] = "alpha" },
         };
 
-        await RunEvals.ExecuteAsync(
+        var report = await RunEvals.ExecuteAsync(
             agent,
             dataset,
             [new OutputContainsEvaluator("response")],
@@ -43,6 +47,11 @@ public sealed class RunEvalsTests
         agent.Configs[0].ModelId.Should().Be("gpt-test");
         agent.Configs[0].DisableEvaluators.Should().BeTrue();
         agent.Configs[0].ContextOverrides.Should().ContainKey("tenant");
+
+        var reportCase = report.Cases.Should().ContainSingle().Subject;
+        reportCase.ProviderKey.Should().Be("openai");
+        reportCase.ModelId.Should().Be("gpt-test");
+        reportCase.ResponseModelId.Should().Be(CapturingAgent.ResponseModelId);
     }
 
     [Fact]
@@ -118,6 +127,11 @@ public sealed class RunEvalsTests
             [evaluator],
             new RunEvalsOptions<string>
             {
+                BaseRunConfig = new AgentRunConfig
+                {
+                    ProviderKey = "openai",
+                    ModelId = "gpt-test",
+                },
                 PersistResults = true,
                 ScoreStore = store,
             },
@@ -137,6 +151,9 @@ public sealed class RunEvalsTests
         records[0].CaseVersion.Should().Be("2");
         records[0].CaseValidFrom.Should().Be(validFrom);
         records[0].CaseValidTo.Should().Be(validTo);
+        records[0].ProviderKey.Should().Be("openai");
+        records[0].ModelId.Should().Be("gpt-test");
+        records[0].ResponseModelId.Should().Be(CapturingAgent.ResponseModelId);
     }
 
     [Fact]
@@ -260,6 +277,11 @@ public sealed class RunEvalsTests
             [new OutputContainsEvaluator("response")],
             new RunEvalsOptions<string>
             {
+                BaseRunConfig = new AgentRunConfig
+                {
+                    ProviderKey = "openai",
+                    ModelId = "gpt-test",
+                },
                 PersistResults = true,
                 ScoreStore = store,
                 Repeat = 2,
@@ -287,6 +309,9 @@ public sealed class RunEvalsTests
         first.Metadata.Should().ContainKey("difficulty");
         first.Tags.Should().Contain("dataset:support-bench");
         first.Tags.Should().Contain("case:case-001");
+        first.ProviderKey.Should().Be("openai");
+        first.ModelId.Should().Be("gpt-test");
+        first.ResponseModelId.Should().Be(CapturingAgent.ResponseModelId);
     }
 
     [Fact]
@@ -442,6 +467,9 @@ public sealed class RunEvalsTests
             experimentName: "retry");
 
         agent.Attempts.Should().Be(2);
+        agent.Configs.Should().HaveCount(2);
+        agent.Configs.Select(c => c.RuntimeMiddleware?.Count ?? 0)
+            .Should().AllBeEquivalentTo(1);
         report.Failures.Should().BeEmpty();
         report.Cases.Should().ContainSingle();
     }
@@ -682,6 +710,62 @@ public sealed class RunEvalsTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_CapturedAgentToolCall_DrivesToolEvaluatorsAndPersistsToolAttributes()
+    {
+        var toolCall = new ToolCallRecord(
+            CallId: "call-read",
+            Name: "ReadFile",
+            HarnessName: "FileSystem",
+            ArgumentsJson: """{"path":"/tmp/a.txt"}""",
+            Result: "contents",
+            Duration: TimeSpan.FromMilliseconds(12),
+            WasPermissionDenied: false);
+        var agent = new CapturingAgent { ToolCalls = [toolCall] };
+        var store = new InMemoryScoreStore();
+
+        var report = await RunEvals.ExecuteAsync(
+            agent,
+            SingleCaseDataset("read /tmp/a.txt"),
+            [
+                new ToolWasCalledEvaluator("ReadFile"),
+                new ToolArgumentMatchesEvaluator("ReadFile", "path", "/tmp/a.txt"),
+            ],
+            new RunEvalsOptions<string>
+            {
+                PersistResults = true,
+                ScoreStore = store,
+            },
+            experimentName: "nightly");
+
+        report.Failures.Should().BeEmpty();
+        report.Cases.Should().ContainSingle();
+        report.Cases[0].EvaluatorFailures.Should().BeEmpty();
+        report.Cases[0].EvaluationResult.Metrics["Tool Was Called"]
+            .Should().BeOfType<BooleanMetric>()
+            .Which.Value.Should().BeTrue();
+        report.Cases[0].EvaluationResult.Metrics["Tool Argument Matches"]
+            .Should().BeOfType<BooleanMetric>()
+            .Which.Value.Should().BeTrue();
+
+        var records = new List<ScoreRecord>();
+        await foreach (var record in store.GetScoresAsync(sessionId: "nightly", branchId: "case-1"))
+            records.Add(record);
+
+        records.Should().HaveCount(2);
+        records.Should().OnlyContain(r => r.Attributes != null);
+        records.Select(r => r.Attributes).Should().AllBeEquivalentTo(records[0].Attributes);
+        var attributes = records[0].Attributes;
+        attributes.Should().NotBeNull();
+        attributes!.Should().ContainKey("tool_calls")
+            .WhoseValue.Should().BeAssignableTo<IEnumerable<ToolCallRecord>>()
+            .Which.Should().ContainSingle()
+            .Which.Should().Match<ToolCallRecord>(tc =>
+                tc.CallId == "call-read" &&
+                tc.Name == "ReadFile" &&
+                tc.ArgumentsJson.Contains("/tmp/a.txt"));
+    }
+
+    [Fact]
     public async Task ExecuteAsync_EvaluatorConcurrency_RunsEvaluatorsInParallel()
     {
         var agent = new CapturingAgent();
@@ -721,24 +805,159 @@ public sealed class RunEvalsTests
         ],
     };
 
-    private sealed class CapturingAgent : IAgent
+    private sealed class CapturingAgent : IJudgeAgent
     {
+        public const string ResponseModelId = "provider-reported-gpt-test";
+
         public List<AgentRunConfig> Configs { get; } = [];
-        public int Attempts { get; private set; }
+        public int Attempts => _chatClient.Attempts;
         public int FailuresBeforeSuccess { get; init; }
         public Func<Exception>? FailureFactory { get; init; }
         public string? ResponseText { get; init; }
+        public IReadOnlyList<ToolCallRecord> ToolCalls { get; init; } = [];
+
+        private readonly CapturingChatClient _chatClient;
+        private readonly HPD.Agent.Agent _agent;
+        private int _judgeAttempts;
+
+        public CapturingAgent()
+        {
+            _chatClient = new CapturingChatClient(this);
+            var options = new ChatOptions
+            {
+                Tools =
+                [
+                    AIFunctionFactory.Create((string path) => "contents", "ReadFile"),
+                ],
+            };
+
+            _agent = new HPD.Agent.Agent(
+                new AgentConfig
+                {
+                    Name = nameof(CapturingAgent),
+                    Provider = new ProviderConfig
+                    {
+                        ProviderKey = "openai",
+                        ModelName = "gpt-test",
+                        DefaultChatOptions = options,
+                    },
+                },
+                _chatClient,
+                options,
+                middlewares: [new RecordingMiddleware(this)],
+                providerRegistry: new CapturingProviderRegistry(_chatClient));
+        }
+
+        public static implicit operator HPD.Agent.Agent(CapturingAgent agent) => agent._agent;
 
         public Task<ChatResponse> RunAsync(AgentRunConfig config, CancellationToken ct = default)
         {
-            Attempts++;
             Configs.Add(config);
+            _judgeAttempts++;
 
-            if (Attempts <= FailuresBeforeSuccess)
+            if (_judgeAttempts <= FailuresBeforeSuccess)
                 throw FailureFactory?.Invoke() ?? new InvalidOperationException("failure");
 
             return Task.FromResult(new ChatResponse(
                 [new ChatMessage(ChatRole.Assistant, ResponseText ?? $"response to {config.UserMessage}")]));
+        }
+
+        private sealed class RecordingMiddleware(CapturingAgent owner) : IAgentMiddleware
+        {
+            public Task BeforeMessageTurnAsync(
+                BeforeMessageTurnContext context,
+                CancellationToken cancellationToken)
+            {
+                owner.Configs.Add(context.RunConfig);
+                return Task.CompletedTask;
+            }
+        }
+
+        private sealed class CapturingChatClient(CapturingAgent owner) : IChatClient
+        {
+            private bool _toolCallEmitted;
+
+            public int Attempts { get; private set; }
+            public ChatClientMetadata Metadata => new("CapturingChatClient");
+
+            public Task<ChatResponse> GetResponseAsync(
+                IEnumerable<ChatMessage> messages,
+                ChatOptions? options = null,
+                CancellationToken cancellationToken = default)
+                => Task.FromResult(new ChatResponse(
+                    [new ChatMessage(ChatRole.Assistant, owner.ResponseText ?? $"response to {LastUserText(messages)}")]));
+
+            public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+                IEnumerable<ChatMessage> messages,
+                ChatOptions? options = null,
+                [EnumeratorCancellation] CancellationToken cancellationToken = default)
+            {
+                Attempts++;
+                if (Attempts <= owner.FailuresBeforeSuccess)
+                    throw owner.FailureFactory?.Invoke() ?? new InvalidOperationException("failure");
+
+                await Task.Yield();
+
+                if (owner.ToolCalls.Count > 0 && !_toolCallEmitted)
+                {
+                    _toolCallEmitted = true;
+                    var toolCall = owner.ToolCalls[0];
+                    yield return new ChatResponseUpdate
+                    {
+                        Contents =
+                        [
+                            new FunctionCallContent(
+                                toolCall.CallId,
+                                toolCall.Name,
+                                JsonSerializer.Deserialize<Dictionary<string, object?>>(
+                                    toolCall.ArgumentsJson) ?? new Dictionary<string, object?>()),
+                        ],
+                        FinishReason = ChatFinishReason.ToolCalls,
+                    };
+                    yield break;
+                }
+
+                yield return new ChatResponseUpdate
+                {
+                    Contents = [new TextContent(owner.ResponseText ?? $"response to {LastUserText(messages)}")],
+                    ModelId = ResponseModelId,
+                    FinishReason = ChatFinishReason.Stop,
+                };
+            }
+
+            public object? GetService(Type serviceType, object? serviceKey = null) => null;
+            public void Dispose() { }
+
+            private static string LastUserText(IEnumerable<ChatMessage> messages)
+                => messages.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? string.Empty;
+        }
+
+        private sealed class CapturingProviderRegistry(IChatClient client) : IProviderRegistry
+        {
+            public IProviderFeatures? GetProvider(string providerKey) =>
+                new CapturingProviderFeatures(providerKey, client);
+
+            public IReadOnlyCollection<string> GetRegisteredProviders() => ["openai", "test"];
+            public void Register(IProviderFeatures provider) { }
+            public bool IsRegistered(string providerKey) => true;
+            public void Clear() { }
+        }
+
+        private sealed class CapturingProviderFeatures(string providerKey, IChatClient client) : IProviderFeatures
+        {
+            public string ProviderKey => providerKey;
+            public string DisplayName => providerKey;
+            public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null) => client;
+            public HPD.Agent.ErrorHandling.IProviderErrorHandler CreateErrorHandler() => new StubErrorHandler();
+            public ProviderMetadata GetMetadata() => new()
+            {
+                ProviderKey = providerKey,
+                DisplayName = providerKey,
+                SupportsStreaming = true,
+                SupportsFunctionCalling = true,
+            };
+            public ProviderValidationResult ValidateConfiguration(ProviderConfig config)
+                => ProviderValidationResult.Success();
         }
     }
 

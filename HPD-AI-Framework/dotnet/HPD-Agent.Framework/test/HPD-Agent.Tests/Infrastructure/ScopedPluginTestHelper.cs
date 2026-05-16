@@ -36,7 +36,7 @@ public static class CollapsedHarnessTestHelper
         };
 
         return HPDAIFunctionFactory.Create(
-            async (args, ct) =>
+            async (args, _, ct) =>
             {
                 var funcs = string.Join(", ", functionNames);
                 var instructions = postExpansionInstructions ?? "";
@@ -66,7 +66,9 @@ public static class CollapsedHarnessTestHelper
             }
         };
 
-        return HPDAIFunctionFactory.Create(invocation, options);
+        return HPDAIFunctionFactory.Create(
+            (args, _, ct) => invocation(args, ct),
+            options);
     }
 
     /// <summary>
@@ -143,7 +145,9 @@ public static class CollapsedHarnessTestHelper
             Description = description
         };
 
-        return HPDAIFunctionFactory.Create(invocation, options);
+        return HPDAIFunctionFactory.Create(
+            (args, _, ct) => invocation(args, ct),
+            options);
     }
 
     /// <summary>

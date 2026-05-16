@@ -13,7 +13,7 @@ namespace HPD.Events;
 /// Key Features:
 /// - Fan-out event routing with per-subscriber mailboxes
 /// - Hierarchical event bubbling via SetParent (child events bubble to parent)
-/// - Bidirectional patterns (request/response with WaitForResponseAsync)
+/// - Bidirectional request/response with RequestAsync and Respond/TryRespond
 /// - Interruptible streams (group events that can be canceled together)
 /// - Removable typed, catch-all, stream, and channel subscriptions
 /// </summary>
@@ -39,9 +39,9 @@ public interface IEventCoordinator
     /// <remarks>
     /// Awaiting this method means the event was accepted by matching subscriber mailboxes
     /// (and parent coordinators) according to their backpressure settings. It does not
-    /// wait for handler callbacks to finish processing the event. Use an explicit
-    /// request/response event, <see cref="WaitForResponseAsync{TResponse}"/>, or a
-    /// synchronous application path when the caller must observe handler completion.
+    /// wait for handler callbacks to finish processing the event. Use
+    /// <see cref="RequestAsync{TRequest,TResponse}"/> or a synchronous application path
+    /// when the caller must observe handler completion.
     /// </remarks>
     ValueTask EmitAsync(Event evt, CancellationToken ct = default);
 
@@ -125,28 +125,27 @@ public interface IEventCoordinator
     void SetParent(IEventCoordinator parent);
 
     /// <summary>
-    /// Wait for a response event (bidirectional pattern).
-    /// Used for request/response flows (e.g., permission requests, clarifications).
-    /// Blocks until a response with matching requestId is received or timeout occurs.
+    /// Emit a bidirectional request event and wait for its matching response.
+    /// The response waiter is registered before the request is emitted.
     /// </summary>
-    /// <typeparam name="TResponse">Expected response event type (must inherit from Event)</typeparam>
-    /// <param name="requestId">Unique request ID to match response against</param>
-    /// <param name="timeout">Maximum time to wait for response</param>
-    /// <param name="ct">Cancellation token</param>
-    /// <returns>Response event of type TResponse</returns>
-    /// <exception cref="TimeoutException">Thrown if no response received within timeout</exception>
-    Task<TResponse> WaitForResponseAsync<TResponse>(
-        string requestId,
+    Task<TResponse> RequestAsync<TRequest, TResponse>(
+        TRequest request,
         TimeSpan timeout,
-        CancellationToken ct = default) where TResponse : Event;
+        CancellationToken ct = default)
+        where TRequest : Event, IBidirectionalEvent
+        where TResponse : Event;
 
     /// <summary>
-    /// Send a response event (bidirectional pattern).
-    /// Completes a pending WaitForResponseAsync call with matching requestId.
+    /// Complete a pending bidirectional request with a matching response.
+    /// Throws when no active waiter exists.
     /// </summary>
-    /// <param name="requestId">Request ID this response corresponds to</param>
-    /// <param name="response">Response event</param>
-    void SendResponse(string requestId, Event response);
+    void Respond(string requestId, Event response);
+
+    /// <summary>
+    /// Try to complete a pending bidirectional request with a matching response.
+    /// Returns false when the request has already completed, timed out, or never existed.
+    /// </summary>
+    bool TryRespond(string requestId, Event response);
 
     /// <summary>
     /// Stream registry for managing interruptible event streams.

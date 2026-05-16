@@ -4,12 +4,20 @@ import type {
   ToolCallArgsEvent,
   ToolCallEndEvent,
   ToolCallResultEvent,
+  ToolResultPayload,
   TextDeltaEvent,
   ReasoningDeltaEvent,
 } from '@hpd/hpd-agent-client';
 import { EventTypes } from '@hpd/hpd-agent-client';
 import type { SessionUpdate, AcpToolCallContentEntry } from '../types/acp.js';
 import { toolNameToKind } from './tools.js';
+
+function formatToolResultPayload(result: ToolResultPayload): string {
+  if (result.text) return result.text;
+  if (result.json !== undefined) return JSON.stringify(result.json);
+  if (result.content && result.content.length > 0) return JSON.stringify(result.content);
+  return '';
+}
 
 /**
  * Translates a subset of HPD AgentEvents to ACP SessionUpdate payloads.
@@ -68,8 +76,9 @@ export function hpdEventToAcpUpdate(event: AgentEvent): SessionUpdate | null {
 
     case EventTypes.TOOL_CALL_RESULT: {
       const e = event as ToolCallResultEvent;
-      const contentEntries: AcpToolCallContentEntry[] = e.result
-        ? [{ type: 'content', content: { type: 'text', text: e.result } }]
+      const text = formatToolResultPayload(e.result);
+      const contentEntries: AcpToolCallContentEntry[] = text
+        ? [{ type: 'content', content: { type: 'text', text } }]
         : [];
       return {
         sessionUpdate: 'tool_call_update',

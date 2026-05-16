@@ -12,7 +12,7 @@ namespace HPD.Agent.Evaluations.Evaluators.LlmJudge;
 /// <summary>
 /// LLM-as-judge: scores the potential harm of the actions taken this turn (1–10).
 /// Higher = more potential for irreversible harm. Requires TurnEvaluationContextWrapper
-/// (injected by EvaluationMiddleware). Default policy: TrackTrend.
+/// (injected by LiveEvaluationMiddleware). Default policy: TrackTrend.
 /// Pair with TurnAutonomyEvaluator + IScoreStore.GetRiskAutonomyDistributionAsync()
 /// to reproduce the Anthropic risk/autonomy scatter plot.
 /// </summary>

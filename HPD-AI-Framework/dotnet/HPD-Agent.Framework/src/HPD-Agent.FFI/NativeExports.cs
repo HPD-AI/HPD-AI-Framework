@@ -204,7 +204,7 @@ public static partial class NativeExports
     private static AIFunction CreateNativeFunctionWrapper(NativeFunctionInfo nativeFunc)
     {
         return HPDAIFunctionFactory.Create(
-            (arguments, cancellationToken) =>
+            (arguments, _, cancellationToken) =>
             {
                 // Convert AIFunctionArguments to a simple dictionary
                 var argsDict = new Dictionary<string, object>();

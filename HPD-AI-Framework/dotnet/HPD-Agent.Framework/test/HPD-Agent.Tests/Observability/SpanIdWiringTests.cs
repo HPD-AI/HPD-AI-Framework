@@ -303,7 +303,7 @@ public class SpanIdWiringTests : AgentTestBase
             RequiresPermission = true
         };
         var guardedTool = HPDAIFunctionFactory.Create(
-            async (args, ct) => "result", sensitiveOptions);
+            async (args, _, ct) => "result", sensitiveOptions);
 
         var config = DefaultConfig();
         config.Provider ??= new ProviderConfig { ProviderKey = "test", ModelName = "test-model" };

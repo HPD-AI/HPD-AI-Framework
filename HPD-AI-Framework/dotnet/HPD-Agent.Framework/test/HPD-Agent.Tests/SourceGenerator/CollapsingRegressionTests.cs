@@ -105,7 +105,7 @@ namespace TestHarneses
         Assert.Contains("CreateFunctionOnlyHarnessContainer", generatedCode);
 
         // Assert: Container is registered in CreateHarness method
-        Assert.Contains("functions.Add(CreateFunctionOnlyHarnessContainer(instance));", generatedCode);
+        Assert.Contains("functions.Add(CreateFunctionOnlyHarnessContainer(instance, serialization));", generatedCode);
 
         // Assert: Container metadata includes function names
         Assert.Contains("\"Function1\"", generatedCode);
@@ -199,12 +199,12 @@ namespace TestHarneses
 
         // Assert: Container is ACTUALLY REGISTERED in CreateHarness method
         // This is the key assertion - proves the registration code is called
-        Assert.Contains("functions.Add(CreateTestHarnessContainer(instance));", generatedCode);
+        Assert.Contains("functions.Add(CreateTestHarnessContainer(instance, serialization));", generatedCode);
 
         // Assert: Registration happens BEFORE individual capability registration
         // Look for the CreateHarness method and verify container comes before individual functions
         var createHarnessIndex = generatedCode.IndexOf("public static List<AIFunction> CreateHarness");
-        var containerRegistrationIndex = generatedCode.IndexOf("functions.Add(CreateTestHarnessContainer(instance));", createHarnessIndex);
+        var containerRegistrationIndex = generatedCode.IndexOf("functions.Add(CreateTestHarnessContainer(instance, serialization));", createHarnessIndex);
         var individualFunctionPattern = "HPDAIFunctionFactory.Create"; // First individual function registration
         var firstIndividualFunctionIndex = generatedCode.IndexOf(individualFunctionPattern, createHarnessIndex);
 
@@ -478,7 +478,7 @@ Available capabilities:
         // (Already proven by Bug 1 assertion)
 
         // Bug 3: Container is registered
-        Assert.Contains("functions.Add(CreateFinancialAnalysisHarnessContainer(instance));", generatedCode);
+        Assert.Contains("functions.Add(CreateFinancialAnalysisHarnessContainer(instance, serialization));", generatedCode);
 
         // Bug 4: Metadata exists for runtime visibility manager
         Assert.Contains("[\"IsContainer\"] = true", generatedCode);

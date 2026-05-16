@@ -63,7 +63,7 @@ public class LayeredSuspensionTests
         requestEvent.Should().NotBeNull("should emit approval request");
 
         // Send approval response
-        coordinator.SendResponse(requestEvent!.RequestId, new NodeApprovalResponseEvent
+        coordinator.Respond(requestEvent!.RequestId, new NodeApprovalResponseEvent
         {
             RequestId = requestEvent.RequestId,
             SourceName = "Test",
@@ -155,7 +155,7 @@ public class LayeredSuspensionTests
 
         requestEvent.Should().NotBeNull("approval request should be emitted");
 
-        coordinator.SendResponse(requestEvent!.RequestId, new NodeApprovalResponseEvent
+        coordinator.Respond(requestEvent!.RequestId, new NodeApprovalResponseEvent
         {
             RequestId = requestEvent.RequestId,
             SourceName = "Test",
@@ -221,7 +221,7 @@ public class LayeredSuspensionTests
 
         requestEvent.Should().NotBeNull("approval request should be emitted");
 
-        coordinator.SendResponse(requestEvent!.RequestId, new NodeApprovalResponseEvent
+        coordinator.Respond(requestEvent!.RequestId, new NodeApprovalResponseEvent
         {
             RequestId = requestEvent.RequestId,
             SourceName = "Test",
@@ -272,7 +272,7 @@ public class LayeredSuspensionTests
 
         requestEvent.Should().NotBeNull("approval request should be emitted");
 
-        coordinator.SendResponse(requestEvent!.RequestId, new NodeApprovalResponseEvent
+        coordinator.Respond(requestEvent!.RequestId, new NodeApprovalResponseEvent
         {
             RequestId = requestEvent.RequestId,
             SourceName = "Test",
@@ -411,7 +411,7 @@ public class LayeredSuspensionTests
 
         requestEvent.Should().NotBeNull("approval request should be emitted");
 
-        coordinator.SendResponse(requestEvent!.RequestId, new NodeApprovalResponseEvent
+        coordinator.Respond(requestEvent!.RequestId, new NodeApprovalResponseEvent
         {
             RequestId = requestEvent.RequestId,
             SourceName = "Test",
@@ -523,7 +523,19 @@ public class TestEventCoordinator : IEventCoordinator
 
     public void SetParent(IEventCoordinator parent) { }
 
-    public Task<TResponse> WaitForResponseAsync<TResponse>(string requestId, TimeSpan timeout, CancellationToken ct = default)
+    public Task<TResponse> RequestAsync<TRequest, TResponse>(
+        TRequest request,
+        TimeSpan timeout,
+        CancellationToken ct = default)
+        where TRequest : Event, IBidirectionalEvent
+        where TResponse : Event
+    {
+        var responseTask = WaitForResponseAsync<TResponse>(request.RequestId, timeout, ct);
+        Emit(request);
+        return responseTask;
+    }
+
+    private Task<TResponse> WaitForResponseAsync<TResponse>(string requestId, TimeSpan timeout, CancellationToken ct = default)
         where TResponse : Event
     {
         var tcs = new TaskCompletionSource<Event>();
@@ -549,7 +561,13 @@ public class TestEventCoordinator : IEventCoordinator
         });
     }
 
-    public void SendResponse(string requestId, Event response)
+    public void Respond(string requestId, Event response)
+    {
+        if (!TryRespond(requestId, response))
+            throw new InvalidOperationException($"No pending response waiter found for request ID '{requestId}'.");
+    }
+
+    public bool TryRespond(string requestId, Event response)
     {
         TaskCompletionSource<Event>? tcs;
         lock (_lock)
@@ -557,7 +575,7 @@ public class TestEventCoordinator : IEventCoordinator
             _waiters.TryGetValue(requestId, out tcs);
         }
 
-        tcs?.TrySetResult(response);
+        return tcs?.TrySetResult(response) == true;
     }
 
     public IStreamRegistry Streams => throw new NotImplementedException();

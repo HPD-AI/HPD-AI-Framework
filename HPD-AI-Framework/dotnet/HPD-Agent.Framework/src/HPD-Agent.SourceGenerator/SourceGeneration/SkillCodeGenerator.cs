@@ -130,7 +130,7 @@ internal static class SkillCodeGenerator
         {
             sb.AppendLine("        // Register harness container");
             // Method name uses ClassName; the container's Name property uses EffectiveName
-            sb.AppendLine($"        functions.Add(Create{Harness.ClassName}Container(instance));");
+            sb.AppendLine($"        functions.Add(Create{Harness.ClassName}Container(instance, serialization));");
             sb.AppendLine();
         }
 
@@ -150,13 +150,13 @@ internal static class SkillCodeGenerator
             {
                 sb.AppendLine($"        if (Evaluate{skill.Name}Condition(context))");
                 sb.AppendLine("        {");
-                sb.AppendLine($"            functions.Add(Create{skill.MethodName}Skill(instance, context));");
+                sb.AppendLine($"            functions.Add(Create{skill.MethodName}Skill(instance, context, serialization));");
                 sb.AppendLine("        }");
             }
             else
             {
                 // Each skill generates exactly one container function
-                sb.AppendLine($"        functions.Add(Create{skill.MethodName}Skill(instance, context));");
+                sb.AppendLine($"        functions.Add(Create{skill.MethodName}Skill(instance, context, serialization));");
             }
         }
 
@@ -201,7 +201,7 @@ internal static class SkillCodeGenerator
         sb.AppendLine($"        /// </summary>");
         sb.AppendLine($"        /// <param name=\"instance\">Harness instance</param>");
         sb.AppendLine($"        /// <param name=\"context\">Execution context for dynamic descriptions</param>");
-        sb.AppendLine($"        private static AIFunction Create{skill.MethodName}Skill({Harness.Name} instance, IToolMetadata? context)");
+        sb.AppendLine($"        private static AIFunction Create{skill.MethodName}Skill({Harness.Name} instance, IToolMetadata? context, HPDToolSerializationOptions? serialization)");
         sb.AppendLine("        {");
 
         // Generate runtime function body that checks configuration
@@ -216,7 +216,7 @@ internal static class SkillCodeGenerator
         {
             var escapedInstructions = skill.FunctionResult.Replace("\"", "\"\"");
             sb.AppendLine("            return HPDAIFunctionFactory.Create(");
-            sb.AppendLine("                async (arguments, cancellationToken) =>");
+            sb.AppendLine("                async (arguments, functionContext, cancellationToken) =>");
             sb.AppendLine("                {");
             sb.AppendLine("                    // Check if instructions should be included in function result");
             sb.AppendLine("                    var mode = HPD.Agent.AgentConfig.GlobalConfig?.Collapsing?.SkillInstructionMode ?? HPD.Agent.SkillInstructionMode.Both;");
@@ -249,7 +249,7 @@ internal static class SkillCodeGenerator
         else
         {
             sb.AppendLine("            return HPDAIFunctionFactory.Create(");
-            sb.AppendLine("                async (arguments, cancellationToken) =>");
+            sb.AppendLine("                async (arguments, functionContext, cancellationToken) =>");
             sb.AppendLine("                {");
 
             // Generate appropriate message based on whether skill has documents
@@ -286,6 +286,8 @@ internal static class SkillCodeGenerator
 
         sb.AppendLine($"                    RequiresPermission = {skill.RequiresPermission.ToString().ToLower()},");
         sb.AppendLine("                    SchemaProvider = () => CreateEmptyContainerSchema(),");
+        sb.AppendLine("                    SerializerOptions = serialization?.SerializerOptions,");
+        sb.AppendLine("                    ResultType = typeof(string),");
 
         sb.AppendLine("                    AdditionalProperties = new Dictionary<string, object>");
         sb.AppendLine("                    {");
@@ -370,10 +372,10 @@ internal static class SkillCodeGenerator
         sb.AppendLine("        /// </summary>");
         sb.AppendLine($"        /// <param name=\"instance\">Harness instance</param>");
         // Method signature uses ClassName for type references
-        sb.AppendLine($"        private static AIFunction Create{Harness.ClassName}Container({Harness.ClassName} instance)");
+        sb.AppendLine($"        private static AIFunction Create{Harness.ClassName}Container({Harness.ClassName} instance, HPDToolSerializationOptions? serialization)");
         sb.AppendLine("        {");
         sb.AppendLine("            return HPDAIFunctionFactory.Create(");
-        sb.AppendLine("                async (arguments, cancellationToken) =>");
+        sb.AppendLine("                async (arguments, functionContext, cancellationToken) =>");
         sb.AppendLine("                {");
 
         // Handle FunctionResult - either static literal or dynamic expression
@@ -412,6 +414,8 @@ internal static class SkillCodeGenerator
         sb.AppendLine($"                    Name = \"{Harness.EffectiveName}\",");
         sb.AppendLine($"                    Description = \"{fullDescription}\",");
         sb.AppendLine("                    SchemaProvider = () => CreateEmptyContainerSchema(),");
+        sb.AppendLine("                    SerializerOptions = serialization?.SerializerOptions,");
+        sb.AppendLine("                    ResultType = typeof(string),");
         sb.AppendLine("                    AdditionalProperties = new Dictionary<string, object?>");
         sb.AppendLine("                    {");
         sb.AppendLine("                        [\"IsContainer\"] = true,");

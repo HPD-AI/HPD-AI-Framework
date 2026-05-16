@@ -65,7 +65,7 @@ internal class SubAgentCapability : BaseCapability
         // PHASE 2A FIX: Return just the factory call (NO local function wrapper, NO functions.Add)
         // The caller (HPDToolSourceGenerator) will add the functions.Add() wrapper
         sb.AppendLine("HPDAIFunctionFactory.Create(");
-        sb.AppendLine("    async (arguments, cancellationToken) =>");
+        sb.AppendLine("    async (arguments, functionContext, cancellationToken) =>");
         sb.AppendLine("    {");
         sb.AppendLine("        // Get sub-agent definition from method");
 
@@ -78,8 +78,7 @@ internal class SubAgentCapability : BaseCapability
             sb.AppendLine($"        var subAgentDef = instance.{MethodName}();");
         }
         sb.AppendLine();
-        sb.AppendLine("        // Get parent context from CurrentFunctionContext (set during function execution)");
-        sb.AppendLine("        var functionContext = HPD.Agent.Agent.CurrentFunctionContext;");
+        sb.AppendLine("        // Use the explicit runtime context supplied by the agent runtime");
         sb.AppendLine("        var parentCoordinator = functionContext?.GetParentEventCoordinator();");
         sb.AppendLine();
         sb.AppendLine("        // Build agent from config");
@@ -113,7 +112,7 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("        // PerSession: attach parent's session store before building so RunAsync(sessionId) works");
         sb.AppendLine("        if (subAgentDef.SessionMode == SubAgentSessionMode.PerSession)");
         sb.AppendLine("        {");
-        sb.AppendLine("            var parentStore = functionContext?.Session?.Store;");
+        sb.AppendLine("            var parentStore = functionContext?.GetParentSessionStore();");
         sb.AppendLine("            if (parentStore != null)");
         sb.AppendLine("                agentBuilder.WithSessionStore(parentStore);");
         sb.AppendLine("        }");
@@ -123,7 +122,7 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine();
 
         // Set up event bubbling via parent-child linking
-        sb.AppendLine("        // Set up event bubbling (use parentCoordinator from CurrentFunctionContext)");
+        sb.AppendLine("        // Set up event bubbling through the parent coordinator");
         sb.AppendLine("        if (parentCoordinator != null)");
         sb.AppendLine("        {");
         sb.AppendLine("            agent.EventCoordinator.SetParent(parentCoordinator);");

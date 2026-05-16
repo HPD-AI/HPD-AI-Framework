@@ -1,9 +1,11 @@
 using System;
 using System.ComponentModel;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.AI;
 using HPD.Agent;
+using HPD.Agent.Middleware;
 
 /// <summary>
 /// Provides a clarification function that enables parent/orchestrator agents to ask users for
@@ -40,21 +42,15 @@ public static class ClarificationFunction
     /// </remarks>
     public static AIFunction Create(AIFunctionFactoryOptions? options = null, TimeSpan? timeout = null)
     {
-        [Description("Ask the user for clarification or additional information needed to complete the task. Only use if sub-agents asks you a question you cannot answer.")]
-        async Task<string> AskUserForClarificationAsync(
-            [Description("The question to ask the user. Be specific and clear about what information you need.")]
-            string question,
+        async Task<object?> AskUserForClarificationAsync(
+            AIFunctionArguments arguments,
+            FunctionExecutionContext context,
             CancellationToken cancellationToken)
         {
-            // V2: Get the current function execution context (HookContext with Emit/WaitForResponseAsync)
-            var context = Agent.CurrentFunctionContext;
-
-            if (context == null)
-            {
-                throw new InvalidOperationException(
-                    "AskUserForClarification can only be called from within an agent function execution context. " +
-                    "Ensure this function is registered with an agent that has proper context setup.");
-            }
+            var question = HPDToolArgumentBinder.BindRequired<string>(
+                arguments.GetJson(),
+                "question",
+                arguments.GetJsonSerializerOptions());
 
             if (string.IsNullOrWhiteSpace(question))
             {
@@ -64,23 +60,19 @@ public static class ClarificationFunction
             // Generate unique request ID for correlation
             var requestId = Guid.NewGuid().ToString();
 
-            // Emit clarification request event (will bubble to root agent/orchestrator)
-            // Include the agent name so UI can show which agent is asking
-            context.Emit(new ClarificationRequestEvent(
-                requestId,
-                SourceName: "ClarificationFunction",
-                question,
-                AgentName: context.AgentName,
-                Options: null));
-
             // Wait for user's response (blocks here while event is processed)
             ClarificationResponseEvent response;
             var effectiveTimeout = timeout ?? TimeSpan.FromMinutes(5);
             try
             {
-                response = await context.WaitForResponseAsync<ClarificationResponseEvent>(
-                    requestId,
-                    timeout: effectiveTimeout);
+                response = await context.RequestAsync<ClarificationRequestEvent, ClarificationResponseEvent>(
+                    new ClarificationRequestEvent(
+                        requestId,
+                        SourceName: "ClarificationFunction",
+                        question,
+                        AgentName: context.AgentName,
+                        Options: null),
+                    effectiveTimeout);
             }
             catch (TimeoutException)
             {
@@ -96,9 +88,34 @@ public static class ClarificationFunction
         }
 
         options ??= new AIFunctionFactoryOptions();
-        options.Name ??= "AskUserForClarification";
-        options.Description ??= "Ask the user for clarification or additional information when needed to complete a task.";
 
-        return AIFunctionFactory.Create(AskUserForClarificationAsync, options);
+        return HPDAIFunctionFactory.Create(
+            AskUserForClarificationAsync,
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = options.Name ?? "AskUserForClarification",
+                Description = options.Description ?? "Ask the user for clarification or additional information when needed to complete a task.",
+                ResultType = typeof(string),
+                SchemaProvider = CreateClarificationSchema
+            });
+    }
+
+    private static JsonElement CreateClarificationSchema()
+    {
+        using var document = JsonDocument.Parse("""
+        {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string",
+              "description": "The question to ask the user. Be specific and clear about what information you need."
+            }
+          },
+          "required": [ "question" ],
+          "additionalProperties": false
+        }
+        """);
+
+        return document.RootElement.Clone();
     }
 }

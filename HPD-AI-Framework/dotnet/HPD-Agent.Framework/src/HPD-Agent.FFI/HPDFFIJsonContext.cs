@@ -4,6 +4,7 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 using HPD.Agent.FFI;
 using HPD.Agent.MCP;
+using HPD.Agent.Middleware;
 using HPD.Agent.Planning;
 using HPD.Agent.StructuredOutput;
 
@@ -114,6 +115,18 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(ToolCallArgsEvent))]
 [JsonSerializable(typeof(ToolCallEndEvent))]
 [JsonSerializable(typeof(ToolCallResultEvent))]
+[JsonSerializable(typeof(ToolCallBackgroundTaskStartedEvent))]
+[JsonSerializable(typeof(ToolCallBackgroundTaskCompletedEvent))]
+[JsonSerializable(typeof(ToolCallBackgroundTaskCancelledEvent))]
+[JsonSerializable(typeof(ToolCallBackgroundTaskFaultedEvent))]
+[JsonSerializable(typeof(FunctionInvocationSnapshot))]
+[JsonSerializable(typeof(ToolInvocationInfo))]
+[JsonSerializable(typeof(ToolResultPayload))]
+[JsonSerializable(typeof(IReadOnlyList<HPD.Agent.ClientTools.IToolResultContent>), TypeInfoPropertyName = "IReadOnlyListIToolResultContent")]
+[JsonSerializable(typeof(List<HPD.Agent.ClientTools.IToolResultContent>))]
+[JsonSerializable(typeof(HPD.Agent.ClientTools.TextContent))]
+[JsonSerializable(typeof(HPD.Agent.ClientTools.BinaryContent))]
+[JsonSerializable(typeof(HPD.Agent.ClientTools.JsonContent))]
 [JsonSerializable(typeof(PermissionRequestEvent))]
 [JsonSerializable(typeof(PermissionResponseEvent))]
 [JsonSerializable(typeof(PermissionApprovedEvent))]

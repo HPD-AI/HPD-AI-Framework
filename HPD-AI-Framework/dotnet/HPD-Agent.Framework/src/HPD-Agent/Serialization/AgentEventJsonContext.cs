@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 using EventChannel = HPD.Events.EventChannel;
 using EventDirection = HPD.Events.EventDirection;
@@ -87,6 +88,15 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(ToolCallArgsEvent))]
 [JsonSerializable(typeof(ToolCallEndEvent))]
 [JsonSerializable(typeof(ToolCallResultEvent))]
+[JsonSerializable(typeof(ToolCallBackgroundTaskStartedEvent))]
+[JsonSerializable(typeof(ToolCallBackgroundTaskCompletedEvent))]
+[JsonSerializable(typeof(ToolCallBackgroundTaskCancelledEvent))]
+[JsonSerializable(typeof(ToolCallBackgroundTaskFaultedEvent))]
+[JsonSerializable(typeof(FunctionInvocationSnapshot))]
+[JsonSerializable(typeof(ToolInvocationInfo))]
+[JsonSerializable(typeof(ToolResultPayload))]
+[JsonSerializable(typeof(IReadOnlyList<ClientTools.IToolResultContent>), TypeInfoPropertyName = "IReadOnlyListIToolResultContent")]
+[JsonSerializable(typeof(List<ClientTools.IToolResultContent>))]
 [JsonSerializable(typeof(ToolCallType))]
 
 // Permission Events
@@ -153,7 +163,22 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(BidirectionalEventProcessedEvent))]
 [JsonSerializable(typeof(AgentDecisionEvent))]
 [JsonSerializable(typeof(AgentCompletionEvent))]
-[JsonSerializable(typeof(IterationMessagesEvent))]
+[JsonSerializable(typeof(IterationContextSnapshotEvent))]
+[JsonSerializable(typeof(ContextMessageSnapshot))]
+[JsonSerializable(typeof(ToolContextSnapshot))]
+[JsonSerializable(typeof(IReadOnlyList<ContextMessageSnapshot>))]
+[JsonSerializable(typeof(List<ContextMessageSnapshot>))]
+[JsonSerializable(typeof(IReadOnlyList<ToolContextSnapshot>))]
+[JsonSerializable(typeof(List<ToolContextSnapshot>))]
+[JsonSerializable(typeof(MiddlewareStateEntrySnapshot))]
+[JsonSerializable(typeof(MiddlewareStateSnapshotEvent))]
+[JsonSerializable(typeof(MiddlewareStateChange))]
+[JsonSerializable(typeof(MiddlewareStateChangedEvent))]
+[JsonSerializable(typeof(IReadOnlyList<MiddlewareStateEntrySnapshot>))]
+[JsonSerializable(typeof(List<MiddlewareStateEntrySnapshot>))]
+[JsonSerializable(typeof(IReadOnlyList<MiddlewareStateChange>))]
+[JsonSerializable(typeof(List<MiddlewareStateChange>))]
+[JsonSerializable(typeof(StateScope))]
 [JsonSerializable(typeof(SchemaChangedEvent))]
 [JsonSerializable(typeof(CollapsingStateEvent))]
 [JsonSerializable(typeof(EventDroppedEvent))]

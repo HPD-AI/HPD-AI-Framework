@@ -94,7 +94,7 @@ public class TracingObserverTests : IDisposable
         };
 
     private static ToolCallResultEvent ToolResult(string callId = ToolCallId) =>
-        new ToolCallResultEvent(callId, """{"result": "success"}""", "MyHarness")
+        new ToolCallResultEvent(callId, new ToolResultPayload(Text: """{"result": "success"}"""), "MyHarness")
         {
             TraceId = TraceId
         };
@@ -294,7 +294,7 @@ public class TracingObserverTests : IDisposable
     [Fact]
     public async Task ToolCallResult_SensitiveFieldsRedacted()
     {
-        var sensitiveResult = new ToolCallResultEvent(ToolCallId, """{"token": "sk-super-secret"}""", null)
+        var sensitiveResult = new ToolCallResultEvent(ToolCallId, new ToolResultPayload(Text: """{"token": "sk-super-secret"}"""), null)
         {
             TraceId = TraceId
         };

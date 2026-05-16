@@ -251,21 +251,18 @@ public class PermissionMiddleware : IAgentMiddleware
         //     
 
         var permissionId = Guid.NewGuid().ToString();
-
-        // Emit permission request event
-        context.Emit(new PermissionRequestEvent(
-            permissionId,
-            _middlewareName,
-            functionName,
-            function.Description ?? "No description available",
-            callId,
-            context.Arguments != null ? new Dictionary<string, object?>(context.Arguments) : null));
-
         // Wait for response from external handler
         PermissionResponseEvent response;
         try
         {
-            response = await context.Base.WaitForResponseAsync<PermissionResponseEvent>(permissionId)
+            response = await context.Base.RequestAsync<PermissionRequestEvent, PermissionResponseEvent>(
+                new PermissionRequestEvent(
+                    permissionId,
+                    _middlewareName,
+                    functionName,
+                    function.Description ?? "No description available",
+                    callId,
+                    context.Arguments != null ? new Dictionary<string, object?>(context.Arguments) : null))
                 .ConfigureAwait(false);
         }
         catch (TimeoutException)
@@ -392,20 +389,18 @@ public class PermissionMiddleware : IAgentMiddleware
 
         // Request permission via bidirectional events
         var permissionId = Guid.NewGuid().ToString();
-
-        context.Emit(new PermissionRequestEvent(
-            permissionId,
-            _middlewareName,
-            functionName,
-            function.Description ?? "No description available",
-            callId,
-            arguments != null ? new Dictionary<string, object?>(arguments) : null));
-
         // Wait for response from external handler
         PermissionResponseEvent response;
         try
         {
-            response = await context.Base.WaitForResponseAsync<PermissionResponseEvent>(permissionId)
+            response = await context.Base.RequestAsync<PermissionRequestEvent, PermissionResponseEvent>(
+                new PermissionRequestEvent(
+                    permissionId,
+                    _middlewareName,
+                    functionName,
+                    function.Description ?? "No description available",
+                    callId,
+                    arguments != null ? new Dictionary<string, object?>(arguments) : null))
                 .ConfigureAwait(false);
         }
         catch (TimeoutException)

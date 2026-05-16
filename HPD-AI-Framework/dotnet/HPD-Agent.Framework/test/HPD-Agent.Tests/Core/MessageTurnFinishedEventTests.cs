@@ -61,15 +61,25 @@ public class MessageTurnFinishedEventTests : AgentTestBase
 
         // Act
         var events = new List<AgentEvent>();
+        var gate = new object();
         using var subscription = agent.SubscribeAny(evt =>
         {
-            events.Add(evt);
+            lock (gate)
+                events.Add(evt);
             return ValueTask.CompletedTask;
         });
         await agent.RunAsync("hi", cancellationToken: TestCancellationToken);
+        await WaitForAsync(() =>
+        {
+            lock (gate)
+                return events.OfType<MessageTurnFinishedEvent>().Any();
+        });
 
         // Assert
-        var finished = events.OfType<MessageTurnFinishedEvent>().SingleOrDefault();
+        MessageTurnFinishedEvent? finished;
+        lock (gate)
+            finished = events.OfType<MessageTurnFinishedEvent>().SingleOrDefault();
+
         finished.Should().NotBeNull("agent must emit exactly one MessageTurnFinishedEvent");
         finished!.Usage.Should().NotBeNull("Usage must be populated when the chat client reports tokens");
         finished.Usage!.InputTokenCount.Should().BeGreaterThan(0);
@@ -89,18 +99,42 @@ public class MessageTurnFinishedEventTests : AgentTestBase
 
         // Act
         var events = new List<AgentEvent>();
+        var gate = new object();
         using var subscription = agent.SubscribeAny(evt =>
         {
-            events.Add(evt);
+            lock (gate)
+                events.Add(evt);
             return ValueTask.CompletedTask;
         });
         await agent.RunAsync("hi", cancellationToken: TestCancellationToken);
+        await WaitForAsync(() =>
+        {
+            lock (gate)
+                return events.OfType<MessageTurnFinishedEvent>().Any();
+        });
 
         // Assert: event is emitted, Usage may be null — no exception either way
-        var finished = events.OfType<MessageTurnFinishedEvent>().SingleOrDefault();
+        MessageTurnFinishedEvent? finished;
+        lock (gate)
+            finished = events.OfType<MessageTurnFinishedEvent>().SingleOrDefault();
+
         finished.Should().NotBeNull();
         // Usage being null is fine — the guard in MetricsObserver handles this
         // We just verify no exception was thrown (the test completing is the assertion)
+    }
+
+    private static async Task WaitForAsync(Func<bool> predicate)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(2);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (predicate())
+                return;
+
+            await Task.Delay(10);
+        }
+
+        predicate().Should().BeTrue();
     }
 
     // ── Helper: minimal chat client that populates UsageDetails ───────────────

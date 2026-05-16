@@ -137,6 +137,36 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
         return Task.CompletedTask;
     }
 
+    public Task AfterFunctionAsync(
+        AfterFunctionContext context,
+        CancellationToken cancellationToken)
+    {
+        if (!context.ResultMetadata.TryGet<Func<PlanModePersistentStateData, PlanModePersistentStateData>>(
+                PlanToolMetadataKeys.Apply,
+                out var apply) ||
+            !context.ResultMetadata.TryGet<PlanUpdatedEvent>(
+                PlanToolMetadataKeys.Event,
+                out var evt))
+        {
+            return Task.CompletedTask;
+        }
+
+        context.UpdateState(s =>
+        {
+            var current = s.MiddlewareState.PlanModePersistent() ?? new PlanModePersistentStateData();
+            var updated = apply(current);
+
+            return s with
+            {
+                MiddlewareState = s.MiddlewareState.WithPlanModePersistent(updated)
+            };
+        });
+
+        context.Emit(evt);
+
+        return Task.CompletedTask;
+    }
+
     /// <summary>
     /// Gets default plan mode instructions explaining how to use plan tools.
     /// Moved from Agent to make plan mode fully middleware-based.

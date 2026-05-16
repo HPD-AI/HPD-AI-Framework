@@ -63,7 +63,7 @@ internal class MultiAgentCapability : BaseCapability
         var sb = new StringBuilder();
 
         sb.AppendLine("HPDAIFunctionFactory.Create(");
-        sb.AppendLine("    async (arguments, cancellationToken) =>");
+        sb.AppendLine("    async (arguments, functionContext, cancellationToken) =>");
         sb.AppendLine("    {");
         sb.AppendLine("        // Get workflow instance from method");
 
@@ -92,9 +92,7 @@ internal class MultiAgentCapability : BaseCapability
         sb.AppendLine();
 
         // Get parent context for event bubbling, execution hierarchy, and chat client inheritance
-        // V2: Use CurrentFunctionContext which IS set during function execution (unlike RootAgent which uses AsyncLocal)
-        sb.AppendLine("        // Get parent context from CurrentFunctionContext (set during function execution)");
-        sb.AppendLine("        var functionContext = HPD.Agent.Agent.CurrentFunctionContext;");
+        sb.AppendLine("        // Use the explicit runtime context supplied by the agent runtime");
         sb.AppendLine("        var parentCoordinator = functionContext?.GetParentEventCoordinator();");
         sb.AppendLine("        var parentExecutionContext = functionContext?.GetParentExecutionContext();");
         sb.AppendLine("        var parentChatClient = functionContext?.GetParentChatClient();");

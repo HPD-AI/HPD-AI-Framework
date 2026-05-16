@@ -820,7 +820,7 @@ public class HARNESScopedMiddlewareTests
 
         // Container tool (IsContainer = true, FunctionNames = childFunctionNames, HarnessName = harnessName)
         var containerFunc = HPDAIFunctionFactory.Create(
-            (_, _) => Task.FromResult<object?>($"{harnessName} expanded"),
+            (_, _, _) => Task.FromResult<object?>($"{harnessName} expanded"),
             new HPDAIFunctionFactoryOptions
             {
                 Name = harnessName,
@@ -855,7 +855,7 @@ public class HARNESScopedMiddlewareTests
             Name: name,
             HarnessType: typeof(object),
             CreateInstance: () => new object(),
-            CreateFunctions: (_, _) => new List<AIFunction>(),
+            CreateFunctions: (_, _, _) => new List<AIFunction>(),
             GetReferencedHarneses: () => Array.Empty<string>(),
             GetReferencedFunctions: () => new Dictionary<string, string[]>(),
             HasDescription: true,
@@ -1526,7 +1526,7 @@ public class HARNESScopedMiddlewareTests
             Name: "MathHarness",
             HarnessType: typeof(object),
             CreateInstance: () => new object(),
-            CreateFunctions: (_, _) => new List<AIFunction>(),
+            CreateFunctions: (_, _, _) => new List<AIFunction>(),
             GetReferencedHarneses: () => Array.Empty<string>(),
             GetReferencedFunctions: () => new Dictionary<string, string[]>());
 

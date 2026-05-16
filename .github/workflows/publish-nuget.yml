@@ -75,6 +75,11 @@ jobs:
           dotnet test HPD-AI-Framework/dotnet/HPD-Agent.Framework/test/HPD-Agent.Tests/HPD-Agent.Tests.csproj --configuration Release --no-build --verbosity normal -f net10.0
           dotnet test HPD-AI-Framework/dotnet/HPD-Agent.Framework/test/HPD-Agent.MultiAgent.Tests/HPD-Agent.MultiAgent.Tests.csproj --configuration Release --no-build --verbosity normal -f net10.0
 
+      - name: Prepare ripgrep binaries
+        run: |
+          dotnet run --file HPD-AI-Framework/dotnet/HPD-Agent.Framework/eng/ripgrep-pack/prepare-ripgrep-binaries.cs -- \
+            --project HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj
+
       - name: Pack packages
         run: |
           mkdir -p ./nupkg
@@ -95,6 +100,7 @@ jobs:
             # Harneses
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/HPD-Agent.Harness.FileSystem.csproj"
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj"
             # Audio (not ready for release)
             # "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj"
             # "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.AudioProviders.OpenAI/HPD-Agent.AudioProviders.OpenAI.csproj"
@@ -168,4 +174,3 @@ jobs:
           done
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "[View HPD-Agent packages on NuGet](https://www.nuget.org/packages?q=HPD-Agent)" >> $GITHUB_STEP_SUMMARY
-

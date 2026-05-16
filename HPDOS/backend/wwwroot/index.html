@@ -1,42 +1,639 @@
 <!doctype html>
-
 <html lang="en">
-	<head>
-		<meta charset="utf-8" />
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HPD-OS Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+</head>
+<body class="h-screen overflow-hidden bg-stone-100 text-neutral-950 antialiased">
+  <main class="mx-auto grid h-screen max-w-7xl grid-rows-[auto,minmax(0,1fr)] gap-3.5 p-3 md:p-4">
+    <header class="flex flex-col gap-3 border-b border-stone-300 pb-3.5 md:flex-row md:items-center md:justify-between">
+      <div>
+        <h1 class="m-0 text-xl font-semibold leading-tight">HPD-OS Chat</h1>
+        <div class="mt-1 text-sm text-stone-600 md:whitespace-nowrap" id="scope">agent hpdos-agent / no session yet</div>
+      </div>
+      <div class="flex flex-wrap items-center gap-2 text-sm text-stone-600 md:justify-end">
+        <span class="md:whitespace-nowrap" id="authStatus">checking auth</span>
+        <span class="md:whitespace-nowrap" id="status">ready</span>
+        <button class="hidden min-h-9 rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-semibold text-stone-700 hover:border-red-300 hover:text-red-800" id="logout" type="button">Logout</button>
+      </div>
+    </header>
 
-		<meta name="viewport" content="width=device-width, initial-scale=1" />
+    <section class="hidden rounded-lg border border-stone-300 bg-white/90 p-3" id="authPanel">
+      <div class="grid gap-3 md:grid-cols-2">
+        <form class="grid gap-2" id="loginForm">
+          <h2 class="text-sm font-semibold">Login</h2>
+          <input class="rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-cyan-700 focus:ring-4 focus:ring-cyan-700/15" id="loginEmail" type="email" placeholder="Email" autocomplete="email" required>
+          <input class="rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-cyan-700 focus:ring-4 focus:ring-cyan-700/15" id="loginPassword" type="password" placeholder="Password" autocomplete="current-password" required>
+          <button class="min-h-10 rounded-md bg-cyan-800 px-4 py-2 font-bold text-white transition hover:bg-cyan-900 disabled:cursor-wait disabled:opacity-55" type="submit">Login</button>
+        </form>
 
-		<meta name="text-scale" content="scale" />
-		<link href="./_app/immutable/entry/start.Da5tBS-m.js" rel="modulepreload">
-		<link href="./_app/immutable/chunks/BWoOMq91.js" rel="modulepreload">
-		<link href="./_app/immutable/chunks/CsFg6J60.js" rel="modulepreload">
-		<link href="./_app/immutable/entry/app.BVZFmdg3.js" rel="modulepreload">
-		<link href="./_app/immutable/chunks/Dj6f-nJM.js" rel="modulepreload">
-		<link href="./_app/immutable/chunks/DEDqjojZ.js" rel="modulepreload">
-		<link href="./_app/immutable/nodes/0.WHbB2_6f.js" rel="modulepreload">
-		<link href="./_app/immutable/nodes/2.DtBRpYUS.js" rel="modulepreload">
-		
-		<link href="./_app/immutable/assets/0.CdSFfMnu.css" rel="stylesheet">
-	</head>
+        <form class="grid gap-2" id="signupForm">
+          <h2 class="text-sm font-semibold">Sign Up</h2>
+          <input class="rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-cyan-700 focus:ring-4 focus:ring-cyan-700/15" id="signupEmail" type="email" placeholder="Email" autocomplete="email" required>
+          <input class="rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-cyan-700 focus:ring-4 focus:ring-cyan-700/15" id="signupPassword" type="password" placeholder="Password" autocomplete="new-password" required>
+          <div class="grid gap-2 sm:grid-cols-2">
+            <input class="rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-cyan-700 focus:ring-4 focus:ring-cyan-700/15" id="signupFirstName" placeholder="First name" autocomplete="given-name">
+            <input class="rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-cyan-700 focus:ring-4 focus:ring-cyan-700/15" id="signupLastName" placeholder="Last name" autocomplete="family-name">
+          </div>
+          <button class="min-h-10 rounded-md bg-cyan-800 px-4 py-2 font-bold text-white transition hover:bg-cyan-900 disabled:cursor-wait disabled:opacity-55" type="submit">Create Account</button>
+        </form>
+      </div>
+      <div class="mt-2 text-sm text-red-800" id="authError"></div>
+    </section>
 
-	<body data-sveltekit-preload-data="hover">
-		<div style="display: contents">
-			<script>
-				{
-					__sveltekit_rsogh = {
-						base: new URL(".", location).pathname.slice(0, -1)
-					};
+    <div class="grid min-h-0 gap-3.5 lg:grid-cols-[280px,minmax(0,1fr)]" id="workspace">
+      <aside class="grid min-h-0 grid-rows-[auto,minmax(0,1fr)] rounded-lg border border-stone-300 bg-white/80">
+        <div class="flex items-center justify-between gap-2 border-b border-stone-300 p-3">
+          <h2 class="text-sm font-semibold">Sessions</h2>
+          <button class="min-h-9 rounded-md bg-cyan-800 px-3 py-2 text-sm font-bold text-white transition hover:bg-cyan-900 disabled:cursor-wait disabled:opacity-55" id="newSession" type="button">New</button>
+        </div>
+        <div class="min-h-0 overflow-auto p-2" id="sessions"></div>
+      </aside>
 
-					const element = document.currentScript.parentElement;
+      <section class="grid min-h-0 grid-rows-[minmax(0,1fr),auto] gap-3.5">
+        <section class="flex min-h-0 flex-col gap-3 overflow-auto px-0.5 py-1.5" id="chat" aria-live="polite"></section>
 
-					Promise.all([
-						import("./_app/immutable/entry/start.Da5tBS-m.js"),
-						import("./_app/immutable/entry/app.BVZFmdg3.js")
-					]).then(([kit, app]) => {
-						kit.start(app, element);
-					});
-				}
-			</script>
-		</div>
-	</body>
+        <form class="grid gap-2.5 border-t border-stone-300 pt-3.5" id="composer">
+          <section class="grid gap-2.5 md:grid-cols-2" aria-label="Run configuration">
+            <label class="grid gap-1.5 text-xs font-semibold text-stone-600">
+              Provider
+              <input class="w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-neutral-950 outline-none focus:border-cyan-700 focus:ring-4 focus:ring-cyan-700/15" id="provider" value="openrouter" autocomplete="off">
+            </label>
+            <label class="grid gap-1.5 text-xs font-semibold text-stone-600">
+              Model
+              <input class="w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-neutral-950 outline-none focus:border-cyan-700 focus:ring-4 focus:ring-cyan-700/15" id="model" value="google/gemini-3.1-flash-lite" autocomplete="off">
+            </label>
+          </section>
+
+          <div class="grid gap-2.5 md:grid-cols-[1fr,auto] md:items-end">
+            <textarea class="max-h-44 min-h-14 w-full resize-y rounded-md border border-stone-300 bg-white px-3 py-2.5 text-base text-neutral-950 outline-none focus:border-cyan-700 focus:ring-4 focus:ring-cyan-700/15" id="text" placeholder="Send a message to hpdos-agent" required></textarea>
+            <button class="min-h-10 min-w-24 rounded-md bg-cyan-800 px-4 py-2.5 font-bold text-white transition hover:bg-cyan-900 disabled:cursor-wait disabled:opacity-55" id="send" type="submit">Send</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const agentId = "hpdos-agent";
+    const branchId = "main";
+    let sessionId = localStorage.getItem("hpdos.sessionId") || "";
+
+    const chat = document.getElementById("chat");
+    const composer = document.getElementById("composer");
+    const text = document.getElementById("text");
+    const send = document.getElementById("send");
+    const status = document.getElementById("status");
+    const scope = document.getElementById("scope");
+    const provider = document.getElementById("provider");
+    const model = document.getElementById("model");
+    const sessions = document.getElementById("sessions");
+    const newSession = document.getElementById("newSession");
+    const authStatus = document.getElementById("authStatus");
+    const authPanel = document.getElementById("authPanel");
+    const authError = document.getElementById("authError");
+    const loginForm = document.getElementById("loginForm");
+    const signupForm = document.getElementById("signupForm");
+    const logout = document.getElementById("logout");
+    const workspace = document.getElementById("workspace");
+    let currentUser = null;
+
+    updateScope();
+    boot();
+
+    loginForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      authError.textContent = "";
+      setAuthBusy(true);
+      try {
+        await login();
+        await refreshAuth();
+        await loadSessions();
+        await hydrateExistingSession();
+      } catch (error) {
+        authError.textContent = error instanceof Error ? error.message : String(error);
+      } finally {
+        setAuthBusy(false);
+      }
+    });
+
+    signupForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      authError.textContent = "";
+      setAuthBusy(true);
+      try {
+        await signup();
+        await refreshAuth();
+        await loadSessions();
+        await hydrateExistingSession();
+      } catch (error) {
+        authError.textContent = error instanceof Error ? error.message : String(error);
+      } finally {
+        setAuthBusy(false);
+      }
+    });
+
+    logout.addEventListener("click", async () => {
+      setAuthBusy(true);
+      try {
+        await apiFetch("/api/auth/logout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scope: "local" })
+        });
+      } finally {
+        currentUser = null;
+        sessionId = "";
+        localStorage.removeItem("hpdos.sessionId");
+        chat.replaceChildren();
+        sessions.replaceChildren();
+        updateScope();
+        renderAuthState();
+        setAuthBusy(false);
+      }
+    });
+
+    newSession.addEventListener("click", async () => {
+      setBusy(true, "creating session");
+      try {
+        await createSession();
+        chat.replaceChildren();
+        await loadSessions();
+      } catch (error) {
+        showError(error);
+      } finally {
+        setBusy(false, "ready");
+      }
+    });
+
+    composer.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const content = text.value.trim();
+      if (!content) return;
+
+      appendMessage(content, "user");
+      text.value = "";
+      setBusy(true, "streaming");
+
+      const assistant = appendMessage("", "assistant");
+
+      try {
+        await ensureSession();
+        await streamMessage(content, assistant);
+      } catch (error) {
+        markError(assistant);
+        assistant.textContent = error instanceof Error ? error.message : String(error);
+      } finally {
+        setBusy(false, "ready");
+      }
+    });
+
+    async function ensureSession() {
+      if (sessionId) return;
+
+      setBusy(true, "creating session");
+      await createSession();
+      await loadSessions();
+    }
+
+    async function createSession() {
+      const response = await apiFetch("/api/hpd-agent/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+
+      if (!response.ok) {
+        throw new Error(`Create session failed: HTTP ${response.status}`);
+      }
+
+      const session = await response.json();
+      sessionId = session.id;
+      localStorage.setItem("hpdos.sessionId", sessionId);
+      updateScope();
+    }
+
+    async function loadSessions() {
+      try {
+        const response = await apiFetch("/api/hpd-agent/sessions");
+        if (!response.ok) {
+          throw new Error(`Load sessions failed: HTTP ${response.status}`);
+        }
+
+        const items = await response.json();
+        renderSessions(items);
+      } catch (error) {
+        sessions.replaceChildren();
+        const node = document.createElement("div");
+        node.className = "rounded-md border border-red-300 bg-white p-3 text-sm text-red-800";
+        node.textContent = error instanceof Error ? error.message : String(error);
+        sessions.appendChild(node);
+      }
+    }
+
+    function renderSessions(items) {
+      sessions.replaceChildren();
+
+      if (!Array.isArray(items) || items.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "rounded-md border border-dashed border-stone-300 p-3 text-sm text-stone-600";
+        empty.textContent = "No sessions yet.";
+        sessions.appendChild(empty);
+        return;
+      }
+
+      const sorted = [...items].sort((a, b) =>
+        new Date(b.lastActivity || b.createdAt || 0) - new Date(a.lastActivity || a.createdAt || 0));
+
+      for (const item of sorted) {
+        sessions.appendChild(createSessionRow(item));
+      }
+    }
+
+    function createSessionRow(item) {
+      const row = document.createElement("div");
+      const active = item.id === sessionId;
+      row.className = [
+        "mb-2",
+        "grid",
+        "grid-cols-[1fr,auto]",
+        "gap-2",
+        "rounded-md",
+        "border",
+        active ? "border-cyan-700" : "border-stone-300",
+        active ? "bg-cyan-50" : "bg-white",
+        "p-2"
+      ].join(" ");
+
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "min-w-0 rounded-sm bg-transparent text-left";
+      open.addEventListener("click", () => switchSession(item.id));
+
+      const title = document.createElement("div");
+      title.className = "truncate text-sm font-semibold text-neutral-950";
+      title.textContent = item.id;
+
+      const meta = document.createElement("div");
+      meta.className = "mt-1 text-xs text-stone-600";
+      meta.textContent = formatSessionTime(item.lastActivity || item.createdAt);
+
+      open.append(title, meta);
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "h-8 w-8 rounded-md border border-stone-300 text-sm font-semibold text-stone-600 hover:border-red-300 hover:text-red-800 disabled:cursor-wait disabled:opacity-55";
+      remove.textContent = "x";
+      remove.title = "Delete session";
+      remove.addEventListener("click", () => deleteSession(item.id));
+
+      row.append(open, remove);
+      return row;
+    }
+
+    async function switchSession(nextSessionId) {
+      if (!nextSessionId || nextSessionId === sessionId) return;
+
+      sessionId = nextSessionId;
+      localStorage.setItem("hpdos.sessionId", sessionId);
+      updateScope();
+      chat.replaceChildren();
+      await hydrateExistingSession();
+      await loadSessions();
+    }
+
+    async function deleteSession(targetSessionId) {
+      if (!targetSessionId) return;
+      const confirmed = confirm(`Delete session ${targetSessionId}?`);
+      if (!confirmed) return;
+
+      setBusy(true, "deleting session");
+      try {
+        const response = await apiFetch(`/api/hpd-agent/sessions/${encodeURIComponent(targetSessionId)}`, {
+          method: "DELETE"
+        });
+
+        if (!response.ok) {
+          throw new Error(`Delete session failed: HTTP ${response.status}`);
+        }
+
+        if (targetSessionId === sessionId) {
+          sessionId = "";
+          localStorage.removeItem("hpdos.sessionId");
+          chat.replaceChildren();
+          updateScope();
+        }
+
+        await loadSessions();
+      } catch (error) {
+        showError(error);
+      } finally {
+        setBusy(false, "ready");
+      }
+    }
+
+    async function hydrateExistingSession() {
+      if (!sessionId) return;
+
+      setBusy(true, "loading session");
+      try {
+        const response = await apiFetch(`/api/hpd-agent/sessions/${encodeURIComponent(sessionId)}/branches/${encodeURIComponent(branchId)}/messages`);
+        if (response.status === 404) {
+          localStorage.removeItem("hpdos.sessionId");
+          sessionId = "";
+          updateScope();
+          await loadSessions();
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(`Load messages failed: HTTP ${response.status}`);
+        }
+
+        const messages = await response.json();
+        chat.replaceChildren();
+
+        for (const message of messages) {
+          const role = String(message.role || "").toLowerCase();
+          if (role !== "user" && role !== "assistant") continue;
+
+          const content = getMessageText(message);
+          if (!content.trim()) continue;
+
+          const node = appendMessage(role === "user" ? content : "", role);
+          if (role === "assistant") {
+            renderMarkdownDelta(node, content);
+          }
+        }
+      } catch (error) {
+        showError(error);
+      } finally {
+        setBusy(false, "ready");
+      }
+    }
+
+    async function streamMessage(content, assistant) {
+      const providerKey = provider.value.trim();
+      const modelId = model.value.trim();
+      if (!providerKey || !modelId) {
+        throw new Error("Provider and model are required.");
+      }
+
+      const response = await apiFetch(`/api/hpd-agent/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/branches/${encodeURIComponent(branchId)}/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
+        body: JSON.stringify({
+          text: content,
+          runConfig: {
+            providerKey,
+            modelId
+          }
+        })
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`Stream failed: HTTP ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        buffer = processSseBuffer(buffer, assistant);
+      }
+
+      processSseBuffer(buffer + "\n\n", assistant);
+      if (!assistant.textContent.trim()) {
+        assistant.textContent = "(no text output)";
+      }
+    }
+
+    function getMessageText(message) {
+      if (!Array.isArray(message.contents)) return "";
+
+      return message.contents
+        .map(content => typeof content?.text === "string" ? content.text : "")
+        .filter(Boolean)
+        .join("\n");
+    }
+
+    function processSseBuffer(buffer, assistant) {
+      const parts = buffer.split("\n\n");
+      const remainder = parts.pop() || "";
+
+      for (const part of parts) {
+        const data = part
+          .split("\n")
+          .filter(line => line.startsWith("data:"))
+          .map(line => line.slice(5).trimStart())
+          .join("\n");
+
+        if (!data) continue;
+        handleEventData(data, assistant);
+      }
+
+      return remainder;
+    }
+
+    function handleEventData(data, assistant) {
+      let event;
+      try {
+        event = JSON.parse(data);
+      } catch {
+        return;
+      }
+
+      if (event.type === "TEXT_DELTA" && typeof event.text === "string") {
+        renderMarkdownDelta(assistant, event.text);
+      }
+
+      if (event.type === "MESSAGE_TURN_ERROR") {
+        markError(assistant);
+        assistant.textContent += event.message || "Message turn failed.";
+      }
+    }
+
+    function appendMessage(content, role) {
+      const node = document.createElement("div");
+      const baseClasses = [
+        "w-full",
+        "max-w-[760px]",
+        "whitespace-pre-wrap",
+        "rounded-lg",
+        "border",
+        "border-stone-300",
+        "px-3.5",
+        "py-3",
+        "leading-relaxed",
+        "md:w-[88%]"
+      ];
+      const roleClasses = role === "user"
+        ? ["self-end", "bg-cyan-50"]
+        : ["self-start", "bg-white", "[&_a]:text-cyan-800", "[&_a]:underline", "[&_p]:my-1.5", "[&_p:first-child]:mt-0", "[&_p:last-child]:mb-0", "[&_code]:rounded", "[&_code]:bg-stone-100", "[&_code]:px-1", "[&_pre]:my-2", "[&_pre]:overflow-auto", "[&_pre]:rounded-md", "[&_pre]:bg-neutral-950", "[&_pre]:p-3", "[&_pre]:text-stone-50", "[&_pre_code]:bg-transparent", "[&_pre_code]:p-0", "[&_ul]:my-1.5", "[&_ul]:list-disc", "[&_ul]:pl-5", "[&_ol]:my-1.5", "[&_ol]:list-decimal", "[&_ol]:pl-5", "[&_blockquote]:my-2", "[&_blockquote]:border-l-4", "[&_blockquote]:border-stone-300", "[&_blockquote]:pl-3", "[&_blockquote]:text-stone-600", "[&_h1]:mb-1.5", "[&_h1]:mt-2", "[&_h1]:text-xl", "[&_h1]:font-semibold", "[&_h2]:mb-1.5", "[&_h2]:mt-2", "[&_h2]:text-lg", "[&_h2]:font-semibold", "[&_h3]:mb-1", "[&_h3]:mt-2", "[&_h3]:font-semibold", "[&_li]:my-0.5"];
+
+      node.className = [...baseClasses, ...roleClasses].join(" ");
+      node.dataset.markdown = "";
+      node.textContent = content;
+      chat.appendChild(node);
+      chat.scrollTop = chat.scrollHeight;
+      return node;
+    }
+
+    function renderMarkdownDelta(node, delta) {
+      node.dataset.markdown = (node.dataset.markdown || "") + delta;
+      node.innerHTML = DOMPurify.sanitize(marked.parse(node.dataset.markdown));
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function markError(node) {
+      node.classList.add("border-red-300", "text-red-800");
+    }
+
+    function showError(error) {
+      const node = appendMessage("", "assistant");
+      markError(node);
+      node.textContent = error instanceof Error ? error.message : String(error);
+    }
+
+    function setBusy(isBusy, label) {
+      const signedIn = Boolean(currentUser);
+      send.disabled = isBusy || !signedIn;
+      newSession.disabled = isBusy || !signedIn;
+      status.textContent = label;
+    }
+
+    function updateScope() {
+      scope.textContent = `agent ${agentId} / ${sessionId ? `session ${sessionId.slice(0, 8)}...` : "no session yet"} / branch ${branchId}`;
+    }
+
+    function formatSessionTime(value) {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      return date.toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
+      });
+    }
+
+    async function boot() {
+      await refreshAuth();
+      if (!currentUser) return;
+
+      await loadSessions();
+      await hydrateExistingSession();
+    }
+
+    async function refreshAuth() {
+      try {
+        const response = await fetch("/api/auth/user", {
+          credentials: "include",
+          headers: { "Accept": "application/json" }
+        });
+
+        if (response.status === 401) {
+          currentUser = null;
+          renderAuthState();
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(`Auth check failed: HTTP ${response.status}`);
+        }
+
+        currentUser = await response.json();
+      } catch {
+        currentUser = null;
+      }
+
+      renderAuthState();
+    }
+
+    async function login() {
+      const email = document.getElementById("loginEmail").value.trim();
+      const password = document.getElementById("loginPassword").value;
+
+      const response = await fetch("/api/auth/token", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({
+          grantType: "password",
+          username: email,
+          password
+        })
+      });
+
+      await assertOk(response, "Login failed");
+    }
+
+    async function signup() {
+      const email = document.getElementById("signupEmail").value.trim();
+      const password = document.getElementById("signupPassword").value;
+      const firstName = document.getElementById("signupFirstName").value.trim() || null;
+      const lastName = document.getElementById("signupLastName").value.trim() || null;
+
+      const response = await fetch("/api/auth/signup", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ email, password, firstName, lastName })
+      });
+
+      await assertOk(response, "Signup failed");
+    }
+
+    async function apiFetch(url, options = {}) {
+      return fetch(url, {
+        ...options,
+        credentials: "include"
+      });
+    }
+
+    async function assertOk(response, fallback) {
+      if (response.ok) return;
+
+      let message = `${fallback}: HTTP ${response.status}`;
+      try {
+        const body = await response.json();
+        message = body.errorDescription || body.error_description || body.message || message;
+      } catch {
+      }
+
+      throw new Error(message);
+    }
+
+    function renderAuthState() {
+      const signedIn = Boolean(currentUser);
+      authPanel.classList.toggle("hidden", signedIn);
+      logout.classList.toggle("hidden", !signedIn);
+      workspace.classList.toggle("opacity-45", !signedIn);
+      composer.classList.toggle("pointer-events-none", !signedIn);
+      newSession.disabled = !signedIn;
+      send.disabled = !signedIn;
+
+      const label = currentUser?.email || currentUser?.displayName || currentUser?.id;
+      authStatus.textContent = signedIn ? `signed in ${label}` : "not signed in";
+      status.textContent = signedIn ? "ready" : "login required";
+    }
+
+    function setAuthBusy(isBusy) {
+      for (const button of authPanel.querySelectorAll("button")) {
+        button.disabled = isBusy;
+      }
+      logout.disabled = isBusy;
+      status.textContent = isBusy ? "authenticating" : (currentUser ? "ready" : "login required");
+    }
+  </script>
+</body>
 </html>

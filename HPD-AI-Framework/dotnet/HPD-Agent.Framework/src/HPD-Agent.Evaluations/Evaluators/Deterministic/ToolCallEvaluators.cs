@@ -110,6 +110,45 @@ public sealed class ToolArgumentMatchesEvaluator(string toolName, string argumen
     }
 }
 
+/// <summary>BooleanMetric — a named tool's result contains expected text.</summary>
+public sealed class ToolResultContainsEvaluator(string toolName, string expectedText) : HpdDeterministicEvaluatorBase
+{
+    public override IReadOnlyCollection<string> EvaluationMetricNames => ["Tool Result Contains"];
+
+    protected override ValueTask<EvaluationResult> EvaluateDeterministicAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatResponse modelResponse,
+        IEnumerable<EvaluationContext>? additionalContext,
+        CancellationToken cancellationToken)
+    {
+        var metric = new BooleanMetric("Tool Result Contains");
+        var ctx = additionalContext?.OfType<TurnEvaluationContextWrapper>().FirstOrDefault()?.Context;
+
+        if (ctx is null)
+        {
+            metric.AddDiagnostics(EvaluationDiagnostic.Error("TurnEvaluationContext not available."));
+            return ValueTask.FromResult(new EvaluationResult(metric));
+        }
+
+        var calls = ctx.ToolCalls.Where(t => t.Name == toolName).ToArray();
+        metric.Value = calls.Any(call => call.Result.Contains(expectedText, StringComparison.Ordinal));
+        metric.Reason = metric.Value == true
+            ? $"Tool '{toolName}' returned expected text."
+            : $"Tool '{toolName}' result did not contain expected text. Matching calls: {calls.Length}. Previews: [{string.Join(", ", calls.Select(call => Preview(call.Result)))}].";
+        metric.MarkAsHpdBuiltIn();
+        return ValueTask.FromResult(new EvaluationResult(metric));
+    }
+
+    private static string Preview(string value)
+    {
+        const int maxPreviewLength = 80;
+        var normalized = value.Replace('\r', ' ').Replace('\n', ' ');
+        return normalized.Length <= maxPreviewLength
+            ? normalized
+            : normalized[..maxPreviewLength] + "...";
+    }
+}
+
 /// <summary>BooleanMetric — agent responded without any tool calls.</summary>
 public sealed class NoToolsCalledEvaluator : HpdDeterministicEvaluatorBase
 {

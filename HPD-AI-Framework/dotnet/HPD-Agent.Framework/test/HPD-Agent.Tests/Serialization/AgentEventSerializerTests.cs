@@ -1,5 +1,6 @@
 using System.Text.Json;
 using HPD.Agent;
+using HPD.Agent.Middleware;
 using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 using Xunit;
@@ -334,15 +335,16 @@ public class AgentEventSerializerTests
         Assert.Contains("\"type\":\"TOOL_CALL_END\"", endJson);
 
         // ToolCallResultEvent — minimal
-        var resultEvt = new ToolCallResultEvent("call-1", "3");
+        var resultEvt = new ToolCallResultEvent("call-1", new ToolResultPayload(Text: "3"));
         var resultJson = AgentEventSerializer.ToJson(resultEvt);
         Assert.Contains("\"type\":\"TOOL_CALL_RESULT\"", resultJson);
-        Assert.Contains("\"result\":\"3\"", resultJson);
+        Assert.Contains("\"result\":", resultJson);
+        Assert.Contains("\"text\":\"3\"", resultJson);
         Assert.DoesNotContain("\"harnessName\"", resultJson);
         Assert.DoesNotContain("\"callType\"", resultJson);
 
         // ToolCallResultEvent — with harness and callType
-        var resultEvtFull = new ToolCallResultEvent("call-2", "42", "MathHarness", ToolCallType.Function);
+        var resultEvtFull = new ToolCallResultEvent("call-2", new ToolResultPayload(Text: "42"), "MathHarness", ToolCallType.Function);
         var resultJsonFull = AgentEventSerializer.ToJson(resultEvtFull);
         Assert.Contains("\"harnessName\":\"MathHarness\"", resultJsonFull);
         Assert.Contains("\"callType\":\"Function\"", resultJsonFull);
@@ -365,12 +367,12 @@ public class AgentEventSerializerTests
     [Fact]
     public void ToolCallResultEvent_RoundTrip_PreservesAllFields()
     {
-        var evt = new ToolCallResultEvent("call-rt", "42", "MathHarness", ToolCallType.SubAgent);
+        var evt = new ToolCallResultEvent("call-rt", new ToolResultPayload(Text: "42"), "MathHarness", ToolCallType.SubAgent);
         var json = AgentEventSerializer.ToJson(evt);
         var result = Assert.IsType<ToolCallResultEvent>(AgentEventSerializer.FromJson(json));
 
         Assert.Equal("call-rt", result.CallId);
-        Assert.Equal("42", result.Result);
+        Assert.Equal("42", result.Result.Text);
         Assert.Equal("MathHarness", result.HarnessName);
         Assert.Equal(ToolCallType.SubAgent, result.CallType);
     }
@@ -558,5 +560,170 @@ public class AgentEventSerializerTests
         Assert.Contains("\"type\":\"CHECKPOINT\"", checkJson);
     }
 
+    [Fact]
+    public void ToJson_MiddlewareStateSnapshotEvent_SerializesCorrectly()
+    {
+        var evt = new MiddlewareStateSnapshotEvent(
+            AgentName: "TestAgent",
+            SessionId: "session-1",
+            BranchId: "main",
+            Iteration: 2,
+            Phase: "before_model_call",
+            BatchId: null,
+            FunctionCallId: null,
+            ToolCallIndex: null,
+            StateCount: 1,
+            States:
+            [
+                new MiddlewareStateEntrySnapshot(
+                    Key: "HPD.Agent.ErrorTrackingStateData",
+                    Type: typeof(ErrorTrackingStateData).FullName!,
+                    PropertyName: "ErrorTracking",
+                    Scope: StateScope.Branch,
+                    Persistent: false,
+                    Version: 1,
+                    Json: JsonSerializer.SerializeToElement(new { ConsecutiveFailures = 3 }),
+                    Error: null,
+                    Redacted: false)
+            ],
+            Timestamp: DateTimeOffset.UtcNow);
+
+        var json = AgentEventSerializer.ToJson(evt);
+
+        Assert.Contains("\"type\":\"MIDDLEWARE_STATE_SNAPSHOT\"", json);
+        Assert.Contains("\"phase\":\"before_model_call\"", json);
+        Assert.Contains("\"stateCount\":1", json);
+        Assert.Contains("\"propertyName\":\"ErrorTracking\"", json);
+        Assert.Contains("\"consecutiveFailures\":3", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ToJson_MiddlewareStateChangedEvent_SerializesCorrectly()
+    {
+        var evt = new MiddlewareStateChangedEvent(
+            AgentName: "TestAgent",
+            SessionId: "session-1",
+            BranchId: "main",
+            Iteration: 2,
+            Phase: "after_parallel_batch",
+            BatchId: "batch-1",
+            FunctionCallId: null,
+            ToolCallIndex: null,
+            ChangeCount: 1,
+            Changes:
+            [
+                new MiddlewareStateChange(
+                    Key: "HPD.Agent.ErrorTrackingStateData",
+                    Type: typeof(ErrorTrackingStateData).FullName!,
+                    PropertyName: "ErrorTracking",
+                    Scope: StateScope.Branch,
+                    Persistent: false,
+                    Version: 1,
+                    ChangeType: "updated",
+                    Before: JsonSerializer.SerializeToElement(new { ConsecutiveFailures = 1 }),
+                    After: JsonSerializer.SerializeToElement(new { ConsecutiveFailures = 2 }),
+                    Error: null,
+                    Redacted: false)
+            ],
+            Timestamp: DateTimeOffset.UtcNow);
+
+        var json = AgentEventSerializer.ToJson(evt);
+
+        Assert.Contains("\"type\":\"MIDDLEWARE_STATE_CHANGED\"", json);
+        Assert.Contains("\"phase\":\"after_parallel_batch\"", json);
+        Assert.Contains("\"changeCount\":1", json);
+        Assert.Contains("\"changeType\":\"updated\"", json);
+        Assert.Contains("\"batchId\":\"batch-1\"", json);
+    }
+
+    [Fact]
+    public void ToolCallBackgroundTaskEvents_UseToolDiscriminators()
+    {
+        var invocation = CreateInvocationSnapshot();
+        var events = new AgentEvent[]
+        {
+            new ToolCallBackgroundTaskStartedEvent
+            {
+                TaskId = "task-1",
+                Name = "work",
+                Invocation = invocation,
+                StartedAt = DateTimeOffset.UnixEpoch
+            },
+            new ToolCallBackgroundTaskCompletedEvent
+            {
+                TaskId = "task-1",
+                Name = "work",
+                Invocation = invocation,
+                CompletedAt = DateTimeOffset.UnixEpoch.AddMilliseconds(12),
+                DurationMilliseconds = 12
+            },
+            new ToolCallBackgroundTaskCancelledEvent
+            {
+                TaskId = "task-1",
+                Name = "work",
+                Invocation = invocation,
+                CancelledAt = DateTimeOffset.UnixEpoch
+            },
+            new ToolCallBackgroundTaskFaultedEvent
+            {
+                TaskId = "task-1",
+                Name = "work",
+                Invocation = invocation,
+                FaultedAt = DateTimeOffset.UnixEpoch,
+                ExceptionType = "System.InvalidOperationException",
+                ErrorMessage = "boom"
+            }
+        };
+
+        var expectedTypes = new[]
+        {
+            EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_STARTED,
+            EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_COMPLETED,
+            EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_CANCELLED,
+            EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_FAULTED
+        };
+
+        for (var i = 0; i < events.Length; i++)
+        {
+            var json = AgentEventSerializer.ToJson(events[i]);
+            Assert.Contains($"\"type\":\"{expectedTypes[i]}\"", json);
+            Assert.DoesNotContain("\"type\":\"BACKGROUND_OPERATION_", json);
+        }
+    }
+
+    [Fact]
+    public void ToolCallBackgroundTaskStartedEvent_RoundTrips()
+    {
+        var evt = new ToolCallBackgroundTaskStartedEvent
+        {
+            TaskId = "task-1",
+            Name = "work",
+            Invocation = CreateInvocationSnapshot(),
+            StartedAt = DateTimeOffset.UnixEpoch
+        };
+
+        var json = AgentEventSerializer.ToJson(evt);
+        var result = Assert.IsType<ToolCallBackgroundTaskStartedEvent>(
+            AgentEventSerializer.FromEventJson(json));
+
+        Assert.Equal(evt.TaskId, result.TaskId);
+        Assert.Equal(evt.Name, result.Name);
+        Assert.Equal(evt.Invocation.BatchId, result.Invocation.BatchId);
+        Assert.Equal(evt.Invocation.ToolCallIndex, result.Invocation.ToolCallIndex);
+    }
+
     #endregion
+
+    private static FunctionInvocationSnapshot CreateInvocationSnapshot()
+        => new()
+        {
+            AgentName = "TestAgent",
+            FunctionCallId = "call-1",
+            FunctionName = "TestFunction",
+            ConversationId = "conversation-1",
+            SessionId = "session-1",
+            BranchId = "branch-1",
+            TraceId = "trace-1",
+            Invocation = new ToolInvocationInfo("batch-1", "call-1", "TestFunction", 2)
+        };
 }

@@ -63,6 +63,10 @@ public static partial class AgentEventSerializer
         [typeof(ToolCallArgsEvent)] = EventTypes.Tool.TOOL_CALL_ARGS,
         [typeof(ToolCallEndEvent)] = EventTypes.Tool.TOOL_CALL_END,
         [typeof(ToolCallResultEvent)] = EventTypes.Tool.TOOL_CALL_RESULT,
+        [typeof(ToolCallBackgroundTaskStartedEvent)] = EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_STARTED,
+        [typeof(ToolCallBackgroundTaskCompletedEvent)] = EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_COMPLETED,
+        [typeof(ToolCallBackgroundTaskCancelledEvent)] = EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_CANCELLED,
+        [typeof(ToolCallBackgroundTaskFaultedEvent)] = EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_FAULTED,
 
         // Permission Events
         [typeof(PermissionRequestEvent)] = EventTypes.Permission.PERMISSION_REQUEST,
@@ -106,7 +110,9 @@ public static partial class AgentEventSerializer
         [typeof(BidirectionalEventProcessedEvent)] = EventTypes.Observability.BIDIRECTIONAL_EVENT_PROCESSED,
         [typeof(AgentDecisionEvent)] = EventTypes.Observability.AGENT_DECISION,
         [typeof(AgentCompletionEvent)] = EventTypes.Observability.AGENT_COMPLETION,
-        [typeof(IterationMessagesEvent)] = EventTypes.Observability.ITERATION_MESSAGES,
+        [typeof(IterationContextSnapshotEvent)] = EventTypes.Observability.ITERATION_CONTEXT_SNAPSHOT,
+        [typeof(MiddlewareStateSnapshotEvent)] = EventTypes.Observability.MIDDLEWARE_STATE_SNAPSHOT,
+        [typeof(MiddlewareStateChangedEvent)] = EventTypes.Observability.MIDDLEWARE_STATE_CHANGED,
         [typeof(SchemaChangedEvent)] = EventTypes.Observability.SCHEMA_CHANGED,
         [typeof(CollapsingStateEvent)] = EventTypes.Observability.COLLAPSING_STATE,
         [typeof(EventDroppedEvent)] = EventTypes.Observability.EVENT_DROPPED,

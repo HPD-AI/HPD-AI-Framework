@@ -726,7 +726,7 @@ public static class ApprovalWorkflowExtensions
         string? reason = null,
         object? resumeData = null)
     {
-        coordinator.SendResponse(requestId, new NodeApprovalResponseEvent
+        coordinator.Respond(requestId, new NodeApprovalResponseEvent
         {
             RequestId = requestId,
             SourceName = "User",
@@ -747,7 +747,7 @@ public static class ApprovalWorkflowExtensions
         string requestId,
         string reason = "Denied by user")
     {
-        coordinator.SendResponse(requestId, new NodeApprovalResponseEvent
+        coordinator.Respond(requestId, new NodeApprovalResponseEvent
         {
             RequestId = requestId,
             SourceName = "User",

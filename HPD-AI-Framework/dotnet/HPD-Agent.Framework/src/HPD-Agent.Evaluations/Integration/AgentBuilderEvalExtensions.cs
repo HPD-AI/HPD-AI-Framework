@@ -14,12 +14,12 @@ namespace HPD.Agent.Evaluations.Integration;
 
 /// <summary>
 /// Extension methods for AgentBuilder to register evaluators, score stores, and judge configs.
-/// All evaluators added to the same builder share one EvaluationMiddleware instance.
+/// All evaluators added to the same builder share one LiveEvaluationMiddleware instance.
 /// </summary>
 public static class AgentBuilderEvalExtensions
 {
     /// <summary>
-    /// Registers an evaluator with the agent. EvaluationMiddleware fires after each
+    /// Registers an evaluator with the agent. LiveEvaluationMiddleware fires after each
     /// completed message turn, running all registered evaluators as fire-and-forget tasks.
     /// </summary>
     /// <param name="builder">The agent builder.</param>
@@ -45,7 +45,7 @@ public static class AgentBuilderEvalExtensions
     }
 
     /// <summary>
-    /// Sets the IScoreStore that EvaluationMiddleware writes results to after each turn.
+    /// Sets the IScoreStore that LiveEvaluationMiddleware writes results to after each turn.
     /// If not called, scores are emitted as EvalScoreEvents but not persisted.
     /// </summary>
     public static AgentBuilder UseScoreStore(this AgentBuilder builder, IScoreStore store)
@@ -71,7 +71,7 @@ public static class AgentBuilderEvalExtensions
     /// have a per-evaluator judge override. The judge agent should normally be
     /// built with no tools and MaxAgenticIterations = 1.
     /// </summary>
-    public static AgentBuilder UseEvalJudgeAgent(this AgentBuilder builder, IAgent judgeAgent)
+    public static AgentBuilder UseEvalJudgeAgent(this AgentBuilder builder, IJudgeAgent judgeAgent)
         => builder.UseEvalJudgeConfig(new EvalJudgeConfig { OverrideAgent = judgeAgent });
 
     /// <summary>
@@ -150,27 +150,43 @@ public static class AgentBuilderEvalExtensions
     // ── Private ───────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Finds the shared EvaluationMiddleware on this builder, creating and registering
+    /// Finds the shared LiveEvaluationMiddleware on this builder, creating and registering
     /// it (as middleware and event subscription) if it doesn't exist yet.
     /// </summary>
-    private static EvaluationMiddleware GetOrCreateMiddleware(AgentBuilder builder)
+    private static LiveEvaluationMiddleware GetOrCreateMiddleware(AgentBuilder builder)
     {
         var middleware = builder.Middlewares
-            .OfType<EvaluationMiddleware>()
+            .OfType<LiveEvaluationMiddleware>()
             .FirstOrDefault();
 
         if (middleware is null)
         {
-            middleware = new EvaluationMiddleware();
-            builder.Middlewares.Add(middleware);
+            middleware = new LiveEvaluationMiddleware();
+            builder.Middlewares.Insert(0, middleware);
             builder.WithEventSubscription(coordinator =>
                 coordinator.Subscribe<AgentEvent>(middleware.HandleAsync));
+        }
+        else
+        {
+            PinLiveEvaluationMiddlewareOutermost(builder, middleware);
         }
 
         return middleware;
     }
 
-    private sealed class BuiltAgentJudgeAdapter(Agent judgeAgent) : IAgent
+    private static void PinLiveEvaluationMiddlewareOutermost(
+        AgentBuilder builder,
+        LiveEvaluationMiddleware middleware)
+    {
+        var index = builder.Middlewares.IndexOf(middleware);
+        if (index <= 0)
+            return;
+
+        builder.Middlewares.RemoveAt(index);
+        builder.Middlewares.Insert(0, middleware);
+    }
+
+    private sealed class BuiltAgentJudgeAdapter(Agent judgeAgent) : IJudgeAgent
     {
         private readonly SemaphoreSlim _gate = new(1, 1);
 

@@ -120,10 +120,13 @@ public class SimpleConsoleEventSink
 
             case ToolCallResultEvent toolResult:
                 // Show tool completion
-                Console.WriteLine($"   ✓ Tool result: {toolResult.Result}");
+                Console.WriteLine($"   ✓ Tool result: {FormatToolResult(toolResult.Result)}");
                 break;
         }
 
         return ValueTask.CompletedTask;
     }
+
+    private static string FormatToolResult(ToolResultPayload result) =>
+        result.Text ?? result.Json?.GetRawText() ?? string.Empty;
 }

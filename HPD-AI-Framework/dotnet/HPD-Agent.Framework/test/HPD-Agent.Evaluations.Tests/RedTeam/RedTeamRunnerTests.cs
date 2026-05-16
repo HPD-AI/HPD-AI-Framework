@@ -6,8 +6,11 @@ using HPD.Agent.Evaluations.Batch;
 using HPD.Agent.Evaluations.Evaluators.Deterministic;
 using HPD.Agent.Evaluations.RedTeam;
 using HPD.Agent.Evaluations.Storage;
+using HPD.Agent.Evaluations.Tests.Infrastructure;
+using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
+using System.Runtime.CompilerServices;
 
 namespace HPD.Agent.Evaluations.Tests.RedTeam;
 
@@ -110,14 +113,58 @@ public sealed class RedTeamRunnerTests
             .Which.SessionId.Should().Be("current-redteam-run");
     }
 
-    private sealed class FixedResponseAgent(string responseText) : IAgent
+    private sealed class FixedResponseAgent
     {
         public List<AgentRunConfig> Configs { get; } = [];
+        private readonly HPD.Agent.Agent _agent;
 
-        public Task<ChatResponse> RunAsync(AgentRunConfig config, CancellationToken ct = default)
+        public FixedResponseAgent(string responseText)
         {
-            Configs.Add(config);
-            return Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, responseText)]));
+            _agent = new HPD.Agent.Agent(
+                new AgentConfig { Name = nameof(FixedResponseAgent) },
+                new FixedResponseChatClient(responseText),
+                null,
+                middlewares: [new RecordingMiddleware(this)]);
+        }
+
+        public static implicit operator HPD.Agent.Agent(FixedResponseAgent agent) => agent._agent;
+
+        private sealed class RecordingMiddleware(FixedResponseAgent owner) : IAgentMiddleware
+        {
+            public Task BeforeMessageTurnAsync(
+                BeforeMessageTurnContext context,
+                CancellationToken cancellationToken)
+            {
+                owner.Configs.Add(context.RunConfig);
+                return Task.CompletedTask;
+            }
+        }
+
+        private sealed class FixedResponseChatClient(string responseText) : IChatClient
+        {
+            public ChatClientMetadata Metadata => new("FixedResponseChatClient");
+
+            public Task<ChatResponse> GetResponseAsync(
+                IEnumerable<ChatMessage> messages,
+                ChatOptions? options = null,
+                CancellationToken cancellationToken = default)
+                => Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, responseText)]));
+
+            public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+                IEnumerable<ChatMessage> messages,
+                ChatOptions? options = null,
+                [EnumeratorCancellation] CancellationToken cancellationToken = default)
+            {
+                await Task.Yield();
+                yield return new ChatResponseUpdate
+                {
+                    Contents = [new TextContent(responseText)],
+                    FinishReason = ChatFinishReason.Stop,
+                };
+            }
+
+            public object? GetService(Type serviceType, object? serviceKey = null) => null;
+            public void Dispose() { }
         }
     }
 }

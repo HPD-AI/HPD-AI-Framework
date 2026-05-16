@@ -182,7 +182,7 @@ describe('MessageState', () => {
 						name: 'search',
 						messageId: 'msg-123',
 						status: 'complete',
-						result: 'Done',
+						resultText: 'Done',
 						startTime: new Date(),
 						endTime: new Date()
 					}

@@ -153,7 +153,7 @@ internal sealed class EventChannelRouter : IDisposable
         _parentCoordinator = parent;
     }
 
-    public async Task<TResponse> WaitForResponseAsync<TResponse>(
+    internal async Task<TResponse> WaitForResponseAsync<TResponse>(
         string requestId,
         TimeSpan timeout,
         CancellationToken ct = default) where TResponse : Event
@@ -200,7 +200,7 @@ internal sealed class EventChannelRouter : IDisposable
         }
     }
 
-    public bool SendResponse(string requestId, Event response)
+    public bool TryRespond(string requestId, Event response)
     {
         if (string.IsNullOrWhiteSpace(requestId))
             throw new ArgumentException("Request ID cannot be null or whitespace", nameof(requestId));

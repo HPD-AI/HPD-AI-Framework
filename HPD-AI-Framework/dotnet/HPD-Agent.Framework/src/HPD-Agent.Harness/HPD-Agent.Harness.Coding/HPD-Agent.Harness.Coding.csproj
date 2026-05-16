@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <RootNamespace>HPD.Agent.Harness.Coding</RootNamespace>
+
+    <!-- Native AOT Configuration -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+
+    <!-- Package Metadata (inherits Version, Authors, License from Directory.Build.props) -->
+    <PackageId>HPD-Agent.Harness.Coding</PackageId>
+    <Description>Coding harness for HPD-Agent. Provides AI functions for codebase inspection, symbol search, and implementation planning.</Description>
+    <PackageTags>ai;agent;coding;codebase;harness;hpd-agent</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Core dependencies -->
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.4.1" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
+    <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.5" />
+    <PackageReference Include="DiffPlex" Version="1.9.0" />
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.7" />
+    <PackageReference Include="Ude.NetStandard" Version="1.2.0" />
+
+    <!-- JSON Schema -->
+    <PackageReference Include="JsonSchema.Net.Generation" Version="7.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Reference to core HPD-Agent project -->
+    <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../HPD-Agent.Harness.Coding.SourceGenerator/HPD-Agent.Harness.Coding.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier" AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Ripgrep/pack/**/*.cs" />
+    <None Remove="Ripgrep/pack/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.Tests" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <RipgrepPackRoot>$(MSBuildProjectDirectory)/obj/RipgrepPack/</RipgrepPackRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(RipgrepPackRoot)Generated/**/*.cs" Visible="false" Condition="Exists('$(RipgrepPackRoot)Generated')" />
+    <None Include="$(RipgrepPackRoot)runtimes/**/native/*" Pack="true" PackagePath="runtimes/" Visible="false" Condition="Exists('$(RipgrepPackRoot)runtimes')" />
+  </ItemGroup>
+
+  <Target Name="CopyRipgrepRuntimeAssets" AfterTargets="Build" Condition="Exists('$(RipgrepPackRoot)runtimes')">
+    <ItemGroup>
+      <RipgrepRuntimeAsset Include="$(RipgrepPackRoot)runtimes/**/native/*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(RipgrepRuntimeAsset)"
+      DestinationFiles="@(RipgrepRuntimeAsset->'$(OutputPath)runtimes/%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

@@ -163,8 +163,7 @@ public interface IGraphContext
     HPD.Events.IEventCoordinator? EventCoordinator { get; }
 
     /// <summary>
-    /// Waits for a response to a bidirectional event (approvals, permissions).
-    /// Convenience wrapper around EventCoordinator.WaitForResponseAsync.
+    /// Emits a bidirectional request event and waits for its matching response.
     /// </summary>
     /// <typeparam name="TResponse">Expected response event type (must inherit from GraphEvent)</typeparam>
     /// <param name="requestId">Unique identifier matching the request event</param>
@@ -179,11 +178,11 @@ public interface IGraphContext
     /// This method is used by node handlers that need bidirectional communication:
     /// </para>
     /// <list type="number">
-    /// <item>Handler emits request event (e.g., NodeApprovalRequestEvent)</item>
-    /// <item>Handler calls WaitForResponseAsync() - BLOCKS HERE</item>
+    /// <item>Handler calls RequestAsync with a request event (e.g., NodeApprovalRequestEvent)</item>
+    /// <item>The coordinator emits the request and waits for the response</item>
     /// <item>External handler receives request event (via EventCoordinator.SubscribeStream or SubscribeChannel)</item>
     /// <item>User provides input</item>
-    /// <item>External handler calls EventCoordinator.SendResponse()</item>
+    /// <item>External handler calls EventCoordinator.Respond()</item>
     /// <item>Handler receives response and continues</item>
     /// </list>
     /// <para><b>Timeout vs. Cancellation:</b></para>
@@ -199,16 +198,14 @@ public interface IGraphContext
     /// // In node handler
     /// var requestId = Guid.NewGuid().ToString();
     ///
-    /// context.EventCoordinator?.Emit(new NodeApprovalRequestEvent
+    /// var response = await context.RequestAsync&lt;NodeApprovalRequestEvent, NodeApprovalResponseEvent&gt;(
+    ///     new NodeApprovalRequestEvent
     /// {
     ///     RequestId = requestId,
     ///     NodeId = context.CurrentNodeId,
     ///     Message = "Approve deletion of 1000 records?"
-    /// });
-    ///
-    /// var response = await context.WaitForResponseAsync&lt;NodeApprovalResponseEvent&gt;(
-    ///     requestId,
-    ///     timeout: TimeSpan.FromMinutes(5),
+    ///     },
+    ///     TimeSpan.FromMinutes(5),
     ///     cancellationToken
     /// );
     ///
@@ -216,16 +213,17 @@ public interface IGraphContext
     ///     return new NodeExecutionResult.Skipped(SkipReason.UserCancelled);
     /// </code>
     /// </example>
-    Task<TResponse> WaitForResponseAsync<TResponse>(
-        string requestId,
+    Task<TResponse> RequestAsync<TRequest, TResponse>(
+        TRequest request,
         TimeSpan timeout,
         CancellationToken cancellationToken = default)
+        where TRequest : HPD.Events.Event, HPD.Events.IBidirectionalEvent
         where TResponse : HPD.Events.Event
     {
         if (EventCoordinator == null)
             throw new InvalidOperationException("EventCoordinator is not configured for this context");
 
-        return EventCoordinator.WaitForResponseAsync<TResponse>(requestId, timeout, cancellationToken);
+        return EventCoordinator.RequestAsync<TRequest, TResponse>(request, timeout, cancellationToken);
     }
 
     // ========================================

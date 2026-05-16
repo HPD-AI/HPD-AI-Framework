@@ -4,6 +4,7 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
+using HPD.Agent.Middleware;
 using HPD.Agent.Evaluations.Contexts;
 using HPD.Agent.Evaluations.Evaluators;
 using HPD.Agent.Evaluations.Integration;
@@ -83,7 +84,7 @@ public sealed class RunEvalsOptions<TInput> : RunEvalsOptions
 /// applying evaluators to each response and aggregating results into an EvaluationReport.
 ///
 /// DisableEvaluators is automatically set on internal AgentRunConfigs to prevent
-/// live EvaluationMiddleware from double-firing during batch runs.
+/// live evaluation middleware from double-firing during batch runs.
 /// </summary>
 public static class RunEvals
 {
@@ -91,7 +92,7 @@ public static class RunEvals
     /// Execute a batch evaluation run.
     /// </summary>
     public static async Task<EvaluationReport> ExecuteAsync<TInput>(
-        IAgent agent,
+        HPD.Agent.Agent agent,
         Dataset<TInput> dataset,
         IReadOnlyList<IEvaluator>? evaluators = null,
         RunEvalsOptions<TInput>? options = null,
@@ -202,7 +203,7 @@ public static class RunEvals
     }
 
     private static async Task<ReportCase> RunSingleCaseAsync<TInput>(
-        IAgent agent,
+        HPD.Agent.Agent agent,
         EvalCase<TInput> evalCase,
         string caseName,
         string scenarioName,
@@ -218,22 +219,30 @@ public static class RunEvals
     {
         var taskStart = DateTimeOffset.UtcNow;
 
-        // Build AgentRunConfig with DisableEvaluators to prevent live double-firing
-        var runConfig = CloneRunConfig(options.BaseRunConfig);
-        runConfig.DisableEvaluators = true;
-        runConfig.UserMessage = evalCase.Input?.ToString() ?? string.Empty;
+        // Build the case-level AgentRunConfig with DisableEvaluators to prevent
+        // live double-firing. Each retry attempt clones this config before the
+        // capture middleware adds per-attempt request state.
+        var caseRunConfig = CloneRunConfig(options.BaseRunConfig);
+        caseRunConfig.DisableEvaluators = true;
+        caseRunConfig.UserMessage = evalCase.Input?.ToString() ?? string.Empty;
 
         if (evalCase.GroundTruth is not null)
         {
-            runConfig.ContextOverrides ??= new Dictionary<string, object>();
-            runConfig.ContextOverrides["groundTruth"] = evalCase.GroundTruth;
+            caseRunConfig.ContextOverrides ??= new Dictionary<string, object>();
+            caseRunConfig.ContextOverrides["groundTruth"] = evalCase.GroundTruth;
         }
 
-        ChatResponse agentResponse;
+        TurnEvaluationContext turnCtx;
+        AgentRunConfig? runConfig = null;
         try
         {
-            agentResponse = await ExecuteWithRetryAsync(
-                () => agent.RunAsync(runConfig, ct),
+            turnCtx = await ExecuteWithRetryAsync(
+                () =>
+                {
+                    var attemptRunConfig = CloneRunConfig(caseRunConfig);
+                    runConfig = attemptRunConfig;
+                    return RunAgentAndCaptureAsync(agent, attemptRunConfig, ct);
+                },
                 options.TaskRetryPolicy,
                 ct).ConfigureAwait(false);
         }
@@ -243,6 +252,9 @@ public static class RunEvals
             // Task failure — return a case with an error result
             return new ReportCase(
                 caseName,
+                caseRunConfig.ProviderKey,
+                caseRunConfig.ModelId,
+                null,
                 new EvaluationResult(),
                 [new EvaluatorFailure("Agent", ex.Message)],
                 DateTimeOffset.UtcNow - taskStart,
@@ -251,54 +263,27 @@ public static class RunEvals
         }
 
         var taskDuration = DateTimeOffset.UtcNow - taskStart;
+        turnCtx = NormalizeBatchContext(
+            turnCtx,
+            agent.GetType().Name,
+            experimentName,
+            caseName,
+            evalCase.Input?.ToString() ?? string.Empty,
+            evalCase.GroundTruth,
+            runConfig ?? caseRunConfig,
+            taskDuration);
+        var agentResponse = turnCtx.FinalResponse;
 
-        // Build messages for evaluators (simple user message + response)
-        var messages = new List<ChatMessage>
-        {
-            new(ChatRole.User, evalCase.Input?.ToString() ?? string.Empty),
-        };
+        // Build messages for evaluators from the actual evaluated turn.
+        var messages = turnCtx.ConversationHistory
+            .Concat([new ChatMessage(ChatRole.User, turnCtx.UserInput)])
+            .ToList();
 
         // Build additional context
         var additionalContext = new List<EvaluationContext>();
-        if (evalCase.GroundTruth is not null)
-            additionalContext.Add(new GroundTruthContext(evalCase.GroundTruth));
-
-        var turnCtx = new TurnEvaluationContext
-        {
-            AgentName = agent.GetType().Name,
-            SessionId = experimentName ?? "eval",
-            BranchId = caseName,
-            ConversationId = caseName,
-            TurnIndex = 0,
-            UserInput = evalCase.Input?.ToString() ?? string.Empty,
-            ConversationHistory = [],
-            OutputText = agentResponse.Text ?? string.Empty,
-            FinalResponse = agentResponse,
-            ToolCalls = [],
-            Trace = new HPD.Agent.Evaluations.Tracing.TurnTrace
-            {
-                MessageTurnId = caseName,
-                AgentName = agent.GetType().Name,
-                StartedAt = taskStart,
-                Duration = taskDuration,
-                Iterations = [],
-            },
-            TurnUsage = agentResponse.Usage,
-            IterationUsage = [],
-            IterationCount = 1,
-            Duration = taskDuration,
-            ModelId = runConfig.ModelId,
-            ProviderKey = runConfig.ProviderKey,
-            Attributes = new Dictionary<string, object>(),
-            Metrics = new Dictionary<string, double>(),
-            StopKind = AgentStopKind.Unknown,
-            GroundTruth = evalCase.GroundTruth,
-            ExperimentContext = runConfig.ContextOverrides is null
-                ? null
-                : runConfig.ContextOverrides
-                    .Where(kv => kv.Value is not null)
-                    .ToDictionary(kv => kv.Key, kv => kv.Value!),
-        };
+        var groundTruth = turnCtx.GroundTruth ?? evalCase.GroundTruth;
+        if (groundTruth is not null)
+            additionalContext.Add(new GroundTruthContext(groundTruth));
         additionalContext.Add(new TurnEvaluationContextWrapper(turnCtx));
 
         var evalStart = DateTimeOffset.UtcNow;
@@ -326,7 +311,7 @@ public static class RunEvals
                     evalCase,
                     datasetId,
                     datasetVersion,
-                    runConfig,
+                    runConfig ?? caseRunConfig,
                     judgeConfig,
                     options,
                     ct).ConfigureAwait(false);
@@ -377,7 +362,9 @@ public static class RunEvals
                 SessionId = turnCtx.SessionId,
                 BranchId = turnCtx.BranchId,
                 TurnIndex = turnCtx.TurnIndex,
+                ProviderKey = turnCtx.ProviderKey,
                 ModelId = turnCtx.ModelId,
+                ResponseModelId = turnCtx.ResponseModelId,
                 DatasetId = datasetId,
                 DatasetVersion = datasetVersion,
                 CaseId = evalCase.CaseId ?? evalCase.Name,
@@ -392,11 +379,49 @@ public static class RunEvals
 
         return new ReportCase(
             caseName,
+            turnCtx.ProviderKey,
+            turnCtx.ModelId,
+            turnCtx.ResponseModelId,
             mergedResult,
             evalFailures,
             taskDuration,
             evalDuration,
             taskDuration + evalDuration);
+    }
+
+    private static async Task<TurnEvaluationContext> RunAgentAndCaptureAsync(
+        HPD.Agent.Agent agent,
+        AgentRunConfig runConfig,
+        CancellationToken ct)
+    {
+        var requestId = Guid.NewGuid().ToString();
+        var capture = new BatchEvalCaptureMiddleware();
+
+        runConfig.ContextOverrides ??= new Dictionary<string, object>();
+        runConfig.ContextOverrides[BatchEvalCaptureMiddleware.CaptureRequestIdKey] = requestId;
+        runConfig.RuntimeMiddleware = PrependRuntimeMiddleware(runConfig.RuntimeMiddleware, capture);
+
+        using var subscription = agent.SubscribeAny(capture.HandleAsync);
+
+        await agent.RunAsync(new HPD.Agent.UserTextInputEvent(runConfig.UserMessage ?? string.Empty)
+        {
+            RunConfig = runConfig,
+        }, ct).ConfigureAwait(false);
+
+        return await capture.Captured.WaitAsync(TimeSpan.FromMinutes(5), ct).ConfigureAwait(false);
+    }
+
+    private static IReadOnlyList<IAgentMiddleware> PrependRuntimeMiddleware(
+        IReadOnlyList<IAgentMiddleware>? existing,
+        IAgentMiddleware middleware)
+    {
+        if (existing is not { Count: > 0 })
+            return [middleware];
+
+        var merged = new List<IAgentMiddleware>(existing.Count + 1);
+        merged.Add(middleware);
+        merged.AddRange(existing);
+        return merged;
     }
 
     private static IReadOnlyList<string> BuildRunTags<TInput>(
@@ -461,7 +486,9 @@ public static class RunEvals
                 BranchId = turnCtx.BranchId,
                 TurnIndex = turnCtx.TurnIndex,
                 AgentName = turnCtx.AgentName,
+                ProviderKey = turnCtx.ProviderKey,
                 ModelId = turnCtx.ModelId,
+                ResponseModelId = turnCtx.ResponseModelId,
                 DatasetId = datasetId,
                 DatasetVersion = datasetVersion,
                 CaseId = evalCase.CaseId ?? evalCase.Name,
@@ -496,6 +523,78 @@ public static class RunEvals
     private sealed record EvaluatorRunOutput(
         EvaluationResult Result,
         IReadOnlyList<JudgeCallRecord> JudgeCalls);
+
+    private static TurnEvaluationContext NormalizeBatchContext(
+        TurnEvaluationContext source,
+        string fallbackAgentName,
+        string? experimentName,
+        string caseName,
+        string userInput,
+        string? groundTruth,
+        AgentRunConfig runConfig,
+        TimeSpan taskDuration)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var attributes = BuildBatchAttributes(source);
+
+        return new TurnEvaluationContext
+        {
+            AgentName = string.IsNullOrWhiteSpace(source.AgentName) ? fallbackAgentName : source.AgentName,
+            // Batch identity intentionally wins here: score storage groups batch
+            // results by experiment/case through SessionId and BranchId.
+            SessionId = experimentName ?? "eval",
+            BranchId = caseName,
+            ConversationId = caseName,
+            TurnIndex = source.TurnIndex,
+            UserInput = string.IsNullOrEmpty(source.UserInput) ? userInput : source.UserInput,
+            ConversationHistory = source.ConversationHistory,
+            OutputText = source.OutputText,
+            FinalResponse = source.FinalResponse,
+            ReasoningText = source.ReasoningText,
+            ToolCalls = source.ToolCalls,
+            Trace = source.Trace,
+            TurnUsage = source.TurnUsage,
+            IterationUsage = source.IterationUsage,
+            IterationCount = source.IterationCount,
+            Duration = source.Duration == TimeSpan.Zero ? taskDuration : source.Duration,
+            ModelId = source.ModelId ?? runConfig.ModelId ?? source.FinalResponse?.ModelId,
+            ResponseModelId = source.ResponseModelId ?? source.FinalResponse?.ModelId,
+            ProviderKey = source.ProviderKey ?? runConfig.ProviderKey,
+            Attributes = attributes,
+            Metrics = source.Metrics,
+            StopKind = source.StopKind,
+            GroundTruth = source.GroundTruth ?? groundTruth,
+            ExperimentContext = SanitizeExperimentContext(source.ExperimentContext ?? runConfig.ContextOverrides),
+        };
+    }
+
+    private static IDictionary<string, object>? SanitizeExperimentContext(
+        IDictionary<string, object>? context)
+    {
+        if (context is null || !context.ContainsKey(BatchEvalCaptureMiddleware.CaptureRequestIdKey))
+            return context;
+
+        var sanitized = new Dictionary<string, object>(context);
+        sanitized.Remove(BatchEvalCaptureMiddleware.CaptureRequestIdKey);
+        return sanitized;
+    }
+
+    private static IReadOnlyDictionary<string, object> BuildBatchAttributes(TurnEvaluationContext source)
+    {
+        var attributes = new Dictionary<string, object>(source.Attributes);
+
+        if (source.ToolCalls.Count > 0 && !attributes.ContainsKey("tool_calls"))
+            attributes["tool_calls"] = source.ToolCalls;
+
+        if (!string.IsNullOrWhiteSpace(source.SessionId))
+            attributes.TryAdd("source_session_id", source.SessionId);
+        if (!string.IsNullOrWhiteSpace(source.BranchId))
+            attributes.TryAdd("source_branch_id", source.BranchId);
+        if (!string.IsNullOrWhiteSpace(source.ConversationId))
+            attributes.TryAdd("source_conversation_id", source.ConversationId);
+
+        return attributes;
+    }
 
     private static EvaluationResult MergeResults(List<EvaluationResult> results)
     {
@@ -616,15 +715,11 @@ public static class RunEvals
             TriggerHistoryReduction = source.TriggerHistoryReduction,
             SkipHistoryReduction = source.SkipHistoryReduction,
             UserMessage = source.UserMessage,
+            DisableEvaluators = source.DisableEvaluators,
+            IsInternalEvalJudgeCall = source.IsInternalEvalJudgeCall,
             AdditionalEvaluators = source.AdditionalEvaluators,
             EvaluatorSamplingOverride = source.EvaluatorSamplingOverride,
             EvalJudgeConfigOverride = source.EvalJudgeConfigOverride,
         };
     }
-}
-
-/// <summary>Minimal agent interface for RunEvals (avoids coupling to full Agent class).</summary>
-public interface IAgent
-{
-    Task<ChatResponse> RunAsync(AgentRunConfig config, CancellationToken ct = default);
 }

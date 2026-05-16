@@ -22,10 +22,11 @@ public record ClientToolInvokeRequestEvent(
     string CallId,
     IReadOnlyDictionary<string, object?> Arguments,
     string? Description = null
-) : AgentEvent
+) : AgentEvent, IBidirectionalAgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override EventKind Kind { get; init; } = EventKind.Control;
+    public string SourceName => "HPD.Agent.ClientTools";
 }
 
 /// <summary>

@@ -69,7 +69,7 @@ public sealed class AnnotationItem
 
 /// <summary>
 /// In-memory queue for human annotation of flagged agent turns.
-/// Integrates with EvaluationMiddleware: when a TrackTrend evaluator scores below
+/// Integrates with LiveEvaluationMiddleware: when a TrackTrend evaluator scores below
 /// AnnotationQueueOptions.AutoQueueBelowScore, the turn is automatically enqueued.
 ///
 /// For production use, replace the in-memory backing store with a database-backed
@@ -103,7 +103,7 @@ public sealed class AnnotationQueue
 
     /// <summary>
     /// Enqueue a turn from an EvalScoreEvent when the score falls below the threshold.
-    /// Called by EvaluationMiddleware when AutoQueueBelowScore is configured.
+    /// Called by LiveEvaluationMiddleware when AutoQueueBelowScore is configured.
     /// Returns the annotation ID, or null if not queued (score above threshold or queue full).
     /// </summary>
     public string? TryEnqueueFromScore(

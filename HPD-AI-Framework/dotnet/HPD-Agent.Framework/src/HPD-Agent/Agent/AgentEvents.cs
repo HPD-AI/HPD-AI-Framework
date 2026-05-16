@@ -1,5 +1,8 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using HPD.Agent.Middleware;
+using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 using EventChannel = HPD.Events.EventChannel;
 using EventDirection = HPD.Events.EventDirection;
@@ -104,6 +107,7 @@ public sealed record InterruptionHandledEvent : AgentEvent
         StreamId = streamId;
         Reason = reason;
         Source = source;
+        CanInterrupt = false;
     }
 
     public string Reason { get; init; }
@@ -509,11 +513,175 @@ public record ToolCallEndEvent(string CallId) : AgentEvent
 /// </summary>
 public record ToolCallResultEvent(
     string CallId,
-    string Result,
+    ToolResultPayload Result,
     string? HarnessName = null,
     ToolCallType? CallType = null) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+}
+
+/// <summary>
+/// Serializable event-facing projection of a tool result.
+/// </summary>
+public sealed record ToolResultPayload(
+    string? Text = null,
+    JsonElement? Json = null,
+    IReadOnlyList<ClientTools.IToolResultContent>? Content = null,
+    string? ResultType = null)
+{
+    internal static ToolResultPayload FromResult(object? result)
+    {
+        if (result is ToolResultPayload payload)
+            return payload;
+
+        if (result is null)
+            return new ToolResultPayload(Json: JsonSerializer.SerializeToElement((object?)null, HPDJsonContext.Default.Object));
+
+        var resultType = result.GetType().FullName;
+
+        return result switch
+        {
+            string text => new ToolResultPayload(
+                Text: text,
+                Json: JsonSerializer.SerializeToElement(text, HPDJsonContext.Default.String),
+                ResultType: resultType),
+
+            JsonElement json => new ToolResultPayload(
+                Text: json.GetRawText(),
+                Json: json.Clone(),
+                ResultType: resultType),
+
+            ValidationErrorResponse validation => new ToolResultPayload(
+                Text: JsonSerializer.Serialize(validation, HPDJsonContext.Default.ValidationErrorResponse),
+                Json: JsonSerializer.SerializeToElement(validation, HPDJsonContext.Default.ValidationErrorResponse),
+                ResultType: resultType),
+
+            ClientTools.TextContent textContent => new ToolResultPayload(
+                Text: textContent.Text,
+                Json: JsonSerializer.SerializeToElement(textContent.Text, HPDJsonContext.Default.String),
+                Content: [textContent],
+                ResultType: resultType),
+
+            ClientTools.JsonContent jsonContent => new ToolResultPayload(
+                Text: jsonContent.Value.GetRawText(),
+                Json: jsonContent.Value.Clone(),
+                Content: [jsonContent],
+                ResultType: resultType),
+
+            ClientTools.IToolResultContent content => new ToolResultPayload(
+                Text: ContentToText([content]),
+                Content: [content],
+                ResultType: resultType),
+
+            IEnumerable<ClientTools.IToolResultContent> contents => FromContent(contents.ToArray(), resultType),
+
+            _ => new ToolResultPayload(Text: result.ToString(), ResultType: resultType)
+        };
+    }
+
+    private static ToolResultPayload FromContent(
+        IReadOnlyList<ClientTools.IToolResultContent> content,
+        string? resultType)
+    {
+        if (content.Count == 1)
+        {
+            if (content[0] is ClientTools.TextContent text)
+            {
+                return new ToolResultPayload(
+                    Text: text.Text,
+                    Json: JsonSerializer.SerializeToElement(text.Text, HPDJsonContext.Default.String),
+                    Content: content,
+                    ResultType: resultType);
+            }
+
+            if (content[0] is ClientTools.JsonContent json)
+            {
+                return new ToolResultPayload(
+                    Text: json.Value.GetRawText(),
+                    Json: json.Value.Clone(),
+                    Content: content,
+                    ResultType: resultType);
+            }
+        }
+
+        return new ToolResultPayload(
+            Text: ContentToText(content),
+            Content: content,
+            ResultType: resultType);
+    }
+
+    private static string? ContentToText(IReadOnlyList<ClientTools.IToolResultContent> content)
+    {
+        if (content.Count == 0)
+            return null;
+
+        if (content.Count == 1)
+        {
+            return content[0] switch
+            {
+                ClientTools.TextContent text => text.Text,
+                ClientTools.JsonContent json => json.Value.GetRawText(),
+                ClientTools.BinaryContent binary => binary.Filename ?? binary.Id ?? binary.Url ?? binary.MimeType,
+                _ => null
+            };
+        }
+
+        return JsonSerializer.Serialize(content, AgentEventJsonContext.Default.IReadOnlyListIToolResultContent);
+    }
+}
+
+/// <summary>
+/// Base event for runtime-owned background work started by a tool call.
+/// </summary>
+public abstract record ToolCallBackgroundTaskEvent : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+
+    public required string TaskId { get; init; }
+
+    public required string Name { get; init; }
+
+    public required FunctionInvocationSnapshot Invocation { get; init; }
+}
+
+/// <summary>
+/// Emitted when runtime-owned background work started by a tool call begins.
+/// </summary>
+public sealed record ToolCallBackgroundTaskStartedEvent : ToolCallBackgroundTaskEvent
+{
+    public required DateTimeOffset StartedAt { get; init; }
+}
+
+/// <summary>
+/// Emitted when runtime-owned background work started by a tool call completes.
+/// </summary>
+public sealed record ToolCallBackgroundTaskCompletedEvent : ToolCallBackgroundTaskEvent
+{
+    public required DateTimeOffset CompletedAt { get; init; }
+
+    public required long DurationMilliseconds { get; init; }
+}
+
+/// <summary>
+/// Emitted when runtime-owned background work started by a tool call observes runtime cancellation.
+/// </summary>
+public sealed record ToolCallBackgroundTaskCancelledEvent : ToolCallBackgroundTaskEvent
+{
+    public required DateTimeOffset CancelledAt { get; init; }
+}
+
+/// <summary>
+/// Emitted when runtime-owned background work started by a tool call faults.
+/// </summary>
+public sealed record ToolCallBackgroundTaskFaultedEvent : ToolCallBackgroundTaskEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+
+    public required DateTimeOffset FaultedAt { get; init; }
+
+    public required string ExceptionType { get; init; }
+
+    public required string ErrorMessage { get; init; }
 }
 
 #endregion
@@ -526,7 +694,7 @@ public record ToolCallResultEvent(
 /// Events implementing this interface can:
 /// - Be emitted during execution
 /// - Bubble to parent agents via AsyncLocal
-/// - Wait for responses using WaitForResponseAsync
+/// - Participate in RequestAsync/Respond request-response flows
 /// </summary>
 public interface IBidirectionalAgentEvent : HPD.Events.IBidirectionalEvent
 {
@@ -1337,12 +1505,110 @@ public record AgentCompletionEvent(
 }
 
 /// <summary>
-/// Emitted when iteration messages are logged.
+/// Snapshot of a non-history message added to the model-bound context for an iteration.
 /// </summary>
-public record IterationMessagesEvent(
+public sealed record ContextMessageSnapshot(
+    string Role,
+    string Text
+);
+
+/// <summary>
+/// Snapshot of a visible tool included in the model-bound context for an iteration.
+/// </summary>
+public sealed record ToolContextSnapshot(
+    string Name,
+    string Description,
+    string? HarnessName,
+    ToolCallType? CallType,
+    bool IsContainer,
+    string? InputSchemaJson
+);
+
+/// <summary>
+/// Emitted immediately before an LLM call with the non-history context being fed to the model.
+/// Excludes normal chat history; includes instructions, visible tool context, and middleware-injected context messages.
+/// </summary>
+public record IterationContextSnapshotEvent(
     string AgentName,
     int Iteration,
-    int MessageCount,
+    int TotalMessageCount,
+    int ContextMessageCount,
+    IReadOnlyList<ContextMessageSnapshot> ContextMessages,
+    string? Instructions,
+    int ToolCount,
+    IReadOnlyList<ToolContextSnapshot> Tools,
+    DateTimeOffset Timestamp
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
+
+/// <summary>
+/// Snapshot of one middleware state entry at a lifecycle phase.
+/// </summary>
+public sealed record MiddlewareStateEntrySnapshot(
+    string Key,
+    string Type,
+    string PropertyName,
+    StateScope Scope,
+    bool Persistent,
+    int Version,
+    JsonElement? Json,
+    string? Error,
+    bool Redacted
+);
+
+/// <summary>
+/// Emitted at stable lifecycle phases with the current internal middleware state.
+/// </summary>
+public record MiddlewareStateSnapshotEvent(
+    string AgentName,
+    string? SessionId,
+    string? BranchId,
+    int Iteration,
+    string Phase,
+    string? BatchId,
+    string? FunctionCallId,
+    int? ToolCallIndex,
+    int StateCount,
+    IReadOnlyList<MiddlewareStateEntrySnapshot> States,
+    DateTimeOffset Timestamp
+) : AgentEvent, IObservabilityEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+}
+
+/// <summary>
+/// Snapshot of one middleware state entry change detected across a lifecycle phase.
+/// </summary>
+public sealed record MiddlewareStateChange(
+    string Key,
+    string Type,
+    string PropertyName,
+    StateScope Scope,
+    bool Persistent,
+    int Version,
+    string ChangeType,
+    JsonElement? Before,
+    JsonElement? After,
+    string? Error,
+    bool Redacted
+);
+
+/// <summary>
+/// Emitted when middleware state changes across a stable lifecycle phase.
+/// </summary>
+public record MiddlewareStateChangedEvent(
+    string AgentName,
+    string? SessionId,
+    string? BranchId,
+    int Iteration,
+    string Phase,
+    string? BatchId,
+    string? FunctionCallId,
+    int? ToolCallIndex,
+    int ChangeCount,
+    IReadOnlyList<MiddlewareStateChange> Changes,
     DateTimeOffset Timestamp
 ) : AgentEvent, IObservabilityEvent
 {

@@ -184,7 +184,7 @@ public class ExternalToolCollapsingWrapperMCPTests
             }
         };
         var existingTool = HPDAIFunctionFactory.Create(
-            async (args, ct) => "result", opts);
+            async (args, _, ct) => "result", opts);
 
         // Act
         var result = ExternalToolCollapsingWrapper.AddParentToolMetadata(

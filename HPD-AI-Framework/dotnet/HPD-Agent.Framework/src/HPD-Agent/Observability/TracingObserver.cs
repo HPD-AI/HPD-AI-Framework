@@ -100,6 +100,16 @@ public sealed class TracingObserver : IDisposable
                     ["decision_type", e.DecisionType, "iteration", e.Iteration.ToString()]);
                 break;
 
+            case IterationContextSnapshotEvent e:
+                AddEventToIteration(e.TraceId!, "context.snapshot",
+                    [
+                        "iteration", e.Iteration.ToString(),
+                        "total_message_count", e.TotalMessageCount.ToString(),
+                        "context_message_count", e.ContextMessageCount.ToString(),
+                        "tool_count", e.ToolCount.ToString()
+                    ]);
+                break;
+
             case PermissionRequestEvent e:
                 AddEventToIteration(e.TraceId!, "permission.request",
                     ["permission_id", e.PermissionId, "function", e.FunctionName]);
@@ -256,7 +266,7 @@ public sealed class TracingObserver : IDisposable
         {
             // Sanitize: redact sensitive JSON fields and cap length before shipping
             // the result payload to the tracing backend.
-            var sanitizedResult = _sanitizer.Sanitize(e.Result);
+            var sanitizedResult = _sanitizer.Sanitize(FormatToolResult(e.Result));
 
             activity.AddEvent(new ActivityEvent("tool.result",
                 tags: new ActivityTagsCollection
@@ -267,6 +277,9 @@ public sealed class TracingObserver : IDisposable
                 }));
         }
     }
+
+    private static string FormatToolResult(ToolResultPayload result) =>
+        result.Text ?? result.Json?.GetRawText() ?? string.Empty;
 
     private void MarkTurnError(MessageTurnErrorEvent e)
     {

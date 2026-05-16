@@ -144,7 +144,7 @@ public class OpenApiFunctionFactoryTests
     }
 
     [Fact]
-    public void CreateFunctions_ResponseOptimizationSet_HintsStampedOnFunction()
+    public void CreateFunctions_ResponseOptimizationSet_NoMiddlewareHintsStampedOnFunction()
     {
         var config = new OpenApiConfig
         {
@@ -159,8 +159,8 @@ public class OpenApiFunctionFactoryTests
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, config, MakeRunner());
 
         var fn = functions[0];
-        ReadProp(fn.AdditionalProperties, "openapi.response.dataField").Should().Be("data");
-        (ReadProp(fn.AdditionalProperties, "openapi.response.maxLength") as int?).Should().Be(1000);
+        ReadProp(fn.AdditionalProperties, "openapi.response.dataField").Should().BeNull();
+        ReadProp(fn.AdditionalProperties, "openapi.response.maxLength").Should().BeNull();
     }
 
     [Fact]
@@ -261,7 +261,7 @@ public class OpenApiFunctionFactoryTests
     [InlineData(400)]
     [InlineData(404)]
     [InlineData(422)]
-    public async Task InvokedFunction_ClientError_ReturnsErrorResponseNotThrows(int statusCode)
+    public async Task InvokedFunction_ClientError_ReturnsModelFacingErrorNotThrows(int statusCode)
     {
         var spec = MakeSpec(MakeOp("getItem", "/items/1"));
         var runner = new OpenApiOperationRunner(
@@ -271,12 +271,15 @@ public class OpenApiFunctionFactoryTests
         var args = new AIFunctionArguments();
         var result = await functions[0].InvokeAsync(args);
 
-        result.Should().BeOfType<OpenApiErrorResponse>();
-        ((OpenApiErrorResponse)result!).StatusCode.Should().Be(statusCode);
+        result.Should().BeOfType<string>();
+        var envelope = JsonDocument.Parse((string)result!).RootElement;
+        envelope.GetProperty("error").GetBoolean().Should().BeTrue();
+        envelope.GetProperty("status").GetInt32().Should().Be(statusCode);
+        envelope.GetProperty("message").GetString().Should().Be("bad");
     }
 
     [Fact]
-    public async Task InvokedFunction_SuccessResponse_ReturnsOpenApiOperationResponse()
+    public async Task InvokedFunction_SuccessResponse_ReturnsModelFacingEnvelope()
     {
         var spec = MakeSpec(MakeOp("listItems"));
         var runner = MakeRunner(HttpStatusCode.OK, """[{"id":1}]""");
@@ -284,11 +287,10 @@ public class OpenApiFunctionFactoryTests
 
         var result = await functions[0].InvokeAsync(new AIFunctionArguments());
 
-        // Runner wraps successful responses in OpenApiOperationResponse for middleware processing
-        result.Should().BeOfType<OpenApiOperationResponse>();
-        var response = (OpenApiOperationResponse)result!;
-        response.StatusCode.Should().Be(200);
-        response.Content.Should().BeOfType<JsonElement>();
+        result.Should().BeOfType<string>();
+        var envelope = JsonDocument.Parse((string)result!).RootElement;
+        envelope.GetProperty("status").GetInt32().Should().Be(200);
+        envelope.GetProperty("content").GetString().Should().Contain("\"id\":1");
     }
 
     // ────────────────────────────────────────────────────────────

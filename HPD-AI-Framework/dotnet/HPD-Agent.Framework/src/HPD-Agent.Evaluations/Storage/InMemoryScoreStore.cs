@@ -344,7 +344,7 @@ public sealed class InMemoryScoreStore : IScoreStore
         // Aggregate tool call counts and permission-denied rates from ToolCallRecord[]
         // embedded in each ScoreRecord via TurnEvaluationContext.ToolCalls.
         // ScoreRecord doesn't carry ToolCalls directly — they're in the EvalContext
-        // Attributes. We aggregate from the Metrics dictionary where EvaluationMiddleware
+        // Attributes. We aggregate from the Metrics dictionary where LiveEvaluationMiddleware
         // stores per-tool denial data via EvalContext.IncrementMetric.
         //
         // Fallback: scan Attributes for "tool_calls" or derive from metric keys following

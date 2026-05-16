@@ -281,18 +281,17 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
                         evaluatorName,
                         version,
                         turnCtx,
+                        new AnnotationRequestedEvent
+                        {
+                            AnnotationId = annotationId,
+                            SessionId = turnCtx.SessionId,
+                            BranchId = turnCtx.BranchId,
+                            TurnIndex = turnCtx.TurnIndex,
+                            TriggerEvaluatorName = evaluatorName,
+                            TriggerScore = primaryScore.Value,
+                        },
                         hookCtx,
                         CancellationToken.None);
-
-                    hookCtx.Emit(new AnnotationRequestedEvent
-                    {
-                        AnnotationId = annotationId,
-                        SessionId = turnCtx.SessionId,
-                        BranchId = turnCtx.BranchId,
-                        TurnIndex = turnCtx.TurnIndex,
-                        TriggerEvaluatorName = evaluatorName,
-                        TriggerScore = primaryScore.Value,
-                    });
                 }
             }
         }
@@ -357,6 +356,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
         string triggerEvaluatorName,
         string triggerEvaluatorVersion,
         TurnEvaluationContext turnCtx,
+        AnnotationRequestedEvent request,
         AfterMessageTurnContext hookCtx,
         CancellationToken ct)
     {
@@ -366,8 +366,8 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
         AnnotationResponseEvent response;
         try
         {
-            response = await hookCtx.WaitForResponseAsync<AnnotationResponseEvent>(
-                annotationId,
+            response = await hookCtx.RequestAsync<AnnotationRequestedEvent, AnnotationResponseEvent>(
+                request,
                 AnnotationQueue.LockTimeout).ConfigureAwait(false);
         }
         catch (TimeoutException)

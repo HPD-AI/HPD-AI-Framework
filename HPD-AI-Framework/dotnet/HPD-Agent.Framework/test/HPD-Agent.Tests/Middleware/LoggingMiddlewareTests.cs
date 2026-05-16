@@ -525,7 +525,7 @@ public class LoggingMiddlewareTests
         });
 
         var containerFunc = HPDAIFunctionFactory.Create(
-            (AIFunctionArguments _, CancellationToken __) => Task.FromResult<object?>("expanded"),
+            (AIFunctionArguments _, FunctionExecutionContext __, CancellationToken ___) => Task.FromResult<object?>("expanded"),
             new HPDAIFunctionFactoryOptions
             {
                 Name = "CodingHarness",
@@ -562,7 +562,7 @@ public class LoggingMiddlewareTests
         });
 
         var containerFunc = HPDAIFunctionFactory.Create(
-            (AIFunctionArguments _, CancellationToken __) => Task.FromResult<object?>("expanded"),
+            (AIFunctionArguments _, FunctionExecutionContext __, CancellationToken ___) => Task.FromResult<object?>("expanded"),
             new HPDAIFunctionFactoryOptions
             {
                 Name = "CodingHarness",
@@ -596,7 +596,7 @@ public class LoggingMiddlewareTests
         });
 
         var containerFunc = HPDAIFunctionFactory.Create(
-            (AIFunctionArguments _, CancellationToken __) => Task.FromResult<object?>("expanded"),
+            (AIFunctionArguments _, FunctionExecutionContext __, CancellationToken ___) => Task.FromResult<object?>("expanded"),
             new HPDAIFunctionFactoryOptions
             {
                 Name = "CodingHarness",
@@ -632,7 +632,7 @@ public class LoggingMiddlewareTests
         });
 
         var containerFunc = HPDAIFunctionFactory.Create(
-            (AIFunctionArguments _, CancellationToken __) => Task.FromResult<object?>("expanded"),
+            (AIFunctionArguments _, FunctionExecutionContext __, CancellationToken ___) => Task.FromResult<object?>("expanded"),
             new HPDAIFunctionFactoryOptions
             {
                 Name = "CodingHarness",
@@ -679,7 +679,7 @@ public class LoggingMiddlewareTests
         });
 
         var containerFunc = HPDAIFunctionFactory.Create(
-            (AIFunctionArguments _, CancellationToken __) => Task.FromResult<object?>("expanded"),
+            (AIFunctionArguments _, FunctionExecutionContext __, CancellationToken ___) => Task.FromResult<object?>("expanded"),
             new HPDAIFunctionFactoryOptions
             {
                 Name = "CodingHarness",

@@ -59,7 +59,7 @@ public class PermissionTests : AgentTestBase
         };
 
         var sensitiveToolWithPermission = HPDAIFunctionFactory.Create(
-            async (args, ct) => "Executed: delete",
+            async (args, _, ct) => "Executed: delete",
             options);
 
         var agent = CreateAgentWithPermissions(fakeLLM, sensitiveToolWithPermission);
@@ -95,7 +95,7 @@ public class PermissionTests : AgentTestBase
         if (toolResults.Any())
         {
             // If there's a tool result, it should indicate denial or the tool was blocked
-            var result = toolResults[0].Result;
+            var result = toolResults[0].Result.Text ?? toolResults[0].Result.Json?.GetRawText() ?? string.Empty;
             // Accept either denial message or empty result (both indicate blocking)
             (string.IsNullOrEmpty(result) || result.Contains("denied", StringComparison.OrdinalIgnoreCase))
                 .Should().BeTrue($"tool result should be empty or contain denial message, but was: '{result}'");
@@ -135,7 +135,7 @@ public class PermissionTests : AgentTestBase
         };
 
         var sensitiveToolWithPermission = HPDAIFunctionFactory.Create(
-            async (args, ct) => "Successfully read data",
+            async (args, _, ct) => "Successfully read data",
             options);
 
         var agent = CreateAgentWithPermissions(fakeLLM, sensitiveToolWithPermission);
@@ -163,7 +163,7 @@ public class PermissionTests : AgentTestBase
         // Tool SHOULD be executed successfully
         var toolResults = capturedEvents.OfType<ToolCallResultEvent>().ToList();
         toolResults.Should().ContainSingle("tool should execute after approval");
-        toolResults[0].Result.Should().Contain("Successfully", "tool should return successful result");
+        toolResults[0].Result.Text.Should().Contain("Successfully", "tool should return successful result");
 
         // Final response should acknowledge success
         var textDeltas = capturedEvents.OfType<TextDeltaEvent>().ToList();
@@ -190,7 +190,7 @@ public class PermissionTests : AgentTestBase
 
         // Create two tools requiring permission
         var tool1 = HPDAIFunctionFactory.Create(
-            async (args, ct) => "Tool1 result",
+            async (args, _, ct) => "Tool1 result",
             new HPDAIFunctionFactoryOptions
             {
                 Name = "Tool1",
@@ -199,7 +199,7 @@ public class PermissionTests : AgentTestBase
             });
 
         var tool2 = HPDAIFunctionFactory.Create(
-            async (args, ct) => "Tool2 result",
+            async (args, _, ct) => "Tool2 result",
             new HPDAIFunctionFactoryOptions
             {
                 Name = "Tool2",
@@ -246,16 +246,17 @@ public class PermissionTests : AgentTestBase
         var fakeLLM = new FakeChatClient();
 
         // LLM requests multiple tools at once (parallel execution)
-        fakeLLM.EnqueueToolCall("ParallelTool1", "call_1", new Dictionary<string, object?> { ["data"] = "a" });
-        fakeLLM.EnqueueToolCall("ParallelTool2", "call_2", new Dictionary<string, object?> { ["data"] = "b" });
-        fakeLLM.EnqueueToolCall("ParallelTool3", "call_3", new Dictionary<string, object?> { ["data"] = "c" });
+        fakeLLM.EnqueueToolCalls(
+            ("ParallelTool1", "call_1", new Dictionary<string, object?> { ["data"] = "a" }),
+            ("ParallelTool2", "call_2", new Dictionary<string, object?> { ["data"] = "b" }),
+            ("ParallelTool3", "call_3", new Dictionary<string, object?> { ["data"] = "c" }));
 
         // Final response
         fakeLLM.EnqueueTextResponse("All tools executed in parallel");
 
         // Create three tools requiring permission
         var tool1 = HPDAIFunctionFactory.Create(
-            async (args, ct) => "ParallelTool1 result",
+            async (args, _, ct) => "ParallelTool1 result",
             new HPDAIFunctionFactoryOptions
             {
                 Name = "ParallelTool1",
@@ -264,7 +265,7 @@ public class PermissionTests : AgentTestBase
             });
 
         var tool2 = HPDAIFunctionFactory.Create(
-            async (args, ct) => "ParallelTool2 result",
+            async (args, _, ct) => "ParallelTool2 result",
             new HPDAIFunctionFactoryOptions
             {
                 Name = "ParallelTool2",
@@ -273,7 +274,7 @@ public class PermissionTests : AgentTestBase
             });
 
         var tool3 = HPDAIFunctionFactory.Create(
-            async (args, ct) => "ParallelTool3 result",
+            async (args, _, ct) => "ParallelTool3 result",
             new HPDAIFunctionFactoryOptions
             {
                 Name = "ParallelTool3",
@@ -312,9 +313,9 @@ public class PermissionTests : AgentTestBase
         var toolResults = capturedEvents.OfType<ToolCallResultEvent>().ToList();
         toolResults.Should().HaveCount(3, "all three tools should execute");
 
-        toolResults.Should().Contain(t => t.Result.Contains("ParallelTool1 result"), "tool1 should execute");
-        toolResults.Should().Contain(t => t.Result.Contains("ParallelTool2 result"), "tool2 should execute");
-        toolResults.Should().Contain(t => t.Result.Contains("ParallelTool3 result"), "tool3 should execute");
+        toolResults.Should().Contain(t => t.Result.Text != null && t.Result.Text.Contains("ParallelTool1 result"), "tool1 should execute");
+        toolResults.Should().Contain(t => t.Result.Text != null && t.Result.Text.Contains("ParallelTool2 result"), "tool2 should execute");
+        toolResults.Should().Contain(t => t.Result.Text != null && t.Result.Text.Contains("ParallelTool3 result"), "tool3 should execute");
     }
 
     /// <summary>
@@ -328,16 +329,17 @@ public class PermissionTests : AgentTestBase
         var fakeLLM = new FakeChatClient();
 
         // LLM requests multiple tools at once (parallel execution)
-        fakeLLM.EnqueueToolCall("ParallelTool1", "call_1", new Dictionary<string, object?> { ["data"] = "a" });
-        fakeLLM.EnqueueToolCall("ParallelTool2", "call_2", new Dictionary<string, object?> { ["data"] = "b" });
-        fakeLLM.EnqueueToolCall("ParallelTool3", "call_3", new Dictionary<string, object?> { ["data"] = "c" });
+        fakeLLM.EnqueueToolCalls(
+            ("ParallelTool1", "call_1", new Dictionary<string, object?> { ["data"] = "a" }),
+            ("ParallelTool2", "call_2", new Dictionary<string, object?> { ["data"] = "b" }),
+            ("ParallelTool3", "call_3", new Dictionary<string, object?> { ["data"] = "c" }));
 
         // Final response
         fakeLLM.EnqueueTextResponse("Some tools executed, some were denied");
 
         // Create three tools requiring permission
         var tool1 = HPDAIFunctionFactory.Create(
-            async (args, ct) => "ParallelTool1 result",
+            async (args, _, ct) => "ParallelTool1 result",
             new HPDAIFunctionFactoryOptions
             {
                 Name = "ParallelTool1",
@@ -346,7 +348,7 @@ public class PermissionTests : AgentTestBase
             });
 
         var tool2 = HPDAIFunctionFactory.Create(
-            async (args, ct) => "ParallelTool2 result",
+            async (args, _, ct) => "ParallelTool2 result",
             new HPDAIFunctionFactoryOptions
             {
                 Name = "ParallelTool2",
@@ -355,7 +357,7 @@ public class PermissionTests : AgentTestBase
             });
 
         var tool3 = HPDAIFunctionFactory.Create(
-            async (args, ct) => "ParallelTool3 result",
+            async (args, _, ct) => "ParallelTool3 result",
             new HPDAIFunctionFactoryOptions
             {
                 Name = "ParallelTool3",
@@ -396,11 +398,11 @@ public class PermissionTests : AgentTestBase
         toolResults.Should().HaveCount(3, "all three tools should have results (approved execute, denied get denial message)");
 
         // Tool1 and Tool3 should have successful results
-        toolResults.Should().Contain(t => t.Result.Contains("ParallelTool1 result"), "tool1 should execute");
-        toolResults.Should().Contain(t => t.Result.Contains("ParallelTool3 result"), "tool3 should execute");
+        toolResults.Should().Contain(t => t.Result.Text != null && t.Result.Text.Contains("ParallelTool1 result"), "tool1 should execute");
+        toolResults.Should().Contain(t => t.Result.Text != null && t.Result.Text.Contains("ParallelTool3 result"), "tool3 should execute");
 
         // Tool2 should have denial message
-        toolResults.Should().Contain(t => t.Result.Contains("denied", StringComparison.OrdinalIgnoreCase),
+        toolResults.Should().Contain(t => t.Result.Text != null && t.Result.Text.Contains("denied", StringComparison.OrdinalIgnoreCase),
             "tool2 should have denial message");
     }
 }

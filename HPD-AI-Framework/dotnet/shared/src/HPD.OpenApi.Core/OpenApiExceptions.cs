@@ -11,9 +11,8 @@ namespace HPD.OpenApi.Core;
 /// status code. The schema is surfaced to the LLM so it can reason about truncated
 /// or sparse responses ("there are more fields than what was returned").
 ///
-/// <see cref="ResponseOptimizationMiddleware"/> processes <see cref="Content"/> for
-/// field filtering / truncation, then serializes the whole object to JSON as the
-/// final function result the LLM sees.
+/// Agent integrations can process <see cref="Content"/> for field filtering /
+/// truncation, then serialize the envelope as the final function result the LLM sees.
 /// </summary>
 public sealed class OpenApiOperationResponse
 {

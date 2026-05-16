@@ -247,6 +247,36 @@ public class ContainerMiddlewareTests
     }
 
     [Fact]
+    public async Task BeforeToolExecution_HiddenMemberRecovery_StoresContainerInstructions()
+    {
+        // Arrange
+        var systemPrompt = "Use the coding tools carefully.";
+        var (container, members) = CreateCollapsedHarnessWithSystemPrompt(
+            "CodingHarness",
+            "Coding tools",
+            systemPrompt,
+            "ListDirectory");
+        var allTools = new List<AITool> { container, members[0] };
+
+        var middleware = new ContainerMiddleware(
+            allTools,
+            ImmutableHashSet<string>.Empty);
+
+        var context = CreateBeforeToolExecutionContext(
+            toolCalls: new List<FunctionCallContent> { CreateToolCall("ListDirectory") });
+
+        // Act
+        await middleware.BeforeToolExecutionAsync(context, CancellationToken.None);
+
+        // Assert
+        var containerState = context.State.MiddlewareState.GetState<ContainerMiddlewareState>("HPD.Agent.ContainerMiddlewareState");
+        Assert.NotNull(containerState);
+        Assert.Contains("CodingHarness", containerState!.ExpandedContainers);
+        Assert.True(containerState.ActiveContainerInstructions.ContainsKey("CodingHarness"));
+        Assert.Equal(systemPrompt, containerState.ActiveContainerInstructions["CodingHarness"].SystemPrompt);
+    }
+
+    [Fact]
     public async Task BeforeToolExecution_SkillWithInstructions_StoresInstructions()
     {
         // Arrange
@@ -937,6 +967,41 @@ public class ContainerMiddlewareTests
         ).ToArray();
 
         var container = CollapsedHarnessTestHelper.CreateContainerFunction(toolName, description, members);
+
+        return (container, members);
+    }
+
+    private static (AIFunction Container, AIFunction[] Members) CreateCollapsedHarnessWithSystemPrompt(
+        string toolName,
+        string description,
+        string systemPrompt,
+        params string[] memberNames)
+    {
+        var members = memberNames.Select(name =>
+            CollapsedHarnessTestHelper.CreateHarnessMemberFunction(
+                name,
+                $"{name} function",
+                (args, ct) => Task.FromResult<object?>($"{name} result"),
+                toolName)
+        ).ToArray();
+
+        var functionNames = members.Select(f => f.Name ?? string.Empty).ToArray();
+        var container = HPDAIFunctionFactory.Create(
+            (AIFunctionArguments args, FunctionExecutionContext _, CancellationToken ct) => Task.FromResult<object?>($"{toolName} expanded"),
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = toolName,
+                Description = description,
+                AdditionalProperties = new Dictionary<string, object?>
+                {
+                    ["IsContainer"] = true,
+                    ["HarnessName"] = toolName,
+                    ["FunctionNames"] = functionNames,
+                    ["FunctionCount"] = members.Length,
+                    ["SourceType"] = "CSharp",
+                    ["SystemPrompt"] = systemPrompt
+                }
+            });
 
         return (container, members);
     }

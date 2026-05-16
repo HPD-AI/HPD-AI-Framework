@@ -542,8 +542,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         var message = approval.Message?.Invoke(approvalContext) ?? "Approval required";
         var description = approval.Description?.Invoke(approvalContext);
 
-        // Emit approval request event
-        context.EventCoordinator?.Emit(new NodeApprovalRequestEvent
+        var request = new NodeApprovalRequestEvent
         {
             RequestId = requestId,
             SourceName = $"AgentNode:{nodeId}",
@@ -553,11 +552,12 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
             Metadata = outputs.ToDictionary(
                 kvp => kvp.Key,
                 kvp => (object?)kvp.Value)
-        });
+        };
 
         // If timeout is zero, suspend indefinitely (for long-term approvals)
         if (approval.Timeout == TimeSpan.Zero)
         {
+            context.EventCoordinator?.Emit(request);
             return NodeExecutionResult.Suspended.ForHumanApproval(
                 suspendToken: requestId,
                 resumeValue: outputs,
@@ -574,8 +574,8 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
 
         try
         {
-            var response = await context.EventCoordinator.WaitForResponseAsync<NodeApprovalResponseEvent>(
-                requestId,
+            var response = await context.EventCoordinator.RequestAsync<NodeApprovalRequestEvent, NodeApprovalResponseEvent>(
+                request,
                 approval.Timeout,
                 cancellationToken);
 

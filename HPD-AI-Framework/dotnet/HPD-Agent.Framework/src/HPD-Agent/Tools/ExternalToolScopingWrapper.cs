@@ -70,7 +70,7 @@ public static class ExternalToolCollapsingWrapper
 
         // Create container function
         var container = HPDAIFunctionFactory.Create(
-            async (arguments, cancellationToken) =>
+            async (arguments, _, cancellationToken) =>
             {
                 return returnMessage;
             },
@@ -79,7 +79,7 @@ public static class ExternalToolCollapsingWrapper
                 Name = containerName,
                 Description = description,
                 RequiresPermission = false, // Container expansion doesn't need permission
-                Validator = _ => new List<ValidationError>(), // No validation needed
+                Validator = (_, _) => new List<ValidationError>(), // No validation needed
                 SchemaProvider = () => CreateEmptyContainerSchema(),
                 AdditionalProperties = new Dictionary<string, object?>
                 {
@@ -144,7 +144,7 @@ public static class ExternalToolCollapsingWrapper
 
         // Create container function
         var container = HPDAIFunctionFactory.Create(
-            async (arguments, cancellationToken) =>
+            async (arguments, _, cancellationToken) =>
             {
                 return returnMessage;
             },
@@ -153,7 +153,7 @@ public static class ExternalToolCollapsingWrapper
                 Name = containerName,
                 Description = description,
                 RequiresPermission = false, // Container expansion doesn't need permission
-                Validator = _ => new List<ValidationError>(),
+                Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => CreateEmptyContainerSchema(),
                 AdditionalProperties = new Dictionary<string, object?>
                 {
@@ -226,7 +226,7 @@ public static class ExternalToolCollapsingWrapper
 
         // Create container function
         var container = HPDAIFunctionFactory.Create(
-            async (arguments, cancellationToken) =>
+            async (arguments, _, cancellationToken) =>
             {
                 return returnMessage;
             },
@@ -235,7 +235,7 @@ public static class ExternalToolCollapsingWrapper
                 Name = containerName,
                 Description = fullDescription,
                 RequiresPermission = false, // Container expansion doesn't need permission
-                Validator = _ => new List<ValidationError>(), // No validation needed
+                Validator = (_, _) => new List<ValidationError>(), // No validation needed
                 SchemaProvider = () => CreateEmptyContainerSchema(),
                 AdditionalProperties = new Dictionary<string, object?>
                 {
@@ -301,13 +301,13 @@ public static class ExternalToolCollapsingWrapper
             returnMessage += $"\n\n{functionResult}";
 
         var container = HPDAIFunctionFactory.Create(
-            (_, _) => Task.FromResult<object?>(returnMessage),
+            (_, _, _) => Task.FromResult<object?>(returnMessage),
             new HPDAIFunctionFactoryOptions
             {
                 Name = containerName,
                 Description = description,
                 RequiresPermission = false,
-                Validator = _ => new List<ValidationError>(),
+                Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => CreateEmptyContainerSchema(),
                 AdditionalProperties = new Dictionary<string, object?>
                 {
@@ -350,14 +350,14 @@ public static class ExternalToolCollapsingWrapper
         // Wrap the existing tool with metadata
         // This delegates invocation to the original tool while adding metadata
         return HPDAIFunctionFactory.Create(
-            async (args, ct) => await tool.InvokeAsync(args, ct),
+            async (args, _, ct) => await tool.InvokeAsync(args, ct),
             new HPDAIFunctionFactoryOptions
             {
                 Name = tool.Name,
                 Description = tool.Description,
                 SchemaProvider = () => tool.JsonSchema,
                 RequiresPermission = true, // Preserve permission requirement from original tool
-                Validator = _ => new List<ValidationError>(), // Original tool handles validation
+                Validator = (_, _) => new List<ValidationError>(), // Original tool handles validation
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["ParentHarness"] = parentHarnessName,

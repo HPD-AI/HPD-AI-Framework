@@ -71,6 +71,24 @@ public sealed class FakeChatClient : IChatClient
     }
 
     /// <summary>
+    /// Enqueues one assistant response containing multiple tool calls.
+    /// </summary>
+    public void EnqueueToolCalls(params (string FunctionName, string CallId, Dictionary<string, object?>? Arguments)[] calls)
+    {
+        _queuedResponses.Enqueue(new QueuedResponse
+        {
+            Type = ResponseType.MultiToolCalls,
+            ToolCalls = calls
+                .Select(call => new QueuedToolCall(
+                    call.FunctionName,
+                    call.CallId,
+                    call.Arguments ?? new Dictionary<string, object?>()))
+                .ToList(),
+            FinishReason = "tool_calls"
+        });
+    }
+
+    /// <summary>
     /// Enqueues a response with both text and tool calls.
     /// </summary>
     public void EnqueueTextWithToolCall(
@@ -121,6 +139,7 @@ public sealed class FakeChatClient : IChatClient
         {
             ResponseType.Text => CreateTextCompletion(response),
             ResponseType.ToolCall => CreateToolCallCompletion(response),
+            ResponseType.MultiToolCalls => CreateMultiToolCallCompletion(response),
             ResponseType.TextWithToolCall => CreateTextWithToolCallCompletion(response),
             ResponseType.StreamingText => CreateTextCompletion(response with { Text = string.Join("", response.TextChunks) }),
             _ => throw new InvalidOperationException($"Unknown response type: {response.Type}")
@@ -184,6 +203,20 @@ public sealed class FakeChatClient : IChatClient
                 };
                 break;
 
+            case ResponseType.MultiToolCalls:
+                await Task.Delay(5, cancellationToken);
+                yield return new ChatResponseUpdate
+                {
+                    Contents = response.ToolCalls!
+                        .Select(call => (AIContent)new FunctionCallContent(
+                            call.CallId,
+                            call.FunctionName,
+                            call.Arguments))
+                        .ToList(),
+                    FinishReason = ChatFinishReason.ToolCalls
+                };
+                break;
+
             case ResponseType.TextWithToolCall:
                 // Stream text first
                 await Task.Delay(5, cancellationToken);
@@ -223,6 +256,19 @@ public sealed class FakeChatClient : IChatClient
             [new ChatMessage(ChatRole.Assistant, [functionCall])]);
     }
 
+    private static ChatResponse CreateMultiToolCallCompletion(QueuedResponse response)
+    {
+        var contents = response.ToolCalls!
+            .Select(call => (AIContent)new FunctionCallContent(
+                call.CallId,
+                call.FunctionName,
+                call.Arguments))
+            .ToList();
+
+        return new ChatResponse(
+            [new ChatMessage(ChatRole.Assistant, contents)]);
+    }
+
     private static ChatResponse CreateTextWithToolCallCompletion(QueuedResponse response)
     {
         var contents = new List<AIContent>
@@ -253,8 +299,14 @@ public sealed class FakeChatClient : IChatClient
         Text,
         StreamingText,
         ToolCall,
+        MultiToolCalls,
         TextWithToolCall
     }
+
+    private sealed record QueuedToolCall(
+        string FunctionName,
+        string CallId,
+        Dictionary<string, object?> Arguments);
 
     private record QueuedResponse
     {
@@ -264,6 +316,7 @@ public sealed class FakeChatClient : IChatClient
         public string? FunctionName { get; init; }
         public string? CallId { get; init; }
         public Dictionary<string, object?>? Arguments { get; init; }
+        public List<QueuedToolCall>? ToolCalls { get; init; }
         public string? FinishReason { get; init; }
     }
 }

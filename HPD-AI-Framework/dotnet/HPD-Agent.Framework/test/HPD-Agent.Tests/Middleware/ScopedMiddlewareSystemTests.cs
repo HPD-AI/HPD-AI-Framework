@@ -389,7 +389,7 @@ public class CollapsedMiddlewareSystemTests
         };
 
         var function = HPDAIFunctionFactory.Create(
-            (args, ct) => Task.FromResult<object?>("test"),
+            (args, _, ct) => Task.FromResult<object?>("test"),
             options);
 
         var state = AgentLoopState.InitialSafe(

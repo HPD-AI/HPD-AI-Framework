@@ -483,15 +483,19 @@ public sealed class DatasetYamlTests
                   tool: Search
                   argument: query
                   expected: cats
+              - ToolResultContains:
+                  tool: Grep
+                  expected: '<match path='
             cases:
               - input: hello
             """;
 
         var dataset = Dataset<string>.FromYaml(yaml, ParseStringInput);
 
-        dataset.Evaluators.Should().HaveCount(2);
+        dataset.Evaluators.Should().HaveCount(3);
         dataset.Evaluators[0].Should().BeOfType<ToolCallCountEvaluator>();
         dataset.Evaluators[1].Should().BeOfType<ToolArgumentMatchesEvaluator>();
+        dataset.Evaluators[2].Should().BeOfType<ToolResultContainsEvaluator>();
     }
 
     [Fact]

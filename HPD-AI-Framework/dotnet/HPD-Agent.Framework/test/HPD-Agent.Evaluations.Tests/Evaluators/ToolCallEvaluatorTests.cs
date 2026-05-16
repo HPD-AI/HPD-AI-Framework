@@ -212,6 +212,60 @@ public sealed class ToolCallEvaluatorTests
         result.ShouldHaveBooleanMetric("Tool Argument Matches", true);
     }
 
+    // ── ToolResultContainsEvaluator ──────────────────────────────────────────
+
+    [Fact]
+    public async Task ToolResultContains_MatchingResult_ReturnsTrue()
+    {
+        var ctx = new TestContextBuilder()
+            .WithToolCall("Grep", result: """<grep><match path="src/A.cs" /></grep>""")
+            .BuildAsAdditionalContext();
+
+        var result = await new ToolResultContainsEvaluator("Grep", "<match path=")
+            .EvaluateAsync([], EmptyResponse, additionalContext: ctx);
+
+        result.ShouldHaveBooleanMetric("Tool Result Contains", true)
+            .ShouldBeMarkedAsBuiltIn();
+    }
+
+    [Fact]
+    public async Task ToolResultContains_MissingText_ReturnsFalse()
+    {
+        var ctx = new TestContextBuilder()
+            .WithToolCall("Grep", result: """<grep><no_matches /></grep>""")
+            .BuildAsAdditionalContext();
+
+        var result = await new ToolResultContainsEvaluator("Grep", "<match path=")
+            .EvaluateAsync([], EmptyResponse, additionalContext: ctx);
+
+        result.ShouldHaveBooleanMetric("Tool Result Contains", false);
+    }
+
+    [Fact]
+    public async Task ToolResultContains_MissingTool_ReturnsFalse()
+    {
+        var ctx = new TestContextBuilder()
+            .WithToolCall("ReadFile", result: "content")
+            .BuildAsAdditionalContext();
+
+        var result = await new ToolResultContainsEvaluator("Grep", "<match path=")
+            .EvaluateAsync([], EmptyResponse, additionalContext: ctx);
+
+        result.ShouldHaveBooleanMetric("Tool Result Contains", false);
+    }
+
+    [Fact]
+    public async Task ToolResultContains_NoContext_ReturnsErrorDiagnostic()
+    {
+        var result = await new ToolResultContainsEvaluator("Grep", "<match path=")
+            .EvaluateAsync([], EmptyResponse, additionalContext: null);
+
+        result.ShouldHaveErrorDiagnostic();
+        var metric = result.Metrics["Tool Result Contains"] as BooleanMetric;
+        metric.Should().NotBeNull();
+        metric!.Value.Should().BeNull();
+    }
+
     // ── NoToolsCalledEvaluator ────────────────────────────────────────────────
 
     [Fact]

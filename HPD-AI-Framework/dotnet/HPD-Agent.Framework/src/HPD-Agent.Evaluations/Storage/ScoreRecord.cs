@@ -33,7 +33,9 @@ public sealed class ScoreRecord
     public string BranchId { get; init; } = string.Empty;
     public int TurnIndex { get; init; }
     public string AgentName { get; init; } = string.Empty;
+    public string? ProviderKey { get; init; }
     public string? ModelId { get; init; }
+    public string? ResponseModelId { get; init; }
 
     // ── Dataset provenance (offline CI / benchmark governance) ───────────────
 

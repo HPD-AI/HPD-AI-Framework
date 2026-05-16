@@ -4,7 +4,7 @@
  * Core type definitions for the Agent state manager.
  */
 
-import type { AgentExecutionContext } from '@hpd/hpd-agent-client';
+import type { AgentExecutionContext, ToolResultPayload } from '@hpd/hpd-agent-client';
 
 // ============================================
 // Message Types
@@ -38,7 +38,8 @@ export interface ToolCall {
 	messageId: string;
 	status: ToolCallStatus;
 	args?: Record<string, unknown>;
-	result?: string;
+	result?: ToolResultPayload;
+	resultText?: string;
 	error?: string;
 	startTime: Date;
 	endTime?: Date;

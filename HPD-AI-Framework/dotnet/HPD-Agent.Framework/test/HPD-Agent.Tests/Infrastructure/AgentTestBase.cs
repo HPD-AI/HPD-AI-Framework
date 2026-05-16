@@ -205,11 +205,10 @@ public abstract class AgentTestBase : IAsyncDisposable, IDisposable
     }
 
     /// <summary>
-    /// Clears AsyncLocal state. Only called after all tasks complete.
+    /// Clears test-local ambient state. Only called after all tasks complete.
     /// Override to add custom cleanup logic.
     /// </summary>
     protected virtual void ClearAsyncLocalState()
     {
-        Agent.CurrentFunctionContext = null;
     }
 }

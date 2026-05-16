@@ -29,6 +29,7 @@ public sealed class AgentContext
     //
 
     private AgentLoopState _state;
+    private readonly object _stateLock = new();
     private volatile bool _middlewareExecuting = false;
     private int _stateGeneration = 0;
     private readonly IEventCoordinator _events;
@@ -166,7 +167,16 @@ public sealed class AgentContext
     /// ExpandedSkillContainers, expandedCollapsedHarnessContainers, etc.
     /// </para>
     /// </remarks>
-    public AgentLoopState State => _state;
+    public AgentLoopState State
+    {
+        get
+        {
+            lock (_stateLock)
+            {
+                return _state;
+            }
+        }
+    }
 
     /// <summary>
     /// Safely read state for conditional logic without risk of stale capture.
@@ -181,7 +191,10 @@ public sealed class AgentContext
     public T Analyze<T>(Func<AgentLoopState, T> analyzer)
     {
         if (analyzer == null) throw new ArgumentNullException(nameof(analyzer));
-        return analyzer(_state);
+        lock (_stateLock)
+        {
+            return analyzer(_state);
+        }
     }
 
     /// <summary>
@@ -253,27 +266,27 @@ public sealed class AgentContext
     {
         if (transform == null) throw new ArgumentNullException(nameof(transform));
 
-        // GUARD: Detect concurrent state modifications during transform execution
-        var generationBefore = _stateGeneration;
-        var stateBefore = _state;
-        var stateAfter = transform(stateBefore);
-
-        // Check: Did state change DURING transform execution?
-        // This catches rare concurrent modifications (e.g., if Agent.cs called SyncState while transform was running)
-        if (_stateGeneration != generationBefore)
+        lock (_stateLock)
         {
-            throw new InvalidOperationException(
-                "State was modified during UpdateState transform execution.\n\n" +
-                "This indicates a concurrent modification occurred while your transform was running.\n" +
-                "Agent.cs called SyncState() while the middleware was executing the transform lambda.\n\n" +
-                "This is a critical threading bug - please report this with stack trace.\n" +
-                $"Expected generation: {generationBefore}, actual: {_stateGeneration}");
-        }
+            // GUARD: Detect nested or out-of-band state modifications during transform execution.
+            var generationBefore = _stateGeneration;
+            var stateBefore = _state;
+            var stateAfter = transform(stateBefore);
 
-        _state = stateAfter;
-        _stateGeneration++;
-        //   Updates visible to ALL subsequent hooks (same instance!)
-        //   No scheduled updates - no awkward GetPendingState() needed
+            if (_stateGeneration != generationBefore)
+            {
+                throw new InvalidOperationException(
+                    "State was modified during UpdateState transform execution.\n\n" +
+                    "This indicates a nested or out-of-band modification occurred while your transform was running.\n\n" +
+                    "This is a critical state mutation bug - please report this with stack trace.\n" +
+                    $"Expected generation: {generationBefore}, actual: {_stateGeneration}");
+            }
+
+            _state = stateAfter;
+            _stateGeneration++;
+            //   Updates visible to ALL subsequent hooks (same instance!)
+            //   No scheduled updates - no awkward GetPendingState() needed
+        }
     }
 
     /// <summary>
@@ -295,8 +308,11 @@ public sealed class AgentContext
                 $"Stack trace:\n{Environment.StackTrace}");
         }
 
-        _state = newState ?? throw new ArgumentNullException(nameof(newState));
-        _stateGeneration++;  // Increment generation to invalidate any captured state references
+        lock (_stateLock)
+        {
+            _state = newState ?? throw new ArgumentNullException(nameof(newState));
+            _stateGeneration++;  // Increment generation to invalidate any captured state references
+        }
     }
 
     /// <summary>
@@ -329,22 +345,22 @@ public sealed class AgentContext
     }
 
     /// <summary>
-    /// Waits for a response event from external handlers.
-    /// Used for interactive patterns: permissions, clarifications, approvals.
+    /// Emits a bidirectional request event and waits for its matching response.
     /// </summary>
-    /// <typeparam name="T">Type of response event expected</typeparam>
-    /// <param name="requestId">Unique identifier for this request (must match response)</param>
-    /// <param name="timeout">Maximum time to wait (default: 5 minutes)</param>
-    /// <returns>The response event</returns>
-    /// <exception cref="TimeoutException">If no response received within timeout</exception>
-    /// <exception cref="OperationCanceledException">If operation was cancelled</exception>
-    public async Task<T> WaitForResponseAsync<T>(
-        string requestId,
-        TimeSpan? timeout = null) where T : AgentEvent
+    public async Task<TResponse> RequestAsync<TRequest, TResponse>(
+        TRequest request,
+        TimeSpan? timeout = null)
+        where TRequest : AgentEvent, HPD.Events.IBidirectionalEvent
+        where TResponse : AgentEvent
     {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (TraceId is not null && request.TraceId is null)
+            request = (TRequest)(request with { TraceId = TraceId });
+
         var effectiveTimeout = timeout ?? TimeSpan.FromMinutes(5);
-        return await _events.WaitForResponseAsync<T>(
-            requestId,
+        return await _events.RequestAsync<TRequest, TResponse>(
+            request,
             effectiveTimeout,
             _cancellationToken);
     }
@@ -457,8 +473,9 @@ public sealed class AgentContext
         IReadOnlyDictionary<string, object?> arguments,
         AgentRunConfig runConfig,
         string? harnessName = null,
-        string? skillName = null)
-        => new(this, function, callId, arguments, harnessName, skillName, runConfig);
+        string? skillName = null,
+        ToolInvocationInfo? invocation = null)
+        => new(this, function, callId, arguments, harnessName, skillName, runConfig, invocation);
 
     /// <summary>
     /// Creates a typed context for AfterFunction hook.
@@ -470,8 +487,10 @@ public sealed class AgentContext
         Exception? exception,
         AgentRunConfig runConfig,
         string? harnessName = null,
-        string? skillName = null)
-        => new(this, function, callId, result, exception, runConfig, harnessName, skillName);
+        string? skillName = null,
+        ToolInvocationInfo? invocation = null,
+        ToolResultMetadata? resultMetadata = null)
+        => new(this, function, callId, result, exception, runConfig, harnessName, skillName, invocation, resultMetadata);
 
     /// <summary>
     /// Creates a typed context for OnError hook.

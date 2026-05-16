@@ -598,7 +598,7 @@ namespace TestHarneses
         Assert.Contains("Enhanced debugging skill with advanced features", generatedCode);
 
         // Assert: Skill container accepts context parameter
-        Assert.Contains("private static AIFunction CreateFileDebuggingSkill(TestHarness instance, IToolMetadata? context)", generatedCode);
+        Assert.Contains("private static AIFunction CreateFileDebuggingSkill(TestHarness instance, IToolMetadata? context, HPDToolSerializationOptions? serialization)", generatedCode);
     }
 
     /// <summary>
@@ -638,7 +638,7 @@ namespace TestHarneses
         Assert.Contains("Description = \"A basic skill without dynamic description.", generatedCode);
 
         // Assert: Still accepts context for consistency
-        Assert.Contains("private static AIFunction CreateBasicSkillSkill(TestHarness instance, IToolMetadata? context)", generatedCode);
+        Assert.Contains("private static AIFunction CreateBasicSkillSkill(TestHarness instance, IToolMetadata? context, HPDToolSerializationOptions? serialization)", generatedCode);
 
         // Assert: No resolver method generated
         Assert.DoesNotContain("ResolveBasicSkillDescription", generatedCode);

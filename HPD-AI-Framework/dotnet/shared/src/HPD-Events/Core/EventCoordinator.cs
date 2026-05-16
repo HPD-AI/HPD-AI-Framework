@@ -97,20 +97,49 @@ public sealed class EventCoordinator : IEventCoordinator, IDisposable
     }
 
     /// <inheritdoc />
-    public Task<TResponse> WaitForResponseAsync<TResponse>(
-        string requestId,
+    public async Task<TResponse> RequestAsync<TRequest, TResponse>(
+        TRequest request,
         TimeSpan timeout,
-        CancellationToken ct = default) where TResponse : Event =>
-        _events.WaitForResponseAsync<TResponse>(requestId, timeout, ct);
+        CancellationToken ct = default)
+        where TRequest : Event, IBidirectionalEvent
+        where TResponse : Event
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        using var requestCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var responseTask = _events.WaitForResponseAsync<TResponse>(
+            request.RequestId,
+            timeout,
+            requestCts.Token);
+
+        try
+        {
+            Emit(request);
+        }
+        catch
+        {
+            await requestCts.CancelAsync().ConfigureAwait(false);
+            throw;
+        }
+
+        return await responseTask.ConfigureAwait(false);
+    }
 
     /// <inheritdoc />
-    public void SendResponse(string requestId, Event response)
+    public void Respond(string requestId, Event response)
     {
-        if (_events.SendResponse(requestId, response))
-            return;
+        if (!TryRespond(requestId, response))
+            throw new InvalidOperationException($"No pending response waiter found for request ID '{requestId}'.");
+    }
 
-        if (_events.ParentCoordinator is EventCoordinator parent)
-            parent.SendResponse(requestId, response);
+    /// <inheritdoc />
+    public bool TryRespond(string requestId, Event response)
+    {
+        if (_events.TryRespond(requestId, response))
+            return true;
+
+        return _events.ParentCoordinator is EventCoordinator parent &&
+            parent.TryRespond(requestId, response);
     }
 
     /// <inheritdoc />

@@ -6,11 +6,11 @@ using System.Collections.Concurrent;
 namespace HPD.Agent.Evaluations.Tracing;
 
 /// <summary>
-/// Buffers agent events during a single message turn so EvaluationMiddleware can
+/// Buffers agent events during a single message turn so LiveEvaluationMiddleware can
 /// reconstruct timing and permission data when building TurnTrace.
 ///
 /// Activated in BeforeMessageTurnAsync and consumed in AfterMessageTurnAsync.
-/// EvaluationMiddleware populates this through an HPD.Events subscription
+/// LiveEvaluationMiddleware populates this through an HPD.Events subscription
 /// running concurrently with the turn.
 ///
 /// Thread-safe: concurrent tool calls may write to ToolCallStarts simultaneously.

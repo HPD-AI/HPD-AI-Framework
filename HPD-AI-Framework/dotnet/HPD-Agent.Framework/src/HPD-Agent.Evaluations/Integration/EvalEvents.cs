@@ -32,7 +32,7 @@ public sealed record EvalFailedEvent : AgentEvent
 }
 
 /// <summary>Emitted when a turn is flagged for human annotation.</summary>
-public sealed record AnnotationRequestedEvent : AgentEvent
+public sealed record AnnotationRequestedEvent : AgentEvent, IBidirectionalAgentEvent
 {
     public string AnnotationId { get; init; } = string.Empty;
     public string SessionId { get; init; } = string.Empty;
@@ -40,6 +40,9 @@ public sealed record AnnotationRequestedEvent : AgentEvent
     public int TurnIndex { get; init; }
     public string TriggerEvaluatorName { get; init; } = string.Empty;
     public double TriggerScore { get; init; }
+
+    public string RequestId => AnnotationId;
+    public string SourceName => "HPD.Agent.Evaluations.Annotation";
 }
 
 /// <summary>Human response to an annotation request.</summary>

@@ -7,7 +7,7 @@ using HPD.Agent.Evaluations.Tracing;
 namespace HPD.Agent.Evaluations;
 
 /// <summary>
-/// Primary evaluation data object built by EvaluationMiddleware from AfterMessageTurnContext
+/// Primary evaluation data object built by LiveEvaluationMiddleware from AfterMessageTurnContext
 /// and handed to every evaluator. Rich, typed, zero-reconstruction — all data comes directly
 /// from HPD's in-memory typed objects (ChatMessage, FunctionCallContent, etc.).
 /// </summary>
@@ -55,6 +55,7 @@ public sealed class TurnEvaluationContext
     public int IterationCount { get; init; }
     public TimeSpan Duration { get; init; }
     public string? ModelId { get; init; }
+    public string? ResponseModelId { get; init; }
     public string? ProviderKey { get; init; }
 
     // ── Mid-run instrumentation (set via EvalContext.SetAttribute / IncrementMetric) ──
@@ -113,8 +114,8 @@ public enum AgentStopKind
 /// A read-only, evaluator-friendly projection of a single tool call and its result.
 /// Constructed by TurnEvaluationContextBuilder from:
 /// - FunctionCallContent + FunctionResultContent pairs in TurnHistory
-/// - ToolCallStartEvent / ToolCallEndEvent timestamps buffered by EvaluationMiddleware
-/// - PermissionDeniedEvent.CallId records buffered by EvaluationMiddleware
+/// - ToolCallStartEvent / ToolCallEndEvent timestamps buffered by LiveEvaluationMiddleware
+/// - PermissionDeniedEvent.CallId records buffered by LiveEvaluationMiddleware
 /// </summary>
 public sealed record ToolCallRecord(
     string CallId,

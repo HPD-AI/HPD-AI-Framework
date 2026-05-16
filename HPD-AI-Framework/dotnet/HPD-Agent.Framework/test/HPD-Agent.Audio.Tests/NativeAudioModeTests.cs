@@ -732,12 +732,15 @@ public class NativeAudioModeTests
         public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null) where TEvent : struct, IStructEvent => default;
         public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null) where TEvent : struct, IStructEvent => default;
         public void SetParent(IEventCoordinator parent) { }
-        public Task<TResponse> WaitForResponseAsync<TResponse>(
-            string requestId,
+        public Task<TResponse> RequestAsync<TRequest, TResponse>(
+            TRequest request,
             TimeSpan timeout,
-            CancellationToken ct = default) where TResponse : Event
-            => throw new NotImplementedException("WaitForResponseAsync not supported in test mock");
-        public void SendResponse(string requestId, Event response) { }
+            CancellationToken ct = default)
+            where TRequest : Event, IBidirectionalEvent
+            where TResponse : Event
+            => throw new NotImplementedException("RequestAsync not supported in test mock");
+        public void Respond(string requestId, Event response) { }
+        public bool TryRespond(string requestId, Event response) => false;
         public IStreamRegistry Streams { get; } = new NoOpStreamRegistry();
         public EventCoordinatorStats GetStats() => default;
         public IDisposable Subscribe(Action<AgentEvent> handler) => NoOpDisposable.Instance;

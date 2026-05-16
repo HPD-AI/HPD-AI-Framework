@@ -8,7 +8,7 @@ namespace HPD.Agent.Evaluations;
 /// </summary>
 public enum EvaluationSource
 {
-    /// <summary>Scored online by EvaluationMiddleware during a live agent run.</summary>
+    /// <summary>Scored online by LiveEvaluationMiddleware during a live agent run.</summary>
     Live,
 
     /// <summary>Scored offline by RunEvals during a CI batch evaluation.</summary>

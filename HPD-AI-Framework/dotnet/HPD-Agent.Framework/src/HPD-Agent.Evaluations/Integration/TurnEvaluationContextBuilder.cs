@@ -4,12 +4,13 @@
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
 using HPD.Agent.Evaluations.Tracing;
+using System.Text.Json;
 
 namespace HPD.Agent.Evaluations.Integration;
 
 /// <summary>
 /// Internal builder that constructs TurnEvaluationContext from AfterMessageTurnContext
-/// and a TurnEventBuffer populated during the turn by EvaluationMiddleware.
+/// and a TurnEventBuffer populated during the turn by LiveEvaluationMiddleware.
 /// </summary>
 internal static class TurnEvaluationContextBuilder
 {
@@ -57,7 +58,8 @@ internal static class TurnEvaluationContextBuilder
             IterationUsage = context.IterationUsage,
             IterationCount = context.IterationUsage.Count,
             Duration = buffer.TurnDuration,
-            ModelId = context.RunConfig.ModelId,
+            ModelId = context.RunConfig.ModelId ?? context.FinalResponse.ModelId,
+            ResponseModelId = context.FinalResponse.ModelId,
             ProviderKey = context.RunConfig.ProviderKey,
             Attributes = attributes,
             Metrics = new Dictionary<string, double>(evalData.Metrics),
@@ -93,7 +95,7 @@ internal static class TurnEvaluationContextBuilder
                     CallId: content.CallId,
                     Name: content.Name,
                     HarnessName: info?.HarnessName,
-                    ArgumentsJson: content.Arguments?.ToString() ?? "{}",
+                    ArgumentsJson: SerializeArguments(content.Arguments),
                     Result: result,
                     Duration: buffer.GetToolCallDuration(content.CallId),
                     WasPermissionDenied: buffer.WasPermissionDenied(content.CallId)));
@@ -298,6 +300,14 @@ internal static class TurnEvaluationContextBuilder
         return AgentStopKind.Unknown;
     }
 
+    private static string SerializeArguments(object? arguments)
+    {
+        if (arguments is null)
+            return "{}";
+
+        return JsonSerializer.Serialize(arguments, AIJsonUtilities.DefaultOptions);
+    }
+
     private static bool ContainsAny(string value, params string[] needles) =>
         needles.Any(n => value.Contains(n, StringComparison.OrdinalIgnoreCase));
 
@@ -384,7 +394,8 @@ internal static class TurnEvaluationContextBuilder
                 IterationUsage = [],
                 IterationCount = 0,
                 Duration = TimeSpan.Zero,
-                ModelId = null,
+                ModelId = finalResponse.ModelId,
+                ResponseModelId = finalResponse.ModelId,
                 ProviderKey = null,
                 Attributes = new Dictionary<string, object>(),
                 Metrics = new Dictionary<string, double>(),

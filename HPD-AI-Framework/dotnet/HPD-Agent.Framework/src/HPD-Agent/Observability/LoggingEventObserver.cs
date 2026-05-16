@@ -287,13 +287,13 @@ public class LoggingEventObserver
                     e.AgentName, e.TotalIterations, e.Duration.TotalMilliseconds);
                 break;
 
-            // Iteration messages
-            case IterationMessagesEvent e:
+            // Iteration context snapshot
+            case IterationContextSnapshotEvent e:
                 if (_logger.IsEnabled(LogLevel.Trace))
                 {
                     _logger.LogTrace(
-                        "Agent '{AgentName}' iteration {Iteration}: {MessageCount} messages in conversation",
-                        e.AgentName, e.Iteration, e.MessageCount);
+                        "Agent '{AgentName}' iteration {Iteration}: {ContextMessageCount} context messages, {ToolCount} tools, {TotalMessageCount} total model messages",
+                        e.AgentName, e.Iteration, e.ContextMessageCount, e.ToolCount, e.TotalMessageCount);
                 }
                 break;
 

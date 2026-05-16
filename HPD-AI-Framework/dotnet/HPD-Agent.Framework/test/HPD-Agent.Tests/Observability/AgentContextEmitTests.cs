@@ -174,9 +174,11 @@ public class AgentContextEmitTests
         public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null) where TEvent : struct, IStructEvent => _inner.SubscribeStruct<TEvent>(options);
         public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null) where TEvent : struct, IStructEvent => _inner.CreateStructEmitter(options);
         public void SetParent(IEventCoordinator parent) => _inner.SetParent(parent);
-        public Task<TResponse> WaitForResponseAsync<TResponse>(string requestId, TimeSpan timeout, CancellationToken ct)
-            where TResponse : Event => _inner.WaitForResponseAsync<TResponse>(requestId, timeout, ct);
-        public void SendResponse(string requestId, Event response) => _inner.SendResponse(requestId, response);
+        public Task<TResponse> RequestAsync<TRequest, TResponse>(TRequest request, TimeSpan timeout, CancellationToken ct = default)
+            where TRequest : Event, IBidirectionalEvent
+            where TResponse : Event => _inner.RequestAsync<TRequest, TResponse>(request, timeout, ct);
+        public void Respond(string requestId, Event response) => _inner.Respond(requestId, response);
+        public bool TryRespond(string requestId, Event response) => _inner.TryRespond(requestId, response);
         public IStreamRegistry Streams => _inner.Streams;
         public EventCoordinatorStats GetStats() => _inner.GetStats();
     }

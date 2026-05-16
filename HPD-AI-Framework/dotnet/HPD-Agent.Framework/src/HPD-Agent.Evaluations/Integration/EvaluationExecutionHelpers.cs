@@ -180,7 +180,7 @@ internal sealed class TracingEvalChatClient(IChatClient inner) : IChatClient
 /// Compatibility facade that lets MS-compatible evaluators call an HPD judge agent
 /// through the IChatClient-shaped ChatConfiguration contract.
 /// </summary>
-internal sealed class AgentBackedJudgeChatClient(IAgent agent) : IChatClient
+internal sealed class AgentBackedJudgeChatClient(IJudgeAgent agent) : IChatClient
 {
     public async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> chatMessages,

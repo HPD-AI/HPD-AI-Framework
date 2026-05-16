@@ -332,6 +332,11 @@ public class ContainerMiddleware : IAgentMiddleware
 
                 _logger?.LogInformation("Recovery: Auto-expanding '{Container}' for hidden item '{Item}'", parentContainer, toolCall.Name);
                 containersToExpand.Add(parentContainer);
+                if (GetContainerInstructionSet(parentContainer, _initialTools) is { } instructionSet)
+                {
+                    containerInstructions[parentContainer] = instructionSet;
+                }
+
                 recoveredCalls[toolCall.CallId] = new RecoveryInfo(
                     RecoveryType.HiddenItem,
                     parentContainer,
@@ -347,6 +352,11 @@ public class ContainerMiddleware : IAgentMiddleware
                 {
                     _logger?.LogInformation("Recovery: Auto-expanding '{Container}' for qualified call '{Item}'", containerName, toolCall.Name);
                     containersToExpand.Add(containerName);
+                    if (GetContainerInstructionSet(containerName, _initialTools) is { } instructionSet)
+                    {
+                        containerInstructions[containerName] = instructionSet;
+                    }
+
                     recoveredCalls[toolCall.CallId] = new RecoveryInfo(
                         RecoveryType.QualifiedName,
                         containerName,
@@ -901,6 +911,21 @@ public class ContainerMiddleware : IAgentMiddleware
         }
 
         return (containerExpansions, containerInstructions);
+    }
+
+    private static ContainerInstructionSet? GetContainerInstructionSet(
+        string containerName,
+        IList<AITool>? tools)
+    {
+        var probeCall = new FunctionCallContent(
+            callId: "instruction-probe",
+            name: containerName,
+            arguments: new Dictionary<string, object?>());
+
+        var (_, instructions) = DetectContainers([probeCall], tools);
+        return instructions.TryGetValue(containerName, out var instructionSet)
+            ? instructionSet
+            : null;
     }
 
     /// <summary>

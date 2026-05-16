@@ -149,6 +149,9 @@ public sealed class ReportAnalyzerTests
     private static ReportCase Case(params EvaluationMetric[] metrics)
         => new(
             Name: null,
+            ProviderKey: null,
+            ModelId: null,
+            ResponseModelId: null,
             EvaluationResult: new EvaluationResult(metrics),
             EvaluatorFailures: [],
             TaskDuration: TimeSpan.Zero,

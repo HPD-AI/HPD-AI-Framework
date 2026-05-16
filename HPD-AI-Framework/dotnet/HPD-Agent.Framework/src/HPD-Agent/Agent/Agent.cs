@@ -90,29 +90,6 @@ public sealed class Agent
     /// </summary>
     internal IReadOnlyDictionary<string, MiddlewareStateFactory> StateFactories => _stateFactories;
 
-    // V2: CurrentFunctionContext restored as AsyncLocal<HookContext?> for AIFunction context access
-    // Functions like ClarificationFunction need access to Emit(), WaitForResponseAsync(), etc.
-    // HookContext provides these capabilities in a clean, type-safe way
-    private static readonly AsyncLocal<HookContext?> _currentFunctionContext = new();
-
-    /// <summary>
-    /// Gets the current function execution context (available during AIFunction execution).
-    /// Used by special AIFunctions like ClarificationFunction that need to emit events or wait for responses.
-    /// Returns null if not currently executing a function.
-    /// </summary>
-    /// <remarks>
-    /// This is set to the BeforeFunctionContext during function execution, providing access to:
-    /// - Emit() - emit events to the agent's event stream
-    /// - WaitForResponseAsync() - wait for bidirectional event responses
-    /// - AgentName - the name of the executing agent
-    /// - State - current agent state
-    /// </remarks>
-    public static HookContext? CurrentFunctionContext
-    {
-        get => _currentFunctionContext.Value;
-        internal set => _currentFunctionContext.Value = value;
-    }
-
     /// <summary>
     /// Gets or sets the root agent in the current execution chain.
     /// Returns null if no root agent is set (single-agent execution).
@@ -231,7 +208,10 @@ public sealed class Agent
             config.MaxAgenticIterations,
             config.ErrorHandling,
             config.ServerConfiguredTools,
-            config.AgenticLoop);  // Pass agentic loop config for TerminateOnUnknownCalls
+            config.AgenticLoop,  // Pass agentic loop config for TerminateOnUnknownCalls
+            _name,
+            _stateFactories,
+            GetCurrentRuntimeBackgroundTaskRegistry);
         _agentTurn = new AgentTurn(
             _baseClient,
             config.ConfigureOptions,
@@ -292,6 +272,18 @@ public sealed class Agent
     /// </summary>
     public IReadOnlyList<IAgentMiddleware> Middlewares =>
         _middlewarePipeline.Middlewares;
+
+    private AgentMiddlewarePipeline BuildTurnMiddlewarePipeline(AgentRunConfig runConfig)
+    {
+        if (runConfig.RuntimeMiddleware is not { Count: > 0 })
+            return _middlewarePipeline;
+
+        var middlewares = new List<IAgentMiddleware>(
+            _middlewarePipeline.Middlewares.Count + runConfig.RuntimeMiddleware.Count);
+        middlewares.AddRange(runConfig.RuntimeMiddleware);
+        middlewares.AddRange(_middlewarePipeline.Middlewares);
+        return new AgentMiddlewarePipeline(middlewares);
+    }
 
     private sealed class RuntimeStructHandlerSubscription(
         Agent agent,
@@ -699,6 +691,14 @@ public sealed class Agent
         return _eventCoordinator;
     }
 
+    private Middleware.IAgentBackgroundTaskRegistry? GetCurrentRuntimeBackgroundTaskRegistry()
+    {
+        lock (_runtimeLock)
+        {
+            return _runtimeContext;
+        }
+    }
+
     private async Task RunInputDirectAsync(AgentInputEvent input, CancellationToken cancellationToken)
         => await RunInputDirectAsync(input, GetActiveEventCoordinator(), cancellationToken).ConfigureAwait(false);
 
@@ -910,6 +910,8 @@ public sealed class Agent
         Exception? stopError = null;
         List<Exception>? exceptions = null;
 
+        runtimeContext.StopAcceptingBackgroundTaskRegistrations();
+
         try
         {
             if (runBeforeStop)
@@ -1105,17 +1107,6 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Routes a response event to a pending bidirectional request.
-    /// </summary>
-    public void Respond(string requestId, AgentEvent response)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(requestId);
-        ArgumentNullException.ThrowIfNull(response);
-
-        GetActiveEventCoordinator().SendResponse(requestId, response);
-    }
-
-    /// <summary>
     /// Routes a bidirectional response event to the waiter matching its request ID.
     /// </summary>
     public Task RespondAsync(
@@ -1128,8 +1119,24 @@ public sealed class Agent
         if (response is not HPD.Events.Event responseEvent)
             throw new ArgumentException("Bidirectional response must also be an HPD.Events.Event.", nameof(response));
 
-        GetActiveEventCoordinator().SendResponse(response.RequestId, responseEvent);
+        GetActiveEventCoordinator().Respond(response.RequestId, responseEvent);
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Attempts to route a bidirectional response event to the waiter matching its request ID.
+    /// </summary>
+    public Task<bool> TryRespondAsync(
+        HPD.Events.IBidirectionalEvent response,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (response is not HPD.Events.Event responseEvent)
+            throw new ArgumentException("Bidirectional response must also be an HPD.Events.Event.", nameof(response));
+
+        return Task.FromResult(GetActiveEventCoordinator().TryRespond(response.RequestId, responseEvent));
     }
 
     /// <summary>
@@ -1447,6 +1454,19 @@ public sealed class Agent
             // Middleware may modify runConfig (e.g., AgentPlanAgentMiddleware sets AdditionalSystemInstructions)
             // We must use the SAME instance for BeforeMessageTurnAsync and BeforeIterationAsync
             var effectiveRunConfig = runConfig ?? new AgentRunConfig();
+            var turnPipeline = BuildTurnMiddlewarePipeline(effectiveRunConfig);
+            var functionCallProcessor = ReferenceEquals(turnPipeline, _middlewarePipeline)
+                ? _functionCallProcessor
+                : new FunctionCallProcessor(
+                    eventCoordinator ?? _eventCoordinator,
+                    turnPipeline,
+                    Config?.MaxAgenticIterations ?? 10,
+                    Config?.ErrorHandling,
+                    Config?.ServerConfiguredTools,
+                    Config?.AgenticLoop,
+                    _name,
+                    _stateFactories,
+                    GetCurrentRuntimeBackgroundTaskRegistry);
 
             // MIDDLEWARE: BeforeMessageTurnAsync (turn-level hook)
             // Pass shared message list - middleware mutations are visible to all immediately
@@ -1455,7 +1475,7 @@ public sealed class Agent
                 conversationHistory: sharedMessages,  // SAME shared list, no copy
                 runConfig: effectiveRunConfig);
 
-            await _middlewarePipeline.ExecuteBeforeMessageTurnAsync(beforeTurnContext, effectiveCancellationToken);
+            await turnPipeline.ExecuteBeforeMessageTurnAsync(beforeTurnContext, effectiveCancellationToken);
 
             // V2: State updates are immediate - no GetPendingState() needed!
             state = agentContext.State;
@@ -1635,6 +1655,10 @@ public sealed class Agent
                     // UPDATE AGENT CONTEXT STATE (sync state changes from previous iteration)
                     agentContext.SyncState(state);
 
+                    // Snapshot the message set before BeforeIteration middleware runs so the
+                    // observability event can report only newly injected context, not chat history.
+                    var preIterationMessages = messagesToSend.ToList();
+
                     // CREATE TYPED ITERATION CONTEXT (V2)
                     // Note: Tool Collapsing is handled by ToolCollapsingMiddleware in BeforeIterationAsync
                     // The middleware will filter tools and emit CollapsedToolsVisibleEvent
@@ -1646,7 +1670,7 @@ public sealed class Agent
                         runConfig: effectiveRunConfig);  // Use the SAME instance from BeforeMessageTurnAsync
 
                     // EXECUTE BEFORE ITERATION MIDDLEWARES
-                    await _middlewarePipeline.ExecuteBeforeIterationAsync(
+                    await turnPipeline.ExecuteBeforeIterationAsync(
                         beforeIterationContext,
                         effectiveCancellationToken).ConfigureAwait(false);
 
@@ -1662,20 +1686,20 @@ public sealed class Agent
                     // Try collapsed tools first, then fall back to original (pre-collapse) tools
                     string? LookupHarness(string? functionName)
                     {
-                        var result = _functionCallProcessor.LookupHarnessName(functionName, CollapsedOptions?.Tools);
+                        var result = functionCallProcessor.LookupHarnessName(functionName, CollapsedOptions?.Tools);
                         if (result == null)
                         {
                             // Function not found in collapsed view - try original tools
-                            result = _functionCallProcessor.LookupHarnessName(functionName, effectiveOptions?.Tools);
+                            result = functionCallProcessor.LookupHarnessName(functionName, effectiveOptions?.Tools);
                         }
                         return result;
                     }
 
                     ToolCallType? LookupCallType(string? functionName)
                     {
-                        var result = _functionCallProcessor.LookupToolCallType(functionName, CollapsedOptions?.Tools);
+                        var result = functionCallProcessor.LookupToolCallType(functionName, CollapsedOptions?.Tools);
                         if (result == null)
-                            result = _functionCallProcessor.LookupToolCallType(functionName, effectiveOptions?.Tools);
+                            result = functionCallProcessor.LookupToolCallType(functionName, effectiveOptions?.Tools);
                         return result;
                     }
 
@@ -1746,14 +1770,6 @@ public sealed class Agent
                     }
                     else
                     {
-                        // Emit iteration messages event
-                        yield return new IterationMessagesEvent(
-                            _name,
-                            state.Iteration,
-                            messagesToSend.Count(),
-                            DateTimeOffset.UtcNow)
-                        { TraceId = traceId };
-
                         // CREATE MODEL REQUEST (V2 - immutable request pattern)
                         var model = overrideClient ?? _baseClient;
                         if (model == null)
@@ -1773,6 +1789,44 @@ public sealed class Agent
                             RunConfig = effectiveRunConfig,
                             EventCoordinator = eventCoordinator,
                             Session = agentContext.Session
+                        };
+
+                        var contextMessages = BuildContextMessageSnapshots(
+                            modelRequest.Messages,
+                            preIterationMessages);
+                        var toolSnapshots = BuildToolContextSnapshots(modelRequest.Options);
+
+                        yield return new IterationContextSnapshotEvent(
+                            AgentName: _name,
+                            Iteration: state.Iteration,
+                            TotalMessageCount: modelRequest.Messages.Count,
+                            ContextMessageCount: contextMessages.Count,
+                            ContextMessages: contextMessages,
+                            Instructions: modelRequest.Options?.Instructions,
+                            ToolCount: toolSnapshots.Count,
+                            Tools: toolSnapshots,
+                            Timestamp: DateTimeOffset.UtcNow)
+                        {
+                            TraceId = traceId,
+                            SpanId = GenerateSpanId(),
+                            ParentSpanId = iterSpanId
+                        };
+
+                        yield return BuildMiddlewareStateSnapshotEvent(
+                            agentName: _name,
+                            stateFactories: _stateFactories,
+                            state: modelRequest.State.MiddlewareState,
+                            sessionId: agentContext.Session?.Id,
+                            branchId: agentContext.Branch?.Id,
+                            iteration: state.Iteration,
+                            phase: "before_model_call",
+                            batchId: null,
+                            functionCallId: null,
+                            toolCallIndex: null) with
+                        {
+                            TraceId = traceId,
+                            SpanId = GenerateSpanId(),
+                            ParentSpanId = iterSpanId
                         };
 
                         // [AGENT] DEBUG: Log exact payload being sent to LLM
@@ -1801,7 +1855,7 @@ public sealed class Agent
                         if (coalesceDeltas)
                         {
                             // COALESCE MODE: Buffer all updates, then emit coalesced events
-                            await foreach (var update in _middlewarePipeline.ExecuteModelCallStreamingAsync(
+                            await foreach (var update in turnPipeline.ExecuteModelCallStreamingAsync(
                                 modelRequest,
                                 (req) => _agentTurn.RunAsync(req.Messages, req.Options, req.Model as IChatClient, effectiveCancellationToken),
                                 effectiveCancellationToken))
@@ -1945,7 +1999,7 @@ public sealed class Agent
                         else
                         {
                             // STREAMING MODE: Emit immediately (existing behavior)
-                            await foreach (var update in _middlewarePipeline.ExecuteModelCallStreamingAsync(
+                            await foreach (var update in turnPipeline.ExecuteModelCallStreamingAsync(
                                 modelRequest,
                                 (req) => _agentTurn.RunAsync(req.Messages, req.Options, req.Model as IChatClient, effectiveCancellationToken),
                                 effectiveCancellationToken))
@@ -2164,7 +2218,7 @@ public sealed class Agent
                             toolCalls: toolRequests.AsReadOnly(),
                             runConfig: effectiveRunConfig);
 
-                        await _middlewarePipeline.ExecuteBeforeToolExecutionAsync(
+                        await turnPipeline.ExecuteBeforeToolExecutionAsync(
                             beforeToolContext,
                             effectiveCancellationToken).ConfigureAwait(false);
 
@@ -2184,7 +2238,7 @@ public sealed class Agent
                             continue;
                         }
 
-                        var executionResult = await _functionCallProcessor.ExecuteToolsAsync(
+                        var executionResult = await functionCallProcessor.ExecuteToolsAsync(
                             sharedMessages,
                             toolRequests,
                             effectiveOptionsForTools,
@@ -2207,7 +2261,7 @@ public sealed class Agent
                             // Emit ToolCallEndEvent for output tools so RunStructuredStreamAsync knows args are complete
                             foreach (var toolRequest in toolRequests)
                             {
-                                if (_functionCallProcessor.IsOutputToolByName(toolRequest.Name, effectiveOptionsForTools?.Tools))
+                                if (functionCallProcessor.IsOutputToolByName(toolRequest.Name, effectiveOptionsForTools?.Tools))
                                 {
                                     yield return new ToolCallEndEvent(toolRequest.CallId) { TraceId = traceId };
                                 }
@@ -2229,7 +2283,7 @@ public sealed class Agent
                                 .AsReadOnly(),
                             runConfig: effectiveRunConfig);
 
-                        await _middlewarePipeline.ExecuteAfterIterationAsync(
+                        await turnPipeline.ExecuteAfterIterationAsync(
                             afterIterationContext,
                             effectiveCancellationToken).ConfigureAwait(false);
 
@@ -2307,7 +2361,13 @@ public sealed class Agent
                                 yield return new ToolCallEndEvent(result.CallId) { TraceId = traceId };
                                 callIdToHarness.TryGetValue(result.CallId, out var harnessName);
                                 callIdToCallType.TryGetValue(result.CallId, out var callType);
-                                yield return new ToolCallResultEvent(result.CallId, result.Result?.ToString() ?? "null", harnessName, callType) { TraceId = traceId };
+                                if (!executionResult.ResultPayloads.TryGetValue(result.CallId, out var resultPayload))
+                                {
+                                    throw new InvalidOperationException(
+                                        $"Missing normalized tool result payload for call '{result.CallId}'.");
+                                }
+
+                                yield return new ToolCallResultEvent(result.CallId, resultPayload, harnessName, callType) { TraceId = traceId };
                             }
                         }
                         // Shared reference: state.CurrentMessages already sees the changes via MessagesRef
@@ -2330,7 +2390,7 @@ public sealed class Agent
                             toolResults: Array.Empty<FunctionResultContent>(),
                             runConfig: effectiveRunConfig);
 
-                        await _middlewarePipeline.ExecuteAfterIterationAsync(
+                        await turnPipeline.ExecuteAfterIterationAsync(
                             afterIterationContext,
                             effectiveCancellationToken).ConfigureAwait(false);
 
@@ -2508,7 +2568,7 @@ public sealed class Agent
                     runConfig: effectiveRunConfig);
 
                 // Execute AfterMessageTurnAsync in REVERSE order (stack unwinding)
-                await _middlewarePipeline.ExecuteAfterMessageTurnAsync(afterTurnContext, effectiveCancellationToken);
+                await turnPipeline.ExecuteAfterMessageTurnAsync(afterTurnContext, effectiveCancellationToken);
             }
 
             // V2: Sync state after middleware
@@ -2799,12 +2859,14 @@ public sealed class Agent
         ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        var effectiveOptions = options ?? DefaultOptions;
+
         // Prepare turn (stateless - no branch)
         var inputMessages = messages.ToList();
         var turn = await _messageProcessor.PrepareTurnAsync(
             branch: null,
             inputMessages,
-            options,
+            effectiveOptions,
             Name,
             cancellationToken);
 
@@ -3641,7 +3703,7 @@ public sealed class Agent
 
         // Use HPDAIFunctionFactory - our existing factory that supports AdditionalProperties
         return HPDAIFunctionFactory.Create(
-            invocation: (_, _) => Task.FromResult<object?>(null), // Output tools never execute
+            invocation: (_, _, _) => Task.FromResult<object?>(null), // Output tools never execute
             options: new HPDAIFunctionFactoryOptions
             {
                 Name = toolName,
@@ -3671,7 +3733,7 @@ public sealed class Agent
         var description = $"Submit a {typeName} result";
 
         return HPDAIFunctionFactory.Create(
-            invocation: (_, _) => Task.FromResult<object?>(null), // Output tools never execute
+            invocation: (_, _, _) => Task.FromResult<object?>(null), // Output tools never execute
             options: new HPDAIFunctionFactoryOptions
             {
                 Name = toolName,
@@ -5101,6 +5163,250 @@ public sealed class Agent
         }
         return sb.ToString();
     }
+
+    private static IReadOnlyList<ContextMessageSnapshot> BuildContextMessageSnapshots(
+        IReadOnlyList<ChatMessage> finalMessages,
+        IReadOnlyList<ChatMessage> preIterationMessages)
+    {
+        var preExisting = new HashSet<ChatMessage>(preIterationMessages, ReferenceEqualityComparer.Instance);
+        var contextMessages = new List<ContextMessageSnapshot>();
+
+        foreach (var message in finalMessages)
+        {
+            if (preExisting.Contains(message))
+                continue;
+
+            var text = message.Text;
+            if (string.IsNullOrWhiteSpace(text))
+                continue;
+
+            contextMessages.Add(new ContextMessageSnapshot(
+                Role: message.Role.ToString(),
+                Text: text));
+        }
+
+        return contextMessages;
+    }
+
+    internal static MiddlewareStateSnapshotEvent BuildMiddlewareStateSnapshotEvent(
+        string agentName,
+        IReadOnlyDictionary<string, MiddlewareStateFactory> stateFactories,
+        MiddlewareState state,
+        string? sessionId,
+        string? branchId,
+        int iteration,
+        string phase,
+        string? batchId,
+        string? functionCallId,
+        int? toolCallIndex)
+    {
+        var entries = BuildMiddlewareStateEntrySnapshots(stateFactories, state);
+        return new MiddlewareStateSnapshotEvent(
+            AgentName: agentName,
+            SessionId: sessionId,
+            BranchId: branchId,
+            Iteration: iteration,
+            Phase: phase,
+            BatchId: batchId,
+            FunctionCallId: functionCallId,
+            ToolCallIndex: toolCallIndex,
+            StateCount: entries.Count,
+            States: entries,
+            Timestamp: DateTimeOffset.UtcNow);
+    }
+
+    internal static void EmitMiddlewareStateChanged(
+        string agentName,
+        IReadOnlyDictionary<string, MiddlewareStateFactory> stateFactories,
+        Middleware.AgentContext context,
+        MiddlewareState before,
+        MiddlewareState after,
+        string phase,
+        string? batchId,
+        string? functionCallId,
+        int? toolCallIndex)
+    {
+        var changes = BuildMiddlewareStateChanges(stateFactories, before, after);
+        if (changes.Count == 0)
+            return;
+
+        context.Emit(new MiddlewareStateChangedEvent(
+            AgentName: agentName,
+            SessionId: context.Session?.Id,
+            BranchId: context.Branch?.Id,
+            Iteration: context.State.Iteration,
+            Phase: phase,
+            BatchId: batchId,
+            FunctionCallId: functionCallId,
+            ToolCallIndex: toolCallIndex,
+            ChangeCount: changes.Count,
+            Changes: changes,
+            Timestamp: DateTimeOffset.UtcNow));
+    }
+
+    internal static IReadOnlyList<MiddlewareStateChange> BuildMiddlewareStateChanges(
+        IReadOnlyDictionary<string, MiddlewareStateFactory> stateFactories,
+        MiddlewareState before,
+        MiddlewareState after)
+    {
+        var beforeEntries = BuildMiddlewareStateEntrySnapshots(stateFactories, before)
+            .ToDictionary(entry => entry.Key, StringComparer.Ordinal);
+        var afterEntries = BuildMiddlewareStateEntrySnapshots(stateFactories, after)
+            .ToDictionary(entry => entry.Key, StringComparer.Ordinal);
+        var keys = beforeEntries.Keys
+            .Concat(afterEntries.Keys)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal);
+        var changes = new List<MiddlewareStateChange>();
+
+        foreach (var key in keys)
+        {
+            var hadBefore = beforeEntries.TryGetValue(key, out var beforeEntry);
+            var hasAfter = afterEntries.TryGetValue(key, out var afterEntry);
+            var referenceEntry = afterEntry ?? beforeEntry;
+            if (referenceEntry is null)
+                continue;
+
+            var changeType =
+                !hadBefore ? "added" :
+                !hasAfter ? "removed" :
+                MiddlewareStateEntryPayloadEquals(beforeEntry!, afterEntry!) ? null :
+                "updated";
+
+            if (changeType is null)
+                continue;
+
+            changes.Add(new MiddlewareStateChange(
+                Key: key,
+                Type: referenceEntry.Type,
+                PropertyName: referenceEntry.PropertyName,
+                Scope: referenceEntry.Scope,
+                Persistent: referenceEntry.Persistent,
+                Version: referenceEntry.Version,
+                ChangeType: changeType,
+                Before: beforeEntry?.Json,
+                After: afterEntry?.Json,
+                Error: afterEntry?.Error ?? beforeEntry?.Error,
+                Redacted: referenceEntry.Redacted));
+        }
+
+        return changes;
+    }
+
+    private static IReadOnlyList<MiddlewareStateEntrySnapshot> BuildMiddlewareStateEntrySnapshots(
+        IReadOnlyDictionary<string, MiddlewareStateFactory> stateFactories,
+        MiddlewareState state)
+    {
+        if (state.States.Count == 0)
+            return [];
+
+        var entries = new List<MiddlewareStateEntrySnapshot>(state.States.Count);
+        foreach (var (key, value) in state.States.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            stateFactories.TryGetValue(key, out var factory);
+            var json = default(JsonElement?);
+            string? error = null;
+
+            if (value is JsonElement element)
+            {
+                json = element.Clone();
+            }
+            else if (factory is not null && value is not null)
+            {
+                try
+                {
+                    using var document = JsonDocument.Parse(factory.Serialize(value));
+                    json = document.RootElement.Clone();
+                }
+                catch (Exception ex)
+                {
+                    error = ex.Message;
+                }
+            }
+            else if (value is null)
+            {
+                error = "State value is null.";
+            }
+            else
+            {
+                error = "No registered middleware state factory.";
+            }
+
+            entries.Add(new MiddlewareStateEntrySnapshot(
+                Key: key,
+                Type: factory?.StateType.FullName ?? value?.GetType().FullName ?? "unknown",
+                PropertyName: factory?.PropertyName ?? key,
+                Scope: factory?.Scope ?? StateScope.Branch,
+                Persistent: factory?.Persistent ?? false,
+                Version: factory?.Version ?? 0,
+                Json: json,
+                Error: error,
+                Redacted: false));
+        }
+
+        return entries;
+    }
+
+    private static bool MiddlewareStateEntryPayloadEquals(
+        MiddlewareStateEntrySnapshot before,
+        MiddlewareStateEntrySnapshot after)
+    {
+        return string.Equals(before.Json?.GetRawText(), after.Json?.GetRawText(), StringComparison.Ordinal)
+            && string.Equals(before.Error, after.Error, StringComparison.Ordinal)
+            && before.Redacted == after.Redacted;
+    }
+
+    private static IReadOnlyList<ToolContextSnapshot> BuildToolContextSnapshots(ChatOptions? options)
+    {
+        if (options?.Tools is not { Count: > 0 } tools)
+            return [];
+
+        var snapshots = new List<ToolContextSnapshot>(tools.Count);
+        foreach (var tool in tools)
+        {
+            string? harnessName = null;
+            ToolCallType? callType = null;
+            var isContainer = false;
+
+            if (tool.AdditionalProperties is { } properties)
+            {
+                if (properties.TryGetValue("HarnessName", out var harnessValue) && harnessValue is string h)
+                    harnessName = h;
+                else if (properties.TryGetValue("ParentHarness", out var parentValue) && parentValue is string p)
+                    harnessName = p;
+
+                if (properties.TryGetValue("IsContainer", out var containerValue) && containerValue is bool container)
+                    isContainer = container;
+
+                if (properties.TryGetValue("CapabilityType", out var capabilityValue) && capabilityValue is string capability)
+                {
+                    callType = capability switch
+                    {
+                        "Function" => ToolCallType.Function,
+                        "Skill" => ToolCallType.Skill,
+                        "SubAgent" => ToolCallType.SubAgent,
+                        "MultiAgent" => ToolCallType.MultiAgent,
+                        "MCPServer" => ToolCallType.MCPServer,
+                        "OpenApi" => ToolCallType.OpenApi,
+                        _ => null
+                    };
+                }
+            }
+
+            snapshots.Add(new ToolContextSnapshot(
+                Name: tool.Name,
+                Description: tool.Description,
+                HarnessName: harnessName,
+                CallType: callType,
+                IsContainer: isContainer,
+                InputSchemaJson: tool is AIFunctionDeclaration function
+                    && function.JsonSchema.ValueKind != JsonValueKind.Undefined
+                    ? function.JsonSchema.GetRawText()
+                    : null));
+        }
+
+        return snapshots;
+    }
 }
 
 #region Agent Decision Engine
@@ -5987,13 +6293,32 @@ internal sealed record FunctionExecutionOutcome(
     string? FunctionName,
     AIFunction? Function,
     object? Result,
+    ToolResultPayload ResultPayload,
     Exception? Exception,
     bool WasBlocked,
     bool WasUnknown,
     bool WasOutputTool,
     bool ShouldTerminate,
     string? HarnessName,
+    ToolCallType? CallType,
+    ToolResultMetadata ResultMetadata,
+    ToolInvocationInfo? Invocation = null);
+
+internal sealed record FunctionExecutionPreparation(
+    FunctionCallContent FunctionCall,
+    ToolInvocationInfo? Invocation,
+    AIFunction? Function,
+    IReadOnlyDictionary<string, object?> Arguments,
+    BeforeFunctionContext? BeforeFunctionContext,
+    FunctionExecutionOutcome? ImmediateOutcome,
+    string? HarnessName,
     ToolCallType? CallType);
+
+internal sealed record FunctionBodyExecutionResult(
+    FunctionExecutionPreparation Preparation,
+    object? Result,
+    ToolResultMetadata ResultMetadata,
+    Exception? Exception);
 
 internal interface IFunctionExecutionCore
 {
@@ -6011,17 +6336,20 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
     private readonly ErrorHandlingConfig? _errorHandlingConfig;
     private readonly IList<AITool>? _serverConfiguredTools;
     private readonly AgenticLoopConfig? _agenticLoopConfig;
+    private readonly Func<Middleware.IAgentBackgroundTaskRegistry?> _getBackgroundTaskRegistry;
 
     public FunctionExecutionCore(
         AgentMiddlewarePipeline middlewarePipeline,
         ErrorHandlingConfig? errorHandlingConfig = null,
         IList<AITool>? serverConfiguredTools = null,
-        AgenticLoopConfig? agenticLoopConfig = null)
+        AgenticLoopConfig? agenticLoopConfig = null,
+        Func<Middleware.IAgentBackgroundTaskRegistry?>? getBackgroundTaskRegistry = null)
     {
         _middlewarePipeline = middlewarePipeline ?? throw new ArgumentNullException(nameof(middlewarePipeline));
         _errorHandlingConfig = errorHandlingConfig;
         _serverConfiguredTools = serverConfiguredTools;
         _agenticLoopConfig = agenticLoopConfig;
+        _getBackgroundTaskRegistry = getBackgroundTaskRegistry ?? (() => null);
     }
 
     public Dictionary<string, AIFunction>? BuildMergedMap(IList<AITool>? requestTools) =>
@@ -6152,18 +6480,62 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         AgentContext agentContext,
         CancellationToken cancellationToken)
     {
+        var preparation = await PrepareFunctionAsync(
+            functionCall,
+            options,
+            runConfig,
+            agentContext,
+            invocation: null,
+            cancellationToken).ConfigureAwait(false);
+
+        if (preparation.ImmediateOutcome is { } immediateOutcome)
+            return immediateOutcome;
+
+        var bodyResult = await ExecuteFunctionBodyAsync(
+            preparation,
+            agentContext,
+            cancellationToken).ConfigureAwait(false);
+
+        return await CompleteFunctionAsync(
+            bodyResult,
+            runConfig,
+            agentContext,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async Task<FunctionExecutionPreparation> PrepareFunctionAsync(
+        FunctionCallContent functionCall,
+        ChatOptions? options,
+        AgentRunConfig runConfig,
+        AgentContext agentContext,
+        ToolInvocationInfo? invocation,
+        CancellationToken cancellationToken)
+    {
         if (string.IsNullOrEmpty(functionCall.Name))
         {
-            return new FunctionExecutionOutcome(
+            var outcome = new FunctionExecutionOutcome(
                 functionCall.CallId,
                 functionCall.Name,
                 Function: null,
                 Result: null,
+                ResultPayload: ToolResultPayload.FromResult(null),
                 Exception: null,
                 WasBlocked: false,
                 WasUnknown: false,
                 WasOutputTool: false,
                 ShouldTerminate: false,
+                HarnessName: null,
+                CallType: null,
+                ResultMetadata: new ToolResultMetadata(),
+                Invocation: invocation);
+
+            return new FunctionExecutionPreparation(
+                functionCall,
+                invocation,
+                Function: null,
+                Arguments: new Dictionary<string, object?>(),
+                BeforeFunctionContext: null,
+                ImmediateOutcome: outcome,
                 HarnessName: null,
                 CallType: null);
         }
@@ -6175,16 +6547,29 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
 
         if (IsOutputTool(function))
         {
-            return new FunctionExecutionOutcome(
+            var outcome = new FunctionExecutionOutcome(
                 functionCall.CallId,
                 functionCall.Name,
                 function,
                 Result: null,
+                ResultPayload: ToolResultPayload.FromResult(null),
                 Exception: null,
                 WasBlocked: false,
                 WasUnknown: false,
                 WasOutputTool: true,
                 ShouldTerminate: false,
+                HarnessName: harnessName,
+                CallType: callType,
+                ResultMetadata: new ToolResultMetadata(),
+                Invocation: invocation);
+
+            return new FunctionExecutionPreparation(
+                functionCall,
+                invocation,
+                function,
+                Arguments: new Dictionary<string, object?>(),
+                BeforeFunctionContext: null,
+                ImmediateOutcome: outcome,
                 HarnessName: harnessName,
                 CallType: callType);
         }
@@ -6193,16 +6578,29 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         {
             agentContext.UpdateState(s => s with { IsTerminated = true });
 
-            return new FunctionExecutionOutcome(
+            var outcome = new FunctionExecutionOutcome(
                 functionCall.CallId,
                 functionCall.Name,
                 Function: null,
                 Result: null,
+                ResultPayload: ToolResultPayload.FromResult(null),
                 Exception: null,
                 WasBlocked: false,
                 WasUnknown: true,
                 WasOutputTool: false,
                 ShouldTerminate: true,
+                HarnessName: null,
+                CallType: null,
+                ResultMetadata: new ToolResultMetadata(),
+                Invocation: invocation);
+
+            return new FunctionExecutionPreparation(
+                functionCall,
+                invocation,
+                Function: null,
+                Arguments: new Dictionary<string, object?>(),
+                BeforeFunctionContext: null,
+                ImmediateOutcome: outcome,
                 HarnessName: null,
                 CallType: null);
         }
@@ -6216,66 +6614,146 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             arguments: arguments,
             runConfig: runConfig,
             harnessName: harnessName,
-            skillName: null);
+            skillName: null,
+            invocation: invocation);
 
         await _middlewarePipeline.ExecuteBeforeFunctionAsync(
             beforeFunctionContext, cancellationToken).ConfigureAwait(false);
 
         if (beforeFunctionContext.BlockExecution)
         {
-            return new FunctionExecutionOutcome(
+            var outcome = new FunctionExecutionOutcome(
                 functionCall.CallId,
                 functionCall.Name,
                 function,
                 Result: beforeFunctionContext.OverrideResult ?? "Permission denied",
+                ResultPayload: ToolResultPayload.FromResult(beforeFunctionContext.OverrideResult ?? "Permission denied"),
                 Exception: null,
                 WasBlocked: true,
                 WasUnknown: function == null,
                 WasOutputTool: false,
                 ShouldTerminate: false,
                 HarnessName: harnessName,
+                CallType: callType,
+                ResultMetadata: new ToolResultMetadata(),
+                Invocation: invocation);
+
+            return new FunctionExecutionPreparation(
+                functionCall,
+                invocation,
+                function,
+                arguments,
+                beforeFunctionContext,
+                ImmediateOutcome: outcome,
+                HarnessName: harnessName,
                 CallType: callType);
         }
 
-        object? executionResult = null;
-        Exception? executionException = null;
+        return new FunctionExecutionPreparation(
+            functionCall,
+            invocation,
+            function,
+            arguments,
+            beforeFunctionContext,
+            ImmediateOutcome: null,
+            HarnessName: harnessName,
+            CallType: callType);
+    }
+
+    internal async Task<FunctionBodyExecutionResult> ExecuteFunctionBodyAsync(
+        FunctionExecutionPreparation preparation,
+        AgentContext agentContext,
+        CancellationToken cancellationToken)
+    {
+        if (preparation.ImmediateOutcome is { } immediateOutcome)
+        {
+            return new FunctionBodyExecutionResult(
+                preparation,
+                immediateOutcome.Result,
+                immediateOutcome.ResultMetadata,
+                immediateOutcome.Exception);
+        }
+
+        var functionCall = preparation.FunctionCall;
+        var beforeFunctionContext = preparation.BeforeFunctionContext
+            ?? throw new InvalidOperationException("Function preparation is missing BeforeFunction context.");
 
         try
         {
-            if (function is null)
+            if (preparation.Function is null)
             {
-                executionResult = beforeFunctionContext.OverrideResult
+                var notFoundResult = beforeFunctionContext.OverrideResult
                     ?? $"Function '{functionCall.Name ?? "Unknown"}' not found.";
+                return new FunctionBodyExecutionResult(
+                    preparation,
+                    notFoundResult,
+                    new ToolResultMetadata(),
+                    Exception: null);
             }
-            else
-            {
-                var functionRequest = new Middleware.FunctionRequest
-                {
-                    Function = function,
-                    CallId = functionCall.CallId,
-                    Arguments = arguments,
-                    State = agentContext.State
-                };
 
-                executionResult = await _middlewarePipeline.ExecuteFunctionCallAsync(
-                    functionRequest,
-                    coreHandler: async (req) =>
+            var resultMetadata = new ToolResultMetadata();
+            var functionRequest = new Middleware.FunctionRequest
+            {
+                Function = preparation.Function,
+                CallId = functionCall.CallId,
+                Arguments = preparation.Arguments,
+                State = agentContext.State,
+                Invocation = preparation.Invocation,
+                ResultMetadata = resultMetadata,
+                HarnessName = preparation.HarnessName,
+                SkillName = null,
+                EventCoordinator = agentContext.EventCoordinator,
+                BackgroundTasks = _getBackgroundTaskRegistry()
+            };
+
+            var executionResult = await _middlewarePipeline.ExecuteFunctionCallAsync(
+                functionRequest,
+                coreHandler: async (req) =>
+                {
+                    var functionContext = new FunctionExecutionContext(
+                        beforeFunctionContext,
+                        req);
+
+                    var args = new AIFunctionArguments(new Dictionary<string, object?>(req.Arguments));
+                    if (req.Function is HPDAIFunctionFactory.HPDAIFunction hpdFunction)
                     {
-                        Agent.CurrentFunctionContext = beforeFunctionContext;
-                        try
-                        {
-                            var args = new AIFunctionArguments(new Dictionary<string, object?>(req.Arguments));
-                            return await req.Function.InvokeAsync(args, cancellationToken).ConfigureAwait(false);
-                        }
-                        finally
-                        {
-                            Agent.CurrentFunctionContext = null;
-                        }
-                    },
-                    cancellationToken).ConfigureAwait(false);
-            }
+                        return await hpdFunction.InvokeAsync(args, functionContext, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    return await req.Function.InvokeAsync(args, cancellationToken).ConfigureAwait(false);
+                },
+                cancellationToken).ConfigureAwait(false);
+
+            return new FunctionBodyExecutionResult(
+                preparation,
+                executionResult,
+                resultMetadata,
+                Exception: null);
         }
         catch (Exception ex)
+        {
+            var errorResult = $"Error executing function '{functionCall.Name}': {ex.Message}";
+            return new FunctionBodyExecutionResult(
+                preparation,
+                errorResult,
+                new ToolResultMetadata(),
+                ex);
+        }
+    }
+
+    internal async Task<FunctionExecutionOutcome> CompleteFunctionAsync(
+        FunctionBodyExecutionResult bodyResult,
+        AgentRunConfig runConfig,
+        AgentContext agentContext,
+        CancellationToken cancellationToken)
+    {
+        var preparation = bodyResult.Preparation;
+        var functionCall = preparation.FunctionCall;
+
+        if (preparation.ImmediateOutcome is { } immediateOutcome)
+            return immediateOutcome;
+
+        if (bodyResult.Exception is { } ex)
         {
             agentContext.Emit(new MiddlewareErrorEvent(
                 "FunctionExecution",
@@ -6295,19 +6773,18 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             {
                 // Preserve the original function exception if error handlers fail.
             }
-
-            executionResult = $"Error executing function '{functionCall.Name}': {ex.Message}";
-            executionException = ex;
         }
 
         var afterFunctionContext = agentContext.AsAfterFunction(
-            function: function!,
+            function: preparation.Function,
             callId: functionCall.CallId,
-            result: executionResult,
-            exception: executionException,
+            result: bodyResult.Result,
+            exception: bodyResult.Exception,
             runConfig: runConfig,
-            harnessName: harnessName,
-            skillName: null);
+            harnessName: preparation.HarnessName,
+            skillName: null,
+            invocation: preparation.Invocation,
+            resultMetadata: bodyResult.ResultMetadata);
 
         try
         {
@@ -6324,15 +6801,18 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         return new FunctionExecutionOutcome(
             functionCall.CallId,
             functionCall.Name,
-            function,
+            preparation.Function,
             Result: afterFunctionContext.Result,
+            ResultPayload: ToolResultPayload.FromResult(afterFunctionContext.Result),
             Exception: afterFunctionContext.Exception,
             WasBlocked: false,
-            WasUnknown: function == null,
+            WasUnknown: preparation.Function == null,
             WasOutputTool: false,
             ShouldTerminate: false,
-            HarnessName: harnessName,
-            CallType: callType);
+            HarnessName: preparation.HarnessName,
+            CallType: preparation.CallType,
+            ResultMetadata: afterFunctionContext.ResultMetadata,
+            Invocation: preparation.Invocation);
     }
 
     public static FunctionResultContent ToFunctionResultContent(FunctionExecutionOutcome outcome)
@@ -6369,6 +6849,9 @@ internal class FunctionCallProcessor
     private readonly IList<AITool>? _serverConfiguredTools;
     private readonly AgenticLoopConfig? _agenticLoopConfig;
     private readonly FunctionExecutionCore _functionExecutionCore;
+    private readonly string _agentName;
+    private readonly IReadOnlyDictionary<string, MiddlewareStateFactory> _stateFactories;
+    private readonly Func<Middleware.IAgentBackgroundTaskRegistry?> _getBackgroundTaskRegistry;
 
     public FunctionCallProcessor(
         HPD.Events.IEventCoordinator eventCoordinator,
@@ -6376,18 +6859,25 @@ internal class FunctionCallProcessor
         int maxFunctionCalls,
         ErrorHandlingConfig? errorHandlingConfig = null,
         IList<AITool>? serverConfiguredTools = null,
-        AgenticLoopConfig? agenticLoopConfig = null)
+        AgenticLoopConfig? agenticLoopConfig = null,
+        string agentName = "Agent",
+        IReadOnlyDictionary<string, MiddlewareStateFactory>? stateFactories = null,
+        Func<Middleware.IAgentBackgroundTaskRegistry?>? getBackgroundTaskRegistry = null)
     {
         _eventCoordinator = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
         _middlewarePipeline = middlewarePipeline ?? throw new ArgumentNullException(nameof(middlewarePipeline));
         _errorHandlingConfig = errorHandlingConfig;
         _serverConfiguredTools = serverConfiguredTools;
         _agenticLoopConfig = agenticLoopConfig;
+        _agentName = agentName;
+        _stateFactories = stateFactories ?? ImmutableDictionary<string, MiddlewareStateFactory>.Empty;
+        _getBackgroundTaskRegistry = getBackgroundTaskRegistry ?? (() => null);
         _functionExecutionCore = new FunctionExecutionCore(
             _middlewarePipeline,
             _errorHandlingConfig,
             _serverConfiguredTools,
-            _agenticLoopConfig);
+            _agenticLoopConfig,
+            _getBackgroundTaskRegistry);
     }
 
     // Helpers moved here from FunctionMapBuilder to keep lookup logic next to caller
@@ -6492,17 +6982,53 @@ internal class FunctionCallProcessor
         CancellationToken cancellationToken)
     {
         var allContents = new List<AIContent>();
-        // Process ALL tools (containers + regular) through the existing processor
-        var resultMessages = await ProcessFunctionCallsAsync(
-            currentHistory, options, toolRequests, agentLoopState, runConfig, agentContext, cancellationToken).ConfigureAwait(false);
+        var resultPayloads = new Dictionary<string, ToolResultPayload>(StringComparer.Ordinal);
+        var batchId = Guid.NewGuid().ToString("N");
 
-        // Combine results
-        foreach (var message in resultMessages)
+        for (var i = 0; i < toolRequests.Count; i++)
         {
-            foreach (var content in message.Contents)
+            var toolRequest = toolRequests[i];
+            if (string.IsNullOrEmpty(toolRequest.Name))
+                continue;
+
+            var invocation = new ToolInvocationInfo(
+                batchId,
+                toolRequest.CallId,
+                toolRequest.Name,
+                i);
+
+            var preparation = await _functionExecutionCore.PrepareFunctionAsync(
+                toolRequest,
+                options,
+                runConfig,
+                agentContext,
+                invocation,
+                cancellationToken).ConfigureAwait(false);
+
+            var outcome = preparation.ImmediateOutcome;
+            if (outcome is null)
             {
-                allContents.Add(content);
+                var bodyResult = await _functionExecutionCore.ExecuteFunctionBodyAsync(
+                    preparation,
+                    agentContext,
+                    cancellationToken).ConfigureAwait(false);
+
+                outcome = await _functionExecutionCore.CompleteFunctionAsync(
+                    bodyResult,
+                    runConfig,
+                    agentContext,
+                    cancellationToken).ConfigureAwait(false);
             }
+
+            if (outcome.ShouldTerminate)
+                break;
+
+            if (outcome.WasOutputTool)
+                continue;
+
+            var functionResult = FunctionExecutionCore.ToFunctionResultContent(outcome);
+            allContents.Add(functionResult);
+            resultPayloads[outcome.CallId] = outcome.ResultPayload;
         }
 
         // Extract successful functions
@@ -6510,7 +7036,8 @@ internal class FunctionCallProcessor
 
         return new ToolExecutionResult(
             new ChatMessage(ChatRole.Tool, allContents),
-            successfulFunctions);
+            successfulFunctions,
+            resultPayloads);
     }
 
     /// <summary>
@@ -6526,95 +7053,119 @@ internal class FunctionCallProcessor
         Middleware.AgentContext agentContext,
         CancellationToken cancellationToken)
     {
-        // : Batch permission check via BeforeParallelBatchAsync hook
-        // Build function map and collect parallel function information
+        // Build function map and collect model-order invocation information once.
         var functionMap = BuildMergedMap(_serverConfiguredTools, options?.Tools);
+        var batchId = Guid.NewGuid().ToString("N");
+        var invocationByCallId = new Dictionary<string, ToolInvocationInfo>(StringComparer.Ordinal);
         var parallelFunctions = new List<ParallelFunctionInfo>();
 
-        foreach (var toolRequest in toolRequests)
+        for (var i = 0; i < toolRequests.Count; i++)
         {
+            var toolRequest = toolRequests[i];
             if (string.IsNullOrEmpty(toolRequest.Name))
                 continue;
+
+            var invocation = new ToolInvocationInfo(
+                batchId,
+                toolRequest.CallId,
+                toolRequest.Name,
+                i);
+            invocationByCallId[toolRequest.CallId] = invocation;
 
             var function = FindFunction(toolRequest.Name, functionMap);
             if (function == null)
                 continue;
 
-            // Extract Harness/skill metadata (same logic as ProcessFunctionCallsAsync)
-            string? toolTypeName = null;
-            if (function.AdditionalProperties?.TryGetValue("ParentHarness", out var parentHarnessCtx) == true)
-            {
-                toolTypeName = parentHarnessCtx as string;
-            }
-            else if (function.AdditionalProperties?.TryGetValue("HarnessName", out var toolNameProp) == true)
-            {
-                toolTypeName = toolNameProp as string;
-            }
-
-            string? skillName = null;
-
-            if (function.AdditionalProperties?.TryGetValue("IsSkill", out var isSkillValueCtx) == true
-                && isSkillValueCtx is bool isSCtx && isSCtx)
-            {
-                // This function is a skill container
-            }
-
             parallelFunctions.Add(new ParallelFunctionInfo(
                 function,
                 toolRequest.CallId,
-                (IReadOnlyDictionary<string, object?>)(toolRequest.Arguments ?? new Dictionary<string, object?>())));
+                (IReadOnlyDictionary<string, object?>)(toolRequest.Arguments ?? new Dictionary<string, object?>()),
+                invocation));
         }
 
-        // Create V2 AgentContext for parallel batch hook
-        // Note: parentChatClient is not needed here since this is just for the batch hook,
-        // not for SubAgent creation (which happens via agentContext passed to this method)
-        var batchAgentContext = new Middleware.AgentContext(
-            agentName: agentLoopState.AgentName,
-            conversationId: agentLoopState.ConversationId,
-            initialState: agentLoopState,
-            eventCoordinator: agentContext.EventCoordinator,
-            session: agentContext.Session,
-            branch: agentContext.Branch,
-            cancellationToken: cancellationToken,
-            services: agentContext.Services,
-            traceId: agentContext.TraceId);  // Propagate trace ID into batch hook context
-
-        var batchContext = batchAgentContext.AsBeforeParallelBatch(
+        var batchContext = agentContext.AsBeforeParallelBatch(
             parallelFunctions,
             runConfig);
 
-        // Execute BeforeParallelBatchAsync middleware hooks
+        var beforeParallelBatchHookState = agentContext.State.MiddlewareState;
+        agentContext.Emit(Agent.BuildMiddlewareStateSnapshotEvent(
+            agentName: _agentName,
+            stateFactories: _stateFactories,
+            state: beforeParallelBatchHookState,
+            sessionId: agentContext.Session?.Id,
+            branchId: agentContext.Branch?.Id,
+            iteration: agentContext.State.Iteration,
+            phase: "before_parallel_batch",
+            batchId: batchId,
+            functionCallId: null,
+            toolCallIndex: null));
+
+        // Execute BeforeParallelBatchAsync middleware hooks on the authoritative turn context.
         await _middlewarePipeline.ExecuteBeforeParallelBatchAsync(
             batchContext, cancellationToken).ConfigureAwait(false);
 
-        // V2: State updates are immediate - no GetPendingState() needed!
-        agentLoopState = batchAgentContext.State;
+        agentLoopState = agentContext.State;
+        Agent.EmitMiddlewareStateChanged(
+            agentName: _agentName,
+            stateFactories: _stateFactories,
+            agentContext,
+            beforeParallelBatchHookState,
+            agentLoopState.MiddlewareState,
+            phase: "before_parallel_batch",
+            batchId: batchId,
+            functionCallId: null,
+            toolCallIndex: null);
 
-        // All tools will be processed - individual permission checks happen in ProcessFunctionCallsAsync
-        // (those checks will use the BatchPermissionState populated by BeforeParallelBatchAsync)
-        var approvedTools = toolRequests;
-        var deniedTools = new List<(FunctionCallContent Tool, string Reason)>();
+        var beforeParallelExecutionState = agentLoopState.MiddlewareState;
 
-        // PHASE 2: Parallel execution with semaphore throttling
+        // BeforeFunction runs serially in model order so middleware state remains deterministic.
+        var preparations = new List<FunctionExecutionPreparation>(toolRequests.Count);
+        foreach (var toolRequest in toolRequests)
+        {
+            var invocation = invocationByCallId.GetValueOrDefault(toolRequest.CallId)
+                ?? new ToolInvocationInfo(batchId, toolRequest.CallId, toolRequest.Name, preparations.Count);
+
+            var preparation = await _functionExecutionCore.PrepareFunctionAsync(
+                toolRequest,
+                options,
+                runConfig,
+                agentContext,
+                invocation,
+                cancellationToken).ConfigureAwait(false);
+
+            preparations.Add(preparation);
+
+            if (preparation.ImmediateOutcome?.ShouldTerminate == true)
+                break;
+        }
+
+        // Function bodies and WrapFunctionCall middleware may run in parallel because they only receive
+        // FunctionRequest and the narrow FunctionExecutionContext, not a live mutable HookContext.
         var maxParallel = _agenticLoopConfig?.MaxParallelFunctions ?? Environment.ProcessorCount * 4;
         using var semaphore = new SemaphoreSlim(maxParallel);
 
-        var executionTasks = approvedTools.Select(async toolRequest =>
+        var bodyTasks = preparations
+            .Select((preparation, index) => (Preparation: preparation, Index: index))
+            .Where(item => item.Preparation.ImmediateOutcome is null)
+            .Select(async item =>
         {
             await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                // Execute each approved tool call through the processor
-                // NO permission check here - already done in batch above
-                var singleToolList = new List<FunctionCallContent> { toolRequest };
-                var resultMessages = await ProcessFunctionCallsAsync(
-                    currentHistory, options, singleToolList, agentLoopState, runConfig, agentContext, cancellationToken).ConfigureAwait(false);
-
-                return (Success: true, Messages: resultMessages, Error: (Exception?)null, ToolRequest: toolRequest);
+                var result = await _functionExecutionCore.ExecuteFunctionBodyAsync(
+                    item.Preparation,
+                    agentContext,
+                    cancellationToken).ConfigureAwait(false);
+                return (item.Index, Result: result);
             }
             catch (Exception ex)
             {
-                return (Success: false, Messages: new List<ChatMessage>(), Error: ex, ToolRequest: toolRequest);
+                var result = new FunctionBodyExecutionResult(
+                    item.Preparation,
+                    $"Error executing tool: {ex.Message}",
+                    new ToolResultMetadata(),
+                    ex);
+                return (item.Index, Result: result);
             }
             finally
             {
@@ -6622,46 +7173,70 @@ internal class FunctionCallProcessor
             }
         }).ToArray();
 
-        // Wait for all approved tasks to complete
-        var results = await Task.WhenAll(executionTasks).ConfigureAwait(false);
-
-        // Aggregate results
-        var allContents = new List<AIContent>();
-
-        // Add results from approved tools
-        foreach (var result in results)
+        var bodyResultsByIndex = new Dictionary<int, FunctionBodyExecutionResult>();
+        foreach (var completed in await Task.WhenAll(bodyTasks).ConfigureAwait(false))
         {
-            if (result.Success)
-            {
-                foreach (var message in result.Messages)
-                {
-                    allContents.AddRange(message.Contents);
-                }
-            }
-            else if (result.Error != null)
-            {
-                // Include error in results
-                var errorContent = new TextContent($"  Error executing tool: {result.Error.Message}");
-                allContents.Add(errorContent);
-            }
+            bodyResultsByIndex[completed.Index] = completed.Result;
         }
 
-        // Add denied tool results with proper error messages
-        foreach (var deniedEntry in deniedTools)
+        // AfterFunction runs serially in model order. This is the state commit phase.
+        var allContents = new List<AIContent>();
+        var resultPayloads = new Dictionary<string, ToolResultPayload>(StringComparer.Ordinal);
+        for (var i = 0; i < preparations.Count; i++)
         {
-            var functionResult = new FunctionResultContent(
-                deniedEntry.Tool.CallId,
-                $"Execution of '{deniedEntry.Tool.Name}' was denied: {deniedEntry.Reason}"
-            );
-            allContents.Add(functionResult);
+            var preparation = preparations[i];
+            var outcome = preparation.ImmediateOutcome;
+
+            if (outcome is null)
+            {
+                var bodyResult = bodyResultsByIndex[i];
+                outcome = await _functionExecutionCore.CompleteFunctionAsync(
+                    bodyResult,
+                    runConfig,
+                    agentContext,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            if (outcome.ShouldTerminate)
+                break;
+
+            if (outcome.WasOutputTool)
+                continue;
+
+            allContents.Add(FunctionExecutionCore.ToFunctionResultContent(outcome));
+            resultPayloads[outcome.CallId] = outcome.ResultPayload;
         }
 
         // Extract successful functions
-        var successfulFunctions = ExtractSuccessfulFunctions(allContents, approvedTools);
+        var successfulFunctions = ExtractSuccessfulFunctions(allContents, toolRequests);
+
+        var afterParallelExecutionState = agentContext.State.MiddlewareState;
+        agentContext.Emit(Agent.BuildMiddlewareStateSnapshotEvent(
+            agentName: _agentName,
+            stateFactories: _stateFactories,
+            state: afterParallelExecutionState,
+            sessionId: agentContext.Session?.Id,
+            branchId: agentContext.Branch?.Id,
+            iteration: agentContext.State.Iteration,
+            phase: "after_parallel_batch",
+            batchId: batchId,
+            functionCallId: null,
+            toolCallIndex: null));
+        Agent.EmitMiddlewareStateChanged(
+            agentName: _agentName,
+            stateFactories: _stateFactories,
+            agentContext,
+            beforeParallelExecutionState,
+            afterParallelExecutionState,
+            phase: "after_parallel_batch",
+            batchId: batchId,
+            functionCallId: null,
+            toolCallIndex: null);
 
         return new ToolExecutionResult(
             new ChatMessage(ChatRole.Tool, allContents),
-            successfulFunctions);
+            successfulFunctions,
+            resultPayloads);
     }
 
     /// <summary>
@@ -6724,46 +7299,6 @@ internal class FunctionCallProcessor
          s.Contains("quota exceeded", StringComparison.OrdinalIgnoreCase) ||
          s.Contains("quota reached", StringComparison.OrdinalIgnoreCase) ||
          s.Contains("timeout", StringComparison.OrdinalIgnoreCase));
-
-    /// <summary>
-    /// Processes the function calls and returns the messages to add to the conversation.
-    /// </summary>
-    public async Task<IList<ChatMessage>> ProcessFunctionCallsAsync(
-        List<ChatMessage> messages,
-        ChatOptions? options,
-        List<FunctionCallContent> functionCallContents,
-        AgentLoopState agentLoopState,
-        AgentRunConfig runConfig,
-        Middleware.AgentContext agentContext,
-        CancellationToken cancellationToken)
-    {
-        var resultMessages = new List<ChatMessage>();
-
-        foreach (var functionCall in functionCallContents)
-        {
-            if (string.IsNullOrEmpty(functionCall.Name))
-                continue;
-
-            var outcome = await _functionExecutionCore.ExecuteFunctionAsync(
-                functionCall,
-                options,
-                runConfig,
-                agentContext,
-                cancellationToken).ConfigureAwait(false);
-
-            if (outcome.ShouldTerminate)
-                break;
-
-            if (outcome.WasOutputTool)
-                continue;
-
-            var functionResult = FunctionExecutionCore.ToFunctionResultContent(outcome);
-            var functionMessage = new ChatMessage(ChatRole.Tool, new AIContent[] { functionResult });
-            resultMessages.Add(functionMessage);
-        }
-
-        return resultMessages;
-    }
 
     /// <summary>
     /// Formats an exception for inclusion in function results sent to the LLM.
@@ -7258,6 +7793,7 @@ internal static class ErrorFormatter
 internal record ToolExecutionResult(
     ChatMessage Message,
     HashSet<string> SuccessfulFunctions,
+    IReadOnlyDictionary<string, ToolResultPayload> ResultPayloads,
     bool OutputToolCalled = false);
 
 #endregion

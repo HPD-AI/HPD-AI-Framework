@@ -39,8 +39,8 @@ public class OpenApiConfig : OpenApiCoreConfig
     /// <summary>
     /// Response optimization settings for reducing token consumption when
     /// API responses are returned to the LLM. Agent-specific concern.
-    /// When set, hints are encoded as function metadata and read by
-    /// ResponseOptimizationMiddleware during AfterFunctionAsync.
+    /// Applied directly by generated OpenAPI functions before returning
+    /// their model-facing result.
     /// </summary>
     public ResponseOptimizationConfig? ResponseOptimization { get; set; }
 }
@@ -48,8 +48,7 @@ public class OpenApiConfig : OpenApiCoreConfig
 /// <summary>
 /// Configuration for how API responses are optimized before the LLM sees them.
 /// Inspired by n8n's "Optimize Tool Response" feature.
-/// Hints are encoded as AdditionalProperties on the AIFunction by OpenApiFunctionFactory
-/// and consumed by ResponseOptimizationMiddleware at runtime.
+/// Consumed by OpenApiFunctionFactory when it formats operation responses.
 /// </summary>
 public class ResponseOptimizationConfig
 {

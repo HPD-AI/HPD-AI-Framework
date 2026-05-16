@@ -50,7 +50,7 @@
 		messageId: `msg-${renderMode}-1`,
 		status,
 		args,
-		result,
+		resultText: result,
 		error,
 		startTime: new Date(Date.now() - 2000),
 		endTime: status === 'complete' || status === 'error' ? new Date() : undefined

@@ -83,7 +83,7 @@ describe('ToolExecution', () => {
 		});
 
 		it('should have status-based data attrs when complete', async () => {
-			const t = setup({ toolCall: { status: 'complete', result: 'Success!' } });
+			const t = setup({ toolCall: { status: 'complete', resultText: 'Success!' } });
 			await expect.element(t.root).toHaveAttribute('data-tool-status', 'complete');
 			await expect.element(t.root).toHaveAttribute('data-complete');
 			await expect.element(t.root).not.toHaveAttribute('data-active');
@@ -293,7 +293,7 @@ describe('ToolExecution', () => {
 
 		it('should display result when complete', async () => {
 			const t = setup({
-				toolCall: { status: 'complete', result: 'Operation successful!' }
+				toolCall: { status: 'complete', resultText: 'Operation successful!' }
 			});
 			await expect.element(t.result).toHaveTextContent('Operation successful!');
 		});
@@ -307,7 +307,7 @@ describe('ToolExecution', () => {
 
 		it('should have data-has-result when result exists', async () => {
 			const t = setup({
-				toolCall: { status: 'complete', result: 'Success' }
+				toolCall: { status: 'complete', resultText: 'Success' }
 			});
 			await expect.element(t.result).toHaveAttribute('data-has-result');
 		});

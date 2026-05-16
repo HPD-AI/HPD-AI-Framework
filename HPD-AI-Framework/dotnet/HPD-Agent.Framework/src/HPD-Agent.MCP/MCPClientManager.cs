@@ -2,6 +2,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Client;
 using System.Text.Json;
+using HPD.Agent.Middleware;
 
 
 namespace HPD.Agent.MCP;
@@ -250,8 +251,8 @@ public class MCPClientManager : IDisposable
                 }
 
                 // Invocation wrapper delegates to the original tool's InvokeAsync
-                Func<AIFunctionArguments, CancellationToken, Task<object?>> invocationWrapper =
-                    async (args, ct) => await originalAIFunction.InvokeAsync(args, ct).ConfigureAwait(false);
+                Func<AIFunctionArguments, FunctionExecutionContext, CancellationToken, Task<object?>> invocationWrapper =
+                    async (args, _, ct) => await originalAIFunction.InvokeAsync(args, ct).ConfigureAwait(false);
 
                 var options = new HPDAIFunctionFactoryOptions
                 {
@@ -259,7 +260,7 @@ public class MCPClientManager : IDisposable
                     Description = originalAIFunction.Description,
                     RequiresPermission = serverConfig.RequiresPermission,
                     // MCP tools don't have validation since they're external - just pass through
-                    Validator = _ => new List<ValidationError>(),
+                    Validator = (_, _) => new List<ValidationError>(),
                     // Copy schema from original MCP tool for proper parameter handling
                     SchemaProvider = () => originalAIFunction.JsonSchema
                 };

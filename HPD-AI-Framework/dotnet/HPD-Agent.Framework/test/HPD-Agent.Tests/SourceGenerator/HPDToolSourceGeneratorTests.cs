@@ -115,6 +115,40 @@ namespace TestHarneses
         Assert.Contains("Static instructions here.", generatedCode);
     }
 
+    [Fact]
+    public void GeneratedHarness_WithEnumParameter_ParsesStringEnumArguments()
+    {
+        var source = @"
+using HPD.Agent;
+using System;
+
+namespace TestHarneses
+{
+    public enum SearchMode
+    {
+        Files,
+        Content
+    }
+
+    [Collapse(""Enum harness"", FunctionResult = ""ok"")]
+    public partial class EnumHarness
+    {
+        [AIFunction]
+        public string Search(string pattern, SearchMode mode = SearchMode.Files) => mode.ToString();
+    }
+}
+";
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+        Assert.NotNull(generatedCode);
+        Assert.Contains("HPDToolArgumentBinder.BindOptional<SearchMode>", generatedCode);
+        Assert.Contains("HPDToolArgumentBinder.ValidateNoUnmappedProperties(jsonArgs, serializerOptions, \"pattern\", \"mode\")", generatedCode);
+        Assert.Contains("ParseSearchArgs(jsonArgs, arguments.GetJsonSerializerOptions())", generatedCode);
+        Assert.DoesNotContain("global::System.Enum.TryParse<SearchMode>", generatedCode);
+    }
+
     // ── T047 ─────────────────────────────────────────────────────────────────
     // §5A: middleware with a single-config-parameter constructor → emitted into
     // CollapseMiddlewareConfigFactories with the correct MiddlewareTypeName and

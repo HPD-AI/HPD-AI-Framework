@@ -37,7 +37,7 @@ public sealed record RedTeamReport(
 public static class RedTeamRunner
 {
     public static async Task<RedTeamReport> ExecuteAsync(
-        IAgent agent,
+        HPD.Agent.Agent agent,
         RedTeamRunOptions options,
         CancellationToken ct = default)
     {

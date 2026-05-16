@@ -13,7 +13,7 @@ namespace HPD.Agent.Evaluations.Evaluators.LlmJudge;
 /// <summary>
 /// LLM-as-judge: does the chain-of-thought reasoning logically lead to the output? (0–1)
 /// Unique to HPD — no other framework exposes raw reasoning tokens to evaluators.
-/// Requires ReasoningContext (auto-populated by EvaluationMiddleware from TurnEvaluationContext).
+/// Requires ReasoningContext (auto-populated by LiveEvaluationMiddleware from TurnEvaluationContext).
 /// Default policy: TrackTrend.
 /// </summary>
 public sealed class ReasoningCoherenceEvaluator : HpdLlmJudgeEvaluatorBase

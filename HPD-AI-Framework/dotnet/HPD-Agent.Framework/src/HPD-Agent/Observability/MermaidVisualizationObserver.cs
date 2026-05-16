@@ -113,9 +113,9 @@ public class MermaidVisualizationObserver
                     _currentNode = decisionNode;
                     break;
 
-                case IterationMessagesEvent e:
+                case IterationContextSnapshotEvent e:
                     var llmNode = AddNode($"LLM_{e.Iteration}",
-                        $"LLM Call\\n{e.MessageCount} messages");
+                        $"LLM Context\\n{e.ContextMessageCount} context messages\\n{e.ToolCount} tools");
 
                     if (_currentNode != null)
                     {
@@ -266,7 +266,7 @@ public class MermaidVisualizationObserver
         MessageTurnStartedEvent e => $"▶ Message Turn Started: {e.MessageTurnId}",
         IterationStartEvent e => $"├─ Iteration {e.Iteration}/{e.MaxIterations}",
         AgentDecisionEvent e => $"  ├─ Decision: {e.DecisionType}",
-        IterationMessagesEvent e => $"  ├─ LLM Call ({e.MessageCount} messages)",
+        IterationContextSnapshotEvent e => $"  ├─ LLM Context ({e.ContextMessageCount} context messages, {e.ToolCount} tools)",
         InternalParallelToolExecutionEvent e =>
             $"  ├─ Tools: {e.ToolCount} executed ({e.Duration.TotalMilliseconds:F0}ms)" +
             (e.IsParallel ? " [PARALLEL]" : ""),
@@ -314,7 +314,7 @@ public class MermaidVisualizationObserver
         MessageTurnFinishedEvent e => e.Timestamp,
         IterationStartEvent e => e.Timestamp,
         AgentDecisionEvent e => e.Timestamp,
-        IterationMessagesEvent e => e.Timestamp,
+        IterationContextSnapshotEvent e => e.Timestamp,
         InternalParallelToolExecutionEvent e => e.Timestamp,
         CircuitBreakerTriggeredEvent e => e.Timestamp,
         PermissionCheckEvent e => e.Timestamp,

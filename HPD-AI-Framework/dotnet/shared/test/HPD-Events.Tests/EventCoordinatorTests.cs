@@ -24,6 +24,8 @@ public class EventCoordinatorTests
         public override EventDirection Direction { get; init; } = EventDirection.Upstream;
     }
 
+    private record TestRequestEvent(string RequestId, string SourceName, string Message) : Event, IBidirectionalEvent;
+
     private record BaseTestEvent(string Message) : Event;
     private record DerivedTestEvent(string Message) : BaseTestEvent(Message);
 
@@ -397,90 +399,91 @@ public class EventCoordinatorTests
     }
 
     [Fact]
-    public async Task WaitForResponseAsync_ReturnsResponse()
+    public async Task RequestAsync_ReturnsResponse()
     {
         var coordinator = new EventCoordinator();
-        var requestId = "test-request";
+        using var subscription = coordinator.Subscribe<TestRequestEvent>(request =>
+        {
+            coordinator.Respond(request.RequestId, new TestEvent("response"));
+            return ValueTask.CompletedTask;
+        });
 
-        var responseTask = coordinator.WaitForResponseAsync<TestEvent>(
-            requestId,
+        var result = await coordinator.RequestAsync<TestRequestEvent, TestEvent>(
+            new TestRequestEvent("test-request", "test", "request"),
             TimeSpan.FromSeconds(5));
-
-        coordinator.SendResponse(requestId, new TestEvent("response"));
-
-        var result = await responseTask;
 
         Assert.Equal("response", result.Message);
     }
 
     [Fact]
-    public async Task WaitForResponseAsync_ThrowsTimeoutException()
+    public async Task RequestAsync_ThrowsTimeoutException()
     {
         var coordinator = new EventCoordinator();
 
         await Assert.ThrowsAsync<TimeoutException>(async () =>
         {
-            await coordinator.WaitForResponseAsync<TestEvent>(
-                "missing-request",
+            await coordinator.RequestAsync<TestRequestEvent, TestEvent>(
+                new TestRequestEvent("missing-request", "test", "request"),
                 TimeSpan.FromMilliseconds(50));
         });
     }
 
     [Fact]
-    public async Task WaitForResponseAsync_ThrowsOnTypeMismatch()
+    public async Task RequestAsync_ThrowsOnTypeMismatch()
     {
         var coordinator = new EventCoordinator();
-        var requestId = "test-request";
+        using var subscription = coordinator.Subscribe<TestRequestEvent>(request =>
+        {
+            coordinator.Respond(request.RequestId, new TestEvent("wrong-type"));
+            return ValueTask.CompletedTask;
+        });
 
-        var responseTask = coordinator.WaitForResponseAsync<TestControlEvent>(
-            requestId,
-            TimeSpan.FromSeconds(5));
-
-        coordinator.SendResponse(requestId, new TestEvent("wrong-type"));
-
-        await Assert.ThrowsAsync<InvalidOperationException>(async () => await responseTask);
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await coordinator.RequestAsync<TestRequestEvent, TestControlEvent>(
+                new TestRequestEvent("test-request", "test", "request"),
+                TimeSpan.FromSeconds(5)));
     }
 
     [Fact]
-    public async Task WaitForResponseAsync_RejectsDuplicateRequestId()
+    public async Task RequestAsync_RejectsDuplicateRequestId()
     {
         var coordinator = new EventCoordinator();
         var requestId = "duplicate-request";
 
-        var first = coordinator.WaitForResponseAsync<TestEvent>(
-            requestId,
+        var first = coordinator.RequestAsync<TestRequestEvent, TestEvent>(
+            new TestRequestEvent(requestId, "test", "request"),
             TimeSpan.FromSeconds(5));
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await coordinator.WaitForResponseAsync<TestEvent>(
-                requestId,
+            await coordinator.RequestAsync<TestRequestEvent, TestEvent>(
+                new TestRequestEvent(requestId, "test", "request"),
                 TimeSpan.FromSeconds(5)));
 
         Assert.Contains("Duplicate request ID", ex.Message);
 
-        coordinator.SendResponse(requestId, new TestEvent("response"));
+        coordinator.Respond(requestId, new TestEvent("response"));
         Assert.Equal("response", (await first).Message);
     }
 
     [Fact]
-    public async Task SendResponse_RoutesToChildWaiter()
+    public async Task Respond_RoutesToChildWaiter()
     {
         var parent = new EventCoordinator();
         var child = new EventCoordinator();
         child.SetParent(parent);
 
-        var responseTask = child.WaitForResponseAsync<TestEvent>(
-            "child-request",
+        var responseTask = child.RequestAsync<TestRequestEvent, TestEvent>(
+            new TestRequestEvent("child-request", "test", "request"),
             TimeSpan.FromSeconds(5));
 
-        parent.SendResponse("child-request", new TestEvent("from-parent"));
+        parent.Respond("child-request", new TestEvent("from-parent"));
 
         var response = await responseTask;
         Assert.Equal("from-parent", response.Message);
     }
 
     [Fact]
-    public async Task SendResponse_ThrowsWhenRequestIdIsAmbiguousInHierarchy()
+    public async Task Respond_ThrowsWhenRequestIdIsAmbiguousInHierarchy()
     {
         var parent = new EventCoordinator();
         var left = new EventCoordinator();
@@ -488,20 +491,20 @@ public class EventCoordinatorTests
         left.SetParent(parent);
         right.SetParent(parent);
 
-        var leftWait = left.WaitForResponseAsync<TestEvent>(
-            "ambiguous-request",
+        var leftWait = left.RequestAsync<TestRequestEvent, TestEvent>(
+            new TestRequestEvent("ambiguous-request", "test", "request"),
             TimeSpan.FromSeconds(5));
-        var rightWait = right.WaitForResponseAsync<TestEvent>(
-            "ambiguous-request",
+        var rightWait = right.RequestAsync<TestRequestEvent, TestEvent>(
+            new TestRequestEvent("ambiguous-request", "test", "request"),
             TimeSpan.FromSeconds(5));
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => parent.SendResponse("ambiguous-request", new TestEvent("response")));
+            () => parent.Respond("ambiguous-request", new TestEvent("response")));
 
         Assert.Contains("Multiple pending response waiters", ex.Message);
 
-        left.SendResponse("ambiguous-request", new TestEvent("left-response"));
-        right.SendResponse("ambiguous-request", new TestEvent("right-response"));
+        left.Respond("ambiguous-request", new TestEvent("left-response"));
+        right.Respond("ambiguous-request", new TestEvent("right-response"));
 
         Assert.Equal("left-response", (await leftWait).Message);
         Assert.Equal("right-response", (await rightWait).Message);

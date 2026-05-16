@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj" />
+  </ItemGroup>
+
+</Project>

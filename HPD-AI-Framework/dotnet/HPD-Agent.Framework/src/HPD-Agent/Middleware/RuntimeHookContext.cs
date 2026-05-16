@@ -17,7 +17,7 @@ public enum RuntimeStopReason
 /// <summary>
 /// Runtime-scoped context used by start/stop middleware hooks.
 /// </summary>
-public sealed class AgentRuntimeContext : IAsyncDisposable
+public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTaskRegistry
 {
     private readonly List<Task> _backgroundTasks = new();
     private readonly List<IDisposable> _disposables = new();
@@ -27,6 +27,7 @@ public sealed class AgentRuntimeContext : IAsyncDisposable
     private readonly Func<bool> _hasActiveRuntimeTurns;
     private readonly object _lock = new();
     private bool _acceptingInputs = true;
+    private bool _acceptingBackgroundTasks = true;
 
     public string AgentName { get; }
     public AgentConfig Config { get; }
@@ -113,6 +114,7 @@ public sealed class AgentRuntimeContext : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(task);
         lock (_lock)
         {
+            ThrowIfBackgroundRegistrationClosed();
             _backgroundTasks.Add(task);
         }
     }
@@ -124,9 +126,80 @@ public sealed class AgentRuntimeContext : IAsyncDisposable
         Task task;
         lock (_lock)
         {
+            ThrowIfBackgroundRegistrationClosed();
             task = taskFactory(RuntimeCancellationToken);
             _backgroundTasks.Add(task);
         }
+    }
+
+    public void RegisterBackgroundTask(
+        string name,
+        FunctionInvocationSnapshot invocation,
+        Func<FunctionBackgroundContext, CancellationToken, Task> taskFactory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(invocation);
+        ArgumentNullException.ThrowIfNull(taskFactory);
+
+        var backgroundContext = new FunctionBackgroundContext
+        {
+            TaskId = Guid.NewGuid().ToString("N"),
+            Name = name,
+            Invocation = invocation,
+            EventCoordinator = EventCoordinator,
+            Services = Services,
+            StartedAt = DateTimeOffset.UtcNow
+        };
+
+        RegisterBackgroundTask(async runtimeToken =>
+        {
+            Emit(new ToolCallBackgroundTaskStartedEvent
+            {
+                TaskId = backgroundContext.TaskId,
+                Name = backgroundContext.Name,
+                Invocation = backgroundContext.Invocation,
+                StartedAt = backgroundContext.StartedAt
+            });
+
+            try
+            {
+                await taskFactory(backgroundContext, runtimeToken).ConfigureAwait(false);
+
+                var completedAt = DateTimeOffset.UtcNow;
+                Emit(new ToolCallBackgroundTaskCompletedEvent
+                {
+                    TaskId = backgroundContext.TaskId,
+                    Name = backgroundContext.Name,
+                    Invocation = backgroundContext.Invocation,
+                    CompletedAt = completedAt,
+                    DurationMilliseconds = Math.Max(0, (long)(completedAt - backgroundContext.StartedAt).TotalMilliseconds)
+                });
+            }
+            catch (OperationCanceledException) when (runtimeToken.IsCancellationRequested)
+            {
+                Emit(new ToolCallBackgroundTaskCancelledEvent
+                {
+                    TaskId = backgroundContext.TaskId,
+                    Name = backgroundContext.Name,
+                    Invocation = backgroundContext.Invocation,
+                    CancelledAt = DateTimeOffset.UtcNow
+                });
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Emit(new ToolCallBackgroundTaskFaultedEvent
+                {
+                    TaskId = backgroundContext.TaskId,
+                    Name = backgroundContext.Name,
+                    Invocation = backgroundContext.Invocation,
+                    FaultedAt = DateTimeOffset.UtcNow,
+                    ExceptionType = ex.GetType().FullName ?? ex.GetType().Name,
+                    ErrorMessage = ex.Message
+                });
+                throw;
+            }
+        });
     }
 
     public void RegisterDisposable(IDisposable disposable)
@@ -160,6 +233,14 @@ public sealed class AgentRuntimeContext : IAsyncDisposable
 
             _acceptingInputs = false;
             _runtimeInputWriter.TryComplete(error);
+        }
+    }
+
+    internal void StopAcceptingBackgroundTaskRegistrations()
+    {
+        lock (_lock)
+        {
+            _acceptingBackgroundTasks = false;
         }
     }
 
@@ -227,6 +308,13 @@ public sealed class AgentRuntimeContext : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await DisposeRegisteredResourcesAsync(CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private void ThrowIfBackgroundRegistrationClosed()
+    {
+        if (!_acceptingBackgroundTasks || RuntimeCancellationToken.IsCancellationRequested)
+            throw new InvalidOperationException(
+                "Agent runtime is stopping or stopped and cannot accept background task registrations.");
     }
 
     internal BeforeStartContext AsBeforeStart() => new(this);

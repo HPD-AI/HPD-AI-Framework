@@ -3,7 +3,6 @@
 
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
-using HPD.Agent.Evaluations.Batch;
 
 namespace HPD.Agent.Evaluations;
 
@@ -38,5 +37,5 @@ public sealed class EvalJudgeConfig
     /// evaluation loops.
     /// </summary>
     [JsonIgnore]
-    public IAgent? OverrideAgent { get; init; }
+    public IJudgeAgent? OverrideAgent { get; init; }
 }

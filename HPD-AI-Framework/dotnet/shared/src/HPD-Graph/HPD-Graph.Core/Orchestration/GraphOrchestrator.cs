@@ -2609,20 +2609,14 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
             if (options.ActiveWaitTimeout > TimeSpan.Zero)
             {
-                // CRITICAL: Register waiter BEFORE emitting to avoid race condition
-                // WaitForResponseAsync registers immediately when called, not when awaited
-                var waitTask = context.EventCoordinator.WaitForResponseAsync<Abstractions.Events.NodeApprovalResponseEvent>(
-                    suspended.SuspendToken,
-                    options.ActiveWaitTimeout,
-                    ct
-                );
-
-                // Now emit the event (waiter is already registered)
-                context.EventCoordinator.Emit(requestEvent);
-
                 try
                 {
-                    var response = await waitTask;
+                    var response = await context.EventCoordinator.RequestAsync<
+                        Abstractions.Events.NodeApprovalRequestEvent,
+                        Abstractions.Events.NodeApprovalResponseEvent>(
+                        requestEvent,
+                        options.ActiveWaitTimeout,
+                        ct);
 
                     if (response.Approved)
                     {

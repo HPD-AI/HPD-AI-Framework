@@ -16,7 +16,7 @@ namespace HPD.Agent.Evaluations.Evaluators.LlmJudge;
 /// <summary>
 /// Branch-scoped persistent middleware state for conversation-level evaluators.
 /// Accumulates facts across turns so evaluators can assess coherence and memory.
-/// Written by EvaluationMiddleware.AfterMessageTurnAsync via UpdateMiddlewareState.
+/// Written by LiveEvaluationMiddleware.AfterMessageTurnAsync via UpdateMiddlewareState.
 /// </summary>
 [MiddlewareState(Persistent = true, Scope = StateScope.Branch)]
 public sealed record ConversationEvalStateData

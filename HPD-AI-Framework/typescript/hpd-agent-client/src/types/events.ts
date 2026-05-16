@@ -79,7 +79,9 @@ export const EventTypes = {
   BIDIRECTIONAL_EVENT_PROCESSED: 'BIDIRECTIONAL_EVENT_PROCESSED',
   AGENT_DECISION: 'AGENT_DECISION',
   AGENT_COMPLETION: 'AGENT_COMPLETION',
-  ITERATION_MESSAGES: 'ITERATION_MESSAGES',
+  ITERATION_CONTEXT_SNAPSHOT: 'ITERATION_CONTEXT_SNAPSHOT',
+  MIDDLEWARE_STATE_SNAPSHOT: 'MIDDLEWARE_STATE_SNAPSHOT',
+  MIDDLEWARE_STATE_CHANGED: 'MIDDLEWARE_STATE_CHANGED',
   SCHEMA_CHANGED: 'SCHEMA_CHANGED',
   COLLAPSING_STATE: 'COLLAPSING_STATE',
 
@@ -215,6 +217,91 @@ export interface StateSnapshotEvent extends BaseEvent {
   timestamp: string;
 }
 
+export interface ContextMessageSnapshot {
+  role: string;
+  text: string;
+}
+
+export interface ToolContextSnapshot {
+  name: string;
+  description: string;
+  harnessName?: string;
+  callType?: ToolCallType;
+  isContainer: boolean;
+  inputSchemaJson?: string;
+}
+
+export interface IterationContextSnapshotEvent extends BaseEvent {
+  type: typeof EventTypes.ITERATION_CONTEXT_SNAPSHOT;
+  agentName: string;
+  iteration: number;
+  totalMessageCount: number;
+  contextMessageCount: number;
+  contextMessages: ContextMessageSnapshot[];
+  instructions?: string;
+  toolCount: number;
+  tools: ToolContextSnapshot[];
+  timestamp: string;
+}
+
+export type StateScope = 'Session' | 'Branch';
+
+export interface MiddlewareStateEntrySnapshot {
+  key: string;
+  type: string;
+  propertyName: string;
+  scope: StateScope;
+  persistent: boolean;
+  version: number;
+  json?: unknown;
+  error?: string;
+  redacted: boolean;
+}
+
+export interface MiddlewareStateSnapshotEvent extends BaseEvent {
+  type: typeof EventTypes.MIDDLEWARE_STATE_SNAPSHOT;
+  agentName: string;
+  sessionId?: string;
+  branchId?: string;
+  iteration: number;
+  phase: string;
+  batchId?: string;
+  functionCallId?: string;
+  toolCallIndex?: number;
+  stateCount: number;
+  states: MiddlewareStateEntrySnapshot[];
+  timestamp: string;
+}
+
+export interface MiddlewareStateChange {
+  key: string;
+  type: string;
+  propertyName: string;
+  scope: StateScope;
+  persistent: boolean;
+  version: number;
+  changeType: 'added' | 'updated' | 'removed' | string;
+  before?: unknown;
+  after?: unknown;
+  error?: string;
+  redacted: boolean;
+}
+
+export interface MiddlewareStateChangedEvent extends BaseEvent {
+  type: typeof EventTypes.MIDDLEWARE_STATE_CHANGED;
+  agentName: string;
+  sessionId?: string;
+  branchId?: string;
+  iteration: number;
+  phase: string;
+  batchId?: string;
+  functionCallId?: string;
+  toolCallIndex?: number;
+  changeCount: number;
+  changes: MiddlewareStateChange[];
+  timestamp: string;
+}
+
 // ============================================
 // Content Events
 // ============================================
@@ -286,10 +373,17 @@ export interface ToolCallEndEvent extends BaseEvent {
   callId: string;
 }
 
+export interface ToolResultPayload {
+  text?: string;
+  json?: unknown;
+  content?: ToolResultContent[];
+  resultType?: string;
+}
+
 export interface ToolCallResultEvent extends BaseEvent {
   type: typeof EventTypes.TOOL_CALL_RESULT;
   callId: string;
-  result: string;
+  result: ToolResultPayload;
   /** The harness that owns this tool, if any. */
   harnessName?: string;
   /** The kind of capability (AIFunction, Skill, SubAgent, etc.). */
@@ -597,6 +691,9 @@ export type AgentEvent =
   | AgentTurnStartedEvent
   | AgentTurnFinishedEvent
   | StateSnapshotEvent
+  | IterationContextSnapshotEvent
+  | MiddlewareStateSnapshotEvent
+  | MiddlewareStateChangedEvent
   // Content Events
   | TextMessageStartEvent
   | TextDeltaEvent

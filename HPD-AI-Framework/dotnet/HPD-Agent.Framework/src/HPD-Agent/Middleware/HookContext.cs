@@ -257,17 +257,14 @@ public abstract class HookContext
     }
 
     /// <summary>
-    /// Waits for a response event from external handlers.
-    /// Used for interactive patterns: permissions, clarifications, approvals.
+    /// Emits a bidirectional request event and waits for its matching response.
     /// </summary>
-    /// <typeparam name="T">Type of response event expected</typeparam>
-    /// <param name="requestId">Unique identifier for this request (must match response)</param>
-    /// <param name="timeout">Maximum time to wait (default: 5 minutes)</param>
-    /// <returns>The response event</returns>
-    public Task<T> WaitForResponseAsync<T>(
-        string requestId,
-        TimeSpan? timeout = null) where T : AgentEvent
-        => Base.WaitForResponseAsync<T>(requestId, timeout);
+    public Task<TResponse> RequestAsync<TRequest, TResponse>(
+        TRequest request,
+        TimeSpan? timeout = null)
+        where TRequest : AgentEvent, HPD.Events.IBidirectionalEvent
+        where TResponse : AgentEvent
+        => Base.RequestAsync<TRequest, TResponse>(request, timeout);
 
     /// <summary>
     /// Stream registry for managing interruptible operations.
@@ -286,7 +283,7 @@ public abstract class HookContext
     /// <remarks>
     /// <para><b>For source-generated code only.</b></para>
     /// <para>
-    /// External code should use <see cref="Emit"/> and <see cref="WaitForResponseAsync{T}"/> instead.
+    /// External code should use <see cref="Emit"/> and <see cref="RequestAsync{TRequest,TResponse}"/> instead.
     /// This property is public (not internal) because source-generated code runs in consumer assemblies.
     /// </para>
     /// </remarks>

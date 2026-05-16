@@ -397,7 +397,7 @@ public class ClientToolMiddleware : IAgentMiddleware
     private static AIFunction ConvertToolToAIFunction(ClientToolDefinition tool, string toolName)
     {
         return HPDAIFunctionFactory.Create(
-            async (args, ct) =>
+            async (args, _, ct) =>
             {
                 // This should never be called - ClientToolMiddleware intercepts
                 throw new InvalidOperationException(
@@ -409,7 +409,7 @@ public class ClientToolMiddleware : IAgentMiddleware
                 Name = tool.Name,
                 Description = tool.Description,
                 RequiresPermission = tool.RequiresPermission,
-                Validator = _ => new List<ValidationError>(),
+                Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => tool.ParametersSchema,
                 AdditionalProperties = new Dictionary<string, object?>
                 {
@@ -468,7 +468,7 @@ public class ClientToolMiddleware : IAgentMiddleware
         }
 
         return HPDAIFunctionFactory.Create(
-            async (args, ct) =>
+            async (args, _, ct) =>
             {
                 return returnMessage;
             },
@@ -477,7 +477,7 @@ public class ClientToolMiddleware : IAgentMiddleware
                 Name = skill.Name,
                 Description = skill.Description,
                 RequiresPermission = false, // Skills are entry points
-                Validator = _ => new List<ValidationError>(),
+                Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => CreateEmptySchema(),
                 AdditionalProperties = new Dictionary<string, object?>
                 {
@@ -533,22 +533,19 @@ public class ClientToolMiddleware : IAgentMiddleware
         var requestId = Guid.NewGuid().ToString();
         var toolName = context.Function.Name;
 
-        // Emit invocation request
-        context.Emit(new ClientToolInvokeRequestEvent(
-            RequestId: requestId,
-            ToolName: toolName,
-            CallId: context.FunctionCallId ?? string.Empty,
-            Arguments: context.Arguments?.ToDictionary(
-                kvp => kvp.Key,
-                kvp => kvp.Value) ?? new Dictionary<string, object?>(),
-            Description: context.Function.Description));
-
         // Wait for response
         ClientToolInvokeResponseEvent response;
         try
         {
-            response = await context.WaitForResponseAsync<ClientToolInvokeResponseEvent>(
-                requestId,
+            response = await context.RequestAsync<ClientToolInvokeRequestEvent, ClientToolInvokeResponseEvent>(
+                new ClientToolInvokeRequestEvent(
+                    RequestId: requestId,
+                    ToolName: toolName,
+                    CallId: context.FunctionCallId ?? string.Empty,
+                    Arguments: context.Arguments?.ToDictionary(
+                        kvp => kvp.Key,
+                        kvp => kvp.Value) ?? new Dictionary<string, object?>(),
+                    Description: context.Function.Description),
                 _config.InvokeTimeout);
         }
         catch (TimeoutException)

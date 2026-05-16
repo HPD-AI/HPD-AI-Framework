@@ -3,6 +3,7 @@ using HPD.Agent.AspNetCore.Lifecycle;
 using HPD.Agent.Hosting.Configuration;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace HPD.Agent.AspNetCore.Tests.Unit;
@@ -16,17 +17,20 @@ public class AspNetCoreAgentManagerTests : IDisposable
     private readonly InMemoryAgentStore _agentStore;
     private readonly AspNetCoreSessionManager _sessionManager;
     private readonly OptionsMonitorWrapper _optionsMonitor;
+    private readonly ServiceProvider _serviceProvider;
 
     public AspNetCoreAgentManagerTests()
     {
         _sessionStore = new InMemorySessionStore();
         _agentStore = new InMemoryAgentStore();
         _optionsMonitor = new OptionsMonitorWrapper();
+        _serviceProvider = new ServiceCollection().BuildServiceProvider();
         _sessionManager = new AspNetCoreSessionManager(_sessionStore, _optionsMonitor, Options.DefaultName);
     }
 
     public void Dispose()
     {
+        _serviceProvider.Dispose();
         _sessionManager.Dispose();
     }
 
@@ -177,7 +181,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
     // ──────────────────────────────────────────────────────────────────────────
 
     private TestableAgentManager MakeManager(IAgentFactory? factory = null)
-        => new TestableAgentManager(_agentStore, _sessionManager, _optionsMonitor, Options.DefaultName, factory);
+        => new TestableAgentManager(_agentStore, _sessionManager, _optionsMonitor, _serviceProvider, Options.DefaultName, factory);
 
     private static async Task<StoredAgent> SeedDefault(AgentManager manager)
     {
@@ -250,9 +254,10 @@ public class AspNetCoreAgentManagerTests : IDisposable
             IAgentStore agentStore,
             AspNetCoreSessionManager sessionManager,
             IOptionsMonitor<HPDAgentConfig> optionsMonitor,
+            IServiceProvider serviceProvider,
             string name,
             IAgentFactory? agentFactory = null)
-            : base(agentStore, sessionManager, optionsMonitor, name, agentFactory) { }
+            : base(agentStore, sessionManager, optionsMonitor, serviceProvider, name, agentFactory) { }
 
         public TimeSpan GetIdleTimeoutForTests() => GetIdleTimeout();
     }

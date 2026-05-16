@@ -73,6 +73,9 @@ public sealed record ReportCaseFailure(
 
 public sealed record ReportCase(
     string? Name,
+    string? ProviderKey,
+    string? ModelId,
+    string? ResponseModelId,
     EvaluationResult EvaluationResult,
     IReadOnlyList<EvaluatorFailure> EvaluatorFailures,
     TimeSpan TaskDuration,
@@ -210,6 +213,9 @@ public sealed class EvaluationReport
             cases = Cases.Select(c => new
             {
                 c.Name,
+                c.ProviderKey,
+                c.ModelId,
+                c.ResponseModelId,
                 metrics = c.EvaluationResult.Metrics.ToDictionary(
                     kv => kv.Key,
                     kv => kv.Value switch
@@ -297,7 +303,7 @@ public sealed class EvaluationReport
         if (Cases.Count > 0)
         {
             sb.AppendLine("<h2>Cases</h2>");
-            sb.AppendLine("<table><thead><tr><th>Case</th>");
+            sb.AppendLine("<table><thead><tr><th>Case</th><th>Provider</th><th>Model</th><th>Response Model</th>");
             foreach (var name in metricNames)
                 sb.AppendLine($"<th>{HtmlEncode(name)}</th>");
             sb.AppendLine("<th>Task ms</th><th>Eval ms</th></tr></thead><tbody>");
@@ -305,6 +311,9 @@ public sealed class EvaluationReport
             foreach (var c in Cases)
             {
                 sb.AppendLine($"<tr><td>{HtmlEncode(c.Name ?? "(unnamed)")}</td>");
+                sb.AppendLine($"<td>{HtmlEncode(c.ProviderKey ?? "")}</td>");
+                sb.AppendLine($"<td>{HtmlEncode(c.ModelId ?? "")}</td>");
+                sb.AppendLine($"<td>{HtmlEncode(c.ResponseModelId ?? "")}</td>");
                 foreach (var name in metricNames)
                 {
                     if (c.EvaluationResult.Metrics.TryGetValue(name, out var metric))

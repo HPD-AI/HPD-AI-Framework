@@ -148,11 +148,16 @@ public class TradingHostTests
 
         public void SetParent(IEventCoordinator parent) { }
 
-        public Task<TResponse> WaitForResponseAsync<TResponse>(
-            string requestId, TimeSpan timeout, CancellationToken ct = default) where TResponse : Event =>
+        public Task<TResponse> RequestAsync<TRequest, TResponse>(
+            TRequest request,
+            TimeSpan timeout,
+            CancellationToken ct = default)
+            where TRequest : Event, IBidirectionalEvent
+            where TResponse : Event =>
             throw new NotImplementedException();
 
-        public void SendResponse(string requestId, Event response) { }
+        public void Respond(string requestId, Event response) { }
+        public bool TryRespond(string requestId, Event response) => false;
         public IStreamRegistry Streams => throw new NotImplementedException();
     }
 

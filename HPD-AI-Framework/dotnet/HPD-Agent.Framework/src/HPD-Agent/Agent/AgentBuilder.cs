@@ -93,6 +93,7 @@ public class AgentBuilder
 
     internal readonly Dictionary<Type, object> _providerConfigs = new();
     internal IServiceProvider? _serviceProvider;
+    private JsonSerializerOptions? _toolSerializerOptions;
     internal ILoggerFactory? _logger;
 
     // MCP runtime fields (stored as object to avoid circular reference to HPD-Agent.MCP)
@@ -620,7 +621,7 @@ public class AgentBuilder
                 }
 
                 // Call CreateFunctions delegate (ZERO REFLECTION!)
-                var functions = factory.CreateFunctions(instance, ctx ?? _defaulTMetadata);
+                var functions = factory.CreateFunctions(instance, ctx ?? _defaulTMetadata, CreateToolSerializationOptions());
 
                 // Phase 4.5: Apply function filter if this Harness has selective registration
                 if (_toolFunctionFilters.TryGetValue(factory.Name, out var functionFilter))
@@ -666,7 +667,7 @@ public class AgentBuilder
                     });
                 }
 
-                var functions = factory.CreateFunctions(registration.Instance, ctx ?? _defaulTMetadata);
+                var functions = factory.CreateFunctions(registration.Instance, ctx ?? _defaulTMetadata, CreateToolSerializationOptions());
 
                 // Apply function filter if set
                 if (registration.FunctionFilter != null && registration.FunctionFilter.Length > 0)
@@ -686,6 +687,13 @@ public class AgentBuilder
         }
 
         return allFunctions;
+    }
+
+    private HPDToolSerializationOptions? CreateToolSerializationOptions()
+    {
+        return _toolSerializerOptions is null
+            ? null
+            : new HPDToolSerializationOptions(_toolSerializerOptions);
     }
 
     /// <summary>
@@ -2697,6 +2705,22 @@ public class AgentBuilder
     /// Public access to Harness contexts for extension methods and external configuration
     /// </summary>
     public Dictionary<string, IToolMetadata?> HarnessContexts => _harnessContexts;
+
+    /// <summary>
+    /// Configures serializer options used to marshal tool return values into event-safe JSON payloads.
+    /// </summary>
+    public AgentBuilder WithToolSerializerOptions(JsonSerializerOptions serializerOptions)
+    {
+        ArgumentNullException.ThrowIfNull(serializerOptions);
+
+        var options = new JsonSerializerOptions(serializerOptions);
+        if (AIJsonUtilities.DefaultOptions.TypeInfoResolver is { } aiResolver)
+            options.TypeInfoResolverChain.Add(aiResolver);
+        options.TypeInfoResolverChain.Add(HPDJsonContext.Default);
+        options.MakeReadOnly();
+        _toolSerializerOptions = options;
+        return this;
+    }
 
     /// <summary>
     /// Public access to unified middlewares for extension methods and external configuration

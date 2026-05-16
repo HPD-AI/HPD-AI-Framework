@@ -7,6 +7,7 @@ using HPD.Agent.Evaluations.Batch;
 using HPD.Agent.Evaluations.Integration;
 using HPD.Agent.Evaluations.Storage;
 using HPD.Agent.Evaluations.Tests.Infrastructure;
+using HPD.Agent.Middleware;
 using HPD.Agent.Providers;
 using Microsoft.Extensions.AI;
 
@@ -14,15 +15,15 @@ namespace HPD.Agent.Evaluations.Tests.Integration;
 
 /// <summary>
 /// Tests for AgentBuilderEvalExtensions — the fluent API that registers
-/// EvaluationMiddleware on AgentBuilder.
+/// LiveEvaluationMiddleware on AgentBuilder.
 ///
 /// Key behaviors:
-/// 1. AddEvaluator registers EvaluationMiddleware in builder.Middlewares.
-/// 2. All AddEvaluator calls share ONE EvaluationMiddleware instance.
+/// 1. AddEvaluator registers LiveEvaluationMiddleware in builder.Middlewares.
+/// 2. All AddEvaluator calls share ONE LiveEvaluationMiddleware instance.
 /// 3. UseScoreStore injects store onto the middleware.
 /// 4. UseEvalJudgeConfig injects judge config onto the middleware.
 /// 5. Multiple evaluators → all tracked on single middleware instance.
-/// 6. EvaluationMiddleware is also registered as an HPD.Events subscription (verified indirectly).
+/// 6. LiveEvaluationMiddleware is also registered as an HPD.Events subscription (verified indirectly).
 /// </summary>
 public sealed class AgentBuilderEvalExtensionsTests
 {
@@ -38,14 +39,14 @@ public sealed class AgentBuilderEvalExtensionsTests
     // ── AddEvaluator ──────────────────────────────────────────────────────────
 
     [Fact]
-    public void AddEvaluator_RegistersEvaluationMiddleware()
+    public void AddEvaluator_RegistersLiveEvaluationMiddleware()
     {
         var builder = MakeBuilder();
 
         builder.AddEvaluator(new StubDeterministicEvaluator("Score"));
 
-        builder.Middlewares.OfType<EvaluationMiddleware>()
-            .Should().ContainSingle("AddEvaluator must register exactly one EvaluationMiddleware");
+        builder.Middlewares.OfType<LiveEvaluationMiddleware>()
+            .Should().ContainSingle("AddEvaluator must register exactly one LiveEvaluationMiddleware");
     }
 
     [Fact]
@@ -57,7 +58,7 @@ public sealed class AgentBuilderEvalExtensionsTests
             .AddEvaluator(new StubDeterministicEvaluator("Score1"))
             .AddEvaluator(new StubDeterministicEvaluator("Score2"));
 
-        builder.Middlewares.OfType<EvaluationMiddleware>()
+        builder.Middlewares.OfType<LiveEvaluationMiddleware>()
             .Should().ContainSingle("multiple AddEvaluator calls must share ONE middleware");
     }
 
@@ -72,7 +73,7 @@ public sealed class AgentBuilderEvalExtensionsTests
         builder.AddEvaluator(ev1).AddEvaluator(ev2).AddEvaluator(ev3);
 
         // The middleware holds all three — verify by inspecting its internal state via reflection
-        var middleware = builder.Middlewares.OfType<EvaluationMiddleware>().Single();
+        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
         var registrations = GetRegistrations(middleware);
         registrations.Should().HaveCount(3, "all three evaluators must be tracked");
     }
@@ -86,6 +87,35 @@ public sealed class AgentBuilderEvalExtensionsTests
         result.Should().BeSameAs(builder);
     }
 
+    [Fact]
+    public void AddEvaluator_RegistersLiveEvaluationMiddlewareOutermost()
+    {
+        var builder = MakeBuilder();
+        var existing = new NoopMiddleware();
+        builder.WithMiddleware(existing);
+
+        builder.AddEvaluator(new StubDeterministicEvaluator("Score"));
+
+        builder.Middlewares[0].Should().BeOfType<LiveEvaluationMiddleware>(
+            "evaluation must run first for Before* hooks and last for After* hooks");
+        builder.Middlewares[1].Should().BeSameAs(existing);
+    }
+
+    [Fact]
+    public void UseScoreStore_RePinsExistingLiveEvaluationMiddlewareOutermost()
+    {
+        var builder = MakeBuilder();
+        builder.AddEvaluator(new StubDeterministicEvaluator("Score"));
+        var insertedLater = new NoopMiddleware();
+        builder.Middlewares.Insert(0, insertedLater);
+
+        builder.UseScoreStore(new InMemoryScoreStore());
+
+        builder.Middlewares[0].Should().BeOfType<LiveEvaluationMiddleware>(
+            "subsequent eval configuration should preserve final AfterMessageTurn ordering");
+        builder.Middlewares[1].Should().BeSameAs(insertedLater);
+    }
+
     // ── UseScoreStore ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -96,7 +126,7 @@ public sealed class AgentBuilderEvalExtensionsTests
 
         builder.AddEvaluator(new StubDeterministicEvaluator("Score")).UseScoreStore(store);
 
-        var middleware = builder.Middlewares.OfType<EvaluationMiddleware>().Single();
+        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
         middleware.ScoreStore.Should().BeSameAs(store);
     }
 
@@ -109,7 +139,7 @@ public sealed class AgentBuilderEvalExtensionsTests
 
         builder.UseScoreStore(store);
 
-        var middleware = builder.Middlewares.OfType<EvaluationMiddleware>().Single();
+        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
         middleware.ScoreStore.Should().BeSameAs(store);
     }
 
@@ -131,7 +161,7 @@ public sealed class AgentBuilderEvalExtensionsTests
 
         builder.AddEvaluator(new StubDeterministicEvaluator("Score")).UseEvalJudgeConfig(judgeConfig);
 
-        var middleware = builder.Middlewares.OfType<EvaluationMiddleware>().Single();
+        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
         middleware.GlobalJudgeConfig.Should().BeSameAs(judgeConfig);
     }
 
@@ -151,7 +181,7 @@ public sealed class AgentBuilderEvalExtensionsTests
 
         builder.UseEvalJudgeAgent(judgeAgent);
 
-        var middleware = builder.Middlewares.OfType<EvaluationMiddleware>().Single();
+        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
         middleware.GlobalJudgeConfig.Should().NotBeNull();
         middleware.GlobalJudgeConfig!.OverrideAgent.Should().BeSameAs(judgeAgent);
     }
@@ -169,7 +199,7 @@ public sealed class AgentBuilderEvalExtensionsTests
             .WithValidation(false));
 #pragma warning restore IL2026
 
-        var middleware = builder.Middlewares.OfType<EvaluationMiddleware>().Single();
+        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
         var judgeAgent = middleware.GlobalJudgeConfig!.OverrideAgent;
         judgeAgent.Should().NotBeNull();
 
@@ -195,7 +225,7 @@ public sealed class AgentBuilderEvalExtensionsTests
             .WithValidation(false));
 #pragma warning restore IL2026
 
-        var middleware = builder.Middlewares.OfType<EvaluationMiddleware>().Single();
+        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
         var judgeAgent = middleware.GlobalJudgeConfig!.OverrideAgent!;
         var chatClient = new AgentBackedJudgeChatClient(judgeAgent);
 
@@ -219,7 +249,7 @@ public sealed class AgentBuilderEvalExtensionsTests
         var builder = MakeBuilder();
         builder.AddEvaluator(new StubDeterministicEvaluator("Score"), samplingRate: 0.5);
 
-        var middleware = builder.Middlewares.OfType<EvaluationMiddleware>().Single();
+        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
         var regs = GetRegistrations(middleware);
         regs.Single().SamplingRate.Should().Be(0.5);
     }
@@ -230,7 +260,7 @@ public sealed class AgentBuilderEvalExtensionsTests
         var builder = MakeBuilder();
         builder.AddEvaluator(new StubDeterministicEvaluator("Score"), policy: EvalPolicy.TrackTrend);
 
-        var middleware = builder.Middlewares.OfType<EvaluationMiddleware>().Single();
+        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
         var regs = GetRegistrations(middleware);
         regs.Single().Policy.Should().Be(EvalPolicy.TrackTrend);
     }
@@ -238,21 +268,23 @@ public sealed class AgentBuilderEvalExtensionsTests
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Reads EvaluationMiddleware._evaluators via reflection (it's internal/private).
+    /// Reads LiveEvaluationMiddleware._evaluators via reflection (it's internal/private).
     /// </summary>
-    private static IReadOnlyList<EvaluatorRegistration> GetRegistrations(EvaluationMiddleware middleware)
+    private static IReadOnlyList<EvaluatorRegistration> GetRegistrations(LiveEvaluationMiddleware middleware)
     {
-        var field = typeof(EvaluationMiddleware)
+        var field = typeof(LiveEvaluationMiddleware)
             .GetField("_evaluators", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        field.Should().NotBeNull("_evaluators field must exist on EvaluationMiddleware");
+        field.Should().NotBeNull("_evaluators field must exist on LiveEvaluationMiddleware");
 
         var list = field!.GetValue(middleware) as System.Collections.IEnumerable;
         return list!.Cast<EvaluatorRegistration>().ToList();
     }
 
-    private sealed class CapturingJudgeAgent : IAgent
+    private sealed class CapturingJudgeAgent : IJudgeAgent
     {
         public Task<ChatResponse> RunAsync(AgentRunConfig config, CancellationToken ct = default) =>
             Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, "<S2>true</S2>")]));
     }
+
+    private sealed class NoopMiddleware : IAgentMiddleware;
 }

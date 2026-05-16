@@ -426,6 +426,35 @@ public class HistoryReductionStateTests
         incremented.ExchangeCount.Should().Be(1);
     }
 
+    [Fact]
+    public void WithReduction_ShouldRecordLastAppliedAt()
+    {
+        var messages = CreateTestMessages(10);
+        var reduction = CreateSampleReduction(messages);
+        var before = DateTimeOffset.UtcNow;
+
+        var state = new HistoryReductionStateData().WithReduction(reduction);
+
+        state.LastReduction.Should().BeSameAs(reduction);
+        state.LastAppliedAt.Should().NotBeNull();
+        state.LastAppliedAt.Should().BeOnOrAfter(before);
+        state.LastAppliedAt.Should().BeOnOrBefore(DateTimeOffset.UtcNow);
+    }
+
+    [Fact]
+    public void WithReductionApplied_ShouldUpdateLastAppliedAtWithoutReplacingReduction()
+    {
+        var messages = CreateTestMessages(10);
+        var reduction = CreateSampleReduction(messages);
+        var state = new HistoryReductionStateData().WithReduction(reduction);
+        var appliedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        var updated = state.WithReductionApplied(appliedAt);
+
+        updated.LastReduction.Should().BeSameAs(reduction);
+        updated.LastAppliedAt.Should().Be(appliedAt);
+    }
+
     #endregion
 
     #region Immutability Tests

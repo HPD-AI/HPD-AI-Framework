@@ -36,10 +36,27 @@ public sealed record HistoryReductionStateData
     public int ExchangeCount { get; init; }
 
     /// <summary>
+    /// Last time a cached or newly-created reduction was applied to the active message history.
+    /// Useful for other middleware that needs to know whether exact prior tool results may have
+    /// been removed from model-visible context.
+    /// </summary>
+    public DateTimeOffset? LastAppliedAt { get; init; }
+
+    /// <summary>
     /// Records a new reduction, replacing the previous cache entry.
     /// </summary>
     public HistoryReductionStateData WithReduction(CachedReduction reduction) =>
-        this with { LastReduction = reduction };
+        this with
+        {
+            LastReduction = reduction,
+            LastAppliedAt = DateTimeOffset.UtcNow
+        };
+
+    /// <summary>
+    /// Records that the existing cached reduction was applied to message history.
+    /// </summary>
+    public HistoryReductionStateData WithReductionApplied(DateTimeOffset appliedAt) =>
+        this with { LastAppliedAt = appliedAt };
 
     /// <summary>
     /// Increments the exchange counter by one.

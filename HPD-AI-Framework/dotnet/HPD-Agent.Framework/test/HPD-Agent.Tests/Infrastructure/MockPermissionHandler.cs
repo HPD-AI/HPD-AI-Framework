@@ -9,9 +9,13 @@ public sealed class MockPermissionHandler : IDisposable
     private readonly Agent _agent;
     private readonly Task _handlerTask;
     private readonly CancellationTokenSource _cts = new();
+    private readonly List<IDisposable> _subscriptions = new();
     private readonly List<PermissionRequestEvent> _capturedRequests = new();
     private readonly List<AgentEvent> _capturedEvents = new();
     private readonly Queue<PermissionResponse> _queuedResponses = new();
+    private readonly HashSet<string> _handledPermissionRequests = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _handledContinuationRequests = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _capturedMiddlewareEvents = new(StringComparer.Ordinal);
     private readonly object _lock = new();
     private bool _autoApprove = false;
     private bool _autoDeny = false;
@@ -29,6 +33,14 @@ public sealed class MockPermissionHandler : IDisposable
         internal MockPermissionHandler(Agent agent, IAsyncEnumerable<AgentEvent> eventStream)
     {
         _agent = agent;
+        _subscriptions.Add(agent.EventCoordinator.Subscribe<PermissionRequestEvent>(
+            evt => new ValueTask(HandleEventAsync(evt))));
+        _subscriptions.Add(agent.EventCoordinator.Subscribe<PermissionApprovedEvent>(
+            evt => new ValueTask(CaptureMiddlewareEventAsync(evt))));
+        _subscriptions.Add(agent.EventCoordinator.Subscribe<PermissionDeniedEvent>(
+            evt => new ValueTask(CaptureMiddlewareEventAsync(evt))));
+        _subscriptions.Add(agent.EventCoordinator.Subscribe<ContinuationRequestEvent>(
+            evt => new ValueTask(HandleEventAsync(evt))));
         _handlerTask = Task.Run(async () => await HandleEventsAsync(eventStream));
     }
 
@@ -133,66 +145,7 @@ public sealed class MockPermissionHandler : IDisposable
         {
             await foreach (var evt in eventStream.WithCancellation(_cts.Token))
             {
-                // Capture ALL events
-                lock (_lock)
-                {
-                    _capturedEvents.Add(evt);
-                }
-
-                if (evt is PermissionRequestEvent permissionRequest)
-                {
-                    // Capture the request
-                    lock (_lock)
-                    {
-                        _capturedRequests.Add(permissionRequest);
-                    }
-
-                    // Determine response
-                    PermissionResponse response;
-                    lock (_lock)
-                    {
-                        if (_queuedResponses.Count > 0)
-                        {
-                            // Use queued response
-                            response = _queuedResponses.Dequeue();
-                        }
-                        else if (_autoApprove)
-                        {
-                            response = new PermissionResponse(true);
-                        }
-                        else if (_autoDeny)
-                        {
-                            response = new PermissionResponse(false, "Denied by test");
-                        }
-                        else
-                        {
-                            // Default: approve
-                            response = new PermissionResponse(true);
-                        }
-                    }
-
-                    // Send response back to agent
-                    await _agent.RespondAsync(new PermissionResponseEvent(
-                        permissionRequest.PermissionId,
-                        "MockPermissionHandler",
-                        response.Approved,
-                        response.DenialReason,
-                        response.Choice));
-                }
-                else if (evt is ContinuationRequestEvent continuationRequest)
-                {
-                    // Respond to continuation requests based on configuration
-                    bool approved;
-                    lock (_lock)
-                    {
-                        approved = _autoApproveContinuation && !_autoDenyContinuation;
-                    }
-
-                    await _agent.RespondAsync(new ContinuationResponseEvent(
-                        continuationRequest.ContinuationId,
-                        "MockPermissionHandler",
-                        approved));
-                }
+                await HandleEventAsync(evt);
             }
         }
         catch (OperationCanceledException)
@@ -200,6 +153,95 @@ public sealed class MockPermissionHandler : IDisposable
             // Expected when disposed
         }
     }
+
+    private Task CaptureMiddlewareEventAsync(AgentEvent evt)
+    {
+        lock (_lock)
+        {
+            if (_capturedMiddlewareEvents.Add(GetMiddlewareEventKey(evt)))
+                _capturedEvents.Add(evt);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleEventAsync(AgentEvent evt)
+    {
+        // Capture ALL events from the run stream. Middleware-emitted permission lifecycle
+        // events arrive through EventCoordinator subscriptions because the runtime can be
+        // waiting inside the middleware hook when they are emitted.
+        if (evt is not PermissionApprovedEvent and not PermissionDeniedEvent)
+        {
+            lock (_lock)
+            {
+                _capturedEvents.Add(evt);
+            }
+        }
+        else
+        {
+            await CaptureMiddlewareEventAsync(evt);
+        }
+
+        if (evt is PermissionRequestEvent permissionRequest)
+        {
+            PermissionResponse response;
+            lock (_lock)
+            {
+                if (!_handledPermissionRequests.Add(permissionRequest.PermissionId))
+                    return;
+
+                _capturedRequests.Add(permissionRequest);
+
+                if (_queuedResponses.Count > 0)
+                {
+                    response = _queuedResponses.Dequeue();
+                }
+                else if (_autoApprove)
+                {
+                    response = new PermissionResponse(true);
+                }
+                else if (_autoDeny)
+                {
+                    response = new PermissionResponse(false, "Denied by test");
+                }
+                else
+                {
+                    response = new PermissionResponse(true);
+                }
+            }
+
+            await _agent.RespondAsync(new PermissionResponseEvent(
+                permissionRequest.PermissionId,
+                "MockPermissionHandler",
+                response.Approved,
+                response.DenialReason,
+                response.Choice));
+        }
+        else if (evt is ContinuationRequestEvent continuationRequest)
+        {
+            bool approved;
+            lock (_lock)
+            {
+                if (!_handledContinuationRequests.Add(continuationRequest.ContinuationId))
+                    return;
+
+                approved = _autoApproveContinuation && !_autoDenyContinuation;
+            }
+
+            await _agent.RespondAsync(new ContinuationResponseEvent(
+                continuationRequest.ContinuationId,
+                "MockPermissionHandler",
+                approved));
+        }
+    }
+
+    private static string GetMiddlewareEventKey(AgentEvent evt) =>
+        evt switch
+        {
+            PermissionApprovedEvent approved => $"{nameof(PermissionApprovedEvent)}:{approved.PermissionId}",
+            PermissionDeniedEvent denied => $"{nameof(PermissionDeniedEvent)}:{denied.PermissionId}",
+            _ => $"{evt.GetType().FullName}:{evt.GetHashCode()}"
+        };
 
     /// <summary>
     /// Waits for a specific number of permission requests to be captured.
@@ -230,13 +272,31 @@ public sealed class MockPermissionHandler : IDisposable
         var completed = await Task.WhenAny(_handlerTask, Task.Delay(timeout));
         if (completed != _handlerTask)
         {
-            throw new TimeoutException($"MockPermissionHandler did not complete within {timeout.TotalSeconds} seconds");
+            int requestCount;
+            int eventCount;
+            lock (_lock)
+            {
+                requestCount = _capturedRequests.Count;
+                eventCount = _capturedEvents.Count;
+            }
+            string eventTypes;
+            lock (_lock)
+            {
+                eventTypes = string.Join(", ", _capturedEvents.Select(e => e.GetType().Name).TakeLast(12));
+            }
+
+            throw new TimeoutException(
+                $"MockPermissionHandler did not complete within {timeout.TotalSeconds} seconds. " +
+                $"Captured {requestCount} permission request(s) and {eventCount} event(s). " +
+                $"Recent events: {eventTypes}.");
         }
     }
 
     public void Dispose()
     {
         _cts.Cancel();
+        foreach (var subscription in _subscriptions)
+            subscription.Dispose();
         try
         {
             _handlerTask.Wait(TimeSpan.FromSeconds(5));

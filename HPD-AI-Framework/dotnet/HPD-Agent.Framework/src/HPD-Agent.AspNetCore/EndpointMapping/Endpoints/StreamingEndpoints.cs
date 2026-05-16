@@ -270,7 +270,7 @@ internal static class StreamingEndpoints
                     }
                     else
                     {
-                        await agent.RespondAsync(response!, ct);
+                        await agent.TryRespondAsync(response!, ct);
                     }
                 }
             }

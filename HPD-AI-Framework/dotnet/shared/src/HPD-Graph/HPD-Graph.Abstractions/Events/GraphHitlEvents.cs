@@ -4,7 +4,7 @@ namespace HPDAgent.Graph.Abstractions.Events;
 
 /// <summary>
 /// Node handler requests approval to proceed with an operation.
-/// Handler should wait using context.WaitForResponseAsync().
+/// Handler should request approval using EventCoordinator.RequestAsync().
 /// </summary>
 /// <remarks>
 /// <para>
@@ -20,8 +20,8 @@ namespace HPDAgent.Graph.Abstractions.Events;
 /// </list>
 /// <para><b>Pattern:</b></para>
 /// <para>
-/// 1. Node emits NodeApprovalRequestEvent<br/>
-/// 2. Node calls context.WaitForResponseAsync() - BLOCKS<br/>
+/// 1. Node calls EventCoordinator.RequestAsync() with NodeApprovalRequestEvent<br/>
+/// 2. The event coordinator emits the request and waits for a response<br/>
 /// 3. User/UI receives event and prompts for approval<br/>
 /// 4. User responds via NodeApprovalResponseEvent<br/>
 /// 5. Node receives response and continues/skips
@@ -32,7 +32,8 @@ namespace HPDAgent.Graph.Abstractions.Events;
 /// // In node handler
 /// var requestId = Guid.NewGuid().ToString();
 ///
-/// context.EventCoordinator?.Emit(new NodeApprovalRequestEvent
+/// var response = await context.EventCoordinator!.RequestAsync&lt;NodeApprovalRequestEvent, NodeApprovalResponseEvent&gt;(
+///     new NodeApprovalRequestEvent
 /// {
 ///     RequestId = requestId,
 ///     SourceName = "DeleteRecordsNode",
@@ -40,11 +41,8 @@ namespace HPDAgent.Graph.Abstractions.Events;
 ///     Message = "Approve deletion of 1000 records?",
 ///     Description = "This will permanently delete all records matching the criteria.",
 ///     Metadata = new Dictionary&lt;string, object?&gt; { ["RecordCount"] = 1000 }
-/// });
-///
-/// var response = await context.WaitForResponseAsync&lt;NodeApprovalResponseEvent&gt;(
-///     requestId,
-///     timeout: TimeSpan.FromMinutes(5),
+///     },
+///     TimeSpan.FromMinutes(5),
 ///     cancellationToken
 /// );
 ///

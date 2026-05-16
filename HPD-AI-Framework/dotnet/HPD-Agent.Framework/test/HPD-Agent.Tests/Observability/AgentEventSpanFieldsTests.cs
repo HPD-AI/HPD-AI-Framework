@@ -118,7 +118,7 @@ public class AgentEventSpanFieldsTests
         new AgentTurnFinishedEvent(1),
         new ToolCallStartEvent("call-1", "SomeTool", "msg-1", null),
         new ToolCallEndEvent("call-1"),
-        new ToolCallResultEvent("call-1", "result", null),
+        new ToolCallResultEvent("call-1", new ToolResultPayload(Text: "result"), null),
         new TextDeltaEvent("hello", "msg-1"),
         new AgentDecisionEvent("A", "Continue", 1, 0, 0),
     };

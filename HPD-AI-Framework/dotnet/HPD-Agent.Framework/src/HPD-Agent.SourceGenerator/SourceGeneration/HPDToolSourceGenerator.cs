@@ -65,6 +65,19 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         var methods = classDecl.Members.OfType<MethodDeclarationSyntax>().ToList();
         System.Diagnostics.Debug.WriteLine($"[HPDToolSourceGenerator]   Class {className} has {methods.Count} methods");
 
+        var hasCollapseAttribute = classDecl.AttributeLists
+            .SelectMany(attrList => attrList.Attributes)
+            .Select(attr => attr.Name.ToString())
+            .Any(name => name is "Collapse" or "CollapseAttribute" ||
+                         name.EndsWith(".Collapse", System.StringComparison.Ordinal) ||
+                         name.EndsWith(".CollapseAttribute", System.StringComparison.Ordinal));
+
+        if (hasCollapseAttribute)
+        {
+            System.Diagnostics.Debug.WriteLine($"[HPDToolSourceGenerator]   Class {className} has [Collapse] - SELECTED");
+            return true;
+        }
+
         // PHASE 2: Unified detection - check for ANY capability attribute
         // This replaces the 3 separate detection branches (AIFunction, Skill, SubAgent)
         var hasCapabilityMethods = methods.Any(method =>
@@ -118,12 +131,15 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             }
         }
 
-        // Must have at least one capability
-        if (!capabilities.Any())
-            return null;
-
         // Check for [Collapse] attribute and validate dual-context configuration
         var (isCollapsed, containerDescription, FunctionResult, FunctionResultExpression, FunctionResultIsStatic, SystemPrompt, SystemPromptExpression, SystemPromptIsStatic, diagnostics, customName) = GetCollapseAttribute(classDecl, semanticModel);
+
+        // Must have at least one capability or collapse metadata.
+        // Partial harnesses commonly put [Collapse] on one partial declaration and
+        // [AIFunction] methods on other partial declarations. Keep the metadata-only
+        // part so the partial merge can generate the container.
+        if (!capabilities.Any() && !isCollapsed)
+            return null;
 
         // Merge capability diagnostics with harness diagnostics
         diagnostics.AddRange(capabilityDiagnostics);
@@ -509,7 +525,7 @@ namespace HPD.Agent.Diagnostics {{
                             }
                             ValidateFunctionContextUsage(context, function, function.ValidationData.Method);
 
-                            foreach (var parameter in function.Parameters.Where(p => p.IsConditional))
+                            foreach (var parameter in function.Parameters.Where(p => p.IsModelFacing && p.IsConditional))
                             {
                                 if (!string.IsNullOrEmpty(parameter.ConditionalExpression))
                                 {
@@ -606,11 +622,11 @@ namespace HPD.Agent.Diagnostics {{
             // Handle skill-only containers (no instance parameter)
             if (!Harness.RequiresInstance)
             {
-                sb.AppendLine($"                CreateFunctions: (_, ctx) => {Harness.Name}Registration.CreateHarness(ctx),");
+                sb.AppendLine($"                CreateFunctions: (_, ctx, serialization) => {Harness.Name}Registration.CreateHarness(ctx, serialization),");
             }
             else
             {
-                sb.AppendLine($"                CreateFunctions: (instance, ctx) => {Harness.Name}Registration.CreateHarness(({fullTypeName})instance, ctx),");
+                sb.AppendLine($"                CreateFunctions: (instance, ctx, serialization) => {Harness.Name}Registration.CreateHarness(({fullTypeName})instance, ctx, serialization),");
             }
 
             // Add GetReferencedHarneses if Harness has skills
@@ -960,13 +976,13 @@ namespace HPD.Agent.Diagnostics {{
         if (!Harness.RequiresInstance)
         {
             sb.AppendLine($"    /// <param name=\"context\">The execution context (optional)</param>");
-            sb.AppendLine($"    public static List<AIFunction> CreateHarness(IToolMetadata? context = null)");
+            sb.AppendLine($"    public static List<AIFunction> CreateHarness(IToolMetadata? context = null, HPDToolSerializationOptions? serialization = null)");
         }
         else
         {
             sb.AppendLine($"    /// <param name=\"instance\">The Harness instance</param>");
             sb.AppendLine($"    /// <param name=\"context\">The execution context (optional)</param>");
-            sb.AppendLine($"    public static List<AIFunction> CreateHarness({Harness.Name} instance, IToolMetadata? context = null)");
+            sb.AppendLine($"    public static List<AIFunction> CreateHarness({Harness.Name} instance, IToolMetadata? context = null, HPDToolSerializationOptions? serialization = null)");
         }
 
         sb.AppendLine("    {");
@@ -1038,6 +1054,7 @@ namespace HPD.Agent.Diagnostics {{
         sb.AppendLine("using System.Text;");
         // Add HPD.Agent namespace for AgentBuilder, ConversationThread, ToolMetadata, IToolMetadata, ValidationError, etc.
         sb.AppendLine("using HPD.Agent;");
+        sb.AppendLine("using HPD.Agent.Middleware;");
 
         // Add using directive for the Harness's namespace if it's not empty
         if (!string.IsNullOrEmpty(Harness.Namespace))
@@ -1094,8 +1111,7 @@ namespace HPD.Agent.Diagnostics {{
             sb.AppendLine(GenerateSchemaValidator(function, Harness));
             
             // Generate manual JSON parser for AOT compatibility
-            var relevantParams = function.Parameters
-                .Where(p => p.Type != "CancellationToken" && p.Type != "AIFunctionArguments" && p.Type != "IServiceProvider").ToList();
+            var relevantParams = function.Parameters.Where(p => p.IsModelFacing).ToList();
             if (relevantParams.Any())
             {
                 sb.AppendLine();
@@ -1207,7 +1223,7 @@ $@"    /// <summary>
 
         foreach (var function in Harness.FunctionCapabilities)
         {
-            if (!function.Parameters.Any(p => p.Type != "CancellationToken" && p.Type != "AIFunctionArguments" && p.Type != "IServiceProvider")) continue;
+            if (!function.Parameters.Any(p => p.IsModelFacing)) continue;
 
             var dtoName = $"{function.Name}Args";
             contextSerializableTypes.Add(dtoName);
@@ -1220,10 +1236,14 @@ $@"    /// <summary>
     public class {dtoName}
     {{");
 
-            foreach (var param in function.Parameters.Where(p => p.Type != "CancellationToken" && p.Type != "AIFunctionArguments" && p.Type != "IServiceProvider"))
+            foreach (var param in function.Parameters.Where(p => p.IsModelFacing))
             {
                 sb.AppendLine($"        [System.Text.Json.Serialization.JsonPropertyName(\"{param.Name}\")]");
-                sb.AppendLine($"        public {param.Type} {param.Name} {{ get; set; }} = default!;");
+                if (!string.IsNullOrEmpty(param.Description))
+                {
+                    sb.AppendLine($"        [System.ComponentModel.Description(\"{EscapeForAttribute(param.Description)}\")]");
+                }
+                sb.AppendLine($"        public {param.Type} {param.Name} {{ get; set; }}{ParameterAnalyzer.GetDefaultInitializer(param)}");
             }
 
             sb.AppendLine("    }");
@@ -1239,71 +1259,45 @@ $@"    /// <summary>
 
     private static string GenerateSchemaValidator(HPD.Agent.SourceGenerator.Capabilities.FunctionCapability function, HarnessInfo Harness)
     {
-        var relevantParams = function.Parameters
-            .Where(p => p.Type != "CancellationToken" && p.Type != "AIFunctionArguments" && p.Type != "IServiceProvider").ToList();
+        var relevantParams = function.Parameters.Where(p => p.IsModelFacing).ToList();
 
         if (!relevantParams.Any())
         {
-            return $"        private static Func<JsonElement, List<ValidationError>>? Create{function.Name}Validator() => (args) => new List<ValidationError>();";
+            return
+$@"        private static Func<JsonElement, JsonSerializerOptions, List<ValidationError>>? Create{function.Name}Validator() => (jsonArgs, serializerOptions) =>
+        {{
+            var errors = new List<ValidationError>();
+            try
+            {{
+                HPDToolArgumentBinder.ValidateNoUnmappedProperties(jsonArgs, serializerOptions);
+            }}
+            catch (HPDToolArgumentException ex)
+            {{
+                errors.Add(new ValidationError {{ Property = ex.PropertyName, ErrorMessage = ex.Message, ErrorCode = ex.ErrorCode }});
+            }}
+            return errors;
+        }};";
         }
-
-        // Identify required parameters (non-nullable, no default value)
-        var requiredParams = relevantParams.Where(p => !IsNullableParameter(p) && !p.HasDefaultValue).ToList();
 
         var dtoName = $"{function.Name}Args";
         var sb = new StringBuilder();
-        sb.AppendLine($"        private static Func<JsonElement, List<ValidationError>> Create{function.Name}Validator()");
+        sb.AppendLine($"        private static Func<JsonElement, JsonSerializerOptions, List<ValidationError>> Create{function.Name}Validator()");
         sb.AppendLine("        {");
-        sb.AppendLine("            return (jsonArgs) =>");
+        sb.AppendLine("            return (jsonArgs, serializerOptions) =>");
         sb.AppendLine("            {");
         sb.AppendLine("                var errors = new List<ValidationError>();");
         sb.AppendLine();
 
-        // STEP 1: Check for missing required properties BEFORE parsing
-        // This ensures we report the exact property name, not "Unknown"
-        if (requiredParams.Any())
-        {
-            sb.AppendLine("                // Check for missing required properties before parsing");
-            foreach (var param in requiredParams)
-            {
-                // Use case-insensitive property lookup to match how JSON deserialization works
-                sb.AppendLine($"                if (!jsonArgs.TryGetProperty(\"{param.Name}\", out _) && !jsonArgs.TryGetProperty(\"{ToCamelCase(param.Name)}\", out _))");
-                sb.AppendLine("                {");
-                sb.AppendLine("                    errors.Add(new ValidationError {");
-                sb.AppendLine($"                        Property = \"{param.Name}\",");
-                sb.AppendLine($"                        ErrorMessage = \"Required property '{param.Name}' is missing.\",");
-                sb.AppendLine("                        ErrorCode = \"missing_required_property\"");
-                sb.AppendLine("                    });");
-                sb.AppendLine("                }");
-            }
-            sb.AppendLine();
-            sb.AppendLine("                // If any required properties are missing, return early with errors");
-            sb.AppendLine("                if (errors.Count > 0)");
-            sb.AppendLine("                {");
-            sb.AppendLine("                    return errors;");
-            sb.AppendLine("                }");
-            sb.AppendLine();
-        }
-
-        // STEP 2: Parse and validate types
         sb.AppendLine("                // Parse and validate property types");
         sb.AppendLine("                try");
         sb.AppendLine("                {");
-        sb.AppendLine($"                    var dto = Parse{dtoName}(jsonArgs);");
+        sb.AppendLine($"                    HPDToolArgumentBinder.ValidateNoUnmappedProperties(jsonArgs, serializerOptions, {FormatStringArray(relevantParams.Select(p => p.Name))});");
+        sb.AppendLine($"                    var dto = Parse{dtoName}(jsonArgs, serializerOptions);");
 
-        // Add null checks for required properties (in case parsing succeeded but value was null)
-        foreach (var param in requiredParams)
-        {
-            sb.AppendLine($"                    if (dto.{param.Name} == null)");
-            sb.AppendLine("                    {");
-            sb.AppendLine("                        errors.Add(new ValidationError {");
-            sb.AppendLine($"                            Property = \"{param.Name}\",");
-            sb.AppendLine($"                            ErrorMessage = \"Property '{param.Name}' is required and cannot be null.\",");
-            sb.AppendLine("                            ErrorCode = \"null_required_property\"");
-            sb.AppendLine("                        });");
-            sb.AppendLine("                    }");
-        }
-
+        sb.AppendLine("                }");
+        sb.AppendLine("                catch (HPDToolArgumentException ex)");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    errors.Add(new ValidationError { Property = ex.PropertyName, ErrorMessage = ex.Message, ErrorCode = ex.ErrorCode });");
         sb.AppendLine("                }");
         sb.AppendLine("                catch (JsonException ex)");
         sb.AppendLine("                {");
@@ -1323,24 +1317,16 @@ $@"    /// <summary>
         return param.Type.EndsWith("?");
     }
 
-    private static List<ParameterInfo> AnalyzeParameters(ParameterListSyntax parameterList, SemanticModel semanticModel)
+    private static string FormatStringArray(IEnumerable<string> values)
     {
-        return parameterList.Parameters
-            .Select(param => new ParameterInfo
-            {
-                Name = param.Identifier.ValueText,
-                Type = GetParameterType(param, semanticModel),
-                Description = GetParameterDescription(param),
-                HasDefaultValue = param.Default != null,
-                DefaultValue = GetDefaultValue(param),
-                ConditionalExpression = GetParameterConditionalExpression(param)
-            })
-            .ToList();
+        return string.Join(", ", values.Select(value => $"\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\""));
     }
-    
-    // Additional helper methods would go here...
-    // (GetCustomFunctionName, GetFunctionDescription, GetRequiredPermissions, etc.)
-    
+
+    private static string EscapeForAttribute(string value)
+    {
+        return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+    }
+
     private static string ExtractStringLiteral(ExpressionSyntax? expression)
     {
         if (expression is LiteralExpressionSyntax literal && literal.Token.IsKind(SyntaxKind.StringLiteralToken))
@@ -1363,96 +1349,7 @@ $@"    /// <summary>
         }
         return "";
     }
-    
-    private static string? GetCustomFunctionName(MethodDeclarationSyntax method)
-    {
-        // For Semantic Kernel style, function name is always the method name
-        // No custom name override supported
-        return null; // Use method name as default
-    }
-    
-    private static string GetFunctionDescription(MethodDeclarationSyntax method)
-    {
-        // Check for [AIDescription] attribute first
-        var aiDescriptionAttributes = method.AttributeLists
-            .SelectMany(attrList => attrList.Attributes)
-            .Where(attr => attr.Name.ToString().Contains("AIDescription"));
-            
-        foreach (var attr in aiDescriptionAttributes)
-        {
-            var arguments = attr.ArgumentList?.Arguments;
-            if (arguments.HasValue && arguments.Value.Count >= 1)
-            {
-                return ExtractStringLiteral(arguments.Value[0].Expression);
-            }
-        }
-        
-        // Fallback to [Description] attribute for backward compatibility
-        var descriptionAttributes = method.AttributeLists
-            .SelectMany(attrList => attrList.Attributes)
-            .Where(attr => attr.Name.ToString().Contains("Description") && !attr.Name.ToString().Contains("AIDescription"));
-            
-        foreach (var attr in descriptionAttributes)
-        {
-            var arguments = attr.ArgumentList?.Arguments;
-            if (arguments.HasValue && arguments.Value.Count >= 1)
-            {
-                return ExtractStringLiteral(arguments.Value[0].Expression);
-            }
-        }
-        
-        return "";
-    }
 
-    private static List<string> GetRequiredPermissions(MethodDeclarationSyntax method)
-    {
-        // Implementation to extract required permissions
-        return new List<string>(); // Placeholder
-    }
-    
-    private static string GetParameterType(ParameterSyntax param, SemanticModel semanticModel)
-    {
-        return param.Type?.ToString() ?? "object";
-    }
-    
-    private static string GetParameterDescription(ParameterSyntax param)
-    {
-        // Check for [AIDescription] attribute first
-        var aiDescriptionAttributes = param.AttributeLists
-            .SelectMany(attrList => attrList.Attributes)
-            .Where(attr => attr.Name.ToString().Contains("AIDescription"));
-            
-        foreach (var attr in aiDescriptionAttributes)
-        {
-            var arguments = attr.ArgumentList?.Arguments;
-            if (arguments.HasValue && arguments.Value.Count >= 1)
-            {
-                return ExtractStringLiteral(arguments.Value[0].Expression);
-            }
-        }
-        
-        // Fallback to [Description] attribute
-        var descriptionAttributes = param.AttributeLists
-            .SelectMany(attrList => attrList.Attributes)
-            .Where(attr => attr.Name.ToString().Contains("Description") && !attr.Name.ToString().Contains("AIDescription"));
-            
-        foreach (var attr in descriptionAttributes)
-        {
-            var arguments = attr.ArgumentList?.Arguments;
-            if (arguments.HasValue && arguments.Value.Count >= 1)
-            {
-                return ExtractStringLiteral(arguments.Value[0].Expression);
-            }
-        }
-        
-        return "";
-    }
-
-    private static string? GetDefaultValue(ParameterSyntax param)
-    {
-        return param.Default?.Value?.ToString();
-    }
-    
     private static string GetReturnType(MethodDeclarationSyntax method, SemanticModel semanticModel)
     {
         return method.ReturnType.ToString();
@@ -1502,27 +1399,6 @@ $@"    /// <summary>
         var conditionalAttributes = method.AttributeLists
             .SelectMany(attrList => attrList.Attributes)
             .Where(attr => attr.Name.ToString().Contains("ConditionalFunction"));
-            
-        foreach (var attr in conditionalAttributes)
-        {
-            var arguments = attr.ArgumentList?.Arguments;
-            if (arguments.HasValue && arguments.Value.Count >= 1)
-            {
-                return ExtractStringLiteral(arguments.Value[0].Expression);
-            }
-        }
-        
-        return null;
-    }
-
-    /// <summary>
-    /// Gets conditional expression from ConditionalParameter attribute.
-    /// </summary>
-    private static string? GetParameterConditionalExpression(ParameterSyntax param)
-    {
-        var conditionalAttributes = param.AttributeLists
-            .SelectMany(attrList => attrList.Attributes)
-            .Where(attr => attr.Name.ToString().Contains("ConditionalParameter"));
             
         foreach (var attr in conditionalAttributes)
         {
@@ -2352,205 +2228,38 @@ $@"    /// <summary>
     }
 
     /// <summary>
-    /// Generates a manual JSON parser for AOT compatibility - no reflection needed!
+    /// Generates an argument parser that delegates conversion to the shared AOT-safe binder.
     /// </summary>
     private static string GenerateJsonParser(HPD.Agent.SourceGenerator.Capabilities.FunctionCapability function, HarnessInfo Harness)
     {
         var dtoName = $"{function.Name}Args";
-        var relevantParams = function.Parameters
-            .Where(p => p.Type != "CancellationToken" && p.Type != "AIFunctionArguments" && p.Type != "IServiceProvider").ToList();
+        var relevantParams = function.Parameters.Where(p => p.IsModelFacing).ToList();
         
         var sb = new StringBuilder();
         sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// Manual JSON parser for {dtoName} - fully AOT compatible");
+        sb.AppendLine($"        /// Parses JSON arguments for {dtoName}.");
         sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        private static {dtoName} Parse{dtoName}(JsonElement json)");
+        sb.AppendLine($"        private static {dtoName} Parse{dtoName}(JsonElement json, JsonSerializerOptions serializerOptions)");
         sb.AppendLine("        {");
         sb.AppendLine($"            var result = new {dtoName}();");
         sb.AppendLine();
         
         foreach (var param in relevantParams)
         {
-            sb.AppendLine($"            // Parse {param.Name}");
-            sb.AppendLine($"            if (json.TryGetProperty(\"{param.Name}\", out var {param.Name}Prop) || ");
-            sb.AppendLine($"                json.TryGetProperty(\"{ToCamelCase(param.Name)}\", out {param.Name}Prop) ||");
-            sb.AppendLine($"                json.TryGetProperty(\"{param.Name.ToLower()}\", out {param.Name}Prop))");
-            sb.AppendLine("            {");
-            
-            // Generate parsing logic based on type
-            sb.AppendLine(GeneratePropertyParser(param, $"{param.Name}Prop", $"result.{param.Name}"));
-            
-            sb.AppendLine("            }");
-            
-            // Add default value handling if needed
             if (!IsNullableParameter(param) && !param.HasDefaultValue)
             {
-                sb.AppendLine("            else");
-                sb.AppendLine("            {");
-                sb.AppendLine($"                throw new JsonException($\"Required property '{param.Name}' not found\");");
-                sb.AppendLine("            }");
+                sb.AppendLine($"            result.{param.Name} = HPDToolArgumentBinder.BindRequired<{param.Type}>(json, \"{param.Name}\", serializerOptions);");
             }
-            sb.AppendLine();
+            else
+            {
+                sb.AppendLine($"            result.{param.Name} = HPDToolArgumentBinder.BindOptional<{param.Type}>(json, \"{param.Name}\", result.{param.Name}, serializerOptions);");
+            }
         }
         
         sb.AppendLine("            return result;");
         sb.AppendLine("        }");
         
         return sb.ToString();
-    }
-
-    /// <summary>
-    /// Generates property parsing code based on the parameter type
-    /// </summary>
-    private static string GeneratePropertyParser(ParameterInfo param, string jsonPropertyVar, string targetVar)
-    {
-        var sb = new StringBuilder();
-        var type = param.Type.TrimEnd('?');
-        var isNullable = param.Type.EndsWith("?");
-
-        // Handle null values for nullable types
-        if (isNullable)
-        {
-            sb.AppendLine($"                if ({jsonPropertyVar}.ValueKind == JsonValueKind.Null)");
-            sb.AppendLine($"                {{");
-            sb.AppendLine($"                    {targetVar} = null;");
-            sb.AppendLine($"                }}");
-            sb.AppendLine($"                else");
-            sb.AppendLine($"                {{");
-        }
-
-        var indent = isNullable ? "    " : "";
-
-        switch (type)
-        {
-            case "string":
-                // String can come as String, Number, or Boolean
-                sb.AppendLine($"{indent}                {targetVar} = {jsonPropertyVar}.ValueKind switch");
-                sb.AppendLine($"{indent}                {{");
-                sb.AppendLine($"{indent}                    JsonValueKind.String => {jsonPropertyVar}.GetString(){(isNullable ? "" : " ?? string.Empty")},");
-                sb.AppendLine($"{indent}                    JsonValueKind.Number => {jsonPropertyVar}.GetRawText(), // Convert number to string");
-                sb.AppendLine($"{indent}                    JsonValueKind.True => \"true\",");
-                sb.AppendLine($"{indent}                    JsonValueKind.False => \"false\",");
-                sb.AppendLine($"{indent}                    _ => {jsonPropertyVar}.GetRawText()");
-                sb.AppendLine($"{indent}                }};");
-                break;
-
-            case "int" or "Int32":
-                // Handle both Number and String (for model compatibility)
-                sb.AppendLine($"{indent}                {targetVar} = {jsonPropertyVar}.ValueKind switch");
-                sb.AppendLine($"{indent}                {{");
-                sb.AppendLine($"{indent}                    JsonValueKind.Number => {jsonPropertyVar}.GetInt32(),");
-                sb.AppendLine($"{indent}                    JsonValueKind.String => int.Parse({jsonPropertyVar}.GetString() ?? \"0\"),");
-                sb.AppendLine($"{indent}                    _ => throw new JsonException($\"Cannot convert {{{{{jsonPropertyVar}.ValueKind}}}} to int\")");
-                sb.AppendLine($"{indent}                }};");
-                break;
-
-            case "long" or "Int64":
-                sb.AppendLine($"{indent}                {targetVar} = {jsonPropertyVar}.ValueKind switch");
-                sb.AppendLine($"{indent}                {{");
-                sb.AppendLine($"{indent}                    JsonValueKind.Number => {jsonPropertyVar}.GetInt64(),");
-                sb.AppendLine($"{indent}                    JsonValueKind.String => long.Parse({jsonPropertyVar}.GetString() ?? \"0\"),");
-                sb.AppendLine($"{indent}                    _ => throw new JsonException($\"Cannot convert {{{{{jsonPropertyVar}.ValueKind}}}} to long\")");
-                sb.AppendLine($"{indent}                }};");
-                break;
-
-            case "double" or "Double":
-                sb.AppendLine($"{indent}                {targetVar} = {jsonPropertyVar}.ValueKind switch");
-                sb.AppendLine($"{indent}                {{");
-                sb.AppendLine($"{indent}                    JsonValueKind.Number => {jsonPropertyVar}.GetDouble(),");
-                sb.AppendLine($"{indent}                    JsonValueKind.String => double.Parse({jsonPropertyVar}.GetString() ?? \"0\"),");
-                sb.AppendLine($"{indent}                    _ => throw new JsonException($\"Cannot convert {{{{{jsonPropertyVar}.ValueKind}}}} to double\")");
-                sb.AppendLine($"{indent}                }};");
-                break;
-
-            case "float" or "Single":
-                sb.AppendLine($"{indent}                {targetVar} = {jsonPropertyVar}.ValueKind switch");
-                sb.AppendLine($"{indent}                {{");
-                sb.AppendLine($"{indent}                    JsonValueKind.Number => (float){jsonPropertyVar}.GetDouble(),");
-                sb.AppendLine($"{indent}                    JsonValueKind.String => float.Parse({jsonPropertyVar}.GetString() ?? \"0\"),");
-                sb.AppendLine($"{indent}                    _ => throw new JsonException($\"Cannot convert {{{{{jsonPropertyVar}.ValueKind}}}} to float\")");
-                sb.AppendLine($"{indent}                }};");
-                break;
-
-            case "bool" or "Boolean":
-                sb.AppendLine($"{indent}                {targetVar} = {jsonPropertyVar}.ValueKind switch");
-                sb.AppendLine($"{indent}                {{");
-                sb.AppendLine($"{indent}                    JsonValueKind.True => true,");
-                sb.AppendLine($"{indent}                    JsonValueKind.False => false,");
-                sb.AppendLine($"{indent}                    JsonValueKind.String => bool.Parse({jsonPropertyVar}.GetString() ?? \"false\"),");
-                sb.AppendLine($"{indent}                    _ => throw new JsonException($\"Cannot convert {{{{{jsonPropertyVar}.ValueKind}}}} to bool\")");
-                sb.AppendLine($"{indent}                }};");
-                break;
-
-            case "decimal" or "Decimal":
-                sb.AppendLine($"{indent}                {targetVar} = {jsonPropertyVar}.ValueKind switch");
-                sb.AppendLine($"{indent}                {{");
-                sb.AppendLine($"{indent}                    JsonValueKind.Number => {jsonPropertyVar}.GetDecimal(),");
-                sb.AppendLine($"{indent}                    JsonValueKind.String => decimal.Parse({jsonPropertyVar}.GetString() ?? \"0\"),");
-                sb.AppendLine($"{indent}                    _ => throw new JsonException($\"Cannot convert {{{{{jsonPropertyVar}.ValueKind}}}} to decimal\")");
-                sb.AppendLine($"{indent}                }};");
-                break;
-
-            case "DateTime":
-                // Handle both proper DateTime JSON and string representations
-                sb.AppendLine($"{indent}                {targetVar} = {jsonPropertyVar}.ValueKind switch");
-                sb.AppendLine($"{indent}                {{");
-                sb.AppendLine($"{indent}                    JsonValueKind.String => DateTime.Parse({jsonPropertyVar}.GetString()!),");
-                sb.AppendLine($"{indent}                    _ => {jsonPropertyVar}.GetDateTime()");
-                sb.AppendLine($"{indent}                }};");
-                break;
-
-            case "DateTimeOffset":
-                // Handle both proper DateTimeOffset JSON and string representations
-                sb.AppendLine($"{indent}                {targetVar} = {jsonPropertyVar}.ValueKind switch");
-                sb.AppendLine($"{indent}                {{");
-                sb.AppendLine($"{indent}                    JsonValueKind.String => DateTimeOffset.Parse({jsonPropertyVar}.GetString()!),");
-                sb.AppendLine($"{indent}                    _ => {jsonPropertyVar}.GetDateTimeOffset()");
-                sb.AppendLine($"{indent}                }};");
-                break;
-
-            case "Guid":
-                // Handle both proper Guid JSON and string representations
-                sb.AppendLine($"{indent}                {targetVar} = {jsonPropertyVar}.ValueKind switch");
-                sb.AppendLine($"{indent}                {{");
-                sb.AppendLine($"{indent}                    JsonValueKind.String => Guid.Parse({jsonPropertyVar}.GetString()!),");
-                sb.AppendLine($"{indent}                    _ => {jsonPropertyVar}.GetGuid()");
-                sb.AppendLine($"{indent}                }};");
-                break;
-
-            default:
-                // For complex types, arrays, or unknown types, fall back to ToString or throw
-                if (type.StartsWith("List<") || type.StartsWith("IList<") || type.EndsWith("[]"))
-                {
-                    // Handle arrays/lists using JsonSerializer
-                    sb.AppendLine($"{indent}                {targetVar} = JsonSerializer.Deserialize<{type}>({jsonPropertyVar}.GetRawText());");
-                }
-                else
-                {
-                    // For other complex types
-                    sb.AppendLine($"{indent}                // Complex type - needs custom parsing");
-                    sb.AppendLine($"{indent}                {targetVar} = JsonSerializer.Deserialize<{type}>({jsonPropertyVar}.GetRawText());");
-                }
-                break;
-        }
-
-        if (isNullable)
-        {
-            sb.AppendLine($"                }}");
-        }
-
-        return sb.ToString();
-    }
-
-    /// <summary>
-    /// Converts a string to camelCase
-    /// </summary>
-    private static string ToCamelCase(string str)
-    {
-        if (string.IsNullOrEmpty(str) || char.IsLower(str[0]))
-            return str;
-
-        return char.ToLower(str[0]) + str.Substring(1);
     }
 
     /// <summary>
@@ -2612,10 +2321,10 @@ $@"    /// <summary>
         sb.AppendLine($"        /// Container function for {Harness.ClassName} Harness.");
         sb.AppendLine("        /// </summary>");
         // Method signature uses ClassName for type reference
-        sb.AppendLine($"        private static AIFunction Create{Harness.ClassName}Container({Harness.ClassName} instance)");
+        sb.AppendLine($"        private static AIFunction Create{Harness.ClassName}Container({Harness.ClassName} instance, HPDToolSerializationOptions? serialization)");
         sb.AppendLine("        {");
         sb.AppendLine("            return HPDAIFunctionFactory.Create(");
-        sb.AppendLine("                async (arguments, cancellationToken) =>");
+        sb.AppendLine("                async (arguments, functionContext, cancellationToken) =>");
         sb.AppendLine("                {");
 
         // Use the ContainerDescription (or Harness description as fallback) in the return message
@@ -2656,6 +2365,8 @@ $@"    /// <summary>
         sb.AppendLine($"                    Name = \"{Harness.EffectiveName}\",");
         sb.AppendLine($"                    Description = \"{fullDescription}\",");
         sb.AppendLine("                    SchemaProvider = () => CreateEmptyContainerSchema(),");
+        sb.AppendLine("                    SerializerOptions = serialization?.SerializerOptions,");
+        sb.AppendLine("                    ResultType = typeof(string),");
         sb.AppendLine("                    AdditionalProperties = new Dictionary<string, object>");
         sb.AppendLine("                    {");
         sb.AppendLine("                        [\"IsContainer\"] = true,");

@@ -50,7 +50,7 @@ internal static class MiddlewareResponseEndpoints
             .WithSummary("Respond to a client tool execution request from the agent");
     }
 
-    private static async Task<Results<Ok, NotFound, ValidationProblem>> RespondToPermission(
+    private static async Task<Results<Ok, NotFound, Conflict, ValidationProblem>> RespondToPermission(
         string agentId,
         string sid,
         string bid,
@@ -73,7 +73,8 @@ internal static class MiddlewareResponseEndpoints
             }
 
             // Send response to the waiting permission middleware.
-            await agent.RespondAsync(evt, ct);
+            if (!await agent.TryRespondAsync(evt, ct))
+                return TypedResults.Conflict();
 
             return TypedResults.Ok();
         }
@@ -86,7 +87,7 @@ internal static class MiddlewareResponseEndpoints
         }
     }
 
-    private static async Task<Results<Ok, NotFound, ValidationProblem>> RespondToContinuation(
+    private static async Task<Results<Ok, NotFound, Conflict, ValidationProblem>> RespondToContinuation(
         string agentId,
         string sid,
         string bid,
@@ -109,7 +110,8 @@ internal static class MiddlewareResponseEndpoints
             }
 
             // Send response to the waiting continuation middleware.
-            await agent.RespondAsync(evt, ct);
+            if (!await agent.TryRespondAsync(evt, ct))
+                return TypedResults.Conflict();
 
             return TypedResults.Ok();
         }
@@ -122,7 +124,7 @@ internal static class MiddlewareResponseEndpoints
         }
     }
 
-    private static async Task<Results<Ok, NotFound, ValidationProblem>> RespondToClarification(
+    private static async Task<Results<Ok, NotFound, Conflict, ValidationProblem>> RespondToClarification(
         string agentId,
         string sid,
         string bid,
@@ -144,7 +146,8 @@ internal static class MiddlewareResponseEndpoints
                 return TypedResults.NotFound();
             }
 
-            await agent.RespondAsync(evt, ct);
+            if (!await agent.TryRespondAsync(evt, ct))
+                return TypedResults.Conflict();
 
             return TypedResults.Ok();
         }
@@ -157,7 +160,7 @@ internal static class MiddlewareResponseEndpoints
         }
     }
 
-    private static async Task<Results<Ok, NotFound, ValidationProblem>> RespondToClientTool(
+    private static async Task<Results<Ok, NotFound, Conflict, ValidationProblem>> RespondToClientTool(
         string agentId,
         string sid,
         string bid,
@@ -180,7 +183,8 @@ internal static class MiddlewareResponseEndpoints
             }
 
             // Send response to the waiting ClientToolMiddleware.
-            await agent.RespondAsync(evt, ct);
+            if (!await agent.TryRespondAsync(evt, ct))
+                return TypedResults.Conflict();
 
             return TypedResults.Ok();
         }

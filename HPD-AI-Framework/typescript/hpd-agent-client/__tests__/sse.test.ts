@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SseTransport } from '../src/transports/sse.js';
 import { EventTypes } from '../src/types/events.js';
+import { AgentError } from '../src/errors.js';
 
 describe('SseTransport', () => {
   beforeEach(() => {
@@ -187,6 +188,30 @@ describe('SseTransport', () => {
         body: expect.any(String),
       })
     );
+  });
+
+  it('should surface stale middleware responses clearly', async () => {
+    const transport = new SseTransport('http://localhost:5135');
+    (transport as any).sessionId = 'test-123';
+    (transport as any).branchId = 'main';
+    (transport as any).agentId = 'agent-1';
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => null,
+    } as Response);
+
+    await expect(transport.run({
+      type: EventTypes.PERMISSION_RESPONSE,
+      permissionId: 'perm-1',
+      sourceName: 'PermissionMiddleware',
+      approved: true,
+    })).rejects.toMatchObject({
+      name: 'AgentError',
+      code: 'STALE_RESPONSE',
+      statusCode: 409,
+    } satisfies Partial<AgentError>);
   });
 
   it('should send clarification response to correct endpoint', async () => {

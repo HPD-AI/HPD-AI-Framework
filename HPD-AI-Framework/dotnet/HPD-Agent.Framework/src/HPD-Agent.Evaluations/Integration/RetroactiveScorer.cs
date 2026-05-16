@@ -211,7 +211,9 @@ public static class RetroactiveScorer
                             BranchId = turnCtx.BranchId,
                             TurnIndex = turnCtx.TurnIndex,
                             AgentName = turnCtx.AgentName,
+                            ProviderKey = turnCtx.ProviderKey,
                             ModelId = turnCtx.ModelId,
+                            ResponseModelId = turnCtx.ResponseModelId,
                             JudgeCalls = judgeCalls,
                             CreatedAt = DateTimeOffset.UtcNow,
                         }, ct).ConfigureAwait(false);
@@ -230,6 +232,9 @@ public static class RetroactiveScorer
 
             cases.Add(new ReportCase(
                 Name: $"turn-{turnCtx.TurnIndex}",
+                ProviderKey: turnCtx.ProviderKey,
+                ModelId: turnCtx.ModelId,
+                ResponseModelId: turnCtx.ResponseModelId,
                 EvaluationResult: mergedResult,
                 EvaluatorFailures: failures,
                 TaskDuration: turnCtx.Duration,

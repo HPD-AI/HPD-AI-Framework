@@ -165,7 +165,7 @@ export class ToolExecutionRootState {
 		this.messageId = toolCall.messageId;
 		this.status = toolCall.status;
 		this.args = toolCall.args ?? {};
-		this.result = toolCall.result;
+		this.result = toolCall.resultText;
 		this.error = toolCall.error;
 		this.startTime = toolCall.startTime;
 		this.endTime = toolCall.endTime;
@@ -223,7 +223,7 @@ export class ToolExecutionRootState {
 	update(toolCall: ToolCall): void {
 		this.status = toolCall.status;
 		this.args = toolCall.args ?? {};
-		this.result = toolCall.result;
+		this.result = toolCall.resultText;
 		this.error = toolCall.error;
 		this.endTime = toolCall.endTime;
 	}

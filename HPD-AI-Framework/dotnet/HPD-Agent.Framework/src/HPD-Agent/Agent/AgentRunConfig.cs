@@ -139,7 +139,8 @@ public class AgentRunConfig
 
     /// <summary>
     /// Runtime middleware to inject only for this run.
-    /// Applied AFTER agent's configured middleware.
+    /// Applied as outer middleware for this run: before configured middleware
+    /// for Before* hooks and after configured middleware for After* hooks.
     /// Not JSON-serializable (for direct C# usage).
     /// Useful for temporary observability, monitoring, or custom logic.
     /// </summary>

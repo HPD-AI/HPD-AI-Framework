@@ -47,6 +47,8 @@
   <Folder Name="/Harneses/">
     <Project Path="src/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/HPD-Agent.Harness.FileSystem.csproj" />
     <Project Path="src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj" />
+    <Project Path="src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj" />
+    <Project Path="src/HPD-Agent.Harness/HPD-Agent.Harness.Coding.SourceGenerator/HPD-Agent.Harness.Coding.SourceGenerator.csproj" />
   </Folder>
   <Folder Name="/Specialized/">
     <Project Path="src/HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj" />
@@ -71,6 +73,8 @@
     <Project Path="test/HPD-Agent.Bots.Tests/HPD-Agent.Bots.Tests.csproj" />
     <Project Path="test/HPD-Agent.Sandbox.Local.Tests/HPD-Agent.Sandbox.Local.Tests.csproj" />
     <Project Path="test/HPD-Agent.Audio.Tests/HPD-Agent.Audio.Tests.csproj" />
+    <Project Path="test/HPD-Agent.Harness.Coding.Tests/HPD-Agent.Harness.Coding.Tests.csproj" />
     <Project Path="test/HPD-Agent.DevApp/HPD-Agent.DevApp.csproj" />
+    <Project Path="test/HPD-Agent.CodingCli/HPD-Agent.CodingCli.csproj" />
   </Folder>
 </Solution>

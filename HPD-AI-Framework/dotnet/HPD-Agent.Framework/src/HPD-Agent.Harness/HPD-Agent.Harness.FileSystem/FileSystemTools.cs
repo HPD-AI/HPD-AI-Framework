@@ -14,7 +14,6 @@ namespace HPD.Agent.Harness.FileSystem;
 /// <summary>
 /// File system operations Harness for HPD-Agent.
 /// Provides AI functions for reading, writing, editing, searching, and discovering files.
-/// Inspired by Gemini CLI's file system tools.
 /// </summary>
 public partial class FileSystemTools
 {

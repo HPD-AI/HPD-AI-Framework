@@ -8,7 +8,7 @@ namespace HPD.Agent.Evaluations;
 /// <summary>
 /// AsyncLocal mid-run instrumentation API. Tools and middleware can annotate
 /// the current evaluation run from within the agent's execution.
-/// Both methods are silent no-ops when called outside an active EvaluationMiddleware turn.
+/// Both methods are silent no-ops when called outside an active LiveEvaluationMiddleware turn.
 /// </summary>
 public static class EvalContext
 {
@@ -37,7 +37,7 @@ public static class EvalContext
 
     /// <summary>
     /// Activates a new EvalContextData for the current async scope and returns it.
-    /// Called by EvaluationMiddleware in BeforeMessageTurnAsync before the agentic loop starts.
+    /// Called by LiveEvaluationMiddleware in BeforeMessageTurnAsync before the agentic loop starts.
     /// </summary>
     internal static EvalContextData Activate()
     {
@@ -47,7 +47,7 @@ public static class EvalContext
     }
 
     /// <summary>
-    /// Clears the current eval context. Called by EvaluationMiddleware after AfterMessageTurnAsync.
+    /// Clears the current eval context. Called by LiveEvaluationMiddleware after AfterMessageTurnAsync.
     /// </summary>
     internal static void Deactivate()
     {

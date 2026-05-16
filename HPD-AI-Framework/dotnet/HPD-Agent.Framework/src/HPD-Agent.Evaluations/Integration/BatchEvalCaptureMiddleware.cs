@@ -1,0 +1,55 @@
+// Copyright 2026 Einstein Essibu
+// SPDX-License-Identifier: AGPL-3.0-only
+
+using HPD.Agent.Middleware;
+
+namespace HPD.Agent.Evaluations.Integration;
+
+internal sealed class BatchEvalCaptureMiddleware : IAgentMiddleware
+{
+    internal const string CaptureRequestIdKey = "eval_capture_request_id";
+
+    private readonly EvalTurnCapture _capture = new();
+    private readonly TaskCompletionSource<TurnEvaluationContext> _captured =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public Task<TurnEvaluationContext> Captured => _captured.Task;
+
+    public Task BeforeMessageTurnAsync(
+        BeforeMessageTurnContext context,
+        CancellationToken cancellationToken)
+    {
+        if (TryGetCaptureRequestId(context.RunConfig) is not null)
+            _capture.Begin(context);
+
+        return Task.CompletedTask;
+    }
+
+    public async Task AfterMessageTurnAsync(
+        AfterMessageTurnContext context,
+        CancellationToken cancellationToken)
+    {
+        if (TryGetCaptureRequestId(context.RunConfig) is null)
+            return;
+
+        var turnCtx = await _capture.CompleteAsync(context, cancellationToken).ConfigureAwait(false);
+        if (turnCtx is null)
+            return;
+
+        _captured.TrySetResult(turnCtx);
+    }
+
+    public ValueTask HandleAsync(AgentEvent evt)
+        => _capture.HandleAsync(evt);
+
+    private static string? TryGetCaptureRequestId(AgentRunConfig runConfig)
+    {
+        if (runConfig.IsInternalEvalJudgeCall)
+            return null;
+
+        if (runConfig.ContextOverrides?.TryGetValue(CaptureRequestIdKey, out var value) != true)
+            return null;
+
+        return value as string;
+    }
+}

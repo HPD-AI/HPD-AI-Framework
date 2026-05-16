@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using HPD.Agent.Middleware;
 using HPD.OpenApi.Core;
 using HPD.OpenApi.Core.Model;
 using Microsoft.Extensions.AI;
@@ -18,7 +19,7 @@ namespace HPD.Agent.OpenApi;
 /// Throw-vs-return error bridging:
 /// - 429, 5xx, 401, 408 → throw <see cref="OpenApiRequestException"/> →
 ///   FunctionRetryMiddleware catches via OpenApiErrorHandler, retries with backoff
-/// - 400, 404, 422, other 4xx → return <see cref="OpenApiErrorResponse"/> to LLM →
+/// - 400, 404, 422, other 4xx → return a model-facing error payload →
 ///   LLM self-corrects its request (retrying a bad request won't help)
 /// </summary>
 internal static partial class OpenApiFunctionFactory
@@ -77,26 +78,22 @@ internal static partial class OpenApiFunctionFactory
         var functionName = BuildFunctionName(operation, namePrefix);
         var schema = BuildParameterSchema(operation, config);
 
-        async Task<object?> InvokeAsync(AIFunctionArguments args, CancellationToken ct)
+        async Task<object?> InvokeAsync(AIFunctionArguments args, FunctionExecutionContext _, CancellationToken ct)
         {
             var result = await runner.RunAsync(operation, args, config.ServerUrlOverride, ct);
 
-            // Bridge: retryable errors → exception for FunctionRetryMiddleware.
-            // Client errors → return to LLM for self-correction.
             if (result is OpenApiErrorResponse error)
             {
                 if (IsRetryableStatusCode(error.StatusCode))
                     throw new OpenApiRequestException(error);
 
-                // 400, 404, 422, etc. — LLM should fix its request
-                return error;
+                return OpenApiResponseFormatter.FormatError(error);
             }
 
-            // Success path: runner returns OpenApiOperationResponse containing the parsed body
-            // and the expected schema from the spec. ResponseOptimizationMiddleware will
-            // process Content (field filtering, truncation) and serialize the whole object
-            // to JSON so the LLM sees both the response data and the schema hint.
-            return result;
+            if (result is OpenApiOperationResponse response)
+                return OpenApiResponseFormatter.FormatSuccess(response, config.ResponseOptimization);
+
+            return result?.ToString();
         }
 
         // ParentContainer metadata:
@@ -121,12 +118,7 @@ internal static partial class OpenApiFunctionFactory
                     ["SourceType"] = "OpenApi",
                     ["openapi.path"] = operation.Path,
                     ["openapi.method"] = operation.Method.ToString(),
-                    ["openapi.operationId"] = operation.Id,
-                    // Response optimization hints — read by ResponseOptimizationMiddleware
-                    ["openapi.response.dataField"] = config.ResponseOptimization?.DataField,
-                    ["openapi.response.fieldsToInclude"] = config.ResponseOptimization?.FieldsToInclude,
-                    ["openapi.response.fieldsToExclude"] = config.ResponseOptimization?.FieldsToExclude,
-                    ["openapi.response.maxLength"] = config.ResponseOptimization?.MaxLength ?? 0
+                    ["openapi.operationId"] = operation.Id
                 }
             });
     }

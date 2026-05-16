@@ -35,6 +35,8 @@ if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+AGENT_FRAMEWORK_ROOT="$(cd "$SCRIPT_DIR/../../../HPD-Agent.Framework" && pwd)"
+AGENT_FRAMEWORK_SRC="$AGENT_FRAMEWORK_ROOT/src"
 OUTPUT_DIR="$SCRIPT_DIR/nuget-releases/$VERSION"
 
 echo "=========================================="
@@ -59,6 +61,7 @@ PROJECTS=(
   "HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj"
   "HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/HPD-Agent.Harness.FileSystem.csproj"
   "HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj"
+  "HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj"
   "HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj"
   "HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj"
   "HPD-Agent.Providers/HPD-Agent.Providers.AzureAIInference/HPD-Agent.Providers.AzureAIInference.csproj"
@@ -89,9 +92,19 @@ echo ""
 echo "Building and packing packages..."
 echo ""
 
+CODING_PROJECT="$AGENT_FRAMEWORK_SRC/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj"
+RIPGREP_PREP="$AGENT_FRAMEWORK_SRC/HPD-Agent.Harness/HPD-Agent.Harness.Coding/Ripgrep/pack/prepare-ripgrep-binaries.cs"
+if [ -f "$CODING_PROJECT" ] && [ -f "$RIPGREP_PREP" ]; then
+  echo "Preparing ripgrep binaries for HPD-Agent.Harness.Coding..."
+  dotnet run --file "$RIPGREP_PREP" -- --project "$CODING_PROJECT"
+fi
+
 # Pack each project
 for PROJECT in "${PROJECTS[@]}"; do
   PROJECT_PATH="$REPO_ROOT/$PROJECT"
+  if [ ! -f "$PROJECT_PATH" ]; then
+    PROJECT_PATH="$AGENT_FRAMEWORK_SRC/$PROJECT"
+  fi
   PROJECT_NAME=$(basename "$PROJECT" .csproj)
 
   if [ ! -f "$PROJECT_PATH" ]; then

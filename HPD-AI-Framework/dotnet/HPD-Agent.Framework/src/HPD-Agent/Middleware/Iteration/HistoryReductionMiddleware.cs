@@ -165,6 +165,11 @@ public class HistoryReductionMiddleware : IAgentMiddleware
             foreach (var msg in systemMessages.Concat(reducedMessages))
                 context.ConversationHistory.Add(msg);
 
+            var appliedAt = DateTimeOffset.UtcNow;
+            context.UpdateMiddlewareState<HistoryReductionStateData>(s =>
+                s.WithReductionApplied(appliedAt)
+            );
+
             EmitHistoryReductionEvent(context, HistoryReductionStatus.CacheHit,
                 startTime: startTime,
                 originalMessageCount: conversationMessages.Count,

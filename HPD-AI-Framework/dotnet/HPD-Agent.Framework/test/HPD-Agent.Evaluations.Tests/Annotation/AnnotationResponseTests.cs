@@ -19,8 +19,16 @@ public sealed class AnnotationResponseTests
     public async Task SendAnnotationResponse_CompletesAgentCoordinatorWait()
     {
         var agent = await BuildAgentAsync();
-        var wait = agent.EventCoordinator.WaitForResponseAsync<AnnotationResponseEvent>(
-            "annotation-123",
+        var wait = agent.EventCoordinator.RequestAsync<AnnotationRequestedEvent, AnnotationResponseEvent>(
+            new AnnotationRequestedEvent
+            {
+                AnnotationId = "annotation-123",
+                SessionId = "session-1",
+                BranchId = "branch-1",
+                TurnIndex = 1,
+                TriggerEvaluatorName = "test",
+                TriggerScore = 0.5,
+            },
             TimeSpan.FromSeconds(1),
             CancellationToken.None);
 
@@ -52,7 +60,7 @@ public sealed class AnnotationResponseTests
             Score = 1.0,
             Comment = "Human verified.",
         };
-        var result = EvaluationMiddleware.BuildHumanAnnotationResult(
+        var result = LiveEvaluationMiddleware.BuildHumanAnnotationResult(
             response.AnnotationId,
             "Task Success",
             response);
@@ -93,7 +101,7 @@ public sealed class AnnotationResponseTests
     [Fact]
     public void HumanAnnotationResult_UsesBooleanMetricWhenLabelIsBoolean()
     {
-        var result = EvaluationMiddleware.BuildHumanAnnotationResult(
+        var result = LiveEvaluationMiddleware.BuildHumanAnnotationResult(
             "annotation-123",
             "Approved",
             new AnnotationResponseEvent

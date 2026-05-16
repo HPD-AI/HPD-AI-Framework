@@ -13,7 +13,7 @@ public enum EvalPolicy
     /// <summary>
     /// This evaluator must pass on every run. A failure means the agent is broken.
     /// RunEvals asserts pass rate >= 1.0 for these evaluators.
-    /// EvaluationMiddleware emits EvalPolicyViolationEvent on failure.
+    /// LiveEvaluationMiddleware emits EvalPolicyViolationEvent on failure.
     /// Appropriate for: behavioral assertions (tool calls, permission boundaries,
     /// output constraints) that have a deterministic correct answer.
     /// </summary>

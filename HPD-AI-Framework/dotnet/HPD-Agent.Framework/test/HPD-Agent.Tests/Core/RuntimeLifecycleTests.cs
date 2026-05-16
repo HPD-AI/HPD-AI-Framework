@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Threading.Channels;
 using HPD.Agent.Tests.Infrastructure;
 using HPD.Agent.ClientTools;
 using HPD.Agent.Middleware;
@@ -17,6 +18,14 @@ public class RuntimeLifecycleTests : AgentTestBase
         public override EventChannel Channel { get; init; } = EventChannel.Interactive;
         public override EventKind Kind { get; init; } = EventKind.Control;
         public override EventDirection Direction { get; init; } = EventDirection.Upstream;
+    }
+
+    private sealed record CustomBidirectionalRequestEvent(
+        string RequestId,
+        string SourceName) : AgentEvent, IBidirectionalAgentEvent
+    {
+        public override EventChannel Channel { get; init; } = EventChannel.Interactive;
+        public override EventKind Kind { get; init; } = EventKind.Control;
     }
 
     private sealed class NonEventBidirectionalResponseEvent : IBidirectionalEvent
@@ -214,12 +223,22 @@ public class RuntimeLifecycleTests : AgentTestBase
         }
     }
 
-    private sealed class RecordingObserver(List<string> order)
+    private sealed class RecordingObserver(List<string> order, object? gate = null)
     {
         public ValueTask HandleAsync(AgentEvent evt)
         {
             if (evt is TextDeltaEvent)
-                order.Add("observer");
+            {
+                if (gate is null)
+                {
+                    order.Add("observer");
+                }
+                else
+                {
+                    lock (gate)
+                        order.Add("observer");
+                }
+            }
 
             return ValueTask.CompletedTask;
         }
@@ -282,21 +301,17 @@ public class RuntimeLifecycleTests : AgentTestBase
             BeforeMessageTurnContext context,
             CancellationToken cancellationToken)
         {
-            context.Emit(new PermissionRequestEvent(
-                PermissionId,
-                "PermissionWaitMiddleware",
-                "RuntimeTool",
-                "Approve runtime continuation",
-                "call-1",
-                null));
-
-            var waitTask = context.WaitForResponseAsync<PermissionResponseEvent>(
-                PermissionId,
-                TimeSpan.FromSeconds(10));
-
             Started.TrySetResult();
 
-            var response = await waitTask.ConfigureAwait(false);
+            var response = await context.RequestAsync<PermissionRequestEvent, PermissionResponseEvent>(
+                new PermissionRequestEvent(
+                    PermissionId,
+                    "PermissionWaitMiddleware",
+                    "RuntimeTool",
+                    "Approve runtime continuation",
+                    "call-1",
+                    null),
+                TimeSpan.FromSeconds(10)).ConfigureAwait(false);
 
             Completed.TrySetResult(response);
         }
@@ -1411,6 +1426,384 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
+    public async Task RegisterBackgroundTask_WhenStopping_Throws()
+    {
+        var order = new List<string>();
+        InvalidOperationException? registrationError = null;
+        var middleware = new RuntimeHookRecordingMiddleware("A", order)
+        {
+            OnBeforeStop = (context, _) =>
+            {
+                registrationError = Assert.Throws<InvalidOperationException>(() =>
+                    context.RegisterBackgroundTask(Task.CompletedTask));
+                return Task.CompletedTask;
+            }
+        };
+        var agent = CreateAgentWithMiddlewares(
+            client: new FakeChatClient(),
+            middlewares: [middleware]);
+
+        await agent.StartAsync(TestCancellationToken);
+        await agent.StopAsync(TestCancellationToken);
+
+        Assert.NotNull(registrationError);
+        Assert.Contains("stopping or stopped", registrationError.Message);
+    }
+
+    [Fact]
+    public async Task ToolCallBackgroundTaskEvents_StartedAndCompleted_AreEmitted()
+    {
+        using var runtimeCts = new CancellationTokenSource();
+        var runtimeContext = CreateRuntimeContext(runtimeCts.Token);
+        var started = new TaskCompletionSource<ToolCallBackgroundTaskStartedEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completed = new TaskCompletionSource<ToolCallBackgroundTaskCompletedEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var startedSubscription = runtimeContext.EventCoordinator.Subscribe<ToolCallBackgroundTaskStartedEvent>(evt =>
+        {
+            started.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
+        using var completedSubscription = runtimeContext.EventCoordinator.Subscribe<ToolCallBackgroundTaskCompletedEvent>(evt =>
+        {
+            completed.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
+        var invocation = CreateInvocationSnapshot();
+
+        runtimeContext.RegisterBackgroundTask(
+            "index-workspace",
+            invocation,
+            (_, _) => Task.CompletedTask);
+
+        await runtimeContext.DisposeRegisteredResourcesAsync(TestCancellationToken);
+
+        var startedEvent = await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        var completedEvent = await completed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        Assert.Equal(startedEvent.TaskId, completedEvent.TaskId);
+        Assert.Equal("index-workspace", startedEvent.Name);
+        Assert.Equal(invocation, startedEvent.Invocation);
+        Assert.True(completedEvent.DurationMilliseconds >= 0);
+    }
+
+    [Fact]
+    public async Task ToolCallBackgroundTaskCancelledEvent_EmittedOnRuntimeCancel()
+    {
+        using var runtimeCts = new CancellationTokenSource();
+        var runtimeContext = CreateRuntimeContext(runtimeCts.Token);
+        var cancelled = new TaskCompletionSource<ToolCallBackgroundTaskCancelledEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var subscription = runtimeContext.EventCoordinator.Subscribe<ToolCallBackgroundTaskCancelledEvent>(evt =>
+        {
+            cancelled.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
+        var invocation = CreateInvocationSnapshot();
+
+        runtimeContext.RegisterBackgroundTask(
+            "watch-files",
+            invocation,
+            (_, runtimeToken) => Task.Delay(Timeout.InfiniteTimeSpan, runtimeToken));
+
+        runtimeCts.Cancel();
+        await runtimeContext.DisposeRegisteredResourcesAsync(TestCancellationToken);
+
+        var cancelledEvent = await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        Assert.Equal("watch-files", cancelledEvent.Name);
+        Assert.Equal(invocation, cancelledEvent.Invocation);
+    }
+
+    [Fact]
+    public async Task ToolCallBackgroundTaskFaultedEvent_EmittedOnException()
+    {
+        using var runtimeCts = new CancellationTokenSource();
+        var runtimeContext = CreateRuntimeContext(runtimeCts.Token);
+        var faulted = new TaskCompletionSource<ToolCallBackgroundTaskFaultedEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var subscription = runtimeContext.EventCoordinator.Subscribe<ToolCallBackgroundTaskFaultedEvent>(evt =>
+        {
+            faulted.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        runtimeContext.RegisterBackgroundTask(
+            "crash",
+            CreateInvocationSnapshot(),
+            (_, _) => throw new InvalidOperationException("boom"));
+
+        await Assert.ThrowsAsync<AggregateException>(() =>
+            runtimeContext.DisposeRegisteredResourcesAsync(TestCancellationToken));
+
+        var faultedEvent = await faulted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        Assert.Equal("crash", faultedEvent.Name);
+        Assert.Equal(typeof(InvalidOperationException).FullName, faultedEvent.ExceptionType);
+        Assert.Equal("boom", faultedEvent.ErrorMessage);
+        Assert.Equal(EventKind.Diagnostic, faultedEvent.Kind);
+    }
+
+    [Fact]
+    public async Task BackgroundTaskRegistration_GeneratesStableUniqueTaskIds()
+    {
+        using var runtimeCts = new CancellationTokenSource();
+        var runtimeContext = CreateRuntimeContext(runtimeCts.Token);
+        var startedEvents = new List<ToolCallBackgroundTaskStartedEvent>();
+        var completedEvents = new List<ToolCallBackgroundTaskCompletedEvent>();
+        var allStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var startedSubscription = runtimeContext.EventCoordinator.Subscribe<ToolCallBackgroundTaskStartedEvent>(evt =>
+        {
+            lock (startedEvents)
+            {
+                startedEvents.Add(evt);
+                if (startedEvents.Count == 5)
+                    allStarted.TrySetResult();
+            }
+            return ValueTask.CompletedTask;
+        });
+        using var completedSubscription = runtimeContext.EventCoordinator.Subscribe<ToolCallBackgroundTaskCompletedEvent>(evt =>
+        {
+            lock (completedEvents)
+            {
+                completedEvents.Add(evt);
+                if (completedEvents.Count == 5)
+                    allCompleted.TrySetResult();
+            }
+            return ValueTask.CompletedTask;
+        });
+        var invocation = CreateInvocationSnapshot();
+
+        for (var i = 0; i < 5; i++)
+        {
+            runtimeContext.RegisterBackgroundTask(
+                $"task-{i}",
+                invocation,
+                (_, _) => Task.CompletedTask);
+        }
+
+        await runtimeContext.DisposeRegisteredResourcesAsync(TestCancellationToken);
+        await allStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        await allCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+
+        Assert.Equal(5, startedEvents.Count);
+        Assert.Equal(5, completedEvents.Count);
+        Assert.Equal(5, startedEvents.Select(evt => evt.TaskId).Distinct().Count());
+        Assert.Empty(startedEvents.Select(evt => evt.TaskId).Except(completedEvents.Select(evt => evt.TaskId)));
+    }
+
+    [Fact]
+    public async Task BackgroundTask_CanEmitEvents()
+    {
+        using var runtimeCts = new CancellationTokenSource();
+        var runtimeContext = CreateRuntimeContext(runtimeCts.Token);
+        var observed = new TaskCompletionSource<RuntimeHookProbeEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var subscription = runtimeContext.EventCoordinator.Subscribe<RuntimeHookProbeEvent>(evt =>
+        {
+            observed.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        runtimeContext.RegisterBackgroundTask(
+            "emit-event",
+            CreateInvocationSnapshot(),
+            (background, _) =>
+            {
+                background.EventCoordinator!.Emit(new RuntimeHookProbeEvent("background", background.TaskId));
+                return Task.CompletedTask;
+            });
+
+        await runtimeContext.DisposeRegisteredResourcesAsync(TestCancellationToken);
+
+        var evt = await observed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        Assert.Equal("background", evt.Stage);
+        Assert.False(string.IsNullOrWhiteSpace(evt.RuntimeId));
+    }
+
+    [Fact]
+    public async Task BackgroundTask_CanUseServices()
+    {
+        using var runtimeCts = new CancellationTokenSource();
+        var service = new TestRuntimeService("runtime-service");
+        var runtimeContext = CreateRuntimeContext(
+            runtimeCts.Token,
+            new SingleServiceProvider(service));
+        TestRuntimeService? resolved = null;
+
+        runtimeContext.RegisterBackgroundTask(
+            "use-services",
+            CreateInvocationSnapshot(),
+            (background, _) =>
+            {
+                resolved = (TestRuntimeService?)background.Services?.GetService(typeof(TestRuntimeService));
+                return Task.CompletedTask;
+            });
+
+        await runtimeContext.DisposeRegisteredResourcesAsync(TestCancellationToken);
+
+        Assert.Same(service, resolved);
+    }
+
+    [Fact]
+    public async Task RuntimeStop_DoesNotMissTaskRegisteredBeforeStop()
+    {
+        using var runtimeCts = new CancellationTokenSource();
+        var runtimeContext = CreateRuntimeContext(runtimeCts.Token);
+        var taskStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseTask = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var taskCompleted = false;
+
+        runtimeContext.RegisterBackgroundTask(
+            "accepted-before-stop",
+            CreateInvocationSnapshot(),
+            async (_, _) =>
+            {
+                taskStarted.TrySetResult();
+                await releaseTask.Task.WaitAsync(TestCancellationToken);
+                taskCompleted = true;
+            });
+
+        await taskStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        runtimeContext.StopAcceptingBackgroundTaskRegistrations();
+        var stopTask = runtimeContext.DisposeRegisteredResourcesAsync(TestCancellationToken);
+
+        Assert.False(stopTask.IsCompleted);
+        releaseTask.SetResult();
+        await stopTask;
+
+        Assert.True(taskCompleted);
+    }
+
+    [Fact]
+    public async Task RuntimeStop_RejectsRegistrationAfterStopBegins()
+    {
+        using var runtimeCts = new CancellationTokenSource();
+        var runtimeContext = CreateRuntimeContext(runtimeCts.Token);
+        var taskStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseTask = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        runtimeContext.RegisterBackgroundTask(
+            "block-stop",
+            CreateInvocationSnapshot(),
+            async (_, _) =>
+            {
+                taskStarted.TrySetResult();
+                await releaseTask.Task.WaitAsync(TestCancellationToken);
+            });
+
+        await taskStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        runtimeContext.StopAcceptingBackgroundTaskRegistrations();
+        var stopTask = runtimeContext.DisposeRegisteredResourcesAsync(TestCancellationToken);
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            runtimeContext.RegisterBackgroundTask(
+                "too-late",
+                CreateInvocationSnapshot(),
+                (_, _) => Task.CompletedTask));
+
+        releaseTask.SetResult();
+        await stopTask;
+        Assert.Contains("stopping or stopped", ex.Message);
+    }
+
+    [Fact]
+    public async Task BackgroundTask_FaultDuringStop_IsObserved()
+    {
+        using var runtimeCts = new CancellationTokenSource();
+        var runtimeContext = CreateRuntimeContext(runtimeCts.Token);
+        var faulted = new TaskCompletionSource<ToolCallBackgroundTaskFaultedEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var subscription = runtimeContext.EventCoordinator.Subscribe<ToolCallBackgroundTaskFaultedEvent>(evt =>
+        {
+            faulted.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        runtimeContext.RegisterBackgroundTask(
+            "fault-during-stop",
+            CreateInvocationSnapshot(),
+            async (_, runtimeToken) =>
+            {
+                while (!runtimeToken.IsCancellationRequested)
+                {
+                    await Task.Delay(10, TestCancellationToken);
+                }
+
+                throw new InvalidOperationException("faulted during stop");
+            });
+
+        runtimeCts.Cancel();
+        var ex = await Assert.ThrowsAsync<AggregateException>(() =>
+            runtimeContext.DisposeRegisteredResourcesAsync(TestCancellationToken));
+        var faultedEvent = await faulted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+
+        Assert.Contains("faulted during stop", ex.Flatten().InnerExceptions.Select(error => error.Message));
+        Assert.Equal("fault-during-stop", faultedEvent.Name);
+        Assert.Equal("faulted during stop", faultedEvent.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ManyBackgroundTasks_AllCompleteOrCancelCleanly()
+    {
+        using var runtimeCts = new CancellationTokenSource();
+        var runtimeContext = CreateRuntimeContext(runtimeCts.Token);
+        var completed = 0;
+        const int taskCount = 200;
+
+        for (var i = 0; i < taskCount; i++)
+        {
+            runtimeContext.RegisterBackgroundTask(
+                $"task-{i}",
+                CreateInvocationSnapshot(functionCallId: $"call-{i}", toolCallIndex: i),
+                async (_, runtimeToken) =>
+                {
+                    await Task.Yield();
+                    runtimeToken.ThrowIfCancellationRequested();
+                    Interlocked.Increment(ref completed);
+                });
+        }
+
+        await runtimeContext.DisposeRegisteredResourcesAsync(TestCancellationToken);
+
+        Assert.Equal(taskCount, completed);
+    }
+
+    [Fact]
+    public async Task EndToEnd_ToolRegistersBackgroundTask_RuntimeStopCleansUp()
+    {
+        using var runtimeCts = new CancellationTokenSource();
+        var runtimeContext = CreateRuntimeContext(runtimeCts.Token);
+        var taskStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var taskCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelledEvent = new TaskCompletionSource<ToolCallBackgroundTaskCancelledEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var subscription = runtimeContext.EventCoordinator.Subscribe<ToolCallBackgroundTaskCancelledEvent>(evt =>
+        {
+            cancelledEvent.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        runtimeContext.RegisterBackgroundTask(
+            "long-running-tool-work",
+            CreateInvocationSnapshot(functionCallId: "tool-call-99", toolCallIndex: 99),
+            async (_, runtimeToken) =>
+            {
+                taskStarted.TrySetResult();
+                try
+                {
+                    await Task.Delay(Timeout.InfiniteTimeSpan, runtimeToken);
+                }
+                catch (OperationCanceledException) when (runtimeToken.IsCancellationRequested)
+                {
+                    taskCancelled.TrySetResult();
+                    throw;
+                }
+            });
+
+        await taskStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        runtimeCts.Cancel();
+        await runtimeContext.DisposeRegisteredResourcesAsync(TestCancellationToken);
+
+        await taskCancelled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        var evt = await cancelledEvent.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        Assert.Equal("long-running-tool-work", evt.Name);
+        Assert.Equal("tool-call-99", evt.Invocation.FunctionCallId);
+        Assert.Equal(99, evt.Invocation.ToolCallIndex);
+    }
+
+    [Fact]
     public async Task StartedRuntime_StructEvent_RoutesToRuntimeCoordinatorStructSubscriber()
     {
         var order = new List<string>();
@@ -1807,10 +2200,12 @@ public class RuntimeLifecycleTests : AgentTestBase
         var blockingClient = new BlockingChatClient();
         var agent = CreateAgent(client: blockingClient);
         var interruptions = new List<InterruptionHandledEvent>();
+        var gate = new object();
 
         using var subscription = agent.Subscribe<InterruptionHandledEvent>((Func<InterruptionHandledEvent, ValueTask>)(evt =>
         {
-            interruptions.Add(evt);
+            lock (gate)
+                interruptions.Add(evt);
             return ValueTask.CompletedTask;
         }));
 
@@ -1825,10 +2220,19 @@ public class RuntimeLifecycleTests : AgentTestBase
             Source: InterruptionSource.User), TestCancellationToken);
 
         await blockingClient.Cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        await WaitForAsync(() =>
+        {
+            lock (gate)
+                return interruptions.Count == 1;
+        });
         await agent.StopAsync(TestCancellationToken);
 
-        Assert.Single(interruptions);
-        Assert.Equal("stop", interruptions[0].Reason);
+        List<InterruptionHandledEvent> snapshot;
+        lock (gate)
+            snapshot = interruptions.ToList();
+
+        Assert.Single(snapshot);
+        Assert.Equal("stop", snapshot[0].Reason);
     }
 
     [Fact]
@@ -1909,42 +2313,60 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
-    public async Task OutputHandlers_RunTypedBeforeOnAny_InRegistrationOrder()
+    public async Task OutputHandlers_RunTypedAndAnySubscribers()
     {
         var fakeClient = new FakeChatClient();
         fakeClient.EnqueueTextResponse("ordered");
 
         var agent = CreateAgent(client: fakeClient);
         var order = new List<string>();
+        var gate = new object();
 
         using var typed1 = agent.Subscribe<TextDeltaEvent>(_ =>
         {
-            order.Add("typed-1");
+            lock (gate)
+                order.Add("typed-1");
             return ValueTask.CompletedTask;
         });
         using var typed2 = agent.Subscribe<TextDeltaEvent>(_ =>
         {
-            order.Add("typed-2");
+            lock (gate)
+                order.Add("typed-2");
             return ValueTask.CompletedTask;
         });
         using var any1 = agent.SubscribeAny(evt =>
         {
             if (evt is TextDeltaEvent)
-                order.Add("any-1");
+            {
+                lock (gate)
+                    order.Add("any-1");
+            }
 
             return ValueTask.CompletedTask;
         });
         using var any2 = agent.SubscribeAny(evt =>
         {
             if (evt is TextDeltaEvent)
-                order.Add("any-2");
+            {
+                lock (gate)
+                    order.Add("any-2");
+            }
 
             return ValueTask.CompletedTask;
         });
 
         await agent.RunAsync("hello", cancellationToken: TestCancellationToken);
+        await WaitForAsync(() =>
+        {
+            lock (gate)
+                return order.Count >= 4;
+        });
 
-        Assert.Equal(["typed-1", "typed-2", "any-1", "any-2"], order);
+        List<string> snapshot;
+        lock (gate)
+            snapshot = order.ToList();
+
+        Assert.Equal(["any-1", "any-2", "typed-1", "typed-2"], snapshot.OrderBy(x => x).ToArray());
     }
 
     [Fact]
@@ -1954,7 +2376,8 @@ public class RuntimeLifecycleTests : AgentTestBase
         fakeClient.EnqueueTextResponse("ordered");
 
         var order = new List<string>();
-        var observer = new RecordingObserver(order);
+        var gate = new object();
+        var observer = new RecordingObserver(order, gate);
 
         var agent = await new AgentBuilder(DefaultConfig(), new TestProviderRegistry(fakeClient))
             .WithEventSubscription(coordinator =>
@@ -1965,33 +2388,49 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         using var typed1 = agent.Subscribe<TextDeltaEvent>(_ =>
         {
-            order.Add("typed-1");
+            lock (gate)
+                order.Add("typed-1");
             return ValueTask.CompletedTask;
         });
         using var typed2 = agent.Subscribe<TextDeltaEvent>(_ =>
         {
-            order.Add("typed-2");
+            lock (gate)
+                order.Add("typed-2");
             return ValueTask.CompletedTask;
         });
         using var any1 = agent.SubscribeAny(evt =>
         {
             if (evt is TextDeltaEvent)
-                order.Add("any-1");
+            {
+                lock (gate)
+                    order.Add("any-1");
+            }
 
             return ValueTask.CompletedTask;
         });
         using var any2 = agent.SubscribeAny(evt =>
         {
             if (evt is TextDeltaEvent)
-                order.Add("any-2");
+            {
+                lock (gate)
+                    order.Add("any-2");
+            }
 
             return ValueTask.CompletedTask;
         });
 
         await agent.RunAsync("hello", cancellationToken: TestCancellationToken);
-        await WaitForAsync(() => order.Count >= 5);
+        await WaitForAsync(() =>
+        {
+            lock (gate)
+                return order.Count >= 5;
+        });
 
-        Assert.Equal(["typed-1", "typed-2", "any-1", "any-2", "observer"], order);
+        List<string> snapshot;
+        lock (gate)
+            snapshot = order.ToList();
+
+        Assert.Equal(["any-1", "any-2", "observer", "typed-1", "typed-2"], snapshot.OrderBy(x => x).ToArray());
     }
 
     [Fact]
@@ -2001,24 +2440,24 @@ public class RuntimeLifecycleTests : AgentTestBase
         fakeClient.EnqueueTextResponse("still completes");
 
         var agent = CreateAgent(client: fakeClient);
-        var laterHandlerCalled = false;
-        var finished = false;
+        var laterHandlerCalled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         using var throwingSubscription = agent.Subscribe<TextDeltaEvent>(
             (Action<TextDeltaEvent>)(_ => throw new InvalidOperationException("handler failed")));
         using var laterSubscription = agent.Subscribe<TextDeltaEvent>(_ =>
         {
-            laterHandlerCalled = true;
+            laterHandlerCalled.TrySetResult();
         });
         using var finishedSubscription = agent.Subscribe<MessageTurnFinishedEvent>(_ =>
         {
-            finished = true;
+            finished.TrySetResult();
         });
 
         await agent.RunAsync("hello", cancellationToken: TestCancellationToken);
 
-        Assert.True(laterHandlerCalled);
-        Assert.True(finished);
+        await laterHandlerCalled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        await finished.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
     }
 
     [Fact]
@@ -2028,13 +2467,13 @@ public class RuntimeLifecycleTests : AgentTestBase
         fakeClient.EnqueueTextResponse("processed");
 
         var agent = CreateAgent(client: fakeClient);
-        var textOutputSeen = false;
+        var textOutputSeen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        using var textSubscription = agent.Subscribe<TextDeltaEvent>(_ => textOutputSeen = true);
+        using var textSubscription = agent.Subscribe<TextDeltaEvent>(_ => textOutputSeen.TrySetResult());
 
         await agent.RunAsync(new UserTextInputEvent("hello"), TestCancellationToken);
 
-        Assert.True(textOutputSeen);
+        await textOutputSeen.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
     }
 
     [Fact]
@@ -2075,7 +2514,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.RespondAsync(new PermissionResponseEvent("perm-1", "source", true), TestCancellationToken);
+        await agent.TryRespondAsync(new PermissionResponseEvent("perm-1", "source", true), TestCancellationToken);
 
         Assert.Equal(0, middleware.BeforeMessageTurnCalls);
     }
@@ -2088,7 +2527,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.RespondAsync(new ClarificationResponseEvent("clar-1", "source", "question?", "answer"), TestCancellationToken);
+        await agent.TryRespondAsync(new ClarificationResponseEvent("clar-1", "source", "question?", "answer"), TestCancellationToken);
 
         Assert.Equal(0, middleware.BeforeMessageTurnCalls);
     }
@@ -2101,7 +2540,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.RespondAsync(new ContinuationResponseEvent("cont-1", "source", true), TestCancellationToken);
+        await agent.TryRespondAsync(new ContinuationResponseEvent("cont-1", "source", true), TestCancellationToken);
 
         Assert.Equal(0, middleware.BeforeMessageTurnCalls);
     }
@@ -2114,7 +2553,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.RespondAsync(new ClientToolInvokeResponseEvent("client-tool-1", "done"), TestCancellationToken);
+        await agent.TryRespondAsync(new ClientToolInvokeResponseEvent("client-tool-1", "done"), TestCancellationToken);
 
         Assert.Equal(0, middleware.BeforeMessageTurnCalls);
     }
@@ -2150,6 +2589,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         });
 
         await agent.RunAsync("hello", cancellationToken: TestCancellationToken);
+        await WaitForAsync(() => seenText);
 
         Assert.False(agent.IsRunning);
         Assert.True(seenText);
@@ -2167,22 +2607,22 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
-    public async Task RespondAsync_ResponseEvents_WithNoActiveWaiter_AreNoOps()
+    public async Task TryRespondAsync_ResponseEvents_WithNoActiveWaiter_ReturnFalse()
     {
         var agent = CreateAgent(client: new FakeChatClient());
 
-        await agent.RespondAsync(new PermissionResponseEvent("perm-1", "source", true), TestCancellationToken);
-        await agent.RespondAsync(new ContinuationResponseEvent("cont-1", "source", true), TestCancellationToken);
-        await agent.RespondAsync(new ClarificationResponseEvent("clar-1", "source", "question?", "answer"), TestCancellationToken);
-        await agent.RespondAsync(new ClientToolInvokeResponseEvent("client-tool-1", "done"), TestCancellationToken);
+        Assert.False(await agent.TryRespondAsync(new PermissionResponseEvent("perm-1", "source", true), TestCancellationToken));
+        Assert.False(await agent.TryRespondAsync(new ContinuationResponseEvent("cont-1", "source", true), TestCancellationToken));
+        Assert.False(await agent.TryRespondAsync(new ClarificationResponseEvent("clar-1", "source", "question?", "answer"), TestCancellationToken));
+        Assert.False(await agent.TryRespondAsync(new ClientToolInvokeResponseEvent("client-tool-1", "done"), TestCancellationToken));
     }
 
     [Fact]
     public async Task RespondAsync_CustomBidirectionalEvent_RoutesByRequestId()
     {
         var agent = CreateAgent(client: new FakeChatClient());
-        var waitTask = agent.EventCoordinator.WaitForResponseAsync<CustomBidirectionalResponseEvent>(
-            "custom-request",
+        var waitTask = agent.EventCoordinator.RequestAsync<CustomBidirectionalRequestEvent, CustomBidirectionalResponseEvent>(
+            new CustomBidirectionalRequestEvent("custom-request", "custom-source"),
             TimeSpan.FromSeconds(5),
             TestCancellationToken);
 
@@ -2205,11 +2645,17 @@ public class RuntimeLifecycleTests : AgentTestBase
         var agent = CreateAgentWithMiddlewares(
             client: fakeClient,
             middlewares: [middleware]);
+        var requestSeen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var subscription = agent.Subscribe<PermissionRequestEvent>(evt =>
+        {
+            if (evt.PermissionId == PermissionWaitMiddleware.PermissionId)
+                requestSeen.TrySetResult();
+        });
 
         await agent.StartAsync(TestCancellationToken);
         await agent.RunAsync("needs approval", cancellationToken: TestCancellationToken);
 
-        await middleware.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        await requestSeen.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
 
         await agent.RespondAsync(new PermissionResponseEvent(
             PermissionWaitMiddleware.PermissionId,
@@ -2230,8 +2676,14 @@ public class RuntimeLifecycleTests : AgentTestBase
         await agent.StartAsync(TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
-        var waitTask = agent.EventCoordinator.WaitForResponseAsync<PermissionResponseEvent>(
-            "root-permission",
+        var waitTask = agent.EventCoordinator.RequestAsync<PermissionRequestEvent, PermissionResponseEvent>(
+            new PermissionRequestEvent(
+                "root-permission",
+                "root",
+                "RuntimeTool",
+                "Approve",
+                "call-1",
+                null),
             TimeSpan.FromSeconds(5),
             TestCancellationToken);
 
@@ -2248,8 +2700,14 @@ public class RuntimeLifecycleTests : AgentTestBase
     public async Task OneShotRunAsync_ResponseEvent_StillRoutesToRootCoordinator()
     {
         var agent = CreateAgent(client: new FakeChatClient());
-        var waitTask = agent.EventCoordinator.WaitForResponseAsync<PermissionResponseEvent>(
-            "one-shot-permission",
+        var waitTask = agent.EventCoordinator.RequestAsync<PermissionRequestEvent, PermissionResponseEvent>(
+            new PermissionRequestEvent(
+                "one-shot-permission",
+                "root",
+                "RuntimeTool",
+                "Approve",
+                "call-1",
+                null),
             TimeSpan.FromSeconds(5),
             TestCancellationToken);
 
@@ -2272,12 +2730,18 @@ public class RuntimeLifecycleTests : AgentTestBase
         var agent = CreateAgentWithMiddlewares(
             client: fakeClient,
             middlewares: [middleware]);
+        var requestSeen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var subscription = agent.Subscribe<PermissionRequestEvent>(evt =>
+        {
+            if (evt.PermissionId == PermissionWaitMiddleware.PermissionId)
+                requestSeen.TrySetResult();
+        });
 
         await agent.StartAsync(TestCancellationToken);
         await agent.RunAsync("needs approval", cancellationToken: TestCancellationToken);
-        await middleware.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        await requestSeen.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
 
-        agent.EventCoordinator.SendResponse(
+        agent.EventCoordinator.Respond(
             PermissionWaitMiddleware.PermissionId,
             new PermissionResponseEvent(
                 PermissionWaitMiddleware.PermissionId,
@@ -2297,18 +2761,33 @@ public class RuntimeLifecycleTests : AgentTestBase
         var stream1 = agent.EventCoordinator.Streams.Create("stream-1");
         var stream2 = agent.EventCoordinator.Streams.Create("stream-2");
         var interruptions = new List<InterruptionHandledEvent>();
+        var gate = new object();
 
-        using var subscription = agent.Subscribe<InterruptionHandledEvent>(interruptions.Add);
+        using var subscription = agent.Subscribe<InterruptionHandledEvent>(evt =>
+        {
+            lock (gate)
+                interruptions.Add(evt);
+        });
 
         await agent.RunAsync(new InterruptionRequestEvent(
             StreamId: "stream-1",
             Reason: "targeted stop",
             Source: InterruptionSource.User), TestCancellationToken);
+        await WaitForAsync(() =>
+        {
+            lock (gate)
+                return interruptions.Count == 1;
+        });
 
         Assert.True(stream1.IsInterrupted);
         Assert.False(stream2.IsInterrupted);
-        Assert.Single(interruptions);
-        Assert.Equal("stream-1", interruptions[0].StreamId);
+
+        List<InterruptionHandledEvent> snapshot;
+        lock (gate)
+            snapshot = interruptions.ToList();
+
+        Assert.Single(snapshot);
+        Assert.Equal("stream-1", snapshot[0].StreamId);
     }
 
     [Fact]
@@ -2362,5 +2841,44 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         Assert.True(actionCalled);
         Assert.True(taskCalled);
+    }
+
+    private static AgentRuntimeContext CreateRuntimeContext(
+        CancellationToken runtimeToken,
+        IServiceProvider? services = null)
+    {
+        var inbox = Channel.CreateUnbounded<AgentInputEvent>();
+        return new AgentRuntimeContext(
+            "TestAgent",
+            new AgentConfig(),
+            services,
+            new HPD.Events.Core.EventCoordinator(),
+            inbox.Writer,
+            (_, _) => ValueTask.CompletedTask,
+            () => false,
+            runtimeToken);
+    }
+
+    private static FunctionInvocationSnapshot CreateInvocationSnapshot(
+        string functionCallId = "call-1",
+        int toolCallIndex = 0)
+        => new()
+        {
+            AgentName = "TestAgent",
+            FunctionCallId = functionCallId,
+            FunctionName = "TestFunction",
+            ConversationId = "conversation-1",
+            SessionId = "session-1",
+            BranchId = "branch-1",
+            TraceId = "trace-1",
+            Invocation = new ToolInvocationInfo("batch-1", functionCallId, "TestFunction", toolCallIndex)
+        };
+
+    private sealed record TestRuntimeService(string Name);
+
+    private sealed class SingleServiceProvider(object service) : IServiceProvider
+    {
+        public object? GetService(Type serviceType)
+            => serviceType == service.GetType() ? service : null;
     }
 }

@@ -50,9 +50,9 @@ public record HarnessFactory(
 
     /// <summary>
     /// Direct delegate to generated CreateHarness method.
-    /// Example: (instance, ctx) => MathHarnessRegistration.CreateHarness((MathHarness)instance, ctx)
+    /// Example: (instance, ctx, serialization) => MathHarnessRegistration.CreateHarness((MathHarness)instance, ctx, serialization)
     /// </summary>
-    Func<object, IToolMetadata?, List<AIFunction>> CreateFunctions,
+    Func<object, IToolMetadata?, HPDToolSerializationOptions?, List<AIFunction>> CreateFunctions,
 
     /// <summary>
     /// Direct delegate to generated GetReferencedHarneses method.

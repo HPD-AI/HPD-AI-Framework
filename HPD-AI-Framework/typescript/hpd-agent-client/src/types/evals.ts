@@ -12,7 +12,9 @@ export interface ScoreRecord {
   branchId: string;
   turnIndex: number;
   agentName: string;
+  providerKey?: string;
   modelId?: string;
+  responseModelId?: string;
   turnUsage?: UsageDetails;
   turnDuration: string;        // ISO 8601 duration
   judgeModelId?: string;

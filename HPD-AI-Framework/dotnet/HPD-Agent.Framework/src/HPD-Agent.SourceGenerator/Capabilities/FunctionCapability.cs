@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -94,18 +95,20 @@ internal class FunctionCapability : BaseCapability
             ? $"Resolve{Name}Description(context)"
             : $"\"{Description}\"";
 
-        var relevantParams = Parameters
-            .Where(p => p.Type != "CancellationToken" && p.Type != "AIFunctionArguments" && p.Type != "IServiceProvider")
-            .ToList();
+        var relevantParams = Parameters.Where(p => p.IsModelFacing).ToList();
 
         var dtoName = relevantParams.Any() ? $"{Name}Args" : "object";
 
         var invocationArgs = string.Join(", ", Parameters.Select(p =>
         {
-            if (p.Type == "CancellationToken") return "cancellationToken";
-            if (p.Type == "AIFunctionArguments") return "arguments";
-            if (p.Type == "IServiceProvider") return "arguments.Services";
-            return $"args.{p.Name}";
+            return p.Kind switch
+            {
+                FunctionParameterKind.CancellationToken => "cancellationToken",
+                FunctionParameterKind.AIFunctionArguments => "arguments",
+                FunctionParameterKind.ServiceProvider => "arguments.Services",
+                FunctionParameterKind.FunctionExecutionContext => "functionContext",
+                _ => $"args.{p.Name}"
+            };
         }));
 
         string asyncKeyword = IsAsync ? "async" : "";
@@ -116,16 +119,14 @@ internal class FunctionCapability : BaseCapability
         string schemaProviderCode = "() => { ";
         if (relevantParams.Any())
         {
-            // Use AIJsonUtilities to generate schema from the method signature
-            // This is AOT-compatible and uses the method's actual parameters with their [Description] attributes
+            // Use the generated model-facing DTO as the schema source so runtime parameters stay hidden.
             schemaProviderCode += $@"
-    var method = typeof({Harness.Name}).GetMethod(nameof({Harness.Name}.{Name}));
     var options = new global::Microsoft.Extensions.AI.AIJsonSchemaCreateOptions {{ IncludeSchemaKeyword = false }};
     var serializerOptions = new global::System.Text.Json.JsonSerializerOptions(global::Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions);
     serializerOptions.TypeInfoResolverChain.Add(global::HPDJsonContext.Default);
     serializerOptions.MakeReadOnly();
-    return global::Microsoft.Extensions.AI.AIJsonUtilities.CreateFunctionJsonSchema(
-        method!,
+    return global::Microsoft.Extensions.AI.AIJsonUtilities.CreateJsonSchema(
+        typeof({dtoName}),
         serializerOptions: serializerOptions,
         inferenceOptions: options
     );";
@@ -167,10 +168,10 @@ internal class FunctionCapability : BaseCapability
             }
 
             invocationLogic =
-$@"({asyncKeyword} (arguments, cancellationToken) =>
+$@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
             {{
                 var jsonArgs = arguments.GetJson();
-                var args = Parse{dtoName}(jsonArgs);
+                var args = Parse{dtoName}(jsonArgs, arguments.GetJsonSerializerOptions());
                 {returnStatement}
             }})";
         }
@@ -193,7 +194,7 @@ $@"({asyncKeyword} (arguments, cancellationToken) =>
             }
 
             invocationLogic =
-$@"({asyncKeyword} (arguments, cancellationToken) =>
+$@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
             {{
                 {returnStatement}
             }})";
@@ -205,6 +206,11 @@ $@"({asyncKeyword} (arguments, cancellationToken) =>
         options.AppendLine($"                RequiresPermission = {RequiresPermission.ToString().ToLower()},");
         options.AppendLine($"                Validator = Create{Name}Validator(),");
         options.AppendLine($"                SchemaProvider = {schemaProviderCode},");
+        options.AppendLine("                SerializerOptions = serialization?.SerializerOptions,");
+        if (!isVoidReturn)
+        {
+            options.AppendLine($"                ResultType = typeof({GetDeclaredResultType(ReturnType)}),");
+        }
         options.AppendLine($"                ParameterDescriptions = {GenerateParameterDescriptions()},");
 
         // ALWAYS add ParentHarness metadata (enables HarnessReferences to work with any Harness)
@@ -225,7 +231,7 @@ $@"({asyncKeyword} (arguments, cancellationToken) =>
 
         return
 $@"HPDAIFunctionFactory.Create(
-            new Func<AIFunctionArguments, CancellationToken, {returnType}>{invocationLogic},
+            new Func<AIFunctionArguments, FunctionExecutionContext, CancellationToken, {returnType}>{invocationLogic},
             new HPDAIFunctionFactoryOptions
             {{
 {options}
@@ -238,7 +244,7 @@ $@"HPDAIFunctionFactory.Create(
     /// </summary>
     private string GenerateParameterDescriptions()
     {
-        var paramsWithDesc = Parameters.Where(p => !string.IsNullOrEmpty(p.Description)).ToList();
+        var paramsWithDesc = Parameters.Where(p => p.IsModelFacing && !string.IsNullOrEmpty(p.Description)).ToList();
         if (!paramsWithDesc.Any())
             return "null";
 
@@ -257,6 +263,33 @@ $@"HPDAIFunctionFactory.Create(
 
         descriptions.Append("                }");
         return descriptions.ToString();
+    }
+
+    private static string GetDeclaredResultType(string returnType)
+    {
+        var normalized = returnType.Trim();
+        if (TryUnwrapGeneric(normalized, "System.Threading.Tasks.Task", out var taskResult) ||
+            TryUnwrapGeneric(normalized, "Task", out taskResult) ||
+            TryUnwrapGeneric(normalized, "System.Threading.Tasks.ValueTask", out taskResult) ||
+            TryUnwrapGeneric(normalized, "ValueTask", out taskResult))
+        {
+            return taskResult;
+        }
+
+        return normalized;
+    }
+
+    private static bool TryUnwrapGeneric(string typeName, string genericTypeName, out string typeArgument)
+    {
+        var prefix = genericTypeName + "<";
+        if (typeName.StartsWith(prefix, StringComparison.Ordinal) && typeName.EndsWith(">", StringComparison.Ordinal))
+        {
+            typeArgument = typeName.Substring(prefix.Length, typeName.Length - prefix.Length - 1);
+            return true;
+        }
+
+        typeArgument = string.Empty;
+        return false;
     }
 
     /// <summary>
@@ -294,7 +327,7 @@ $@"HPDAIFunctionFactory.Create(
         // Generate parameter description resolvers
         if (HasTypedMetadata)
         {
-            foreach (var param in Parameters.Where(p => p.HasDynamicDescription))
+            foreach (var param in Parameters.Where(p => p.IsModelFacing && p.HasDynamicDescription))
             {
                 // Convert {metadata.PropertyName} templates to {typedMetadata.PropertyName} for string interpolation
                 var interpolatedDescription = param.Description.Replace("{metadata.", "{typedMetadata.");
@@ -309,7 +342,7 @@ $@"HPDAIFunctionFactory.Create(
             }
 
             // Generate parameter conditional evaluators
-            foreach (var param in Parameters.Where(p => p.IsConditional))
+            foreach (var param in Parameters.Where(p => p.IsModelFacing && p.IsConditional))
             {
                 // Ensure all property names in the expression are properly prefixed with "typedMetadata."
                 var expression = param.ConditionalExpression;
@@ -362,7 +395,10 @@ internal class ParameterInfo
 {
     public string Name { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
+    public string MetadataTypeName { get; set; } = "object";
+    public FunctionParameterKind Kind { get; set; } = FunctionParameterKind.ModelFacing;
     public string Description { get; set; } = string.Empty;
+    public bool IsEnum { get; set; }
     public bool HasDefaultValue { get; set; }
     public string? DefaultValue { get; set; }
 
@@ -384,7 +420,9 @@ internal class ParameterInfo
     /// <summary>
     /// Whether this parameter should be serialized (not special framework types).
     /// </summary>
-    public bool IsSerializable => Type != "CancellationToken" && Type != "AIFunctionArguments" && Type != "IServiceProvider";
+    public bool IsSerializable => IsModelFacing;
+
+    public bool IsModelFacing => Kind == FunctionParameterKind.ModelFacing;
 
     /// <summary>
     /// Whether this parameter is nullable (simple heuristic).

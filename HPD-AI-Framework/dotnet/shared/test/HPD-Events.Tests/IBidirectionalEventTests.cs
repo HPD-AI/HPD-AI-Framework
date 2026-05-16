@@ -100,27 +100,21 @@ public class IBidirectionalEventTests
             TestData = "Please process this"
         };
 
-        // Act - Emit request and wait for response in background
-        var responseTask = Task.Run(async () =>
+        using var subscription = coordinator.Subscribe<TestBidirectionalEvent>(evt =>
         {
-            coordinator.Emit(request);
-            return await coordinator.WaitForResponseAsync<TestResponseEvent>(
-                requestId,
-                timeout: TimeSpan.FromSeconds(2),
-                CancellationToken.None
-            );
+            coordinator.Respond(evt.RequestId, new TestResponseEvent
+            {
+                RequestId = evt.RequestId,
+                SourceName = "Responder",
+                Success = true
+            });
+            return ValueTask.CompletedTask;
         });
 
-        // Simulate handler receiving request and sending response
-        await Task.Delay(100); // Let request emit
-        coordinator.SendResponse(requestId, new TestResponseEvent
-        {
-            RequestId = requestId,
-            SourceName = "Responder",
-            Success = true
-        });
-
-        var response = await responseTask;
+        // Act
+        var response = await coordinator.RequestAsync<TestBidirectionalEvent, TestResponseEvent>(
+            request,
+            timeout: TimeSpan.FromSeconds(2));
 
         // Assert
         Assert.Equal(requestId, response.RequestId);
@@ -141,16 +135,13 @@ public class IBidirectionalEventTests
             SourceName = "Requester"
         };
 
-        coordinator.Emit(request);
-
         // Act & Assert
         await Assert.ThrowsAsync<TimeoutException>(async () =>
         {
-            await coordinator.WaitForResponseAsync<TestResponseEvent>(
-                requestId,
+            await coordinator.RequestAsync<TestBidirectionalEvent, TestResponseEvent>(
+                request,
                 timeout: TimeSpan.FromMilliseconds(100),
-                CancellationToken.None
-            );
+                CancellationToken.None);
         });
     }
 

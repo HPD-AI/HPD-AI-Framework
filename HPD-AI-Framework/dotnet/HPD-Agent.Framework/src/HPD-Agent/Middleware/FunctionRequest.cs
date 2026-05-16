@@ -71,6 +71,16 @@ public sealed record FunctionRequest
     public required AgentLoopState State { get; init; }
 
     /// <summary>
+    /// Runtime-assigned invocation metadata, if this request belongs to a model tool-call batch.
+    /// </summary>
+    public ToolInvocationInfo? Invocation { get; init; }
+
+    /// <summary>
+    /// Per-call structured metadata recorded during function execution.
+    /// </summary>
+    public ToolResultMetadata ResultMetadata { get; init; } = new();
+
+    /// <summary>
     /// Name of the Harness that contains this function, if any.
     /// May be NULL if function is not part of a Harness.
     /// </summary>
@@ -110,6 +120,12 @@ public sealed record FunctionRequest
     /// </code>
     /// </remarks>
     public HPD.Events.IEventCoordinator? EventCoordinator { get; init; }
+
+    /// <summary>
+    /// Runtime-owned background task registry available to function bodies.
+    /// May be null for direct/test execution paths that are not running inside an agent runtime.
+    /// </summary>
+    public IAgentBackgroundTaskRegistry? BackgroundTasks { get; init; }
 
     /// <summary>
     /// Creates a modified copy of this request.

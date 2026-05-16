@@ -5,7 +5,7 @@
  * the event handler methods that EventMapper calls when HPD protocol events arrive.
  */
 
-import type { AgentEvent } from '@hpd/hpd-agent-client';
+import type { AgentEvent, ToolResultPayload } from '@hpd/hpd-agent-client';
 import type {
 	Message,
 	MessageRole,
@@ -21,6 +21,13 @@ import { VoiceActivityIndicatorState } from '../voice-activity-indicator/voice-a
 import { InterruptionIndicatorState } from '../interruption-indicator/interruption-indicator.svelte.ts';
 import { TurnIndicatorState } from '../turn-indicator/turn-indicator.svelte.ts';
 import { AudioVisualizerState } from '../audio-visualizer/audio-visualizer.svelte.ts';
+
+function formatToolResultPayload(result: ToolResultPayload): string {
+	if (result.text) return result.text;
+	if (result.json !== undefined) return JSON.stringify(result.json);
+	if (result.content && result.content.length > 0) return JSON.stringify(result.content);
+	return '';
+}
 
 export class AgentState {
 	// ============================================
@@ -236,8 +243,14 @@ export class AgentState {
 		}
 	}
 
-	onToolCallResult(callId: string, result: string) {
-		this.#replaceToolCall(callId, (t) => ({ ...t, result, status: 'complete', endTime: new Date() }));
+	onToolCallResult(callId: string, result: ToolResultPayload) {
+		this.#replaceToolCall(callId, (t) => ({
+			...t,
+			result,
+			resultText: formatToolResultPayload(result),
+			status: 'complete',
+			endTime: new Date()
+		}));
 		this.#activeTools = this.#activeTools.filter((t) => t.callId !== callId);
 	}
 

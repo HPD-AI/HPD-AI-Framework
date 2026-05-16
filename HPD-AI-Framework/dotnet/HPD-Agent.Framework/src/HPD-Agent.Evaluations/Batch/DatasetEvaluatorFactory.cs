@@ -85,6 +85,7 @@ internal static class DatasetEvaluatorFactory
         "toolwascalled" => new ToolWasCalledEvaluator(GetString(value, name)),
         "toolcallcount" => CreateToolCallCount(value),
         "toolargumentmatches" => CreateToolArgumentMatches(value),
+        "toolresultcontains" => CreateToolResultContains(value),
         "toolcallorder" => new ToolCallOrderEvaluator(GetStringArray(value, name)),
         "toolcallf1" => new ToolCallF1Evaluator(GetStringArray(value, name)),
         "bleu" => new BleuEvaluator(GetReferences(value, name)),
@@ -188,6 +189,13 @@ internal static class DatasetEvaluatorFactory
         var argument = GetPropertyString(value, "argument");
         var expected = GetPropertyString(value, "expected");
         return new ToolArgumentMatchesEvaluator(tool, argument, expected);
+    }
+
+    private static ToolResultContainsEvaluator CreateToolResultContains(JsonElement value)
+    {
+        var tool = GetPropertyString(value, "tool");
+        var expected = GetPropertyString(value, "expected");
+        return new ToolResultContainsEvaluator(tool, expected);
     }
 
     private static string GetRubric(JsonElement value, string name)

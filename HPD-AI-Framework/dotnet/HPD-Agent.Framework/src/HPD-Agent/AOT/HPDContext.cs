@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent;
 using HPD.Agent.ClientTools;
+using HPD.Agent.Middleware;
 using HPD.Agent.Planning;
 using System.Collections.Immutable;
 
@@ -121,6 +122,12 @@ using System.Collections.Immutable;
 [JsonSerializable(typeof(BackgroundOperationStartedEvent))]
 [JsonSerializable(typeof(BackgroundOperationStatusEvent))]
 [JsonSerializable(typeof(BackgroundOperationInfo))]
+[JsonSerializable(typeof(ToolCallBackgroundTaskStartedEvent))]
+[JsonSerializable(typeof(ToolCallBackgroundTaskCompletedEvent))]
+[JsonSerializable(typeof(ToolCallBackgroundTaskCancelledEvent))]
+[JsonSerializable(typeof(ToolCallBackgroundTaskFaultedEvent))]
+[JsonSerializable(typeof(FunctionInvocationSnapshot))]
+[JsonSerializable(typeof(ToolInvocationInfo))]
 
 // --- Internal storage state types (nested classes) ---
 // Note: Nested classes need full type paths for AOT

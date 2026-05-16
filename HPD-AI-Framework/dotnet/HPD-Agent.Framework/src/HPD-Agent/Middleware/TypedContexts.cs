@@ -321,6 +321,13 @@ public sealed class BeforeParallelBatchContext : HookContext
     public IReadOnlyList<ParallelFunctionInfo> ParallelFunctions { get; }
 
     /// <summary>
+    /// Runtime-assigned identifier for this model-emitted tool-call batch.
+    /// </summary>
+    public string? BatchId => ParallelFunctions.Count > 0
+        ? ParallelFunctions[0].Invocation?.BatchId
+        : null;
+
+    /// <summary>
     /// Original run options for this turn.
     ///   Always available (never NULL)
     /// READ-ONLY - represents the user's original intent for this run.
@@ -356,6 +363,16 @@ public sealed class BeforeFunctionContext : HookContext
     ///   Always available (never NULL)
     /// </summary>
     public string FunctionCallId { get; }
+
+    /// <summary>
+    /// Runtime-assigned invocation metadata for this tool call, if it belongs to a batch.
+    /// </summary>
+    public ToolInvocationInfo? Invocation { get; }
+
+    /// <summary>
+    /// Model order of this tool call within its batch, if available.
+    /// </summary>
+    public int? ToolCallIndex => Invocation?.ToolCallIndex;
 
     /// <summary>
     /// Arguments passed to this function call.
@@ -419,11 +436,13 @@ public sealed class BeforeFunctionContext : HookContext
         IReadOnlyDictionary<string, object?> arguments,
         string? harnessName,
         string? skillName,
-        AgentRunConfig runConfig)
+        AgentRunConfig runConfig,
+        ToolInvocationInfo? invocation = null)
         : base(baseContext)
     {
         Function = function; // Can be null for unknown functions
         FunctionCallId = callId ?? throw new ArgumentNullException(nameof(callId));
+        Invocation = invocation;
         Arguments = arguments ?? throw new ArgumentNullException(nameof(arguments));
         HarnessName = harnessName;
         SkillName = skillName;
@@ -450,11 +469,32 @@ public sealed class AfterFunctionContext : HookContext
     public string FunctionCallId { get; }
 
     /// <summary>
-    /// Result of the function execution (if successful).
+    /// Runtime-assigned invocation metadata for this tool call, if it belongs to a batch.
+    /// </summary>
+    public ToolInvocationInfo? Invocation { get; }
+
+    /// <summary>
+    /// Model order of this tool call within its batch, if available.
+    /// </summary>
+    public int? ToolCallIndex => Invocation?.ToolCallIndex;
+
+    /// <summary>
+    /// Original result returned by the function body before AfterFunction middleware transformations.
+    /// </summary>
+    public object? OriginalResult { get; }
+
+    /// <summary>
+    /// Result of the function execution as it will be sent back to the model.
     /// NULL if function threw an exception.
-    /// MUTABLE - middleware can transform the result
+    /// MUTABLE - middleware can transform the model-facing result.
     /// </summary>
     public object? Result { get; set; }
+
+    /// <summary>
+    /// Per-call structured metadata recorded by the function body or wrapping middleware.
+    /// This is not the function result and is intended for state commits, events, and diagnostics.
+    /// </summary>
+    public ToolResultMetadata ResultMetadata { get; }
 
     /// <summary>
     /// Exception from function execution (if failed).
@@ -515,13 +555,18 @@ public sealed class AfterFunctionContext : HookContext
         Exception? exception,
         AgentRunConfig runConfig,
         string? harnessName = null,
-        string? skillName = null)
+        string? skillName = null,
+        ToolInvocationInfo? invocation = null,
+        ToolResultMetadata? resultMetadata = null)
         : base(baseContext)
     {
         Function = function; // Can be null for unknown functions
         FunctionCallId = callId ?? throw new ArgumentNullException(nameof(callId));
+        Invocation = invocation;
+        OriginalResult = result;
         Result = result;
         Exception = exception;
+        ResultMetadata = resultMetadata ?? new ToolResultMetadata();
         HarnessName = harnessName;
         SkillName = skillName;
         RunConfig = runConfig ?? throw new ArgumentNullException(nameof(runConfig));
@@ -533,12 +578,52 @@ public sealed class AfterFunctionContext : HookContext
 //
 
 /// <summary>
+/// Runtime-assigned metadata for a model-emitted tool/function invocation.
+/// </summary>
+public sealed record ToolInvocationInfo(
+    string BatchId,
+    string CallId,
+    string? FunctionName,
+    int ToolCallIndex);
+
+/// <summary>
+/// Mutable, per-call metadata side channel for function results.
+/// </summary>
+public sealed class ToolResultMetadata
+{
+    private readonly Dictionary<string, object?> _values = new(StringComparer.Ordinal);
+
+    public IReadOnlyDictionary<string, object?> Values => _values;
+
+    public void Set<T>(string key, T value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        _values[key] = value;
+    }
+
+    public bool TryGet<T>(string key, out T value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+
+        if (_values.TryGetValue(key, out var raw) && raw is T typed)
+        {
+            value = typed;
+            return true;
+        }
+
+        value = default!;
+        return false;
+    }
+}
+
+/// <summary>
 /// Information about a function being executed in parallel.
 /// </summary>
 public sealed record ParallelFunctionInfo(
     AIFunction Function,
     string CallId,
-    IReadOnlyDictionary<string, object?> Arguments)
+    IReadOnlyDictionary<string, object?> Arguments,
+    ToolInvocationInfo? Invocation = null)
 {
     /// <summary>
     /// Name of the function being called.

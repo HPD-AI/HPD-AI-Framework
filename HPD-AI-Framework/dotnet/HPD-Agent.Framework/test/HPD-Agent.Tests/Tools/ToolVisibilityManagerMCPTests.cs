@@ -29,7 +29,7 @@ public class ToolVisibilityManagerMCPTests
         string? systemPrompt = null)
     {
         return HPDAIFunctionFactory.Create(
-            async (args, ct) => $"{name} expanded",
+            async (args, _, ct) => $"{name} expanded",
             new HPDAIFunctionFactoryOptions
             {
                 Name = name,
@@ -59,7 +59,7 @@ public class ToolVisibilityManagerMCPTests
     {
         var containerName = $"MCP_{serverName}";
         return HPDAIFunctionFactory.Create(
-            async (args, ct) => $"{serverName} expanded",
+            async (args, _, ct) => $"{serverName} expanded",
             new HPDAIFunctionFactoryOptions
             {
                 Name = containerName,
@@ -87,7 +87,7 @@ public class ToolVisibilityManagerMCPTests
         string sourceType = "CSharp")
     {
         return HPDAIFunctionFactory.Create(
-            async (args, ct) => $"{name} result",
+            async (args, _, ct) => $"{name} result",
             new HPDAIFunctionFactoryOptions
             {
                 Name = name,

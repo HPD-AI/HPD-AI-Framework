@@ -36,6 +36,7 @@ import type {
   CostBreakdown,
 } from '../types/evals.js';
 import { SseParser } from '../parser.js';
+import { AgentError, parseErrorResponse } from '../errors.js';
 import type { TransportRequestOptions } from './options.js';
 
 /**
@@ -214,8 +215,16 @@ export class SseTransport implements AgentTransport {
     });
 
     if (!response.ok) {
-      const text = await response.text().catch(() => 'Unknown error');
-      throw new Error(`Failed to send message: HTTP ${response.status}: ${text}`);
+      if (response.status === 409) {
+        throw new AgentError(
+          'Response was not accepted because the request is no longer pending',
+          'STALE_RESPONSE',
+          { statusCode: response.status },
+        );
+      }
+
+      const body = await response.json().catch(() => null);
+      throw parseErrorResponse(response, body);
     }
   }
 
