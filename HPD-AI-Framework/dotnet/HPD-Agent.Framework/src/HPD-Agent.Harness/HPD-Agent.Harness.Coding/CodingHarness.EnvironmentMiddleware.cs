@@ -444,7 +444,7 @@ public sealed record EnvironmentContext
     private static IReadOnlyList<string> GetDefaultShellArgumentsPrefix(string shellKind)
         => shellKind switch
         {
-            "powershell" => ["-NoLogo", "-NoProfile", "-Command"],
+            "powershell" => ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"],
             "cmd" => ["/C"],
             _ => ["-lc"]
         };

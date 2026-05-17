@@ -1,6 +1,4 @@
-using HPD.Agent.Sandbox;
-
-namespace HPD.Sandbox.Local;
+namespace HPD.Agent.Sandbox;
 
 /// <summary>
 /// Marks a function as carrying sandbox policy metadata.

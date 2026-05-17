@@ -39,6 +39,7 @@ public partial class CodingHarness
     private readonly IFileMutationLockProvider _fileMutationLockProvider;
     private readonly IReadOnlyList<IFileMutationTextSink> _fileMutationTextSinks;
     private readonly IReadOnlyList<IFileMutationHistorySink> _fileMutationHistorySinks;
+    private readonly ExecuteCommandOptions _executeCommandOptions;
 
     static CodingHarness()
     {
@@ -72,7 +73,8 @@ public partial class CodingHarness
         IRipgrepRunner? ripgrepRunner = null,
         IFileMutationLockProvider? fileMutationLockProvider = null,
         IEnumerable<IFileMutationTextSink>? fileMutationTextSinks = null,
-        IEnumerable<IFileMutationHistorySink>? fileMutationHistorySinks = null)
+        IEnumerable<IFileMutationHistorySink>? fileMutationHistorySinks = null,
+        ExecuteCommandOptions? executeCommandOptions = null)
     {
         _readFileTextSources = readFileTextSources?.ToArray() ?? [];
         _directoryListingSources = directoryListingSources?.ToArray() ?? [];
@@ -82,6 +84,7 @@ public partial class CodingHarness
         _fileMutationLockProvider = fileMutationLockProvider ?? NoOpFileMutationLockProvider.Instance;
         _fileMutationTextSinks = fileMutationTextSinks?.ToArray() ?? [];
         _fileMutationHistorySinks = fileMutationHistorySinks?.ToArray() ?? [];
+        _executeCommandOptions = executeCommandOptions ?? new ExecuteCommandOptions();
     }
 
     private static IEnumerable<string> EnumerateFileSystemEntries(string fullPath, bool throwOnFailure)

@@ -300,7 +300,7 @@ public sealed class LocalSandboxedProcessRunnerTests
         var result = await handle.Completion;
 
         result.CompletionKind.Should().Be(SandboxedProcessCompletionKind.Stopped);
-        runner.ActiveProcessCount.Should().Be(0);
+        await WaitForActiveProcessCountAsync(runner, expectedCount: 0);
     }
 
     [Fact]
@@ -468,6 +468,23 @@ public sealed class LocalSandboxedProcessRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_InactivityTimeout_KillsSilentProcessAndReturnsTimedOut()
+    {
+        await using var runner = CreatePassthroughRunner();
+
+        var result = await runner.RunAsync(
+            PlatformShellCommand(PlatformLongRunningCommand()),
+            options: new SandboxedProcessOptions
+            {
+                InactivityTimeout = TimeSpan.FromMilliseconds(100),
+                Timeout = TimeSpan.FromSeconds(10)
+            });
+
+        result.TimedOut.Should().BeTrue();
+        runner.ActiveProcessCount.Should().Be(0);
+    }
+
+    [Fact]
     public async Task RunAsync_Cancellation_KillsProcessAndReturnsCancelled()
     {
         await using var runner = CreatePassthroughRunner();
@@ -575,17 +592,22 @@ public sealed class LocalSandboxedProcessRunnerTests
     }
 
     private static async Task WaitForActiveProcessAsync(LocalSandboxedProcessRunner runner)
+        => await WaitForActiveProcessCountAsync(runner, expectedCount: 1);
+
+    private static async Task WaitForActiveProcessCountAsync(
+        LocalSandboxedProcessRunner runner,
+        int expectedCount)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
         while (DateTimeOffset.UtcNow < deadline)
         {
-            if (runner.ActiveProcessCount > 0)
+            if (runner.ActiveProcessCount == expectedCount)
                 return;
 
             await Task.Delay(25);
         }
 
-        throw new TimeoutException("The test process did not become active.");
+        throw new TimeoutException($"Active process count did not become {expectedCount}.");
     }
 
     private static async Task WaitForRuntimeEventsAsync(

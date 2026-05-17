@@ -25,7 +25,7 @@ public partial class CodingHarness
         return buffer;
     }
 
-    private static bool LooksBinary(byte[] sample, bool hasTextBom)
+    internal static bool LooksBinary(byte[] sample, bool hasTextBom)
     {
         if (sample.Length == 0 || hasTextBom)
             return false;
@@ -47,7 +47,7 @@ public partial class CodingHarness
         return controlCount > sample.Length * 0.10;
     }
 
-    private static Encoding? DetectBomEncoding(byte[] sample)
+    internal static Encoding? DetectBomEncoding(byte[] sample)
     {
         if (sample.Length >= 4)
         {

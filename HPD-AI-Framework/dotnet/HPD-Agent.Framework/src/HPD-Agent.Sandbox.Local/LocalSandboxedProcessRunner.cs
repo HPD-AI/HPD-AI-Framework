@@ -385,6 +385,7 @@ internal sealed class LocalSandboxedProcessRunner : ISandboxedProcessRunner, IAs
         private readonly CancellationTokenSource _linkedCts;
         private readonly IEventCoordinator _events;
         private readonly EventCoordinator? _ownedEvents;
+        private readonly Timer? _inactivityTimer;
         private readonly TaskCompletionSource<SandboxedProcessResult> _completion =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _stopRequested;
@@ -431,6 +432,13 @@ internal sealed class LocalSandboxedProcessRunner : ISandboxedProcessRunner, IAs
             _linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken,
                 _timeoutCts?.Token ?? CancellationToken.None);
+            _inactivityTimer = options.InactivityTimeout is { } inactivityTimeout && inactivityTimeout > TimeSpan.Zero
+                ? new Timer(
+                    static state => ((LocalSandboxedProcessHandle)state!).RequestStop(SandboxedProcessStopReason.Timeout),
+                    this,
+                    inactivityTimeout,
+                    Timeout.InfiniteTimeSpan)
+                : null;
         }
 
         public string ProcessId => _processGuid.ToString("N");
@@ -616,6 +624,7 @@ internal sealed class LocalSandboxedProcessRunner : ISandboxedProcessRunner, IAs
             finally
             {
                 _stopwatch.Stop();
+                _inactivityTimer?.Dispose();
                 _owner.UntrackProcess(_processGuid);
                 _ownedEvents?.Dispose();
                 _linkedCts.Dispose();
@@ -702,6 +711,7 @@ internal sealed class LocalSandboxedProcessRunner : ISandboxedProcessRunner, IAs
                 if (read == 0)
                     return;
 
+                ResetInactivityTimer();
                 var chunk = buffer.AsMemory(0, read).ToArray();
                 Publish(new SandboxedProcessOutputEvent
                 {
@@ -712,6 +722,12 @@ internal sealed class LocalSandboxedProcessRunner : ISandboxedProcessRunner, IAs
 
                 capture.Append(chunk.AsSpan());
             }
+        }
+
+        private void ResetInactivityTimer()
+        {
+            if (_inactivityTimer is not null && Options.InactivityTimeout is { } inactivityTimeout)
+                _inactivityTimer.Change(inactivityTimeout, Timeout.InfiniteTimeSpan);
         }
 
         private async Task<bool> DrainOutputAsync(

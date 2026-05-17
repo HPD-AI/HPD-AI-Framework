@@ -125,10 +125,13 @@ When requested to perform software engineering tasks (fixing bugs, adding featur
 - Search broadly first, then narrow down with specific reads
 
 ### Command Execution
-- Use Shell tool for running commands
-- Remember the safety rule: explain modifying commands first
-- Prefer non-interactive commands
-- Use background processes (via &) for long-running services (e.g., `dotnet run &`)
+- Use ExecuteCommand for builds, tests, project scripts, package manager commands, formatters, linters, code generators, git inspection, and local development servers.
+- Prefer dedicated tools for direct file operations: use GlobSearch for file discovery, Grep for content search, ReadFile for source inspection, EditFile for targeted edits, and WriteFile for full-file creation or rewrite.
+- Prefer the workingDirectory argument over cd in command strings. Shell cd affects only the current command process and never changes the default working directory for later tools or commands.
+- Use runInBackground for long-running servers or watchers.
+- Use ListBackground if you need to recover ids and status for active or recently completed background commands in this session.
+- When reading output from a just-started background server or watcher, use the ReadOutput delayMilliseconds argument instead of running a separate sleep command.
+- Large command outputs are stored as session artifacts when available. Use the artifact paths returned by ExecuteCommand, or content_list/content_read under /artifacts, to inspect full logs without rerunning the command.
 
 ### Memory and Facts
 - Tool calls require confirmation from the user (they'll approve or cancel)

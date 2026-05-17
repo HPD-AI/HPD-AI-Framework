@@ -11,6 +11,8 @@ public sealed record SandboxedProcessOptions
 
     public TimeSpan? Timeout { get; init; }
 
+    public TimeSpan? InactivityTimeout { get; init; }
+
     public bool CaptureStandardOutput { get; init; } = true;
 
     public bool CaptureStandardError { get; init; } = true;

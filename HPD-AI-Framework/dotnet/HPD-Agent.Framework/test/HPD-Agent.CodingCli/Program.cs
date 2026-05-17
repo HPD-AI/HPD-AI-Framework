@@ -1,9 +1,12 @@
 using HPD.Agent;
+using HPD.Agent.Sandbox;
+using HPD.Sandbox.Local;
 using Microsoft.Extensions.AI;
 using System.Text.Json;
 
 var appsettingsPath = ResolveAppSettingsPath();
 var options = CodingCliOptions.Parse(args);
+var homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 if (options.ShowHelp)
 {
     PrintUsage();
@@ -13,6 +16,21 @@ if (options.ShowHelp)
 var agentBuilder = new AgentBuilder()
     .WithAPIConfiguration(appsettingsPath ?? "appsettings.json", optional: true)
     .WithName("Coding CLI Test Agent")
+    .WithSandbox(SandboxConfig.CreatePermissive() with
+    {
+        AllowWrite =
+        [
+            ".",
+            homeDirectory,
+            Path.Combine(homeDirectory, ".taskcli.json"),
+            "/tmp",
+            "/private/tmp",
+            "/var/tmp",
+            "/var/folders",
+            "/private/var/folders"
+        ],
+        NetworkMode = SandboxNetworkMode.Unrestricted
+    })
     .WithToolCollapsing()
     .WithHarness<CodingHarness>();
 
@@ -41,59 +59,59 @@ using var turnStartedSubscription = agent.Subscribe<MessageTurnStartedEvent>(evt
         ConsoleColor.Blue,
         $"[turn:start] {evt.AgentName} {evt.MessageTurnId}");
 });
-using var contextSnapshotSubscription = agent.Subscribe<IterationContextSnapshotEvent>(evt =>
-{
-    CliConsole.WriteErrorLine(
-        ConsoleColor.DarkCyan,
-        $"[context] iteration={evt.Iteration} injected_messages={evt.ContextMessageCount} tools={evt.ToolCount} total_model_messages={evt.TotalMessageCount}");
-
-    if (!string.IsNullOrWhiteSpace(evt.Instructions))
-    {
-        CliConsole.WriteErrorLine(
-            ConsoleColor.DarkCyan,
-            $"[context:instructions] {NormalizeSingleLine(evt.Instructions)}");
-    }
-
-    foreach (var message in evt.ContextMessages)
-    {
-        CliConsole.WriteErrorLine(
-            ConsoleColor.DarkCyan,
-            $"[context:message] role={message.Role} text={Preview(message.Text)}");
-    }
-
-    foreach (var tool in evt.Tools)
-    {
-        CliConsole.WriteErrorLine(
-            ConsoleColor.DarkCyan,
-            $"[context:tool] {tool.Name} harness={tool.HarnessName ?? "-"} type={tool.CallType?.ToString() ?? "-"} container={tool.IsContainer} schema={Preview(tool.InputSchemaJson)}");
-    }
-});
-using var middlewareStateSnapshotSubscription = agent.Subscribe<MiddlewareStateSnapshotEvent>(evt =>
-{
-    CliConsole.WriteErrorLine(
-        ConsoleColor.DarkMagenta,
-        $"[state] phase={evt.Phase} iteration={evt.Iteration} states={evt.StateCount} batch={evt.BatchId ?? "-"} call={evt.FunctionCallId ?? "-"}");
-
-    foreach (var state in evt.States)
-    {
-        CliConsole.WriteErrorLine(
-            ConsoleColor.DarkMagenta,
-            $"[state:item] {state.PropertyName} scope={state.Scope} persistent={state.Persistent} version={state.Version} key={state.Key} json={Preview(state.Json?.GetRawText())} error={state.Error ?? "-"}");
-    }
-});
-using var middlewareStateChangedSubscription = agent.Subscribe<MiddlewareStateChangedEvent>(evt =>
-{
-    CliConsole.WriteErrorLine(
-        ConsoleColor.Magenta,
-        $"[state:changed] phase={evt.Phase} iteration={evt.Iteration} changes={evt.ChangeCount} batch={evt.BatchId ?? "-"} call={evt.FunctionCallId ?? "-"}");
-
-    foreach (var change in evt.Changes)
-    {
-        CliConsole.WriteErrorLine(
-            ConsoleColor.Magenta,
-            $"[state:change] {change.ChangeType} {change.PropertyName} scope={change.Scope} persistent={change.Persistent} before={Preview(change.Before?.GetRawText())} after={Preview(change.After?.GetRawText())} error={change.Error ?? "-"}");
-    }
-});
+// using var contextSnapshotSubscription = agent.Subscribe<IterationContextSnapshotEvent>(evt =>
+// {
+//     CliConsole.WriteErrorLine(
+//         ConsoleColor.DarkCyan,
+//         $"[context] iteration={evt.Iteration} injected_messages={evt.ContextMessageCount} tools={evt.ToolCount} total_model_messages={evt.TotalMessageCount}");
+//
+//     if (!string.IsNullOrWhiteSpace(evt.Instructions))
+//     {
+//         CliConsole.WriteErrorLine(
+//             ConsoleColor.DarkCyan,
+//             $"[context:instructions] {NormalizeSingleLine(evt.Instructions)}");
+//     }
+//
+//     foreach (var message in evt.ContextMessages)
+//     {
+//         CliConsole.WriteErrorLine(
+//             ConsoleColor.DarkCyan,
+//             $"[context:message] role={message.Role} text={Preview(message.Text)}");
+//     }
+//
+//     foreach (var tool in evt.Tools)
+//     {
+//         CliConsole.WriteErrorLine(
+//             ConsoleColor.DarkCyan,
+//             $"[context:tool] {tool.Name} harness={tool.HarnessName ?? "-"} type={tool.CallType?.ToString() ?? "-"} container={tool.IsContainer} schema={Preview(tool.InputSchemaJson)}");
+//     }
+// });
+// using var middlewareStateSnapshotSubscription = agent.Subscribe<MiddlewareStateSnapshotEvent>(evt =>
+// {
+//     CliConsole.WriteErrorLine(
+//         ConsoleColor.DarkMagenta,
+//         $"[state] phase={evt.Phase} iteration={evt.Iteration} states={evt.StateCount} batch={evt.BatchId ?? "-"} call={evt.FunctionCallId ?? "-"}");
+//
+//     foreach (var state in evt.States)
+//     {
+//         CliConsole.WriteErrorLine(
+//             ConsoleColor.DarkMagenta,
+//             $"[state:item] {state.PropertyName} scope={state.Scope} persistent={state.Persistent} version={state.Version} key={state.Key} json={Preview(state.Json?.GetRawText())} error={state.Error ?? "-"}");
+//     }
+// });
+// using var middlewareStateChangedSubscription = agent.Subscribe<MiddlewareStateChangedEvent>(evt =>
+// {
+//     CliConsole.WriteErrorLine(
+//         ConsoleColor.Magenta,
+//         $"[state:changed] phase={evt.Phase} iteration={evt.Iteration} changes={evt.ChangeCount} batch={evt.BatchId ?? "-"} call={evt.FunctionCallId ?? "-"}");
+//
+//     foreach (var change in evt.Changes)
+//     {
+//         CliConsole.WriteErrorLine(
+//             ConsoleColor.Magenta,
+//             $"[state:change] {change.ChangeType} {change.PropertyName} scope={change.Scope} persistent={change.Persistent} before={Preview(change.Before?.GetRawText())} after={Preview(change.After?.GetRawText())} error={change.Error ?? "-"}");
+//     }
+// });
 using var textSubscription = agent.Subscribe<TextDeltaEvent>(evt =>
 {
     CliConsole.Write(Console.Out, ConsoleColor.Gray, evt.Text);
@@ -153,6 +171,9 @@ await EnsureSessionAsync(agent, options.SessionId);
 CliConsole.WriteErrorLine(
     ConsoleColor.DarkCyan,
     $"Interactive coding CLI started. session={options.SessionId} branch={options.BranchId}. Type exit or quit to leave.");
+CliConsole.WriteErrorLine(
+    ConsoleColor.DarkCyan,
+    $"Sandbox profile: permissive network, writable home={homeDirectory}");
 
 var prompt = options.Prompt;
 while (true)
@@ -177,7 +198,16 @@ while (true)
 
     if (!string.IsNullOrWhiteSpace(prompt))
     {
-        await agent.RunAsync(prompt, sessionId: options.SessionId, branchId: options.BranchId);
+        try
+        {
+            await agent.RunAsync(prompt, sessionId: options.SessionId, branchId: options.BranchId);
+        }
+        catch (Exception ex)
+        {
+            CliConsole.WriteErrorLine(ConsoleColor.Red, $"[run:error] {ex.Message}");
+            if (ex.InnerException is not null)
+                CliConsole.WriteErrorLine(ConsoleColor.DarkRed, $"{ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+        }
     }
 
     prompt = null;
@@ -328,22 +358,22 @@ static void PrintUsage()
 static string FormatToolResult(ToolResultPayload result) =>
     result.Text ?? result.Json?.GetRawText() ?? string.Empty;
 
-static string Preview(string? value, int maxLength = 500)
-{
-    if (string.IsNullOrWhiteSpace(value))
-        return string.Empty;
-
-    var normalized = NormalizeSingleLine(value);
-
-    return normalized.Length <= maxLength
-        ? normalized
-        : $"{normalized[..maxLength]}...";
-}
-
-static string NormalizeSingleLine(string value) =>
-    value
-        .ReplaceLineEndings(" ")
-        .Trim();
+// static string Preview(string? value, int maxLength = 500)
+// {
+//     if (string.IsNullOrWhiteSpace(value))
+//         return string.Empty;
+//
+//     var normalized = NormalizeSingleLine(value);
+//
+//     return normalized.Length <= maxLength
+//         ? normalized
+//         : $"{normalized[..maxLength]}...";
+// }
+//
+// static string NormalizeSingleLine(string value) =>
+//     value
+//         .ReplaceLineEndings(" ")
+//         .Trim();
 
 file sealed record CodingCliOptions(
     string? Prompt,

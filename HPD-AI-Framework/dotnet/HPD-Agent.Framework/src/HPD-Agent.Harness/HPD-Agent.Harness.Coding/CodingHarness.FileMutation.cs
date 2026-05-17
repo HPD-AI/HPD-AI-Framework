@@ -560,7 +560,7 @@ public partial class CodingHarness
     }
 
     private static void SetFileMutationMetadata(
-        FunctionExecutionContext context,
+        FunctionExecutionContext? context,
         string toolName,
         string path,
         CodingFileMutationKind kind,
@@ -568,6 +568,9 @@ public partial class CodingHarness
         long byteLength,
         DateTimeOffset lastWriteTimeUtc)
     {
+        if (context?.ResultMetadata is null)
+            return;
+
         context.ResultMetadata.Set(
             CodingToolMetadataKeys.FileMutationSnapshot,
             new CodingFileMutationSnapshot
@@ -635,8 +638,8 @@ public partial class CodingHarness
         var diffStat = BuildDiffStat(before.Text, updatedText);
 
         return request.EventFactory!(new FileMutationEventBuildRequest(
-            ToolCallId: context.FunctionCallId,
-            FunctionName: context.FunctionName,
+            ToolCallId: context?.FunctionCallId ?? string.Empty,
+            FunctionName: context?.FunctionName ?? request.ToolName,
             Path: request.Path,
             DisplayPath: request.Path,
             MutationKind: request.Kind,

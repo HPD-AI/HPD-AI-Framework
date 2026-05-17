@@ -2,7 +2,9 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.ErrorHandling;
+using HPD.Agent.Middleware;
 using HPD.Agent.Providers;
+using HPD.Events.Core;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Harness.Coding.Tests;
@@ -37,8 +39,20 @@ public class CodingHarnessAgentBuilderTests
             "ReadFile",
             "ListDirectory",
             "GlobSearch",
-            "Grep"
+            "Grep",
+            "ExecuteCommand"
         ]);
+    }
+
+    [Fact]
+    public void CodingHarnessPrompt_IncludesExecuteCommandGuidance()
+    {
+        CodingHarnessPrompts.SystemPrompt.Should().Contain("Use ExecuteCommand for builds, tests, project scripts");
+        CodingHarnessPrompts.SystemPrompt.Should().Contain("Prefer the workingDirectory argument over cd");
+        CodingHarnessPrompts.SystemPrompt.Should().Contain("Use runInBackground for long-running servers or watchers.");
+        CodingHarnessPrompts.SystemPrompt.Should().Contain("Use ListBackground if you need to recover ids");
+        CodingHarnessPrompts.SystemPrompt.Should().Contain("ReadOutput delayMilliseconds");
+        CodingHarnessPrompts.SystemPrompt.Should().Contain("content_list/content_read under /artifacts");
     }
 
     [Fact]
@@ -71,17 +85,17 @@ public class CodingHarnessAgentBuilderTests
             var tools = agent.DefaultOptions?.Tools?.OfType<AIFunction>().ToDictionary(tool => tool.Name)
                 ?? throw new InvalidOperationException("No coding harness tools were registered.");
 
-            var listResult = await tools["ListDirectory"].InvokeAsync(new AIFunctionArguments
+            var listResult = await InvokeToolAsync(tools["ListDirectory"], new AIFunctionArguments
             {
                 ["path"] = tempRoot
             });
 
-            var globResult = await tools["GlobSearch"].InvokeAsync(new AIFunctionArguments
+            var globResult = await InvokeToolAsync(tools["GlobSearch"], new AIFunctionArguments
             {
                 ["pattern"] = "*.txt"
             });
 
-            var grepResult = await tools["Grep"].InvokeAsync(new AIFunctionArguments
+            var grepResult = await InvokeToolAsync(tools["Grep"], new AIFunctionArguments
             {
                 ["pattern"] = "hello",
                 ["path"] = tempRoot,
@@ -117,6 +131,49 @@ public class CodingHarnessAgentBuilderTests
             Directory.SetCurrentDirectory(originalDirectory);
             Directory.Delete(tempRoot, recursive: true);
         }
+    }
+
+    private static async ValueTask<object?> InvokeToolAsync(AIFunction tool, AIFunctionArguments arguments)
+    {
+        if (tool is not HPDAIFunctionFactory.HPDAIFunction hpdFunction)
+            return await tool.InvokeAsync(arguments);
+
+        return await hpdFunction.InvokeAsync(arguments, CreateFunctionContext(tool));
+    }
+
+    private static FunctionExecutionContext CreateFunctionContext(AIFunction function)
+    {
+        var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
+        var session = new Session("session-1");
+        var branch = new Branch("session-1") { Id = "branch-1" };
+        var eventCoordinator = new EventCoordinator();
+        var agentContext = new AgentContext(
+            "AgentA",
+            "conversation-1",
+            state,
+            eventCoordinator,
+            session,
+            branch,
+            CancellationToken.None);
+        var beforeContext = agentContext.AsBeforeFunction(
+            function,
+            "call-1",
+            new Dictionary<string, object?>(),
+            new AgentRunConfig(),
+            harnessName: null,
+            skillName: null,
+            invocation: null);
+        var request = new FunctionRequest
+        {
+            Function = function,
+            CallId = "call-1",
+            Arguments = new Dictionary<string, object?>(),
+            State = state,
+            ResultMetadata = new ToolResultMetadata(),
+            EventCoordinator = eventCoordinator
+        };
+
+        return new FunctionExecutionContext(beforeContext, request);
     }
 
     private sealed class TestProviderRegistry(IChatClient chatClient) : IProviderRegistry
