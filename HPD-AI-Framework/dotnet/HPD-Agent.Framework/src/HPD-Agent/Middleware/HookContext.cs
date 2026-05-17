@@ -114,6 +114,11 @@ public abstract class HookContext
     public IServiceProvider? Services => Base.Services;
 
     /// <summary>
+    /// Runtime-scoped capabilities published by middleware.
+    /// </summary>
+    public IRuntimeCapabilityRegistry RuntimeCapabilities => Base.RuntimeCapabilities;
+
+    /// <summary>
     /// Current agent loop state. Reflects any updates from earlier middlewares.
     /// Internal access only - use <see cref="Analyze{T}"/> or read inside <see cref="UpdateState"/> for safe state access.
     /// </summary>

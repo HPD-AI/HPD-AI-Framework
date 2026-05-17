@@ -66,6 +66,42 @@ internal class FunctionCapability : BaseCapability
     /// </summary>
     public bool IsSandboxable { get; set; }
 
+    public string SandboxNetworkMode { get; set; } = "Inherit";
+
+    public string SandboxAllowedDomains { get; set; } = "";
+
+    public string SandboxDeniedDomains { get; set; } = "";
+
+    public string SandboxAllowWrite { get; set; } = "";
+
+    public string SandboxDenyRead { get; set; } = "";
+
+    public string SandboxAllowRead { get; set; } = "";
+
+    public string SandboxDenyWrite { get; set; } = "";
+
+    public string SandboxAllowUnixSockets { get; set; } = "";
+
+    public string SandboxAllowMachLookup { get; set; } = "";
+
+    public string SandboxAllowPty { get; set; } = "Inherit";
+
+    public string SandboxAllowLocalBinding { get; set; } = "Inherit";
+
+    public string SandboxAllowAllUnixSockets { get; set; } = "Inherit";
+
+    public string SandboxAllowMacOSTrustdLookup { get; set; } = "Inherit";
+
+    public string SandboxAllowGitConfig { get; set; } = "Inherit";
+
+    public string SandboxEnableWeakerNestedSandbox { get; set; } = "Inherit";
+
+    public string SandboxIgnoreViolationPatterns { get; set; } = "";
+
+    public string SandboxAllowedEnvironmentVariables { get; set; } = "";
+
+    public int? SandboxMandatoryDenySearchDepth { get; set; }
+
     /// <summary>
     /// Effective function name (custom name if provided, otherwise method name).
     /// </summary>
@@ -226,6 +262,12 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
             options.AppendLine($"                    [\"Kind\"] = \"Output\",");
         }
 
+        if (IsSandboxable)
+        {
+            options.AppendLine("                    [\"IsSandboxable\"] = true,");
+            AppendSandboxOverrideMetadata(options);
+        }
+
         options.AppendLine("                    [\"IsContainer\"] = false");
         options.Append("                }");
 
@@ -292,6 +334,130 @@ $@"HPDAIFunctionFactory.Create(
         return false;
     }
 
+    private static string[] SplitCommaSeparated(string value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? Array.Empty<string>()
+            : value.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(item => item.Trim())
+                .Where(item => item.Length > 0)
+                .ToArray();
+
+    private static string GenerateStringArrayLiteral(string[] values)
+    {
+        if (values.Length == 0)
+            return "global::System.Array.Empty<string>()";
+
+        return $"new string[] {{ {string.Join(", ", values.Select(v => $"\"{EscapeStringLiteral(v)}\""))} }}";
+    }
+
+    private void AppendSandboxOverrideMetadata(StringBuilder options)
+    {
+        if (!IsInherit(SandboxNetworkMode))
+            options.AppendLine($"                    [\"SandboxNetworkMode\"] = \"{EscapeStringLiteral(SandboxNetworkMode)}\",");
+
+        AppendStringArrayMetadata(options, "SandboxAllowedDomains", SandboxAllowedDomains);
+        AppendStringArrayMetadata(options, "SandboxDeniedDomains", SandboxDeniedDomains);
+        AppendStringArrayMetadata(options, "SandboxAllowWrite", SandboxAllowWrite);
+        AppendStringArrayMetadata(options, "SandboxDenyRead", SandboxDenyRead);
+        AppendStringArrayMetadata(options, "SandboxAllowRead", SandboxAllowRead);
+        AppendStringArrayMetadata(options, "SandboxDenyWrite", SandboxDenyWrite);
+        AppendStringArrayMetadata(options, "SandboxAllowUnixSockets", SandboxAllowUnixSockets);
+        AppendStringArrayMetadata(options, "SandboxAllowMachLookup", SandboxAllowMachLookup);
+        AppendToggleMetadata(options, "SandboxAllowPty", SandboxAllowPty);
+        AppendToggleMetadata(options, "SandboxAllowLocalBinding", SandboxAllowLocalBinding);
+        AppendToggleMetadata(options, "SandboxAllowAllUnixSockets", SandboxAllowAllUnixSockets);
+        AppendToggleMetadata(options, "SandboxAllowMacOSTrustdLookup", SandboxAllowMacOSTrustdLookup);
+        AppendToggleMetadata(options, "SandboxAllowGitConfig", SandboxAllowGitConfig);
+        AppendToggleMetadata(options, "SandboxEnableWeakerNestedSandbox", SandboxEnableWeakerNestedSandbox);
+        AppendStringArrayMetadata(options, "SandboxIgnoreViolationPatterns", SandboxIgnoreViolationPatterns);
+        AppendStringArrayMetadata(options, "SandboxAllowedEnvironmentVariables", SandboxAllowedEnvironmentVariables);
+
+        if (SandboxMandatoryDenySearchDepth is int depth)
+            options.AppendLine($"                    [\"SandboxMandatoryDenySearchDepth\"] = {depth},");
+    }
+
+    private static void AppendStringArrayMetadata(StringBuilder options, string key, string value)
+    {
+        var values = SplitCommaSeparated(value);
+        if (values.Length > 0)
+            options.AppendLine($"                    [\"{key}\"] = {GenerateStringArrayLiteral(values)},");
+    }
+
+    private static void AppendToggleMetadata(StringBuilder options, string key, string value)
+    {
+        var boolText = ToggleToBoolLiteral(value);
+        if (boolText is not null)
+            options.AppendLine($"                    [\"{key}\"] = {boolText},");
+    }
+
+    private void AddSandboxOverrideProperties(Dictionary<string, object> props)
+    {
+        if (!IsInherit(SandboxNetworkMode))
+            props["SandboxNetworkMode"] = SandboxNetworkMode;
+
+        AddStringArrayProperty(props, "SandboxAllowedDomains", SandboxAllowedDomains);
+        AddStringArrayProperty(props, "SandboxDeniedDomains", SandboxDeniedDomains);
+        AddStringArrayProperty(props, "SandboxAllowWrite", SandboxAllowWrite);
+        AddStringArrayProperty(props, "SandboxDenyRead", SandboxDenyRead);
+        AddStringArrayProperty(props, "SandboxAllowRead", SandboxAllowRead);
+        AddStringArrayProperty(props, "SandboxDenyWrite", SandboxDenyWrite);
+        AddStringArrayProperty(props, "SandboxAllowUnixSockets", SandboxAllowUnixSockets);
+        AddStringArrayProperty(props, "SandboxAllowMachLookup", SandboxAllowMachLookup);
+        AddToggleProperty(props, "SandboxAllowPty", SandboxAllowPty);
+        AddToggleProperty(props, "SandboxAllowLocalBinding", SandboxAllowLocalBinding);
+        AddToggleProperty(props, "SandboxAllowAllUnixSockets", SandboxAllowAllUnixSockets);
+        AddToggleProperty(props, "SandboxAllowMacOSTrustdLookup", SandboxAllowMacOSTrustdLookup);
+        AddToggleProperty(props, "SandboxAllowGitConfig", SandboxAllowGitConfig);
+        AddToggleProperty(props, "SandboxEnableWeakerNestedSandbox", SandboxEnableWeakerNestedSandbox);
+        AddStringArrayProperty(props, "SandboxIgnoreViolationPatterns", SandboxIgnoreViolationPatterns);
+        AddStringArrayProperty(props, "SandboxAllowedEnvironmentVariables", SandboxAllowedEnvironmentVariables);
+
+        if (SandboxMandatoryDenySearchDepth is int depth)
+            props["SandboxMandatoryDenySearchDepth"] = depth;
+    }
+
+    private static void AddStringArrayProperty(Dictionary<string, object> props, string key, string value)
+    {
+        var values = SplitCommaSeparated(value);
+        if (values.Length > 0)
+            props[key] = values;
+    }
+
+    private static void AddToggleProperty(Dictionary<string, object> props, string key, string value)
+    {
+        var boolValue = ToggleToBool(value);
+        if (boolValue is bool set)
+            props[key] = set;
+    }
+
+    private static bool IsInherit(string value) =>
+        string.IsNullOrWhiteSpace(value) ||
+        string.Equals(value, "Inherit", StringComparison.OrdinalIgnoreCase);
+
+    private static string? ToggleToBoolLiteral(string value) =>
+        ToggleToBool(value) switch
+        {
+            true => "true",
+            false => "false",
+            _ => null
+        };
+
+    private static bool? ToggleToBool(string value)
+    {
+        if (string.Equals(value, "Enabled", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "True", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (string.Equals(value, "Disabled", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "False", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return null;
+    }
+
+    private static string EscapeStringLiteral(string value) =>
+        value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+
     /// <summary>
     /// Gets additional metadata properties for this function.
     /// </summary>
@@ -302,6 +468,11 @@ $@"HPDAIFunctionFactory.Create(
         props["IsContainer"] = false;
         props["RequiresPermission"] = RequiresPermission;
         props["IsSandboxable"] = IsSandboxable;
+
+        if (IsSandboxable)
+        {
+            AddSandboxOverrideProperties(props);
+        }
 
         if (RequiredPermissions.Any())
             props["RequiredPermissions"] = RequiredPermissions.ToArray();

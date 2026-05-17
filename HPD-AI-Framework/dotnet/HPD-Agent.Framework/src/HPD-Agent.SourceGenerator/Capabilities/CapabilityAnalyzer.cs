@@ -938,6 +938,7 @@ internal static class CapabilityAnalyzer
 
         // Check for [Sandboxable] attribute
         var isSandboxable = HasAttribute(attrs, "Sandboxable");
+        var sandboxOptions = GetSandboxableOptions(attrs);
 
         // Extract Kind from [AIFunction(Kind = ...)]
         var kind = GetToolKind(attrs);
@@ -962,6 +963,24 @@ internal static class CapabilityAnalyzer
             RequiredPermissions = requiredPermissions.ToList(),
             Kind = kind,
             IsSandboxable = isSandboxable,
+            SandboxNetworkMode = sandboxOptions.NetworkMode,
+            SandboxAllowedDomains = sandboxOptions.AllowedDomains,
+            SandboxDeniedDomains = sandboxOptions.DeniedDomains,
+            SandboxAllowWrite = sandboxOptions.AllowWrite,
+            SandboxDenyRead = sandboxOptions.DenyRead,
+            SandboxAllowRead = sandboxOptions.AllowRead,
+            SandboxDenyWrite = sandboxOptions.DenyWrite,
+            SandboxAllowUnixSockets = sandboxOptions.AllowUnixSockets,
+            SandboxAllowMachLookup = sandboxOptions.AllowMachLookup,
+            SandboxAllowPty = sandboxOptions.AllowPty,
+            SandboxAllowLocalBinding = sandboxOptions.AllowLocalBinding,
+            SandboxAllowAllUnixSockets = sandboxOptions.AllowAllUnixSockets,
+            SandboxAllowMacOSTrustdLookup = sandboxOptions.AllowMacOSTrustdLookup,
+            SandboxAllowGitConfig = sandboxOptions.AllowGitConfig,
+            SandboxEnableWeakerNestedSandbox = sandboxOptions.EnableWeakerNestedSandbox,
+            SandboxIgnoreViolationPatterns = sandboxOptions.IgnoreViolationPatterns,
+            SandboxAllowedEnvironmentVariables = sandboxOptions.AllowedEnvironmentVariables,
+            SandboxMandatoryDenySearchDepth = sandboxOptions.MandatoryDenySearchDepth,
 
             // TODO Phase 2: Add validation data
         };
@@ -978,6 +997,134 @@ internal static class CapabilityAnalyzer
     private static bool HasAttribute(List<AttributeSyntax> attrs, string name)
     {
         return attrs.Any(attr => attr.Name.ToString().Contains(name));
+    }
+
+    private readonly record struct SandboxableOptions(
+        string NetworkMode,
+        string AllowedDomains,
+        string DeniedDomains,
+        string AllowWrite,
+        string DenyRead,
+        string AllowRead,
+        string DenyWrite,
+        string AllowUnixSockets,
+        string AllowMachLookup,
+        string AllowPty,
+        string AllowLocalBinding,
+        string AllowAllUnixSockets,
+        string AllowMacOSTrustdLookup,
+        string AllowGitConfig,
+        string EnableWeakerNestedSandbox,
+        string IgnoreViolationPatterns,
+        string AllowedEnvironmentVariables,
+        int? MandatoryDenySearchDepth);
+
+    private static SandboxableOptions GetSandboxableOptions(List<AttributeSyntax> attrs)
+    {
+        var attr = attrs.FirstOrDefault(a => a.Name.ToString().Contains("Sandboxable"));
+        if (attr is null)
+        {
+            return new SandboxableOptions(
+                "Inherit",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "Inherit",
+                "Inherit",
+                "Inherit",
+                "Inherit",
+                "Inherit",
+                "Inherit",
+                "",
+                "",
+                null);
+        }
+
+        return new SandboxableOptions(
+            GetNamedEnumMember(attr, "NetworkMode") ?? "Inherit",
+            GetNamedString(attr, "AllowedDomains") ?? "",
+            GetNamedString(attr, "DeniedDomains") ?? "",
+            GetNamedString(attr, "AllowWrite") ?? "",
+            GetNamedString(attr, "DenyRead") ?? "",
+            GetNamedString(attr, "AllowRead") ?? "",
+            GetNamedString(attr, "DenyWrite") ?? "",
+            GetNamedString(attr, "AllowUnixSockets") ?? "",
+            GetNamedString(attr, "AllowMachLookup") ?? "",
+            GetNamedToggle(attr, "AllowPty"),
+            GetNamedToggle(attr, "AllowLocalBinding"),
+            GetNamedToggle(attr, "AllowAllUnixSockets"),
+            GetNamedToggle(attr, "AllowMacOSTrustdLookup"),
+            GetNamedToggle(attr, "AllowGitConfig"),
+            GetNamedToggle(attr, "EnableWeakerNestedSandbox"),
+            GetNamedString(attr, "IgnoreViolationPatterns") ?? "",
+            GetNamedString(attr, "AllowedEnvironmentVariables") ?? "",
+            GetNamedInt(attr, "MandatoryDenySearchDepth"));
+    }
+
+    private static AttributeArgumentSyntax? GetNamedArgument(AttributeSyntax attr, string name) =>
+        attr.ArgumentList?.Arguments.FirstOrDefault(a =>
+            string.Equals(a.NameEquals?.Name.Identifier.ValueText, name, System.StringComparison.Ordinal));
+
+    private static string? GetNamedString(AttributeSyntax attr, string name)
+    {
+        var arg = GetNamedArgument(attr, name);
+        return arg?.Expression is LiteralExpressionSyntax literal &&
+               literal.IsKind(SyntaxKind.StringLiteralExpression)
+            ? literal.Token.ValueText
+            : null;
+    }
+
+    private static bool? GetNamedBool(AttributeSyntax attr, string name)
+    {
+        var arg = GetNamedArgument(attr, name);
+        if (arg?.Expression is LiteralExpressionSyntax literal)
+        {
+            if (literal.IsKind(SyntaxKind.TrueLiteralExpression))
+                return true;
+            if (literal.IsKind(SyntaxKind.FalseLiteralExpression))
+                return false;
+        }
+
+        return null;
+    }
+
+    private static string GetNamedToggle(AttributeSyntax attr, string name)
+    {
+        var enumMember = GetNamedEnumMember(attr, name);
+        if (!string.IsNullOrWhiteSpace(enumMember))
+            return enumMember;
+
+        return GetNamedBool(attr, name) switch
+        {
+            true => "Enabled",
+            false => "Disabled",
+            _ => "Inherit"
+        };
+    }
+
+    private static int? GetNamedInt(AttributeSyntax attr, string name)
+    {
+        var arg = GetNamedArgument(attr, name);
+        return arg?.Expression is LiteralExpressionSyntax literal &&
+               literal.Token.Value is int value
+            ? value
+            : null;
+    }
+
+    private static string? GetNamedEnumMember(AttributeSyntax attr, string name)
+    {
+        var arg = GetNamedArgument(attr, name);
+        return arg?.Expression switch
+        {
+            MemberAccessExpressionSyntax memberAccess => memberAccess.Name.Identifier.ValueText,
+            IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+            _ => null
+        };
     }
 
     /// <summary>

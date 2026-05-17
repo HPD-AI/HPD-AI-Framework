@@ -78,6 +78,22 @@ public class SeatbeltProfileBuilderTests
     }
 
     [Fact]
+    public void AllowRead_AddsAllowFileReadRuleAfterDenyRead()
+    {
+        var builder = new SeatbeltProfileBuilder("test");
+        builder.DenyRead("/secret");
+        builder.AllowRead("/secret/public");
+        var profile = builder.Build();
+
+        var denyIndex = profile.IndexOf("(deny file-read*", StringComparison.Ordinal);
+        var allowIndex = profile.IndexOf("/secret/public", StringComparison.Ordinal);
+
+        Assert.Contains("(allow file-read*", profile);
+        Assert.True(denyIndex >= 0);
+        Assert.True(allowIndex > denyIndex);
+    }
+
+    [Fact]
     public void WithNetwork_AllowsNetworkWhenTrue()
     {
         var builder = new SeatbeltProfileBuilder("test");
@@ -106,6 +122,19 @@ public class SeatbeltProfileBuilderTests
 
         Assert.Contains("localhost:8080", profile);
         Assert.Contains("localhost:1080", profile);
+        Assert.Contains("(allow network-outbound (remote ip \"localhost:8080\"))", profile);
+        Assert.Contains("(allow network-outbound (remote ip \"localhost:1080\"))", profile);
+    }
+
+    [Fact]
+    public void WithNetwork_FilteredProxyPorts_DoesNotAllowAllNetwork()
+    {
+        var builder = new SeatbeltProfileBuilder("test");
+        builder.WithNetwork(allowed: true, httpProxyPort: 8080, socksProxyPort: 1080);
+        var profile = builder.Build();
+
+        Assert.DoesNotContain("(allow network*)", profile);
+        Assert.DoesNotContain("(deny network*)", profile);
     }
 
     [Fact]
@@ -127,7 +156,57 @@ public class SeatbeltProfileBuilderTests
         var profile = builder.Build();
 
         Assert.Contains("network-bind", profile);
-        Assert.Contains("localhost", profile);
+        Assert.Contains("*:*", profile);
+    }
+
+    [Fact]
+    public void Build_DoesNotAllowTrustdByDefault()
+    {
+        var builder = new SeatbeltProfileBuilder("test");
+        var profile = builder.Build();
+
+        Assert.DoesNotContain("com.apple.trustd.agent", profile);
+    }
+
+    [Fact]
+    public void AllowTrustdLookup_AddsTrustdGlobalName()
+    {
+        var builder = new SeatbeltProfileBuilder("test");
+        builder.AllowTrustdLookup();
+        var profile = builder.Build();
+
+        Assert.Contains("(global-name \"com.apple.trustd.agent\")", profile);
+    }
+
+    [Fact]
+    public void AllowMachLookup_AddsExactGlobalName()
+    {
+        var builder = new SeatbeltProfileBuilder("test");
+        builder.AllowMachLookup("com.example.service");
+        var profile = builder.Build();
+
+        Assert.Contains("; Configured Mach lookup rules", profile);
+        Assert.Contains("(global-name \"com.example.service\")", profile);
+    }
+
+    [Fact]
+    public void AllowMachLookup_TrailingWildcard_AddsRegex()
+    {
+        var builder = new SeatbeltProfileBuilder("test");
+        builder.AllowMachLookup("com.example.*");
+        var profile = builder.Build();
+
+        Assert.Contains("(regex #\"^com\\.example\\..*$\")", profile);
+    }
+
+    [Fact]
+    public void AllowMachLookup_AllWildcard_AllowsMachLookup()
+    {
+        var builder = new SeatbeltProfileBuilder("test");
+        builder.AllowMachLookup("*");
+        var profile = builder.Build();
+
+        Assert.Contains("(allow mach-lookup)", profile);
     }
 
     [Fact]
@@ -137,8 +216,24 @@ public class SeatbeltProfileBuilderTests
         builder.DenyWrite("/protected");
         var profile = builder.Build();
 
-        // Should include file-write-unlink to prevent mv bypass
         Assert.Contains("file-write-unlink", profile);
+        Assert.Contains("file-write-create", profile);
+    }
+
+    [Fact]
+    public void Build_ReAllowsMoveOperationsForExplicitWriteRootsBeforeReDenyingWriteDenyPaths()
+    {
+        var builder = new SeatbeltProfileBuilder("test");
+        builder.DenyRead("/workspace");
+        builder.AllowWrite("/workspace/out");
+        builder.DenyWrite("/workspace/out/.git/hooks");
+        var profile = builder.Build();
+
+        var allowWriteRoot = profile.IndexOf("(allow file-write-create\n  (subpath \"/workspace/out\")", StringComparison.Ordinal);
+        var reDenyWritePath = profile.LastIndexOf("(deny file-write-create\n  (subpath \"/workspace/out/.git/hooks\")", StringComparison.Ordinal);
+
+        Assert.True(allowWriteRoot >= 0);
+        Assert.True(reDenyWritePath > allowWriteRoot);
     }
 
     [Fact]
@@ -150,6 +245,31 @@ public class SeatbeltProfileBuilderTests
         // Should include essential process permissions
         Assert.Contains("(allow process-exec)", profile);
         Assert.Contains("(allow process-fork)", profile);
+    }
+
+    [Fact]
+    public void Build_UsesSpecificSysctlAllowlist()
+    {
+        var builder = new SeatbeltProfileBuilder("test");
+        var profile = builder.Build();
+
+        Assert.Contains("; Sysctl - specific sysctls only", profile);
+        Assert.Contains("(allow sysctl-read\n", profile);
+        Assert.Contains("(sysctl-name \"hw.activecpu\")", profile);
+        Assert.Contains("(sysctl-name \"kern.osproductversion\")", profile);
+        Assert.Contains("(sysctl-name \"machdep.cpu.brand_string\")", profile);
+        Assert.Contains("(sysctl-name-prefix \"hw.optional.arm\")", profile);
+        Assert.Contains("(sysctl-name-prefix \"kern.proc.pid.\")", profile);
+        Assert.DoesNotContain("(allow sysctl-read)", profile);
+    }
+
+    [Fact]
+    public void Build_AllowsOnlySpecificSysctlWriteForV8ThreadCalculations()
+    {
+        var builder = new SeatbeltProfileBuilder("test");
+        var profile = builder.Build();
+
+        Assert.Contains("(allow sysctl-write\n  (sysctl-name \"kern.tcsm_enable\")\n)", profile);
     }
 
     [Fact]
@@ -187,7 +307,13 @@ public class SeatbeltProfileBuilderTests
         var profile = builder.Build();
 
         Assert.Contains("AF_UNIX", profile);
+        Assert.Contains("(allow system-socket (socket-domain AF_UNIX))", profile);
+        Assert.Contains("(allow network-bind (local unix-socket \"*\"))", profile);
+        Assert.Contains("(allow network-outbound (remote unix-socket \"*\"))", profile);
         Assert.Contains("network-outbound", profile);
+        Assert.DoesNotContain("(allow network-outbound (socket-domain AF_UNIX))", profile);
+        Assert.DoesNotContain("(allow network-inbound (socket-domain AF_UNIX))", profile);
+        Assert.DoesNotContain("(allow network-bind (socket-domain AF_UNIX))", profile);
     }
 
     [Fact]
@@ -201,6 +327,12 @@ public class SeatbeltProfileBuilderTests
         Assert.Contains("/tmp/ssh-agent.sock", profile);
         Assert.Contains("file-read*", profile);
         Assert.Contains("network-outbound", profile);
+        Assert.Contains("(allow system-socket (socket-domain AF_UNIX))", profile);
+        Assert.Contains("(allow network-bind (local unix-socket \"/var/run/docker.sock\"))", profile);
+        Assert.Contains("(allow network-outbound (remote unix-socket \"/var/run/docker.sock\"))", profile);
+        Assert.Contains("(allow network-bind (local unix-socket \"/tmp/ssh-agent.sock\"))", profile);
+        Assert.Contains("(allow network-outbound (remote unix-socket \"/tmp/ssh-agent.sock\"))", profile);
+        Assert.DoesNotContain("socket-literal", profile);
     }
 
     [Fact]

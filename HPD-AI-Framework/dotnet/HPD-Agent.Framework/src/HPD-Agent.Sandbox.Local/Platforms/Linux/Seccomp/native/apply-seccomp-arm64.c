@@ -8,13 +8,20 @@
  *   gcc -O2 -o apply-seccomp-arm64 apply-seccomp-arm64.c
  */
 
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <signal.h>
+#include <sched.h>
 #include <sys/prctl.h>
+#include <sys/mount.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 #include <linux/seccomp.h>
 #include <linux/filter.h>
 #include <linux/audit.h>
@@ -57,6 +64,80 @@ static struct sock_fprog prog = {
     .filter = filter,
 };
 
+static int apply_seccomp(void) {
+    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
+        perror("prctl(PR_SET_NO_NEW_PRIVS)");
+        return -1;
+    }
+
+    if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog, 0, 0) != 0) {
+        perror("prctl(PR_SET_SECCOMP)");
+        return -1;
+    }
+
+    return 0;
+}
+
+static void remount_proc_if_possible(void) {
+    umount2("/proc", MNT_DETACH);
+    mkdir("/proc", 0555);
+    if (mount("proc", "/proc", "proc", MS_NOSUID | MS_NOEXEC | MS_NODEV, NULL) != 0) {
+        fprintf(stderr, "warning: mount(/proc): %s\n", strerror(errno));
+    }
+}
+
+static int exec_with_seccomp(char *argv[]) {
+    if (apply_seccomp() != 0) {
+        return 1;
+    }
+
+    execvp(argv[0], argv);
+    fprintf(stderr, "execvp(%s): %s\n", argv[0], strerror(errno));
+    return 127;
+}
+
+static int run_with_best_effort_reaper(char *argv[]) {
+    if (unshare(CLONE_NEWNS | CLONE_NEWPID) != 0) {
+        fprintf(stderr, "warning: unshare(CLONE_NEWNS|CLONE_NEWPID): %s\n", strerror(errno));
+        return exec_with_seccomp(argv);
+    }
+
+    pid_t child = fork();
+    if (child < 0) {
+        perror("fork");
+        return 1;
+    }
+
+    if (child == 0) {
+        remount_proc_if_possible();
+        return exec_with_seccomp(argv);
+    }
+
+    int status = 0;
+    int child_status = 1;
+    for (;;) {
+        pid_t reaped = wait(&status);
+        if (reaped < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            break;
+        }
+
+        if (reaped == child) {
+            child_status = status;
+        }
+    }
+
+    if (WIFEXITED(child_status)) {
+        return WEXITSTATUS(child_status);
+    }
+    if (WIFSIGNALED(child_status)) {
+        return 128 + WTERMSIG(child_status);
+    }
+    return 1;
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         fprintf(stderr, "HPD Sandbox Seccomp Helper (ARM64)\n");
@@ -64,17 +145,5 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
-        perror("prctl(PR_SET_NO_NEW_PRIVS)");
-        return 1;
-    }
-
-    if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog, 0, 0) != 0) {
-        perror("prctl(PR_SET_SECCOMP)");
-        return 1;
-    }
-
-    execvp(argv[1], &argv[1]);
-    fprintf(stderr, "execvp(%s): %s\n", argv[1], strerror(errno));
-    return 127;
+    return run_with_best_effort_reaper(&argv[1]);
 }

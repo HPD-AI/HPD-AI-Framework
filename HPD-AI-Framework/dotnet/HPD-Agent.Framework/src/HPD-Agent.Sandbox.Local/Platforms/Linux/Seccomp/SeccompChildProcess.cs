@@ -14,7 +14,7 @@ namespace HPD.Sandbox.Local.Platforms.Linux.Seccomp;
 /// <item>Pre-built binary in runtimes/{rid}/native/ (NuGet package)</item>
 /// <item>Pre-built binary next to assembly</item>
 /// <item>Cached binary in /tmp/hpd-sandbox/</item>
-/// <item>Runtime compilation via gcc (fallback)</item>
+/// <item>Runtime compilation via gcc, only when explicitly enabled</item>
 /// </list>
 ///
 /// <para><b>Why a separate binary?</b></para>
@@ -28,63 +28,107 @@ public sealed class SeccompChildProcess : IDisposable
 {
     private readonly ILogger? _logger;
     private readonly string _cacheDir;
+    private readonly string? _explicitHelperPath;
+    private readonly bool _allowRuntimeCompilation;
     private string? _helperPath;
     private bool _disposed;
 
-    public SeccompChildProcess(ILogger? logger = null)
+    public SeccompChildProcess(
+        ILogger? logger = null,
+        string? explicitHelperPath = null,
+        bool allowRuntimeCompilation = false,
+        string? cacheDir = null)
     {
         _logger = logger;
-        _cacheDir = Path.Combine(Path.GetTempPath(), "hpd-sandbox");
+        if (explicitHelperPath is not null && !Path.IsPathRooted(explicitHelperPath))
+            throw new ArgumentException("Seccomp helper path must be absolute.", nameof(explicitHelperPath));
+
+        _explicitHelperPath = explicitHelperPath;
+        _allowRuntimeCompilation = allowRuntimeCompilation;
+        _cacheDir = cacheDir ?? Path.Combine(Path.GetTempPath(), "hpd-sandbox");
     }
 
     /// <summary>
     /// Gets the path to the seccomp helper binary.
-    /// Prefers embedded/packaged binaries, falls back to runtime compilation.
+    /// Prefers packaged binaries and falls back to runtime compilation only when explicitly enabled.
     /// </summary>
     public async Task<string> EnsureHelperAsync(CancellationToken cancellationToken = default)
     {
         if (_helperPath != null && File.Exists(_helperPath))
             return _helperPath;
 
+        if (TryResolvePrebuiltHelper(out var resolvedHelperPath))
+        {
+            _helperPath = resolvedHelperPath;
+            return _helperPath;
+        }
+
+        if (!_allowRuntimeCompilation)
+        {
+            throw new InvalidOperationException(
+                "No pre-built seccomp helper was found and runtime compilation is disabled.");
+        }
+
         var archSuffix = GetArchSuffix();
         var helperName = $"apply-seccomp-{archSuffix}";
-
-        // 1. Check for pre-built binary in NuGet runtimes folder
-        var assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".";
-        var runtimesPath = Path.Combine(assemblyDir, "runtimes", $"linux-{archSuffix}", "native", helperName);
-        if (File.Exists(runtimesPath) && IsExecutable(runtimesPath))
-        {
-            _helperPath = runtimesPath;
-            _logger?.LogDebug("Using packaged seccomp helper: {Path}", _helperPath);
-            return _helperPath;
-        }
-
-        // 2. Check for pre-built binary next to assembly
-        var localPath = Path.Combine(assemblyDir, helperName);
-        if (File.Exists(localPath) && IsExecutable(localPath))
-        {
-            _helperPath = localPath;
-            _logger?.LogDebug("Using local seccomp helper: {Path}", _helperPath);
-            return _helperPath;
-        }
-
-        // 3. Check for cached binary
         Directory.CreateDirectory(_cacheDir);
         var cachedPath = Path.Combine(_cacheDir, helperName);
-        if (File.Exists(cachedPath) && IsExecutable(cachedPath))
-        {
-            _helperPath = cachedPath;
-            _logger?.LogDebug("Using cached seccomp helper: {Path}", _helperPath);
-            return _helperPath;
-        }
 
-        // 4. Fall back to runtime compilation
+        // Fall back to runtime compilation
         _logger?.LogInformation("No pre-built seccomp helper found, compiling at runtime...");
         _helperPath = cachedPath;
         await BuildHelperAsync(cancellationToken);
         _logger?.LogInformation("Seccomp helper compiled: {Path}", _helperPath);
 
         return _helperPath;
+    }
+
+    internal bool TryResolvePrebuiltHelper(out string helperPath)
+    {
+        var archSuffix = GetArchSuffix();
+        var helperName = $"apply-seccomp-{archSuffix}";
+
+        if (_explicitHelperPath is not null)
+        {
+            if (File.Exists(_explicitHelperPath) && IsExecutable(_explicitHelperPath))
+            {
+                helperPath = _explicitHelperPath;
+                _logger?.LogDebug("Using explicit seccomp helper: {Path}", helperPath);
+                return true;
+            }
+
+            throw new FileNotFoundException(
+                "Explicit seccomp helper path does not exist or is empty.",
+                _explicitHelperPath);
+        }
+
+        var assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".";
+        var runtimesPath = Path.Combine(assemblyDir, "runtimes", $"linux-{archSuffix}", "native", helperName);
+        if (File.Exists(runtimesPath) && IsExecutable(runtimesPath))
+        {
+            helperPath = runtimesPath;
+            _logger?.LogDebug("Using packaged seccomp helper: {Path}", helperPath);
+            return true;
+        }
+
+        var localPath = Path.Combine(assemblyDir, helperName);
+        if (File.Exists(localPath) && IsExecutable(localPath))
+        {
+            helperPath = localPath;
+            _logger?.LogDebug("Using local seccomp helper: {Path}", helperPath);
+            return true;
+        }
+
+        var cachedPath = Path.Combine(_cacheDir, helperName);
+        if (File.Exists(cachedPath) && IsExecutable(cachedPath))
+        {
+            helperPath = cachedPath;
+            _logger?.LogDebug("Using cached seccomp helper: {Path}", helperPath);
+            return true;
+        }
+
+        helperPath = string.Empty;
+        return false;
     }
 
     private static bool IsExecutable(string path)
@@ -174,10 +218,11 @@ public sealed class SeccompChildProcess : IDisposable
         await process.WaitForExitAsync(cancellationToken);
     }
 
-    private string GenerateHelperSource()
-    {
-        var arch = RuntimeInformation.ProcessArchitecture;
+    internal string GenerateHelperSource() =>
+        GenerateHelperSource(RuntimeInformation.ProcessArchitecture);
 
+    internal static string GenerateHelperSource(Architecture arch)
+    {
         var (socketSyscall, socketpairSyscall, auditArch) = arch switch
         {
             Architecture.X64 => (41, 53, "0xc000003e"),
@@ -197,13 +242,20 @@ public sealed class SeccompChildProcess : IDisposable
              * Generated for: {{arch}}
              */
 
+            #define _GNU_SOURCE
+
             #include <stdio.h>
             #include <stdlib.h>
             #include <stddef.h>
             #include <unistd.h>
             #include <errno.h>
             #include <string.h>
+            #include <signal.h>
+            #include <sched.h>
             #include <sys/prctl.h>
+            #include <sys/mount.h>
+            #include <sys/stat.h>
+            #include <sys/wait.h>
             #include <linux/seccomp.h>
             #include <linux/filter.h>
             #include <linux/audit.h>
@@ -260,6 +312,81 @@ public sealed class SeccompChildProcess : IDisposable
                 .filter = filter,
             };
 
+            static int apply_seccomp(void) {
+                if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
+                    perror("prctl(PR_SET_NO_NEW_PRIVS)");
+                    return -1;
+                }
+
+                if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog, 0, 0) != 0) {
+                    perror("prctl(PR_SET_SECCOMP)");
+                    return -1;
+                }
+
+                return 0;
+            }
+
+            static void remount_proc_if_possible(void) {
+                umount2("/proc", MNT_DETACH);
+                mkdir("/proc", 0555);
+                if (mount("proc", "/proc", "proc", MS_NOSUID | MS_NOEXEC | MS_NODEV, NULL) != 0) {
+                    /* Some nested environments do not allow this. Keep seccomp active. */
+                    fprintf(stderr, "warning: mount(/proc): %s\n", strerror(errno));
+                }
+            }
+
+            static int exec_with_seccomp(char *argv[]) {
+                if (apply_seccomp() != 0) {
+                    return 1;
+                }
+
+                execvp(argv[0], argv);
+                fprintf(stderr, "execvp(%s): %s\n", argv[0], strerror(errno));
+                return 127;
+            }
+
+            static int run_with_best_effort_reaper(char *argv[]) {
+                if (unshare(CLONE_NEWNS | CLONE_NEWPID) != 0) {
+                    fprintf(stderr, "warning: unshare(CLONE_NEWNS|CLONE_NEWPID): %s\n", strerror(errno));
+                    return exec_with_seccomp(argv);
+                }
+
+                pid_t child = fork();
+                if (child < 0) {
+                    perror("fork");
+                    return 1;
+                }
+
+                if (child == 0) {
+                    remount_proc_if_possible();
+                    return exec_with_seccomp(argv);
+                }
+
+                int status = 0;
+                int child_status = 1;
+                for (;;) {
+                    pid_t reaped = wait(&status);
+                    if (reaped < 0) {
+                        if (errno == EINTR) {
+                            continue;
+                        }
+                        break;
+                    }
+
+                    if (reaped == child) {
+                        child_status = status;
+                    }
+                }
+
+                if (WIFEXITED(child_status)) {
+                    return WEXITSTATUS(child_status);
+                }
+                if (WIFSIGNALED(child_status)) {
+                    return 128 + WTERMSIG(child_status);
+                }
+                return 1;
+            }
+
             int main(int argc, char *argv[]) {
                 if (argc < 2) {
                     fprintf(stderr, "HPD Sandbox Seccomp Helper\n");
@@ -268,34 +395,7 @@ public sealed class SeccompChildProcess : IDisposable
                     return 1;
                 }
 
-                /* Step 1: Set no-new-privs
-                 * Required to apply seccomp filter without CAP_SYS_ADMIN.
-                 * This also prevents the process from gaining privileges via
-                 * setuid/setgid binaries or file capabilities.
-                 */
-                if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
-                    perror("prctl(PR_SET_NO_NEW_PRIVS)");
-                    return 1;
-                }
-
-                /* Step 2: Apply seccomp filter
-                 * Once applied, this filter cannot be removed.
-                 * It will be inherited by all child processes.
-                 */
-                if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog, 0, 0) != 0) {
-                    perror("prctl(PR_SET_SECCOMP)");
-                    return 1;
-                }
-
-                /* Step 3: Execute the command
-                 * The command will run with the seccomp filter active.
-                 * Any attempt to call socket(AF_UNIX, ...) will fail with EACCES.
-                 */
-                execvp(argv[1], &argv[1]);
-
-                /* If we get here, exec failed */
-                fprintf(stderr, "execvp(%s): %s\n", argv[1], strerror(errno));
-                return 127;
+                return run_with_best_effort_reaper(&argv[1]);
             }
             """;
     }

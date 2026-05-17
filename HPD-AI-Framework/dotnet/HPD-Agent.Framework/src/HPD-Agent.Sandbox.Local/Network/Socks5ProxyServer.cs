@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using HPD.Agent.Sandbox;
+using HPD.Sandbox.Local.Policy;
 using Microsoft.Extensions.Logging;
 
 namespace HPD.Sandbox.Local.Network;
@@ -30,9 +32,10 @@ namespace HPD.Sandbox.Local.Network;
 /// </remarks>
 internal sealed class Socks5ProxyServer : ISocks5ProxyServer
 {
-    private readonly string[] _allowedDomains;
-    private readonly string[] _deniedDomains;
+    private readonly NetworkPolicyEvaluator _policyEvaluator;
+    private readonly ParentProxyConfig? _parentProxy;
     private readonly ILogger? _logger;
+    private readonly Action<SandboxProxyEvent>? _eventSink;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private int _port;
@@ -58,11 +61,18 @@ internal sealed class Socks5ProxyServer : ISocks5ProxyServer
     public Socks5ProxyServer(
         string[] allowedDomains,
         string[] deniedDomains,
-        ILogger? logger = null)
+        ParentProxyConfig? parentProxy = null,
+        ILogger? logger = null,
+        Action<SandboxProxyEvent>? eventSink = null)
     {
-        _allowedDomains = allowedDomains ?? [];
-        _deniedDomains = deniedDomains ?? [];
+        _policyEvaluator = new NetworkPolicyEvaluator(
+            SandboxPolicyBuilder.BuildNetworkPolicy(
+                SandboxNetworkMode.Filtered,
+                allowedDomains ?? [],
+                deniedDomains ?? []));
+        _parentProxy = parentProxy;
         _logger = logger;
+        _eventSink = eventSink;
     }
 
     public int Port => _port;
@@ -130,13 +140,12 @@ internal sealed class Socks5ProxyServer : ISocks5ProxyServer
         var buffer = new byte[258];
 
         // Read version and number of methods
-        var read = await stream.ReadAsync(buffer.AsMemory(0, 2), cancellationToken);
-        if (read < 2 || buffer[0] != Socks5Version)
+        if (!await ReadExactAsync(stream, buffer.AsMemory(0, 2), cancellationToken) ||
+            buffer[0] != Socks5Version)
             return false;
 
         var nmethods = buffer[1];
-        read = await stream.ReadAsync(buffer.AsMemory(0, nmethods), cancellationToken);
-        if (read < nmethods)
+        if (!await ReadExactAsync(stream, buffer.AsMemory(0, nmethods), cancellationToken))
             return false;
 
         // Check for no-auth method
@@ -162,8 +171,7 @@ internal sealed class Socks5ProxyServer : ISocks5ProxyServer
         var buffer = new byte[263];
 
         // Read request header: VER CMD RSV ATYP
-        var read = await stream.ReadAsync(buffer.AsMemory(0, 4), cancellationToken);
-        if (read < 4)
+        if (!await ReadExactAsync(stream, buffer.AsMemory(0, 4), cancellationToken))
             return;
 
         var version = buffer[0];
@@ -177,6 +185,7 @@ internal sealed class Socks5ProxyServer : ISocks5ProxyServer
         // Only support CONNECT command
         if (command != ConnectCommand)
         {
+            EmitEvent(SandboxProxyEventKind.MalformedRequest, "Unsupported SOCKS5 command");
             await SendReplyAsync(stream, ReplyCommandNotSupported, cancellationToken);
             return;
         }
@@ -188,65 +197,108 @@ internal sealed class Socks5ProxyServer : ISocks5ProxyServer
         switch (addressType)
         {
             case AddressTypeIPv4:
-                read = await stream.ReadAsync(buffer.AsMemory(0, 6), cancellationToken);
-                if (read < 6) return;
+                if (!await ReadExactAsync(stream, buffer.AsMemory(0, 6), cancellationToken))
+                    return;
 
                 host = new IPAddress(buffer.AsSpan(0, 4)).ToString();
                 port = (buffer[4] << 8) | buffer[5];
                 break;
 
             case AddressTypeDomain:
-                read = await stream.ReadAsync(buffer.AsMemory(0, 1), cancellationToken);
-                if (read < 1) return;
+                if (!await ReadExactAsync(stream, buffer.AsMemory(0, 1), cancellationToken))
+                    return;
 
                 var domainLength = buffer[0];
-                read = await stream.ReadAsync(buffer.AsMemory(0, domainLength + 2), cancellationToken);
-                if (read < domainLength + 2) return;
+                if (!await ReadExactAsync(stream, buffer.AsMemory(0, domainLength + 2), cancellationToken))
+                    return;
 
                 host = Encoding.ASCII.GetString(buffer, 0, domainLength);
                 port = (buffer[domainLength] << 8) | buffer[domainLength + 1];
                 break;
 
             case AddressTypeIPv6:
-                read = await stream.ReadAsync(buffer.AsMemory(0, 18), cancellationToken);
-                if (read < 18) return;
+                if (!await ReadExactAsync(stream, buffer.AsMemory(0, 18), cancellationToken))
+                    return;
 
                 host = new IPAddress(buffer.AsSpan(0, 16)).ToString();
                 port = (buffer[16] << 8) | buffer[17];
                 break;
 
             default:
+                EmitEvent(SandboxProxyEventKind.MalformedRequest, "Unsupported SOCKS5 address type");
                 await SendReplyAsync(stream, ReplyAddressTypeNotSupported, cancellationToken);
                 return;
         }
 
         // Check if connection is allowed
-        if (!IsAllowed(host))
+        var decision = _policyEvaluator.Evaluate(host);
+        if (decision.Kind == NetworkPolicyDecisionKind.Deny)
         {
-            _logger?.LogWarning("SOCKS5: Blocked connection to {Host}:{Port}", host, port);
+            _logger?.LogWarning(
+                "SOCKS5: Blocked connection to {Host}:{Port} ({Reason})",
+                host,
+                port,
+                decision.Reason);
+            EmitEvent(
+                SandboxProxyEventKind.NetworkPolicyDenied,
+                decision.Reason,
+                host,
+                port);
             await SendReplyAsync(stream, ReplyConnectionNotAllowed, cancellationToken);
             return;
         }
 
-        // Connect to destination
+        // Connect to destination directly or through a configured parent proxy.
         TcpClient? remote = null;
+        Stream? remoteStream = null;
         try
         {
-            remote = new TcpClient();
-            await remote.ConnectAsync(host, port, cancellationToken);
+            var parentProxy = ParentProxyResolver.Resolve(
+                new Uri($"http://{FormatUriHost(host)}:{port}/"),
+                _parentProxy);
 
-            _logger?.LogDebug("SOCKS5: Connected to {Host}:{Port}", host, port);
+            if (parentProxy.IsBypassed)
+            {
+                remote = new TcpClient();
+                await remote.ConnectAsync(host, port, cancellationToken);
+                remoteStream = remote.GetStream();
+                _logger?.LogDebug("SOCKS5: Connected directly to {Host}:{Port}", host, port);
+            }
+            else
+            {
+                var proxyUri = parentProxy.ProxyUri!;
+                remote = new TcpClient();
+                remoteStream = await ConnectTunnel.OpenAsync(
+                    async ct =>
+                    {
+                        await remote.ConnectAsync(proxyUri.Host, proxyUri.Port, ct);
+                        return remote.GetStream();
+                    },
+                    host,
+                    port,
+                    ConnectTunnel.BuildProxyAuthorization(proxyUri),
+                    cancellationToken);
+                _logger?.LogDebug(
+                    "SOCKS5: Connected to {Host}:{Port} via parent proxy {Proxy}",
+                    host,
+                    port,
+                    parentProxy.RedactedProxyUri);
+            }
 
             // Send success reply
             await SendReplyAsync(stream, ReplySucceeded, cancellationToken);
 
             // Relay data bidirectionally
-            await using var remoteStream = remote.GetStream();
             await RelayDataAsync(stream, remoteStream, cancellationToken);
         }
         catch (SocketException ex)
         {
             _logger?.LogDebug("SOCKS5: Connection to {Host}:{Port} failed: {Message}", host, port, ex.Message);
+            EmitEvent(
+                SandboxProxyEventKind.UpstreamFailure,
+                ex.Message,
+                host,
+                port);
 
             var reply = ex.SocketErrorCode switch
             {
@@ -260,7 +312,36 @@ internal sealed class Socks5ProxyServer : ISocks5ProxyServer
         }
         finally
         {
+            if (remoteStream != null)
+                await remoteStream.DisposeAsync();
             remote?.Dispose();
+        }
+    }
+
+    private void EmitEvent(
+        SandboxProxyEventKind kind,
+        string? reason,
+        string? host = null,
+        int? port = null)
+    {
+        if (_eventSink is null)
+            return;
+
+        try
+        {
+            _eventSink(new SandboxProxyEvent
+            {
+                Protocol = SandboxProxyProtocol.Socks5,
+                Kind = kind,
+                Reason = string.IsNullOrWhiteSpace(reason) ? kind.ToString() : reason,
+                Timestamp = DateTimeOffset.UtcNow,
+                Host = host,
+                Port = port
+            });
+        }
+        catch
+        {
+            // Observability must not alter proxy enforcement.
         }
     }
 
@@ -282,8 +363,8 @@ internal sealed class Socks5ProxyServer : ISocks5ProxyServer
     }
 
     private async Task RelayDataAsync(
-        NetworkStream clientStream,
-        NetworkStream remoteStream,
+        Stream clientStream,
+        Stream remoteStream,
         CancellationToken cancellationToken)
     {
         var clientToRemote = RelayOneWayAsync(clientStream, remoteStream, cancellationToken);
@@ -293,8 +374,8 @@ internal sealed class Socks5ProxyServer : ISocks5ProxyServer
     }
 
     private static async Task RelayOneWayAsync(
-        NetworkStream source,
-        NetworkStream destination,
+        Stream source,
+        Stream destination,
         CancellationToken cancellationToken)
     {
         var buffer = new byte[8192];
@@ -320,27 +401,28 @@ internal sealed class Socks5ProxyServer : ISocks5ProxyServer
         }
     }
 
-    private bool IsAllowed(string host)
+    private static async Task<bool> ReadExactAsync(
+        NetworkStream stream,
+        Memory<byte> buffer,
+        CancellationToken cancellationToken)
     {
-        // Check denied domains first (takes precedence)
-        if (_deniedDomains.Any(pattern => MatchesDomain(host, pattern)))
-            return false;
-
-        // Check allowed domains
-        return _allowedDomains.Any(pattern => MatchesDomain(host, pattern));
-    }
-
-    private static bool MatchesDomain(string host, string pattern)
-    {
-        if (pattern.StartsWith("*."))
+        var totalRead = 0;
+        while (totalRead < buffer.Length)
         {
-            var domain = pattern[2..];
-            return host.EndsWith(domain, StringComparison.OrdinalIgnoreCase) ||
-                   host.Equals(domain, StringComparison.OrdinalIgnoreCase);
+            var read = await stream.ReadAsync(buffer[totalRead..], cancellationToken);
+            if (read == 0)
+                return false;
+
+            totalRead += read;
         }
 
-        return host.Equals(pattern, StringComparison.OrdinalIgnoreCase);
+        return true;
     }
+
+    private static string FormatUriHost(string host) =>
+        host.Contains(':', StringComparison.Ordinal) && !host.StartsWith("[", StringComparison.Ordinal)
+            ? $"[{host}]"
+            : host;
 
     public async ValueTask DisposeAsync()
     {

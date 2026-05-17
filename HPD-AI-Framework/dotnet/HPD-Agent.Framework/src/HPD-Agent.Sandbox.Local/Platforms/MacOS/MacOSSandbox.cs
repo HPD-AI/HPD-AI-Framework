@@ -5,6 +5,7 @@ using System.Threading.Channels;
 using HPD.Agent.Sandbox;
 using HPD.Sandbox.Local.Network;
 using HPD.Sandbox.Local.Security;
+using HPD.Sandbox.Local.State;
 using Microsoft.Extensions.Logging;
 
 namespace HPD.Sandbox.Local.Platforms.MacOS;
@@ -28,6 +29,7 @@ internal sealed class MacOSSandbox : IPlatformSandbox
     private readonly ISocks5ProxyServer? _socksProxy;
     private readonly ILogger? _logger;
     private readonly Channel<SandboxViolation> _violationChannel;
+    private readonly SandboxViolationStore _violationStore;
     private readonly string _sessionSuffix;
     private Process? _logStreamProcess;
 
@@ -42,20 +44,59 @@ internal sealed class MacOSSandbox : IPlatformSandbox
         _socksProxy = socksProxy;
         _logger = logger;
         _violationChannel = Channel.CreateUnbounded<SandboxViolation>();
+        _violationStore = new SandboxViolationStore();
         _sessionSuffix = $"_{GenerateSessionId()}_SBX";
     }
 
     public ChannelReader<SandboxViolation>? Violations =>
         _config.EnableViolationMonitoring ? _violationChannel.Reader : null;
 
-    public Task<bool> CheckDependenciesAsync(CancellationToken cancellationToken)
+    internal SandboxViolationStore ViolationStore => _violationStore;
+
+    public Task<SandboxDependencyCheck> GetDependencyCheckAsync(CancellationToken cancellationToken)
     {
-        // sandbox-exec is built into macOS, just verify it exists
-        return Task.FromResult(File.Exists("/usr/bin/sandbox-exec"));
+        var errors = new List<string>();
+        var warnings = new List<string>();
+
+        if (!File.Exists("/usr/bin/sandbox-exec"))
+            errors.Add("/usr/bin/sandbox-exec is not available");
+
+        if (_config.EnableViolationMonitoring && !File.Exists("/usr/bin/log"))
+            warnings.Add("/usr/bin/log is not available; macOS violation monitoring will be disabled");
+
+        foreach (var error in errors)
+            _logger?.LogError("{DependencyError}", error);
+        foreach (var warning in warnings)
+            _logger?.LogWarning("{DependencyWarning}", warning);
+
+        return Task.FromResult(new SandboxDependencyCheck
+        {
+            Errors = errors,
+            Warnings = warnings,
+        });
+    }
+
+    public async Task<bool> CheckDependenciesAsync(CancellationToken cancellationToken) =>
+        (await GetDependencyCheckAsync(cancellationToken)).IsAvailable;
+
+    public Task<SandboxedCommand> WrapCommandAsync(CommandInvocation command, CancellationToken cancellationToken)
+    {
+        return WrapShellCommandAsync(PosixShellQuoter.RenderCommand(command), cancellationToken);
     }
 
     public async Task<string> WrapCommandAsync(string command, CancellationToken cancellationToken)
     {
+        var wrapped = await WrapShellCommandAsync(command, cancellationToken);
+        var envPrefix = BuildEnvironmentPrefix(wrapped.Environment);
+        return $"{wrapped.FileName} {string.Join(" ", wrapped.ArgumentList.Take(2).Select(QuoteArg))} " +
+            $"{QuoteArg(wrapped.ArgumentList[2])} {QuoteArg(wrapped.ArgumentList[3])} " +
+            $"{QuoteArg(envPrefix + command)}";
+    }
+
+    private Task<SandboxedCommand> WrapShellCommandAsync(string command, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var logTag = GenerateLogTag(command);
 
         // Build the profile
@@ -68,13 +109,14 @@ internal sealed class MacOSSandbox : IPlatformSandbox
         // 2. Add denied read paths
         builder.DenyRead(_config.DenyRead);
         builder.DenyRead(SandboxDefaults.SensitiveDirectories);
+        builder.AllowRead(_config.AllowRead);
 
         // 3. Add mandatory dangerous path protection
         var dangerousPaths = GetMandatoryDenyPatterns().ToList();
         builder.DenyWrite(dangerousPaths);
 
         // 4. Configure network
-        var hasNetwork = _config.AllowedDomains?.Length > 0;
+        var hasNetwork = _config.IsNetworkFiltered;
 
         // Use external proxy ports if configured, otherwise use internal
         var httpProxyPort = _config.ExternalHttpProxyPort ?? _httpProxy?.Port;
@@ -86,7 +128,7 @@ internal sealed class MacOSSandbox : IPlatformSandbox
             _logger?.LogDebug("Using external SOCKS5 proxy on port {Port}", _config.ExternalSocksProxyPort.Value);
 
         builder.WithNetwork(
-            allowed: hasNetwork || _config.AllowedDomains == null,
+            allowed: hasNetwork || _config.IsNetworkUnrestricted,
             httpProxyPort: httpProxyPort,
             socksProxyPort: socksProxyPort);
 
@@ -95,6 +137,11 @@ internal sealed class MacOSSandbox : IPlatformSandbox
 
         if (_config.AllowPty)
             builder.AllowPty();
+
+        if (_config.AllowMacOSTrustdLookup)
+            builder.AllowTrustdLookup();
+
+        builder.AllowMachLookup(_config.AllowMachLookup);
 
         // 4b. Configure Unix socket access
         if (_config.AllowAllUnixSockets)
@@ -109,20 +156,19 @@ internal sealed class MacOSSandbox : IPlatformSandbox
         // 5. Build profile
         var profile = builder.Build();
 
-        // 6. Write profile to temp file
-        var profilePath = Path.GetTempFileName();
-        await File.WriteAllTextAsync(profilePath, profile, cancellationToken);
+        // 6. Build environment variables
+        var environment = BuildEnvironment();
 
-        // 7. Build environment prefix
-        var envPrefix = BuildEnvironmentPrefix();
-
-        // 8. Get shell
+        // 7. Get shell
         var shell = GetShellPath();
 
-        // 9. Build final command
-        var wrappedCommand = $"sandbox-exec -f {QuoteArg(profilePath)} {shell} -c {QuoteArg(envPrefix + command)}";
+        // 8. Build final command. Inline -p avoids temp profile lifecycle leaks.
+        var wrappedCommand = new SandboxedCommand(
+            "sandbox-exec",
+            ["-p", profile, shell, "-c", command],
+            environment);
 
-        // 10. Start violation monitoring if enabled
+        // 9. Start violation monitoring if enabled
         if (_config.EnableViolationMonitoring && _logStreamProcess == null)
         {
             StartViolationMonitoring();
@@ -133,15 +179,15 @@ internal sealed class MacOSSandbox : IPlatformSandbox
             _config.AllowWrite.Length + SandboxDefaults.DefaultWritePaths.Count,
             dangerousPaths.Count);
 
-        return wrappedCommand;
+        return Task.FromResult(wrappedCommand);
     }
 
-    private string BuildEnvironmentPrefix()
+    private IReadOnlyDictionary<string, string> BuildEnvironment()
     {
-        var sb = new StringBuilder();
-
-        // Sandbox runtime marker
-        sb.Append("SANDBOX_RUNTIME=1 ");
+        var environment = new Dictionary<string, string>
+        {
+            ["SANDBOX_RUNTIME"] = "1"
+        };
 
         // Determine proxy ports - use external if configured, otherwise use internal
         var httpProxyPort = _config.ExternalHttpProxyPort ?? _httpProxy?.Port;
@@ -151,23 +197,42 @@ internal sealed class MacOSSandbox : IPlatformSandbox
         if (httpProxyPort.HasValue)
         {
             var httpProxy = $"http://127.0.0.1:{httpProxyPort.Value}";
-            sb.Append($"HTTP_PROXY={httpProxy} ");
-            sb.Append($"HTTPS_PROXY={httpProxy} ");
-            sb.Append($"http_proxy={httpProxy} ");
-            sb.Append($"https_proxy={httpProxy} ");
+            environment["HTTP_PROXY"] = httpProxy;
+            environment["HTTPS_PROXY"] = httpProxy;
+            environment["http_proxy"] = httpProxy;
+            environment["https_proxy"] = httpProxy;
         }
 
         if (socksProxyPort.HasValue)
         {
             var socksProxy = $"socks5h://127.0.0.1:{socksProxyPort.Value}";
-            sb.Append($"ALL_PROXY={socksProxy} ");
-            sb.Append($"all_proxy={socksProxy} ");
+            environment["ALL_PROXY"] = socksProxy;
+            environment["all_proxy"] = socksProxy;
         }
 
         // NO_PROXY for local addresses
         var noProxy = "localhost,127.0.0.1,::1,*.local,.local";
-        sb.Append($"NO_PROXY={noProxy} ");
-        sb.Append($"no_proxy={noProxy} ");
+        environment["NO_PROXY"] = noProxy;
+        environment["no_proxy"] = noProxy;
+
+        TlsTrustEnvironment.Apply(environment, _config.TlsTermination);
+
+        return environment;
+    }
+
+    private static string BuildEnvironmentPrefix(IReadOnlyDictionary<string, string>? environment)
+    {
+        if (environment is null || environment.Count == 0)
+            return string.Empty;
+
+        var sb = new StringBuilder();
+        foreach (var (key, value) in environment)
+        {
+            sb.Append(key);
+            sb.Append('=');
+            sb.Append(value);
+            sb.Append(' ');
+        }
 
         return sb.ToString();
     }
@@ -229,6 +294,7 @@ internal sealed class MacOSSandbox : IPlatformSandbox
                 var violation = ParseViolation(e.Data);
                 if (violation != null && !ShouldIgnoreViolation(violation))
                 {
+                    _violationStore.Add(violation);
                     _violationChannel.Writer.TryWrite(violation);
                 }
             }

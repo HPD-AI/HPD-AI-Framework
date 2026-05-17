@@ -34,6 +34,7 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
     public IServiceProvider? Services { get; }
     public IEventCoordinator EventCoordinator { get; }
     public IStreamRegistry Streams => EventCoordinator.Streams;
+    public IRuntimeCapabilityRegistry RuntimeCapabilities { get; } = new RuntimeCapabilityRegistry();
     public string RuntimeId { get; }
     public DateTimeOffset CreatedAt { get; }
     public DateTimeOffset? StartedAt { get; private set; }
@@ -222,6 +223,8 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
 
     internal void MarkStarted() => StartedAt = DateTimeOffset.UtcNow;
 
+    internal void SealRuntimeCapabilities() => RuntimeCapabilities.Seal();
+
     internal void MarkStopped() => StoppedAt = DateTimeOffset.UtcNow;
 
     internal void CompleteInputWriter(Exception? error = null)
@@ -347,6 +350,7 @@ public abstract class RuntimeHookContext
     public IServiceProvider? Services => Base.Services;
     public IEventCoordinator EventCoordinator => Base.EventCoordinator;
     public IStreamRegistry Streams => Base.Streams;
+    public IRuntimeCapabilityRegistry RuntimeCapabilities => Base.RuntimeCapabilities;
     public string RuntimeId => Base.RuntimeId;
     public DateTimeOffset CreatedAt => Base.CreatedAt;
     public CancellationToken RuntimeCancellationToken => Base.RuntimeCancellationToken;

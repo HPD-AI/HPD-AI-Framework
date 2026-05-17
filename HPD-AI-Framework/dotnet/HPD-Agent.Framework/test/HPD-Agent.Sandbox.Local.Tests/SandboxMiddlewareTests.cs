@@ -1,6 +1,8 @@
 using FluentAssertions;
+using HPD.Agent;
 using HPD.Agent.Sandbox;
 using HPD.Sandbox.Local.Platforms;
+using Microsoft.Extensions.AI;
 using Xunit;
 
 namespace HPD.Sandbox.Local.Tests;
@@ -41,6 +43,7 @@ public class SandboxMiddlewareTests
     {
         var config = SandboxConfig.CreateDefault() with
         {
+            NetworkMode = SandboxNetworkMode.Filtered,
             AllowedDomains = ["api.example.com"]
         };
 
@@ -68,17 +71,6 @@ public class SandboxMiddlewareTests
     }
 
     [Fact]
-    public void ShouldSandbox_CanBeCustomized()
-    {
-        var config = SandboxConfig.CreateDefault();
-        var middleware = new SandboxMiddleware(config);
-
-        middleware.ShouldSandbox = f => f.Name.StartsWith("Custom");
-
-        middleware.ShouldSandbox.Should().NotBeNull();
-    }
-
-    [Fact]
     public async Task DisposeAsync_CanBeCalledMultipleTimes()
     {
         var config = SandboxConfig.CreateDefault();
@@ -88,42 +80,6 @@ public class SandboxMiddlewareTests
         var act = async () => await middleware.DisposeAsync();
 
         await act.Should().NotThrowAsync();
-    }
-}
-
-public class SandboxMiddlewareFunctionDetectionTests
-{
-    [Theory]
-    [InlineData("ExecuteCommand")]
-    [InlineData("RunScript")]
-    [InlineData("ShellExecute")]
-    [InlineData("BashCommand")]
-    [InlineData("CommandRunner")]
-    [InlineData("ProcessStart")]
-    public void DefaultSandboxablePatterns_MatchExpectedNames(string functionName)
-    {
-        // The middleware should auto-detect these function name patterns
-        var patterns = new[] { "Execute", "Run", "Shell", "Bash", "Command", "Process" };
-
-        var matches = patterns.Any(p =>
-            functionName.Contains(p, StringComparison.OrdinalIgnoreCase));
-
-        matches.Should().BeTrue($"'{functionName}' should match sandboxable patterns");
-    }
-
-    [Theory]
-    [InlineData("GetUserInfo")]
-    [InlineData("CalculateTotal")]
-    [InlineData("ParseJson")]
-    [InlineData("SendEmail")]
-    public void DefaultSandboxablePatterns_DontMatchSafeFunctions(string functionName)
-    {
-        var patterns = new[] { "Execute", "Run", "Shell", "Bash", "Command", "Process" };
-
-        var matches = patterns.Any(p =>
-            functionName.Contains(p, StringComparison.OrdinalIgnoreCase));
-
-        matches.Should().BeFalse($"'{functionName}' should NOT match sandboxable patterns");
     }
 }
 
@@ -184,5 +140,151 @@ public class SandboxMiddlewareConfigTests
         };
 
         config.OnInitializationFailure.Should().Be(SandboxFailureBehavior.Ignore);
+    }
+}
+
+public class AgentBuilderSandboxExtensionsTests
+{
+    [Fact]
+    public void WithSandbox_AddsSandboxMiddlewareWithDefaultConfig()
+    {
+        var builder = new AgentBuilder();
+
+        builder.WithSandbox();
+
+        var middleware = builder.Middlewares.OfType<SandboxMiddleware>().Should().ContainSingle().Subject;
+        middleware.Configuration.Should().BeEquivalentTo(SandboxConfig.CreateDefault());
+    }
+
+    [Fact]
+    public void WithSandbox_Config_AddsSandboxMiddlewareWithProvidedConfig()
+    {
+        var config = SandboxConfig.CreateDefault() with
+        {
+            NetworkMode = SandboxNetworkMode.Filtered,
+            AllowedDomains = ["api.github.com"]
+        };
+        var builder = new AgentBuilder();
+
+        builder.WithSandbox(config);
+
+        var middleware = builder.Middlewares.OfType<SandboxMiddleware>().Should().ContainSingle().Subject;
+        middleware.Configuration.Should().Be(config);
+    }
+
+    [Fact]
+    public void WithSandbox_ReplacesExistingSandboxMiddleware()
+    {
+        var first = SandboxConfig.CreateDefault();
+        var second = SandboxConfig.CreateDefault() with
+        {
+            DenyRead = ["~/.ssh", "~/.aws", "~/.gnupg", "~/.config"]
+        };
+        var builder = new AgentBuilder();
+
+        builder.WithSandbox(first);
+        builder.WithSandbox(second);
+
+        var middleware = builder.Middlewares.OfType<SandboxMiddleware>().Should().ContainSingle().Subject;
+        middleware.Configuration.Should().Be(second);
+    }
+
+    [Fact]
+    public void WithSandbox_Configure_DerivesFromDefaultConfig()
+    {
+        var builder = new AgentBuilder();
+
+        builder.WithSandbox(config => config with
+        {
+            NetworkMode = SandboxNetworkMode.Filtered,
+            AllowedDomains = ["registry.npmjs.org"]
+        });
+
+        var middleware = builder.Middlewares.OfType<SandboxMiddleware>().Should().ContainSingle().Subject;
+        middleware.Configuration.NetworkMode.Should().Be(SandboxNetworkMode.Filtered);
+        middleware.Configuration.AllowedDomains.Should().ContainSingle("registry.npmjs.org");
+        middleware.Configuration.DenyRead.Should().BeEquivalentTo(SandboxConfig.CreateDefault().DenyRead);
+    }
+}
+
+public class SandboxMiddlewareFunctionConfigTests
+{
+    [Fact]
+    public void TryGetFunctionSandboxOverride_ReturnsNullWhenFunctionIsNotSandboxable()
+    {
+        var function = AIFunctionFactory.Create(() => "ok", new AIFunctionFactoryOptions
+        {
+            Name = "ReadData"
+        });
+
+        var config = SandboxMiddleware.TryGetFunctionSandboxOverride(function);
+
+        config.Should().BeNull();
+    }
+
+    [Fact]
+    public void TryGetFunctionSandboxOverride_ReturnsSparseOverrideWhenOnlyMarkerIsPresent()
+    {
+        var function = AIFunctionFactory.Create(() => "ok", new AIFunctionFactoryOptions
+        {
+            Name = "RunCommand",
+            AdditionalProperties = new Dictionary<string, object>
+            {
+                ["IsSandboxable"] = true
+            }
+        });
+
+        var config = SandboxMiddleware.TryGetFunctionSandboxOverride(function);
+
+        config.Should().NotBeNull();
+        config!.NetworkMode.Should().BeNull();
+        config.AllowWrite.Should().BeNull();
+        config.DenyRead.Should().BeNull();
+        config.AllowPty.Should().BeNull();
+    }
+
+    [Fact]
+    public void TryGetFunctionSandboxOverride_MapsGeneratedMetadata()
+    {
+        var function = AIFunctionFactory.Create(() => "ok", new AIFunctionFactoryOptions
+        {
+            Name = "RunCommand",
+            AdditionalProperties = new Dictionary<string, object>
+            {
+                ["IsSandboxable"] = true,
+                ["SandboxNetworkMode"] = "Filtered",
+                ["SandboxAllowedDomains"] = new[] { "api.github.com", "registry.npmjs.org" },
+                ["SandboxDeniedDomains"] = new[] { "evil.github.com" },
+                ["SandboxAllowWrite"] = new[] { "./workspace", "/tmp" },
+                ["SandboxDenyRead"] = new[] { "~/.ssh", "~/.aws" },
+                ["SandboxAllowRead"] = new[] { "./workspace/public" },
+                ["SandboxDenyWrite"] = new[] { ".git/hooks", ".npmrc" },
+                ["SandboxAllowUnixSockets"] = new[] { "/var/run/docker.sock" },
+                ["SandboxAllowMachLookup"] = new[] { "com.example.*" },
+                ["SandboxAllowPty"] = true,
+                ["SandboxAllowLocalBinding"] = true,
+                ["SandboxAllowAllUnixSockets"] = true,
+                ["SandboxAllowMacOSTrustdLookup"] = true,
+                ["SandboxMandatoryDenySearchDepth"] = 5
+            }
+        });
+
+        var config = SandboxMiddleware.TryGetFunctionSandboxOverride(function);
+
+        config.Should().NotBeNull();
+        config!.NetworkMode.Should().Be(SandboxNetworkMode.Filtered);
+        config.AllowedDomains.Should().BeEquivalentTo(["api.github.com", "registry.npmjs.org"]);
+        config.DeniedDomains.Should().BeEquivalentTo(["evil.github.com"]);
+        config.AllowWrite.Should().BeEquivalentTo(["./workspace", "/tmp"]);
+        config.DenyRead.Should().BeEquivalentTo(["~/.ssh", "~/.aws"]);
+        config.AllowRead.Should().BeEquivalentTo(["./workspace/public"]);
+        config.DenyWrite.Should().BeEquivalentTo([".git/hooks", ".npmrc"]);
+        config.AllowUnixSockets.Should().BeEquivalentTo(["/var/run/docker.sock"]);
+        config.AllowMachLookup.Should().BeEquivalentTo(["com.example.*"]);
+        config.AllowPty.Should().BeTrue();
+        config.AllowLocalBinding.Should().BeTrue();
+        config.AllowAllUnixSockets.Should().BeTrue();
+        config.AllowMacOSTrustdLookup.Should().BeTrue();
+        config.MandatoryDenySearchDepth.Should().Be(5);
     }
 }

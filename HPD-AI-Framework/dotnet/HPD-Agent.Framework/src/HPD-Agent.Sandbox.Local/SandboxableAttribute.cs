@@ -1,47 +1,65 @@
+using HPD.Agent.Sandbox;
+
 namespace HPD.Sandbox.Local;
 
 /// <summary>
-/// Marks a function as requiring sandbox execution.
+/// Marks a function as carrying sandbox policy metadata.
 /// Uses comma-separated strings for configuration (C# attribute limitation).
 /// </summary>
 /// <remarks>
-/// <para>Apply to functions that execute shell commands or untrusted code.</para>
-/// <para>The SandboxMiddleware will automatically wrap these functions.</para>
+/// <para>Apply to functions or tools that execute local processes or untrusted code.</para>
 /// <para>
-/// For source generator integration, this attribute can be combined with
-/// [AIFunction] to generate sandbox wrapper code at compile time.
+/// The source generator emits this policy into the generated function metadata.
+/// During execution, <c>FunctionExecutionContext.SandboxConfigOverride</c>
+/// exposes that function-level policy so process-capable tools can pass it to
+/// <c>ISandboxedProcessRunner</c>.
+/// </para>
+/// <para>
+/// This attribute is policy metadata. It is not the execution boundary. Tools
+/// that start processes must execute through <c>ISandboxedProcessRunner</c>.
 /// </para>
 /// </remarks>
 /// <example>
 /// <code>
-/// // Basic - Default restrictive settings (no network, deny ~/.ssh etc.)
+/// // Basic marker - inherits the sandbox policy configured by .WithSandbox(...).
 /// [AIFunction]
 /// [RequiresPermission]
 /// [Sandboxable]
-/// public async Task&lt;string&gt; ExecuteCommand(string command)
+/// public async Task&lt;object&gt; ExecuteCommand(
+///     string command,
+///     FunctionExecutionContext context,
+///     CancellationToken cancellationToken)
 /// {
-///     // Sandboxed execution
+///     var runner = context.GetSandboxedProcessRunner();
+///     var processCommand = ShellSandboxCommands.PlatformDefault(command);
+///     var result = await runner.RunAsync(
+///         processCommand,
+///         context.SandboxConfigOverride,
+///         cancellationToken: cancellationToken);
+///     return result;
 /// }
 ///
-/// // With profile
+/// // With function-level policy override
 /// [AIFunction]
-/// [Sandboxable(Profile = "network-only", AllowedDomains = "api.weather.com")]
-/// public async Task&lt;string&gt; GetWeather(string city)
+/// [Sandboxable(NetworkMode = SandboxNetworkPolicy.Filtered, AllowedDomains = "api.weather.com")]
+/// public async Task&lt;string&gt; GetWeather(string city, FunctionExecutionContext context)
 /// {
-///     // Can access api.weather.com, but ~/.ssh is still blocked
+///     // Processes started through ISandboxedProcessRunner can access
+///     // api.weather.com in addition to the host sandbox policy.
 /// }
 ///
-/// // Full custom configuration
+/// // Full sparse override
 /// [AIFunction]
 /// [RequiresPermission]
 /// [Sandboxable(
+///     NetworkMode = SandboxNetworkPolicy.Filtered,
 ///     AllowedDomains = "api.github.com,*.npmjs.org",
 ///     DeniedDomains = "malicious.npmjs.org",
 ///     AllowWrite = "./workspace,./cache,/tmp",
 ///     DenyRead = "~/.ssh,~/.aws,~/.gnupg,~/.config")]
-/// public async Task&lt;string&gt; RunBuildScript(string script)
+/// public async Task&lt;string&gt; RunBuildScript(string script, FunctionExecutionContext context)
 /// {
-///     // Custom sandbox configuration
+///     // Custom sandbox overrides are available via context.SandboxConfigOverride.
 /// }
 /// </code>
 /// </example>
@@ -49,22 +67,23 @@ namespace HPD.Sandbox.Local;
 public sealed class SandboxableAttribute : Attribute
 {
     /// <summary>
-    /// Preset profile: "restrictive", "permissive", "network-only", "filesystem-only"
-    /// If set, provides defaults that can be overridden by other properties.
+    /// Optional preset profile name.
     /// </summary>
     /// <remarks>
-    /// <para>Profiles:</para>
-    /// <list type="bullet">
-    /// <item><b>restrictive</b> (default): No network, deny ~/.ssh, ~/.aws, ~/.gnupg</item>
-    /// <item><b>permissive</b>: All network allowed, minimal restrictions</item>
-    /// <item><b>network-only</b>: Allow network but deny sensitive paths</item>
-    /// <item><b>filesystem-only</b>: No network, allow workspace writes</item>
-    /// </list>
+    /// <para>
+    /// Profiles are host-defined metadata. A bare <see cref="SandboxableAttribute"/>
+    /// does not apply a profile or default policy by itself.
+    /// </para>
     /// </remarks>
     public string Profile { get; set; } = "";
 
     /// <summary>
-    /// Comma-separated allowed domains (empty string = no network access).
+    /// Function-level network override. Inherit means use the runtime policy.
+    /// </summary>
+    public SandboxNetworkPolicy NetworkMode { get; set; } = SandboxNetworkPolicy.Inherit;
+
+    /// <summary>
+    /// Comma-separated allowed domains used when NetworkMode is Filtered.
     /// Supports wildcards: "*.github.com,api.weather.com"
     /// </summary>
     /// <example>
@@ -82,21 +101,86 @@ public sealed class SandboxableAttribute : Attribute
 
     /// <summary>
     /// Comma-separated paths this function can write to.
-    /// Default: ".,/tmp"
+    /// Empty means inherit the runtime writable path policy.
     /// </summary>
     /// <example>
     /// AllowWrite = "./workspace,./output,/tmp"
     /// </example>
-    public string AllowWrite { get; set; } = ".,/tmp";
+    public string AllowWrite { get; set; } = "";
 
     /// <summary>
     /// Comma-separated paths this function cannot read.
-    /// Default: "~/.ssh,~/.aws,~/.gnupg"
+    /// Empty means inherit the runtime denied read policy.
     /// </summary>
     /// <example>
     /// DenyRead = "~/.ssh,~/.aws,~/.gnupg,~/.config/secrets"
     /// </example>
-    public string DenyRead { get; set; } = "~/.ssh,~/.aws,~/.gnupg";
+    public string DenyRead { get; set; } = "";
+
+    /// <summary>
+    /// Comma-separated paths this function can read back within denied regions.
+    /// </summary>
+    public string AllowRead { get; set; } = "";
+
+    /// <summary>
+    /// Comma-separated paths this function cannot write, even under writable roots.
+    /// </summary>
+    public string DenyWrite { get; set; } = "";
+
+    /// <summary>
+    /// Comma-separated macOS Unix socket paths this function may access.
+    /// </summary>
+    public string AllowUnixSockets { get; set; } = "";
+
+    /// <summary>
+    /// Comma-separated macOS Mach lookup patterns this function may use.
+    /// </summary>
+    public string AllowMachLookup { get; set; } = "";
+
+    /// <summary>
+    /// Allows pseudo-terminal access for this function.
+    /// </summary>
+    public SandboxToggle AllowPty { get; set; } = SandboxToggle.Inherit;
+
+    /// <summary>
+    /// Allows binding local network interfaces for this function.
+    /// </summary>
+    public SandboxToggle AllowLocalBinding { get; set; } = SandboxToggle.Inherit;
+
+    /// <summary>
+    /// Allows all Unix sockets for this function.
+    /// </summary>
+    public SandboxToggle AllowAllUnixSockets { get; set; } = SandboxToggle.Inherit;
+
+    /// <summary>
+    /// Allows macOS trustd lookup for this function.
+    /// </summary>
+    public SandboxToggle AllowMacOSTrustdLookup { get; set; } = SandboxToggle.Inherit;
+
+    /// <summary>
+    /// Allows writes to git configuration files for this function.
+    /// </summary>
+    public SandboxToggle AllowGitConfig { get; set; } = SandboxToggle.Inherit;
+
+    /// <summary>
+    /// Enables weaker nested sandbox behavior for this function.
+    /// </summary>
+    public SandboxToggle EnableWeakerNestedSandbox { get; set; } = SandboxToggle.Inherit;
+
+    /// <summary>
+    /// Comma-separated violation regex patterns to ignore for this function.
+    /// </summary>
+    public string IgnoreViolationPatterns { get; set; } = "";
+
+    /// <summary>
+    /// Comma-separated environment variables to pass through for this function.
+    /// </summary>
+    public string AllowedEnvironmentVariables { get; set; } = "";
+
+    /// <summary>
+    /// Maximum depth used when discovering mandatory deny paths.
+    /// </summary>
+    public int MandatoryDenySearchDepth { get; set; } = -1;
 
     /// <summary>
     /// Parses AllowedDomains into an array.
@@ -117,16 +201,90 @@ public sealed class SandboxableAttribute : Attribute
     /// <summary>
     /// Parses AllowWrite into an array.
     /// </summary>
-    public string[] GetAllowWrite() =>
-        string.IsNullOrWhiteSpace(AllowWrite)
-            ? [".", "/tmp"]
-            : AllowWrite.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    public string[] GetAllowWrite() => SplitCommaSeparated(AllowWrite);
 
     /// <summary>
     /// Parses DenyRead into an array.
     /// </summary>
-    public string[] GetDenyRead() =>
-        string.IsNullOrWhiteSpace(DenyRead)
-            ? ["~/.ssh", "~/.aws", "~/.gnupg"]
-            : DenyRead.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    public string[] GetDenyRead() => SplitCommaSeparated(DenyRead);
+
+    /// <summary>
+    /// Parses AllowRead into an array.
+    /// </summary>
+    public string[] GetAllowRead() => SplitCommaSeparated(AllowRead);
+
+    /// <summary>
+    /// Parses DenyWrite into an array.
+    /// </summary>
+    public string[] GetDenyWrite() => SplitCommaSeparated(DenyWrite);
+
+    /// <summary>
+    /// Parses AllowUnixSockets into an array.
+    /// </summary>
+    public string[] GetAllowUnixSockets() => SplitCommaSeparated(AllowUnixSockets);
+
+    /// <summary>
+    /// Parses AllowMachLookup into an array.
+    /// </summary>
+    public string[] GetAllowMachLookup() => SplitCommaSeparated(AllowMachLookup);
+
+    /// <summary>
+    /// Parses IgnoreViolationPatterns into an array.
+    /// </summary>
+    public string[] GetIgnoreViolationPatterns() => SplitCommaSeparated(IgnoreViolationPatterns);
+
+    /// <summary>
+    /// Parses AllowedEnvironmentVariables into an array.
+    /// </summary>
+    public string[] GetAllowedEnvironmentVariables() => SplitCommaSeparated(AllowedEnvironmentVariables);
+
+    /// <summary>
+    /// Converts the attribute declaration into a sparse sandbox override.
+    /// </summary>
+    public SandboxConfigOverride ToSandboxConfigOverride() => new()
+    {
+        NetworkMode = ToNetworkMode(NetworkMode),
+        AllowedDomains = ToNullable(GetAllowedDomains()),
+        DeniedDomains = ToNullable(GetDeniedDomains()),
+        AllowWrite = ToNullable(GetAllowWrite()),
+        DenyRead = ToNullable(GetDenyRead()),
+        AllowRead = ToNullable(GetAllowRead()),
+        DenyWrite = ToNullable(GetDenyWrite()),
+        AllowUnixSockets = ToNullable(GetAllowUnixSockets()),
+        AllowMachLookup = ToNullable(GetAllowMachLookup()),
+        AllowPty = ToNullable(AllowPty),
+        AllowLocalBinding = ToNullable(AllowLocalBinding),
+        AllowAllUnixSockets = ToNullable(AllowAllUnixSockets),
+        AllowMacOSTrustdLookup = ToNullable(AllowMacOSTrustdLookup),
+        AllowGitConfig = ToNullable(AllowGitConfig),
+        EnableWeakerNestedSandbox = ToNullable(EnableWeakerNestedSandbox),
+        IgnoreViolationPatterns = ToNullable(GetIgnoreViolationPatterns()),
+        AllowedEnvironmentVariables = ToNullable(GetAllowedEnvironmentVariables()),
+        MandatoryDenySearchDepth = MandatoryDenySearchDepth >= 0 ? MandatoryDenySearchDepth : null
+    };
+
+    private static SandboxNetworkMode? ToNetworkMode(SandboxNetworkPolicy policy) =>
+        policy switch
+        {
+            SandboxNetworkPolicy.Blocked => SandboxNetworkMode.Blocked,
+            SandboxNetworkPolicy.Filtered => SandboxNetworkMode.Filtered,
+            SandboxNetworkPolicy.Unrestricted => SandboxNetworkMode.Unrestricted,
+            _ => null
+        };
+
+    private static bool? ToNullable(SandboxToggle toggle) =>
+        toggle switch
+        {
+            SandboxToggle.Enabled => true,
+            SandboxToggle.Disabled => false,
+            _ => null
+        };
+
+    private static string[]? ToNullable(string[] values) =>
+        values.Length == 0 ? null : values;
+
+    private static string[] SplitCommaSeparated(string value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? []
+            : value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 }

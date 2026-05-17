@@ -82,6 +82,25 @@ public class LinuxSandboxTests
     }
 
     [Fact]
+    public void WrapCommandAsync_WeakerSandbox_BindsProcAndUsesUserNamespace()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            return;
+
+        var config = new SandboxConfig
+        {
+            EnableWeakerNestedSandbox = true
+        };
+        var sandbox = new LinuxSandbox(config, null, null);
+        var result = sandbox.WrapCommandAsync("echo hello", CancellationToken.None).Result;
+
+        result.Should().Contain("--unshare-user");
+        result.Should().Contain("--bind");
+        result.Should().Contain("/proc");
+        result.Should().NotContain("--unshare-pid");
+    }
+
+    [Fact]
     public void WrapCommandAsync_IncludesProcessIsolation()
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
@@ -151,6 +170,7 @@ public class LinuxSandboxTests
         var config = new SandboxConfig
         {
             ExternalHttpProxyPort = 8888,
+            NetworkMode = SandboxNetworkMode.Filtered,
             AllowedDomains = ["example.com"]
         };
         var sandbox = new LinuxSandbox(config, null, null);
@@ -172,6 +192,7 @@ public class LinuxSandboxTests
         var config = new SandboxConfig
         {
             ExternalSocksProxyPort = 1080,
+            NetworkMode = SandboxNetworkMode.Filtered,
             AllowedDomains = ["example.com"]
         };
         var sandbox = new LinuxSandbox(config, null, null);
@@ -192,6 +213,7 @@ public class LinuxSandboxTests
         {
             ExternalHttpProxyPort = 8888,
             ExternalSocksProxyPort = 1080,
+            NetworkMode = SandboxNetworkMode.Filtered,
             AllowedDomains = ["example.com"]
         };
         var sandbox = new LinuxSandbox(config, null, null);

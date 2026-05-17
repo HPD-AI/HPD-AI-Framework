@@ -1,9 +1,9 @@
-using System.Collections.Concurrent;
 using HPD.Agent.Sandbox;
 using HPD.Sandbox.Local.Network;
 using HPD.Sandbox.Local.Platforms;
 using HPD.Sandbox.Local.Platforms.Linux;
 using HPD.Sandbox.Local.Platforms.MacOS;
+using HPD.Sandbox.Local.State;
 using Microsoft.Extensions.Logging;
 
 namespace HPD.Sandbox.Local;
@@ -20,9 +20,15 @@ namespace HPD.Sandbox.Local;
 public sealed class SandboxManager : ISandbox
 {
     private readonly ILogger? _logger;
-    private readonly object _initLock = new();
+    private readonly SemaphoreSlim _initLock = new(1, 1);
     private IPlatformSandbox? _platformSandbox;
-    private readonly ConcurrentDictionary<string, IHttpProxyServer> _proxies = new();
+    private IHttpProxyServer? _httpProxy;
+    private ISocks5ProxyServer? _socksProxy;
+    private MitmCertificateAuthority? _ephemeralCertificateAuthority;
+    private TlsTerminationConfig? _effectiveTlsTermination;
+    private readonly SandboxViolationStore _violationStore = new();
+    private CancellationTokenSource? _violationDrainCts;
+    private Task? _violationDrainTask;
     private bool _disposed;
 
     public SandboxManager(ILogger? logger = null)
@@ -34,6 +40,8 @@ public sealed class SandboxManager : ISandbox
     /// The isolation tier this sandbox provides.
     /// </summary>
     public SandboxTier Tier => SandboxTier.Local;
+
+    internal SandboxViolationStore ViolationStore => _violationStore;
 
     /// <summary>
     /// Wraps a command with sandbox restrictions based on the provided config.
@@ -51,46 +59,34 @@ public sealed class SandboxManager : ISandbox
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        // Thread-safe lazy initialization of platform sandbox
         await EnsurePlatformSandboxInitializedAsync(config, cancellationToken);
 
-        // Start HTTP proxy if network filtering is configured
-        IHttpProxyServer? proxy = null;
-        if (config.AllowedDomains != null && config.AllowedDomains.Length > 0)
-        {
-            var proxyKey = string.Join(",", config.AllowedDomains.OrderBy(d => d));
-            proxy = await _proxies.GetOrAddAsync<string, IHttpProxyServer>(proxyKey, async _ =>
-            {
-                var p = new HttpProxyServer(config.AllowedDomains, config.DeniedDomains, _logger);
-                await p.StartAsync(cancellationToken);
-                return p;
-            });
-        }
-
-        // Build full command string with args
-        var fullCommand = $"{command} {string.Join(" ", args)}";
-
         // Generate wrapped command via platform sandbox
-        var wrappedCommand = await _platformSandbox!.WrapCommandAsync(fullCommand, cancellationToken);
-
-        // Parse the wrapped command back into filename and args
-        var parts = ParseCommand(wrappedCommand);
+        var invocation = CommandInvocation.From(command, args);
+        var wrappedCommand = await _platformSandbox!.WrapCommandAsync(invocation, cancellationToken);
 
         // Build environment variables (for proxy)
-        Dictionary<string, string>? environment = null;
-        if (proxy != null)
+        Dictionary<string, string>? environment = wrappedCommand.Environment is { Count: > 0 }
+            ? new Dictionary<string, string>(wrappedCommand.Environment)
+            : null;
+
+        if (_httpProxy is not null)
         {
-            var proxyUrl = $"http://127.0.0.1:{proxy.Port}";
-            environment = new Dictionary<string, string>
-            {
-                ["HTTP_PROXY"] = proxyUrl,
-                ["HTTPS_PROXY"] = proxyUrl,
-                ["http_proxy"] = proxyUrl,
-                ["https_proxy"] = proxyUrl
-            };
+            var proxyUrl = $"http://127.0.0.1:{_httpProxy.Port}";
+            environment ??= [];
+            environment["HTTP_PROXY"] = proxyUrl;
+            environment["HTTPS_PROXY"] = proxyUrl;
+            environment["http_proxy"] = proxyUrl;
+            environment["https_proxy"] = proxyUrl;
         }
 
-        return new SandboxedCommand(parts.FileName, parts.Args, environment);
+        if (config.TlsTermination is not null)
+        {
+            environment ??= [];
+            TlsTrustEnvironment.Apply(environment, _effectiveTlsTermination ?? config.TlsTermination);
+        }
+
+        return wrappedCommand with { Environment = environment };
     }
 
     /// <summary>
@@ -101,26 +97,44 @@ public sealed class SandboxManager : ISandbox
     {
         if (_platformSandbox != null) return;
 
-        lock (_initLock)
+        await _initLock.WaitAsync(cancellationToken);
+        try
         {
             if (_platformSandbox != null) return;
 
-            // Start HTTP proxy for network filtering if needed
-            IHttpProxyServer? httpProxy = null;
-            ISocks5ProxyServer? socksProxy = null;
-            if (config.AllowedDomains != null && config.AllowedDomains.Length > 0)
+            var effectiveConfig = await ResolveTlsTerminationAsync(config, cancellationToken);
+
+            // Start proxies before platform creation so Linux bridges and macOS
+            // profile/env generation see real bound ports rather than port 0.
+            if (effectiveConfig.IsNetworkFiltered)
             {
-                httpProxy = new HttpProxyServer(config.AllowedDomains, config.DeniedDomains, _logger);
-                // Note: StartAsync will be called later
-                
-                // Linux sandbox also uses SOCKS5 for better compatibility
-                socksProxy = new Socks5ProxyServer(config.AllowedDomains, config.DeniedDomains, _logger);
+                _httpProxy = new HttpProxyServer(
+                    effectiveConfig.AllowedDomains,
+                    effectiveConfig.DeniedDomains,
+                    effectiveConfig.ParentProxy,
+                    effectiveConfig.RequestFilter,
+                    _logger,
+                    eventSink: RecordProxyViolation,
+                    tlsIssuerCertificate: _ephemeralCertificateAuthority?.Certificate,
+                    externalMitmUnixSocketPath: effectiveConfig.MitmProxy?.UnixSocketPath);
+                await _httpProxy.StartAsync(cancellationToken);
+
+                if (PlatformDetector.Current == PlatformType.Linux)
+                {
+                    _socksProxy = new Socks5ProxyServer(
+                        effectiveConfig.AllowedDomains,
+                        effectiveConfig.DeniedDomains,
+                        effectiveConfig.ParentProxy,
+                        _logger,
+                        eventSink: RecordProxyViolation);
+                    await _socksProxy.StartAsync(cancellationToken);
+                }
             }
 
             _platformSandbox = PlatformDetector.Current switch
             {
-                PlatformType.Linux => new LinuxSandbox(config, httpProxy, socksProxy, _logger),
-                PlatformType.MacOS => new MacOSSandbox(config, httpProxy, socksProxy, _logger),
+                PlatformType.Linux => new LinuxSandbox(effectiveConfig, _httpProxy, _socksProxy, _logger),
+                PlatformType.MacOS => new MacOSSandbox(effectiveConfig, _httpProxy, _socksProxy, _logger),
                 _ => throw new PlatformNotSupportedException(
                     $"Sandboxing not supported on {PlatformDetector.Current}")
             };
@@ -128,77 +142,84 @@ public sealed class SandboxManager : ISandbox
             _logger?.LogInformation(
                 "Initialized {Platform} sandbox",
                 PlatformDetector.Current);
-        }
 
-        // Check dependencies
-        if (!await _platformSandbox.CheckDependenciesAsync(cancellationToken))
+            StartPlatformViolationDrain(_platformSandbox);
+
+            // Check dependencies after the platform has its real proxy instances.
+            var dependencyCheck = await _platformSandbox.GetDependencyCheckAsync(cancellationToken);
+            foreach (var warning in dependencyCheck.Warnings)
+                _logger?.LogWarning("Sandbox dependency warning: {Warning}", warning);
+
+            if (!dependencyCheck.IsAvailable)
+            {
+                var platform = PlatformDetector.Current;
+                var message = string.Join("; ", dependencyCheck.Errors);
+                throw new InvalidOperationException(
+                    $"Sandbox dependencies are missing for {platform}: {message}");
+            }
+        }
+        catch
         {
-            var platform = PlatformDetector.Current;
-            var tool = platform == PlatformType.Linux ? "bubblewrap (bwrap)" : "sandbox-exec";
-            throw new InvalidOperationException(
-                $"{tool} is required for sandboxing on {platform}. Please install the required tools.");
+            await DisposeStartedInfrastructureAsync();
+            _platformSandbox = null;
+            throw;
+        }
+        finally
+        {
+            _initLock.Release();
         }
     }
 
-    private static (string FileName, IReadOnlyList<string> Args) ParseCommand(string command)
+    private void RecordProxyViolation(SandboxProxyEvent proxyEvent)
     {
-        // Simple parsing - the first part is the executable
-        var trimmed = command.Trim();
-        var firstSpaceIndex = trimmed.IndexOf(' ');
-
-        if (firstSpaceIndex == -1)
-            return (trimmed, []);
-
-        var fileName = trimmed[..firstSpaceIndex];
-        var argsString = trimmed[(firstSpaceIndex + 1)..];
-
-        // Parse args respecting quotes
-        var args = ParseArgs(argsString);
-        return (fileName, args);
+        _violationStore.Add(proxyEvent.ToSandboxViolation());
     }
 
-    private static List<string> ParseArgs(string argsString)
+    private void StartPlatformViolationDrain(IPlatformSandbox platformSandbox)
     {
-        var args = new List<string>();
-        var current = new System.Text.StringBuilder();
-        var inSingleQuote = false;
-        var inDoubleQuote = false;
+        if (platformSandbox.Violations is null)
+            return;
 
-        for (var i = 0; i < argsString.Length; i++)
+        _violationDrainCts = new CancellationTokenSource();
+        _violationDrainTask = DrainPlatformViolationsAsync(
+            platformSandbox.Violations,
+            _violationDrainCts.Token);
+    }
+
+    private async Task DrainPlatformViolationsAsync(
+        System.Threading.Channels.ChannelReader<SandboxViolation> violations,
+        CancellationToken cancellationToken)
+    {
+        try
         {
-            var c = argsString[i];
+            await foreach (var violation in violations.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+                _violationStore.Add(violation);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Sandbox platform violation drain failed");
+        }
+    }
 
-            if (c == '\'' && !inDoubleQuote)
-            {
-                inSingleQuote = !inSingleQuote;
-            }
-            else if (c == '"' && !inSingleQuote)
-            {
-                inDoubleQuote = !inDoubleQuote;
-            }
-            else if (c == '\\' && i + 1 < argsString.Length)
-            {
-                // Handle escaped characters
-                current.Append(argsString[++i]);
-            }
-            else if (c == ' ' && !inSingleQuote && !inDoubleQuote)
-            {
-                if (current.Length > 0)
-                {
-                    args.Add(current.ToString());
-                    current.Clear();
-                }
-            }
-            else
-            {
-                current.Append(c);
-            }
+    private async Task<SandboxConfig> ResolveTlsTerminationAsync(
+        SandboxConfig config,
+        CancellationToken cancellationToken)
+    {
+        if (config.TlsTermination is null)
+        {
+            _effectiveTlsTermination = null;
+            return config;
         }
 
-        if (current.Length > 0)
-            args.Add(current.ToString());
-
-        return args;
+        var (tlsConfig, authority) = await MitmCertificateAuthority.ResolveAsync(
+            config.TlsTermination,
+            cancellationToken);
+        _ephemeralCertificateAuthority = authority;
+        _effectiveTlsTermination = tlsConfig;
+        return config with { TlsTermination = tlsConfig };
     }
 
     public async ValueTask DisposeAsync()
@@ -206,40 +227,74 @@ public sealed class SandboxManager : ISandbox
         if (_disposed) return;
         _disposed = true;
 
-        foreach (var proxy in _proxies.Values)
+        await DisposeStartedInfrastructureAsync();
+    }
+
+    private async Task DisposeStartedInfrastructureAsync()
+    {
+        if (_violationDrainCts != null)
         {
             try
             {
-                await proxy.DisposeAsync();
+                _violationDrainCts.Cancel();
+                if (_violationDrainTask is not null)
+                    await _violationDrainTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                _violationDrainCts.Dispose();
+                _violationDrainCts = null;
+                _violationDrainTask = null;
+            }
+        }
+
+        if (_socksProxy != null)
+        {
+            try
+            {
+                await _socksProxy.DisposeAsync();
             }
             catch (Exception ex)
             {
-                _logger?.LogWarning(ex, "Error disposing proxy");
+                _logger?.LogWarning(ex, "Error disposing SOCKS proxy");
+            }
+            finally
+            {
+                _socksProxy = null;
+            }
+        }
+
+        if (_httpProxy != null)
+        {
+            try
+            {
+                await _httpProxy.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Error disposing HTTP proxy");
+            }
+            finally
+            {
+                _httpProxy = null;
             }
         }
 
         if (_platformSandbox != null)
         {
             await _platformSandbox.DisposeAsync();
+            _platformSandbox = null;
         }
-    }
-}
 
-/// <summary>
-/// Extension method for async GetOrAdd on ConcurrentDictionary.
-/// </summary>
-internal static class ConcurrentDictionaryExtensions
-{
-    public static async Task<TValue> GetOrAddAsync<TKey, TValue>(
-        this ConcurrentDictionary<TKey, TValue> dictionary,
-        TKey key,
-        Func<TKey, Task<TValue>> valueFactory)
-        where TKey : notnull
-    {
-        if (dictionary.TryGetValue(key, out var existingValue))
-            return existingValue;
+        if (_ephemeralCertificateAuthority != null)
+        {
+            await _ephemeralCertificateAuthority.DisposeAsync();
+            _ephemeralCertificateAuthority = null;
+        }
 
-        var newValue = await valueFactory(key);
-        return dictionary.GetOrAdd(key, newValue);
+        _effectiveTlsTermination = null;
     }
 }

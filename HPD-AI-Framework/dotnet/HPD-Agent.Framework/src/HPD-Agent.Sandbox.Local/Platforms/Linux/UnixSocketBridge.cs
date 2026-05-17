@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 
@@ -34,13 +35,16 @@ namespace HPD.Sandbox.Local.Platforms.Linux;
 public sealed class UnixSocketBridge : IAsyncDisposable
 {
     private readonly ILogger? _logger;
+    private readonly string _socatPath;
     private readonly List<Process> _bridgeProcesses = [];
     private readonly List<string> _socketPaths = [];
+    private readonly ConcurrentQueue<string> _processOutput = new();
     private bool _disposed;
 
-    public UnixSocketBridge(ILogger? logger = null)
+    public UnixSocketBridge(ILogger? logger = null, string socatPath = "socat")
     {
         _logger = logger;
+        _socatPath = socatPath;
     }
 
     /// <summary>
@@ -69,13 +73,19 @@ public sealed class UnixSocketBridge : IAsyncDisposable
         var sessionId = Guid.NewGuid().ToString("N")[..16];
         var tmpDir = Path.GetTempPath();
 
-        // Create HTTP bridge
-        HttpSocketPath = Path.Combine(tmpDir, $"hpd-http-{sessionId}.sock");
-        await StartBridgeAsync(HttpSocketPath, httpProxyPort, "HTTP", cancellationToken);
+        try
+        {
+            HttpSocketPath = Path.Combine(tmpDir, $"hpd-http-{sessionId}.sock");
+            await StartBridgeAsync(HttpSocketPath, httpProxyPort, "HTTP", cancellationToken);
 
-        // Create SOCKS bridge
-        SocksSocketPath = Path.Combine(tmpDir, $"hpd-socks-{sessionId}.sock");
-        await StartBridgeAsync(SocksSocketPath, socksProxyPort, "SOCKS5", cancellationToken);
+            SocksSocketPath = Path.Combine(tmpDir, $"hpd-socks-{sessionId}.sock");
+            await StartBridgeAsync(SocksSocketPath, socksProxyPort, "SOCKS5", cancellationToken);
+        }
+        catch
+        {
+            await DisposeAsync();
+            throw;
+        }
 
         _logger?.LogInformation(
             "Unix socket bridges created: HTTP={HttpSocket}, SOCKS={SocksSocket}",
@@ -88,20 +98,16 @@ public sealed class UnixSocketBridge : IAsyncDisposable
         string name,
         CancellationToken cancellationToken)
     {
-        // Remove existing socket if present
         if (File.Exists(socketPath))
             File.Delete(socketPath);
 
         _socketPaths.Add(socketPath);
 
-        // Start socat to bridge Unix socket to TCP port
-        // socat UNIX-LISTEN:$socket,fork,reuseaddr TCP:localhost:$port
         var process = new Process
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = "socat",
-                Arguments = $"UNIX-LISTEN:{socketPath},fork,reuseaddr TCP:localhost:{targetPort}",
+                FileName = _socatPath,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -109,20 +115,43 @@ public sealed class UnixSocketBridge : IAsyncDisposable
             },
             EnableRaisingEvents = true
         };
+        foreach (var argument in BuildHostSocatArguments(socketPath, targetPort))
+            process.StartInfo.ArgumentList.Add(argument);
 
         process.Exited += (_, _) =>
         {
-            _logger?.LogWarning("{Name} bridge process exited unexpectedly", name);
+            _logger?.LogWarning(
+                "{Name} bridge process exited unexpectedly with code {ExitCode}. Output tail: {Output}",
+                name,
+                SafeExitCode(process),
+                GetProcessOutputTail());
         };
 
-        process.Start();
+        try
+        {
+            if (!process.Start())
+                throw new InvalidOperationException($"Failed to start {name} socket bridge process.");
+        }
+        catch
+        {
+            process.Dispose();
+            throw;
+        }
+
+        DrainProcessOutput(process, name);
         _bridgeProcesses.Add(process);
 
-        // Wait for socket to be created
-        var maxAttempts = 50;
+        const int maxAttempts = 50;
         for (var i = 0; i < maxAttempts; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (process.HasExited)
+            {
+                throw new InvalidOperationException(
+                    $"{name} socket bridge exited before creating {socketPath}. " +
+                    $"Exit code: {process.ExitCode}. Output tail: {GetProcessOutputTail()}");
+            }
 
             if (File.Exists(socketPath))
             {
@@ -134,7 +163,8 @@ public sealed class UnixSocketBridge : IAsyncDisposable
         }
 
         throw new InvalidOperationException(
-            $"Failed to create {name} socket bridge at {socketPath} after {maxAttempts} attempts");
+            $"Failed to create {name} socket bridge at {socketPath} after {maxAttempts} attempts. " +
+            $"Output tail: {GetProcessOutputTail()}");
     }
 
     /// <summary>
@@ -195,21 +225,23 @@ public sealed class UnixSocketBridge : IAsyncDisposable
         var commands = new List<string>();
 
         if (HttpSocketPath != null)
-        {
-            // Start socat to listen on TCP and forward to Unix socket
-            commands.Add($"socat TCP-LISTEN:{httpPort},fork,reuseaddr UNIX-CONNECT:{HttpSocketPath} &");
-        }
+            commands.Add(BuildSandboxSocatCommand(httpPort, HttpSocketPath));
 
         if (SocksSocketPath != null)
-        {
-            commands.Add($"socat TCP-LISTEN:{socksPort},fork,reuseaddr UNIX-CONNECT:{SocksSocketPath} &");
-        }
+            commands.Add(BuildSandboxSocatCommand(socksPort, SocksSocketPath));
 
-        // Trap to kill background processes on exit
         commands.Add("trap 'kill $(jobs -p) 2>/dev/null' EXIT");
-
         return string.Join("\n", commands);
     }
+
+    internal static string[] BuildHostSocatArguments(string socketPath, int targetPort) =>
+    [
+        $"UNIX-LISTEN:{socketPath},fork,reuseaddr",
+        $"TCP:localhost:{targetPort},keepalive",
+    ];
+
+    internal static string BuildSandboxSocatCommand(int listenPort, string socketPath) =>
+        $"socat TCP-LISTEN:{listenPort},fork,reuseaddr,keepalive UNIX-CONNECT:{QuoteShellArg(socketPath)} &";
 
     /// <summary>
     /// Generates environment variables for the sandboxed process.
@@ -222,19 +254,16 @@ public sealed class UnixSocketBridge : IAsyncDisposable
             ["TMPDIR"] = "/tmp/hpd"
         };
 
-        // NO_PROXY for local addresses
         var noProxy = "localhost,127.0.0.1,::1,*.local,.local,169.254.0.0/16,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16";
         env["NO_PROXY"] = noProxy;
         env["no_proxy"] = noProxy;
 
-        // HTTP proxy
         var httpProxy = $"http://localhost:{httpPort}";
         env["HTTP_PROXY"] = httpProxy;
         env["HTTPS_PROXY"] = httpProxy;
         env["http_proxy"] = httpProxy;
         env["https_proxy"] = httpProxy;
 
-        // SOCKS proxy for non-HTTP traffic
         var socksProxy = $"socks5h://localhost:{socksPort}";
         env["ALL_PROXY"] = socksProxy;
         env["all_proxy"] = socksProxy;
@@ -247,7 +276,6 @@ public sealed class UnixSocketBridge : IAsyncDisposable
         if (_disposed) return;
         _disposed = true;
 
-        // Kill bridge processes
         foreach (var process in _bridgeProcesses)
         {
             try
@@ -255,7 +283,7 @@ public sealed class UnixSocketBridge : IAsyncDisposable
                 if (!process.HasExited)
                 {
                     process.Kill(entireProcessTree: true);
-                    await process.WaitForExitAsync();
+                    await WaitForExitWithTimeoutAsync(process, TimeSpan.FromSeconds(2));
                 }
                 process.Dispose();
             }
@@ -265,7 +293,6 @@ public sealed class UnixSocketBridge : IAsyncDisposable
             }
         }
 
-        // Clean up socket files
         foreach (var socketPath in _socketPaths)
         {
             try
@@ -281,4 +308,63 @@ public sealed class UnixSocketBridge : IAsyncDisposable
 
         _logger?.LogInformation("Unix socket bridges disposed");
     }
+
+    private void DrainProcessOutput(Process process, string name)
+    {
+        process.OutputDataReceived += (_, e) => EnqueueProcessOutput(name, e.Data);
+        process.ErrorDataReceived += (_, e) => EnqueueProcessOutput(name, e.Data);
+
+        try
+        {
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger?.LogDebug(ex, "Could not begin output draining for {Name} bridge", name);
+        }
+    }
+
+    private void EnqueueProcessOutput(string name, string? line)
+    {
+        if (string.IsNullOrEmpty(line))
+            return;
+
+        _processOutput.Enqueue($"{name}: {line}");
+        while (_processOutput.Count > 20 && _processOutput.TryDequeue(out _))
+        {
+        }
+    }
+
+    private string GetProcessOutputTail() =>
+        string.Join(" | ", _processOutput.ToArray());
+
+    private static int? SafeExitCode(Process process)
+    {
+        try
+        {
+            return process.HasExited ? process.ExitCode : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static async Task WaitForExitWithTimeoutAsync(Process process, TimeSpan timeout)
+    {
+        using var cts = new CancellationTokenSource(timeout);
+        try
+        {
+            await process.WaitForExitAsync(cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+    }
+
+    private static string QuoteShellArg(string value) =>
+        $"'{value.Replace("'", "'\\''")}'";
 }

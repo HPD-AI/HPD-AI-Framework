@@ -1,5 +1,8 @@
 using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Text;
 using FluentAssertions;
 using HPD.Agent.Sandbox;
 using HPD.Sandbox.Local.Network;
@@ -178,6 +181,236 @@ public class SandboxIntegrationTests : IAsyncLifetime
         }
     }
 
+    [SkippableFact]
+    public async Task LinuxBlockedNetwork_HasNoEgress()
+    {
+        Skip.If(!RuntimeInformation.IsOSPlatform(OSPlatform.Linux), "Linux network namespace test only runs on Linux");
+        Skip.IfNot(await CommandExistsAsync("python3"), "python3 is required for socket integration test");
+
+        await using var sandbox = new LinuxSandbox(
+            SandboxConfig.CreateDefault() with
+            {
+                NetworkMode = SandboxNetworkMode.Blocked
+            },
+            null,
+            null);
+        var dependencyCheck = await sandbox.GetDependencyCheckAsync(CancellationToken.None);
+        Skip.IfNot(dependencyCheck.IsAvailable, string.Join("; ", dependencyCheck.Errors));
+
+        var wrappedCommand = await sandbox.WrapCommandAsync(
+            "python3 -c 'import socket; s=socket.socket(); s.settimeout(1); s.connect((\"1.1.1.1\", 80))'",
+            CancellationToken.None);
+        _output.WriteLine($"Wrapped command: {wrappedCommand}");
+
+        var result = await ExecuteCommandAsync(wrappedCommand);
+
+        result.ExitCode.Should().NotBe(0, "blocked network mode should prevent outbound connections");
+    }
+
+    [SkippableFact]
+    public async Task LinuxSeccomp_BlocksUnixSocketCreation()
+    {
+        Skip.If(!RuntimeInformation.IsOSPlatform(OSPlatform.Linux), "Linux seccomp test only runs on Linux");
+        Skip.IfNot(await CommandExistsAsync("python3"), "python3 is required for socket integration test");
+
+        await using var sandbox = new LinuxSandbox(
+            SandboxConfig.CreateDefault() with
+            {
+                AllowSeccompRuntimeCompilation = true
+            },
+            null,
+            null);
+        var dependencyCheck = await sandbox.GetDependencyCheckAsync(CancellationToken.None);
+        Skip.IfNot(dependencyCheck.IsAvailable, string.Join("; ", dependencyCheck.Errors));
+        Skip.If(dependencyCheck.Issues.Any(issue => issue.Code == "linux.seccomp.unsupported"),
+            "seccomp is not supported on this Linux host");
+        Skip.If(dependencyCheck.Issues.Any(issue => issue.Code == "linux.seccomp.helper.missing"),
+            "seccomp helper is unavailable and cannot be built on this Linux host");
+
+        var wrappedCommand = await sandbox.WrapCommandAsync(
+            "python3 -c 'import socket; socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)'",
+            CancellationToken.None);
+        _output.WriteLine($"Wrapped command: {wrappedCommand}");
+
+        var result = await ExecuteCommandAsync(wrappedCommand);
+
+        result.ExitCode.Should().NotBe(0, "seccomp should deny creating new Unix domain sockets");
+        result.Error.Should().MatchRegex("(?i)(permission|denied|access|operation)");
+    }
+
+    [SkippableFact]
+    public async Task LinuxAllowAllUnixSockets_AllowsUnixSocketCreation()
+    {
+        Skip.If(!RuntimeInformation.IsOSPlatform(OSPlatform.Linux), "Linux Unix socket test only runs on Linux");
+        Skip.IfNot(await CommandExistsAsync("python3"), "python3 is required for socket integration test");
+
+        await using var sandbox = new LinuxSandbox(
+            SandboxConfig.CreateDefault() with
+            {
+                AllowAllUnixSockets = true
+            },
+            null,
+            null);
+        var dependencyCheck = await sandbox.GetDependencyCheckAsync(CancellationToken.None);
+        Skip.IfNot(dependencyCheck.IsAvailable, string.Join("; ", dependencyCheck.Errors));
+
+        var wrappedCommand = await sandbox.WrapCommandAsync(
+            "python3 -c 'import socket; socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); print(\"ok\")'",
+            CancellationToken.None);
+        _output.WriteLine($"Wrapped command: {wrappedCommand}");
+
+        var result = await ExecuteCommandAsync(wrappedCommand);
+
+        result.ExitCode.Should().Be(0, result.Error);
+        result.Output.Trim().Should().Be("ok");
+    }
+
+    [SkippableFact]
+    public async Task LinuxFilteredNetwork_AllowsProxyAndDeniesDirectBypass()
+    {
+        Skip.If(!RuntimeInformation.IsOSPlatform(OSPlatform.Linux), "Linux filtered network test only runs on Linux");
+        Skip.IfNot(await CommandExistsAsync("python3"), "python3 is required for proxy integration test");
+
+        await using var origin = await LocalHttpServer.StartAsync("hpd-proxy-ok");
+        await using var httpProxy = new HttpProxyServer(["127.0.0.1"], []);
+        await httpProxy.StartAsync(CancellationToken.None);
+        await using var sandbox = new LinuxSandbox(
+            SandboxConfig.CreateDefault() with
+            {
+                NetworkMode = SandboxNetworkMode.Filtered,
+                AllowedDomains = ["127.0.0.1"],
+                AllowAllUnixSockets = true
+            },
+            httpProxy,
+            null);
+
+        var dependencyCheck = await sandbox.GetDependencyCheckAsync(CancellationToken.None);
+        Skip.IfNot(dependencyCheck.IsAvailable, string.Join("; ", dependencyCheck.Errors));
+
+        var proxyCommand = await sandbox.WrapCommandAsync(
+            "NO_PROXY= no_proxy= python3 -c 'import urllib.request; print(urllib.request.urlopen(\"http://127.0.0.1:" +
+            origin.Port +
+            "/\", timeout=5).read().decode())'",
+            CancellationToken.None);
+        _output.WriteLine($"Proxy command: {proxyCommand}");
+
+        var proxyResult = await ExecuteCommandAsync(proxyCommand);
+
+        proxyResult.ExitCode.Should().Be(0, proxyResult.Error);
+        proxyResult.Output.Trim().Should().Be("hpd-proxy-ok");
+
+        var directCommand = await sandbox.WrapCommandAsync(
+            "HTTP_PROXY= HTTPS_PROXY= http_proxy= https_proxy= ALL_PROXY= all_proxy= NO_PROXY= no_proxy= " +
+            "python3 -c 'import socket; s=socket.socket(); s.settimeout(1); s.connect((\"127.0.0.1\", " +
+            origin.Port +
+            "))'",
+            CancellationToken.None);
+        _output.WriteLine($"Direct command: {directCommand}");
+
+        var directResult = await ExecuteCommandAsync(directCommand);
+
+        directResult.ExitCode.Should().NotBe(0, "filtered Linux networking should only egress through proxy bridges");
+    }
+
+    [SkippableFact]
+    public async Task MacOSFilteredNetwork_DeniesDirectBypassWhenProxyConfigured()
+    {
+        Skip.If(!RuntimeInformation.IsOSPlatform(OSPlatform.OSX), "macOS filtered network test only runs on macOS");
+        Skip.IfNot(await CommandExistsAsync("python3"), "python3 is required for socket integration test");
+
+        await using var origin = await LocalHttpServer.StartAsync("hpd-macos-direct-denied");
+        await using var httpProxy = new HttpProxyServer(["127.0.0.1"], []);
+        await httpProxy.StartAsync(CancellationToken.None);
+        await using var sandbox = new MacOSSandbox(
+            SandboxConfig.CreateDefault() with
+            {
+                NetworkMode = SandboxNetworkMode.Filtered,
+                AllowedDomains = ["127.0.0.1"]
+            },
+            httpProxy,
+            null);
+
+        var dependencyCheck = await sandbox.GetDependencyCheckAsync(CancellationToken.None);
+        Skip.IfNot(dependencyCheck.IsAvailable, string.Join("; ", dependencyCheck.Errors));
+
+        var directCommand = await sandbox.WrapCommandAsync(
+            "HTTP_PROXY= HTTPS_PROXY= http_proxy= https_proxy= ALL_PROXY= all_proxy= NO_PROXY= no_proxy= " +
+            "python3 -c 'import socket; s=socket.socket(); s.settimeout(1); s.connect((\"127.0.0.1\", " +
+            origin.Port +
+            "))'",
+            CancellationToken.None);
+        _output.WriteLine($"Direct command: {directCommand}");
+
+        var directResult = await ExecuteCommandAsync(directCommand);
+
+        directResult.ExitCode.Should().NotBe(0, "filtered macOS networking should not allow direct non-proxy egress");
+    }
+
+    [SkippableFact]
+    public async Task MacOSFilteredNetwork_ProxyAllowedDomainSucceeds()
+    {
+        Skip.If(!RuntimeInformation.IsOSPlatform(OSPlatform.OSX), "macOS filtered network test only runs on macOS");
+        Skip.IfNot(await CommandExistsAsync("python3"), "python3 is required for proxy integration test");
+
+        await using var origin = await LocalHttpServer.StartAsync("hpd-macos-proxy-ok");
+        await using var httpProxy = new HttpProxyServer(["127.0.0.1"], []);
+        await httpProxy.StartAsync(CancellationToken.None);
+        await using var sandbox = new MacOSSandbox(
+            SandboxConfig.CreateDefault() with
+            {
+                NetworkMode = SandboxNetworkMode.Filtered,
+                AllowedDomains = ["127.0.0.1"]
+            },
+            httpProxy,
+            null);
+
+        var dependencyCheck = await sandbox.GetDependencyCheckAsync(CancellationToken.None);
+        Skip.IfNot(dependencyCheck.IsAvailable, string.Join("; ", dependencyCheck.Errors));
+
+        var proxyCommand = await sandbox.WrapCommandAsync(
+            "NO_PROXY= no_proxy= python3 -c 'import urllib.request; print(urllib.request.urlopen(\"http://127.0.0.1:" +
+            origin.Port +
+            "/\", timeout=5).read().decode())'",
+            CancellationToken.None);
+        _output.WriteLine($"Proxy command: {proxyCommand}");
+
+        var proxyResult = await ExecuteCommandAsync(proxyCommand);
+
+        proxyResult.ExitCode.Should().Be(0, proxyResult.Error);
+        proxyResult.Output.Trim().Should().Be("hpd-macos-proxy-ok");
+    }
+
+    [SkippableFact]
+    public async Task MacOSFilteredNetwork_DeniedDomainReturnsProxyForbidden()
+    {
+        Skip.If(!RuntimeInformation.IsOSPlatform(OSPlatform.OSX), "macOS filtered network test only runs on macOS");
+        Skip.IfNot(await CommandExistsAsync("python3"), "python3 is required for proxy integration test");
+
+        await using var httpProxy = new HttpProxyServer(["allowed.example"], []);
+        await httpProxy.StartAsync(CancellationToken.None);
+        await using var sandbox = new MacOSSandbox(
+            SandboxConfig.CreateDefault() with
+            {
+                NetworkMode = SandboxNetworkMode.Filtered,
+                AllowedDomains = ["allowed.example"]
+            },
+            httpProxy,
+            null);
+
+        var dependencyCheck = await sandbox.GetDependencyCheckAsync(CancellationToken.None);
+        Skip.IfNot(dependencyCheck.IsAvailable, string.Join("; ", dependencyCheck.Errors));
+
+        var proxyCommand = await sandbox.WrapCommandAsync(
+            "NO_PROXY= no_proxy= python3 -c 'import urllib.request; urllib.request.urlopen(\"http://blocked.example/\", timeout=5).read()'",
+            CancellationToken.None);
+        _output.WriteLine($"Proxy command: {proxyCommand}");
+
+        var proxyResult = await ExecuteCommandAsync(proxyCommand);
+
+        proxyResult.ExitCode.Should().NotBe(0, "proxy should reject denied domains before upstream dialing");
+        proxyResult.Error.Should().Contain("HTTP Error 403");
+    }
+
     private async Task<CommandResult> ExecuteCommandAsync(string command)
     {
         using var process = new Process
@@ -203,7 +436,123 @@ public class SandboxIntegrationTests : IAsyncLifetime
         return new CommandResult(process.ExitCode, output, error);
     }
 
+    private static async Task<bool> CommandExistsAsync(string command)
+    {
+        try
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "which",
+                    Arguments = command,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                }
+            };
+
+            process.Start();
+            await process.WaitForExitAsync();
+            return process.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private record CommandResult(int ExitCode, string Output, string Error);
+
+    private sealed class LocalHttpServer : IAsyncDisposable
+    {
+        private readonly TcpListener _listener;
+        private readonly CancellationTokenSource _cts = new();
+        private readonly Task _acceptTask;
+        private readonly string _body;
+
+        private LocalHttpServer(TcpListener listener, string body)
+        {
+            _listener = listener;
+            _body = body;
+            Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+            _acceptTask = AcceptAsync();
+        }
+
+        public int Port { get; }
+
+        public static Task<LocalHttpServer> StartAsync(string body)
+        {
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            return Task.FromResult(new LocalHttpServer(listener, body));
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            _cts.Cancel();
+            _listener.Stop();
+            try
+            {
+                await _acceptTask;
+            }
+            catch
+            {
+                // Listener shutdown races are expected during disposal.
+            }
+            _cts.Dispose();
+        }
+
+        private async Task AcceptAsync()
+        {
+            while (!_cts.IsCancellationRequested)
+            {
+                TcpClient client;
+                try
+                {
+                    client = await _listener.AcceptTcpClientAsync(_cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (ObjectDisposedException)
+                {
+                    break;
+                }
+
+                _ = HandleClientAsync(client);
+            }
+        }
+
+        private async Task HandleClientAsync(TcpClient client)
+        {
+            using (client)
+            await using (var stream = client.GetStream())
+            {
+                var buffer = new byte[1024];
+                using var readCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+                readCts.CancelAfter(TimeSpan.FromSeconds(5));
+                try
+                {
+                    await stream.ReadAsync(buffer, readCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+
+                var bodyBytes = Encoding.UTF8.GetBytes(_body);
+                var headerBytes = Encoding.ASCII.GetBytes(
+                    "HTTP/1.1 200 OK\r\n" +
+                    "Content-Type: text/plain\r\n" +
+                    $"Content-Length: {bodyBytes.Length}\r\n" +
+                    "Connection: close\r\n\r\n");
+                await stream.WriteAsync(headerBytes, _cts.Token);
+                await stream.WriteAsync(bodyBytes, _cts.Token);
+            }
+        }
+    }
 }
 
 /// <summary>
@@ -220,6 +569,18 @@ public class WindowsSandboxTests
         var result = await sandbox.CheckDependenciesAsync(CancellationToken.None);
 
         result.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetDependencyCheckAsync_ReturnsStructuredUnsupportedPlatformError()
+    {
+        var config = SandboxConfig.CreateDefault();
+        var sandbox = new WindowsSandbox(config);
+
+        var result = await sandbox.GetDependencyCheckAsync(CancellationToken.None);
+
+        result.IsAvailable.Should().BeFalse();
+        result.Errors.Should().ContainSingle(error => error.Contains("Windows", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

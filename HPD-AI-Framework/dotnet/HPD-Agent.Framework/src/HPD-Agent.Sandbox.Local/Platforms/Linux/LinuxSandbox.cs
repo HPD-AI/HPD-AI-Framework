@@ -68,6 +68,7 @@ internal sealed class LinuxSandbox : IPlatformSandbox
     private UnixSocketBridge? _socketBridge;
     private bool _initialized;
     private string? _seccompHelperPath;
+    private readonly BwrapMountPointCleaner _mountPointCleaner = new();
 
     public LinuxSandbox(
         SandboxConfig config,
@@ -80,27 +81,47 @@ internal sealed class LinuxSandbox : IPlatformSandbox
         _socksProxy = socksProxy;
         _logger = logger;
         _pathScanner = new DangerousPathScanner(_config.MandatoryDenySearchDepth);
-        _seccompHelper = new SeccompChildProcess(logger);
+        _seccompHelper = new SeccompChildProcess(
+            logger,
+            _config.SeccompHelperPath,
+            _config.AllowSeccompRuntimeCompilation);
     }
 
     public ChannelReader<SandboxViolation>? Violations => null; // Not supported on Linux
 
-    public async Task<bool> CheckDependenciesAsync(CancellationToken cancellationToken)
+    public Task<SandboxedCommand> WrapCommandAsync(CommandInvocation command, CancellationToken cancellationToken)
     {
+        return WrapShellCommandAsync(PosixShellQuoter.RenderCommand(command), cancellationToken);
+    }
+
+    public async Task<string> WrapCommandAsync(string command, CancellationToken cancellationToken)
+    {
+        var wrapped = await WrapShellCommandAsync(command, cancellationToken);
+        return RenderCommand(wrapped);
+    }
+
+    public async Task<SandboxDependencyCheck> GetDependencyCheckAsync(CancellationToken cancellationToken)
+    {
+        var issues = new List<SandboxDependencyIssue>();
+
         // Check for bwrap
         if (!await IsCommandAvailableAsync("bwrap", cancellationToken))
         {
-            _logger?.LogError("bubblewrap (bwrap) is not installed");
-            return false;
+            issues.Add(SandboxDependencyIssue.Error(
+                "linux.bwrap.missing",
+                "bubblewrap",
+                "bubblewrap (bwrap) is not installed"));
         }
 
         // Check for socat (needed for network bridging)
-        if (_config.AllowedDomains?.Length > 0)
+        if (_config.IsNetworkFiltered)
         {
             if (!await UnixSocketBridge.IsSocatAvailableAsync(cancellationToken))
             {
-                _logger?.LogError("socat is not installed (required for network filtering)");
-                return false;
+                issues.Add(SandboxDependencyIssue.Error(
+                    "linux.socat.missing",
+                    "socat",
+                    "socat is not installed (required for network filtering)"));
             }
         }
 
@@ -109,27 +130,60 @@ internal sealed class LinuxSandbox : IPlatformSandbox
         {
             if (!SeccompFilter.IsSupported)
             {
-                _logger?.LogWarning(
-                    "Seccomp is not supported on this system. " +
-                    "Unix socket blocking will be disabled. " +
-                    "Set AllowAllUnixSockets=true to suppress this warning.");
+                issues.Add(SandboxDependencyIssue.Warning(
+                    "linux.seccomp.unsupported",
+                    "seccomp",
+                    "Seccomp is not supported on this system. Unix socket blocking will be disabled. " +
+                    "Set AllowAllUnixSockets=true to suppress this warning."));
             }
             else
             {
-                // Check for gcc (needed to build seccomp helper)
-                if (!await IsCommandAvailableAsync("gcc", cancellationToken))
+                var hasHelper = false;
+                try
                 {
-                    _logger?.LogWarning(
-                        "gcc is not installed. Unix socket blocking will be disabled. " +
-                        "Install gcc or set AllowAllUnixSockets=true.");
+                    hasHelper = _seccompHelper.TryResolvePrebuiltHelper(out _);
+                }
+                catch (FileNotFoundException ex)
+                {
+                    issues.Add(SandboxDependencyIssue.Warning(
+                        "linux.seccomp.helper.invalid",
+                        "seccomp",
+                        ex.Message));
+                }
+
+                if (!hasHelper && !_config.AllowSeccompRuntimeCompilation)
+                {
+                    issues.Add(SandboxDependencyIssue.Warning(
+                        "linux.seccomp.helper.missing",
+                        "seccomp",
+                        "No pre-built seccomp helper was found and runtime compilation is disabled. " +
+                        "Unix socket blocking will be disabled unless a packaged or explicit helper is provided."));
+                }
+                else if (!hasHelper && !await IsCommandAvailableAsync("gcc", cancellationToken))
+                {
+                    issues.Add(SandboxDependencyIssue.Warning(
+                        "linux.seccomp.helper.missing",
+                        "seccomp",
+                        "No pre-built seccomp helper was found and gcc is not installed. " +
+                        "Unix socket blocking will be disabled unless a helper is provided or runtime compilation can run."));
                 }
             }
         }
 
-        return true;
+        var check = SandboxDependencyCheck.FromIssues(issues);
+
+        foreach (var error in check.Errors)
+            _logger?.LogError("{DependencyError}", error);
+        foreach (var warning in check.Warnings)
+            _logger?.LogWarning("{DependencyWarning}", warning);
+
+        return check;
     }
 
-    public async Task<string> WrapCommandAsync(string command, CancellationToken cancellationToken)
+    public async Task<bool> CheckDependenciesAsync(CancellationToken cancellationToken) =>
+        (await GetDependencyCheckAsync(cancellationToken)).IsAvailable;
+
+    private async Task<SandboxedCommand> WrapShellCommandAsync(string command, CancellationToken cancellationToken)
     {
         // Initialize socket bridge and seccomp helper if needed
         await EnsureInitializedAsync(cancellationToken);
@@ -139,45 +193,55 @@ internal sealed class LinuxSandbox : IPlatformSandbox
         // 1. Read-only root filesystem
         builder.WithReadOnlyRoot();
 
-        // 2. Add writable paths (user-specified + defaults)
+        // 2. Prepare writable paths (user-specified + defaults)
         var writePaths = _config.AllowWrite
             .Concat(SandboxDefaults.DefaultWritePaths)
-            .Distinct();
-        builder.WithWritablePaths(writePaths);
+            .Distinct()
+            .ToArray();
 
         // 3. Add tmpfs for temp directory
         builder.WithTmpfs("/tmp");
 
-        // 4. Deny read paths
-        foreach (var path in _config.DenyRead)
-        {
-            builder.WithDeniedReadPath(path);
-        }
-
-        // 5. Add mandatory deny paths (dangerous files)
-        var dangerousPaths = await _pathScanner.GetDangerousPathsAsync(
+        // 4. Add mandatory deny paths (dangerous files)
+        var dangerousPaths = await _pathScanner.GetDangerousPathCandidatesAsync(
             Environment.CurrentDirectory,
             _config.AllowGitConfig,
             cancellationToken);
 
-        builder.WithDeniedWritePaths(dangerousPaths);
+        // 5. Apply filesystem policy in reference-sensitive order:
+        // write allows, read denies, write allow rebinds, read allow-backs,
+        // and final write denies.
+        builder.WithFilesystemPlan(
+            writePaths,
+            _config.DenyRead,
+            _config.AllowRead,
+            dangerousPaths.Concat(_config.DenyWrite));
+        _mountPointCleaner.Track(builder.GetCleanupMountPoints());
+        foreach (var warning in builder.GetFilesystemWarnings())
+            _logger?.LogWarning("Linux sandbox filesystem planning warning: {Warning}", warning);
 
         _logger?.LogDebug("Protected {Count} dangerous paths", dangerousPaths.Count);
 
         // 6. Essential system access
         builder.WithDevices();
 
-        // 7. PID isolation (unless weaker sandbox mode)
-        if (!_config.EnableWeakerNestedSandbox)
+        // 7. PID/proc isolation. In weaker nested mode, keep the reference-style
+        // user namespace and host /proc bind instead of dropping proc handling.
+        if (_config.EnableWeakerNestedSandbox)
+        {
+            builder.WithWeakerNestedSandbox();
+        }
+        else
         {
             builder.WithPidIsolation(mountProc: true);
         }
 
         // 8. Pass through safe environment variables
         builder.WithSafeEnvironmentVariables();
+        builder.WithEnvironmentVariables(TlsTrustEnvironment.Build(_config.TlsTermination));
 
         // 9. Network isolation and proxy setup
-        var needsNetwork = _config.AllowedDomains?.Length > 0;
+        var needsNetwork = _config.IsNetworkFiltered;
         var shell = GetShellPath();
 
         if (needsNetwork && _socketBridge != null)
@@ -208,15 +272,15 @@ internal sealed class LinuxSandbox : IPlatformSandbox
                 builder.WithUnixSocketBinds([_seccompHelperPath]);
 
                 _logger?.LogDebug("Using seccomp to block Unix socket creation");
-                return builder.BuildWithSeccomp(setupScript, command, _seccompHelperPath, shell);
+                return builder.BuildWithSeccompCommand(setupScript, command, _seccompHelperPath, shell);
             }
             else
             {
                 _logger?.LogDebug("Running without seccomp (Unix sockets allowed)");
-                return builder.BuildWithSetup(setupScript, command, shell);
+                return builder.BuildWithSetupCommand(setupScript, command, shell);
             }
         }
-        else if (_config.AllowedDomains?.Length == 0)
+        else if (_config.IsNetworkBlocked)
         {
             // No network allowed at all
             builder.WithNetworkIsolation();
@@ -227,17 +291,17 @@ internal sealed class LinuxSandbox : IPlatformSandbox
         {
             builder.WithUnixSocketBinds([_seccompHelperPath]);
             var seccompCommand = $"{QuoteArg(_seccompHelperPath)} {shell} -c {QuoteArg(command)}";
-            return builder.Build(seccompCommand, shell);
+            return builder.BuildCommand(seccompCommand, shell);
         }
 
-        return builder.Build(command, shell);
+        return builder.BuildCommand(command, shell);
     }
 
     private async Task EnsureInitializedAsync(CancellationToken cancellationToken)
     {
         if (_initialized) return;
 
-        var needsNetwork = _config.AllowedDomains?.Length > 0;
+        var needsNetwork = _config.IsNetworkFiltered;
 
         // Initialize network bridge if needed
         if (needsNetwork)
@@ -280,8 +344,13 @@ internal sealed class LinuxSandbox : IPlatformSandbox
                 _socketBridge.SocksSocketPath);
         }
 
-        // Initialize seccomp helper if needed and available
-        if (!_config.AllowAllUnixSockets && SeccompFilter.IsSupported)
+        // Initialize seccomp helper if needed and available.
+        if (!_config.AllowAllUnixSockets && !SeccompFilter.IsSupported)
+        {
+            _logger?.LogWarning(
+                "Seccomp is not supported on this system. Unix socket blocking is degraded.");
+        }
+        else if (!_config.AllowAllUnixSockets)
         {
             try
             {
@@ -302,6 +371,11 @@ internal sealed class LinuxSandbox : IPlatformSandbox
     private static string QuoteArg(string arg)
     {
         return $"'{arg.Replace("'", "'\\''")}'";
+    }
+
+    private static string RenderCommand(SandboxedCommand command)
+    {
+        return $"{command.FileName} {string.Join(" ", command.ArgumentList.Select(PosixShellQuoter.Quote))}";
     }
 
     private static string GetShellPath()
@@ -350,5 +424,6 @@ internal sealed class LinuxSandbox : IPlatformSandbox
         }
 
         _seccompHelper.Dispose();
+        _mountPointCleaner.ForceCleanup();
     }
 }

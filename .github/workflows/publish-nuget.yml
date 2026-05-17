@@ -64,6 +64,11 @@ jobs:
             9.0.x
             10.0.x
 
+      - name: Install Linux seccomp helper toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc gcc-aarch64-linux-gnu
+
       - name: Restore dependencies
         run: dotnet restore HPD-AI-Framework/dotnet/HPD-Agent.Framework/HPD-Agent.slnx
 
@@ -140,6 +145,18 @@ jobs:
                 -p:VersionPrefix="$VERSION_PREFIX"
             fi
           done
+
+      - name: Validate sandbox native helper package contents
+        run: |
+          SANDBOX_PACKAGE="$(ls ./nupkg/HPD-Agent.Sandbox.Local.*.nupkg | head -n 1)"
+          if [ -z "$SANDBOX_PACKAGE" ]; then
+            echo "HPD-Agent.Sandbox.Local package was not produced"
+            exit 1
+          fi
+
+          unzip -l "$SANDBOX_PACKAGE" | tee /tmp/hpd-sandbox-package.txt
+          grep -q "runtimes/linux-x64/native/apply-seccomp-x64" /tmp/hpd-sandbox-package.txt
+          grep -q "runtimes/linux-arm64/native/apply-seccomp-arm64" /tmp/hpd-sandbox-package.txt
 
       - name: Upload packages as artifacts
         uses: actions/upload-artifact@v4

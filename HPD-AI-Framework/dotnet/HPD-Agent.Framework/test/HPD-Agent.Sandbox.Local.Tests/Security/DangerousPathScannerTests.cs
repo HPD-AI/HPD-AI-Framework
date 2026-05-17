@@ -135,6 +135,29 @@ public class DangerousPathScannerTests : IDisposable
     }
 
     [Fact]
+    public async Task Scanner_CandidatesIncludeMissingDangerousPaths()
+    {
+        var scanner = new DangerousPathScanner(maxDepth: 3);
+
+        var paths = await scanner.GetDangerousPathCandidatesAsync(_testDir);
+
+        Assert.Contains(paths, p => p.EndsWith(".npmrc"));
+        Assert.Contains(paths, p => p.EndsWith(Path.Combine(".git", "hooks")));
+        Assert.Contains(paths, p => p.EndsWith(Path.Combine(".git", "config")));
+    }
+
+    [Fact]
+    public async Task Scanner_CandidatesRespectAllowGitConfig()
+    {
+        var scanner = new DangerousPathScanner(maxDepth: 3);
+
+        var paths = await scanner.GetDangerousPathCandidatesAsync(_testDir, allowGitConfig: true);
+
+        Assert.DoesNotContain(paths, p => p.EndsWith(Path.Combine(".git", "config")));
+        Assert.Contains(paths, p => p.EndsWith(Path.Combine(".git", "hooks")));
+    }
+
+    [Fact]
     public void Scanner_ClearCache_InvalidatesCache()
     {
         // Arrange

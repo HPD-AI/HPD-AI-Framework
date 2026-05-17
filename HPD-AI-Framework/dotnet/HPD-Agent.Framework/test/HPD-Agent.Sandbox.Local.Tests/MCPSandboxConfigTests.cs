@@ -29,6 +29,7 @@ public class MCPSandboxConfigTests
         var mcpConfig = new MCPSandboxConfig();
         var sandboxConfig = mcpConfig.ToSandboxConfig();
 
+        sandboxConfig.NetworkMode.Should().Be(SandboxNetworkMode.Blocked);
         sandboxConfig.AllowedDomains.Should().BeEmpty();
         sandboxConfig.AllowWrite.Should().BeEquivalentTo([".", "/tmp"]);
         sandboxConfig.DenyRead.Should().Contain("~/.ssh");
@@ -40,6 +41,7 @@ public class MCPSandboxConfigTests
         var mcpConfig = new MCPSandboxConfig { Profile = "restrictive" };
         var sandboxConfig = mcpConfig.ToSandboxConfig();
 
+        sandboxConfig.NetworkMode.Should().Be(SandboxNetworkMode.Blocked);
         sandboxConfig.AllowedDomains.Should().BeEmpty();
         sandboxConfig.DenyRead.Should().Contain("~/.ssh");
     }
@@ -50,7 +52,8 @@ public class MCPSandboxConfigTests
         var mcpConfig = new MCPSandboxConfig { Profile = "permissive" };
         var sandboxConfig = mcpConfig.ToSandboxConfig();
 
-        sandboxConfig.AllowedDomains.Should().BeNull(); // null = allow all
+        sandboxConfig.NetworkMode.Should().Be(SandboxNetworkMode.Unrestricted);
+        sandboxConfig.AllowedDomains.Should().BeEmpty();
         sandboxConfig.DenyRead.Should().BeEmpty();
     }
 
@@ -60,7 +63,8 @@ public class MCPSandboxConfigTests
         var mcpConfig = new MCPSandboxConfig { Profile = "network-only" };
         var sandboxConfig = mcpConfig.ToSandboxConfig();
 
-        sandboxConfig.AllowedDomains.Should().BeNull(); // Allow all network
+        sandboxConfig.NetworkMode.Should().Be(SandboxNetworkMode.Unrestricted);
+        sandboxConfig.AllowedDomains.Should().BeEmpty();
         sandboxConfig.DenyRead.Should().Contain("~/.ssh");
     }
 
@@ -70,7 +74,8 @@ public class MCPSandboxConfigTests
         var mcpConfig = new MCPSandboxConfig { Profile = "filesystem-only" };
         var sandboxConfig = mcpConfig.ToSandboxConfig();
 
-        sandboxConfig.AllowedDomains.Should().BeEmpty(); // No network
+        sandboxConfig.NetworkMode.Should().Be(SandboxNetworkMode.Blocked);
+        sandboxConfig.AllowedDomains.Should().BeEmpty();
         sandboxConfig.DenyRead.Should().BeEmpty(); // Allow all reads
     }
 
@@ -80,13 +85,28 @@ public class MCPSandboxConfigTests
         var mcpConfig = new MCPSandboxConfig
         {
             Profile = "restrictive",
+            NetworkMode = SandboxNetworkMode.Filtered,
             AllowedDomains = ["api.github.com"],
             EnableViolationMonitoring = true
         };
         var sandboxConfig = mcpConfig.ToSandboxConfig();
 
+        sandboxConfig.NetworkMode.Should().Be(SandboxNetworkMode.Filtered);
         sandboxConfig.AllowedDomains.Should().BeEquivalentTo(["api.github.com"]);
         sandboxConfig.EnableViolationMonitoring.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ToSandboxConfig_AllowedDomainsWithoutNetworkMode_DoesNotEnableNetwork()
+    {
+        var mcpConfig = new MCPSandboxConfig
+        {
+            AllowedDomains = ["api.github.com"]
+        };
+        var sandboxConfig = mcpConfig.ToSandboxConfig();
+
+        sandboxConfig.NetworkMode.Should().Be(SandboxNetworkMode.Blocked);
+        sandboxConfig.AllowedDomains.Should().BeEquivalentTo(["api.github.com"]);
     }
 
     [Fact]
@@ -95,7 +115,8 @@ public class MCPSandboxConfigTests
         var mcpConfig = new MCPSandboxConfig { Profile = "PERMISSIVE" };
         var sandboxConfig = mcpConfig.ToSandboxConfig();
 
-        sandboxConfig.AllowedDomains.Should().BeNull();
+        sandboxConfig.NetworkMode.Should().Be(SandboxNetworkMode.Unrestricted);
+        sandboxConfig.AllowedDomains.Should().BeEmpty();
     }
 
     [Fact]
@@ -105,6 +126,7 @@ public class MCPSandboxConfigTests
         var sandboxConfig = mcpConfig.ToSandboxConfig();
 
         // Falls through to default case which uses CreateDefault()
+        sandboxConfig.NetworkMode.Should().Be(SandboxNetworkMode.Blocked);
         sandboxConfig.AllowedDomains.Should().BeEmpty();
     }
 
@@ -137,11 +159,13 @@ public class MCPSandboxConfigTests
     {
         var mcpConfig = new MCPSandboxConfig
         {
+            NetworkMode = SandboxNetworkMode.Filtered,
             AllowedDomains = ["*.github.com"],
             DeniedDomains = ["malicious.github.com"]
         };
         var sandboxConfig = mcpConfig.ToSandboxConfig();
 
+        sandboxConfig.NetworkMode.Should().Be(SandboxNetworkMode.Filtered);
         sandboxConfig.AllowedDomains.Should().Contain("*.github.com");
         sandboxConfig.DeniedDomains.Should().Contain("malicious.github.com");
     }

@@ -847,6 +847,8 @@ public sealed class Agent
                 runtimeContext.AsAfterStarted(),
                 cancellationToken).ConfigureAwait(false);
 
+            runtimeContext.SealRuntimeCapabilities();
+
             lock (_runtimeLock)
             {
                 if (ReferenceEquals(_runtimeContext, runtimeContext))
@@ -1448,6 +1450,7 @@ public sealed class Agent
                 cancellationToken: effectiveCancellationToken,
                 parentChatClient: _baseClient,  // Pass chat client for SubAgent inheritance
                 services: _serviceProvider,     // Pass service provider for DI
+                runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
                 traceId: traceId);              // Propagate trace ID to all middleware-emitted events
 
             // IMPORTANT: Create runConfig instance ONCE and reuse it throughout the entire turn

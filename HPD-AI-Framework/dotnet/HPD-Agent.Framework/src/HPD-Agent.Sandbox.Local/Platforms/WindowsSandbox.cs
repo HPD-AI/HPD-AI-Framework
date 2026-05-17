@@ -49,12 +49,29 @@ internal sealed class WindowsSandbox : IPlatformSandbox
 
     public ChannelReader<SandboxViolation>? Violations => null;
 
-    public Task<bool> CheckDependenciesAsync(CancellationToken cancellationToken)
+    public async Task<SandboxedCommand> WrapCommandAsync(CommandInvocation command, CancellationToken cancellationToken)
     {
-        // Windows sandboxing dependencies are never available
-        // Return false to indicate sandbox cannot be initialized
-        return Task.FromResult(false);
+        _ = await WrapCommandAsync(
+            HPD.Sandbox.Local.Security.PosixShellQuoter.RenderCommand(command),
+            cancellationToken);
+
+        return new SandboxedCommand(command.FileName, command.ArgumentList);
     }
+
+    public Task<SandboxDependencyCheck> GetDependencyCheckAsync(CancellationToken cancellationToken)
+    {
+        return Task.FromResult(new SandboxDependencyCheck
+        {
+            Errors =
+            [
+                "OS-level sandboxing is not supported on Windows. " +
+                "Use HPD.Sandbox.Container with Docker Desktop or WSL2 with the Linux sandbox."
+            ],
+        });
+    }
+
+    public async Task<bool> CheckDependenciesAsync(CancellationToken cancellationToken) =>
+        (await GetDependencyCheckAsync(cancellationToken)).IsAvailable;
 
     public Task<string> WrapCommandAsync(string command, CancellationToken cancellationToken)
     {

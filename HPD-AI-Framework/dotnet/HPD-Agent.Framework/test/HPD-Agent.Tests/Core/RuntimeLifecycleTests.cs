@@ -148,6 +148,12 @@ public class RuntimeLifecycleTests : AgentTestBase
         public EventKind Kind => EventKind.Content;
     }
 
+    private interface IBeforeStartRuntimeCapability;
+
+    private interface IAfterStartedRuntimeCapability;
+
+    private sealed record RuntimeCapabilityProbe(string Value) : IBeforeStartRuntimeCapability, IAfterStartedRuntimeCapability;
+
     private sealed record RuntimeHookProbeEvent(string Stage, string RuntimeId) : AgentEvent
     {
         public override EventKind Kind { get; init; } = EventKind.Diagnostic;
@@ -465,6 +471,73 @@ public class RuntimeLifecycleTests : AgentTestBase
         Assert.NotNull(runtimeCoordinator);
         Assert.Throws<ObjectDisposedException>(() =>
             runtimeCoordinator.Emit(new RuntimeHookProbeEvent("after-cancel", "runtime")));
+    }
+
+    [Fact]
+    public async Task RuntimeCapabilities_CanBeRegisteredDuringStartupAndAreSealedAfterStarted()
+    {
+        var order = new List<string>();
+        IRuntimeCapabilityRegistry? registry = null;
+        var beforeStartCapability = new RuntimeCapabilityProbe("before-start");
+        var afterStartedCapability = new RuntimeCapabilityProbe("after-started");
+        var middleware = new RuntimeHookRecordingMiddleware("A", order)
+        {
+            OnBeforeStart = (context, _) =>
+            {
+                registry = context.RuntimeCapabilities;
+                Assert.False(context.RuntimeCapabilities.IsSealed);
+                context.RuntimeCapabilities.Set<IBeforeStartRuntimeCapability>(beforeStartCapability);
+                return Task.CompletedTask;
+            },
+            OnAfterStarted = (context, _) =>
+            {
+                Assert.False(context.RuntimeCapabilities.IsSealed);
+                context.RuntimeCapabilities.Set<IAfterStartedRuntimeCapability>(afterStartedCapability);
+                return Task.CompletedTask;
+            }
+        };
+        var agent = CreateAgentWithMiddlewares(
+            client: new FakeChatClient(),
+            middlewares: [middleware]);
+
+        await agent.StartAsync(TestCancellationToken);
+
+        Assert.NotNull(registry);
+        Assert.True(registry.IsSealed);
+        Assert.Same(beforeStartCapability, registry.GetRequired<IBeforeStartRuntimeCapability>());
+        Assert.Same(afterStartedCapability, registry.GetRequired<IAfterStartedRuntimeCapability>());
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            registry.Set<IBeforeStartRuntimeCapability>(new RuntimeCapabilityProbe("late")));
+        Assert.Contains("sealed", ex.Message);
+
+        await agent.StopAsync(TestCancellationToken);
+    }
+
+    [Fact]
+    public async Task RuntimeCapabilities_AreNotSealedWhenStartIsCancelled()
+    {
+        var order = new List<string>();
+        IRuntimeCapabilityRegistry? registry = null;
+        var middleware = new RuntimeHookRecordingMiddleware("A", order)
+        {
+            OnBeforeStart = (context, _) =>
+            {
+                registry = context.RuntimeCapabilities;
+                context.RuntimeCapabilities.Set<IBeforeStartRuntimeCapability>(
+                    new RuntimeCapabilityProbe("before-start"));
+                context.CancelStart = true;
+                return Task.CompletedTask;
+            }
+        };
+        var agent = CreateAgentWithMiddlewares(
+            client: new FakeChatClient(),
+            middlewares: [middleware]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            agent.StartAsync(TestCancellationToken));
+
+        Assert.NotNull(registry);
+        Assert.False(registry.IsSealed);
     }
 
     [Fact]

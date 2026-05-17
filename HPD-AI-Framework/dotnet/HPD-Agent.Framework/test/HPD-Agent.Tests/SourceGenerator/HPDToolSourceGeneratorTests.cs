@@ -149,6 +149,137 @@ namespace TestHarneses
         Assert.DoesNotContain("global::System.Enum.TryParse<SearchMode>", generatedCode);
     }
 
+    [Fact]
+    public void GeneratedFunction_WithSandboxableAttribute_EmitsSandboxMetadata()
+    {
+        var source = @"
+using HPD.Agent;
+using System;
+
+namespace TestHarneses
+{
+    public enum SandboxNetworkPolicy
+    {
+        Inherit,
+        Blocked,
+        Filtered,
+        Unrestricted
+    }
+
+    public enum SandboxToggle
+    {
+        Inherit,
+        Disabled,
+        Enabled
+    }
+
+    public sealed class SandboxableAttribute : Attribute
+    {
+        public SandboxNetworkPolicy NetworkMode { get; set; } = SandboxNetworkPolicy.Inherit;
+        public string AllowedDomains { get; set; } = string.Empty;
+        public string DeniedDomains { get; set; } = string.Empty;
+        public string AllowWrite { get; set; } = string.Empty;
+        public string DenyRead { get; set; } = string.Empty;
+        public string AllowRead { get; set; } = string.Empty;
+        public string DenyWrite { get; set; } = string.Empty;
+        public string AllowUnixSockets { get; set; } = string.Empty;
+        public string AllowMachLookup { get; set; } = string.Empty;
+        public SandboxToggle AllowPty { get; set; } = SandboxToggle.Inherit;
+        public SandboxToggle AllowLocalBinding { get; set; } = SandboxToggle.Inherit;
+        public SandboxToggle AllowAllUnixSockets { get; set; } = SandboxToggle.Inherit;
+        public SandboxToggle AllowMacOSTrustdLookup { get; set; } = SandboxToggle.Inherit;
+        public SandboxToggle AllowGitConfig { get; set; } = SandboxToggle.Inherit;
+        public SandboxToggle EnableWeakerNestedSandbox { get; set; } = SandboxToggle.Inherit;
+        public string IgnoreViolationPatterns { get; set; } = string.Empty;
+        public string AllowedEnvironmentVariables { get; set; } = string.Empty;
+        public int MandatoryDenySearchDepth { get; set; } = -1;
+    }
+
+    public partial class SandboxHarness
+    {
+        [AIFunction]
+        [Sandboxable(
+            NetworkMode = SandboxNetworkPolicy.Filtered,
+            AllowedDomains = ""api.github.com,registry.npmjs.org"",
+            DeniedDomains = ""evil.github.com"",
+            AllowWrite = ""./workspace,/tmp"",
+            DenyRead = ""~/.ssh,~/.aws"",
+            AllowRead = ""./workspace/public"",
+            DenyWrite = "".git/hooks,.npmrc"",
+            AllowUnixSockets = ""/var/run/docker.sock"",
+            AllowMachLookup = ""com.example.*"",
+            AllowPty = SandboxToggle.Enabled,
+            AllowLocalBinding = SandboxToggle.Enabled,
+            AllowAllUnixSockets = SandboxToggle.Enabled,
+            AllowMacOSTrustdLookup = SandboxToggle.Enabled,
+            AllowGitConfig = SandboxToggle.Enabled,
+            EnableWeakerNestedSandbox = SandboxToggle.Disabled,
+            IgnoreViolationPatterns = ""cache,expected"",
+            AllowedEnvironmentVariables = ""PATH,HOME"",
+            MandatoryDenySearchDepth = 5)]
+        public string RunCommand(string command) => command;
+    }
+}
+";
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+        Assert.NotNull(generatedCode);
+        Assert.Contains("[\"IsSandboxable\"] = true", generatedCode);
+        Assert.Contains("[\"SandboxNetworkMode\"] = \"Filtered\"", generatedCode);
+        Assert.Contains("[\"SandboxAllowedDomains\"] = new string[] { \"api.github.com\", \"registry.npmjs.org\" }", generatedCode);
+        Assert.Contains("[\"SandboxDeniedDomains\"] = new string[] { \"evil.github.com\" }", generatedCode);
+        Assert.Contains("[\"SandboxAllowWrite\"] = new string[] { \"./workspace\", \"/tmp\" }", generatedCode);
+        Assert.Contains("[\"SandboxDenyRead\"] = new string[] { \"~/.ssh\", \"~/.aws\" }", generatedCode);
+        Assert.Contains("[\"SandboxAllowRead\"] = new string[] { \"./workspace/public\" }", generatedCode);
+        Assert.Contains("[\"SandboxDenyWrite\"] = new string[] { \".git/hooks\", \".npmrc\" }", generatedCode);
+        Assert.Contains("[\"SandboxAllowUnixSockets\"] = new string[] { \"/var/run/docker.sock\" }", generatedCode);
+        Assert.Contains("[\"SandboxAllowMachLookup\"] = new string[] { \"com.example.*\" }", generatedCode);
+        Assert.Contains("[\"SandboxAllowPty\"] = true", generatedCode);
+        Assert.Contains("[\"SandboxAllowLocalBinding\"] = true", generatedCode);
+        Assert.Contains("[\"SandboxAllowAllUnixSockets\"] = true", generatedCode);
+        Assert.Contains("[\"SandboxAllowMacOSTrustdLookup\"] = true", generatedCode);
+        Assert.Contains("[\"SandboxAllowGitConfig\"] = true", generatedCode);
+        Assert.Contains("[\"SandboxEnableWeakerNestedSandbox\"] = false", generatedCode);
+        Assert.Contains("[\"SandboxIgnoreViolationPatterns\"] = new string[] { \"cache\", \"expected\" }", generatedCode);
+        Assert.Contains("[\"SandboxAllowedEnvironmentVariables\"] = new string[] { \"PATH\", \"HOME\" }", generatedCode);
+        Assert.Contains("[\"SandboxMandatoryDenySearchDepth\"] = 5", generatedCode);
+    }
+
+    [Fact]
+    public void GeneratedFunction_WithBareSandboxableAttribute_EmitsOnlyMarker()
+    {
+        var source = @"
+using HPD.Agent;
+using System;
+
+namespace TestHarneses
+{
+    public sealed class SandboxableAttribute : Attribute
+    {
+    }
+
+    public partial class SandboxHarness
+    {
+        [AIFunction]
+        [Sandboxable]
+        public string RunCommand(string command) => command;
+    }
+}
+";
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+        Assert.NotNull(generatedCode);
+        Assert.Contains("[\"IsSandboxable\"] = true", generatedCode);
+        Assert.DoesNotContain("SandboxNetworkMode", generatedCode);
+        Assert.DoesNotContain("SandboxAllowWrite", generatedCode);
+        Assert.DoesNotContain("SandboxDenyRead", generatedCode);
+        Assert.DoesNotContain("SandboxAllowPty", generatedCode);
+    }
+
     // ── T047 ─────────────────────────────────────────────────────────────────
     // §5A: middleware with a single-config-parameter constructor → emitted into
     // CollapseMiddlewareConfigFactories with the correct MiddlewareTypeName and

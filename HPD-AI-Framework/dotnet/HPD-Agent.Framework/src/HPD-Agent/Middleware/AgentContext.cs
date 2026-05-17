@@ -38,6 +38,7 @@ public sealed class AgentContext
     private readonly Session? _session;
     private readonly Branch? _branch;
     private readonly IServiceProvider? _services;
+    private readonly IRuntimeCapabilityRegistry _runtimeCapabilities;
 
     //
     // INTERNAL ACCESS (for adapters)
@@ -137,6 +138,11 @@ public sealed class AgentContext
     /// </code>
     /// </remarks>
     public IServiceProvider? Services => _services;
+
+    /// <summary>
+    /// Runtime-scoped capabilities published by middleware for tools/functions.
+    /// </summary>
+    public IRuntimeCapabilityRegistry RuntimeCapabilities => _runtimeCapabilities;
 
     //
     // STREAM MANAGEMENT (always available, may be null if not configured)
@@ -392,6 +398,7 @@ public sealed class AgentContext
         CancellationToken cancellationToken,
         IChatClient? parentChatClient = null,
         IServiceProvider? services = null,
+        IRuntimeCapabilityRegistry? runtimeCapabilities = null,
         string? traceId = null)
     {
         AgentName = agentName ?? throw new ArgumentNullException(nameof(agentName));
@@ -404,6 +411,7 @@ public sealed class AgentContext
         _cancellationToken = cancellationToken;
         _parentChatClient = parentChatClient;
         _services = services;
+        _runtimeCapabilities = runtimeCapabilities ?? new RuntimeCapabilityRegistry();
     }
 
     //

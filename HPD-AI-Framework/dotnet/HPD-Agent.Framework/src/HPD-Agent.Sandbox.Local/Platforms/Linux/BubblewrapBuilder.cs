@@ -1,4 +1,5 @@
 using System.Text;
+using HPD.Agent.Sandbox;
 using HPD.Sandbox.Local.Security;
 
 namespace HPD.Sandbox.Local.Platforms.Linux;
@@ -24,6 +25,8 @@ public sealed class BubblewrapBuilder
 {
     private readonly List<string> _args = [];
     private readonly HashSet<string> _writablePaths = [];
+    private readonly List<string> _cleanupMountPoints = [];
+    private readonly List<string> _filesystemWarnings = [];
     private bool _networkIsolated;
 
     /// <summary>
@@ -79,26 +82,60 @@ public sealed class BubblewrapBuilder
     }
 
     /// <summary>
+    /// Applies the ordered filesystem mount plan used by Linux sandbox parity.
+    /// </summary>
+    public BubblewrapBuilder WithFilesystemPlan(
+        IEnumerable<string> allowWritePaths,
+        IEnumerable<string> denyReadPaths,
+        IEnumerable<string> allowReadPaths,
+        IEnumerable<string> denyWritePaths)
+    {
+        var plan = BubblewrapFilesystemPlanner.PlanSandboxFilesystemMounts(
+            allowWritePaths,
+            denyReadPaths,
+            allowReadPaths,
+            denyWritePaths);
+        ApplyMountPlan(plan);
+        return this;
+    }
+
+    /// <summary>
     /// Denies read access to a path by mounting tmpfs over it.
     /// </summary>
     /// <param name="path">Path to hide</param>
     public BubblewrapBuilder WithDeniedReadPath(string path)
     {
-        var normalized = PathNormalizer.Normalize(path, resolveSymlinks: true);
+        WithDeniedReadPaths([path]);
+        return this;
+    }
 
-        if (!Directory.Exists(normalized) && !File.Exists(normalized))
-            return this;
+    /// <summary>
+    /// Denies read access to multiple paths.
+    /// </summary>
+    public BubblewrapBuilder WithDeniedReadPaths(IEnumerable<string> paths)
+    {
+        var plan = BubblewrapFilesystemPlanner.PlanReadDenyMounts(paths);
+        ApplyMountPlan(plan);
+        return this;
+    }
 
-        if (Directory.Exists(normalized))
-        {
-            _args.AddRange(["--tmpfs", normalized]);
-        }
-        else
-        {
-            // For files, bind /dev/null over them
-            _args.AddRange(["--ro-bind", "/dev/null", normalized]);
-        }
+    /// <summary>
+    /// Re-allows read access to a path inside a denied read region.
+    /// </summary>
+    /// <param name="path">Path to expose read-only</param>
+    public BubblewrapBuilder WithAllowedReadPath(string path)
+    {
+        WithAllowedReadPaths([path]);
+        return this;
+    }
 
+    /// <summary>
+    /// Re-allows read access to multiple paths inside denied read regions.
+    /// </summary>
+    public BubblewrapBuilder WithAllowedReadPaths(IEnumerable<string> paths)
+    {
+        var plan = BubblewrapFilesystemPlanner.PlanReadAllowMounts(paths);
+        ApplyMountPlan(plan);
         return this;
     }
 
@@ -108,17 +145,7 @@ public sealed class BubblewrapBuilder
     /// <param name="path">Path to protect</param>
     public BubblewrapBuilder WithDeniedWritePath(string path)
     {
-        var normalized = PathNormalizer.Normalize(path, resolveSymlinks: true);
-
-        if (!Directory.Exists(normalized) && !File.Exists(normalized))
-            return this;
-
-        // Only apply if within a writable path
-        if (_writablePaths.Any(wp => PathNormalizer.IsWithinPath(normalized, wp)))
-        {
-            _args.AddRange(["--ro-bind", normalized, normalized]);
-        }
-
+        WithDeniedWritePaths([path]);
         return this;
     }
 
@@ -127,8 +154,8 @@ public sealed class BubblewrapBuilder
     /// </summary>
     public BubblewrapBuilder WithDeniedWritePaths(IEnumerable<string> paths)
     {
-        foreach (var path in paths)
-            WithDeniedWritePath(path);
+        var plan = BubblewrapFilesystemPlanner.PlanWriteDenyMounts(paths, _writablePaths);
+        ApplyMountPlan(plan);
         return this;
     }
 
@@ -172,7 +199,7 @@ public sealed class BubblewrapBuilder
     /// <summary>
     /// Sets multiple environment variables.
     /// </summary>
-    public BubblewrapBuilder WithEnvironmentVariables(IDictionary<string, string> variables)
+    public BubblewrapBuilder WithEnvironmentVariables(IEnumerable<KeyValuePair<string, string>> variables)
     {
         foreach (var (name, value) in variables)
             WithEnvironmentVariable(name, value);
@@ -207,6 +234,7 @@ public sealed class BubblewrapBuilder
     public BubblewrapBuilder WithPidIsolation(bool mountProc = true)
     {
         _args.Add("--unshare-pid");
+        _args.Add("--unshare-uts");
         if (mountProc)
             _args.AddRange(["--proc", "/proc"]);
         return this;
@@ -217,8 +245,8 @@ public sealed class BubblewrapBuilder
     /// </summary>
     public BubblewrapBuilder WithWeakerNestedSandbox()
     {
-        // Skip --unshare-pid and --proc which require privileges
-        // Network isolation may also not work in some container environments
+        _args.Add("--unshare-user");
+        _args.AddRange(["--bind", "/proc", "/proc"]);
         return this;
     }
 
@@ -241,12 +269,12 @@ public sealed class BubblewrapBuilder
     }
 
     /// <summary>
-    /// Builds the final bwrap command.
+    /// Builds the final bwrap command as structured argv.
     /// </summary>
     /// <param name="command">The user command to run</param>
     /// <param name="shell">Shell to use (default: /bin/sh)</param>
-    /// <returns>Complete bwrap command string</returns>
-    public string Build(string command, string shell = "/bin/sh")
+    /// <returns>Complete bwrap command as filename plus argument list</returns>
+    public SandboxedCommand BuildCommand(string command, string shell = "/bin/sh")
     {
         var args = new List<string>(_args)
         {
@@ -256,7 +284,19 @@ public sealed class BubblewrapBuilder
             command
         };
 
-        return $"bwrap {string.Join(" ", args.Select(QuoteArg))}";
+        return new SandboxedCommand("bwrap", args);
+    }
+
+    /// <summary>
+    /// Builds the final bwrap command.
+    /// </summary>
+    /// <param name="command">The user command to run</param>
+    /// <param name="shell">Shell to use (default: /bin/sh)</param>
+    /// <returns>Complete bwrap command string</returns>
+    public string Build(string command, string shell = "/bin/sh")
+    {
+        var wrapped = BuildCommand(command, shell);
+        return $"{wrapped.FileName} {string.Join(" ", wrapped.ArgumentList.Select(QuoteArg))}";
     }
 
     /// <summary>
@@ -267,8 +307,16 @@ public sealed class BubblewrapBuilder
     /// <param name="shell">Shell to use</param>
     public string BuildWithSetup(string setupScript, string command, string shell = "/bin/sh")
     {
+        return Render(BuildWithSetupCommand(setupScript, command, shell));
+    }
+
+    /// <summary>
+    /// Builds the bwrap command with a setup script prefix as structured argv.
+    /// </summary>
+    public SandboxedCommand BuildWithSetupCommand(string setupScript, string command, string shell = "/bin/sh")
+    {
         var fullScript = $"{setupScript}\n{command}";
-        return Build(fullScript, shell);
+        return BuildCommand(fullScript, shell);
     }
 
     /// <summary>
@@ -285,10 +333,18 @@ public sealed class BubblewrapBuilder
     /// </remarks>
     public string BuildWithSeccomp(string setupScript, string command, string seccompHelperPath, string shell = "/bin/sh")
     {
+        return Render(BuildWithSeccompCommand(setupScript, command, seccompHelperPath, shell));
+    }
+
+    /// <summary>
+    /// Builds the bwrap command with seccomp filter applied to user command as structured argv.
+    /// </summary>
+    public SandboxedCommand BuildWithSeccompCommand(string setupScript, string command, string seccompHelperPath, string shell = "/bin/sh")
+    {
         // Setup script runs first (can create Unix sockets)
         // Then apply-seccomp applies the filter and execs the user command
         var fullScript = $"{setupScript}\nexec {QuoteArg(seccompHelperPath)} {shell} -c {QuoteArg(command)}";
-        return Build(fullScript, shell);
+        return BuildCommand(fullScript, shell);
     }
 
     /// <summary>
@@ -297,11 +353,50 @@ public sealed class BubblewrapBuilder
     public IReadOnlyList<string> GetArguments() => _args.AsReadOnly();
 
     /// <summary>
+    /// Host-side temporary mount sources created while planning bwrap mounts.
+    /// </summary>
+    public IReadOnlyList<string> GetCleanupMountPoints() => _cleanupMountPoints.AsReadOnly();
+
+    /// <summary>
+    /// Non-fatal filesystem planning warnings, such as skipped unmatched globs.
+    /// </summary>
+    public IReadOnlyList<string> GetFilesystemWarnings() => _filesystemWarnings.AsReadOnly();
+
+    private void ApplyMountPlan(BubblewrapMountPlan plan)
+    {
+        foreach (var mount in plan.Mounts)
+        {
+            switch (mount.Kind)
+            {
+                case BubblewrapMountKind.Bind:
+                    _args.AddRange(["--bind", mount.SourcePath!, mount.DestinationPath]);
+                    break;
+                case BubblewrapMountKind.ReadOnlyBind:
+                    _args.AddRange(["--ro-bind", mount.SourcePath!, mount.DestinationPath]);
+                    break;
+                case BubblewrapMountKind.Tmpfs:
+                    _args.AddRange(["--tmpfs", mount.DestinationPath]);
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unsupported bwrap mount kind: {mount.Kind}");
+            }
+        }
+
+        _cleanupMountPoints.AddRange(plan.CleanupPaths);
+        _filesystemWarnings.AddRange(plan.Warnings);
+    }
+
+    /// <summary>
     /// Safely quotes a shell argument.
     /// </summary>
     private static string QuoteArg(string arg)
     {
         // Use single quotes with escaped single quotes
         return $"'{arg.Replace("'", "'\\''")}'";
+    }
+
+    private static string Render(SandboxedCommand command)
+    {
+        return $"{command.FileName} {string.Join(" ", command.ArgumentList.Select(QuoteArg))}";
     }
 }

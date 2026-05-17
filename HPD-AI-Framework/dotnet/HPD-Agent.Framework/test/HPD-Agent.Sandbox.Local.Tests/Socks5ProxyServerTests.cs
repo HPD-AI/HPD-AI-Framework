@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
+using HPD.Agent.Sandbox;
 using FluentAssertions;
 using HPD.Sandbox.Local.Network;
+using HPD.Sandbox.Local.Policy;
 using Xunit;
 
 namespace HPD.Sandbox.Local.Tests;
@@ -107,15 +110,17 @@ public class Socks5DomainFilteringTests
     [InlineData("example.com", new[] { "other.com" }, false)]
     [InlineData("api.example.com", new[] { "*.example.com" }, true)]
     [InlineData("deep.api.example.com", new[] { "*.example.com" }, true)]
-    [InlineData("example.com", new[] { "*.example.com" }, true)]
-    [InlineData("notexample.com", new[] { "*.example.com" }, true)] // Note: *.example.com matches anything ending in example.com
+    [InlineData("example.com", new[] { "*.example.com" }, false)]
+    [InlineData("notexample.com", new[] { "*.example.com" }, false)]
     [InlineData("totally-different.org", new[] { "*.example.com" }, false)]
     public void DomainMatching_WorksCorrectly(string host, string[] allowedDomains, bool shouldMatch)
     {
-        // Test the domain matching logic directly
-        var matches = allowedDomains.Any(pattern => MatchesDomain(host, pattern));
+        var policy = NetworkPolicy.Filtered(
+            allowedDomains.Select(DomainPattern.Parse).ToArray());
+        var evaluator = new NetworkPolicyEvaluator(policy);
 
-        matches.Should().Be(shouldMatch);
+        evaluator.Evaluate(host).Kind.Should().Be(
+            shouldMatch ? NetworkPolicyDecisionKind.Allow : NetworkPolicyDecisionKind.Deny);
     }
 
     [Fact]
@@ -125,35 +130,20 @@ public class Socks5DomainFilteringTests
         var allowed = new[] { "*.example.com" };
         var denied = new[] { "malicious.example.com" };
 
-        // Check denied first
-        var isDenied = denied.Any(pattern => MatchesDomain("malicious.example.com", pattern));
-        var isAllowed = allowed.Any(pattern => MatchesDomain("malicious.example.com", pattern));
+        var policy = NetworkPolicy.Filtered(
+            allowed.Select(DomainPattern.Parse).ToArray(),
+            denied.Select(DomainPattern.Parse).ToArray());
+        var evaluator = new NetworkPolicyEvaluator(policy);
 
-        isDenied.Should().BeTrue();
-        isAllowed.Should().BeTrue(); // Would match wildcard, but denied takes precedence
+        evaluator.Evaluate("malicious.example.com").Kind.Should().Be(NetworkPolicyDecisionKind.Deny);
     }
 
     [Fact]
     public void EmptyAllowedDomains_BlocksAll()
     {
-        var allowed = Array.Empty<string>();
+        var evaluator = new NetworkPolicyEvaluator(NetworkPolicy.Blocked);
 
-        var isAllowed = allowed.Any(pattern => MatchesDomain("any.domain.com", pattern));
-
-        isAllowed.Should().BeFalse();
-    }
-
-    // Helper method to match the proxy's domain matching logic
-    private static bool MatchesDomain(string host, string pattern)
-    {
-        if (pattern.StartsWith("*."))
-        {
-            var domain = pattern[2..];
-            return host.EndsWith(domain, StringComparison.OrdinalIgnoreCase) ||
-                   host.Equals(domain, StringComparison.OrdinalIgnoreCase);
-        }
-
-        return host.Equals(pattern, StringComparison.OrdinalIgnoreCase);
+        evaluator.Evaluate("any.domain.com").Kind.Should().Be(NetworkPolicyDecisionKind.Deny);
     }
 }
 
@@ -264,10 +254,64 @@ public class Socks5ProtocolTests
 public class Socks5ConnectionTests
 {
     [Fact]
+    public async Task Connect_AllowedDomain_UsesParentProxyConnectTunnel()
+    {
+        await using var parentProxy = await FakeParentProxy.StartAsync();
+        var proxy = new Socks5ProxyServer(
+            ["example.com"],
+            [],
+            new ParentProxyConfig
+            {
+                HttpProxy = $"http://127.0.0.1:{parentProxy.Port}"
+            });
+        await proxy.StartAsync();
+
+        try
+        {
+            using var client = new TcpClient();
+            await client.ConnectAsync(IPAddress.Loopback, proxy.Port);
+            await using var stream = client.GetStream();
+
+            await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 });
+            var authResponse = new byte[2];
+            await stream.ReadAsync(authResponse);
+
+            var domain = "example.com"u8.ToArray();
+            var request = new byte[4 + 1 + domain.Length + 2];
+            request[0] = 0x05;
+            request[1] = 0x01;
+            request[2] = 0x00;
+            request[3] = 0x03;
+            request[4] = (byte)domain.Length;
+            Array.Copy(domain, 0, request, 5, domain.Length);
+            request[^2] = 0x01;
+            request[^1] = 0xbb; // 443
+
+            await stream.WriteAsync(request);
+
+            var response = new byte[10];
+            var bytesRead = await stream.ReadAsync(response);
+
+            bytesRead.Should().BeGreaterThanOrEqualTo(2);
+            response[0].Should().Be(0x05);
+            response[1].Should().Be(0x00);
+            parentProxy.Request.Should().StartWith("CONNECT example.com:443 HTTP/1.1");
+        }
+        finally
+        {
+            await proxy.DisposeAsync();
+        }
+    }
+
+    [Fact]
     public async Task Connect_ToBlockedDomain_ReturnsConnectionNotAllowed()
     {
         // Only allow localhost, block everything else
-        var proxy = new Socks5ProxyServer(["localhost"], []);
+        var events = new List<SandboxProxyEvent>();
+        var proxy = new Socks5ProxyServer(
+            ["localhost"],
+            [],
+            eventSink: events.Add);
         await proxy.StartAsync();
 
         try
@@ -304,10 +348,250 @@ public class Socks5ConnectionTests
             bytesRead.Should().BeGreaterThanOrEqualTo(2);
             response[0].Should().Be(0x05, "should be SOCKS5 version");
             response[1].Should().Be(0x02, "should be connection not allowed (0x02)");
+            events.Should().ContainSingle();
+            events[0].Protocol.Should().Be(SandboxProxyProtocol.Socks5);
+            events[0].Kind.Should().Be(SandboxProxyEventKind.NetworkPolicyDenied);
+            events[0].Host.Should().Be("example.com");
+            events[0].Port.Should().Be(80);
         }
         finally
         {
             await proxy.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Connect_ToMalformedDomain_ReturnsConnectionNotAllowedBeforeDialing()
+    {
+        var proxy = new Socks5ProxyServer(["*.example.com"], []);
+        await proxy.StartAsync();
+
+        try
+        {
+            using var client = new TcpClient();
+            await client.ConnectAsync(IPAddress.Loopback, proxy.Port);
+
+            await using var stream = client.GetStream();
+
+            await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 });
+            var authResponse = new byte[2];
+            await stream.ReadAsync(authResponse);
+
+            var domain = "evil.com\0.example.com"u8.ToArray();
+            var request = new byte[4 + 1 + domain.Length + 2];
+            request[0] = 0x05;
+            request[1] = 0x01;
+            request[2] = 0x00;
+            request[3] = 0x03;
+            request[4] = (byte)domain.Length;
+            Array.Copy(domain, 0, request, 5, domain.Length);
+            request[^2] = 0x00;
+            request[^1] = 0x50;
+
+            await stream.WriteAsync(request);
+
+            var response = new byte[10];
+            var bytesRead = await stream.ReadAsync(response);
+
+            bytesRead.Should().BeGreaterThanOrEqualTo(2);
+            response[0].Should().Be(0x05);
+            response[1].Should().Be(0x02);
+        }
+        finally
+        {
+            await proxy.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Connect_RequestCanArriveOneByteAtATime()
+    {
+        var proxy = new Socks5ProxyServer(["localhost"], []);
+        await proxy.StartAsync();
+
+        try
+        {
+            using var client = new TcpClient();
+            await client.ConnectAsync(IPAddress.Loopback, proxy.Port);
+
+            await using var stream = client.GetStream();
+
+            foreach (var b in new byte[] { 0x05, 0x01, 0x00 })
+            {
+                await stream.WriteAsync(new[] { b });
+            }
+
+            var authResponse = new byte[2];
+            await stream.ReadAsync(authResponse);
+            authResponse.Should().Equal([0x05, 0x00]);
+
+            var domain = "example.com"u8.ToArray();
+            var request = new byte[4 + 1 + domain.Length + 2];
+            request[0] = 0x05;
+            request[1] = 0x01;
+            request[2] = 0x00;
+            request[3] = 0x03;
+            request[4] = (byte)domain.Length;
+            Array.Copy(domain, 0, request, 5, domain.Length);
+            request[^2] = 0x00;
+            request[^1] = 0x50;
+
+            foreach (var b in request)
+            {
+                await stream.WriteAsync(new[] { b });
+            }
+
+            var response = new byte[10];
+            var bytesRead = await stream.ReadAsync(response);
+
+            bytesRead.Should().BeGreaterThanOrEqualTo(2);
+            response[0].Should().Be(0x05);
+            response[1].Should().Be(0x02);
+        }
+        finally
+        {
+            await proxy.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Connect_UnsupportedCommand_ReturnsCommandNotSupported()
+    {
+        var proxy = new Socks5ProxyServer(["localhost"], []);
+        await proxy.StartAsync();
+
+        try
+        {
+            using var client = new TcpClient();
+            await client.ConnectAsync(IPAddress.Loopback, proxy.Port);
+            await using var stream = client.GetStream();
+
+            await SendNoAuthGreetingAsync(stream);
+
+            var domain = "localhost"u8.ToArray();
+            var request = new byte[4 + 1 + domain.Length + 2];
+            request[0] = 0x05;
+            request[1] = 0x02; // BIND is unsupported.
+            request[2] = 0x00;
+            request[3] = 0x03;
+            request[4] = (byte)domain.Length;
+            Array.Copy(domain, 0, request, 5, domain.Length);
+            request[^2] = 0x00;
+            request[^1] = 0x50;
+
+            await stream.WriteAsync(request);
+
+            var response = new byte[10];
+            var bytesRead = await stream.ReadAsync(response);
+
+            bytesRead.Should().BeGreaterThanOrEqualTo(2);
+            response[0].Should().Be(0x05);
+            response[1].Should().Be(0x07, "unsupported SOCKS5 commands should return command not supported");
+        }
+        finally
+        {
+            await proxy.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Connect_UnsupportedAddressType_ReturnsAddressTypeNotSupported()
+    {
+        var proxy = new Socks5ProxyServer(["localhost"], []);
+        await proxy.StartAsync();
+
+        try
+        {
+            using var client = new TcpClient();
+            await client.ConnectAsync(IPAddress.Loopback, proxy.Port);
+            await using var stream = client.GetStream();
+
+            await SendNoAuthGreetingAsync(stream);
+
+            await stream.WriteAsync(new byte[]
+            {
+                0x05,
+                0x01,
+                0x00,
+                0x09 // Invalid ATYP.
+            });
+
+            var response = new byte[10];
+            var bytesRead = await stream.ReadAsync(response);
+
+            bytesRead.Should().BeGreaterThanOrEqualTo(2);
+            response[0].Should().Be(0x05);
+            response[1].Should().Be(0x08, "unsupported SOCKS5 address types should return address type not supported");
+        }
+        finally
+        {
+            await proxy.DisposeAsync();
+        }
+    }
+
+    private static async Task SendNoAuthGreetingAsync(NetworkStream stream)
+    {
+        await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 });
+        var authResponse = new byte[2];
+        var bytesRead = await stream.ReadAsync(authResponse);
+        bytesRead.Should().Be(2);
+        authResponse.Should().Equal([0x05, 0x00]);
+    }
+
+    private sealed class FakeParentProxy : IAsyncDisposable
+    {
+        private readonly TcpListener _listener;
+        private readonly Task _acceptTask;
+
+        private FakeParentProxy(TcpListener listener)
+        {
+            _listener = listener;
+            _acceptTask = AcceptAsync();
+        }
+
+        public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
+
+        public string Request { get; private set; } = string.Empty;
+
+        public static Task<FakeParentProxy> StartAsync()
+        {
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            return Task.FromResult(new FakeParentProxy(listener));
+        }
+
+        private async Task AcceptAsync()
+        {
+            using var client = await _listener.AcceptTcpClientAsync();
+            await using var stream = client.GetStream();
+
+            var buffer = new byte[2048];
+            var read = 0;
+            while (!Request.Contains("\r\n\r\n", StringComparison.Ordinal))
+            {
+                var n = await stream.ReadAsync(buffer.AsMemory(read));
+                if (n == 0)
+                    break;
+                read += n;
+                Request = Encoding.ASCII.GetString(buffer, 0, read);
+            }
+
+            await stream.WriteAsync("HTTP/1.1 200 OK\r\n\r\n"u8.ToArray());
+            await stream.FlushAsync();
+            await Task.Delay(100);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            _listener.Stop();
+            try
+            {
+                await _acceptTask;
+            }
+            catch
+            {
+                // Listener may be stopped before a test connects.
+            }
         }
     }
 }

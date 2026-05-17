@@ -1,4 +1,5 @@
 using HPD.Sandbox.Local.Platforms.Linux;
+using HPD.Sandbox.Local.Security;
 using Xunit;
 
 namespace HPD.Sandbox.Local.Tests.Platforms.Linux;
@@ -21,6 +22,19 @@ public class BubblewrapBuilderTests
         var cmd = builder.Build("echo test");
 
         Assert.Contains("--die-with-parent", cmd);
+    }
+
+    [Fact]
+    public void BuildCommand_PreservesSandboxExecutableAndArgumentList()
+    {
+        var builder = new BubblewrapBuilder();
+        var command = builder.BuildCommand("'node' 'script.js' 'safe; touch /tmp/pwned'");
+
+        Assert.Equal("bwrap", command.FileName);
+        Assert.Contains("--", command.ArgumentList);
+        Assert.Contains("/bin/sh", command.ArgumentList);
+        Assert.Contains("-c", command.ArgumentList);
+        Assert.Equal("'node' 'script.js' 'safe; touch /tmp/pwned'", command.ArgumentList[^1]);
     }
 
     [Fact]
@@ -60,6 +74,94 @@ public class BubblewrapBuilderTests
     }
 
     [Fact]
+    public void WithAllowedReadPath_AddsReadOnlyBindMount()
+    {
+        var existingPath = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+        var builder = new BubblewrapBuilder();
+        builder.WithAllowedReadPath(existingPath);
+        var cmd = builder.Build("echo test");
+
+        Assert.Contains("--ro-bind", cmd);
+        Assert.Contains(existingPath, cmd);
+    }
+
+    [Fact]
+    public void WithAllowedReadPath_AfterDeniedReadPath_RebindsAllowPathAfterTmpfs()
+    {
+        using var tempRoot = new TempDirectory();
+        var denied = Path.Combine(tempRoot.Path, "secret");
+        var allowed = Path.Combine(denied, "public");
+        Directory.CreateDirectory(allowed);
+
+        var builder = new BubblewrapBuilder();
+        builder.WithDeniedReadPath(denied);
+        builder.WithAllowedReadPath(allowed);
+        var args = builder.GetArguments();
+
+        var tmpfsIndex = args.Select((arg, index) => (arg, index))
+            .First(item => item.arg == "--tmpfs")
+            .index;
+        var normalizedAllowed = PathNormalizer.Normalize(allowed);
+        var allowedIndex = args.Select((arg, index) => (arg, index))
+            .Last(item => item.arg == normalizedAllowed)
+            .index;
+
+        Assert.True(tmpfsIndex >= 0);
+        Assert.True(allowedIndex > tmpfsIndex);
+    }
+
+    [Fact]
+    public void WithDeniedReadPath_Root_DoesNotTmpfsRoot()
+    {
+        var builder = new BubblewrapBuilder();
+        builder.WithDeniedReadPath("/");
+        var args = builder.GetArguments();
+
+        Assert.DoesNotContain(args.Select((arg, index) => (arg, index)), item =>
+            item.arg == "--tmpfs" &&
+            item.index + 1 < args.Count &&
+            args[item.index + 1] == "/");
+    }
+
+    [Fact]
+    public void WithDeniedReadPaths_UnmatchedGlob_StoresFilesystemWarning()
+    {
+        using var tempRoot = new TempDirectory();
+        var builder = new BubblewrapBuilder();
+        builder.WithDeniedReadPaths([Path.Combine(tempRoot.Path, "**", "*.missing")]);
+
+        Assert.Contains(builder.GetFilesystemWarnings(), warning =>
+            warning.Contains("did not match", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void WithFilesystemPlan_AppliesWriteDenyAfterAllowRead()
+    {
+        using var tempRoot = new TempDirectory();
+        var workspace = Path.Combine(tempRoot.Path, "workspace");
+        var output = Path.Combine(workspace, "output");
+        var allowed = Path.Combine(workspace, "public");
+        var deniedWrite = Path.Combine(output, ".npmrc");
+        Directory.CreateDirectory(output);
+        Directory.CreateDirectory(allowed);
+        File.WriteAllText(deniedWrite, "blocked");
+
+        var builder = new BubblewrapBuilder();
+        builder.WithFilesystemPlan(
+            allowWritePaths: [output],
+            denyReadPaths: [workspace],
+            allowReadPaths: [allowed],
+            denyWritePaths: [deniedWrite]);
+        var args = builder.GetArguments();
+
+        var allowReadIndex = LastIndexOfArg(args, PathNormalizer.Normalize(allowed));
+        var writeDenyIndex = LastIndexOfArg(args, PathNormalizer.Normalize(deniedWrite));
+
+        Assert.True(allowReadIndex >= 0);
+        Assert.True(writeDenyIndex > allowReadIndex);
+    }
+
+    [Fact]
     public void WithNetworkIsolation_AddsUnshareNet()
     {
         var builder = new BubblewrapBuilder();
@@ -77,7 +179,24 @@ public class BubblewrapBuilderTests
         var cmd = builder.Build("echo test");
 
         Assert.Contains("--unshare-pid", cmd);
+        Assert.Contains("--unshare-uts", cmd);
         Assert.Contains("--proc", cmd);
+    }
+
+    [Fact]
+    public void WithWeakerNestedSandbox_AddsUserNamespaceAndProcBind()
+    {
+        var builder = new BubblewrapBuilder();
+        builder.WithWeakerNestedSandbox();
+        var args = builder.GetArguments();
+
+        Assert.Contains("--unshare-user", args);
+        Assert.DoesNotContain("--unshare-pid", args);
+        Assert.Contains(args.Select((arg, index) => (arg, index)), item =>
+            item.arg == "--bind" &&
+            item.index + 2 < args.Count &&
+            args[item.index + 1] == "/proc" &&
+            args[item.index + 2] == "/proc");
     }
 
     [Fact]
@@ -164,5 +283,34 @@ public class BubblewrapBuilderTests
         Assert.Contains("--die-with-parent", args);
         Assert.Contains("--ro-bind", args);
         Assert.Contains("--unshare-net", args);
+    }
+
+    private sealed class TempDirectory : IDisposable
+    {
+        public string Path { get; } = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            $"hpd-bwrap-test-{Guid.NewGuid():N}");
+
+        public TempDirectory()
+        {
+            Directory.CreateDirectory(Path);
+        }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+                Directory.Delete(Path, recursive: true);
+        }
+    }
+
+    private static int LastIndexOfArg(IReadOnlyList<string> args, string value)
+    {
+        for (var i = args.Count - 1; i >= 0; i--)
+        {
+            if (args[i] == value)
+                return i;
+        }
+
+        return -1;
     }
 }

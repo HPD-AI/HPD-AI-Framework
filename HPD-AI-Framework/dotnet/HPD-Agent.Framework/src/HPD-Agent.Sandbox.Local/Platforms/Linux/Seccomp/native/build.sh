@@ -53,10 +53,14 @@ echo ""
 echo "To include in NuGet package, add to .csproj:"
 echo ""
 cat << 'EOF'
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
-    <Content Include="Platforms/Linux/Seccomp/native/bin/apply-seccomp-*">
+  <ItemGroup>
+    <Content Include="Platforms/Linux/Seccomp/native/bin/apply-seccomp-x64">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <PackagePath>runtimes/linux-x64/native;runtimes/linux-arm64/native</PackagePath>
+      <PackagePath>runtimes/linux-x64/native/</PackagePath>
+    </Content>
+    <Content Include="Platforms/Linux/Seccomp/native/bin/apply-seccomp-arm64">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <PackagePath>runtimes/linux-arm64/native/</PackagePath>
     </Content>
   </ItemGroup>
 EOF

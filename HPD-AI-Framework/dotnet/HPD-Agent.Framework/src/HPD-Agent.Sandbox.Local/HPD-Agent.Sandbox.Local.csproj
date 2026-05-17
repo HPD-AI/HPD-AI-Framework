@@ -14,14 +14,13 @@
     <PackageId>HPD-Agent.Sandbox.Local</PackageId>
     <Description>OS-level sandboxing (bwrap/sandbox-exec) for HPD Agent with enhanced security features including seccomp BPF filtering, dangerous file protection, and network isolation via proxies.</Description>
     <PackageTags>sandbox;security;bwrap;bubblewrap;sandbox-exec;seatbelt;isolation;seccomp;bpf</PackageTags>
+    <BuildSeccompHelpers Condition="'$(BuildSeccompHelpers)' == ''">true</BuildSeccompHelpers>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
     <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
 
-    <!-- HTTP/SOCKS proxy for network filtering -->
-    <PackageReference Include="Titanium.Web.Proxy" Version="3.2.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
   </ItemGroup>
 
@@ -29,17 +28,29 @@
     <InternalsVisibleTo Include="HPD-Agent.Sandbox.Local.Tests" />
   </ItemGroup>
 
-  <!-- Include native seccomp helpers for Linux -->
-  <!-- Pre-built binaries should be added to Platforms/Linux/Seccomp/native/bin/ by CI/CD -->
-  <!-- Use build.sh on Linux to compile the helpers before packaging -->
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
-    <!-- Include pre-built seccomp helpers in NuGet package -->
-    <Content Include="Platforms/Linux/Seccomp/native/bin/apply-seccomp-*" Condition="Exists('Platforms/Linux/Seccomp/native/bin/')">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Pack>true</Pack>
-      <PackagePath>runtimes/linux-x64/native;runtimes/linux-arm64/native</PackagePath>
-    </Content>
-  </ItemGroup>
+  <!-- Build and include native seccomp helpers for Linux. -->
+  <Target Name="BuildSeccompHelpersForLinux"
+          BeforeTargets="AssignTargetPaths;GenerateNuspec"
+          Condition="$([MSBuild]::IsOSPlatform('Linux')) and '$(BuildSeccompHelpers)' == 'true'">
+    <Exec Command="&quot;$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/build.sh&quot;" />
+
+    <ItemGroup>
+      <Content Include="$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-x64"
+               Condition="Exists('$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-x64')">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <Pack>true</Pack>
+        <PackagePath>runtimes/linux-x64/native/</PackagePath>
+        <TargetPath>runtimes/linux-x64/native/apply-seccomp-x64</TargetPath>
+      </Content>
+      <Content Include="$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-arm64"
+               Condition="Exists('$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-arm64')">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <Pack>true</Pack>
+        <PackagePath>runtimes/linux-arm64/native/</PackagePath>
+        <TargetPath>runtimes/linux-arm64/native/apply-seccomp-arm64</TargetPath>
+      </Content>
+    </ItemGroup>
+  </Target>
 
   <!-- Always include the build script and C sources for reference -->
   <ItemGroup>

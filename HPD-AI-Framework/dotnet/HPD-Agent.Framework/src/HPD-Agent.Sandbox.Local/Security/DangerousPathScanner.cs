@@ -54,6 +54,23 @@ public sealed class DangerousPathScanner
     }
 
     /// <summary>
+    /// Gets dangerous paths that must be protected even when they do not exist yet.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> GetDangerousPathCandidatesAsync(
+        string workingDirectory,
+        bool allowGitConfig = false,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedRoot = PathNormalizer.Normalize(workingDirectory);
+        var results = new ConcurrentBag<string>();
+
+        AddDangerousPathCandidates(normalizedRoot, allowGitConfig, results);
+        await ScanDirectoryCandidatesAsync(normalizedRoot, 0, allowGitConfig, results, cancellationToken);
+
+        return results.Distinct().ToList();
+    }
+
+    /// <summary>
     /// Clears the scan cache (call when working directory changes).
     /// </summary>
     public void ClearCache() => _cache.Clear();
@@ -169,6 +186,64 @@ public sealed class DangerousPathScanner
         }
 
         await Task.WhenAll(tasks);
+    }
+
+    private async Task ScanDirectoryCandidatesAsync(
+        string directory,
+        int currentDepth,
+        bool allowGitConfig,
+        ConcurrentBag<string> results,
+        CancellationToken cancellationToken)
+    {
+        if (currentDepth >= _maxDepth)
+            return;
+
+        IEnumerable<string> subdirs;
+        try
+        {
+            subdirs = Directory.EnumerateDirectories(directory);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return;
+        }
+
+        var tasks = new List<Task>();
+
+        foreach (var subdir in subdirs)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var dirName = Path.GetFileName(subdir);
+            if (ShouldSkipDirectory(dirName))
+                continue;
+
+            AddDangerousPathCandidates(subdir, allowGitConfig, results);
+            tasks.Add(ScanDirectoryCandidatesAsync(subdir, currentDepth + 1, allowGitConfig, results, cancellationToken));
+        }
+
+        await Task.WhenAll(tasks);
+    }
+
+    private static void AddDangerousPathCandidates(
+        string directory,
+        bool allowGitConfig,
+        ConcurrentBag<string> results)
+    {
+        foreach (var file in SandboxDefaults.DangerousFiles)
+            results.Add(Path.Combine(directory, file));
+
+        foreach (var dangerousDir in SandboxDefaults.DangerousDirectories)
+            results.Add(Path.Combine(directory, dangerousDir));
+
+        results.Add(Path.Combine(directory, ".git", "hooks"));
+
+        if (!allowGitConfig)
+            results.Add(Path.Combine(directory, ".git", "config"));
     }
 
     private static bool ShouldSkipDirectory(string dirName)

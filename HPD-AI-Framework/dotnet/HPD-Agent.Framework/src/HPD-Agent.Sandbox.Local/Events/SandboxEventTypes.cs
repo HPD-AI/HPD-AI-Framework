@@ -23,4 +23,25 @@ public static class SandboxEventTypes
 
     /// <summary>MCP server started with sandbox</summary>
     public const string SANDBOX_SERVER_STARTED = "SANDBOX_SERVER_STARTED";
+
+    /// <summary>Sandboxed process is about to start</summary>
+    public const string SANDBOX_PROCESS_STARTING = "SANDBOX_PROCESS_STARTING";
+
+    /// <summary>Sandboxed process started</summary>
+    public const string SANDBOX_PROCESS_STARTED = "SANDBOX_PROCESS_STARTED";
+
+    /// <summary>Sandboxed process completed</summary>
+    public const string SANDBOX_PROCESS_COMPLETED = "SANDBOX_PROCESS_COMPLETED";
+
+    /// <summary>Sandboxed process failed</summary>
+    public const string SANDBOX_PROCESS_FAILED = "SANDBOX_PROCESS_FAILED";
+
+    /// <summary>Sandboxed process timed out</summary>
+    public const string SANDBOX_PROCESS_TIMED_OUT = "SANDBOX_PROCESS_TIMED_OUT";
+
+    /// <summary>Sandboxed process was cancelled</summary>
+    public const string SANDBOX_PROCESS_CANCELLED = "SANDBOX_PROCESS_CANCELLED";
+
+    /// <summary>Sandboxed process was killed by cleanup</summary>
+    public const string SANDBOX_PROCESS_KILLED = "SANDBOX_PROCESS_KILLED";
 }

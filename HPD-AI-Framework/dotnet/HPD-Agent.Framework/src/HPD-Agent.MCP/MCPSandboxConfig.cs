@@ -15,25 +15,31 @@ public class MCPSandboxConfig
     [JsonPropertyName("enabled")]
     public bool Enabled { get; set; } = true;
 
-    // Track if AllowedDomains was explicitly set vs defaulted
-    private bool _allowedDomainsExplicitlySet = false;
-    private string[]? _allowedDomains = [];
+    // Track if AllowedDomains was explicitly set vs defaulted.
+    private bool _allowedDomainsExplicitlySet;
+    private string[] _allowedDomains = [];
 
     /// <summary>
-    /// Domains this server can access (empty = no network).
+    /// Explicit network mode for this server.
+    /// </summary>
+    [JsonPropertyName("networkMode")]
+    public SandboxNetworkMode? NetworkMode { get; set; }
+
+    /// <summary>
+    /// Domains this server can access when NetworkMode is Filtered.
     /// Supports wildcards: "*.github.com" matches "api.github.com"
     /// </summary>
     /// <remarks>
-    /// <para>Default: empty array (no network access)</para>
-    /// <para>Set to null to allow all network access (not recommended)</para>
+    /// <para>Default: empty array.</para>
+    /// <para>Use NetworkMode = Unrestricted to allow all network access.</para>
     /// </remarks>
     [JsonPropertyName("allowedDomains")]
-    public string[]? AllowedDomains
+    public string[] AllowedDomains
     {
         get => _allowedDomains;
         set
         {
-            _allowedDomains = value;
+            _allowedDomains = value ?? throw new ArgumentNullException(nameof(value));
             _allowedDomainsExplicitlySet = true;
         }
     }
@@ -123,27 +129,28 @@ public class MCPSandboxConfig
             "permissive" => SandboxConfig.CreatePermissive(),
             "network-only" => new SandboxConfig
             {
-                AllowedDomains = null, // Allow all
+                NetworkMode = SandboxNetworkMode.Unrestricted,
                 AllowWrite = [".", "/tmp"],
                 DenyRead = ["~/.ssh", "~/.aws", "~/.gnupg"]
             },
             "filesystem-only" => new SandboxConfig
             {
-                AllowedDomains = [], // No network
+                NetworkMode = SandboxNetworkMode.Blocked,
+                AllowedDomains = [],
                 AllowWrite = [".", "/tmp"],
                 DenyRead = []
             },
             _ => SandboxConfig.CreateDefault()
         };
 
-        // Override with explicit settings only if they differ from defaults
-        // AllowedDomains defaults to [], so only override if explicitly set to something else or null
         var effectiveAllowedDomains = _allowedDomainsExplicitlySet
             ? AllowedDomains
             : baseConfig.AllowedDomains;
+        var effectiveNetworkMode = NetworkMode ?? baseConfig.NetworkMode;
 
         return baseConfig with
         {
+            NetworkMode = effectiveNetworkMode,
             AllowedDomains = effectiveAllowedDomains,
             DeniedDomains = DeniedDomains ?? baseConfig.DeniedDomains,
             AllowWrite = AllowWrite ?? baseConfig.AllowWrite,

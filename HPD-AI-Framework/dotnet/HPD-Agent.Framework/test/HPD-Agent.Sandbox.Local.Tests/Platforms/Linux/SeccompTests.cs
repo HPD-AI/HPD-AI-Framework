@@ -145,4 +145,90 @@ public class SeccompChildProcessTests
         Assert.NotNull(helper);
         helper.Dispose();
     }
+
+    [Fact]
+    public void Constructor_RelativeExplicitHelperPath_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new SeccompChildProcess(explicitHelperPath: "apply-seccomp"));
+    }
+
+    [Fact]
+    public void TryResolvePrebuiltHelper_ExplicitHelperPath_Wins()
+    {
+        var helperPath = Path.Combine(Path.GetTempPath(), $"hpd-seccomp-helper-{Guid.NewGuid():N}");
+        File.WriteAllText(helperPath, "helper");
+        try
+        {
+            using var helper = new SeccompChildProcess(
+                explicitHelperPath: helperPath,
+                allowRuntimeCompilation: false);
+
+            var resolved = helper.TryResolvePrebuiltHelper(out var resolvedPath);
+
+            Assert.True(resolved);
+            Assert.Equal(helperPath, resolvedPath);
+        }
+        finally
+        {
+            File.Delete(helperPath);
+        }
+    }
+
+    [Fact]
+    public void TryResolvePrebuiltHelper_MissingExplicitHelperPath_Throws()
+    {
+        var helperPath = Path.Combine(Path.GetTempPath(), $"missing-seccomp-helper-{Guid.NewGuid():N}");
+        using var helper = new SeccompChildProcess(
+            explicitHelperPath: helperPath,
+            allowRuntimeCompilation: false);
+
+        Assert.Throws<FileNotFoundException>(() =>
+            helper.TryResolvePrebuiltHelper(out _));
+    }
+
+    [Fact]
+    public async Task EnsureHelperAsync_WhenRuntimeCompilationDisabledAndNoHelper_Throws()
+    {
+        var cacheDir = Path.Combine(Path.GetTempPath(), $"hpd-seccomp-cache-{Guid.NewGuid():N}");
+        using var helper = new SeccompChildProcess(
+            allowRuntimeCompilation: false,
+            cacheDir: cacheDir);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            helper.EnsureHelperAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task EnsureHelperAsync_RuntimeCompilationDefaultsDisabled()
+    {
+        var cacheDir = Path.Combine(Path.GetTempPath(), $"hpd-seccomp-cache-{Guid.NewGuid():N}");
+        using var helper = new SeccompChildProcess(cacheDir: cacheDir);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            helper.EnsureHelperAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public void GenerateHelperSource_IncludesBestEffortNestedNamespaceAndReaper()
+    {
+        var source = SeccompChildProcess.GenerateHelperSource(Architecture.X64);
+
+        Assert.Contains("unshare(CLONE_NEWNS | CLONE_NEWPID)", source);
+        Assert.Contains("fork()", source);
+        Assert.Contains("wait(&status)", source);
+        Assert.Contains("mount(\"proc\", \"/proc\", \"proc\"", source);
+        Assert.Contains("run_with_best_effort_reaper(&argv[1])", source);
+    }
+
+    [Fact]
+    public void GenerateHelperSource_StillBlocksUnixSocketAndSocketpair()
+    {
+        var source = SeccompChildProcess.GenerateHelperSource(Architecture.Arm64);
+
+        Assert.Contains("#define SYS_SOCKET 198", source);
+        Assert.Contains("#define SYS_SOCKETPAIR 199", source);
+        Assert.Contains("#define AF_UNIX 1", source);
+        Assert.Contains("SECCOMP_RET_ERRNO_EACCES", source);
+    }
 }

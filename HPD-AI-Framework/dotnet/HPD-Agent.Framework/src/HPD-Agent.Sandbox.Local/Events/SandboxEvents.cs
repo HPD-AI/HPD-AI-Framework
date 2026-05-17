@@ -93,3 +93,68 @@ public sealed record SandboxServerStartedEvent : AgentEvent, IObservabilityEvent
     public SandboxTier Tier { get; init; }
     public string[] AllowedDomains { get; init; } = [];
 }
+
+/// <summary>
+/// Base payload for sandboxed process lifecycle events.
+/// </summary>
+public abstract record SandboxProcessEvent : AgentEvent, IObservabilityEvent
+{
+    public string SourceName => "SandboxProcessRunner";
+    public string ProcessId { get; init; } = string.Empty;
+    public string CommandKind { get; init; } = string.Empty;
+    public string FileName { get; init; } = string.Empty;
+    public string? WorkingDirectory { get; init; }
+    public SandboxNetworkMode NetworkMode { get; init; }
+    public string Platform { get; init; } = string.Empty;
+    public TimeSpan? Duration { get; init; }
+}
+
+/// <summary>
+/// Emitted before a sandboxed process is started.
+/// </summary>
+public sealed record SandboxProcessStartingEvent : SandboxProcessEvent;
+
+/// <summary>
+/// Emitted after the operating system process has started.
+/// </summary>
+public sealed record SandboxProcessStartedEvent : SandboxProcessEvent
+{
+    public int SystemProcessId { get; init; }
+}
+
+/// <summary>
+/// Emitted when a sandboxed process exits normally.
+/// </summary>
+public sealed record SandboxProcessCompletedEvent : SandboxProcessEvent
+{
+    public int ExitCode { get; init; }
+}
+
+/// <summary>
+/// Emitted when a sandboxed process fails before producing a normal result.
+/// </summary>
+public sealed record SandboxProcessFailedEvent : SandboxProcessEvent
+{
+    public string Message { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// Emitted when a sandboxed process exceeds its configured timeout.
+/// </summary>
+public sealed record SandboxProcessTimedOutEvent : SandboxProcessEvent
+{
+    public TimeSpan Timeout { get; init; }
+}
+
+/// <summary>
+/// Emitted when a sandboxed process is cancelled by the caller.
+/// </summary>
+public sealed record SandboxProcessCancelledEvent : SandboxProcessEvent;
+
+/// <summary>
+/// Emitted when a sandboxed process is killed during runner/session cleanup.
+/// </summary>
+public sealed record SandboxProcessKilledEvent : SandboxProcessEvent
+{
+    public string Reason { get; init; } = string.Empty;
+}

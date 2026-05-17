@@ -106,6 +106,26 @@ public class SandboxEventsTests
     }
 
     [Fact]
+    public void SandboxProcessEvent_HasExpectedBaseProperties()
+    {
+        var evt = new SandboxProcessCompletedEvent
+        {
+            ProcessId = "process-1",
+            CommandKind = "shell",
+            FileName = "/bin/sh",
+            NetworkMode = HPD.Agent.Sandbox.SandboxNetworkMode.Blocked,
+            Platform = "MacOS",
+            ExitCode = 0,
+            Duration = TimeSpan.FromMilliseconds(12)
+        };
+
+        evt.SourceName.Should().Be("SandboxProcessRunner");
+        evt.ProcessId.Should().Be("process-1");
+        evt.CommandKind.Should().Be("shell");
+        evt.ExitCode.Should().Be(0);
+    }
+
+    [Fact]
     public void SandboxEventTypes_HasExpectedConstants()
     {
         SandboxEventTypes.SANDBOX_VIOLATION.Should().Be("SANDBOX_VIOLATION");
@@ -114,5 +134,12 @@ public class SandboxEventsTests
         SandboxEventTypes.SANDBOX_WARNING.Should().Be("SANDBOX_WARNING");
         SandboxEventTypes.SANDBOX_INITIALIZED.Should().Be("SANDBOX_INITIALIZED");
         SandboxEventTypes.SANDBOX_SERVER_STARTED.Should().Be("SANDBOX_SERVER_STARTED");
+        SandboxEventTypes.SANDBOX_PROCESS_STARTING.Should().Be("SANDBOX_PROCESS_STARTING");
+        SandboxEventTypes.SANDBOX_PROCESS_STARTED.Should().Be("SANDBOX_PROCESS_STARTED");
+        SandboxEventTypes.SANDBOX_PROCESS_COMPLETED.Should().Be("SANDBOX_PROCESS_COMPLETED");
+        SandboxEventTypes.SANDBOX_PROCESS_FAILED.Should().Be("SANDBOX_PROCESS_FAILED");
+        SandboxEventTypes.SANDBOX_PROCESS_TIMED_OUT.Should().Be("SANDBOX_PROCESS_TIMED_OUT");
+        SandboxEventTypes.SANDBOX_PROCESS_CANCELLED.Should().Be("SANDBOX_PROCESS_CANCELLED");
+        SandboxEventTypes.SANDBOX_PROCESS_KILLED.Should().Be("SANDBOX_PROCESS_KILLED");
     }
 }
