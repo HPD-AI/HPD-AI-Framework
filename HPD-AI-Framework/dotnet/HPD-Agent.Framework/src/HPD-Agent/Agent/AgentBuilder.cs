@@ -37,6 +37,10 @@ internal record AgentBuildDependencies(
     /// </summary>
     IReadOnlyList<HttpClient>? OwnedHttpClients = null);
 
+internal record AgentToolBuildResult(
+    ChatOptions? MergedOptions,
+    IReadOnlyList<HttpClient>? OwnedHttpClients = null);
+
 /// <summary>
 /// Builder for creating dual interface agents with sophisticated capabilities
 /// This is your equivalent of the AgentBuilder from Semantic Kernel, but for the new architecture
@@ -2147,6 +2151,134 @@ public class AgentBuilder
         return allTools;
     }
 
+    private async Task<AgentToolBuildResult> BuildToolOptionsAsync(CancellationToken cancellationToken)
+    {
+        //
+        // RESOLVE CONFIG HARNESS (Phase: Config Serialization)
+        //
+        // Resolve harnesses from config before creating functions.
+        // This enables the Config = Base, Builder = Override/Extend pattern.
+        ResolveConfigHarneses();
+
+        //
+        // CREATE Harness FUNCTIONS (AOT-Compatible - Zero Reflection in Hot Path)
+        //
+        // All Harneses are registered via the catalog (ToolRegistry.All) using direct delegate calls.
+        // Instance-based Harneses (requiring DI) use their own direct delegate calls.
+        // No reflection fallback - the catalog is required.
+        var toolFunctions = CreateFunctionsFromCatalog();
+
+        // Middleware out container functions if Collapsing is disabled.
+        // Container functions are only needed when Collapsing is enabled for the two-turn expansion flow.
+        if (_config.Collapsing?.Enabled != true)
+        {
+            toolFunctions = toolFunctions.Where(f =>
+                !(f.AdditionalProperties?.TryGetValue("IsContainer", out var isContainer) == true &&
+                  isContainer is bool isCont && isCont)
+            ).ToList();
+        }
+
+        // Load MCP tools if configured.
+        if (McpClientManager != null)
+        {
+            try
+            {
+                if (s_mcpToolLoader == null)
+                    throw new InvalidOperationException(
+                        "MCP client manager is configured but HPD-Agent.MCP loader is not registered. " +
+                        "Reference HPD-Agent.MCP so its module initializer can register MCP support.");
+
+                List<AIFunction> mcpTools;
+                if (_config.Mcp != null && !string.IsNullOrEmpty(_config.Mcp.ManifestPath))
+                {
+                    var maxFunctionNames = _config.Collapsing?.MaxFunctionNamesInDescription ?? 10;
+
+                    if (_config.Mcp.ManifestPath.TrimStart().StartsWith("{"))
+                    {
+                        mcpTools = await s_mcpToolLoader.LoadFromManifestContentAsync(
+                            McpClientManager,
+                            _config.Mcp.ManifestPath,
+                            maxFunctionNames,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        mcpTools = await s_mcpToolLoader.LoadFromManifestAsync(
+                            McpClientManager,
+                            _config.Mcp.ManifestPath,
+                            maxFunctionNames,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                else
+                {
+                    throw new InvalidOperationException("MCP client manager is configured but no manifest path or content provided");
+                }
+
+                toolFunctions.AddRange(mcpTools);
+                _logger?.CreateLogger<AgentBuilder>().LogInformation("Successfully integrated {Count} MCP tools into agent", mcpTools.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger?.CreateLogger<AgentBuilder>().LogError(ex, "Failed to load MCP tools: {Error}", ex.Message);
+                throw new InvalidOperationException("Failed to initialize MCP integration", ex);
+            }
+        }
+
+        // Load harness-owned MCP servers (from [MCPServer] attributes).
+        var harnessMcpTools = await LoadHarnessMCPServersAsync(cancellationToken);
+        if (harnessMcpTools.Count > 0)
+        {
+            toolFunctions.AddRange(harnessMcpTools);
+            _logger?.CreateLogger<AgentBuilder>().LogInformation("Successfully integrated {Count} harness-owned MCP tools into agent", harnessMcpTools.Count);
+        }
+
+        // Note: Old SkillDefinition-based skills have been removed in favor of type-safe Skill class.
+        // Skills are now registered via Harneses and auto-discovered by the source generator.
+
+        // Load OpenAPI sources (from WithOpenApi() or [OpenApi] harness attributes).
+        OpenApiLoadResult? openApiResult = null;
+        if (_openApiSources.Count > 0)
+        {
+            if (s_openApiLoader == null)
+                throw new InvalidOperationException(
+                    "OpenAPI sources were registered but HPD-Agent.OpenApi is not loaded. " +
+                    "Add a reference to HPD-Agent.OpenApi.");
+
+            openApiResult = await s_openApiLoader.LoadAllAsync(_openApiSources, cancellationToken);
+            toolFunctions.AddRange(openApiResult.Functions);
+            if (openApiResult.Functions.Count > 0)
+                _logger?.CreateLogger<AgentBuilder>().LogInformation(
+                    "Successfully integrated {Count} OpenAPI functions from {Sources} source(s)",
+                    openApiResult.Functions.Count, _openApiSources.Count);
+        }
+
+        return new AgentToolBuildResult(
+            MergeToolFunctions(_config.Provider?.DefaultChatOptions, toolFunctions),
+            openApiResult?.OwnedHttpClients.Count > 0 ? openApiResult.OwnedHttpClients : null);
+    }
+
+    private IChatClient? CreateSummarizerClient()
+    {
+        if (_config.HistoryReduction?.SummarizerProvider == null)
+            return null;
+
+        var summarizerProviderKey = _config.HistoryReduction.SummarizerProvider.ProviderKey;
+        var summarizerProviderFeatures = _providerRegistry.GetProvider(summarizerProviderKey);
+
+        if (summarizerProviderFeatures == null)
+        {
+            var availableProviders = string.Join(", ", _providerRegistry.GetRegisteredProviders());
+            throw new InvalidOperationException(
+                $"Unknown provider for summarization: '{summarizerProviderKey}'. " +
+                $"Available providers: [{availableProviders}]");
+        }
+
+        return summarizerProviderFeatures.CreateChatClient(
+            _config.HistoryReduction.SummarizerProvider,
+            _serviceProvider);
+    }
+
     /// <summary>
     /// Builds all dependencies needed for agent construction.
     /// </summary>
@@ -2174,11 +2306,15 @@ public class AgentBuilder
         {
             // Use generic error handler for testing
             var testErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
+            var toolBuild = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
+            var injectedSummarizerClient = CreateSummarizerClient();
 
             return new AgentBuildDependencies(
                 _baseClient,
-                _config.Provider?.DefaultChatOptions,
-                testErrorHandler);
+                toolBuild.MergedOptions,
+                testErrorHandler,
+                injectedSummarizerClient,
+                OwnedHttpClients: toolBuild.OwnedHttpClients);
         }
 
         // === START: VALIDATION LOGIC ===
@@ -2189,10 +2325,14 @@ public class AgentBuilder
         if (_deferredProvider || _config.Provider == null)
         {
             var runtimeErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
+            var toolBuild = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
+            var runtimeSummarizerClient = CreateSummarizerClient();
             return new AgentBuildDependencies(
                 null,
-                _config.Provider?.DefaultChatOptions,
-                runtimeErrorHandler);
+                toolBuild.MergedOptions,
+                runtimeErrorHandler,
+                runtimeSummarizerClient,
+                OwnedHttpClients: toolBuild.OwnedHttpClients);
         }
 
         // ✨ AUTO-CONFIGURE: If no configuration provided, create default configuration
@@ -2309,10 +2449,14 @@ public class AgentBuilder
         if (string.IsNullOrEmpty(providerKey) || string.IsNullOrEmpty(_config.Provider.ModelName))
         {
             var runtimeErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
+            var toolBuild = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
+            var fallbackSummarizerClient = CreateSummarizerClient();
             return new AgentBuildDependencies(
                 null,
-                _config.Provider.DefaultChatOptions,
-                runtimeErrorHandler);
+                toolBuild.MergedOptions,
+                runtimeErrorHandler,
+                fallbackSummarizerClient,
+                OwnedHttpClients: toolBuild.OwnedHttpClients);
         }
 
         var providerFeatures = _providerRegistry.GetProvider(providerKey);
@@ -2424,131 +2568,9 @@ public class AgentBuilder
         // Dynamic Memory registration is handled by WithDynamicMemory() extension method
         // No need to register here in Build() - the extension already adds Middleware and Harness
 
-        //
-        // RESOLVE CONFIG HARNESS (Phase: Config Serialization)
-        //
-        // Resolve harnesses from config before creating functions.
-        // This enables the Config = Base, Builder = Override/Extend pattern.
-        ResolveConfigHarneses();
+        var builtTools = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
 
-        //
-        // CREATE Harness FUNCTIONS (AOT-Compatible - Zero Reflection in Hot Path)
-        //
-        // All Harneses are registered via the catalog (ToolRegistry.All) using direct delegate calls.
-        // Instance-based Harneses (requiring DI) use their own direct delegate calls.
-        // No reflection fallback - the catalog is required.
-
-        var toolFunctions = CreateFunctionsFromCatalog();
-
-        // Middleware out container functions if Collapsing is disabled
-        // Container functions are only needed when Collapsing is enabled for the two-turn expansion flow
-        if (_config.Collapsing?.Enabled != true)
-        {
-            toolFunctions = toolFunctions.Where(f =>
-                !(f.AdditionalProperties?.TryGetValue("IsContainer", out var isContainer) == true &&
-                  isContainer is bool isCont && isCont)
-            ).ToList();
-        }
-
-        // Load MCP tools if configured
-        if (McpClientManager != null)
-        {
-            try
-            {
-                if (s_mcpToolLoader == null)
-                    throw new InvalidOperationException(
-                        "MCP client manager is configured but HPD-Agent.MCP loader is not registered. " +
-                        "Reference HPD-Agent.MCP so its module initializer can register MCP support.");
-
-                List<AIFunction> mcpTools;
-                if (_config.Mcp != null && !string.IsNullOrEmpty(_config.Mcp.ManifestPath))
-                {
-                    var maxFunctionNames = _config.Collapsing?.MaxFunctionNamesInDescription ?? 10;
-
-                    // Check if this is actually content vs path based on if it starts with '{'
-                    if (_config.Mcp.ManifestPath.TrimStart().StartsWith("{"))
-                    {
-                        mcpTools = await s_mcpToolLoader.LoadFromManifestContentAsync(
-                            McpClientManager,
-                            _config.Mcp.ManifestPath,
-                            maxFunctionNames,
-                            cancellationToken).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        mcpTools = await s_mcpToolLoader.LoadFromManifestAsync(
-                            McpClientManager,
-                            _config.Mcp.ManifestPath,
-                            maxFunctionNames,
-                            cancellationToken).ConfigureAwait(false);
-                    }
-                }
-                else
-                {
-                    throw new InvalidOperationException("MCP client manager is configured but no manifest path or content provided");
-                }
-
-                toolFunctions.AddRange(mcpTools);
-                _logger?.CreateLogger<AgentBuilder>().LogInformation("Successfully integrated {Count} MCP tools into agent", mcpTools.Count);
-            }
-            catch (Exception ex)
-            {
-                _logger?.CreateLogger<AgentBuilder>().LogError(ex, "Failed to load MCP tools: {Error}", ex.Message);
-                throw new InvalidOperationException("Failed to initialize MCP integration", ex);
-            }
-        }
-
-        // Load harness-owned MCP servers (from [MCPServer] attributes)
-        var harnessMcpTools = await LoadHarnessMCPServersAsync(cancellationToken);
-        if (harnessMcpTools.Count > 0)
-        {
-            toolFunctions.AddRange(harnessMcpTools);
-            _logger?.CreateLogger<AgentBuilder>().LogInformation("Successfully integrated {Count} harness-owned MCP tools into agent", harnessMcpTools.Count);
-        }
-
-        // Note: Old SkillDefinition-based skills have been removed in favor of type-safe Skill class.
-        // Skills are now registered via Harneses and auto-discovered by the source generator.
-
-        // Load OpenAPI sources (from WithOpenApi() or [OpenApi] harness attributes)
-        OpenApiLoadResult? openApiResult = null;
-        if (_openApiSources.Count > 0)
-        {
-            if (s_openApiLoader == null)
-                throw new InvalidOperationException(
-                    "OpenAPI sources were registered but HPD-Agent.OpenApi is not loaded. " +
-                    "Add a reference to HPD-Agent.OpenApi.");
-
-            // The loader owns all config interpretation, HttpClient creation, and function generation.
-            // It returns any internally-created HttpClients for the Agent to dispose.
-            openApiResult = await s_openApiLoader.LoadAllAsync(_openApiSources, cancellationToken);
-            toolFunctions.AddRange(openApiResult.Functions);
-            if (openApiResult.Functions.Count > 0)
-                _logger?.CreateLogger<AgentBuilder>().LogInformation(
-                    "Successfully integrated {Count} OpenAPI functions from {Sources} source(s)",
-                    openApiResult.Functions.Count, _openApiSources.Count);
-        }
-
-        var mergedOptions = MergeToolFunctions(_config.Provider?.DefaultChatOptions, toolFunctions);
-
-        // Create custom summarizer client if configured
-        IChatClient? summarizerClient = null;
-        if (_config.HistoryReduction?.SummarizerProvider != null)
-        {
-            var summarizerProviderKey = _config.HistoryReduction.SummarizerProvider.ProviderKey;
-            var summarizerProviderFeatures = _providerRegistry.GetProvider(summarizerProviderKey);
-
-            if (summarizerProviderFeatures == null)
-            {
-                var availableProviders = string.Join(", ", _providerRegistry.GetRegisteredProviders());
-                throw new InvalidOperationException(
-                    $"Unknown provider for summarization: '{summarizerProviderKey}'. " +
-                    $"Available providers: [{availableProviders}]");
-            }
-
-            summarizerClient = summarizerProviderFeatures.CreateChatClient(
-                _config.HistoryReduction.SummarizerProvider,
-                _serviceProvider);
-        }
+        var summarizerClient = CreateSummarizerClient();
 
         // Create the provider-specific error handler
         var errorHandler = providerFeatures.CreateErrorHandler();
@@ -2558,10 +2580,10 @@ public class AgentBuilder
         // Return dependencies instead of creating agent
         return new AgentBuildDependencies(
             clientToUse,
-            mergedOptions,
+            builtTools.MergedOptions,
             errorHandler,
             summarizerClient,
-            openApiResult?.OwnedHttpClients.Count > 0 ? openApiResult.OwnedHttpClients : null);
+            builtTools.OwnedHttpClients);
     }
 
     public bool IsProviderRegistered(string providerKey) => _providerRegistry.IsRegistered(providerKey);
@@ -3804,6 +3826,7 @@ public static class AgentBuilderHarnessExtensions
     /// <exception cref="InvalidOperationException">Thrown if harness is not found in any loaded registry.</exception>
     public static AgentBuilder WithHarness<T>(this AgentBuilder builder, IToolMetadata? context = null) where T : class, new()
     {
+        RuntimeHelpers.RunModuleConstructor(typeof(T).Assembly.ManifestModule.ModuleHandle);
         builder.LoadGeneratedRegistries();
         var harnessName = typeof(T).Name;
 
@@ -3872,6 +3895,7 @@ public static class AgentBuilderHarnessExtensions
     /// </summary>
     public static AgentBuilder WithHarness<T>(this AgentBuilder builder, T instance, IToolMetadata? context = null) where T : class
     {
+        RuntimeHelpers.RunModuleConstructor(typeof(T).Assembly.ManifestModule.ModuleHandle);
         builder.LoadGeneratedRegistries();
         var harnessName = typeof(T).Name;
 
@@ -3903,6 +3927,7 @@ public static class AgentBuilderHarnessExtensions
     /// <exception cref="InvalidOperationException">Thrown if harness is not found in any loaded registry.</exception>
     public static AgentBuilder WithHarness(this AgentBuilder builder, Type harnessType, IToolMetadata? context = null)
     {
+        RuntimeHelpers.RunModuleConstructor(harnessType.Assembly.ManifestModule.ModuleHandle);
         builder.LoadGeneratedRegistries();
         var harnessName = harnessType.Name;
 

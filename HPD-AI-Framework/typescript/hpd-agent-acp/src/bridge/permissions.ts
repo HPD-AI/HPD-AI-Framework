@@ -1,4 +1,4 @@
-import type { PermissionRequestEvent, PermissionResponse } from '@hpd/hpd-agent-client';
+import type { PermissionChoice, PermissionRequestEvent } from '@hpd/hpd-agent-client';
 import type { AcpSessionState } from './session.js';
 import type { AcpWriter } from '../acp/writer.js';
 import { toolNameToKind } from './tools.js';
@@ -17,7 +17,7 @@ export function handlePermissionRequest(
   event: PermissionRequestEvent,
   session: AcpSessionState,
   writer: AcpWriter,
-): Promise<PermissionResponse> {
+): Promise<{ approved: boolean; choice: PermissionChoice }> {
   return new Promise((resolve, reject) => {
     const toolCall = {
       toolCallId: event.callId ?? event.permissionId,

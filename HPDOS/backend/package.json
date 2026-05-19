@@ -1,0 +1,8 @@
+{
+  "name": "hpdos-backend-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:ui": "bun build wwwroot/src/app.ts --outfile wwwroot/assets/app.js --format esm --target browser"
+  }
+}

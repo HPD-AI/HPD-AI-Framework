@@ -1,5 +1,4 @@
 import type {
-	clientHarnessDefinition,
 	ClientToolInvokeResponse,
 	ClientToolInvokeRequestEvent,
 	AgentEvent,
@@ -90,9 +89,6 @@ export interface CreateWorkspaceOptions {
 
 	/** Maximum number of branch states to keep in memory (default: 10) */
 	maxCachedBranches?: number;
-
-	/** Client tool groups to register on every stream */
-	clientHarnesses?: clientHarnessDefinition[];
 
 	/** Handler for client tool invocations */
 	onClientToolInvoke?: (req: ClientToolInvokeRequestEvent) => Promise<ClientToolInvokeResponse>;

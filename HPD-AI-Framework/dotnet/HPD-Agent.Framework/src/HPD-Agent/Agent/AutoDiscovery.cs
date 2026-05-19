@@ -7,7 +7,7 @@ namespace HPD.Agent;
 /// <summary>
 /// Auto-discovers and loads HPD-Agent extension libraries and provider assemblies.
 /// This ModuleInitializer runs automatically in both JIT and AOT scenarios.
-/// Loads: HPD-Agent.Audio, HPD-Agent.MCP, and LLM providers (HPD-Agent.Providers.*).
+/// Loads: HPD-Agent.Audio, HPD-Agent.MCP, HPD-Agent.Harness.*, and LLM providers (HPD-Agent.Providers.*).
 /// </summary>
 internal static class AutoDiscovery
 {
@@ -123,32 +123,42 @@ internal static class AutoDiscovery
             TryLoadExtensionLibrary(directory, "HPD-Agent.MCP.dll");
             TryLoadExtensionLibrary(directory, "HPD-Agent.OpenApi.dll");
 
-            // 2. Scan for LLM provider assemblies
+            // 2. Scan for harness assemblies so string-based AgentConfig harnesses can resolve.
+            foreach (var harnessFile in Directory.GetFiles(directory, "HPD-Agent.Harness.*.dll"))
+            {
+                TryLoadAssemblyAndRunModuleInitializer(harnessFile);
+            }
+
+            // 3. Scan for LLM provider assemblies
             var providerPattern = "HPD-Agent.Providers.*.dll";
             var providerFiles = Directory.GetFiles(directory, providerPattern);
 
             foreach (var providerFile in providerFiles)
             {
-                try
-                {
-                    // Load the assembly (triggers its ModuleInitializer)
-                    var assemblyName = AssemblyName.GetAssemblyName(providerFile);
-                    var loadedAssembly = Assembly.Load(assemblyName);
-
-                    // Explicitly trigger module constructor to ensure ModuleInitializers run
-                    RuntimeHelpers.RunModuleConstructor(loadedAssembly.ManifestModule.ModuleHandle);
-                }
-                catch
-                {
-                    // Silently ignore failures - provider might not be needed
-                    // or might have dependency issues
-                }
+                TryLoadAssemblyAndRunModuleInitializer(providerFile);
             }
         }
         catch
         {
             // Silently ignore - extension/provider discovery is a best-effort feature
             // Extensions and providers can still be loaded manually if needed
+        }
+    }
+
+    private static void TryLoadAssemblyAndRunModuleInitializer(string assemblyPath)
+    {
+        try
+        {
+            var assemblyName = AssemblyName.GetAssemblyName(assemblyPath);
+            var loadedAssembly = Assembly.Load(assemblyName);
+
+            // Explicitly trigger module constructor to ensure ModuleInitializers run
+            RuntimeHelpers.RunModuleConstructor(loadedAssembly.ManifestModule.ModuleHandle);
+        }
+        catch
+        {
+            // Silently ignore failures - extension/provider might not be needed
+            // or might have dependency issues.
         }
     }
 
@@ -163,11 +173,7 @@ internal static class AutoDiscovery
             var assemblyPath = Path.Combine(directory, filename);
             if (File.Exists(assemblyPath))
             {
-                var assemblyName = AssemblyName.GetAssemblyName(assemblyPath);
-                var loadedAssembly = Assembly.Load(assemblyName);
-
-                // Trigger module constructor to ensure the extension's ModuleInitializer runs
-                RuntimeHelpers.RunModuleConstructor(loadedAssembly.ManifestModule.ModuleHandle);
+                TryLoadAssemblyAndRunModuleInitializer(assemblyPath);
             }
         }
         catch

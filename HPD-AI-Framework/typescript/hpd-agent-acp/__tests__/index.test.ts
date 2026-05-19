@@ -75,16 +75,72 @@ type MockClient = {
   createBranch:  ReturnType<typeof vi.fn>;
   listBranches:  ReturnType<typeof vi.fn>;
   getBranchMessages: ReturnType<typeof vi.fn>;
-  stream:        ReturnType<typeof vi.fn>;
+  stream?:       ReturnType<typeof vi.fn>;
+  run:           ReturnType<typeof vi.fn>;
+  on:            ReturnType<typeof vi.fn>;
+  onAny:         ReturnType<typeof vi.fn>;
+  onError:       ReturnType<typeof vi.fn>;
 };
 
 function makeMockClient(overrides: Partial<MockClient> = {}): MockClient {
+  const handlers = new Map<string, Function[]>();
+  const anyHandlers: Function[] = [];
+  const errorHandlers: Function[] = [];
+  const on = overrides.on ?? vi.fn((type: string, handler: Function) => {
+    handlers.set(type, [...(handlers.get(type) ?? []), handler]);
+    return { dispose: vi.fn() };
+  });
+  const onAny = overrides.onAny ?? vi.fn((handler: Function) => {
+    anyHandlers.push(handler);
+    return { dispose: vi.fn() };
+  });
+  const onError = overrides.onError ?? vi.fn((handler: Function) => {
+    errorHandlers.push(handler);
+    return { dispose: vi.fn() };
+  });
+  const emit = async (event: any) => {
+    for (const handler of anyHandlers) await handler(event);
+    for (const handler of handlers.get(event.type) ?? []) await handler(event);
+  };
+  const fail = async (error: unknown) => {
+    for (const handler of errorHandlers) await handler(error);
+  };
+  const run = overrides.run ?? vi.fn().mockImplementation(async (input: any, options?: any) => {
+    if (input.type !== 'USER_TEXT_INPUT') return;
+    if (overrides.stream) {
+      return overrides.stream(
+        input.sessionId,
+        input.branchId,
+        [{ role: 'user', content: input.text }],
+        {
+          onEvent: emit,
+          onPermissionRequest: (event: any) => emit(event),
+          onClientToolInvoke: (event: any) => emit(event),
+          onClarificationRequest: async (event: any) => {
+            await emit(event);
+            return new Promise(() => {});
+          },
+          onContinuationRequest: (event: any) => emit(event),
+          onComplete: () => emit({ type: 'MESSAGE_TURN_FINISHED', version: '1.0' }),
+          onError: fail,
+        },
+        { signal: options?.signal, runConfig: input.runConfig },
+      );
+    }
+    if (input.type !== 'USER_TEXT_INPUT') return;
+    await emit({ type: 'MESSAGE_TURN_FINISHED', version: '1.0' });
+  });
+
   return {
     createSession:    overrides.createSession    ?? vi.fn().mockResolvedValue({ id: 'hpd-sess-1', createdAt: '', lastActivity: '', metadata: {} }),
     createBranch:     overrides.createBranch     ?? vi.fn().mockResolvedValue({ id: 'hpd-branch-1', sessionId: 'hpd-sess-1' }),
     listBranches:     overrides.listBranches     ?? vi.fn().mockResolvedValue([{ id: 'hpd-branch-1', sessionId: 'hpd-sess-1' }]),
     getBranchMessages: overrides.getBranchMessages ?? vi.fn().mockResolvedValue([]),
-    stream:           overrides.stream           ?? vi.fn().mockResolvedValue(undefined),
+    stream:           overrides.stream,
+    run,
+    on,
+    onAny,
+    onError,
   };
 }
 
@@ -252,7 +308,7 @@ describe('createBridge — session/prompt', () => {
     expect(msg.error.code).toBe(-32002);
   });
 
-  it('calls client.stream with resetClientState: true', async () => {
+  it('calls client.run with resetClientState in runConfig.clientToolInput', async () => {
     const { send, waitFor, client } = makeBridge();
     send(sessionNewMsg(2));
     await waitFor(1);
@@ -260,8 +316,8 @@ describe('createBridge — session/prompt', () => {
     send(promptMsg(4, 'hpd-sess-1'));
     await waitFor(2);
 
-    const streamCall = client.stream.mock.calls[0];
-    expect(streamCall[4].resetClientState).toBe(true);
+    const runCall = client.run.mock.calls[0];
+    expect(runCall[0].runConfig.clientToolInput.resetClientState).toBe(true);
   });
 
   it('responds with end_turn when onComplete fires', async () => {
@@ -271,7 +327,7 @@ describe('createBridge — session/prompt', () => {
         return Promise.resolve();
       },
     );
-    const { send, waitFor } = makeBridge({ stream });
+    const { send, waitFor, client } = makeBridge({ stream });
     send(sessionNewMsg(2));
     await waitFor(1);
 
@@ -291,7 +347,7 @@ describe('createBridge — session/prompt', () => {
         return Promise.resolve();
       },
     );
-    const { send, waitFor } = makeBridge({ stream });
+    const { send, waitFor, client } = makeBridge({ stream });
     send(sessionNewMsg(2));
     await waitFor(1);
 
@@ -377,7 +433,7 @@ describe('createBridge — session/prompt', () => {
         return Promise.resolve();
       },
     );
-    const { send, waitFor } = makeBridge({ stream });
+    const { send, waitFor, client } = makeBridge({ stream });
 
     // Initialize with fs capability
     send(initMsg(1, { fs: { readTextFile: true } }));
@@ -389,8 +445,8 @@ describe('createBridge — session/prompt', () => {
     send(promptMsg(4, 'hpd-sess-1'));
     await waitFor(3);
 
-    const streamCall = stream.mock.calls[0];
-    const HARNESS = streamCall[4].clientHarnesses;
+    const runCall = client.run.mock.calls[0];
+    const HARNESS = runCall[0].runConfig.clientToolInput.clientHarnesses;
     expect(HARNESS[0].tools.some((t: any) => t.name === 'editor_read_file')).toBe(true);
   });
 });

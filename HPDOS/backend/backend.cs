@@ -1,47 +1,3 @@
-#:sdk Microsoft.NET.Sdk.Web
-#:property TargetFramework=net10.0
-#:property UserSecretsId=hpdos-backend-dev
-#:property PublishAot=false
-#:property IsAotCompatible=false
-#:property PublishSingleFile=true
-#:property SelfContained=true
-#:property RuntimeIdentifier=osx-arm64
-#:property PackAsTool=false
-#:property OptimizationPreference=Size
-#:property DebugType=none
-#:property NativeDebugSymbols=false
-#:property DebuggerSupport=false
-#:property StackTraceSupport=false
-#:property EventSourceSupport=true
-#:property JsonSerializerIsReflectionEnabledByDefault=true
-#:package OpenTelemetry.Exporter.OpenTelemetryProtocol@1.15.3
-#:package OpenTelemetry.Extensions.Hosting@1.15.3
-#:package OpenTelemetry.Instrumentation.AspNetCore@1.15.2
-#:package OpenTelemetry.Instrumentation.Http@1.15.1
-#:package OpenTelemetry.Instrumentation.Runtime@1.15.1
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent/HPD-Agent.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.AspNetCore/HPD-Agent.Bots.AspNetCore.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.Discord/HPD-Agent.Bots.Discord.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.Slack/HPD-Agent.Bots.Slack.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.Teams/HPD-Agent.Bots.Teams.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.Telegram/HPD-Agent.Bots.Telegram.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.WhatsApp/HPD-Agent.Bots.WhatsApp.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAIInference/HPD-Agent.Providers.AzureAIInference.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Bedrock/HPD-Agent.Providers.Bedrock.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/HPD-Agent.Providers.GoogleAI.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.HuggingFace/HPD-Agent.Providers.HuggingFace.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/HPD-Agent.Providers.Ollama.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Auth.Framework/src/HPD.Auth/HPD.Auth.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Auth.Framework/src/HPD.Auth.Authentication/HPD.Auth.Authentication.csproj
-#:project ../../HPD-AI-Framework/dotnet/HPD-Auth.Framework/src/HPD.Auth.Authorization/HPD.Auth.Authorization.csproj
-
 using HPD.Agent;
 using HPD.Agent.AspNetCore;
 using HPD.Agent.Bots.Discord;
@@ -52,9 +8,22 @@ using HPD.Agent.Bots.WhatsApp;
 using HPD.Auth.Authentication.Extensions;
 using HPD.Auth.Authorization.Extensions;
 using HPD.Auth.Extensions;
+using HPD.Agent.Sandbox;
+using HPD.Sandbox.Local;
+using HPDAgent.Graph.Abstractions.Config;
+using HPDAgent.Graph.Abstractions.Checkpointing;
+using HPDAgent.Graph.Abstractions.Discovery;
+using HPDAgent.Graph.Abstractions.Storage;
+using HPDAgent.Graph.AspNetCore.DependencyInjection;
+using HPDAgent.Graph.AspNetCore.EndpointMapping;
+using HPDAgent.Graph.Core.Storage;
+using HPDAgent.Graph.Hosting.Data;
+using HPDAgent.Graph.Hosting.Lifecycle;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using System.Text.Json;
+using static UiFragments;
 
 var backendDirectory = FindBackendDirectory();
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -62,6 +31,10 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     Args = args,
     ContentRootPath = backendDirectory
 });
+var workspaceRoot = ResolveStorePath(
+    builder.Configuration["HPDOS:WorkspaceRoot"],
+    Path.GetFullPath(Path.Combine(backendDirectory, "..", "..")),
+    backendDirectory);
 
 var defaultDataRoot = builder.Environment.IsDevelopment()
     ? Path.Combine(backendDirectory, ".hpdos")
@@ -78,9 +51,14 @@ var sessionStorePath = ResolveStorePath(
     builder.Configuration["HPDOS:SessionStorePath"],
     Path.Combine(dataRoot, "sessions"),
     backendDirectory);
+var graphStorePath = ResolveStorePath(
+    builder.Configuration["HPDOS:GraphStorePath"],
+    Path.Combine(dataRoot, "graphs"),
+    backendDirectory);
 
 Directory.CreateDirectory(agentStorePath);
 Directory.CreateDirectory(sessionStorePath);
+Directory.CreateDirectory(graphStorePath);
 
 var allowedOrigins = builder.Configuration
     .GetSection("HPDOS:AllowedOrigins")
@@ -159,16 +137,31 @@ builder.Services.AddHPDAgent("workspace", options =>
     options.PersistAgentDefinitionsOnBuild = true;
     options.ConfigureAgent = agent =>
     {
-        agent.WithAPIConfiguration(builder.Configuration);
+        agent.WithAPIConfiguration(builder.Configuration)
+            .WithHarness<CodingHarness>()
+            .WithSandbox(SandboxConfig.CreateDefault() with
+            {
+                AllowWrite = [workspaceRoot, "/tmp"],
+                NetworkMode = SandboxNetworkMode.Unrestricted
+            });
 
         if (telemetryEnabled)
         {
             agent
                 .WithTracing(telemetrySourceName)
-                .WithTelemetry(telemetrySourceName, captureSensitiveTelemetry);
+                .WithTelemetry(telemetrySourceName, captureSensitiveTelemetry)
+                ;
         }
     };
 });
+
+builder.Services.AddSingleton<IGraphDefinitionStore>(new JsonGraphDefinitionStore(graphStorePath));
+builder.Services.AddSingleton<IWorkflowExecutionStore>(new JsonWorkflowExecutionStore(graphStorePath));
+builder.Services.AddSingleton<IWorkflowLogStore>(new JsonWorkflowLogStore(graphStorePath));
+builder.Services.AddSingleton<IScheduledGraphStore>(new JsonScheduledGraphStore(graphStorePath));
+builder.Services.AddSingleton<IGraphCheckpointStore>(new JsonCheckpointStore(graphStorePath));
+builder.Services.AddHPDGraphAspNetCore();
+builder.Services.AddHPDGraphMaterialization();
 
 if (authEnabled)
 {
@@ -293,6 +286,151 @@ if (requireAgentApiAuth)
     agentApi.RequireAuthorization();
 agentApi.MapHPDAgentApi("workspace");
 
+var workflowApi = app.MapHPDGraphWorkflows("/api/workflows");
+if (authEnabled)
+    workflowApi.RequireAuthorization();
+
+var ui = app.MapGroup("/ui");
+if (authEnabled)
+    ui.RequireAuthorization();
+
+ui.MapGet("/chat", () => Html(ChatView()));
+
+ui.MapGet("/workflows", async (GraphManager graphManager, IGeneratedHandlerCatalog catalog, SchedulingManager schedulingManager, CancellationToken ct) =>
+{
+    var workflows = await graphManager.ListDefinitionsAsync(ct).ConfigureAwait(false);
+    var selected = workflows.FirstOrDefault()?.GraphId;
+    var handlers = RenderHandlers(catalog.GetHandlers());
+    var editor = selected is null
+        ? RenderWorkflowEditor(SampleGraph(), handlers)
+        : RenderWorkflowEditor((await graphManager.GetDefinitionAsync(selected, ct).ConfigureAwait(false))?.Config ?? SampleGraph(), handlers);
+
+    var side = await RenderWorkflowSideAsync(selected, schedulingManager, ct).ConfigureAwait(false);
+    return Html(WorkflowShell(workflows, selected, editor, side));
+});
+
+ui.MapGet("/workflows/list", async (string? search, GraphManager graphManager, CancellationToken ct) =>
+{
+    var workflows = await graphManager.ListDefinitionsAsync(ct).ConfigureAwait(false);
+    if (!string.IsNullOrWhiteSpace(search))
+    {
+        workflows = workflows
+            .Where(w => $"{w.Name} {w.GraphId}".Contains(search, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    return Html(RenderWorkflowList(workflows, null));
+});
+
+ui.MapGet("/workflows/new", (IGeneratedHandlerCatalog catalog) => Html(RenderWorkflowEditor(SampleGraph(), RenderHandlers(catalog.GetHandlers()))));
+
+ui.MapGet("/workflows/{graphId}", async (string graphId, GraphManager graphManager, SchedulingManager schedulingManager, IGeneratedHandlerCatalog catalog, CancellationToken ct) =>
+{
+    var workflow = await graphManager.GetDefinitionAsync(graphId, ct).ConfigureAwait(false);
+    if (workflow is null)
+        return Html(RenderNotice("Workflow not found."));
+
+    var handlers = RenderHandlers(catalog.GetHandlers());
+    var side = await RenderWorkflowSideAsync(graphId, schedulingManager, ct).ConfigureAwait(false);
+    return Html(WorkflowSelected(workflow.Config, handlers, side));
+});
+
+ui.MapPost("/workflows/save", async (HttpRequest request, GraphManager graphManager, SchedulingManager schedulingManager, IGeneratedHandlerCatalog catalog, CancellationToken ct) =>
+{
+    var form = await request.ReadFormAsync(ct).ConfigureAwait(false);
+    var json = form["graphJson"].ToString();
+    try
+    {
+        var graph = JsonSerializer.Deserialize<GraphConfig>(json, JsonOptions())
+            ?? throw new InvalidOperationException("Graph JSON was empty.");
+        StoredGraph saved;
+        if (await graphManager.GetDefinitionAsync(graph.GraphId, ct).ConfigureAwait(false) is null)
+            saved = await graphManager.CreateDefinitionAsync(graph, ct).ConfigureAwait(false);
+        else
+            saved = await graphManager.UpdateDefinitionAsync(graph.GraphId, graph, ct).ConfigureAwait(false);
+
+        var workflows = await graphManager.ListDefinitionsAsync(ct).ConfigureAwait(false);
+        var handlers = RenderHandlers(catalog.GetHandlers());
+        var side = await RenderWorkflowSideAsync(saved.GraphId, schedulingManager, ct).ConfigureAwait(false);
+        return Html(WorkflowSaved(saved.Config, handlers, workflows, saved.GraphId, side));
+    }
+    catch (Exception ex)
+    {
+        return Html(RenderEditorError(json, ex.Message));
+    }
+});
+
+ui.MapPost("/workflows/{graphId}/run", async (string graphId, HttpRequest request, IWorkflowExecutionRunner runner, CancellationToken ct) =>
+{
+    var form = await request.ReadFormAsync(ct).ConfigureAwait(false);
+    try
+    {
+        var input = JsonSerializer.Deserialize<JsonElement>(EmptyJsonObjectIfBlank(form["executionInput"].ToString()), JsonOptions());
+        var execution = await runner.StartAsync(graphId, new ExecuteWorkflowRequest
+        {
+            ExecutionId = BlankToNull(form["executionId"].ToString()),
+            Input = input,
+            TriggeredBy = "hpdos-ui",
+            Mode = WorkflowExecutionMode.Background,
+            StartImmediately = true
+        }, ct).ConfigureAwait(false);
+
+        return Html(RenderRunPanel(graphId, execution.ExecutionId, JsonSerializer.Serialize(execution, JsonOptions()), "Execution started."));
+    }
+    catch (Exception ex)
+    {
+        return Html(RenderRunPanel(graphId, form["executionId"].ToString(), "No execution yet.", ex.Message));
+    }
+});
+
+ui.MapGet("/workflows/{graphId}/status/{executionId}", async (string graphId, string executionId, ExecutionManager executionManager, CancellationToken ct) =>
+{
+    var status = await executionManager.GetStatusAsync(graphId, executionId, ct).ConfigureAwait(false);
+    return Html(RenderRunPanel(graphId, executionId, status is null ? "Execution not found." : JsonSerializer.Serialize(status, JsonOptions()), null));
+});
+
+ui.MapPost("/workflows/{graphId}/cancel/{executionId}", async (string graphId, string executionId, ExecutionManager executionManager, CancellationToken ct) =>
+{
+    try
+    {
+        await executionManager.CancelAsync(graphId, executionId, ct).ConfigureAwait(false);
+        var status = await executionManager.GetStatusAsync(graphId, executionId, ct).ConfigureAwait(false);
+        return Html(RenderRunPanel(graphId, executionId, status is null ? "Cancelled." : JsonSerializer.Serialize(status, JsonOptions()), "Execution cancelled."));
+    }
+    catch (Exception ex)
+    {
+        return Html(RenderRunPanel(graphId, executionId, "No execution yet.", ex.Message));
+    }
+});
+
+ui.MapPost("/workflows/{graphId}/schedule", async (string graphId, HttpRequest request, SchedulingManager schedulingManager, CancellationToken ct) =>
+{
+    var form = await request.ReadFormAsync(ct).ConfigureAwait(false);
+    var schedule = new GraphScheduleConfig
+    {
+        CronExpression = form["cronExpression"].ToString(),
+        TimeZoneId = string.IsNullOrWhiteSpace(form["timeZoneId"]) ? "UTC" : form["timeZoneId"].ToString()
+    };
+    var enabled = form["enabled"].ToString() != "false";
+    try
+    {
+        var saved = await schedulingManager.GetScheduleAsync(graphId, ct).ConfigureAwait(false) is null
+            ? await schedulingManager.CreateScheduleAsync(graphId, new CreateScheduleRequest { Schedule = schedule, Enabled = enabled }, ct).ConfigureAwait(false)
+            : await schedulingManager.UpdateScheduleAsync(graphId, new UpdateScheduleRequest { Schedule = schedule, Enabled = enabled }, ct).ConfigureAwait(false);
+        return Html(RenderSchedulePanel(graphId, saved, "Schedule saved."));
+    }
+    catch (Exception ex)
+    {
+        return Html(RenderSchedulePanel(graphId, null, ex.Message));
+    }
+});
+
+ui.MapDelete("/workflows/{graphId}/schedule", async (string graphId, SchedulingManager schedulingManager, CancellationToken ct) =>
+{
+    await schedulingManager.DeleteScheduleAsync(graphId, ct).ConfigureAwait(false);
+    return Html(RenderSchedulePanel(graphId, null, "Schedule deleted."));
+});
+
 app.Run();
 
 static string ResolveStorePath(string? configuredPath, string fallbackPath, string basePath)
@@ -315,6 +453,12 @@ static string FindBackendDirectory()
     var directory = new DirectoryInfo(AppContext.BaseDirectory);
     while (directory != null)
     {
+        if (File.Exists(Path.Combine(directory.FullName, "appsettings.json"))
+            && Directory.Exists(Path.Combine(directory.FullName, "wwwroot")))
+        {
+            return directory.FullName;
+        }
+
         if (File.Exists(Path.Combine(directory.FullName, "backend.cs"))
             && File.Exists(Path.Combine(directory.FullName, "appsettings.json")))
         {

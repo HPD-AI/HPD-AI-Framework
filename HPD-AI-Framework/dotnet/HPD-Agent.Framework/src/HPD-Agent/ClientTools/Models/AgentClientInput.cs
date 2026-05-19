@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HPD.Agent.ClientTools;
 
@@ -33,7 +34,7 @@ public record AgentClientInput
     /// <summary>
     /// Runtime context to inject into the conversation.
     /// Each context item has a description (explaining what it is to the LLM)
-    /// and a value (the actual data). This is richer than simple key-value pairs.
+    /// and a JSON value (the actual data). This is richer than simple key-value pairs.
     /// </summary>
     /// <example>
     /// { Description: "Current user's timezone", Value: "America/New_York" }
@@ -79,17 +80,46 @@ public record AgentClientInput
 /// Unlike simple key-value pairs, the description tells the LLM what this context means.
 /// </summary>
 /// <param name="Description">Human-readable description of what this context represents</param>
-/// <param name="Value">The actual context value</param>
-/// <param name="Key">Optional key for programmatic access (if not provided, uses description)</param>
-public record ContextItem(
-    string Description,
-    string Value,
-    string? Key = null
-)
+public record ContextItem
 {
+    [JsonConstructor]
+    public ContextItem(string description, JsonElement value, string? key = null)
+    {
+        Description = description;
+        Value = value;
+        Key = key;
+    }
+
+    public ContextItem(string description, string value, string? key = null)
+        : this(description, JsonSerializer.SerializeToElement(value, HPDJsonContext.Default.String), key)
+    {
+    }
+
+    /// <summary>
+    /// Human-readable description of what this context represents.
+    /// </summary>
+    public string Description { get; init; }
+
+    /// <summary>
+    /// The actual context value as JSON.
+    /// </summary>
+    public JsonElement Value { get; init; }
+
+    /// <summary>
+    /// Optional key for programmatic access. If not provided, uses Description.
+    /// </summary>
+    public string? Key { get; init; }
+
     /// <summary>
     /// Gets the effective key for this context item.
     /// Uses Key if provided, otherwise uses Description.
     /// </summary>
     public string EffectiveKey => Key ?? Description;
+
+    /// <summary>
+    /// Gets a text representation suitable for prompt or diagnostic rendering.
+    /// </summary>
+    public string ValueText => Value.ValueKind == JsonValueKind.String
+        ? Value.GetString() ?? string.Empty
+        : Value.GetRawText();
 }

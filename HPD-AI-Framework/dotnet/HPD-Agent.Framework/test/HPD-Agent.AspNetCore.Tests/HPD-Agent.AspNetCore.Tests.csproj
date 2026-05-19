@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
     <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
   </ItemGroup>

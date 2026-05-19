@@ -12,7 +12,9 @@ import { EventTypes } from '@hpd/hpd-agent-client';
 import type { SessionUpdate, AcpToolCallContentEntry } from '../types/acp.js';
 import { toolNameToKind } from './tools.js';
 
-function formatToolResultPayload(result: ToolResultPayload): string {
+function formatToolResultPayload(result: ToolResultPayload | string | null | undefined): string {
+  if (result == null) return '';
+  if (typeof result === 'string') return result;
   if (result.text) return result.text;
   if (result.json !== undefined) return JSON.stringify(result.json);
   if (result.content && result.content.length > 0) return JSON.stringify(result.content);

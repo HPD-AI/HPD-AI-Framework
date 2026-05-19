@@ -1,4 +1,4 @@
-import type { AgentClient } from '@hpd/hpd-agent-client';
+import { EventTypes, type AgentClient, type AgentRunInputEvent, type EventSubscription } from '@hpd/hpd-agent-client';
 import type { AcpReader } from './acp/reader.js';
 import type { AcpWriter } from './acp/writer.js';
 import type { SessionRegistry } from './bridge/session.js';
@@ -188,50 +188,109 @@ export function createBridge(
 
     session.pendingPromptRequestId = req.id;
     session.streamAbort = new AbortController();
+    let cleanupPrompt = () => {};
 
     try {
-      await client.stream(
-        session.hpdSessionId,
-        session.hpdBranchId,
-        [{ role: 'user', content: promptText }],
-        {
-          onEvent: (event) => {
-            const update = hpdEventToAcpUpdate(event);
-            if (update) writer.notifySessionUpdate(session.acpSessionId, update);
-          },
+      const subscriptions: EventSubscription[] = [];
+      const cleanup = () => {
+        for (const sub of subscriptions.splice(0)) sub.dispose();
+      };
+      cleanupPrompt = cleanup;
+      const finish = (stopReason: 'end_turn' | 'cancelled') => {
+        if (!session.pendingPromptRequestId) return;
+        writer.respondSessionPrompt(session.pendingPromptRequestId, stopReason);
+        session.pendingPromptRequestId = null;
+        session.streamAbort = null;
+        cleanup();
+      };
+      const fail = (streamErr: unknown) => {
+        if (!session.pendingPromptRequestId) return;
+        writer.respondError(
+          session.pendingPromptRequestId,
+          JsonRpcErrorCode.InternalError,
+          streamErr instanceof Error ? streamErr.message : String(streamErr),
+        );
+        session.pendingPromptRequestId = null;
+        session.streamAbort = null;
+        cleanup();
+      };
+      const respond = (input: AgentRunInputEvent) => {
+        void client.run(input).catch(fail);
+      };
 
-          onPermissionRequest: (event) =>
-            handlePermissionRequest(event, session, writer),
+      subscriptions.push(
+        client.onAny((event) => {
+          const update = hpdEventToAcpUpdate(event);
+          if (update) writer.notifySessionUpdate(session.acpSessionId, update);
+        }),
+        client.on(EventTypes.PERMISSION_REQUEST, (event) => {
+          void handlePermissionRequest(event, session, writer)
+            .then((response) => respond({
+              type: EventTypes.PERMISSION_RESPONSE,
+              permissionId: event.permissionId,
+              sourceName: event.sourceName,
+              approved: response.approved,
+              choice: response.choice,
+            }))
+            .catch(fail);
+        }),
+        client.on(EventTypes.CLIENT_TOOL_INVOKE_REQUEST, (request) => {
+          void handleClientToolInvoke(request, session, writer, clientCapabilities)
+            .then((response) => respond({
+              type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
+              requestId: response.requestId,
+              content: response.content,
+              success: response.success,
+              errorMessage: response.errorMessage,
+              augmentation: response.augmentation,
+            }))
+            .catch(fail);
+        }),
+        client.on(EventTypes.CLARIFICATION_REQUEST, (event) => {
+          void handleClarificationRequest(event, session, writer)
+            .then((answer) => respond({
+              type: EventTypes.CLARIFICATION_RESPONSE,
+              requestId: event.requestId,
+              sourceName: event.sourceName,
+              question: event.question,
+              answer,
+            }))
+            .catch(fail);
+        }),
+        client.on(EventTypes.CONTINUATION_REQUEST, (event) => {
+          respond({
+            type: EventTypes.CONTINUATION_RESPONSE,
+            continuationId: event.continuationId,
+            sourceName: event.sourceName,
+            approved: true,
+          });
+        }),
+        client.on(EventTypes.MESSAGE_TURN_FINISHED, () => finish('end_turn')),
+        client.on(EventTypes.MESSAGE_TURN_ERROR, (event) => fail(event.message)),
+        client.onError(fail),
+      );
 
-          onClientToolInvoke: (request) =>
-            handleClientToolInvoke(request, session, writer, clientCapabilities),
-
-          onClarificationRequest: (event) =>
-            handleClarificationRequest(event, session, writer),
-
-          onContinuationRequest: (_event) =>
-            Promise.resolve(true),
-
-          onComplete: () => {
-            writer.respondSessionPrompt(session.pendingPromptRequestId!, 'end_turn');
-            session.pendingPromptRequestId = null;
-            session.streamAbort = null;
-          },
-
-          onError: (streamErr) => {
-            writer.respondError(
-              session.pendingPromptRequestId!,
-              JsonRpcErrorCode.InternalError,
-              streamErr,
-            );
-            session.pendingPromptRequestId = null;
-            session.streamAbort = null;
+      await client.run({
+        type: EventTypes.USER_TEXT_INPUT,
+        sessionId: session.hpdSessionId,
+        branchId: session.hpdBranchId,
+        agentId: config.agentName ?? 'default',
+        text: promptText,
+        runConfig: {
+          clientToolInput: {
+            clientHarnesses: capsToHarnesses(clientCapabilities),
+            resetClientState: true,
           },
         },
-        { signal: session.streamAbort.signal, clientHarnesses: capsToHarnesses(clientCapabilities), resetClientState: true },
-      );
+      }, { signal: session.streamAbort.signal });
+
+      finish('end_turn');
     } catch (caught) {
       const isAbort = caught instanceof Error && caught.name === 'AbortError';
+      if (!session.pendingPromptRequestId) {
+        cleanupPrompt();
+        return;
+      }
       if (isAbort) {
         writer.respondSessionPrompt(session.pendingPromptRequestId!, 'cancelled');
       } else {
@@ -243,6 +302,7 @@ export function createBridge(
       }
       session.pendingPromptRequestId = null;
       session.streamAbort = null;
+      cleanupPrompt();
     }
   }
 

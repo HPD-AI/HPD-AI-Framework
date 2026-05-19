@@ -146,6 +146,69 @@ public class ClientToolMiddlewareTests
     }
 
     [Fact]
+    public async Task BeforeMessageTurn_WithJsonContext_StoresStructuredContext()
+    {
+        // Arrange
+        var middleware = new ClientToolMiddleware();
+        var context = CreateContext();
+        var activeView = JsonSerializer.SerializeToElement(new
+        {
+            view = "chat",
+            selectedArtifactId = "artifact-1"
+        });
+        var clientinput = new AgentClientInput
+        {
+            clientHarnesses = new[] { CreateTestHarness("Harness1") },
+            Context = new[]
+            {
+                new ContextItem("Active HPD-OS view", activeView, "hpdos.activeView")
+            }
+        };
+        context.RunConfig.ClientToolInput = clientinput;
+
+        // Act
+        await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
+
+        // Assert
+        var state = context.Analyze(s => s.MiddlewareState.ClientTool());
+        Assert.NotNull(state);
+        var item = Assert.Single(state.Context).Value;
+        Assert.Equal(JsonValueKind.Object, item.Value.ValueKind);
+        Assert.Equal("chat", item.Value.GetProperty("view").GetString());
+        Assert.Contains("selectedArtifactId", item.ValueText);
+    }
+
+    [Fact]
+    public void AgentClientInput_WithJsonContext_DeserializesStructuredContext()
+    {
+        // Arrange
+        const string json = """
+            {
+              "context": [
+                {
+                  "key": "hpdos.activeView",
+                  "description": "The current HPD-OS shell view.",
+                  "value": {
+                    "view": "chat",
+                    "selectedArtifactId": "artifact-1"
+                  }
+                }
+              ]
+            }
+            """;
+
+        // Act
+        var input = JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentClientInput);
+
+        // Assert
+        Assert.NotNull(input);
+        var item = Assert.Single(input.Context!);
+        Assert.Equal("hpdos.activeView", item.EffectiveKey);
+        Assert.Equal(JsonValueKind.Object, item.Value.ValueKind);
+        Assert.Equal("chat", item.Value.GetProperty("view").GetString());
+    }
+
+    [Fact]
     public async Task BeforeMessageTurn_WithState_StoresState()
     {
         // Arrange

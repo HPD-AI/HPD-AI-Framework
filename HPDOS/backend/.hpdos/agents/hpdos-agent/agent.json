@@ -3,7 +3,7 @@
   "name": "HPDOS Agent",
   "config": {
     "name": "HPDOS Agent",
-    "systemInstructions": "You are the HPD-OS workspace agent. Help the user coordinate agents, sessions, branches, workspace context, and UI-facing workflows clearly and practically.",
+    "systemInstructions": "You are the HPD-OS workspace agent.",
     "maxAgenticIterations": 10,
     "continuationExtensionAmount": 3,
     "agenticLoop": {
@@ -24,13 +24,15 @@
       "persistSystemPromptInjections": false,
       "enableErrorRecovery": true
     },
-    "harnesses": [],
+    "harnesses": [
+      "CodingHarness"
+    ],
     "middlewares": [],
     "preserveReasoningInHistory": false,
     "coalesceDeltas": false
   },
   "createdAt": "2026-05-09T00:00:00Z",
-  "updatedAt": "2026-05-10T22:38:28.722671Z",
+  "updatedAt": "2026-05-18T20:27:08.526079Z",
   "metadata": {
     "source": "dev-seed",
     "description": "Default local HPD-OS workspace agent for quick development."

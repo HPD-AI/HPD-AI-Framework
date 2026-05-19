@@ -7,7 +7,6 @@ import type {
 import { EventTypes } from './types/events.js';
 import type { AgentTransport, RuntimeScope, RunTransportOptions } from './types/transport.js';
 import type {
-  clientHarnessDefinition,
   ClientToolInvokeResponse,
 } from './types/client-tools.js';
 import type {
@@ -72,9 +71,6 @@ export interface AgentClientConfig {
 
   /** Fetch credentials mode for HTTP requests. Use 'include' for cookie-backed auth. */
   credentials?: RequestCredentials;
-
-  /** Client tool groups registered locally for browser-side invocation */
-  clientHarnesses?: clientHarnessDefinition[];
 
   /** Handler for client tool invocations */
   onClientToolInvoke?: (request: ClientToolInvokeRequestEvent) => Promise<ClientToolInvokeResponse>;
@@ -222,52 +218,6 @@ export class AgentClient {
    */
   get streaming(): boolean {
     return this.transport.connected;
-  }
-
-  // ============================================
-  // Client Tool Group Management
-  // ============================================
-
-  /**
-   * Register a client tool group. It will be automatically included in all future streams.
-   */
-  registerHarness(Harness: clientHarnessDefinition): void {
-    if (!this.config.clientHarnesses) {
-      this.config.clientHarnesses = [];
-    }
-    // Remove existing tool group with same name (update)
-    this.config.clientHarnesses = this.config.clientHarnesses.filter(g => g.name !== Harness.name);
-    this.config.clientHarnesses.push(Harness);
-  }
-
-  /**
-   * Register multiple client tool groups.
-   */
-  registerHarnesses(Harnesses: clientHarnessDefinition[]): void {
-    Harnesses.forEach(g => this.registerHarness(g));
-  }
-
-  /**
-   * Unregister a client tool group by name.
-   */
-  unregisterHarness(HarnessName: string): void {
-    if (this.config.clientHarnesses) {
-      this.config.clientHarnesses = this.config.clientHarnesses.filter(g => g.name !== HarnessName);
-    }
-  }
-
-  /**
-   * Get all registered tool groups.
-   */
-  get Harnesses(): clientHarnessDefinition[] {
-    return this.config.clientHarnesses ?? [];
-  }
-
-  /**
-   * Set the handler for client tool invocations.
-   */
-  setToolHandler(handler: (request: ClientToolInvokeRequestEvent) => Promise<ClientToolInvokeResponse>): void {
-    this.config.onClientToolInvoke = handler;
   }
 
   // ============================================

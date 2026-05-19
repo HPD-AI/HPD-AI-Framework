@@ -34,7 +34,7 @@ export interface ClientToolDefinition {
  * A tool group is a container for related tools and skills.
  * All client tools must be registered inside a tool group.
  */
-export interface clientHarnessDefinition {
+export interface ClientHarnessDefinition {
   /** Unique name of the tool group */
   name: string;
 
@@ -67,6 +67,32 @@ export interface clientHarnessDefinition {
    * If true, description is required.
    */
   startCollapsed?: boolean;
+}
+
+/**
+ * Client tool surface provided for a single agent run.
+ */
+export interface AgentClientInput {
+  /** Tool groups available to this run */
+  clientHarnesses?: ClientHarnessDefinition[];
+
+  /** Tool groups that should start expanded */
+  expandedContainers?: string[];
+
+  /** Tools that should be hidden for this run */
+  hiddenTools?: string[];
+
+  /** Context items to expose to the agent */
+  context?: ContextItem[];
+
+  /** Client-owned state for the run */
+  state?: unknown;
+
+  /** Host metadata for diagnostics or routing */
+  metadata?: unknown;
+
+  /** Reset backend client-tool state before applying this input */
+  resetClientState?: boolean;
 }
 
 // ============================================
@@ -209,7 +235,7 @@ export type ToolResultContent = TextContent | BinaryContent | JsonContent;
  */
 export interface ClientToolAugmentation {
   /** New tool groups to inject */
-  injectHarnesses?: clientHarnessDefinition[];
+  injectHarnesses?: ClientHarnessDefinition[];
 
   /** Tool groups to remove */
   removeHarnesses?: string[];
@@ -302,7 +328,7 @@ export function createCollapsedHarness(
     /** Persistent instructions injected into system prompt after expansion (every iteration) */
     systemPrompt?: string;
   }
-): clientHarnessDefinition {
+): ClientHarnessDefinition {
   return {
     name,
     description,
@@ -329,7 +355,7 @@ export function createExpandedHarness(
     /** Persistent instructions injected into system prompt after expansion (every iteration) */
     systemPrompt?: string;
   }
-): clientHarnessDefinition {
+): ClientHarnessDefinition {
   return {
     name,
     description: options?.description,

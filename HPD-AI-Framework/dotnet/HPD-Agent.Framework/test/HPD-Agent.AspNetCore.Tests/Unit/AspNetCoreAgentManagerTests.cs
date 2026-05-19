@@ -1,8 +1,10 @@
 using FluentAssertions;
 using HPD.Agent.AspNetCore.Lifecycle;
+using HPD.Agent.Harness.Coding;
 using HPD.Agent.Hosting.Configuration;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -157,6 +159,89 @@ public class AspNetCoreAgentManagerTests : IDisposable
         (await _agentStore.LoadAsync("runtime-only")).Should().BeNull();
     }
 
+    [Fact]
+    public async Task BuildAgentAsync_UsesStoredHarnessConfig()
+    {
+        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+        var manager = MakeManager();
+        var stored = await manager.CreateDefinitionAsync(new AgentConfig
+        {
+            Name = "Coding",
+            Provider = new ProviderConfig { ProviderKey = "test", ModelName = "test-model" },
+            Harneses = [nameof(CodingHarness)]
+        }, "Coding");
+
+        var agent = await manager.GetOrBuildAgentAsync(stored.Id);
+
+        var toolNames = agent.DefaultOptions?.Tools?
+            .OfType<AIFunction>()
+            .Select(tool => tool.Name)
+            .ToArray();
+
+        toolNames.Should().NotBeNull();
+        toolNames.Should().Contain([
+            "ReadFile",
+            "ListDirectory",
+            "GlobSearch",
+            "Grep",
+            "ExecuteCommand"
+        ]);
+    }
+
+    [Fact]
+    public async Task BuildAgentAsync_UsesStoredHarnessConfig_WithRuntimeProvider()
+    {
+        var manager = MakeManager();
+        var stored = await manager.CreateDefinitionAsync(new AgentConfig
+        {
+            Name = "Coding",
+            Provider = null,
+            Harneses = [nameof(CodingHarness)]
+        }, "Coding");
+
+        var agent = await manager.GetOrBuildAgentAsync(stored.Id);
+
+        var toolNames = agent.DefaultOptions?.Tools?
+            .OfType<AIFunction>()
+            .Select(tool => tool.Name)
+            .ToArray();
+
+        toolNames.Should().NotBeNull();
+        toolNames.Should().Contain([
+            "ReadFile",
+            "ListDirectory",
+            "GlobSearch",
+            "Grep",
+            "ExecuteCommand"
+        ]);
+    }
+
+    [Fact]
+    public async Task BuildAgentAsync_RuntimeProvider_UsesExplicitSummarizerProvider()
+    {
+        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProviderRegistry;
+        var manager = MakeManager();
+        var stored = await manager.CreateDefinitionAsync(new AgentConfig
+        {
+            Name = "Runtime Summarizing",
+            Provider = null,
+            HistoryReduction = new HistoryReductionConfig
+            {
+                Enabled = true,
+                Strategy = HistoryReductionStrategy.Summarizing,
+                SummarizerProvider = new ProviderConfig
+                {
+                    ProviderKey = "test",
+                    ModelName = "summarizer-model"
+                }
+            }
+        }, "Runtime Summarizing");
+
+        var agent = await manager.GetOrBuildAgentAsync(stored.Id);
+
+        agent.Should().NotBeNull();
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Idle timeout
     // ──────────────────────────────────────────────────────────────────────────
@@ -206,6 +291,15 @@ public class AspNetCoreAgentManagerTests : IDisposable
             ModelName = "test-model"
         };
 
+        var chatClient = new FakeChatClient();
+        var registry = new TestProviderRegistry(chatClient);
+        var field = typeof(AgentBuilder).GetField("_providerRegistry",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        field?.SetValue(builder, registry);
+    }
+
+    private static void InjectTestProviderRegistry(AgentBuilder builder)
+    {
         var chatClient = new FakeChatClient();
         var registry = new TestProviderRegistry(chatClient);
         var field = typeof(AgentBuilder).GetField("_providerRegistry",

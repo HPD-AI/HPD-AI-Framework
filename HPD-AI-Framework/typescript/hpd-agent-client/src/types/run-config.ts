@@ -1,3 +1,5 @@
+import type { AgentClientInput } from './client-tools.js';
+
 /**
  * Chat-level sampling parameters.
  * Maps to ChatRunConfigDto on the server.
@@ -33,4 +35,6 @@ export interface RunConfig {
   skipTools?: boolean;
   /** Run timeout as ISO 8601 duration (e.g. "PT5M") */
   runTimeout?: string;
+  /** Client tools, context, state, and metadata available to this run */
+  clientToolInput?: AgentClientInput;
 }

@@ -244,7 +244,6 @@ class WorkspaceImpl implements Workspace {
 			baseUrl: options.baseUrl,
 			transport: options.transport ?? 'sse',
 			headers: options.headers,
-			clientHarnesses: options.clientHarnesses,
 			onClientToolInvoke: options.onClientToolInvoke
 		});
 		this.#registerClientHandlers();
@@ -409,29 +408,29 @@ class WorkspaceImpl implements Workspace {
 			});
 		});
 
-		this.#client.on(EventTypes.CONTINUATION_REQUEST, async (request) => {
-			await this.#client.run({
+		this.#client.on(EventTypes.CONTINUATION_REQUEST, (request) => {
+			void this.#client.run({
 				type: EventTypes.CONTINUATION_RESPONSE,
 				continuationId: request.continuationId,
 				sourceName: request.sourceName,
 				approved: true
-			});
+			}).catch((error) => this.#options.onError?.(error.message));
 		});
 
-		this.#client.on(EventTypes.CLIENT_TOOL_INVOKE_REQUEST, async (request) => {
+		this.#client.on(EventTypes.CLIENT_TOOL_INVOKE_REQUEST, (request) => {
 			if (!this.#options.onClientToolInvoke) {
 				const response = createErrorResponse(
 					request.requestId,
 					`No onClientToolInvoke handler registered for tool: ${request.toolName}`
 				);
-				await this.#client.run({
+				void this.#client.run({
 					type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
 					requestId: response.requestId,
 					content: response.content,
 					success: response.success,
 					errorMessage: response.errorMessage,
 					augmentation: response.augmentation
-				});
+				}).catch((error) => this.#options.onError?.(error.message));
 			}
 		});
 
