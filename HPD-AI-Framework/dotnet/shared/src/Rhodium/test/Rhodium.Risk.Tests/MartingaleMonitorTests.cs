@@ -18,7 +18,7 @@ public class MartingaleMonitorTests
         var analyzer = new TestAnalyzer { TotalEquity = new Money(100000m, Currency.USD) };
 
         var inst = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NYSE);
-        var order = SubmitOrder.BuyLimit(inst, new Qty(10m), new Price(100m)); // $1000 position
+        var order = SubmitOrder.BuyLimit(new StrategyId(1), inst, new Qty(10m), new Price(100m)); // $1000 position
 
         var decision = monitor.CheckOrder(order, analyzer);
 
@@ -33,7 +33,7 @@ public class MartingaleMonitorTests
         var analyzer = new TestAnalyzer { TotalEquity = new Money(10000m, Currency.USD) };
 
         var inst = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NYSE);
-        var order = SubmitOrder.BuyLimit(inst, new Qty(100m), new Price(100m)); // $10000 position (100% of equity)
+        var order = SubmitOrder.BuyLimit(new StrategyId(1), inst, new Qty(100m), new Price(100m)); // $10000 position (100% of equity)
 
         var decision = monitor.CheckOrder(order, analyzer);
 
@@ -48,7 +48,7 @@ public class MartingaleMonitorTests
         var analyzer = new TestAnalyzer { TotalEquity = new Money(10000m, Currency.USD) };
 
         var inst = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NYSE);
-        var order = SubmitOrder.BuyLimit(inst, new Qty(15m), new Price(100m)); // $1500 position (15%)
+        var order = SubmitOrder.BuyLimit(new StrategyId(1), inst, new Qty(15m), new Price(100m)); // $1500 position (15%)
 
         var decision = monitor.CheckOrder(order, analyzer);
 
@@ -64,7 +64,7 @@ public class MartingaleMonitorTests
         var analyzer = new TestAnalyzer { TotalEquity = new Money(10000m, Currency.USD) };
 
         var inst = new Instrument(new Asset("TSLA", AssetClass.Equity), Venue.NASDAQ);
-        var order = SubmitOrder.BuyLimit(inst, new Qty(10m), new Price(100m)); // $1000 position (10%)
+        var order = SubmitOrder.BuyLimit(new StrategyId(1), inst, new Qty(10m), new Price(100m)); // $1000 position (10%)
 
         var decision = monitor.CheckOrder(order, analyzer);
 
@@ -81,7 +81,7 @@ public class MartingaleMonitorTests
         var analyzer = new TestAnalyzer { TotalEquity = Money.Zero(Currency.USD) };
 
         var inst = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NYSE);
-        var order = SubmitOrder.BuyLimit(inst, new Qty(1m), new Price(100m));
+        var order = SubmitOrder.BuyLimit(new StrategyId(1), inst, new Qty(1m), new Price(100m));
 
         var decision = monitor.CheckOrder(order, analyzer);
 
@@ -100,7 +100,7 @@ public class MartingaleMonitorTests
         var analyzer = new TestAnalyzer { TotalEquity = new Money(10000m, Currency.USD) };
 
         var inst = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NYSE);
-        var order = SubmitOrder.Market(inst, Side.Buy, new Qty(10m));
+        var order = SubmitOrder.Market(new StrategyId(1), inst, Side.Buy, new Qty(10m));
 
         var decision = monitor.CheckOrder(order, analyzer);
 
@@ -116,7 +116,7 @@ public class MartingaleMonitorTests
         var analyzer = new TestAnalyzer { TotalEquity = new Money(1000m, Currency.USD) };
 
         var inst = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NYSE);
-        var order = SubmitOrder.BuyLimit(inst, new Qty(100m), new Price(100m)); // Huge position
+        var order = SubmitOrder.BuyLimit(new StrategyId(1), inst, new Qty(100m), new Price(100m)); // Huge position
 
         var decision = monitor.CheckOrder(order, analyzer);
 

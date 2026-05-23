@@ -512,8 +512,8 @@ public class TestEventCoordinator : IEventCoordinator
     public ValueTask EmitAsync(Event evt, CancellationToken ct = default) { Emit(evt); return ValueTask.CompletedTask; }
     public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler, EventSubscriptionOptions? options = null) where TEvent : Event => new NoopSubscription();
     public IDisposable SubscribeAny(Func<Event, ValueTask> handler, EventSubscriptionOptions? options = null) => new NoopSubscription();
-    public EventStreamSubscription<TEvent> SubscribeStream<TEvent>(EventSubscriptionOptions? options = null) where TEvent : Event => default;
-    public EventStreamSubscription<Event> SubscribeChannel(EventChannel channel, EventSubscriptionOptions? options = null) => default;
+    public EventInbox<TEvent> CreateInbox<TEvent>(EventInboxOptions? options = null) where TEvent : Event => default;
+    public EventInbox<Event> CreateChannelInbox(EventChannel channel, EventInboxOptions? options = null) => default;
     public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent => false;
     public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : struct, IStructEvent => ValueTask.CompletedTask;
     public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => new NoopSubscription();
@@ -578,7 +578,7 @@ public class TestEventCoordinator : IEventCoordinator
         return tcs?.TrySetResult(response) == true;
     }
 
-    public IStreamRegistry Streams => throw new NotImplementedException();
+    public IEventFlowRegistry EventFlows => throw new NotImplementedException();
 
 }
 

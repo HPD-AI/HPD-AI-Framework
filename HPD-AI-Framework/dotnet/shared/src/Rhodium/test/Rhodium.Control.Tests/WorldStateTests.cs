@@ -1,95 +1,124 @@
-using Rhodium.Control;
+using Rhodium.Kernel;
 using Rhodium.Primitives;
-using Rhodium.Tensor;
 
 namespace Rhodium.Control.Tests;
 
 public class WorldStateTests
 {
     [Fact]
-    public void WorldState_AllocatePage_CreatesPositionsAndOrders()
+    public void WorldState_PositionAt_IsPerStrategy()
     {
-        var state = new WorldState();
-        var map = new TestBatchMap();
+        using var state = new WorldState();
+        var a = new StrategyId(1);
+        var b = new StrategyId(2);
 
-        state.AllocatePage(0, map);
+        state.PositionAt(a, 10).ApplyFill(Side.Buy, new Qty(50m), new Price(100m), Money.Zero(Currency.USD));
+        state.PositionAt(b, 10).ApplyFill(Side.Buy, new Qty(100m), new Price(100m), Money.Zero(Currency.USD));
 
-        // Should be able to access positions and orders
-        ref var pos = ref state.PositionAt(0);
-        ref var ord = ref state.OrderAt(0);
-
-        Assert.NotNull(pos);
-        Assert.NotNull(ord);
-        Assert.True(pos.IsFlat);
+        Assert.Equal(50m, state.PositionAt(a, 10).Quantity);
+        Assert.Equal(100m, state.PositionAt(b, 10).Quantity);
     }
 
     [Fact]
-    public void WorldState_PositionAt_ReturnsCorrectReference()
+    public void WorldState_MultiplePages_AreAllocatedOnDemand()
     {
-        var state = new WorldState();
-        var map = new TestBatchMap();
-        state.AllocatePage(0, map);
+        using var state = new WorldState();
+        var id = new StrategyId(1);
 
-        ref var pos = ref state.PositionAt(10);
+        state.PositionAt(id, 1500).ApplyFill(Side.Buy, new Qty(100m), new Price(25m), Money.Zero(Currency.USD));
 
-        // Modify position via ApplyFill
-        pos.ApplyFill(Side.Buy, new Qty(100m), new Price(50m), Money.Zero(Currency.USD));
-
-        // Get reference again and verify it's the same
-        ref var pos2 = ref state.PositionAt(10);
-        Assert.Equal(100m, pos2.Quantity.Value);
+        Assert.Equal(100m, state.PositionAt(id, 1500).Quantity);
     }
 
     [Fact]
-    public void WorldState_MultiplePages_HandlesCorrectly()
+    public void ApplyAllocationCommand_DoesNotResumePausedStrategyUnlessPauseIsExplicit()
     {
-        var state = new WorldState();
-        var map = new TestBatchMap();
+        using var state = new WorldState();
+        var child = new StrategyId(1);
 
-        state.AllocatePage(0, map);
-        state.AllocatePage(1, map);
+        state.ApplyAllocationCommand(new AllocationCommand
+        {
+            TargetStrategy = child,
+            Pause = true,
+            HasPause = true
+        });
 
-        // Access from both pages
-        ref var pos0 = ref state.PositionAt(10);    // Page 0
-        ref var pos1 = ref state.PositionAt(1500);  // Page 1
+        state.ApplyAllocationCommand(new AllocationCommand
+        {
+            TargetStrategy = child,
+            AllocationWeight = 0.25m,
+            HasAllocationWeight = true
+        });
 
-        pos0.ApplyFill(Side.Buy, new Qty(50m), new Price(100m), Money.Zero(Currency.USD));
-        pos1.ApplyFill(Side.Buy, new Qty(100m), new Price(100m), Money.Zero(Currency.USD));
+        Span<AllocationCommand> commands = stackalloc AllocationCommand[32];
+        var context = state.BuildContext(child, null, default, CreateCounters(), commands);
 
-        Assert.Equal(50m, state.PositionAt(10).Quantity.Value);
-        Assert.Equal(100m, state.PositionAt(1500).Quantity.Value);
+        Assert.True(context.IsPaused);
+        Assert.Equal(0.25m, context.AllocationWeight);
     }
 
     [Fact]
-    public void WorldState_AllocatePage_IsIdempotent()
+    public void ApplyAllocationCommand_AllowsZeroAllocationWeight()
     {
-        var state = new WorldState();
-        var map = new TestBatchMap();
+        using var state = new WorldState();
+        var child = new StrategyId(1);
 
-        state.AllocatePage(0, map);
-        state.AllocatePage(0, map); // Should not throw
+        state.ApplyAllocationCommand(new AllocationCommand
+        {
+            TargetStrategy = child,
+            AllocationWeight = 0m,
+            HasAllocationWeight = true
+        });
 
-        ref var pos = ref state.PositionAt(0);
-        Assert.NotNull(pos);
+        Span<AllocationCommand> commands = stackalloc AllocationCommand[32];
+        var context = state.BuildContext(child, null, default, CreateCounters(), commands);
+
+        Assert.Equal(0m, context.AllocationWeight);
     }
-}
 
-// Test implementation of IBatchMap
-internal class TestBatchMap : IBatchMap
-{
-    public int Version => 1;
-    public int TotalSize => 2048;
-    public TensorBasis CurrentBasis => new(10, 10);
-
-    public (int Start, int Length) GetInstrumentRange(Instrument instrument) => (0, 100);
-
-    public (Instrument Inst, int VariantId) GetContext(int virtualIndex) =>
-        (new Instrument(new Asset("TEST", AssetClass.Equity), Venue.NYSE), 0);
-
-    public (Instrument Inst, int VariantId) SafeGetContext(int virtualIndex)
+    [Fact]
+    public void BuildSnapshot_ReturnsOnlyActivePositionsFromReusableBuffer()
     {
-        if (virtualIndex >= TotalSize)
-            return (Instrument.Unknown, 0);
-        return GetContext(virtualIndex);
+        using var state = new WorldState();
+        var id = new StrategyId(1);
+        state.EnsureSnapshotCapacity(id, 4);
+
+        state.PositionAt(id, 0).ApplyFill(Side.Buy, new Qty(10m), new Price(10m), Money.Zero(Currency.USD));
+        state.PositionAt(id, 2).ApplyFill(Side.Buy, new Qty(5m), new Price(20m), Money.Zero(Currency.USD));
+
+        var snapshot = state.BuildSnapshot(id, 4);
+        var positions = snapshot.GetPositions();
+
+        Assert.Equal(2, positions.Length);
+        Assert.Equal(10m, positions[0].Quantity.Value);
+        Assert.Equal(5m, positions[1].Quantity.Value);
+        Assert.Equal(200m, snapshot.GrossExposure);
+
+        state.PositionAt(id, 2).ApplyFill(Side.Sell, new Qty(5m), new Price(20m), Money.Zero(Currency.USD));
+
+        snapshot = state.BuildSnapshot(id, 4);
+        positions = snapshot.GetPositions();
+
+        Assert.Equal(1, positions.Length);
+        Assert.Equal(10m, positions[0].Quantity.Value);
+        Assert.Equal(100m, snapshot.GrossExposure);
     }
+
+    [Fact]
+    public void BuildSnapshot_WarmedPathDoesNotAllocateManagedMemory()
+    {
+        using var state = new WorldState();
+        var id = new StrategyId(1);
+        state.EnsureSnapshotCapacity(id, 4);
+        state.PositionAt(id, 0).ApplyFill(Side.Buy, new Qty(10m), new Price(10m), Money.Zero(Currency.USD));
+        _ = state.BuildSnapshot(id, 4);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        _ = state.BuildSnapshot(id, 4);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    private static int[] CreateCounters() => new int[PortfolioContext.CounterCount];
 }

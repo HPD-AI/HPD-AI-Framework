@@ -1,8 +1,6 @@
 namespace HPD.ML.BinaryClassification.Tests;
 
-using Helium.Primitives;
 using HPD.ML.Abstractions;
-using Double = Helium.Primitives.Double;
 
 public class LogisticRegressionTests
 {
@@ -52,7 +50,7 @@ public class LogisticRegressionTests
         var p = (LinearModelParameters)model.Parameters;
 
         // Weight should be positive (higher feature → more likely positive)
-        Assert.True((double)p.Weights[0] > 0);
+        Assert.True(p.Weights[0] > 0);
     }
 
     [Fact]

@@ -6,27 +6,27 @@ namespace Helium.Algebra.Tests;
 public class ExtendedGcdTests
 {
     // Convenience: polynomial over Q from coefficients [a0, a1, ...] (ascending degree).
-    private static Polynomial<Rational> P(params int[] coeffs)
+    private static SparsePolynomial<Rational> P(params int[] coeffs)
     {
         var arr = new Rational[coeffs.Length];
         for (int i = 0; i < coeffs.Length; i++) arr[i] = (Rational)coeffs[i];
-        return Polynomial<Rational>.FromCoeffs(arr);
+        return SparsePolynomial<Rational>.FromCoeffs(arr);
     }
 
-    private static Polynomial<Rational> PR(params (int num, int den)[] coeffs)
+    private static SparsePolynomial<Rational> PR(params (int num, int den)[] coeffs)
     {
         var arr = new Rational[coeffs.Length];
         for (int i = 0; i < coeffs.Length; i++) arr[i] = Rational.Create((Integer)coeffs[i].num, (Integer)coeffs[i].den);
-        return Polynomial<Rational>.FromCoeffs(arr);
+        return SparsePolynomial<Rational>.FromCoeffs(arr);
     }
 
-    private static readonly Polynomial<Rational> Zero = Polynomial<Rational>.Zero;
-    private static readonly Polynomial<Rational> One  = Polynomial<Rational>.One;
-    private static readonly Polynomial<Rational> X    = Polynomial<Rational>.X;
+    private static readonly SparsePolynomial<Rational> Zero = SparsePolynomial<Rational>.Zero;
+    private static readonly SparsePolynomial<Rational> One  = SparsePolynomial<Rational>.One;
+    private static readonly SparsePolynomial<Rational> X    = SparsePolynomial<Rational>.X;
 
     // Verify the Bezout identity: u * self + v * other = gcd.
-    private static void AssertBezout(Polynomial<Rational> self, Polynomial<Rational> other,
-        Polynomial<Rational> gcd, Polynomial<Rational> u, Polynomial<Rational> v)
+    private static void AssertBezout(SparsePolynomial<Rational> self, SparsePolynomial<Rational> other,
+        SparsePolynomial<Rational> gcd, SparsePolynomial<Rational> u, SparsePolynomial<Rational> v)
     {
         var lhs = u * self + v * other;
         Assert.Equal(gcd, lhs);
@@ -118,8 +118,8 @@ public class ExtendedGcdTests
     [Fact]
     public void Constants_Coprime_GcdIsOne()
     {
-        var p = Polynomial<Rational>.C(Rational.Create((Integer)3, (Integer)4));  // 3/4
-        var q = Polynomial<Rational>.C(Rational.Create((Integer)1, (Integer)2));  // 1/2
+        var p = SparsePolynomial<Rational>.C(Rational.Create((Integer)3, (Integer)4));  // 3/4
+        var q = SparsePolynomial<Rational>.C(Rational.Create((Integer)1, (Integer)2));  // 1/2
         var (gcd, u, v) = p.ExtendedGcd(q);
         Assert.Equal(0, gcd.Degree);
         Assert.Equal((Rational)1, gcd[0]);

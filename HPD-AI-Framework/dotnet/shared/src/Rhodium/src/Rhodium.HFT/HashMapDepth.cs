@@ -28,6 +28,22 @@ public sealed class HashMapDepth : IHftDepth
         return book.TryGetValue(priceTick, out var qty) ? qty : 0m;
     }
 
+    public int CopyLevels(Side side, Span<DepthLevel> destination)
+    {
+        var count = 0;
+        var book = side == Side.Buy ? _bids : _asks;
+
+        foreach (var (priceTick, qty) in book)
+        {
+            if (side == Side.Buy)
+                DepthLevelBuffer.InsertBid(destination, ref count, priceTick, qty);
+            else
+                DepthLevelBuffer.InsertAsk(destination, ref count, priceTick, qty);
+        }
+
+        return count;
+    }
+
     public void Update(Side side, long priceTick, decimal qty, Instant timestamp)
     {
         var book = side == Side.Buy ? _bids : _asks;

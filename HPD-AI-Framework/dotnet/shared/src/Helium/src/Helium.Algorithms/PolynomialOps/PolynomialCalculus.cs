@@ -14,10 +14,10 @@ public static class PolynomialCalculus
     /// Formal derivative of a univariate polynomial.
     /// For each term c*x^n, produces n*c*x^(n-1). Constant terms vanish.
     /// </summary>
-    public static Polynomial<R> Derivative<R>(Polynomial<R> p) where R : IRing<R>
+    public static SparsePolynomial<R> Derivative<R>(SparsePolynomial<R> p) where R : IRing<R>
     {
         if (p.IsZero)
-            return Polynomial<R>.Zero;
+            return SparsePolynomial<R>.Zero;
 
         var coeffs = new List<KeyValuePair<int, R>>();
         foreach (var exp in p.Support)
@@ -30,16 +30,16 @@ public static class PolynomialCalculus
         }
 
         if (coeffs.Count == 0)
-            return Polynomial<R>.Zero;
+            return SparsePolynomial<R>.Zero;
 
-        return Polynomial<R>.FromCoeffs(CoeffsToArray<R>(coeffs));
+        return SparsePolynomial<R>.FromCoeffs(CoeffsToArray<R>(coeffs));
     }
 
     /// <summary>
     /// N-th derivative: applies the derivative operator n times.
     /// Returns the zero polynomial if n exceeds the degree.
     /// </summary>
-    public static Polynomial<R> NthDerivative<R>(Polynomial<R> p, int n) where R : IRing<R>
+    public static SparsePolynomial<R> NthDerivative<R>(SparsePolynomial<R> p, int n) where R : IRing<R>
     {
         if (n < 0)
             throw new ArgumentOutOfRangeException(nameof(n), "Order must be non-negative.");
@@ -58,10 +58,10 @@ public static class PolynomialCalculus
     /// Formal antiderivative of a univariate polynomial over a field.
     /// For each term c*x^n, produces (c/(n+1))*x^(n+1). Constant of integration is zero.
     /// </summary>
-    public static Polynomial<R> Integrate<R>(Polynomial<R> p) where R : IField<R>
+    public static SparsePolynomial<R> Integrate<R>(SparsePolynomial<R> p) where R : IField<R>
     {
         if (p.IsZero)
-            return Polynomial<R>.Zero;
+            return SparsePolynomial<R>.Zero;
 
         var coeffs = new List<KeyValuePair<int, R>>();
         foreach (var exp in p.Support)
@@ -71,9 +71,9 @@ public static class PolynomialCalculus
         }
 
         if (coeffs.Count == 0)
-            return Polynomial<R>.Zero;
+            return SparsePolynomial<R>.Zero;
 
-        return Polynomial<R>.FromCoeffs(CoeffsToArray<R>(coeffs));
+        return SparsePolynomial<R>.FromCoeffs(CoeffsToArray<R>(coeffs));
     }
 
     /// <summary>

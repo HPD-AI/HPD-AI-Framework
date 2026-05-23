@@ -1,9 +1,6 @@
 namespace HPD.ML.BinaryClassification;
 
-using Helium.Algebra;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
-using Double = Helium.Primitives.Double;
 
 /// <summary>
 /// Learned parameters for any linear binary classifier.
@@ -11,8 +8,10 @@ using Double = Helium.Primitives.Double;
 /// </summary>
 public sealed class LinearModelParameters : ILearnedParameters
 {
-    public Vector<Double> Weights { get; }
-    public Double Bias { get; }
+    private readonly double[] _weights;
+
+    public IReadOnlyList<double> Weights => _weights;
+    public double Bias { get; }
 
     /// <summary>Optional: feature names for interpretability.</summary>
     public IReadOnlyList<string>? FeatureNames { get; init; }
@@ -20,14 +19,14 @@ public sealed class LinearModelParameters : ILearnedParameters
     /// <summary>Optional: per-weight statistics (z-score, p-value) for logistic regression.</summary>
     public IReadOnlyList<WeightStatistics>? Statistics { get; init; }
 
-    public LinearModelParameters(Vector<Double> weights, Double bias)
+    public LinearModelParameters(ReadOnlySpan<double> weights, double bias)
     {
-        Weights = weights;
+        _weights = weights.ToArray();
         Bias = bias;
     }
 
     /// <summary>Number of features.</summary>
-    public int FeatureCount => Weights.Length;
+    public int FeatureCount => _weights.Length;
 }
 
 public sealed record WeightStatistics(

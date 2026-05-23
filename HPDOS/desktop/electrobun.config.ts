@@ -1,4 +1,13 @@
 import type { ElectrobunConfig } from "electrobun";
+import { existsSync } from "node:fs";
+
+const copy: NonNullable<ElectrobunConfig["build"]>["copy"] = {
+  "src/mainview/loading.html": "views/mainview/loading.html"
+};
+
+if (existsSync("resources/backend")) {
+  copy["resources/backend"] = "backend";
+}
 
 export default {
   app: {
@@ -13,10 +22,7 @@ export default {
     bun: {
       entrypoint: "src/bun/index.ts"
     },
-    copy: {
-      "src/mainview/loading.html": "views/mainview/loading.html",
-      "resources/backend": "backend"
-    },
+    copy,
     mac: {
       bundleCEF: false
     },

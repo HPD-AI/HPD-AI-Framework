@@ -3,6 +3,7 @@ namespace HPD.ML.Serialization.Zip.Tests;
 using System.Buffers;
 using HPD.ML.Abstractions;
 using HPD.ML.Core;
+using HPD.ML.DeepLearning;
 
 public class ZipSerializerTests
 {
@@ -54,6 +55,47 @@ public class ZipSerializerTests
         var loadedParams = Assert.IsType<TestParameters>(loaded.Parameters);
         Assert.Equal([4.0, 5.0], loadedParams.Weights);
         Assert.Equal(-1.0, loadedParams.Bias);
+    }
+
+    [Fact]
+    public void SaveAndLoad_NeuralNetworkParameters_RoundTripsWithoutExplicitRegistration()
+    {
+        var serializer = new ZipSerializer();
+        var definition = new NeuralNetworkDefinition(
+            "features",
+            "label",
+            [
+                new DenseLayerSpec(3, 2, ActivationKind.ReLU),
+                new DenseLayerSpec(2, 1, ActivationKind.Identity)
+            ]);
+        var parameters = new NeuralNetworkParameters(
+            definition,
+            [
+                [0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f],
+                [0.7f, 0.8f]
+            ],
+            [
+                [0.01f, 0.02f],
+                [0.03f]
+            ]);
+        var model = new Model(new IdentityTransform(), parameters);
+
+        using var stream = new MemoryStream();
+        serializer.Save(model, SaveContent.LearnedParameters, new ZipFormat(), stream);
+
+        stream.Position = 0;
+        var loaded = serializer.Load(new ZipFormat(), stream);
+
+        var loadedParams = Assert.IsType<NeuralNetworkParameters>(loaded.Parameters);
+        Assert.Equal("features", loadedParams.Definition.FeatureColumn);
+        Assert.Equal("label", loadedParams.Definition.LabelColumn);
+        Assert.Equal(2, loadedParams.Definition.Layers.Count);
+        Assert.Equal(ActivationKind.ReLU, loadedParams.Definition.Layers[0].Activation);
+        Assert.Equal(ActivationKind.Identity, loadedParams.Definition.Layers[1].Activation);
+        Assert.Equal([0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f], loadedParams.Weights[0]);
+        Assert.Equal([0.7f, 0.8f], loadedParams.Weights[1]);
+        Assert.Equal([0.01f, 0.02f], loadedParams.Biases[0]);
+        Assert.Equal([0.03f], loadedParams.Biases[1]);
     }
 
     [Fact]

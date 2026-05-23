@@ -145,4 +145,15 @@ public class MatrixTests
         Assert.Equal((Integer)4, sum[0]);
         Assert.Equal((Integer)6, sum[1]);
     }
+
+    [Fact]
+    public void Vector_RejectsMismatchedDimensions()
+    {
+        var v = Vector<Integer>.FromArray((Integer)1, (Integer)2);
+        var w = Vector<Integer>.FromArray((Integer)3);
+
+        Assert.Throws<ArgumentException>(() => v + w);
+        Assert.Throws<ArgumentException>(() => v - w);
+        Assert.Throws<ArgumentException>(() => Vector<Integer>.Dot(v, w));
+    }
 }

@@ -28,6 +28,22 @@ public sealed class FusedDepth : IHftDepth
         return book.TryGetValue(priceTick, out var entry) ? entry.Qty : 0m;
     }
 
+    public int CopyLevels(Side side, Span<DepthLevel> destination)
+    {
+        var count = 0;
+        var book = side == Side.Buy ? _bids : _asks;
+
+        foreach (var (priceTick, entry) in book)
+        {
+            if (side == Side.Buy)
+                DepthLevelBuffer.InsertBid(destination, ref count, priceTick, entry.Qty);
+            else
+                DepthLevelBuffer.InsertAsk(destination, ref count, priceTick, entry.Qty);
+        }
+
+        return count;
+    }
+
     public void Update(Side side, long priceTick, decimal qty, Instant timestamp)
     {
         var book = side == Side.Buy ? _bids : _asks;

@@ -327,7 +327,7 @@ public class SensorPollingTests
         var orchestrator = new GraphOrchestrator<GraphContext>(services);
 
         var pollingEvents = new List<NodePollingEvent>();
-        await using var eventSubscription = coordinator.SubscribeChannel(EventChannel.Synchronous);
+        await using var eventSubscription = coordinator.CreateChannelInbox(EventChannel.Synchronous);
 
         // Act
         var execTask = Task.Run(async () => await orchestrator.ExecuteAsync(context));
@@ -374,7 +374,7 @@ public class SensorPollingTests
         var orchestrator = new GraphOrchestrator<GraphContext>(services);
 
         var timeoutEvents = new List<NodePollingTimeoutEvent>();
-        await using var eventSubscription = coordinator.SubscribeChannel(EventChannel.Synchronous);
+        await using var eventSubscription = coordinator.CreateChannelInbox(EventChannel.Synchronous);
 
         // Act
         var execTask = Task.Run(async () => await orchestrator.ExecuteAsync(context));
@@ -421,7 +421,7 @@ public class SensorPollingTests
         var orchestrator = new GraphOrchestrator<GraphContext>(services);
 
         var maxRetriesEvents = new List<NodePollingMaxRetriesEvent>();
-        await using var eventSubscription = coordinator.SubscribeChannel(EventChannel.Synchronous);
+        await using var eventSubscription = coordinator.CreateChannelInbox(EventChannel.Synchronous);
 
         // Act
         var execTask = Task.Run(async () => await orchestrator.ExecuteAsync(context));

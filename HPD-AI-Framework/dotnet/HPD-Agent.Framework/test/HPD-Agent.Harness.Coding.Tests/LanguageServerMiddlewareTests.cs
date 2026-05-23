@@ -1435,7 +1435,7 @@ public sealed class LanguageServerMiddlewareTests
 
         public List<Event> Captured { get; } = [];
 
-        public IStreamRegistry Streams => _inner.Streams;
+        public IEventFlowRegistry EventFlows => _inner.EventFlows;
 
         public void Emit(Event evt)
             => Captured.Add(evt);
@@ -1457,15 +1457,15 @@ public sealed class LanguageServerMiddlewareTests
             EventSubscriptionOptions? options = null)
             => _inner.SubscribeAny(handler, options);
 
-        public EventStreamSubscription<TEvent> SubscribeStream<TEvent>(
-            EventSubscriptionOptions? options = null)
+        public EventInbox<TEvent> CreateInbox<TEvent>(
+            EventInboxOptions? options = null)
             where TEvent : Event
-            => _inner.SubscribeStream<TEvent>(options);
+            => _inner.CreateInbox<TEvent>(options);
 
-        public EventStreamSubscription<Event> SubscribeChannel(
+        public EventInbox<Event> CreateChannelInbox(
             EventChannel channel,
-            EventSubscriptionOptions? options = null)
-            => _inner.SubscribeChannel(channel, options);
+            EventInboxOptions? options = null)
+            => _inner.CreateChannelInbox(channel, options);
 
         public bool TryEmitStruct<TEvent>(in TEvent evt)
             where TEvent : struct, IStructEvent

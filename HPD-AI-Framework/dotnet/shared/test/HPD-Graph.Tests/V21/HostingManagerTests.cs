@@ -141,7 +141,7 @@ public sealed class HostingManagerTests
             executionManager,
             eventCoordinator: eventCoordinator);
         await graphManager.CreateDefinitionAsync(CreateConfig("graph-a", "Workflow"));
-        await using var eventSubscription = eventCoordinator.SubscribeChannel(EventChannel.Synchronous);
+        await using var eventSubscription = eventCoordinator.CreateChannelInbox(EventChannel.Synchronous);
 
         var execution = await runner.StartAsync(
             "graph-a",

@@ -1,5 +1,6 @@
 using System.Text;
 using HPD.Agent;
+using HPD.Agent.Harness.Coding;
 using HPD.Agent.Middleware;
 using HPD.Events.Core;
 using HPDOS.Harneses.Middleware;
@@ -464,14 +465,54 @@ public sealed class ReadFileTests : IDisposable
         typeof(FunctionExecutionContext).GetProperty("Branch").Should().BeNull();
     }
 
+    [Fact]
+    public async Task ReadFile_RootQualifiedPath_ReadsSecondaryWorkspaceRoot()
+    {
+        var docsRoot = Path.Combine(_tempRoot, "docs");
+        Directory.CreateDirectory(docsRoot);
+        await File.WriteAllTextAsync(Path.Combine(docsRoot, "notes.md"), "# docs\n");
+
+        var result = await ReadFileTextAsync(
+            new CodingHarness(),
+            "@docs/notes.md",
+            runConfig: CreateWorkspaceRunConfig(_tempRoot, docsRoot));
+
+        result.Should().Contain("# docs");
+        result.Should().Contain(Path.Combine(docsRoot, "notes.md"));
+    }
+
+    [Fact]
+    public async Task ReadFile_PathOutsideWorkspace_Rejects()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), $"hpd-read-outside-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(outside, "secret");
+        try
+        {
+            var result = await ReadFileTextAsync(
+                new CodingHarness(),
+                outside,
+                runConfig: CreateWorkspaceRunConfig(_tempRoot));
+
+            result.Should().Contain("Unable to read file");
+            result.Should().Contain("outside the configured workspace");
+        }
+        finally
+        {
+            if (File.Exists(outside))
+                File.Delete(outside);
+        }
+    }
+
     private static async Task<string> ReadFileTextAsync(
         CodingHarness harness,
         string? path,
         int offset = 1,
-        int limit = 2000)
+        int limit = 2000,
+        AgentRunConfig? runConfig = null)
     {
         var agentContext = CreateAgentContext();
         var beforeContext = CreateBeforeFunctionContext(agentContext);
+        runConfig ??= CreateWorkspaceRunConfig();
         var request = new FunctionRequest
         {
             Function = AIFunctionFactory.Create(
@@ -489,6 +530,7 @@ public sealed class ReadFileTests : IDisposable
                 ["limit"] = limit
             },
             State = agentContext.State,
+            RunConfig = runConfig,
             EventCoordinator = agentContext.EventCoordinator
         };
         var functionContext = new FunctionExecutionContext(beforeContext, request);
@@ -508,6 +550,7 @@ public sealed class ReadFileTests : IDisposable
         int limit = 2000)
     {
         var beforeContext = CreateBeforeFunctionContext(agentContext);
+        var runConfig = CreateWorkspaceRunConfig();
         var request = new FunctionRequest
         {
             Function = AIFunctionFactory.Create(
@@ -520,6 +563,7 @@ public sealed class ReadFileTests : IDisposable
             CallId = beforeContext.FunctionCallId,
             Arguments = new Dictionary<string, object?>(),
             State = agentContext.State,
+            RunConfig = runConfig,
             EventCoordinator = agentContext.EventCoordinator
         };
 
@@ -531,7 +575,7 @@ public sealed class ReadFileTests : IDisposable
             callId: beforeContext.FunctionCallId,
             result: result,
             exception: null,
-            runConfig: new AgentRunConfig(),
+            runConfig: runConfig,
             harnessName: "CodingHarness",
             resultMetadata: request.ResultMetadata);
 
@@ -572,8 +616,31 @@ public sealed class ReadFileTests : IDisposable
             function: null,
             callId: "call-1",
             arguments: new Dictionary<string, object?>(),
-            runConfig: new AgentRunConfig(),
+            runConfig: CreateWorkspaceRunConfig(),
             harnessName: "CodingHarness");
+    }
+
+    private static AgentRunConfig CreateWorkspaceRunConfig(string? defaultRoot = null, string? docsRoot = null)
+    {
+        var cwd = Path.GetFullPath(defaultRoot ?? Directory.GetCurrentDirectory());
+        var roots = new List<AgentWorkspaceRoot>
+        {
+            new("default", cwd)
+        };
+
+        if (docsRoot is not null)
+            roots.Add(new AgentWorkspaceRoot("docs", Path.GetFullPath(docsRoot), "Docs"));
+
+        return new AgentRunConfig
+        {
+            ContextOverrides = new()
+            {
+                [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                    "default",
+                    cwd,
+                    roots)
+            }
+        };
     }
 
     private static string ComputeReturnedContentHash(IReadOnlyList<string> lines)

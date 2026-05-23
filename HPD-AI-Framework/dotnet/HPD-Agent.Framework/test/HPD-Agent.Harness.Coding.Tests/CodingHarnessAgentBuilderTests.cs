@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent;
+using HPD.Agent.Harness.Coding;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Middleware;
 using HPD.Agent.Providers;
@@ -155,11 +156,22 @@ public class CodingHarnessAgentBuilderTests
             session,
             branch,
             CancellationToken.None);
+        var cwd = Directory.GetCurrentDirectory();
+        var runConfig = new AgentRunConfig
+        {
+            ContextOverrides = new()
+            {
+                [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                    "default",
+                    cwd,
+                    [new AgentWorkspaceRoot("default", cwd)])
+            }
+        };
         var beforeContext = agentContext.AsBeforeFunction(
             function,
             "call-1",
             new Dictionary<string, object?>(),
-            new AgentRunConfig(),
+            runConfig,
             harnessName: null,
             skillName: null,
             invocation: null);
@@ -169,6 +181,7 @@ public class CodingHarnessAgentBuilderTests
             CallId = "call-1",
             Arguments = new Dictionary<string, object?>(),
             State = state,
+            RunConfig = runConfig,
             ResultMetadata = new ToolResultMetadata(),
             EventCoordinator = eventCoordinator
         };

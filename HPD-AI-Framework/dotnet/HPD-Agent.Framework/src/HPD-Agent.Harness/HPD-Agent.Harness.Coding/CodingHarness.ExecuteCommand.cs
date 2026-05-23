@@ -6,8 +6,9 @@ using System.Text;
 using System.Text.Json;
 using System.Xml;
 using HPD.Agent;
+using HPD.Agent.Harness.Coding;
 using HPD.Agent.Middleware;
-using HPD.Agent.Sandbox;
+using HPD.Execution.Contracts;
 using HPD.Events;
 using HPD.Events.Core;
 using HPDOS.Harneses.Middleware;
@@ -30,8 +31,7 @@ public partial class CodingHarness
 
     [AIFunction]
     [RequiresPermission]
-    [Sandboxable]
-    [Description("Runs, lists, inspects, or stops shell commands for the coding workspace. Use Run for builds, tests, project scripts, package managers, git inspection, code generation, formatters, linters, and local servers. Use ListBackground, ReadOutput, or Stop only for background commands previously started by this function.")]
+        [Description("Runs, lists, inspects, or stops shell commands for the coding workspace. Use Run for builds, tests, project scripts, package managers, git inspection, code generation, formatters, linters, and local servers. Use ListBackground, ReadOutput, or Stop only for background commands previously started by this function.")]
     public async Task<object> ExecuteCommand(
         [Description("Operation to perform. Use Run to start a command, ListBackground to recover active/recent background command ids, ReadOutput to inspect a background command, and Stop to terminate a background command.")]
         ExecuteCommandAction action = ExecuteCommandAction.Run,
@@ -66,6 +66,7 @@ public partial class CodingHarness
             tailLines,
             delayMilliseconds,
             environment,
+            context,
             _executeCommandOptions);
 
         if (normalized.Error is { } error)
@@ -126,20 +127,18 @@ public partial class CodingHarness
         var environmentContext = EnvironmentContext.CreateCurrent();
         var baseCommand = GetBaseCommand(request.Command);
         var category = DetectCommandCategory(baseCommand, request.Command);
-        var processCommand = SandboxedProcessCommand.Exec(
+        var processSpec = CreateProcessInvocationSpec(
             environmentContext.ShellExecutable,
             [.. environmentContext.ShellCommandArgumentsPrefix, request.Command],
             request.WorkingDirectory,
-            request.Environment);
+            request.Environment,
+            request.Timeout);
 
-        EventCoordinator? processEvents = null;
-        IDisposable? outputSubscription = null;
         ExecuteCommandOutputStoreSession? outputStore = null;
-        ISandboxedProcessHandle? handle = null;
+        IProcessInvocationHandle? handle = null;
 
         try
         {
-            processEvents = new EventCoordinator();
             var eventState = new ExecuteCommandEventState(_executeCommandOptions);
             outputStore = await ExecuteCommandOutputStoreSession.CreateAsync(
                 request.CommandId,
@@ -148,30 +147,17 @@ public partial class CodingHarness
                 _executeCommandOptions,
                 cancellationToken).ConfigureAwait(false);
 
-            outputSubscription = processEvents.Subscribe<SandboxedProcessOutputEvent>(
-                async evt =>
-                {
-                    await outputStore.AppendAsync(evt.Stream, evt.Bytes, evt.Timestamp, CancellationToken.None)
-                        .ConfigureAwait(false);
-                    EmitExecuteCommandOutputChunkEvent(
-                        context,
-                        request,
-                        baseCommand,
-                        category,
-                        evt,
-                        eventState);
-                });
+            var outputSink = new ExecuteCommandOutputSink(
+                context,
+                request,
+                baseCommand,
+                category,
+                outputStore,
+                eventState);
 
-            handle = await context.GetSandboxedProcessRunner().StartAsync(
-                processCommand,
-                context.SandboxConfigOverride,
-                new SandboxedProcessOptions
-                {
-                    Timeout = request.Timeout,
-                    InactivityTimeout = _executeCommandOptions.InactivityTimeout,
-                    MaxCapturedBytesPerStream = _executeCommandOptions.MaxInlineCommandOutputChars,
-                    EventCoordinator = processEvents
-                },
+            handle = await GetProcessProvider(context).StartAsync(
+                processSpec,
+                outputSink,
                 cancellationToken).ConfigureAwait(false);
 
             var background = new ExecuteCommandBackgroundProcess(
@@ -183,15 +169,13 @@ public partial class CodingHarness
                 category,
                 handle,
                 outputStore,
-                processEvents,
-                outputSubscription,
                 context.InvocationSnapshot);
 
             context.TryEmit(new ExecuteCommandProcessStartedEvent
             {
                 ToolCallId = context.FunctionCallId,
                 FunctionName = context.FunctionName,
-                StreamId = request.CommandId,
+                EventFlowId = request.CommandId,
                 CommandId = request.CommandId,
                 Command = request.Command,
                 BaseCommand = baseCommand,
@@ -201,7 +185,7 @@ public partial class CodingHarness
                 StartedAt = background.StartedAt,
                 Background = true,
                 AutoBackgroundEligible = false,
-                ProcessId = handle.SystemProcessId,
+                ProcessId = null,
                 TimeoutMilliseconds = (int)request.Timeout.TotalMilliseconds
             });
 
@@ -209,18 +193,18 @@ public partial class CodingHarness
 
             return FormatExecuteCommandBackgroundStarted(request, background.OutputStore.CombinedPath);
         }
-        catch (Exception ex) when (IsMissingSandboxRunnerException(ex))
+        catch (Exception ex) when (IsMissingProcessProviderException(ex))
         {
-            await CleanupFailedBackgroundStartAsync(handle, outputStore, outputSubscription, processEvents, cancellationToken).ConfigureAwait(false);
+            await CleanupFailedBackgroundStartAsync(handle, outputStore, cancellationToken).ConfigureAwait(false);
             return FormatExecuteCommandError(new ExecuteCommandError(
                 ExecuteCommandErrorKind.MissingRunner,
                 request.Command,
                 request.WorkingDirectory,
-                "No ISandboxedProcessRunner runtime capability is available."));
+                "No IProcessProvider runtime capability is available."));
         }
         catch (Exception ex)
         {
-            await CleanupFailedBackgroundStartAsync(handle, outputStore, outputSubscription, processEvents, cancellationToken).ConfigureAwait(false);
+            await CleanupFailedBackgroundStartAsync(handle, outputStore, cancellationToken).ConfigureAwait(false);
             return FormatExecuteCommandError(new ExecuteCommandError(
                 ExecuteCommandErrorKind.StartFailed,
                 request.Command,
@@ -237,22 +221,20 @@ public partial class CodingHarness
         var environmentContext = EnvironmentContext.CreateCurrent();
         var baseCommand = GetBaseCommand(request.Command);
         var category = DetectCommandCategory(baseCommand, request.Command);
-        var processCommand = SandboxedProcessCommand.Exec(
+        var processSpec = CreateProcessInvocationSpec(
             environmentContext.ShellExecutable,
             [.. environmentContext.ShellCommandArgumentsPrefix, request.Command],
             request.WorkingDirectory,
-            request.Environment);
+            request.Environment,
+            request.Timeout);
 
         var stopwatch = Stopwatch.StartNew();
-        EventCoordinator? processEvents = null;
-        IDisposable? outputSubscription = null;
         ExecuteCommandOutputStoreSession? outputStore = null;
-        ISandboxedProcessHandle? handle = null;
+        IProcessInvocationHandle? handle = null;
         var ownershipTransferred = false;
 
         try
         {
-            processEvents = new EventCoordinator();
             var eventState = new ExecuteCommandEventState(_executeCommandOptions);
             outputStore = await ExecuteCommandOutputStoreSession.CreateAsync(
                 request.CommandId,
@@ -261,37 +243,24 @@ public partial class CodingHarness
                 _executeCommandOptions,
                 cancellationToken).ConfigureAwait(false);
 
-            outputSubscription = processEvents.Subscribe<SandboxedProcessOutputEvent>(
-                async evt =>
-                {
-                    await outputStore.AppendAsync(evt.Stream, evt.Bytes, evt.Timestamp, CancellationToken.None)
-                        .ConfigureAwait(false);
-                    EmitExecuteCommandOutputChunkEvent(
-                        context,
-                        request,
-                        baseCommand,
-                        category,
-                        evt,
-                        eventState);
-                });
+            var outputSink = new ExecuteCommandOutputSink(
+                context,
+                request,
+                baseCommand,
+                category,
+                outputStore,
+                eventState);
 
-            handle = await context.GetSandboxedProcessRunner().StartAsync(
-                processCommand,
-                context.SandboxConfigOverride,
-                new SandboxedProcessOptions
-                {
-                    Timeout = request.Timeout,
-                    InactivityTimeout = _executeCommandOptions.InactivityTimeout,
-                    MaxCapturedBytesPerStream = _executeCommandOptions.MaxInlineCommandOutputChars,
-                    EventCoordinator = processEvents
-                },
+            handle = await GetProcessProvider(context).StartAsync(
+                processSpec,
+                outputSink,
                 cancellationToken).ConfigureAwait(false);
 
             context.TryEmit(new ExecuteCommandProcessStartedEvent
             {
                 ToolCallId = context.FunctionCallId,
                 FunctionName = context.FunctionName,
-                StreamId = request.CommandId,
+                EventFlowId = request.CommandId,
                 CommandId = request.CommandId,
                 Command = request.Command,
                 BaseCommand = baseCommand,
@@ -301,7 +270,7 @@ public partial class CodingHarness
                 StartedAt = DateTimeOffset.UtcNow,
                 Background = false,
                 AutoBackgroundEligible = false,
-                ProcessId = handle.SystemProcessId,
+                ProcessId = null,
                 TimeoutMilliseconds = (int)request.Timeout.TotalMilliseconds
             });
 
@@ -315,11 +284,12 @@ public partial class CodingHarness
             if (_executeCommandOptions.AutoBackgroundAfter is { } autoBackgroundAfter &&
                 autoBackgroundAfter >= TimeSpan.Zero)
             {
+                var completionTask = handle.WaitAsync(CancellationToken.None).AsTask();
                 var completed = await Task.WhenAny(
-                        handle.Completion,
+                        completionTask,
                         Task.Delay(autoBackgroundAfter, cancellationToken))
                     .ConfigureAwait(false);
-            if (completed != handle.Completion)
+            if (completed != completionTask)
             {
                 eventState.TryEmitProgress(
                     context,
@@ -336,8 +306,7 @@ public partial class CodingHarness
                         category,
                         handle,
                         outputStore,
-                        processEvents,
-                        outputSubscription);
+                        context.InvocationSnapshot);
 
                     if (background is not null)
                     {
@@ -346,7 +315,7 @@ public partial class CodingHarness
                         {
                             ToolCallId = context.FunctionCallId,
                             FunctionName = context.FunctionName,
-                            StreamId = request.CommandId,
+                            EventFlowId = request.CommandId,
                             CommandId = request.CommandId,
                             Command = request.Command,
                             BaseCommand = baseCommand,
@@ -365,7 +334,7 @@ public partial class CodingHarness
                 }
             }
 
-            var result = await handle.Completion.ConfigureAwait(false);
+            var result = await handle.WaitAsync(cancellationToken).ConfigureAwait(false);
             stopwatch.Stop();
             var outputMetadata = await outputStore.CompleteAsync(
                 result,
@@ -398,14 +367,14 @@ public partial class CodingHarness
                 request.WorkingDirectory,
                 "Command execution was cancelled."));
         }
-        catch (Exception ex) when (IsMissingSandboxRunnerException(ex))
+        catch (Exception ex) when (IsMissingProcessProviderException(ex))
         {
             stopwatch.Stop();
             return FormatExecuteCommandError(new ExecuteCommandError(
                 ExecuteCommandErrorKind.MissingRunner,
                 request.Command,
                 request.WorkingDirectory,
-                "No ISandboxedProcessRunner runtime capability is available."));
+                "No IProcessProvider runtime capability is available."));
         }
         catch (Exception ex)
         {
@@ -424,8 +393,6 @@ public partial class CodingHarness
                     await handle.DisposeAsync().ConfigureAwait(false);
                 if (outputStore is not null)
                     await outputStore.DisposeAsync().ConfigureAwait(false);
-                outputSubscription?.Dispose();
-                processEvents?.Dispose();
             }
         }
     }
@@ -440,6 +407,7 @@ public partial class CodingHarness
         int tailLines,
         int delayMilliseconds,
         IReadOnlyDictionary<string, string>? environment,
+        FunctionExecutionContext context,
         ExecuteCommandOptions options)
     {
         if (timeoutMilliseconds <= 0)
@@ -478,7 +446,7 @@ public partial class CodingHarness
         if (argumentError is not null)
             return InvalidArguments(command, workingDirectory, argumentError);
 
-        var cwd = ResolveExecuteCommandWorkingDirectory(workingDirectory);
+        var cwd = ResolveExecuteCommandWorkingDirectory(workingDirectory, context);
         if (cwd.Error is { } cwdError)
         {
             return new ExecuteCommandNormalizationResult(null, cwdError with
@@ -549,14 +517,26 @@ public partial class CodingHarness
         };
     }
 
-    private static ExecuteCommandWorkingDirectoryResult ResolveExecuteCommandWorkingDirectory(string? workingDirectory)
+    private static ExecuteCommandWorkingDirectoryResult ResolveExecuteCommandWorkingDirectory(
+        string? workingDirectory,
+        FunctionExecutionContext context)
     {
-        var fullPath = string.IsNullOrWhiteSpace(workingDirectory)
-            ? Directory.GetCurrentDirectory()
-            : Path.GetFullPath(
-                Path.IsPathRooted(workingDirectory)
-                    ? workingDirectory
-                    : Path.Combine(Directory.GetCurrentDirectory(), workingDirectory));
+        string fullPath;
+        try
+        {
+            var workspace = AgentWorkspace.From(context.RunConfig);
+            fullPath = workspace.ResolveDirectory(workingDirectory);
+        }
+        catch (AgentWorkspaceException ex)
+        {
+            return new ExecuteCommandWorkingDirectoryResult(
+                workingDirectory,
+                new ExecuteCommandError(
+                    ToExecuteCommandWorkspaceErrorKind(ex.Kind),
+                    null,
+                    workingDirectory,
+                    ex.Message));
+        }
 
         if (File.Exists(fullPath))
         {
@@ -582,6 +562,14 @@ public partial class CodingHarness
 
         return new ExecuteCommandWorkingDirectoryResult(fullPath, null);
     }
+
+    private static ExecuteCommandErrorKind ToExecuteCommandWorkspaceErrorKind(AgentWorkspaceErrorKind kind)
+        => kind switch
+        {
+            AgentWorkspaceErrorKind.PathOutsideWorkspace or AgentWorkspaceErrorKind.UnknownRootId
+                => ExecuteCommandErrorKind.WorkingDirectoryNotFound,
+            _ => ExecuteCommandErrorKind.InvalidWorkspace
+        };
 
     private static IReadOnlyDictionary<string, string?> BuildExecuteCommandEnvironment(
         IReadOnlyDictionary<string, string>? environment,
@@ -618,7 +606,7 @@ public partial class CodingHarness
         string shell,
         ExecuteCommandCategory category,
         string baseCommand,
-        SandboxedProcessResult result,
+        ProcessInvocationResult result,
         ExecuteCommandOutputStoreMetadata outputMetadata,
         TimeSpan duration)
     {
@@ -638,8 +626,8 @@ public partial class CodingHarness
             writer.WriteAttributeString("exit_code", result.ExitCode.Value.ToString(CultureInfo.InvariantCulture));
         writer.WriteAttributeString("completion_kind", FormatEnum(ToExecuteCommandCompletionKind(result.CompletionKind)));
         writer.WriteAttributeString("duration_ms", ((long)duration.TotalMilliseconds).ToString(CultureInfo.InvariantCulture));
-        writer.WriteAttributeString("timed_out", FormatBool(result.TimedOut));
-        writer.WriteAttributeString("interrupted", FormatBool(result.Cancelled));
+        writer.WriteAttributeString("timed_out", FormatBool(result.CompletionKind == ProcessCompletionKind.TimedOut));
+        writer.WriteAttributeString("interrupted", FormatBool(result.CompletionKind is ProcessCompletionKind.Cancelled or ProcessCompletionKind.Stopped));
         writer.WriteAttributeString("output_drain_timed_out", FormatBool(result.Output.OutputDrainTimedOut));
         if (IsNoOutputExpected(baseCommand, result))
             writer.WriteAttributeString("no_output_expected", "true");
@@ -693,10 +681,9 @@ public partial class CodingHarness
         string shell,
         string baseCommand,
         ExecuteCommandCategory category,
-        ISandboxedProcessHandle handle,
+        IProcessInvocationHandle handle,
         ExecuteCommandOutputStoreSession outputStore,
-        EventCoordinator processEvents,
-        IDisposable outputSubscription)
+        FunctionInvocationSnapshot invocation)
     {
         if (string.IsNullOrWhiteSpace(context.SessionId) || !context.CanRegisterBackgroundTasks)
             return null;
@@ -715,9 +702,7 @@ public partial class CodingHarness
             category,
             handle,
             outputStore,
-            processEvents,
-            outputSubscription,
-            context.InvocationSnapshot);
+            invocation);
 
         try
         {
@@ -765,7 +750,7 @@ public partial class CodingHarness
         {
             ToolCallId = context.FunctionCallId,
             FunctionName = context.FunctionName,
-            StreamId = request.CommandId,
+            EventFlowId = request.CommandId,
             CommandId = request.CommandId,
             Command = "",
             BaseCommand = "",
@@ -865,7 +850,9 @@ public partial class CodingHarness
         }
 
         if (background.Status == ExecuteCommandBackgroundStatus.Running)
-            await background.Process.StopAsync(SandboxedProcessStopReason.Requested, cancellationToken).ConfigureAwait(false);
+            await background.Process.StopAsync(
+                new ProcessStopRequest(StopKind.GracefulThenKill, "requested"),
+                cancellationToken).ConfigureAwait(false);
 
         var result = await background.WaitForCompletionAsync(cancellationToken).ConfigureAwait(false);
         var outputMetadata = background.OutputMetadata;
@@ -898,7 +885,7 @@ public partial class CodingHarness
         ExecuteCommandRequest request,
         string baseCommand,
         ExecuteCommandCategory category,
-        SandboxedProcessResult result,
+        ProcessInvocationResult result,
         ExecuteCommandOutputStoreMetadata outputMetadata,
         TimeSpan duration)
     {
@@ -906,7 +893,7 @@ public partial class CodingHarness
         {
             ToolCallId = context.FunctionCallId,
             FunctionName = context.FunctionName,
-            StreamId = request.CommandId,
+            EventFlowId = request.CommandId,
             CommandId = request.CommandId,
             Command = request.Command,
             BaseCommand = baseCommand,
@@ -936,12 +923,12 @@ public partial class CodingHarness
         });
     }
 
-    private static void EmitExecuteCommandOutputChunkEvent(
+    internal static void EmitExecuteCommandOutputChunkEvent(
         FunctionExecutionContext context,
         ExecuteCommandRequest request,
         string baseCommand,
         ExecuteCommandCategory category,
-        SandboxedProcessOutputEvent evt,
+        ProcessOutputChunk evt,
         ExecuteCommandEventState state)
     {
         var observation = state.Observe(evt.Stream, evt.Bytes.Length);
@@ -958,15 +945,15 @@ public partial class CodingHarness
         {
             ToolCallId = context.FunctionCallId,
             FunctionName = context.FunctionName,
-            StreamId = request.CommandId,
+            EventFlowId = request.CommandId,
             CommandId = request.CommandId,
             Command = request.Command,
             BaseCommand = baseCommand,
             Category = category,
             WorkingDirectory = request.WorkingDirectory,
-            Stream = evt.Stream == SandboxedProcessStream.Stdout ? ExecuteCommandStreamKind.Stdout : ExecuteCommandStreamKind.Stderr,
+            Stream = evt.Stream == ProcessOutputStream.Stdout ? ExecuteCommandStreamKind.Stdout : ExecuteCommandStreamKind.Stderr,
             Text = text,
-            ObservedAt = evt.Timestamp,
+            ObservedAt = evt.ObservedAt,
             StreamBytesObserved = observation.StreamBytes,
             CombinedBytesObserved = observation.CombinedBytes,
             Truncated = truncated,
@@ -979,7 +966,7 @@ public partial class CodingHarness
         XmlWriter writer,
         string elementName,
         ExecuteCommandStreamResult streamResult,
-        SandboxedProcessStreamOutput stream,
+        ProcessStreamOutput stream,
         ExecuteCommandOutputHandle handle)
     {
         writer.WriteStartElement(elementName);
@@ -1055,13 +1042,14 @@ public partial class CodingHarness
         writer.WriteEndElement();
     }
 
-    private static ExecuteCommandStreamResult BuildExecuteCommandStreamResult(SandboxedProcessStreamOutput stream)
+    private static ExecuteCommandStreamResult BuildExecuteCommandStreamResult(ProcessStreamOutput stream)
     {
         if (stream.CapturedBytes.Length == 0)
             return new ExecuteCommandStreamResult("", 0, 0, false, false);
 
-        var bomEncoding = DetectBomEncoding(stream.CapturedBytes);
-        if (LooksBinary(stream.CapturedBytes, bomEncoding != null))
+        var capturedBytes = stream.CapturedBytes.ToArray();
+        var bomEncoding = DetectBomEncoding(capturedBytes);
+        if (LooksBinary(capturedBytes, bomEncoding != null))
         {
             return new ExecuteCommandStreamResult(
                 "Binary-looking output omitted from model result.",
@@ -1071,7 +1059,8 @@ public partial class CodingHarness
                 stream.Truncated);
         }
 
-        var preview = BuildHeadTailPreview(stream.Text, MaxInlineStreamChars, out var previewTruncated);
+        var text = Encoding.UTF8.GetString(stream.CapturedBytes.Span);
+        var preview = BuildHeadTailPreview(text, MaxInlineStreamChars, out var previewTruncated);
         return new ExecuteCommandStreamResult(
             preview,
             CountLines(preview),
@@ -1114,12 +1103,12 @@ public partial class CodingHarness
     private static ExecuteCommandInterpretation InterpretCommandResult(
         string command,
         int? exitCode,
-        SandboxedProcessCompletionKind completionKind)
+        ProcessCompletionKind completionKind)
     {
-        if (completionKind == SandboxedProcessCompletionKind.TimedOut)
+        if (completionKind == ProcessCompletionKind.TimedOut)
             return new ExecuteCommandInterpretation(true, "Command timed out.");
 
-        if (completionKind is SandboxedProcessCompletionKind.Cancelled or SandboxedProcessCompletionKind.Stopped)
+        if (completionKind is ProcessCompletionKind.Cancelled or ProcessCompletionKind.Stopped)
             return new ExecuteCommandInterpretation(true, "Command was interrupted.");
 
         if (exitCode is null)
@@ -1135,7 +1124,7 @@ public partial class CodingHarness
             : new ExecuteCommandInterpretation(true, $"Command failed with exit code {exitCode}.");
     }
 
-    private static bool IsNoOutputExpected(string baseCommand, SandboxedProcessResult result)
+    private static bool IsNoOutputExpected(string baseCommand, ProcessInvocationResult result)
         => result.ExitCode == 0 &&
            result.Output.Stdout.BytesObserved == 0 &&
            result.Output.Stderr.BytesObserved == 0 &&
@@ -1207,14 +1196,15 @@ public partial class CodingHarness
         return text[..maxChars];
     }
 
-    internal static ExecuteCommandCompletionKind ToExecuteCommandCompletionKind(SandboxedProcessCompletionKind kind)
+    internal static ExecuteCommandCompletionKind ToExecuteCommandCompletionKind(ProcessCompletionKind kind)
         => kind switch
         {
-            SandboxedProcessCompletionKind.Completed => ExecuteCommandCompletionKind.Completed,
-            SandboxedProcessCompletionKind.TimedOut => ExecuteCommandCompletionKind.TimedOut,
-            SandboxedProcessCompletionKind.Cancelled => ExecuteCommandCompletionKind.Cancelled,
-            SandboxedProcessCompletionKind.Stopped => ExecuteCommandCompletionKind.Stopped,
-            SandboxedProcessCompletionKind.FailedToStart => ExecuteCommandCompletionKind.FailedToStart,
+            ProcessCompletionKind.Completed => ExecuteCommandCompletionKind.Completed,
+            ProcessCompletionKind.TimedOut => ExecuteCommandCompletionKind.TimedOut,
+            ProcessCompletionKind.Cancelled => ExecuteCommandCompletionKind.Cancelled,
+            ProcessCompletionKind.Stopped => ExecuteCommandCompletionKind.Stopped,
+            ProcessCompletionKind.FailedToStart => ExecuteCommandCompletionKind.FailedToStart,
+            ProcessCompletionKind.Exited => ExecuteCommandCompletionKind.Faulted,
             _ => ExecuteCommandCompletionKind.Faulted
         };
 
@@ -1245,9 +1235,9 @@ public partial class CodingHarness
             workingDirectory,
             message));
 
-    private static bool IsMissingSandboxRunnerException(Exception ex)
+    private static bool IsMissingProcessProviderException(Exception ex)
         => ex is InvalidOperationException &&
-           ex.Message.Contains(nameof(ISandboxedProcessRunner), StringComparison.Ordinal);
+           ex.Message.Contains(nameof(IProcessProvider), StringComparison.Ordinal);
 
     private static bool TryGetBackgroundCommand(
         string? backgroundTaskId,
@@ -1267,17 +1257,17 @@ public partial class CodingHarness
     }
 
     private static async Task CleanupFailedBackgroundStartAsync(
-        ISandboxedProcessHandle? handle,
+        IProcessInvocationHandle? handle,
         ExecuteCommandOutputStoreSession? outputStore,
-        IDisposable? outputSubscription,
-        EventCoordinator? processEvents,
         CancellationToken cancellationToken)
     {
         if (handle is not null)
         {
             try
             {
-                await handle.StopAsync(SandboxedProcessStopReason.Cancelled, cancellationToken).ConfigureAwait(false);
+                await handle.StopAsync(
+                    new ProcessStopRequest(StopKind.GracefulThenKill, "background-start-failed"),
+                    cancellationToken).ConfigureAwait(false);
             }
             catch
             {
@@ -1289,10 +1279,69 @@ public partial class CodingHarness
 
         if (outputStore is not null)
             await outputStore.DisposeAsync().ConfigureAwait(false);
-
-        outputSubscription?.Dispose();
-        processEvents?.Dispose();
     }
+
+    private static IProcessProvider GetProcessProvider(FunctionExecutionContext context) =>
+        context.RuntimeCapabilities.TryGet<IProcessProvider>(out var provider)
+            ? provider
+            : throw new InvalidOperationException("No IProcessProvider runtime capability is available.");
+
+    private static ProcessInvocationSpec CreateProcessInvocationSpec(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        string? workingDirectory,
+        IReadOnlyDictionary<string, string>? environment,
+        TimeSpan timeout) =>
+        new()
+        {
+            Target = CreateLocalExecutionUnitHandle(),
+            Command = new ProcessCommandSpec
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                WorkingDirectory = workingDirectory,
+                Environment = BuildProcessEnvironment(environment),
+            },
+            Io = new ProcessIoSpec
+            {
+                StandardOutput = new ProcessOutputSpec
+                {
+                    Capture = true,
+                    Stream = true,
+                    MaxCapturedBytes = MaxInlineCommandOutputChars,
+                },
+                StandardError = new ProcessOutputSpec
+                {
+                    Capture = true,
+                    Stream = true,
+                    MaxCapturedBytes = MaxInlineCommandOutputChars,
+                },
+            },
+            Policy = ProcessInvocationPolicy.Default with
+            {
+                Timeout = timeout,
+                OutputDrainTimeout = TimeSpan.FromSeconds(2),
+            },
+            Isolation = ProcessIsolationPolicy.Default,
+        };
+
+    private static IReadOnlyDictionary<string, string?> BuildProcessEnvironment(IReadOnlyDictionary<string, string>? environment)
+    {
+        if (environment is null || environment.Count == 0)
+            return new Dictionary<string, string?>(0, StringComparer.Ordinal);
+
+        return environment.ToDictionary(pair => pair.Key, pair => (string?)pair.Value, StringComparer.Ordinal);
+    }
+
+    private static TargetHandle<ExecutionUnit> CreateLocalExecutionUnitHandle() =>
+        new(
+            new TargetRoute
+            {
+                Kind = new TargetKind("local.execution-unit"),
+                Scope = new ResourceScope("local"),
+            },
+            TargetHandleLifetime.LiveCapability,
+            TargetHandleAuthority.Control | TargetHandleAuthority.Observe);
 }
 
 public enum ExecuteCommandAction
@@ -1417,6 +1466,7 @@ internal sealed record ExecuteCommandOutputHandle(
 internal enum ExecuteCommandErrorKind
 {
     InvalidArguments,
+    InvalidWorkspace,
     WorkingDirectoryNotFound,
     WorkingDirectoryIsFile,
     MissingRunner,
@@ -1441,11 +1491,9 @@ internal enum ExecuteCommandBackgroundStatus
 
 internal sealed class ExecuteCommandBackgroundProcess
 {
-    private readonly EventCoordinator _processEvents;
-    private readonly IDisposable _outputSubscription;
     private readonly FunctionInvocationSnapshot _invocation;
     private readonly SemaphoreSlim _completionLock = new(1, 1);
-    private Task<SandboxedProcessResult>? _completionTask;
+    private Task<ProcessInvocationResult>? _completionTask;
     private bool _disposed;
 
     public ExecuteCommandBackgroundProcess(
@@ -1455,10 +1503,8 @@ internal sealed class ExecuteCommandBackgroundProcess
         string shell,
         string baseCommand,
         ExecuteCommandCategory category,
-        ISandboxedProcessHandle process,
+        IProcessInvocationHandle process,
         ExecuteCommandOutputStoreSession outputStore,
-        EventCoordinator processEvents,
-        IDisposable outputSubscription,
         FunctionInvocationSnapshot invocation)
     {
         CommandId = commandId;
@@ -1469,8 +1515,6 @@ internal sealed class ExecuteCommandBackgroundProcess
         Category = category;
         Process = process;
         OutputStore = outputStore;
-        _processEvents = processEvents;
-        _outputSubscription = outputSubscription;
         _invocation = invocation;
     }
 
@@ -1480,7 +1524,7 @@ internal sealed class ExecuteCommandBackgroundProcess
     public string Shell { get; }
     public string BaseCommand { get; }
     public ExecuteCommandCategory Category { get; }
-    public ISandboxedProcessHandle Process { get; }
+    public IProcessInvocationHandle Process { get; }
     public ExecuteCommandOutputStoreSession OutputStore { get; }
     public DateTimeOffset StartedAt { get; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? CompletedAt { get; private set; }
@@ -1500,7 +1544,9 @@ internal sealed class ExecuteCommandBackgroundProcess
             {
                 try
                 {
-                    await process.Process.StopAsync(SandboxedProcessStopReason.RuntimeStopping, CancellationToken.None)
+                    await process.Process.StopAsync(
+                            new ProcessStopRequest(StopKind.GracefulThenKill, "runtime-stopping"),
+                            CancellationToken.None)
                         .ConfigureAwait(false);
                 }
                 catch
@@ -1511,7 +1557,9 @@ internal sealed class ExecuteCommandBackgroundProcess
         }, this);
 
         if (runtimeToken.IsCancellationRequested)
-            await Process.StopAsync(SandboxedProcessStopReason.RuntimeStopping, CancellationToken.None).ConfigureAwait(false);
+            await Process.StopAsync(
+                new ProcessStopRequest(StopKind.GracefulThenKill, "runtime-stopping"),
+                CancellationToken.None).ConfigureAwait(false);
 
         var result = await WaitForCompletionAsync(CancellationToken.None).ConfigureAwait(false);
         EmitProcessExited(backgroundContext.EventCoordinator, result);
@@ -1520,7 +1568,7 @@ internal sealed class ExecuteCommandBackgroundProcess
             throw new OperationCanceledException(runtimeToken);
     }
 
-    public Task<SandboxedProcessResult> WaitForCompletionAsync(CancellationToken cancellationToken)
+    public Task<ProcessInvocationResult> WaitForCompletionAsync(CancellationToken cancellationToken)
     {
         lock (this)
         {
@@ -1535,12 +1583,12 @@ internal sealed class ExecuteCommandBackgroundProcess
             await OutputStore.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<SandboxedProcessResult> CompleteOnceAsync(CancellationToken cancellationToken)
+    private async Task<ProcessInvocationResult> CompleteOnceAsync(CancellationToken cancellationToken)
     {
         await _completionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var result = await Process.Completion.ConfigureAwait(false);
+            var result = await Process.WaitAsync(cancellationToken).ConfigureAwait(false);
             CompletedAt = DateTimeOffset.UtcNow;
             ExitCode = result.ExitCode;
             CompletionKind = CodingHarness.ToExecuteCommandCompletionKind(result.CompletionKind);
@@ -1561,15 +1609,13 @@ internal sealed class ExecuteCommandBackgroundProcess
             return;
 
         _disposed = true;
-        _outputSubscription.Dispose();
-        _processEvents.Dispose();
         await OutputStore.DisposeAsync().ConfigureAwait(false);
         await Process.DisposeAsync().ConfigureAwait(false);
     }
 
     private void EmitProcessExited(
         IEventCoordinator? eventCoordinator,
-        SandboxedProcessResult result)
+        ProcessInvocationResult result)
     {
         if (eventCoordinator is null || OutputMetadata is null)
             return;
@@ -1579,7 +1625,7 @@ internal sealed class ExecuteCommandBackgroundProcess
             ToolCallId = _invocation.FunctionCallId,
             FunctionName = _invocation.FunctionName,
             TraceId = _invocation.TraceId,
-            StreamId = CommandId,
+            EventFlowId = CommandId,
             CommandId = CommandId,
             Command = Request.Command,
             BaseCommand = BaseCommand,
@@ -1609,13 +1655,14 @@ internal sealed class ExecuteCommandBackgroundProcess
         });
     }
 
-    private static ExecuteCommandBackgroundStatus ToBackgroundStatus(SandboxedProcessCompletionKind completionKind)
+    private static ExecuteCommandBackgroundStatus ToBackgroundStatus(ProcessCompletionKind completionKind)
         => completionKind switch
         {
-            SandboxedProcessCompletionKind.Completed => ExecuteCommandBackgroundStatus.Completed,
-            SandboxedProcessCompletionKind.Stopped => ExecuteCommandBackgroundStatus.Stopped,
-            SandboxedProcessCompletionKind.Cancelled => ExecuteCommandBackgroundStatus.Cancelled,
-            SandboxedProcessCompletionKind.TimedOut => ExecuteCommandBackgroundStatus.TimedOut,
+            ProcessCompletionKind.Completed => ExecuteCommandBackgroundStatus.Completed,
+            ProcessCompletionKind.Stopped => ExecuteCommandBackgroundStatus.Stopped,
+            ProcessCompletionKind.Cancelled => ExecuteCommandBackgroundStatus.Cancelled,
+            ProcessCompletionKind.TimedOut => ExecuteCommandBackgroundStatus.TimedOut,
+            ProcessCompletionKind.Exited => ExecuteCommandBackgroundStatus.Faulted,
             _ => ExecuteCommandBackgroundStatus.Faulted
         };
 }
@@ -1649,17 +1696,17 @@ internal sealed class ExecuteCommandEventState
         }
     }
 
-    public (long StreamBytes, long CombinedBytes) Observe(SandboxedProcessStream stream, int bytes)
+    public (long StreamBytes, long CombinedBytes) Observe(ProcessOutputStream stream, int bytes)
     {
         lock (_lock)
         {
-            if (stream == SandboxedProcessStream.Stdout)
+            if (stream == ProcessOutputStream.Stdout)
                 _stdoutBytes += bytes;
             else
                 _stderrBytes += bytes;
 
             return (
-                stream == SandboxedProcessStream.Stdout ? _stdoutBytes : _stderrBytes,
+                stream == ProcessOutputStream.Stdout ? _stdoutBytes : _stderrBytes,
                 _stdoutBytes + _stderrBytes);
         }
     }
@@ -1719,7 +1766,7 @@ internal sealed class ExecuteCommandEventState
         {
             ToolCallId = context.FunctionCallId,
             FunctionName = context.FunctionName,
-            StreamId = request.CommandId,
+            EventFlowId = request.CommandId,
             CommandId = request.CommandId,
             Command = request.Command,
             BaseCommand = baseCommand,
@@ -1733,6 +1780,34 @@ internal sealed class ExecuteCommandEventState
             OutputObserved = stdoutBytes + stderrBytes > 0,
             OutputEventsSuppressed = suppressed
         });
+    }
+}
+
+internal sealed class ExecuteCommandOutputSink(
+    FunctionExecutionContext context,
+    ExecuteCommandRequest request,
+    string baseCommand,
+    ExecuteCommandCategory category,
+    ExecuteCommandOutputStoreSession outputStore,
+    ExecuteCommandEventState eventState) : IProcessOutputSink
+{
+    public async ValueTask OnOutputAsync(
+        ProcessOutputChunk chunk,
+        CancellationToken cancellationToken = default)
+    {
+        await outputStore.AppendAsync(
+            chunk.Stream,
+            chunk.Bytes,
+            chunk.ObservedAt,
+            cancellationToken).ConfigureAwait(false);
+
+        CodingHarness.EmitExecuteCommandOutputChunkEvent(
+            context,
+            request,
+            baseCommand,
+            category,
+            chunk,
+            eventState);
     }
 }
 
@@ -1794,14 +1869,14 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
     }
 
     public async ValueTask AppendAsync(
-        SandboxedProcessStream stream,
+        ProcessOutputStream stream,
         ReadOnlyMemory<byte> bytes,
         DateTimeOffset observedAt,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (stream == SandboxedProcessStream.Stdout)
+        if (stream == ProcessOutputStream.Stdout)
             await _stdout.AppendAsync(bytes, cancellationToken).ConfigureAwait(false);
         else
             await _stderr.AppendAsync(bytes, cancellationToken).ConfigureAwait(false);
@@ -1831,7 +1906,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
     }
 
     public async ValueTask<ExecuteCommandOutputStoreMetadata> CompleteAsync(
-        SandboxedProcessResult result,
+        ProcessInvocationResult result,
         string shell,
         CancellationToken cancellationToken)
     {
@@ -1908,7 +1983,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
     }
 
     private async ValueTask EnsureCapturedOutputWrittenAsync(
-        SandboxedProcessResult result,
+        ProcessInvocationResult result,
         CancellationToken cancellationToken)
     {
         if (_stdout.Bytes == 0 && result.Output.Stdout.CapturedBytes.Length > 0)
@@ -1966,7 +2041,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
     }
 
     private byte[] BuildMetadataBytes(
-        SandboxedProcessResult result,
+        ProcessInvocationResult result,
         string shell,
         ExecuteCommandOutputHandle stdout,
         ExecuteCommandOutputHandle stderr,
@@ -2004,13 +2079,14 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             file.Truncated,
             binary);
 
-    private static bool IsBinary(SandboxedProcessStreamOutput stream)
+    private static bool IsBinary(ProcessStreamOutput stream)
     {
         if (stream.CapturedBytes.Length == 0)
             return false;
 
-        var bomEncoding = CodingHarness.DetectBomEncoding(stream.CapturedBytes);
-        return CodingHarness.LooksBinary(stream.CapturedBytes, bomEncoding != null);
+        var capturedBytes = stream.CapturedBytes.ToArray();
+        var bomEncoding = CodingHarness.DetectBomEncoding(capturedBytes);
+        return CodingHarness.LooksBinary(capturedBytes, bomEncoding != null);
     }
 
     internal static string ValidateLocalOutputPath(

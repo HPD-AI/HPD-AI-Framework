@@ -37,7 +37,7 @@ public class EventEmissionTests
         };
 
         var orchestrator = new GraphOrchestrator<GraphContext>(services);
-        await using var events = coordinator.SubscribeChannel(EventChannel.Synchronous);
+        await using var events = coordinator.CreateChannelInbox(EventChannel.Synchronous);
 
         // Act
         await orchestrator.ExecuteAsync(context);
@@ -73,7 +73,7 @@ public class EventEmissionTests
         };
 
         var orchestrator = new GraphOrchestrator<GraphContext>(services);
-        await using var events = coordinator.SubscribeChannel(EventChannel.Synchronous);
+        await using var events = coordinator.CreateChannelInbox(EventChannel.Synchronous);
 
         // Act
         await orchestrator.ExecuteAsync(context);
@@ -110,7 +110,7 @@ public class EventEmissionTests
         };
 
         var orchestrator = new GraphOrchestrator<GraphContext>(services);
-        await using var events = coordinator.SubscribeChannel(EventChannel.Synchronous);
+        await using var events = coordinator.CreateChannelInbox(EventChannel.Synchronous);
 
         // Act
         await orchestrator.ExecuteAsync(context);
@@ -177,7 +177,7 @@ public class EventEmissionTests
         };
 
         var orchestrator = new GraphOrchestrator<GraphContext>(services);
-        await using var events = coordinator.SubscribeChannel(EventChannel.Synchronous);
+        await using var events = coordinator.CreateChannelInbox(EventChannel.Synchronous);
 
         // Act
         await orchestrator.ExecuteAsync(context);

@@ -85,6 +85,30 @@ public class AdjustmentKernelTests
     }
 
     [Fact]
+    public void AdjustmentKernel_DefaultZeroScalesAreIdentity()
+    {
+        using var store = new PagedTensorStore();
+
+        for (int i = 0; i < 10; i++)
+            store.Grow();
+
+        store.GetScalar(Field.OpenRaw, 0) = new PriceF64(100.0);
+        store.GetScalar(Field.HighRaw, 0) = new PriceF64(110.0);
+        store.GetScalar(Field.LowRaw, 0) = new PriceF64(90.0);
+        store.GetScalar(Field.CloseRaw, 0) = new PriceF64(105.0);
+        store.GetScalar(Field.VolumeRaw, 0) = new SizeF64(1000.0);
+
+        var kernel = new AdjustmentKernel();
+        store.ForEachPage(kernel);
+
+        Assert.Equal(100.0, store.GetScalar(Field.Open, 0).Value);
+        Assert.Equal(110.0, store.GetScalar(Field.High, 0).Value);
+        Assert.Equal(90.0, store.GetScalar(Field.Low, 0).Value);
+        Assert.Equal(105.0, store.GetScalar(Field.Close, 0).Value);
+        Assert.Equal(1000.0, store.GetScalar(Field.Volume, 0).Value);
+    }
+
+    [Fact]
     public void AdjustmentKernel_TwoForOneSplitScenario()
     {
         using var store = new PagedTensorStore();

@@ -1,0 +1,19 @@
+[Unit]
+Description=HPD Apple Virtualization Guest Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=HPD_GUEST_AGENT_VERSION=0.1.0
+Environment=HPD_GUEST_AGENT_PROTOCOL_VERSION=1.0
+Environment=HPD_GUEST_AGENT_VSOCK_PORT=7777
+EnvironmentFile=-/etc/hpd/guest-agent/env
+ExecStart=/usr/local/bin/hpd-guest-agent --port ${HPD_GUEST_AGENT_VSOCK_PORT}
+Restart=always
+RestartSec=1
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

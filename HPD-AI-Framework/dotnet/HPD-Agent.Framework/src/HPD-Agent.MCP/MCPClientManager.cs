@@ -252,7 +252,15 @@ public class MCPClientManager : IDisposable
 
                 // Invocation wrapper delegates to the original tool's InvokeAsync
                 Func<AIFunctionArguments, FunctionExecutionContext, CancellationToken, Task<object?>> invocationWrapper =
-                    async (args, _, ct) => await originalAIFunction.InvokeAsync(args, ct).ConfigureAwait(false);
+                    async (args, functionContext, ct) =>
+                    {
+                        if (originalAIFunction is HPDAIFunctionFactory.HPDAIFunction hpdFunction)
+                        {
+                            return await hpdFunction.InvokeAsync(args, functionContext, ct).ConfigureAwait(false);
+                        }
+
+                        return await originalAIFunction.InvokeAsync(args, ct).ConfigureAwait(false);
+                    };
 
                 var options = new HPDAIFunctionFactoryOptions
                 {

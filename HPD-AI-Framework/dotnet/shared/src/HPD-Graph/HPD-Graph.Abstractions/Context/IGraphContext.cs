@@ -180,7 +180,7 @@ public interface IGraphContext
     /// <list type="number">
     /// <item>Handler calls RequestAsync with a request event (e.g., NodeApprovalRequestEvent)</item>
     /// <item>The coordinator emits the request and waits for the response</item>
-    /// <item>External handler receives request event (via EventCoordinator.SubscribeStream or SubscribeChannel)</item>
+    /// <item>External handler receives request event (via EventBus.CreateInbox or CreateChannelInbox)</item>
     /// <item>User provides input</item>
     /// <item>External handler calls EventCoordinator.Respond()</item>
     /// <item>Handler receives response and continues</item>

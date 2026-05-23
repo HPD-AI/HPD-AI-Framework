@@ -231,3 +231,60 @@ public class BookUpdatedTests
         Assert.Equal(new Price(400.01m), evt.Book.BestAsk?.Price);
     }
 }
+
+public class BookDeltaReceivedTests
+{
+    [Fact]
+    public void BookDeltaReceived_ShouldStoreInstrumentAndDelta()
+    {
+        var instrument = new Instrument(new Asset("AAPL", AssetClass.Equity), Venue.NASDAQ);
+        var delta = new BookDelta(Side.Buy, new Price(150m), new Qty(100m), BookAction.Add, Sequence: 7);
+
+        var evt = new BookDeltaReceived(instrument, delta);
+
+        Assert.Equal(instrument, evt.Instrument);
+        Assert.Equal(delta, evt.Delta);
+        Assert.IsAssignableFrom<MarketEvent>(evt);
+    }
+}
+
+public class BookDeltasReceivedTests
+{
+    [Fact]
+    public void BookDeltasReceived_ShouldStoreOrderedDeltas()
+    {
+        var instrument = new Instrument(new Asset("AAPL", AssetClass.Equity), Venue.NASDAQ);
+        var deltas = new[]
+        {
+            new BookDelta(Side.Buy, new Price(150m), new Qty(100m), BookAction.Add, Sequence: 1),
+            new BookDelta(Side.Buy, new Price(150m), new Qty(125m), BookAction.Update, Sequence: 2)
+        };
+
+        var evt = new BookDeltasReceived(instrument, deltas);
+
+        Assert.Equal(instrument, evt.Instrument);
+        Assert.Same(deltas, evt.Deltas);
+        Assert.IsAssignableFrom<MarketEvent>(evt);
+    }
+}
+
+public class BookDepthSnapshotReceivedTests
+{
+    [Fact]
+    public void BookDepthSnapshotReceived_ShouldStoreFixedDepthLevels()
+    {
+        var instrument = new Instrument(new Asset("AAPL", AssetClass.Equity), Venue.NASDAQ);
+        var bids = new[] { new Level(new Price(150m), new Qty(100m), 3) };
+        var asks = new[] { new Level(new Price(151m), new Qty(90m), 2) };
+
+        var evt = new BookDepthSnapshotReceived(instrument, bids, asks, Depth: 10, VenueSequence: 99, Flags: 1);
+
+        Assert.Equal(instrument, evt.Instrument);
+        Assert.Same(bids, evt.Bids);
+        Assert.Same(asks, evt.Asks);
+        Assert.Equal(10, evt.Depth);
+        Assert.Equal(99, evt.VenueSequence);
+        Assert.Equal(1, evt.Flags);
+        Assert.IsAssignableFrom<MarketEvent>(evt);
+    }
+}

@@ -14,7 +14,7 @@ public static class CharacteristicPolynomial
     /// Result is monic of degree n: x^n + c_{n-1}*x^{n-1} + ... + c_0.
     /// The constant term c_0 = (-1)^n * det(A).
     /// </summary>
-    public static Polynomial<R> Compute<R>(Matrix<R> m)
+    public static SparsePolynomial<R> Compute<R>(Matrix<R> m)
         where R : ICommRing<R>, IEuclideanDomain<R>
     {
         int n = m.Rows;
@@ -22,7 +22,7 @@ public static class CharacteristicPolynomial
             throw new ArgumentException("Matrix must be square.");
 
         if (n == 0)
-            return Polynomial<R>.One;
+            return SparsePolynomial<R>.One;
 
         // Faddeev-LeVerrier: compute coefficients c_{n-1}, ..., c_0.
         // M_k = A * M_{k-1} + c_{n-k} * I, with M_0 = 0 and c_n = 1.
@@ -59,6 +59,6 @@ public static class CharacteristicPolynomial
             coeffs[n - k] = ck;
         }
 
-        return Polynomial<R>.FromCoeffs(coeffs);
+        return SparsePolynomial<R>.FromCoeffs(coeffs);
     }
 }

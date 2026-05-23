@@ -11,14 +11,17 @@ public readonly record struct Instant(long Nanos) : IComparable<Instant>
 
     public static Instant Now => FromDateTimeOffset(DateTimeOffset.UtcNow);
 
-    public static Instant FromDateTimeOffset(DateTimeOffset dto) =>
-        new(dto.ToUnixTimeMilliseconds() * 1_000_000);
+    public static Instant FromDateTimeOffset(DateTimeOffset dto)
+    {
+        var unixTicks = dto.ToUniversalTime().Ticks - DateTimeOffset.UnixEpoch.Ticks;
+        return new Instant(checked(unixTicks * 100));
+    }
 
     public static Instant FromUnixMillis(long millis) => new(millis * 1_000_000);
     public static Instant FromUnixSeconds(long seconds) => new(seconds * 1_000_000_000);
 
     public DateTimeOffset ToDateTimeOffset() =>
-        DateTimeOffset.FromUnixTimeMilliseconds(Nanos / 1_000_000);
+        new(checked(DateTimeOffset.UnixEpoch.Ticks + (Nanos / 100)), TimeSpan.Zero);
 
     public DateTime ToUtcDateTime() => ToDateTimeOffset().UtcDateTime;
 

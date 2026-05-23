@@ -7,8 +7,11 @@ namespace Helium.Primitives;
 /// </summary>
 public readonly struct Rational :
     IField<Rational>,
+    IAddCommGroup<Rational>,
+    IModule<Rational, Rational>,
     IEuclideanDomain<Rational>,
-    IOrdered<Rational>,
+    ITotalOrder<Rational>,
+    IDecidableEq<Rational>,
     INoZeroDivisors<Rational>,
     ICharP<Rational>,
     IComparable<Rational>,
@@ -76,6 +79,8 @@ public readonly struct Rational :
     public static Rational operator -(Rational value) =>
         new(-value.Numerator, value.Denominator);
 
+    public static Rational ScalarMultiply(Rational scalar, Rational element) => scalar * element;
+
     // --- IField ---
 
     /// <summary>
@@ -133,6 +138,15 @@ public readonly struct Rational :
 
     public int CompareTo(Rational other) =>
         (Numerator * other.Denominator).CompareTo(other.Numerator * Denominator);
+
+    public static bool DecidableEquals(Rational left, Rational right) => left == right;
+
+    public static bool LessEqual(Rational left, Rational right) => left <= right;
+
+    public static Ordering CompareOrder(Rational left, Rational right) =>
+        left < right ? Ordering.Less :
+        right < left ? Ordering.Greater :
+        Ordering.Equal;
 
     // --- Equality ---
 

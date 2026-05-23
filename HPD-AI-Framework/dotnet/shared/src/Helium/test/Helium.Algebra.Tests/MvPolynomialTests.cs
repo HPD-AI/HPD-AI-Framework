@@ -112,9 +112,9 @@ public class MvPolynomialTests
         var xy = Monomial.Variable(0) + Monomial.Variable(1); // xy, degree 2
         var x = Monomial.Variable(0); // x, degree 1
 
-        Assert.True(x.CompareTo(x2) < 0); // lower degree
+        Assert.Equal(Ordering.Less, Monomial.CompareOrder(x, x2)); // lower degree
         // Same degree monomials are comparable.
-        Assert.NotEqual(0, x2.CompareTo(xy));
+        Assert.NotEqual(Ordering.Equal, Monomial.CompareOrder(x2, xy));
     }
 
     [Fact]

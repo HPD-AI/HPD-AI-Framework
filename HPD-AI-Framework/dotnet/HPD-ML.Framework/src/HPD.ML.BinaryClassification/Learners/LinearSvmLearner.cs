@@ -1,10 +1,7 @@
 namespace HPD.ML.BinaryClassification;
 
-using Helium.Algebra;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 /// <summary>
 /// Linear SVM via PEGASOS (Primal Estimated sub-GrAdient SOlver for SVM).
@@ -35,7 +32,7 @@ public sealed class LinearSvmLearner : ILearner
 
     public ISchema GetOutputSchema(ISchema inputSchema)
         => new LinearScoringTransform(
-                new LinearModelParameters(Vector<Double>.Zero(1), new Double(0)),
+                new LinearModelParameters([0.0], 0.0),
                 _featureColumn)
             .GetOutputSchema(inputSchema);
 
@@ -68,7 +65,7 @@ public sealed class LinearSvmLearner : ILearner
                 // Compute w·x + b
                 double wx = bias;
                 for (int j = 0; j < featureCount; j++)
-                    wx += w[j] * (double)features[i][j];
+                    wx += w[j] * features[i][j];
 
                 double margin = y * wx;
 
@@ -76,7 +73,7 @@ public sealed class LinearSvmLearner : ILearner
                 if (margin < 1.0)
                 {
                     for (int j = 0; j < featureCount; j++)
-                        w[j] = (1.0 - eta * lambda) * w[j] + eta * y * (double)features[i][j];
+                        w[j] = (1.0 - eta * lambda) * w[j] + eta * y * features[i][j];
                     if (!_options.NoBias)
                         bias += eta * y;
                     epochLoss += 1.0 - margin;
@@ -114,12 +111,7 @@ public sealed class LinearSvmLearner : ILearner
             });
         }
 
-        var weights = new Double[featureCount];
-        for (int i = 0; i < featureCount; i++)
-            weights[i] = new Double(w[i]);
-
-        var parameters = new LinearModelParameters(
-            Vector<Double>.FromArray(weights), new Double(bias));
+        var parameters = new LinearModelParameters(w, bias);
 
         // SVM outputs uncalibrated scores — add Platt scaling if validation data available
         ITransform transform = new LinearScoringTransform(parameters, _featureColumn);

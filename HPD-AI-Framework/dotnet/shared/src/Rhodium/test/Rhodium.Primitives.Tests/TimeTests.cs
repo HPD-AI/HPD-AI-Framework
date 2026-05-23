@@ -28,6 +28,18 @@ public class InstantTests
     }
 
     [Fact]
+    public void Instant_ShouldPreserveDateTimeOffsetTickPrecision()
+    {
+        var dto = new DateTimeOffset(2026, 1, 30, 12, 0, 0, TimeSpan.Zero)
+            .AddTicks(1234);
+
+        var instant = Instant.FromDateTimeOffset(dto);
+
+        Assert.Equal(123_400, instant.Nanos % 1_000_000);
+        Assert.Equal(dto, instant.ToDateTimeOffset());
+    }
+
+    [Fact]
     public void Instant_ShouldConvertFromUnixMillis()
     {
         // Arrange & Act

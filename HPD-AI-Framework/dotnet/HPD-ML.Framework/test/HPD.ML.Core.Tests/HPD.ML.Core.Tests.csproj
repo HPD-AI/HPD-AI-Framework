@@ -23,7 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\HPD.ML.Core\HPD.ML.Core.csproj" />
-    <ProjectReference Include="..\..\..\src\shared\src\HPD-Events\HPD-Events.csproj" />
+    <ProjectReference Include="..\..\..\shared\src\HPD-Events\HPD-Events.csproj" />
   </ItemGroup>
 
 </Project>

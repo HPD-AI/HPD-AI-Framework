@@ -12,7 +12,7 @@ internal sealed class EventChannelRouter : IDisposable
         _responseWaiters = new();
     private readonly ConcurrentDictionary<EventChannelRouter, byte> _children = new();
     private readonly List<IClassEventSubscriber> _subscribers = new();
-    private readonly StreamRegistry _streamRegistry = new();
+    private readonly EventFlowRegistry _eventFlowRegistry = new();
     private readonly Func<Event, Event>? _eventEnricher;
     private readonly Func<Event, bool>? _eventFilter;
 
@@ -29,7 +29,7 @@ internal sealed class EventChannelRouter : IDisposable
         _eventFilter = eventFilter;
     }
 
-    public IStreamRegistry Streams => _streamRegistry;
+    public IEventFlowRegistry EventFlows => _eventFlowRegistry;
 
     internal IEventCoordinator? ParentCoordinator => _parentCoordinator;
 
@@ -81,7 +81,7 @@ internal sealed class EventChannelRouter : IDisposable
         ArgumentNullException.ThrowIfNull(handler);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        var subscriber = CreateSubscriber<TEvent>(isStream: false, options);
+        var subscriber = CreateSubscriber<TEvent>(isInbox: false, options);
         var cts = new CancellationTokenSource();
         var task = Task.Run(
             () => RunHandlerPumpAsync(subscriber, handler, cts.Token),
@@ -98,25 +98,29 @@ internal sealed class EventChannelRouter : IDisposable
         return Subscribe<Event>(handler, options);
     }
 
-    public EventStreamSubscription<TEvent> SubscribeStream<TEvent>(
-        EventSubscriptionOptions? options = null)
+    public EventInbox<TEvent> CreateInbox<TEvent>(
+        EventInboxOptions? options = null)
         where TEvent : Event
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        var subscriber = CreateSubscriber<TEvent>(isStream: true, options);
-        return new EventStreamSubscription<TEvent>(
+        options ??= new EventInboxOptions();
+        var subscriber = CreateSubscriber<TEvent>(
+            isInbox: true,
+            options.ToSubscriptionOptions());
+
+        return new EventInbox<TEvent>(
             subscriber.Reader,
             subscriber.Writer,
             writer => RemoveSubscriberByWriter(writer));
     }
 
-    public EventStreamSubscription<Event> SubscribeChannel(
+    public EventInbox<Event> CreateChannelInbox(
         EventChannel channel,
-        EventSubscriptionOptions? options = null)
+        EventInboxOptions? options = null)
     {
-        options = (options ?? new EventSubscriptionOptions()) with { Channel = channel };
-        return SubscribeStream<Event>(options);
+        options = (options ?? new EventInboxOptions()) with { Channel = channel };
+        return CreateInbox<Event>(options);
     }
 
     public void SetParent(IEventCoordinator parent, IEventCoordinator owner)
@@ -226,6 +230,17 @@ internal sealed class EventChannelRouter : IDisposable
 
     public EventCoordinatorStats GetStats()
     {
+        var stats = GetBusStats();
+        return new EventCoordinatorStats(
+            stats.SubscriberCount,
+            stats.InboxCount,
+            stats.TotalQueued,
+            stats.TotalDropped,
+            stats.MaxSubscriberDepth);
+    }
+
+    public EventBusStats GetBusStats()
+    {
         IClassEventSubscriber[] subscribers;
         lock (_subscribers)
         {
@@ -234,26 +249,26 @@ internal sealed class EventChannelRouter : IDisposable
 
         var totalQueued = 0;
         var maxDepth = 0;
-        var streamSubscribers = 0;
+        var inboxes = 0;
         foreach (var subscriber in subscribers)
         {
             var depth = subscriber.Depth;
             totalQueued += depth;
             maxDepth = Math.Max(maxDepth, depth);
-            if (subscriber.IsStream)
-                streamSubscribers++;
+            if (subscriber.IsInbox)
+                inboxes++;
         }
 
-        return new EventCoordinatorStats(
+        return new EventBusStats(
             subscribers.Length,
-            streamSubscribers,
+            inboxes,
             totalQueued,
             (int)Math.Min(int.MaxValue, Volatile.Read(ref _totalDropped)),
             maxDepth);
     }
 
     private EventSubscriber<TEvent> CreateSubscriber<TEvent>(
-        bool isStream,
+        bool isInbox,
         EventSubscriptionOptions? options)
         where TEvent : Event
     {
@@ -261,7 +276,7 @@ internal sealed class EventChannelRouter : IDisposable
         if (options.Capacity <= 0)
             throw new ArgumentOutOfRangeException(nameof(options), "Event subscription capacity must be greater than zero.");
 
-        var subscriber = new EventSubscriber<TEvent>(options, isStream, OnSubscriberDropped);
+        var subscriber = new EventSubscriber<TEvent>(options, isInbox, OnSubscriberDropped);
         lock (_subscribers)
         {
             _subscribers.Add(subscriber);
@@ -279,14 +294,14 @@ internal sealed class EventChannelRouter : IDisposable
         if (enriched.SequenceNumber == 0)
             enriched.SequenceNumber = Interlocked.Increment(ref _sequenceCounter);
 
-        if (enriched.StreamId is not null && enriched.CanInterrupt && enriched is not EventDroppedEvent)
+        if (enriched.EventFlowId is not null && enriched.CanInterrupt && enriched is not EventDroppedEvent)
         {
-            var streamHandle = _streamRegistry.Get(enriched.StreamId);
-            if (streamHandle is StreamHandle { IsInterrupted: true } handle)
+            var eventFlowHandle = _eventFlowRegistry.Get(enriched.EventFlowId);
+            if (eventFlowHandle is EventFlowHandle { IsInterrupted: true } handle)
             {
                 handle.IncrementDroppedCount();
                 PublishDiagnostic(new EventDroppedEvent(
-                    enriched.StreamId,
+                    enriched.EventFlowId,
                     enriched.GetType().Name,
                     enriched.SequenceNumber),
                     skipSubscriberId: null);
@@ -294,9 +309,9 @@ internal sealed class EventChannelRouter : IDisposable
             }
         }
 
-        if (enriched.StreamId is not null && enriched.CanInterrupt && enriched is not EventDroppedEvent)
+        if (enriched.EventFlowId is not null && enriched.CanInterrupt && enriched is not EventDroppedEvent)
         {
-            if (_streamRegistry.Get(enriched.StreamId) is StreamHandle handle)
+            if (_eventFlowRegistry.Get(enriched.EventFlowId) is EventFlowHandle handle)
                 handle.IncrementEmittedCount();
         }
 
@@ -485,7 +500,7 @@ internal sealed class EventChannelRouter : IDisposable
     {
         Guid Id { get; }
         EventSubscriptionOptions Options { get; }
-        bool IsStream { get; }
+        bool IsInbox { get; }
         int Depth { get; }
         bool Matches(Event evt);
         bool TryPublish(Event evt);
@@ -503,11 +518,11 @@ internal sealed class EventChannelRouter : IDisposable
 
         public EventSubscriber(
             EventSubscriptionOptions options,
-            bool isStream,
+            bool isInbox,
             Action onDropped)
         {
             Options = options;
-            IsStream = isStream;
+            IsInbox = isInbox;
             _onDropped = onDropped;
             _channel = Channel.CreateBounded<TEvent>(
                 new BoundedChannelOptions(options.Capacity)
@@ -526,7 +541,7 @@ internal sealed class EventChannelRouter : IDisposable
 
         public Guid Id { get; } = Guid.NewGuid();
         public EventSubscriptionOptions Options { get; }
-        public bool IsStream { get; }
+        public bool IsInbox { get; }
         public int Depth => Volatile.Read(ref _depth);
         public ChannelReader<TEvent> Reader => _channel.Reader;
         public ChannelWriter<TEvent> Writer => _channel.Writer;

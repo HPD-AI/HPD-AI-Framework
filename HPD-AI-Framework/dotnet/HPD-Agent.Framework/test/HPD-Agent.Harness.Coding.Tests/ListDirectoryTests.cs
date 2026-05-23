@@ -1,5 +1,9 @@
+using HPD.Agent;
+using HPD.Agent.Harness.Coding;
 using HPD.Agent.Middleware;
+using HPD.Events.Core;
 using HPDOS.Harneses.Middleware;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Harness.Coding.Tests;
 
@@ -63,6 +67,42 @@ public sealed class ListDirectoryTests : IDisposable
         relative.Should().Contain("path=\"A.cs\"");
         absolute.Should().Contain("path=\"A.cs\"");
         absolute.Should().Contain(Path.Combine(_tempRoot, "src"));
+    }
+
+    [Fact]
+    public async Task ListDirectory_RootQualifiedPath_ListsSecondaryWorkspaceRoot()
+    {
+        var docsRoot = Path.Combine(_tempRoot, "docs");
+        Directory.CreateDirectory(docsRoot);
+        await File.WriteAllTextAsync(Path.Combine(docsRoot, "notes.md"), "# docs\n");
+
+        var result = await new CodingHarness().ListDirectory(
+            "@docs",
+            context: CreateFunctionContext(CreateWorkspaceRunConfig(_tempRoot, docsRoot)));
+
+        result.Should().Contain("path=\"notes.md\"");
+        result.Should().Contain(Path.GetFullPath(docsRoot));
+    }
+
+    [Fact]
+    public async Task ListDirectory_PathOutsideWorkspace_Rejects()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), $"hpd-list-outside-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outside);
+        try
+        {
+            var result = await new CodingHarness().ListDirectory(
+                outside,
+                context: CreateFunctionContext(CreateWorkspaceRunConfig(_tempRoot)));
+
+            result.Should().Contain("Unable to list directory");
+            result.Should().Contain("outside the configured workspace");
+        }
+        finally
+        {
+            if (Directory.Exists(outside))
+                Directory.Delete(outside, recursive: true);
+        }
     }
 
     [Fact]
@@ -402,6 +442,64 @@ public sealed class ListDirectoryTests : IDisposable
 
         result.Should().Contain("virtual.txt");
         result.Should().NotContain("Directory does not exist.");
+    }
+
+    private static FunctionExecutionContext CreateFunctionContext(AgentRunConfig runConfig)
+    {
+        var function = AIFunctionFactory.Create(
+            () => "ok",
+            new AIFunctionFactoryOptions
+            {
+                Name = "ListDirectory",
+                Description = "Test function"
+            });
+        var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
+        var agentContext = new AgentContext(
+            "AgentA",
+            "conversation-1",
+            state,
+            new EventCoordinator(),
+            new Session("session-1"),
+            new Branch("session-1"),
+            CancellationToken.None);
+        var beforeContext = agentContext.AsBeforeFunction(
+            function,
+            "call-1",
+            new Dictionary<string, object?>(),
+            runConfig,
+            harnessName: "CodingHarness");
+        var request = new FunctionRequest
+        {
+            Function = function,
+            CallId = "call-1",
+            Arguments = new Dictionary<string, object?>(),
+            State = state,
+            RunConfig = runConfig
+        };
+
+        return new FunctionExecutionContext(beforeContext, request);
+    }
+
+    private static AgentRunConfig CreateWorkspaceRunConfig(string defaultRoot, string? docsRoot = null)
+    {
+        var roots = new List<AgentWorkspaceRoot>
+        {
+            new("default", Path.GetFullPath(defaultRoot))
+        };
+
+        if (docsRoot is not null)
+            roots.Add(new AgentWorkspaceRoot("docs", Path.GetFullPath(docsRoot), "Docs"));
+
+        return new AgentRunConfig
+        {
+            ContextOverrides = new()
+            {
+                [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                    "default",
+                    Path.GetFullPath(defaultRoot),
+                    roots)
+            }
+        };
     }
 
     private sealed class FakeDirectoryListingSource(string fileName) : IDirectoryListingSource

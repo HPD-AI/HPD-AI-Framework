@@ -1,4 +1,5 @@
-using Rhodium.Tensor.Storage;
+using Rhodium.Unsafe;
+using Rhodium.Unsafe.Storage;
 
 namespace Rhodium.Tensor;
 
@@ -14,7 +15,13 @@ public sealed class PagedTensorStore : ITensorStore, IDisposable
 
     private sealed class ColumnCollection<T> : IColumnCollection where T : unmanaged
     {
+        private readonly AlignedPagePool<T>? _pool;
         public readonly Dictionary<string, PagedColumn<T>> Columns = new();
+
+        public ColumnCollection(GlobalMemoryTracker? tracker)
+        {
+            _pool = tracker is null ? null : new AlignedPagePool<T>(tracker);
+        }
 
         public void Grow()
         {
@@ -27,17 +34,38 @@ public sealed class PagedTensorStore : ITensorStore, IDisposable
             foreach (var col in Columns.Values)
                 col.Dispose();
             Columns.Clear();
+            _pool?.Dispose();
         }
+
+        public PagedColumn<T> CreateColumn() => new(_pool);
     }
 
     private readonly Dictionary<Type, IColumnCollection> _columns = new();
     private readonly Dictionary<string, Array> _parameters = new();
+    private readonly GlobalMemoryTracker? _tracker;
     private int _virtualCount = 0;
+
+    public PagedTensorStore()
+    {
+    }
+
+    internal PagedTensorStore(GlobalMemoryTracker tracker)
+    {
+        _tracker = tracker;
+    }
 
     public int PageSize => AlignedPage<PriceF64>.Capacity;
 
     public ref T GetScalar<T>(VectorField<T> field, int virtualIndex) where T : unmanaged =>
         ref GetColumn(field).ValueAt(virtualIndex);
+
+    public bool HasColumn<T>(VectorField<T> field) where T : unmanaged
+    {
+        if (!_columns.TryGetValue(typeof(T), out var collection))
+            return false;
+
+        return ((ColumnCollection<T>)collection).Columns.ContainsKey(field.Name);
+    }
 
     public Span<T> GetPage<T>(VectorField<T> field, int pageIndex) where T : unmanaged =>
         GetColumn(field).GetPage(pageIndex);
@@ -85,7 +113,7 @@ public sealed class PagedTensorStore : ITensorStore, IDisposable
     {
         if (!_columns.TryGetValue(typeof(T), out var collection))
         {
-            collection = new ColumnCollection<T>();
+            collection = new ColumnCollection<T>(_tracker);
             _columns[typeof(T)] = collection;
         }
 
@@ -93,7 +121,7 @@ public sealed class PagedTensorStore : ITensorStore, IDisposable
         if (typed.Columns.TryGetValue(field.Name, out var col))
             return col;
 
-        var column = new PagedColumn<T>();
+        var column = typed.CreateColumn();
         var pages = (_virtualCount + PageSize - 1) / PageSize;
         for (int i = 0; i < pages; i++)
             column.Grow();

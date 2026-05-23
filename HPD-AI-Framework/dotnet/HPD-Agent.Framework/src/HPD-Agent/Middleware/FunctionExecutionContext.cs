@@ -1,7 +1,6 @@
 using HPD.Events;
 using Microsoft.Extensions.AI;
 using HPD.Agent;
-using HPD.Agent.Sandbox;
 using System.ComponentModel;
 
 namespace HPD.Agent.Middleware;
@@ -41,12 +40,12 @@ public sealed class FunctionExecutionContext
             Invocation = request.Invocation
         };
         _stateSnapshot = request.State;
+        RunConfig = request.RunConfig;
         ResultMetadata = request.ResultMetadata;
         EventCoordinator = request.EventCoordinator;
         BackgroundTasks = request.BackgroundTasks;
         Services = hookContext.Services;
         RuntimeCapabilities = hookContext.RuntimeCapabilities;
-        SandboxConfigOverride = SandboxFunctionMetadata.TryGetOverride(request.Function);
         _parentChatClient = hookContext.GetParentChatClient();
         _parentExecutionContext = hookContext.GetParentExecutionContext();
         _parentSessionStore = hookContext.Session?.Store;
@@ -72,19 +71,19 @@ public sealed class FunctionExecutionContext
 
     public ToolResultMetadata ResultMetadata { get; }
 
+    public AgentRunConfig RunConfig { get; }
+
     public string? BatchId => InvocationSnapshot.BatchId;
 
     public int? ToolCallIndex => InvocationSnapshot.ToolCallIndex;
 
     public IEventCoordinator? EventCoordinator { get; }
 
-    public IStreamRegistry? Streams => EventCoordinator?.Streams;
+    public IEventFlowRegistry? EventFlows => EventCoordinator?.EventFlows;
 
     public IServiceProvider? Services { get; }
 
     public IRuntimeCapabilityRegistry RuntimeCapabilities { get; }
-
-    public SandboxConfigOverride? SandboxConfigOverride { get; }
 
     public IAgentBackgroundTaskRegistry? BackgroundTasks { get; }
 

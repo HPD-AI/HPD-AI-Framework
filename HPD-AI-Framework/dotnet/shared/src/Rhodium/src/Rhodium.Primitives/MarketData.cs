@@ -49,6 +49,27 @@ public readonly record struct DepthUpdate(
 );
 
 /// <summary>
+/// Order-book level update action.
+/// </summary>
+public enum BookAction : byte
+{
+    Add,
+    Update,
+    Delete,
+    Clear
+}
+
+/// <summary>
+/// A single price-level order-book delta.
+/// </summary>
+public readonly record struct BookDelta(
+    Side Side,
+    Price Price,
+    Qty Size,
+    BookAction Action,
+    long Sequence = 0);
+
+/// <summary>
 /// A single price tick (for tick-by-tick data).
 /// </summary>
 public readonly record struct Tick(

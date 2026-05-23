@@ -142,7 +142,7 @@ public class AgentContextEmitTests
         ((AgentEvent)coordinator.Captured[1]).TraceId.Should().Be("override-trace-xxxxxxxxxxaaaaaa");
     }
 
-    // ── IStreamRegistry-aware coordinator ─────────────────────────────────────
+    // ── IEventFlowRegistry-aware coordinator ─────────────────────────────────────
 
     /// <summary>
     /// A minimal IEventCoordinator that captures every emitted event for assertion.
@@ -166,8 +166,8 @@ public class AgentContextEmitTests
 
         public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler, EventSubscriptionOptions? options = null) where TEvent : Event => _inner.Subscribe(handler, options);
         public IDisposable SubscribeAny(Func<Event, ValueTask> handler, EventSubscriptionOptions? options = null) => _inner.SubscribeAny(handler, options);
-        public EventStreamSubscription<TEvent> SubscribeStream<TEvent>(EventSubscriptionOptions? options = null) where TEvent : Event => _inner.SubscribeStream<TEvent>(options);
-        public EventStreamSubscription<Event> SubscribeChannel(EventChannel channel, EventSubscriptionOptions? options = null) => _inner.SubscribeChannel(channel, options);
+        public EventInbox<TEvent> CreateInbox<TEvent>(EventInboxOptions? options = null) where TEvent : Event => _inner.CreateInbox<TEvent>(options);
+        public EventInbox<Event> CreateChannelInbox(EventChannel channel, EventInboxOptions? options = null) => _inner.CreateChannelInbox(channel, options);
         public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent => _inner.TryEmitStruct(in evt);
         public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : struct, IStructEvent => _inner.EmitStructAsync(evt, ct);
         public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => _inner.SubscribeStruct(handler);
@@ -179,7 +179,7 @@ public class AgentContextEmitTests
             where TResponse : Event => _inner.RequestAsync<TRequest, TResponse>(request, timeout, ct);
         public void Respond(string requestId, Event response) => _inner.Respond(requestId, response);
         public bool TryRespond(string requestId, Event response) => _inner.TryRespond(requestId, response);
-        public IStreamRegistry Streams => _inner.Streams;
+        public IEventFlowRegistry EventFlows => _inner.EventFlows;
         public EventCoordinatorStats GetStats() => _inner.GetStats();
     }
 }

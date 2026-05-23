@@ -11,9 +11,19 @@ public abstract record FinanceEvent : Event
 {
     /// <summary>
     /// Finance-specific timestamp with nanosecond precision.
-    /// Bridges HPD.Events.Timestamp (DateTimeOffset) to Finance Instant.
+    /// Bridges HPD.Events.Timestamp (DateTimeOffset) and ExchangeTimestampNs to Finance Instant.
     /// </summary>
-    public Instant Time => Instant.FromDateTimeOffset(Timestamp);
+    public Instant Time
+    {
+        get => ExchangeTimestampNs != 0
+            ? new Instant(ExchangeTimestampNs)
+            : Instant.FromDateTimeOffset(Timestamp);
+        init
+        {
+            Timestamp = value.ToDateTimeOffset();
+            ExchangeTimestampNs = value.Nanos;
+        }
+    }
 
     /// <summary>
     /// Sequence number for event ordering and replay.

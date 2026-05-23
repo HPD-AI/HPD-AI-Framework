@@ -39,7 +39,7 @@ public class EventTests
         Assert.Equal(0, evt.SequenceNumber);
         Assert.Equal(0, evt.ExchangeTimestampNs);
         Assert.True(evt.CanInterrupt);
-        Assert.Null(evt.StreamId);
+        Assert.Null(evt.EventFlowId);
         Assert.Null(evt.Extensions);
     }
 
@@ -68,15 +68,15 @@ public class EventTests
     }
 
     [Fact]
-    public void Event_CanSetStreamMetadata()
+    public void Event_CanSetEventFlowMetadata()
     {
         var evt = new TestEvent
         {
-            StreamId = "stream-123",
+            EventFlowId = "flow-123",
             CanInterrupt = false
         };
 
-        Assert.Equal("stream-123", evt.StreamId);
+        Assert.Equal("flow-123", evt.EventFlowId);
         Assert.False(evt.CanInterrupt);
     }
 
@@ -126,12 +126,12 @@ public class EventTests
     [Fact]
     public void Event_WithSyntax_CreatesNewInstance()
     {
-        var evt1 = new TestEvent { StreamId = "stream-1" };
+        var evt1 = new TestEvent { EventFlowId = "flow-1" };
 
-        var evt2 = evt1 with { StreamId = "stream-2" };
+        var evt2 = evt1 with { EventFlowId = "flow-2" };
 
-        Assert.Equal("stream-1", evt1.StreamId);
-        Assert.Equal("stream-2", evt2.StreamId);
+        Assert.Equal("flow-1", evt1.EventFlowId);
+        Assert.Equal("flow-2", evt2.EventFlowId);
     }
 
     [Fact]

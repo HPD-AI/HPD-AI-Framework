@@ -25,10 +25,17 @@
     <ProjectReference Include="..\..\src\Rhodium.HFT\Rhodium.HFT.csproj" />
     <ProjectReference Include="..\..\src\Rhodium.Tensor\Rhodium.Tensor.csproj" />
     <ProjectReference Include="..\..\src\Rhodium.Events\Rhodium.Events.csproj" />
+    <ProjectReference Include="..\..\src\Rhodium.Simulation\Rhodium.Simulation.csproj" />
     <ProjectReference Include="..\..\src\Rhodium.Platform\Rhodium.Platform.csproj" />
     <ProjectReference Include="..\..\src\Rhodium.Control\Rhodium.Control.csproj" />
     <ProjectReference Include="..\..\src\Rhodium.Kernel\Rhodium.Kernel.csproj" />
-    <ProjectReference Include="..\..\HPD-Agent-Framework\HPD.Events\HPD.Events.csproj" />
+    <ProjectReference Include="..\..\src\Rhodium.Generators\Rhodium.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\src\Rhodium.Analyzers\Rhodium.Analyzers.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\..\HPD-Events\HPD-Events.csproj" />
   </ItemGroup>
 
 </Project>

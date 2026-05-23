@@ -1,3 +1,4 @@
+using Rhodium.Events;
 using Rhodium.Kernel;
 using Rhodium.Platform.Patterns;
 using Rhodium.Primitives;
@@ -5,299 +6,491 @@ using Rhodium.Tensor;
 
 namespace Rhodium.Platform.Tests;
 
-/// <summary>
-/// Tests for EngineLoops zero-cost iteration patterns.
-/// </summary>
 public class EngineLoopsTests
 {
-    private TradingEngine CreateEngineWithAssets(int count)
+    [Fact]
+    public void DispatchHierarchicalParallel_ProducesSameSnapshotsAsSequential()
     {
-        var engine = new TradingEngine();
+        using var sequentialRuntime = CreateRuntimeWithAssets(1);
+        using var parallelRuntime = CreateRuntimeWithAssets(1);
+        sequentialRuntime.Tensors.GetScalar(Field.Close, 0) = new PriceF64(100);
+        parallelRuntime.Tensors.GetScalar(Field.Close, 0) = new PriceF64(100);
 
-        for (int i = 0; i < count; i++)
+        var sequentialTree = CreateInitializedTree(sequentialRuntime, strategyCount: 12);
+        var parallelTree = CreateInitializedTree(parallelRuntime, strategyCount: 12);
+
+        var market = sequentialRuntime.CreateMarketKernel();
+        var nodes = sequentialTree.Nodes;
+        var contexts = new StrategyContext[nodes.Count];
+        for (var i = 0; i < nodes.Count; i++)
+            contexts[i] = new StrategyContext
+            {
+                Strategy = nodes[i].Strategy,
+                Node = nodes[i].Node,
+                ChildSnapshots = new PortfolioSnapshot[nodes[i].Node.ChildIds.Length],
+                Counters = new int[PortfolioContext.CounterCount],
+                OrderIntents = new OrderIntent[32]
+            };
+
+        using var parallelState = new ParallelDispatchState(parallelTree, threadCount: 4)
+        {
+            ParallelThreshold = 2
+        };
+
+        for (var tick = 0; tick < 3; tick++)
+        {
+            EngineLoops.DispatchHierarchical(in market, sequentialTree, sequentialRuntime.WorldState, contexts);
+            EngineLoops.DispatchHierarchicalParallel(parallelRuntime, parallelTree, parallelState);
+        }
+
+        for (var i = 0; i < 12; i++)
+        {
+            var sequentialId = sequentialTree.Nodes[i].Node.Id;
+            var parallelId = parallelTree.Nodes[i].Node.Id;
+            var sequentialSnapshot = sequentialRuntime.WorldState.BuildSnapshot(sequentialId, sequentialRuntime.BatchMap.TotalSize);
+            var parallelSnapshot = parallelRuntime.WorldState.BuildSnapshot(parallelId, parallelRuntime.BatchMap.TotalSize);
+            AssertEquivalentSnapshot(sequentialSnapshot, parallelSnapshot);
+        }
+    }
+
+    [Fact]
+    public void DispatchHierarchical_RunsOneHundredStrategiesAgainstSharedMarketKernel()
+    {
+        using var runtime = CreateRuntimeWithAssets(1);
+        runtime.Tensors.GetScalar(Field.Close, 0) = new PriceF64(100);
+        var tree = CreateInitializedTree(runtime, strategyCount: 100);
+        var contexts = CreateContexts(tree);
+        var market = runtime.CreateMarketKernel();
+
+        EngineLoops.DispatchHierarchical(in market, tree, runtime.WorldState, contexts);
+
+        Assert.Equal(100, tree.Nodes.Count);
+        foreach (var (strategy, _) in tree.Nodes)
+            Assert.Equal(1m, runtime.WorldState.PositionAt(strategy.Id, 0).Quantity);
+    }
+
+    [Fact]
+    public void DispatchHierarchical_CommitsExecutionSpecsAsOrderIntents()
+    {
+        using var runtime = CreateRuntimeWithAssets(1);
+        var strategy = new OrderIntentStrategy();
+        var tree = new StrategyTree();
+        tree.Register(strategy, depth: 0);
+        strategy.Initialize(runtime);
+        var contexts = CreateContexts(tree);
+        var market = runtime.CreateMarketKernel();
+
+        EngineLoops.DispatchHierarchical(in market, tree, runtime.WorldState, contexts);
+
+        var drained = new OrderIntent[32];
+        var count = runtime.WorldState.DrainOrderIntents(strategy.Id, drained);
+        Assert.Equal(1, count);
+        Assert.Equal(strategy.Id, drained[0].StrategyId);
+        Assert.Equal(new AssetId(0), drained[0].AssetId);
+        Assert.Equal(Side.Buy, drained[0].Side);
+        Assert.Equal(new Qty(2m), drained[0].Quantity);
+        Assert.Equal(OrderType.Limit, drained[0].Execution.OrderType);
+        Assert.Equal(ExecutionLimitPriceMode.Bid, drained[0].Execution.LimitPriceMode);
+        Assert.True(drained[0].Execution.PostOnly);
+    }
+
+    [Fact]
+    public void DispatchHierarchical_AppliesParentCommandsAfterGroupPhase()
+    {
+        using var runtime = CreateRuntimeWithAssets(1);
+        runtime.Tensors.GetScalar(Field.Close, 0) = new PriceF64(100);
+        var leaf = new AllocationAwareLeafStrategy();
+        var group = new SnapshotCommandGroupStrategy();
+        var tree = CreateHierarchy(runtime, leaf, group);
+        var contexts = CreateContexts(tree);
+        var market = runtime.CreateMarketKernel();
+
+        EngineLoops.DispatchHierarchical(in market, tree, runtime.WorldState, contexts);
+
+        Assert.True(group.SawChildSnapshot);
+        Span<AllocationCommand> commands = stackalloc AllocationCommand[32];
+        var childContext = runtime.WorldState.BuildContext(leaf.Id, group.Id, default, CreateCounters(), commands);
+        Assert.Equal(0.25m, childContext.AllocationWeight);
+        Assert.True(childContext.IsPaused);
+
+        EngineLoops.DispatchHierarchical(in market, tree, runtime.WorldState, contexts);
+
+        Assert.Equal(1m, runtime.WorldState.PositionAt(leaf.Id, 0).Quantity);
+    }
+
+    [Fact]
+    public void DispatchHierarchical_OnGroupContext_AppliesFirstClassChildControls()
+    {
+        using var runtime = CreateRuntimeWithAssets(1);
+        runtime.Tensors.GetScalar(Field.Close, 0) = new PriceF64(100);
+        var leaf = new AllocationAwareLeafStrategy();
+        var group = new GeneratedGroupStrategy();
+        var tree = CreateHierarchy(runtime, leaf, group);
+        var contexts = CreateContexts(tree);
+        var market = runtime.CreateMarketKernel();
+
+        EngineLoops.DispatchHierarchical(in market, tree, runtime.WorldState, contexts);
+
+        Assert.True(group.SawChildSnapshot);
+        Span<AllocationCommand> commands = stackalloc AllocationCommand[32];
+        var childContext = runtime.WorldState.BuildContext(leaf.Id, group.Id, default, CreateCounters(), commands);
+        Assert.Equal(0.5m, childContext.AllocationWeight);
+        Assert.True(childContext.IsPaused);
+    }
+
+    [Fact]
+    public void DispatchHierarchicalParallel_AppliesParentCommandsAfterGroupPhase()
+    {
+        using var runtime = CreateRuntimeWithAssets(1);
+        runtime.Tensors.GetScalar(Field.Close, 0) = new PriceF64(100);
+        var leaf = new AllocationAwareLeafStrategy();
+        var group = new SnapshotCommandGroupStrategy();
+        var tree = CreateHierarchy(runtime, leaf, group);
+
+        using var state = new ParallelDispatchState(tree, threadCount: 2)
+        {
+            ParallelThreshold = 1
+        };
+
+        EngineLoops.DispatchHierarchicalParallel(runtime, tree, state);
+
+        Assert.True(group.SawChildSnapshot);
+        Span<AllocationCommand> commands = stackalloc AllocationCommand[32];
+        var childContext = runtime.WorldState.BuildContext(leaf.Id, group.Id, default, CreateCounters(), commands);
+        Assert.Equal(0.25m, childContext.AllocationWeight);
+        Assert.True(childContext.IsPaused);
+
+        EngineLoops.DispatchHierarchicalParallel(runtime, tree, state);
+
+        Assert.Equal(1m, runtime.WorldState.PositionAt(leaf.Id, 0).Quantity);
+    }
+
+    [Fact]
+    public void DispatchHierarchicalParallel_UsesReusableWorkersOnlyAboveThreshold()
+    {
+        using var runtime = CreateRuntimeWithAssets(1);
+        runtime.Tensors.GetScalar(Field.Close, 0) = new PriceF64(100);
+        var tree = CreateInitializedTree(runtime, strategyCount: 4);
+
+        using var state = new ParallelDispatchState(tree, threadCount: 2)
+        {
+            ParallelThreshold = 8
+        };
+
+        EngineLoops.DispatchHierarchicalParallel(runtime, tree, state);
+        Assert.Equal(0, state.LastQueuedWorkerCount);
+
+        state.ParallelThreshold = 2;
+        EngineLoops.DispatchHierarchicalParallel(runtime, tree, state);
+        Assert.Equal(2, state.LastQueuedWorkerCount);
+    }
+
+    [Fact]
+    public void StrategyEventProcessor_UsesConfiguredMaximumDegreeOfParallelism()
+    {
+        using var runtime = CreateRuntimeWithAssets(1);
+        runtime.Tensors.GetScalar(Field.Close, 0) = new PriceF64(100);
+        var tree = CreateInitializedTree(runtime, strategyCount: 8);
+        using var processor = new StrategyEventProcessor(runtime, tree)
+        {
+            UseParallelDispatch = true,
+            ParallelThreshold = 1,
+            MaxDegreeOfParallelism = 2
+        };
+
+        processor.Initialize();
+        processor.ProcessEvent(new TestFinanceEvent());
+
+        Assert.Equal(2, processor.LastQueuedParallelWorkerCount);
+    }
+
+    [Fact]
+    public void DispatchHierarchicalParallel_PropagatesExecutionInvariantFailures()
+    {
+        using var runtime = CreateRuntimeWithAssets(1);
+        var tree = new StrategyTree();
+        var strategy = new BuyOnceStrategy();
+        tree.Register(strategy, depth: 0);
+        strategy.Initialize(runtime);
+
+        runtime.BatchMap.AddInstrument(new Instrument(new Asset("LATE", AssetClass.Equity), Venue.NASDAQ));
+        runtime.Tensors.Grow();
+
+        using var state = new ParallelDispatchState(tree, threadCount: 2)
+        {
+            ParallelThreshold = 1
+        };
+
+        var threw = false;
+        try
+        {
+            EngineLoops.DispatchHierarchicalParallel(runtime, tree, state);
+        }
+        catch (UniverseTopologyChangedException)
+        {
+            threw = true;
+        }
+
+        Assert.True(threw);
+    }
+
+    [Fact]
+    public void DispatchHierarchical_PropagatesExecutionInvariantFailures()
+    {
+        using var runtime = CreateRuntimeWithAssets(1);
+        var tree = new StrategyTree();
+        var strategy = new BuyOnceStrategy();
+        tree.Register(strategy, depth: 0);
+        strategy.Initialize(runtime);
+
+        runtime.BatchMap.AddInstrument(new Instrument(new Asset("LATE", AssetClass.Equity), Venue.NASDAQ));
+        runtime.Tensors.Grow();
+
+        var market = runtime.CreateMarketKernel();
+        var contexts = CreateContexts(tree);
+
+        var threw = false;
+        try
+        {
+            EngineLoops.DispatchHierarchical(in market, tree, runtime.WorldState, contexts);
+        }
+        catch (UniverseTopologyChangedException)
+        {
+            threw = true;
+        }
+
+        Assert.True(threw);
+    }
+
+    [Fact]
+    public void DispatchHierarchical_PropagatesHotPathAllocationFailures()
+    {
+        using var runtime = CreateRuntimeWithAssets(1);
+        var tree = new StrategyTree();
+        var strategy = new AllocatingStrategy();
+        tree.Register(strategy, depth: 0);
+        strategy.Initialize(runtime);
+
+        var market = runtime.CreateMarketKernel();
+        var contexts = CreateContexts(tree);
+
+#if DEBUG
+        HotPathAllocationException? ex = null;
+        try
+        {
+            EngineLoops.DispatchHierarchical(in market, tree, runtime.WorldState, contexts);
+            EngineLoops.DispatchHierarchical(in market, tree, runtime.WorldState, contexts);
+        }
+        catch (HotPathAllocationException caught)
+        {
+            ex = caught;
+        }
+
+        Assert.NotNull(ex);
+#else
+        EngineLoops.DispatchHierarchical(in market, tree, runtime.WorldState, contexts);
+#endif
+    }
+
+    [Fact]
+    public void DispatchHierarchicalParallel_PropagatesHotPathAllocationFailures()
+    {
+        using var runtime = CreateRuntimeWithAssets(1);
+        var tree = new StrategyTree();
+        var strategy = new AllocatingStrategy();
+        tree.Register(strategy, depth: 0);
+        strategy.Initialize(runtime);
+
+        using var state = new ParallelDispatchState(tree, threadCount: 2)
+        {
+            ParallelThreshold = 1
+        };
+
+#if DEBUG
+        HotPathAllocationException? ex = null;
+        try
+        {
+            EngineLoops.DispatchHierarchicalParallel(runtime, tree, state);
+            EngineLoops.DispatchHierarchicalParallel(runtime, tree, state);
+        }
+        catch (HotPathAllocationException caught)
+        {
+            ex = caught;
+        }
+
+        Assert.NotNull(ex);
+#else
+        EngineLoops.DispatchHierarchicalParallel(runtime, tree, state);
+#endif
+    }
+
+    [Fact]
+    public void StrategyTree_RegisterRejectsInvalidHierarchy()
+    {
+        var tree = new StrategyTree();
+        var child = tree.Register(new BuyOnceStrategy(), depth: 0);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            tree.Register(new BuyOnceStrategy(), depth: 1, children: [new StrategyId(999)]));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            tree.Register(new BuyOnceStrategy(), depth: 1, children: [child, child]));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            tree.Register(new BuyOnceStrategy(), depth: 0, children: [child]));
+
+        tree.Register(new BuyOnceStrategy(), depth: 1, children: [child]);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            tree.Register(new BuyOnceStrategy(), depth: 2, children: [child]));
+    }
+
+    private static RhodiumRuntime CreateRuntimeWithAssets(int count)
+    {
+        var runtime = new RhodiumRuntime();
+        for (var i = 0; i < count; i++)
         {
             var instrument = new Instrument(new Asset($"ASSET{i}", AssetClass.Equity), Venue.NASDAQ);
-            engine.BatchMap.AddInstrument(instrument, 1);
+            runtime.BatchMap.AddInstrument(instrument);
+            runtime.SetMetadata(i, SecurityMetadata.Equity(instrument));
+            runtime.Tensors.Grow();
         }
-        engine.Tensors.Grow();
 
-        return engine;
+        return runtime;
     }
 
-    [Fact]
-    public void ForEachAsset_VisitsAllAssets()
+    private static StrategyTree CreateInitializedTree(RhodiumRuntime runtime, int strategyCount)
     {
-        var engine = CreateEngineWithAssets(5);
-        var visitor = new CountingVisitor();
-
-        EngineLoops.ForEachAsset(ref engine, ref visitor);
-
-        Assert.Equal(5, visitor.Count);
-    }
-
-    [Fact]
-    public void ForEachAsset_VisitsInOrder()
-    {
-        var engine = CreateEngineWithAssets(10);
-        var visitor = new OrderCheckingVisitor();
-
-        EngineLoops.ForEachAsset(ref engine, ref visitor);
-
-        Assert.True(visitor.InOrder);
-        Assert.Equal(9, visitor.LastId); // Last index is 9 for 10 assets (0-9)
-    }
-
-    [Fact]
-    public void ForEachAsset_WithZeroAssets_DoesNothing()
-    {
-        var engine = new TradingEngine();
-        var visitor = new CountingVisitor();
-
-        EngineLoops.ForEachAsset(ref engine, ref visitor);
-
-        Assert.Equal(0, visitor.Count);
-    }
-
-    [Fact]
-    public void ForEachAsset_PassesCorrectAssetIds()
-    {
-        var engine = CreateEngineWithAssets(3);
-        var visitor = new AssetIdCollector();
-
-        EngineLoops.ForEachAsset(ref engine, ref visitor);
-
-        Assert.Equal(3, visitor.VisitedIds.Count);
-        Assert.Contains(new AssetId(0), visitor.VisitedIds);
-        Assert.Contains(new AssetId(1), visitor.VisitedIds);
-        Assert.Contains(new AssetId(2), visitor.VisitedIds);
-    }
-
-    [Fact]
-    public void ForEachAsset_PassesEngineByRef()
-    {
-        var engine = CreateEngineWithAssets(5);
-        var visitor = new EngineModifyingVisitor();
-
-        EngineLoops.ForEachAsset(ref engine, ref visitor);
-
-        // Verify engine was modified (position set)
-        for (int i = 0; i < 5; i++)
+        var tree = new StrategyTree();
+        for (var i = 0; i < strategyCount; i++)
         {
-            Assert.Equal(100m, engine.GetPosition(i));
+            var strategy = new BuyOnceStrategy();
+            tree.Register(strategy, depth: 0);
+            strategy.Initialize(runtime);
         }
+
+        return tree;
     }
 
-    [Fact]
-    public void ForEachAssetInRange_VisitsSpecifiedRange()
+    private static StrategyTree CreateHierarchy(
+        RhodiumRuntime runtime,
+        AllocationAwareLeafStrategy leaf,
+        Strategy group)
     {
-        var engine = CreateEngineWithAssets(10);
-        var visitor = new CountingVisitor();
+        var tree = new StrategyTree();
+        var leafId = tree.Register(leaf, depth: 0);
+        tree.Register(group, depth: 1, children: [leafId]);
 
-        // Visit assets 3-7 (5 assets)
-        EngineLoops.ForEachAssetInRange(ref engine, ref visitor, start: 3, count: 5);
+        foreach (var (strategy, _) in tree.Nodes)
+            strategy.Initialize(runtime);
 
-        Assert.Equal(5, visitor.Count);
+        return tree;
     }
 
-    [Fact]
-    public void ForEachAssetInRange_VisitsCorrectAssets()
+    private static StrategyContext[] CreateContexts(StrategyTree tree)
     {
-        var engine = CreateEngineWithAssets(10);
-        var visitor = new AssetIdCollector();
-
-        // Visit assets 2-4 (3 assets)
-        EngineLoops.ForEachAssetInRange(ref engine, ref visitor, start: 2, count: 3);
-
-        Assert.Equal(3, visitor.VisitedIds.Count);
-        Assert.Contains(new AssetId(2), visitor.VisitedIds);
-        Assert.Contains(new AssetId(3), visitor.VisitedIds);
-        Assert.Contains(new AssetId(4), visitor.VisitedIds);
-        Assert.DoesNotContain(new AssetId(0), visitor.VisitedIds);
-        Assert.DoesNotContain(new AssetId(5), visitor.VisitedIds);
-    }
-
-    [Fact]
-    public void ForEachAssetInRange_WithZeroCount_DoesNothing()
-    {
-        var engine = CreateEngineWithAssets(5);
-        var visitor = new CountingVisitor();
-
-        EngineLoops.ForEachAssetInRange(ref engine, ref visitor, start: 0, count: 0);
-
-        Assert.Equal(0, visitor.Count);
-    }
-
-    [Fact]
-    public void ForEachAssetInRange_WithStartAtEnd_DoesNothing()
-    {
-        var engine = CreateEngineWithAssets(5);
-        var visitor = new CountingVisitor();
-
-        EngineLoops.ForEachAssetInRange(ref engine, ref visitor, start: 5, count: 0);
-
-        Assert.Equal(0, visitor.Count);
-    }
-
-    [Fact]
-    public void ForEachAsset_WithLargeUniverse_Efficient()
-    {
-        var engine = CreateEngineWithAssets(1000);
-        var visitor = new CountingVisitor();
-
-        EngineLoops.ForEachAsset(ref engine, ref visitor);
-
-        Assert.Equal(1000, visitor.Count);
-    }
-
-    [Fact]
-    public void ForEachAsset_VisitorCanReadData()
-    {
-        var engine = CreateEngineWithAssets(5);
-
-        // Set some data
-        for (int i = 0; i < 5; i++)
+        var nodes = tree.Nodes;
+        var contexts = new StrategyContext[nodes.Count];
+        for (var i = 0; i < nodes.Count; i++)
         {
-            engine.Tensors.GetScalar(Field.Close, i) = new PriceF64(100.0 + i);
+            contexts[i] = new StrategyContext
+            {
+                Strategy = nodes[i].Strategy,
+                Node = nodes[i].Node,
+                ChildSnapshots = new PortfolioSnapshot[nodes[i].Node.ChildIds.Length],
+                Counters = new int[PortfolioContext.CounterCount],
+                OrderIntents = new OrderIntent[32]
+            };
         }
-
-        var visitor = new DataReadingVisitor();
-        EngineLoops.ForEachAsset(ref engine, ref visitor);
-
-        Assert.Equal(5, visitor.ReadCount);
-        Assert.True(visitor.TotalClose > 0);
+        return contexts;
     }
 
-    [Fact]
-    public void ForEachAsset_VisitorCanModifyData()
+    private static void AssertEquivalentSnapshot(PortfolioSnapshot expected, PortfolioSnapshot actual)
     {
-        var engine = CreateEngineWithAssets(3);
+        Assert.Equal(expected.NetLiquidation, actual.NetLiquidation);
+        Assert.Equal(expected.UnrealizedPnL, actual.UnrealizedPnL);
+        Assert.Equal(expected.RealizedPnL, actual.RealizedPnL);
+        Assert.Equal(expected.GrossExposure, actual.GrossExposure);
+        Assert.Equal(expected.NetExposure, actual.NetExposure);
+        Assert.Equal(expected.RollingStats.SharpeRatio, actual.RollingStats.SharpeRatio);
+        Assert.Equal(expected.RollingStats.Volatility, actual.RollingStats.Volatility);
 
-        var visitor = new DataWritingVisitor();
-        EngineLoops.ForEachAsset(ref engine, ref visitor);
-
-        // Verify data was written
-        for (int i = 0; i < 3; i++)
+        var expectedPositions = expected.GetPositions();
+        var actualPositions = actual.GetPositions();
+        Assert.Equal(expectedPositions.Length, actualPositions.Length);
+        for (var i = 0; i < expectedPositions.Length; i++)
         {
-            var close = engine.Tensors.GetScalar(Field.Close, i).Value;
-            Assert.Equal(200.0, close);
+            Assert.Equal(expectedPositions[i].Instrument, actualPositions[i].Instrument);
+            Assert.Equal(expectedPositions[i].Quantity, actualPositions[i].Quantity);
+            Assert.Equal(expectedPositions[i].AvgEntryPrice, actualPositions[i].AvgEntryPrice);
+            Assert.Equal(expectedPositions[i].RealizedPnL, actualPositions[i].RealizedPnL);
         }
     }
 
-    [Fact]
-    public void ForEachAssetInRange_SingleAsset_Works()
+    private static int[] CreateCounters() => new int[PortfolioContext.CounterCount];
+
+    private sealed class BuyOnceStrategy : Strategy
     {
-        var engine = CreateEngineWithAssets(5);
-        var visitor = new AssetIdCollector();
-
-        EngineLoops.ForEachAssetInRange(ref engine, ref visitor, start: 2, count: 1);
-
-        Assert.Single(visitor.VisitedIds);
-        Assert.Contains(new AssetId(2), visitor.VisitedIds);
+        protected override void __GeneratedRunTick(in MarketKernel market, ref PortfolioContext portfolio)
+            => portfolio.Buy(new AssetId(0), new Qty(1m), in market);
     }
 
-    [Fact]
-    public void ForEachAsset_StructVisitor_NoAllocation()
+    private sealed record TestFinanceEvent : FinanceEvent;
+
+    private sealed class OrderIntentStrategy : Strategy
     {
-        var engine = CreateEngineWithAssets(10);
-        var visitor = new CountingVisitor();
+        protected override void OnInitialize(in SetupContext setup)
+            => setup.AddEquity("ASSET0");
 
-        // In production, this would be validated with GC.GetAllocatedBytesForCurrentThread
-        EngineLoops.ForEachAsset(ref engine, ref visitor);
-
-        Assert.Equal(10, visitor.Count);
-    }
-}
-
-/// <summary>
-/// Simple visitor that counts how many assets were visited.
-/// </summary>
-struct CountingVisitor : ITickVisitor
-{
-    public int Count;
-
-    public void Visit(AssetId id, ref TradingEngine engine)
-    {
-        Count++;
-    }
-}
-
-/// <summary>
-/// Visitor that checks if assets are visited in order.
-/// </summary>
-struct OrderCheckingVisitor : ITickVisitor
-{
-    public bool InOrder;
-    public int LastId;
-
-    public OrderCheckingVisitor()
-    {
-        InOrder = true;
-        LastId = -1;
+        protected override void __GeneratedRunTick(in MarketKernel market, ref PortfolioContext portfolio)
+            => portfolio.Buy(new AssetId(0), new Qty(2m), Execution.Limit().AtBid().WithPostOnly());
     }
 
-    public void Visit(AssetId id, ref TradingEngine engine)
+    private sealed class AllocationAwareLeafStrategy : Strategy
     {
-        int currentId = id.VirtualIndex;
-        if (currentId != LastId + 1)
+        protected override void OnInitialize(in SetupContext setup)
+            => setup.AddEquity("ASSET0");
+
+        protected override void __GeneratedRunTick(in MarketKernel market, ref PortfolioContext portfolio)
+            => portfolio.Buy(new AssetId(0), new Qty(portfolio.AllocationWeight), in market);
+    }
+
+    private sealed class SnapshotCommandGroupStrategy : Strategy
+    {
+        public bool SawChildSnapshot { get; private set; }
+
+        protected override void __GeneratedRunTick(in MarketKernel market, ref PortfolioContext portfolio)
         {
-            InOrder = false;
+            var snapshots = portfolio.GetChildSnapshots();
+            SawChildSnapshot |= snapshots.Length == 1 && snapshots[0].GrossExposure > 0m;
+
+            var child = portfolio.ChildIds[0];
+            portfolio.SetChildAllocation(child, 0.25m);
+            portfolio.PauseChild(child);
         }
-        LastId = currentId;
-    }
-}
-
-/// <summary>
-/// Visitor that collects all visited asset IDs.
-/// </summary>
-struct AssetIdCollector : ITickVisitor
-{
-    public List<AssetId> VisitedIds;
-
-    public AssetIdCollector()
-    {
-        VisitedIds = new List<AssetId>();
     }
 
-    public void Visit(AssetId id, ref TradingEngine engine)
+    private sealed class GeneratedGroupStrategy : Strategy
     {
-        VisitedIds.Add(id);
+        public bool SawChildSnapshot { get; private set; }
+
+        protected override void OnGroup(ref GroupContext group)
+        {
+            SawChildSnapshot |= group.Children.Length == 1 && group.Child(0).GrossExposure > 0m;
+
+            var child = group.Child(0);
+            group.SetAllocation(child.StrategyId, 0.5m);
+            group.Pause(child.StrategyId);
+        }
     }
-}
 
-/// <summary>
-/// Visitor that modifies the engine state.
-/// </summary>
-struct EngineModifyingVisitor : ITickVisitor
-{
-    public void Visit(AssetId id, ref TradingEngine engine)
+    private sealed class AllocatingStrategy : Strategy
     {
-        engine.SetPosition(id, 100m);
-    }
-}
+        private static object? s_sink;
 
-/// <summary>
-/// Visitor that reads data from tensor store.
-/// </summary>
-struct DataReadingVisitor : ITickVisitor
-{
-    public int ReadCount;
-    public double TotalClose;
-
-    public void Visit(AssetId id, ref TradingEngine engine)
-    {
-        var close = engine.Tensors.GetScalar(Field.Close, id).Value;
-        TotalClose += close;
-        ReadCount++;
-    }
-}
-
-/// <summary>
-/// Visitor that writes data to tensor store.
-/// </summary>
-struct DataWritingVisitor : ITickVisitor
-{
-    public void Visit(AssetId id, ref TradingEngine engine)
-    {
-        engine.Tensors.GetScalar(Field.Close, id) = new PriceF64(200.0);
+        protected override void __GeneratedRunTick(in MarketKernel market, ref PortfolioContext portfolio)
+        {
+            s_sink = new object();
+        }
     }
 }

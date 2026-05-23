@@ -2,13 +2,9 @@ import type {
   AgentEvent,
   AgentEventOfType,
   AgentRunInputEvent,
-  ClientToolInvokeRequestEvent,
 } from './types/events.js';
 import { EventTypes } from './types/events.js';
 import type { AgentTransport, RuntimeScope, RunTransportOptions } from './types/transport.js';
-import type {
-  ClientToolInvokeResponse,
-} from './types/client-tools.js';
 import type {
   Session,
   Branch,
@@ -16,6 +12,7 @@ import type {
   BranchMessage,
   AssetReference,
   CreateSessionRequest,
+  SearchSessionsRequest,
   UpdateSessionRequest,
   ListSessionsOptions,
   CreateBranchRequest,
@@ -41,8 +38,10 @@ import type {
 } from './types/evals.js';
 import { SseTransport } from './transports/sse.js';
 import { WebSocketTransport } from './transports/websocket.js';
-import { MauiTransport } from './transports/maui.js';
 import type { TransportRequestOptions } from './transports/options.js';
+import { AgentHttpApi } from './api.js';
+import { ChatManager } from './chat.js';
+import { ClientToolRegistry } from './tools.js';
 
 export type MaybePromise<T> = T | Promise<T>;
 
@@ -57,7 +56,7 @@ export type AgentEventHandler<TEvent extends AgentEvent> =
 // Client Configuration
 // ============================================
 
-export type TransportType = 'sse' | 'websocket' | 'maui';
+export type TransportType = 'sse' | 'websocket';
 
 export interface AgentClientConfig {
   /** Base URL of the HPD-Agent API */
@@ -72,8 +71,6 @@ export interface AgentClientConfig {
   /** Fetch credentials mode for HTTP requests. Use 'include' for cookie-backed auth. */
   credentials?: RequestCredentials;
 
-  /** Handler for client tool invocations */
-  onClientToolInvoke?: (request: ClientToolInvokeRequestEvent) => Promise<ClientToolInvokeResponse>;
 }
 
 // ============================================
@@ -87,6 +84,9 @@ export interface AgentClientConfig {
 export class AgentClient {
   private config: AgentClientConfig;
   private transport: AgentTransport;
+  readonly api: AgentHttpApi;
+  readonly tools = new ClientToolRegistry();
+  readonly chat: ChatManager;
   private typedHandlers = new Map<string, Set<AgentEventHandler<AgentEvent>>>();
   private anyHandlers = new Set<AgentEventHandler<AgentEvent>>();
   private errorHandlers = new Set<(error: Error) => MaybePromise<void>>();
@@ -98,6 +98,12 @@ export class AgentClient {
    */
   constructor(config: AgentClientConfig | string) {
     this.config = typeof config === 'string' ? { baseUrl: config } : config;
+    const requestOptions: TransportRequestOptions = {
+      headers: this.config.headers,
+      credentials: this.config.credentials,
+    };
+    this.api = new AgentHttpApi(this.config.baseUrl, requestOptions);
+    this.chat = new ChatManager(this);
     this.transport = this.createTransport();
     this.transport.onEvent((event) => {
       this.outputDispatchQueue = this.outputDispatchQueue.then(() => this.dispatchOutputEvent(event));
@@ -116,9 +122,7 @@ export class AgentClient {
 
     switch (type) {
       case 'websocket':
-        return new WebSocketTransport(this.config.baseUrl, requestOptions);
-      case 'maui':
-        return new MauiTransport();
+        return new WebSocketTransport(this.config.baseUrl);
       case 'sse':
       default:
         return new SseTransport(this.config.baseUrl, requestOptions);
@@ -187,8 +191,8 @@ export class AgentClient {
       await handler(event);
     }
 
-    if (event.type === EventTypes.CLIENT_TOOL_INVOKE_REQUEST && this.config.onClientToolInvoke) {
-      const toolResponse = await this.config.onClientToolInvoke(event);
+    if (event.type === EventTypes.CLIENT_TOOL_INVOKE_REQUEST) {
+      const toolResponse = await this.tools.handleInvoke(event);
       await this.transport.run({
         type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
         requestId: toolResponse.requestId,
@@ -225,23 +229,27 @@ export class AgentClient {
   // ============================================
 
   listSessions(options?: ListSessionsOptions): Promise<Session[]> {
-    return this.transport.listSessions(options);
+    return this.api.listSessions(options);
+  }
+
+  searchSessions(request?: SearchSessionsRequest): Promise<Session[]> {
+    return this.api.searchSessions(request);
   }
 
   getSession(sessionId: string): Promise<Session | null> {
-    return this.transport.getSession(sessionId);
+    return this.api.getSession(sessionId);
   }
 
   createSession(options?: CreateSessionRequest): Promise<Session> {
-    return this.transport.createSession(options);
+    return this.api.createSession(options);
   }
 
   updateSession(sessionId: string, request: UpdateSessionRequest): Promise<Session> {
-    return this.transport.updateSession(sessionId, request);
+    return this.api.updateSession(sessionId, request);
   }
 
   deleteSession(sessionId: string): Promise<void> {
-    return this.transport.deleteSession(sessionId);
+    return this.api.deleteSession(sessionId);
   }
 
   // ============================================
@@ -249,27 +257,27 @@ export class AgentClient {
   // ============================================
 
   listBranches(sessionId: string): Promise<Branch[]> {
-    return this.transport.listBranches(sessionId);
+    return this.api.listBranches(sessionId);
   }
 
   getBranch(sessionId: string, branchId: string): Promise<Branch | null> {
-    return this.transport.getBranch(sessionId, branchId);
+    return this.api.getBranch(sessionId, branchId);
   }
 
   createBranch(sessionId: string, options?: CreateBranchRequest): Promise<Branch> {
-    return this.transport.createBranch(sessionId, options);
+    return this.api.createBranch(sessionId, options);
   }
 
   forkBranch(sessionId: string, branchId: string, options: ForkBranchRequest): Promise<Branch> {
-    return this.transport.forkBranch(sessionId, branchId, options);
+    return this.api.forkBranch(sessionId, branchId, options);
   }
 
   deleteBranch(sessionId: string, branchId: string, options?: { recursive?: boolean }): Promise<void> {
-    return this.transport.deleteBranch(sessionId, branchId, options);
+    return this.api.deleteBranch(sessionId, branchId, options);
   }
 
   getBranchMessages(sessionId: string, branchId: string): Promise<BranchMessage[]> {
-    return this.transport.getBranchMessages(sessionId, branchId);
+    return this.api.getBranchMessages(sessionId, branchId);
   }
 
   // ============================================
@@ -277,15 +285,15 @@ export class AgentClient {
   // ============================================
 
   getBranchSiblings(sessionId: string, branchId: string): Promise<SiblingBranch[]> {
-    return this.transport.getBranchSiblings(sessionId, branchId);
+    return this.api.getBranchSiblings(sessionId, branchId);
   }
 
   getNextSibling(sessionId: string, branchId: string): Promise<Branch | null> {
-    return this.transport.getNextSibling(sessionId, branchId);
+    return this.api.getNextSibling(sessionId, branchId);
   }
 
   getPreviousSibling(sessionId: string, branchId: string): Promise<Branch | null> {
-    return this.transport.getPreviousSibling(sessionId, branchId);
+    return this.api.getPreviousSibling(sessionId, branchId);
   }
 
   // ============================================
@@ -293,23 +301,23 @@ export class AgentClient {
   // ============================================
 
   listAgents(): Promise<AgentSummaryDto[]> {
-    return this.transport.listAgents();
+    return this.api.listAgents();
   }
 
   getAgent(agentId: string): Promise<StoredAgentDto | null> {
-    return this.transport.getAgent(agentId);
+    return this.api.getAgent(agentId);
   }
 
   createAgent(request: CreateAgentRequest): Promise<StoredAgentDto> {
-    return this.transport.createAgent(request);
+    return this.api.createAgent(request);
   }
 
   updateAgent(agentId: string, request: UpdateAgentRequest): Promise<StoredAgentDto> {
-    return this.transport.updateAgent(agentId, request);
+    return this.api.updateAgent(agentId, request);
   }
 
   deleteAgent(agentId: string): Promise<void> {
-    return this.transport.deleteAgent(agentId);
+    return this.api.deleteAgent(agentId);
   }
 
   // ============================================
@@ -317,58 +325,58 @@ export class AgentClient {
   // ============================================
 
   getScores(evaluatorName: string, from?: string, to?: string): Promise<ScoreRecord[]> {
-    return this.transport.getScores(evaluatorName, from, to);
+    return this.api.getScores(evaluatorName, from, to);
   }
 
   getScoresByBranch(sessionId: string, branchId?: string): Promise<ScoreRecord[]> {
-    return this.transport.getScoresByBranch(sessionId, branchId);
+    return this.api.getScoresByBranch(sessionId, branchId);
   }
 
   writeScore(record: Omit<ScoreRecord, 'id'>): Promise<ScoreRecord> {
-    return this.transport.writeScore(record);
+    return this.api.writeScore(record);
   }
 
   getEvaluatorSummary(from?: string, to?: string): Promise<EvaluatorSummary[]> {
-    return this.transport.getEvaluatorSummary(from, to);
+    return this.api.getEvaluatorSummary(from, to);
   }
 
   getRiskAutonomyDistribution(from?: string, to?: string): Promise<RiskAutonomyDataPoint[]> {
-    return this.transport.getRiskAutonomyDistribution(from, to);
+    return this.api.getRiskAutonomyDistribution(from, to);
   }
 
   getTrend(evaluatorName: string, from: string, to: string, bucketSize?: string): Promise<ScoreTrend> {
-    return this.transport.getTrend(evaluatorName, from, to, bucketSize);
+    return this.api.getTrend(evaluatorName, from, to, bucketSize);
   }
 
   getPassRate(evaluatorName: string, from?: string, to?: string): Promise<PassRateResult> {
-    return this.transport.getPassRate(evaluatorName, from, to);
+    return this.api.getPassRate(evaluatorName, from, to);
   }
 
   getFailureRate(evaluatorName: string, from?: string, to?: string): Promise<FailureRateResult> {
-    return this.transport.getFailureRate(evaluatorName, from, to);
+    return this.api.getFailureRate(evaluatorName, from, to);
   }
 
   getAgentComparison(evaluatorName: string, agentNames: string[], from?: string, to?: string): Promise<AgentComparisonResult> {
-    return this.transport.getAgentComparison(evaluatorName, agentNames, from, to);
+    return this.api.getAgentComparison(evaluatorName, agentNames, from, to);
   }
 
   getBranchComparison(sessionId: string, branchId1: string, branchId2: string, evaluatorNames: string[]): Promise<BranchComparisonResult> {
-    return this.transport.getBranchComparison(sessionId, branchId1, branchId2, evaluatorNames);
+    return this.api.getBranchComparison(sessionId, branchId1, branchId2, evaluatorNames);
   }
 
   getToolUsage(from?: string, to?: string): Promise<Record<string, ToolUsageSummary>> {
-    return this.transport.getToolUsage(from, to);
+    return this.api.getToolUsage(from, to);
   }
 
   getCost(from?: string, to?: string): Promise<CostBreakdown> {
-    return this.transport.getCost(from, to);
+    return this.api.getCost(from, to);
   }
 
   getScoresByVersion(evaluatorName: string, version: string): Promise<ScoreRecord[]> {
-    return this.transport.getScoresByVersion(evaluatorName, version);
+    return this.api.getScoresByVersion(evaluatorName, version);
   }
 
   uploadAsset(sessionId: string, file: File | Blob, name?: string): Promise<AssetReference> {
-    return this.transport.uploadAsset(sessionId, file, name);
+    return this.api.uploadAsset(sessionId, file, name);
   }
 }

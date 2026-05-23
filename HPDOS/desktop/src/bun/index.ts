@@ -1,11 +1,11 @@
-import Electrobun, { BrowserWindow, PATHS } from "electrobun/bun";
+import Electrobun, { BrowserView, BrowserWindow, PATHS, Utils, type RPCSchema } from "electrobun/bun";
 import { existsSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const backendUrl = process.env.HPDOS_BACKEND_URL ?? "http://127.0.0.1:4317";
 const appDir = dirname(fileURLToPath(import.meta.url));
-const repoRoot = process.env.HPDOS_WORKSPACE_ROOT ?? join(process.cwd(), "../..");
+const projectDirectory = process.env.HPDOS_PROJECT_DIRECTORY ?? join(process.cwd(), "../..");
 const backendDirectory = process.env.HPDOS_BACKEND_DIRECTORY ?? join(process.cwd(), "../backend");
 const backendMode = process.env.HPDOS_BACKEND_MODE ?? "published";
 const dotnetExecutable = process.env.HPDOS_DOTNET ?? findDotnetExecutable();
@@ -13,6 +13,41 @@ const executableName = process.platform === "win32" ? "backend.exe" : "backend";
 
 let backendProcess: Bun.Subprocess | null = null;
 let backendProcessMode: "run" | "published" | null = null;
+
+type HpdosDesktopRPC = {
+  bun: RPCSchema<{
+    requests: {
+      pickWorkspaceFolders: {
+        params: {};
+        response: string[];
+      };
+    };
+    messages: {};
+  }>;
+  webview: RPCSchema<{
+    requests: {};
+    messages: {};
+  }>;
+};
+
+const hpdosDesktopRpc = BrowserView.defineRPC<HpdosDesktopRPC>({
+  maxRequestTime: 60_000,
+  handlers: {
+    requests: {
+      pickWorkspaceFolders: async () => {
+        const paths = await Utils.openFileDialog({
+          startingFolder: process.env.HOME || projectDirectory,
+          allowedFileTypes: "*",
+          canChooseFiles: false,
+          canChooseDirectory: true,
+          allowsMultipleSelection: true
+        });
+        return paths.map(path => path.trim()).filter(Boolean);
+      }
+    },
+    messages: {}
+  }
+});
 
 async function isBackendReady(): Promise<boolean> {
   try {
@@ -76,7 +111,7 @@ function stopBackend(): void {
     try {
       Bun.spawnSync(["pkill", "-P", String(pid)]);
     } catch {
-      // Best-effort cleanup for child apphost processes created by dotnet run.
+      // Best-effort cleanup for child processes created by dotnet run.
     }
   }
   try {
@@ -94,7 +129,7 @@ function backendEnvironment(): Record<string, string | undefined> {
     ASPNETCORE_ENVIRONMENT: process.env.ASPNETCORE_ENVIRONMENT ?? "Development",
     DOTNET_ENVIRONMENT: process.env.DOTNET_ENVIRONMENT ?? "Development",
     Kestrel__Endpoints__Http__Url: backendUrl,
-    HPDOS__WorkspaceRoot: repoRoot
+    HPDOS__ProjectDirectory: projectDirectory
   };
 }
 
@@ -147,6 +182,7 @@ const ready = await waitForBackend();
 const mainWindow = new BrowserWindow({
   title: "HPD-OS",
   url: ready ? backendUrl : "views://mainview/loading.html",
+  rpc: hpdosDesktopRpc,
   frame: {
     width: 1440,
     height: 940,

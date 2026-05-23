@@ -173,7 +173,7 @@ public sealed class MragEvaluationPipeline
             _pipelineServices,
             checkpointStore: null);
 
-        await using var events = eventCoordinator.SubscribeStream<Event>();
+        await using var events = eventCoordinator.CreateInbox<Event>();
 
         var executionTask = Task.Run(async () =>
         {

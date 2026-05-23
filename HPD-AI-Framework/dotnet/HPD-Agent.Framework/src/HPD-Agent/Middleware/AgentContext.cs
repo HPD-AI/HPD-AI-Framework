@@ -155,7 +155,7 @@ public sealed class AgentContext
     /// <remarks>
     /// Used by audio middleware for stream interruption and priority streaming.
     /// </remarks>
-    public IStreamRegistry Streams => _events.Streams;
+    public IEventFlowRegistry EventFlows => _events.EventFlows;
 
     //
     // STATE ACCESS (always available)

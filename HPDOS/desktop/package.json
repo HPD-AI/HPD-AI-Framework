@@ -4,12 +4,13 @@
   "private": true,
   "description": "Electrobun desktop shell for HPD-OS.",
   "scripts": {
-    "build:ui": "cd ../backend && bun run build:ui",
-    "publish:backend": "dotnet publish ../backend/backend.csproj -c Release -o resources/backend -v minimal --nologo -p:PublishSingleFile=false -p:SelfContained=false",
+    "build:ui": "cd ../backend && bun install && bun run build:ui",
+    "check": "tsc --noEmit",
+    "publish:backend": "dotnet publish ../backend/backend.csproj -c Release -o resources/backend -v minimal --nologo",
     "start": "bun run dev",
-    "dev": "bun run build:ui && HPDOS_BACKEND_MODE=run HPDOS_DOTNET=\"$(command -v dotnet)\" HPDOS_BACKEND_DIRECTORY=\"$(pwd)/../backend\" HPDOS_WORKSPACE_ROOT=\"$(pwd)/../..\" electrobun dev",
-    "dev:watch": "bun run build:ui && HPDOS_BACKEND_MODE=run HPDOS_DOTNET=\"$(command -v dotnet)\" HPDOS_BACKEND_DIRECTORY=\"$(pwd)/../backend\" HPDOS_WORKSPACE_ROOT=\"$(pwd)/../..\" electrobun dev --watch",
-    "build": "bun run build:ui && dotnet publish ../backend/backend.csproj -c Release -o resources/backend -v minimal --nologo -p:PublishSingleFile=false -p:SelfContained=false && electrobun build"
+    "dev": "bun run build:ui && HPDOS_BACKEND_MODE=run HPDOS_DOTNET=\"$(command -v dotnet)\" HPDOS_BACKEND_DIRECTORY=\"$(pwd)/../backend\" HPDOS_PROJECT_DIRECTORY=\"$(pwd)/../..\" electrobun dev",
+    "dev:watch": "bun run build:ui && HPDOS_BACKEND_MODE=run HPDOS_DOTNET=\"$(command -v dotnet)\" HPDOS_BACKEND_DIRECTORY=\"$(pwd)/../backend\" HPDOS_PROJECT_DIRECTORY=\"$(pwd)/../..\" electrobun dev --watch",
+    "build": "bun run build:ui && dotnet publish ../backend/backend.csproj -c Release -o resources/backend -v minimal --nologo && electrobun build"
   },
   "dependencies": {
     "electrobun": "^1.18.4-beta.3"

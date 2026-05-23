@@ -32,7 +32,6 @@
 import {
 	AgentClient,
 	EventTypes,
-	createErrorResponse,
 	type AgentRunInputEvent,
 	type PermissionChoice,
 	type Branch,
@@ -243,9 +242,11 @@ class WorkspaceImpl implements Workspace {
 		this.#client = options._client ?? new AgentClient({
 			baseUrl: options.baseUrl,
 			transport: options.transport ?? 'sse',
-			headers: options.headers,
-			onClientToolInvoke: options.onClientToolInvoke
+			headers: options.headers
 		});
+		if (options.onClientToolInvoke) {
+			this.#client.tools?.registerFallback(options.onClientToolInvoke);
+		}
 		this.#registerClientHandlers();
 
 		// Kick off async init (loading flag covers UI during this)
@@ -415,23 +416,6 @@ class WorkspaceImpl implements Workspace {
 				sourceName: request.sourceName,
 				approved: true
 			}).catch((error) => this.#options.onError?.(error.message));
-		});
-
-		this.#client.on(EventTypes.CLIENT_TOOL_INVOKE_REQUEST, (request) => {
-			if (!this.#options.onClientToolInvoke) {
-				const response = createErrorResponse(
-					request.requestId,
-					`No onClientToolInvoke handler registered for tool: ${request.toolName}`
-				);
-				void this.#client.run({
-					type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
-					requestId: response.requestId,
-					content: response.content,
-					success: response.success,
-					errorMessage: response.errorMessage,
-					augmentation: response.augmentation
-				}).catch((error) => this.#options.onError?.(error.message));
-			}
 		});
 
 		this.#client.on(EventTypes.CLIENT_TOOL_GROUPS_REGISTERED, (event) => {

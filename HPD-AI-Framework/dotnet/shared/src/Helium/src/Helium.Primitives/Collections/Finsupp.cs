@@ -9,13 +9,16 @@ namespace Helium.Primitives;
 /// additive identity. Setting a key to zero removes it.
 /// </summary>
 public readonly struct Finsupp<TKey, TValue> : IEquatable<Finsupp<TKey, TValue>>
-    where TKey : notnull, IComparable<TKey>, IEquatable<TKey>
+    where TKey : notnull, ITotalOrder<TKey>
     where TValue : IAdditiveIdentity<TValue, TValue>, IEqualityOperators<TValue, TValue, bool>
 {
     private readonly ImmutableSortedDictionary<TKey, TValue>? _data;
 
+    private static ImmutableSortedDictionary<TKey, TValue> EmptyData =>
+        ImmutableSortedDictionary<TKey, TValue>.Empty.WithComparers(TotalOrderComparer<TKey>.Instance);
+
     private ImmutableSortedDictionary<TKey, TValue> Data =>
-        _data ?? ImmutableSortedDictionary<TKey, TValue>.Empty;
+        _data ?? EmptyData;
 
     private Finsupp(ImmutableSortedDictionary<TKey, TValue> data)
     {
@@ -30,12 +33,12 @@ public readonly struct Finsupp<TKey, TValue> : IEquatable<Finsupp<TKey, TValue>>
     {
         if (value == TValue.AdditiveIdentity)
             return Empty;
-        return new(ImmutableSortedDictionary<TKey, TValue>.Empty.Add(key, value));
+        return new(EmptyData.Add(key, value));
     }
 
     public static Finsupp<TKey, TValue> FromDictionary(IEnumerable<KeyValuePair<TKey, TValue>> pairs)
     {
-        var builder = ImmutableSortedDictionary.CreateBuilder<TKey, TValue>();
+        var builder = ImmutableSortedDictionary.CreateBuilder<TKey, TValue>(TotalOrderComparer<TKey>.Instance);
         foreach (var (key, value) in pairs)
         {
             if (value != TValue.AdditiveIdentity)
@@ -67,7 +70,7 @@ public readonly struct Finsupp<TKey, TValue> : IEquatable<Finsupp<TKey, TValue>>
         Finsupp<TKey, TValue> b)
         where TOut : IAdditiveIdentity<TOut, TOut>, IEqualityOperators<TOut, TOut, bool>
     {
-        var builder = ImmutableSortedDictionary.CreateBuilder<TKey, TOut>();
+        var builder = ImmutableSortedDictionary.CreateBuilder<TKey, TOut>(TotalOrderComparer<TKey>.Instance);
         var zero = TValue.AdditiveIdentity;
 
         // All keys from a.
@@ -102,7 +105,7 @@ public readonly struct Finsupp<TKey, TValue> : IEquatable<Finsupp<TKey, TValue>>
         Finsupp<TKey, TValue> a)
         where TOut : IAdditiveIdentity<TOut, TOut>, IEqualityOperators<TOut, TOut, bool>
     {
-        var builder = ImmutableSortedDictionary.CreateBuilder<TKey, TOut>();
+        var builder = ImmutableSortedDictionary.CreateBuilder<TKey, TOut>(TotalOrderComparer<TKey>.Instance);
         foreach (var (key, value) in a.Data)
         {
             var result = f(value);
@@ -119,9 +122,9 @@ public readonly struct Finsupp<TKey, TValue> : IEquatable<Finsupp<TKey, TValue>>
         Func<TKey, TNewKey> f,
         Finsupp<TKey, TValue> a,
         Func<TValue, TValue, TValue> add)
-        where TNewKey : notnull, IComparable<TNewKey>, IEquatable<TNewKey>
+        where TNewKey : notnull, ITotalOrder<TNewKey>
     {
-        var builder = ImmutableSortedDictionary.CreateBuilder<TNewKey, TValue>();
+        var builder = ImmutableSortedDictionary.CreateBuilder<TNewKey, TValue>(TotalOrderComparer<TNewKey>.Instance);
         foreach (var (key, value) in a.Data)
         {
             var newKey = f(key);
@@ -207,7 +210,7 @@ public readonly struct Finsupp<TKey, TValue> : IEquatable<Finsupp<TKey, TValue>>
 public static class FinsuppRingExtensions
 {
     extension<TKey, TValue>(Finsupp<TKey, TValue> self)
-        where TKey : notnull, IComparable<TKey>, IEquatable<TKey>
+        where TKey : notnull, ITotalOrder<TKey>
         where TValue : IRing<TValue>, IAdditiveIdentity<TValue, TValue>,
                        IEqualityOperators<TValue, TValue, bool>
     {

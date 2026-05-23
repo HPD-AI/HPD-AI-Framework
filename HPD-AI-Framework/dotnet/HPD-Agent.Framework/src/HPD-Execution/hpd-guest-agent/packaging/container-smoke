@@ -1,0 +1,171 @@
+#!/usr/bin/env sh
+set -eu
+
+usage() {
+  echo "usage: /hpd/container-smoke run --rm --image IMAGE --engine-socket PATH [--timeout-ms N] [--label K=V]" >&2
+}
+
+if [ "${1:-}" != "run" ]; then
+  usage
+  exit 64
+fi
+shift
+
+remove=false
+image=""
+engine_socket=""
+timeout_ms=""
+labels=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --rm)
+      remove=true
+      shift
+      ;;
+    --image)
+      image="${2:-}"
+      shift 2
+      ;;
+    --engine-socket)
+      engine_socket="${2:-}"
+      shift 2
+      ;;
+    --timeout-ms)
+      timeout_ms="${2:-}"
+      shift 2
+      ;;
+    --label)
+      labels="${labels} --label ${2:-}"
+      shift 2
+      ;;
+    *)
+      usage
+      exit 64
+      ;;
+  esac
+done
+
+if [ "$remove" != "true" ] || [ -z "$image" ] || [ -z "$engine_socket" ]; then
+  usage
+  exit 64
+fi
+
+case "$engine_socket" in
+  /*) ;;
+  *)
+    echo "hpd-container-smoke: failed" >&2
+    echo "engine socket must be an absolute guest path" >&2
+    exit 65
+    ;;
+esac
+
+if [ ! -S "$engine_socket" ]; then
+  echo "hpd-container-smoke: failed" >&2
+  echo "engine socket is not present: $engine_socket" >&2
+  exit 69
+fi
+
+container_name="hpd-smoke-$(date +%s)-$$"
+
+is_containerd_socket=false
+is_podman_socket=false
+is_buildkit_socket=false
+case "$engine_socket" in
+  *containerd*) is_containerd_socket=true ;;
+esac
+case "$engine_socket" in
+  *podman*) is_podman_socket=true ;;
+esac
+case "$engine_socket" in
+  *buildkit*) is_buildkit_socket=true ;;
+esac
+
+cleanup_docker() {
+  DOCKER_HOST="unix://$engine_socket" docker rm -f "$container_name" >/dev/null 2>&1 || true
+}
+
+cleanup_containerd() {
+  ctr --address "$engine_socket" tasks kill "$container_name" >/dev/null 2>&1 || true
+  ctr --address "$engine_socket" containers rm "$container_name" >/dev/null 2>&1 || true
+}
+
+cleanup_podman() {
+  podman --url "unix://$engine_socket" rm -f "$container_name" >/dev/null 2>&1 || true
+}
+
+cleanup_buildkit() {
+  rm -rf "${buildkit_context:-}" "${buildkit_output:-}" 2>/dev/null || true
+}
+
+ensure_containerd_image() {
+  if ctr --address "$engine_socket" images ls -q | grep -Fx "$image" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  ctr --address "$engine_socket" images pull "$image" >/dev/null
+}
+
+run_buildkit_smoke() {
+  buildkit_context="$(mktemp -d /tmp/hpd-buildkit-context.XXXXXX)"
+  buildkit_output="$(mktemp -d /tmp/hpd-buildkit-output.XXXXXX)"
+  trap cleanup_buildkit EXIT INT TERM
+
+  cat > "$buildkit_context/Dockerfile" <<'EOF'
+FROM scratch
+COPY message /message
+EOF
+  printf 'hpd-container-smoke: ok\n' > "$buildkit_context/message"
+
+  buildctl --addr "unix://$engine_socket" build \
+    --frontend dockerfile.v0 \
+    --local context="$buildkit_context" \
+    --local dockerfile="$buildkit_context" \
+    --output "type=local,dest=$buildkit_output" >/dev/null
+
+  cat "$buildkit_output/message"
+}
+
+if [ "$is_buildkit_socket" = "true" ] && command -v buildctl >/dev/null 2>&1; then
+  if run_buildkit_smoke; then
+    exit 0
+  fi
+  echo "hpd-container-smoke: failed" >&2
+  exit 70
+fi
+
+if [ "$is_containerd_socket" = "true" ] && command -v ctr >/dev/null 2>&1; then
+  trap cleanup_containerd EXIT INT TERM
+  ensure_containerd_image
+  ctr --address "$engine_socket" run --rm "$image" "$container_name" sh -c 'echo hpd-container-smoke: ok'
+  exit $?
+fi
+
+if [ "$is_podman_socket" = "true" ] && command -v podman >/dev/null 2>&1; then
+  trap cleanup_podman EXIT INT TERM
+  if podman --url "unix://$engine_socket" run --name "$container_name" --rm $labels "$image" sh -c 'echo hpd-container-smoke: ok'; then
+    exit 0
+  fi
+  echo "hpd-container-smoke: failed" >&2
+  exit 70
+fi
+
+if [ "$is_containerd_socket" = "false" ] && [ "$is_podman_socket" = "false" ] && [ "$is_buildkit_socket" = "false" ] && command -v docker >/dev/null 2>&1; then
+  trap cleanup_docker EXIT INT TERM
+  if DOCKER_HOST="unix://$engine_socket" docker run --name "$container_name" --rm $labels "$image" sh -c 'echo hpd-container-smoke: ok'; then
+    exit 0
+  fi
+  echo "hpd-container-smoke: failed" >&2
+  exit 70
+fi
+
+if command -v ctr >/dev/null 2>&1; then
+  trap cleanup_containerd EXIT INT TERM
+  ensure_containerd_image
+  ctr --address "$engine_socket" run --rm "$image" "$container_name" sh -c 'echo hpd-container-smoke: ok'
+  exit $?
+fi
+
+echo "hpd-container-smoke: failed" >&2
+echo "no supported in-guest engine client found" >&2
+exit 69

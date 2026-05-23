@@ -194,7 +194,7 @@ public sealed class ConnectorCoreTests
             runner,
             new WorkflowSourceDedupeService(store),
             coordinator);
-        await using var eventSubscription = coordinator.SubscribeChannel(EventChannel.Synchronous);
+        await using var eventSubscription = coordinator.CreateChannelInbox(EventChannel.Synchronous);
 
         await dispatcher.DispatchAsync(new WorkflowSourceEmittedEvent
         {
@@ -351,7 +351,7 @@ public sealed class ConnectorCoreTests
             Artifacts = artifacts,
             Events = events
         };
-        await using var eventSubscription = events.SubscribeChannel(EventChannel.Synchronous);
+        await using var eventSubscription = events.CreateChannelInbox(EventChannel.Synchronous);
 
         var emitted = new List<Event>();
         await foreach (var evt in dispatcher.MaterializeAsync("fivetran.sync", context))

@@ -556,7 +556,7 @@ public class AudioPipelineMiddlewareOutputTests
         var contentStore = new SpyContentStore();
         var session = CreateSession("session-interrupted", contentStore);
 
-        var registry = new DelayedInterruptStreamRegistry();
+        var registry = new DelayedInterruptEventFlowRegistry();
         var tts = new InterruptingTtsClient(new byte[] { 0x01 }, registry);
         var middleware = new AudioPipelineMiddleware
         {
@@ -573,7 +573,7 @@ public class AudioPipelineMiddlewareOutputTests
             State = state,
             Iteration = 0,
             Session = session,
-            Streams = registry
+            EventFlows = registry
         };
 
         // Act
@@ -800,7 +800,7 @@ public class AudioPipelineMiddlewareOutputTests
             Iteration = 0,
             Session = session,
             EventCoordinator = eventCoordinator,
-            Streams = eventCoordinator?.Streams
+            EventFlows = eventCoordinator?.EventFlows
         };
     }
 
@@ -1052,19 +1052,19 @@ public class AudioPipelineMiddlewareOutputTests
     // (for test #19 — we need audio to assemble, then wasInterrupted == true)
     // =========================================================================
 
-    private class DelayedInterruptStreamRegistry : IStreamRegistry
+    private class DelayedInterruptEventFlowRegistry : IEventFlowRegistry
     {
         private readonly DelayedInterruptHandle _handle = new();
 
-        public IStreamHandle Create(string? streamId = null) => _handle;
-        public IStreamHandle BeginStream(string streamId) => _handle;
-        public IStreamHandle? Get(string streamId) => _handle;
-        public void InterruptStream(string streamId) => _handle.Interrupt();
-        public void CompleteStream(string streamId) { }
+        public IEventFlowHandle Create(string? streamId = null) => _handle;
+        public IEventFlowHandle BeginFlow(string streamId) => _handle;
+        public IEventFlowHandle? Get(string streamId) => _handle;
+        public void InterruptFlow(string streamId) => _handle.Interrupt();
+        public void CompleteFlow(string streamId) { }
         public bool IsActive(string streamId) => !_handle.IsInterrupted;
         public void InterruptAll() => _handle.Interrupt();
-        public void InterruptWhere(Func<IStreamHandle, bool> predicate) { }
-        public IReadOnlyList<IStreamHandle> ActiveStreams => [];
+        public void InterruptWhere(Func<IEventFlowHandle, bool> predicate) { }
+        public IReadOnlyList<IEventFlowHandle> ActiveFlows => [];
         public int ActiveCount => 0;
     }
 
@@ -1074,7 +1074,7 @@ public class AudioPipelineMiddlewareOutputTests
     ///   - SynthesizeAndEmitAsync sees IsInterrupted=false → lets the chunk through (audio accumulates)
     ///   - StreamWithTtsAsync finally block sees IsInterrupted=true → wasInterrupted=true → tag="true"
     /// </summary>
-    private class DelayedInterruptHandle : IStreamHandle
+    private class DelayedInterruptHandle : IEventFlowHandle
     {
         private volatile bool _interrupted;
         public string StreamId => "delayed-interrupt-stream";
@@ -1082,9 +1082,9 @@ public class AudioPipelineMiddlewareOutputTests
         public bool IsCompleted => _interrupted;
         public int EmittedCount => 0;
         public int DroppedCount => 0;
-        public event Action<IStreamHandle>? OnInterrupted;
+        public event Action<IEventFlowHandle>? OnInterrupted;
 #pragma warning disable CS0067
-        public event Action<IStreamHandle>? OnCompleted;
+        public event Action<IEventFlowHandle>? OnCompleted;
 #pragma warning restore CS0067
         public void Interrupt() { _interrupted = true; OnInterrupted?.Invoke(this); }
         public void Complete() { }
@@ -1099,9 +1099,9 @@ public class AudioPipelineMiddlewareOutputTests
     private class InterruptingTtsClient : ITextToSpeechClient
     {
         private readonly byte[] _chunk;
-        private readonly DelayedInterruptStreamRegistry _registry;
+        private readonly DelayedInterruptEventFlowRegistry _registry;
 
-        public InterruptingTtsClient(byte[] chunk, DelayedInterruptStreamRegistry registry)
+        public InterruptingTtsClient(byte[] chunk, DelayedInterruptEventFlowRegistry registry)
         {
             _chunk = chunk;
             _registry = registry;

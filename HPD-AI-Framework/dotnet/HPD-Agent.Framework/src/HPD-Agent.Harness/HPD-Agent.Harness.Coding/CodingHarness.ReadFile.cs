@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using HPD.Agent;
+using HPD.Agent.Harness.Coding;
 using HPD.Agent.Middleware;
 using HPDOS.Harneses.Middleware;
 using Microsoft.Extensions.AI;
@@ -32,7 +33,10 @@ public partial class CodingHarness
             if (argumentError != null)
                 return FormatError(path ?? string.Empty, argumentError);
 
-            var resolvedPath = ResolveReadPath(path);
+            if (Path.IsPathRooted(path) && IsBlockedDevicePath(Path.GetFullPath(path)))
+                return FormatError(path, "Cannot read blocked device path.");
+
+            var resolvedPath = ResolveReadPath(path, context);
             if (IsBlockedDevicePath(resolvedPath.FullPath))
                 return FormatError(resolvedPath.FullPath, "Cannot read blocked device path.");
 
@@ -122,6 +126,10 @@ public partial class CodingHarness
         {
             return FormatError(path ?? string.Empty, "Unable to decode file as text.");
         }
+        catch (AgentWorkspaceException ex)
+        {
+            return FormatError(path ?? string.Empty, $"Unable to read file: {ex.Message}");
+        }
         catch (UnauthorizedAccessException ex)
         {
             return FormatError(path ?? string.Empty, $"Unable to read file: {ex.Message}");
@@ -160,10 +168,11 @@ public partial class CodingHarness
         return null;
     }
 
-    private static ResolvedReadPath ResolveReadPath(string path)
+    private static ResolvedReadPath ResolveReadPath(string path, FunctionExecutionContext context)
     {
         var trimmedPath = path.Trim();
-        var fullPath = Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
+        var workspace = AgentWorkspace.From(context.RunConfig);
+        var fullPath = workspace.ResolvePath(trimmedPath);
         return new ResolvedReadPath(trimmedPath, fullPath);
     }
 

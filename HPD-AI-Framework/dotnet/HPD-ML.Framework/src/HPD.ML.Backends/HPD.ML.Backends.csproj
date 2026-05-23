@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="tools/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD.ML.Backends.Abstractions\HPD.ML.Backends.Abstractions.csproj" />
+    <ProjectReference Include="..\HPD.ML.Abstractions\HPD.ML.Abstractions.csproj" />
+    <ProjectReference Include="..\HPD.ML.DeepLearning\HPD.ML.DeepLearning.csproj" />
+    <ProjectReference Include="..\..\..\shared\src\Helium\src\Helium.Hardware\Helium.Hardware.csproj" />
+  </ItemGroup>
+
+</Project>

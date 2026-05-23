@@ -1,0 +1,3 @@
+venue,slippage_model,bps_per_lot_size,reference_quantity,volatility_bps,taker_price_improvement_bps,maker_price_improvement_bps
+NYSE,VolatilityAdjusted,0.05,1000,0.50,0.05,0.10
+NASDAQ,VolatilityAdjusted,0.05,1000,0.50,0.05,0.10

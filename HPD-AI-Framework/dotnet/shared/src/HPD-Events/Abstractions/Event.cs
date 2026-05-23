@@ -36,15 +36,15 @@ public abstract record Event : IEvent
     public long SequenceNumber { get; set; }
 
     /// <summary>
-    /// Stream ID for interruptible stream grouping.
-    /// Events with the same StreamId can be interrupted as a group.
-    /// Null if event is not part of an interruptible stream.
+    /// Event flow ID for interruptible event flow grouping.
+    /// Events with the same EventFlowId can be interrupted as a group.
+    /// Null if event is not part of an interruptible event flow.
     /// </summary>
-    public string? StreamId { get; init; }
+    public string? EventFlowId { get; init; }
 
     /// <summary>
-    /// Whether this event can be dropped on stream interruption.
-    /// If true, event will be discarded when its stream is interrupted.
+    /// Whether this event can be dropped on event flow interruption.
+    /// If true, event will be discarded when its event flow is interrupted.
     /// If false, event will be delivered even after interruption.
     /// Default: true
     /// </summary>

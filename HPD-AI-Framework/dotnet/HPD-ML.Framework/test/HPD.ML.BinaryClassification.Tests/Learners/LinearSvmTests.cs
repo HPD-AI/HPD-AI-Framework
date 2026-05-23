@@ -1,8 +1,6 @@
 namespace HPD.ML.BinaryClassification.Tests;
 
-using Helium.Primitives;
 using HPD.ML.Abstractions;
-using Double = Helium.Primitives.Double;
 
 public class LinearSvmTests
 {
@@ -43,7 +41,7 @@ public class LinearSvmTests
         var m2 = (LinearModelParameters)l2.Fit(new LearnerInput(data)).Parameters;
 
         for (int i = 0; i < m1.FeatureCount; i++)
-            Assert.Equal((double)m1.Weights[i], (double)m2.Weights[i], 0.0001);
+            Assert.Equal(m1.Weights[i], m2.Weights[i], 0.0001);
     }
 
     [Fact]
@@ -96,7 +94,7 @@ public class LinearSvmTests
 
         var model = learner.Fit(new LearnerInput(data));
         var p = (LinearModelParameters)model.Parameters;
-        Assert.Equal(0.0, (double)p.Bias, 0.0001);
+        Assert.Equal(0.0, p.Bias, 0.0001);
     }
 
     [Fact]

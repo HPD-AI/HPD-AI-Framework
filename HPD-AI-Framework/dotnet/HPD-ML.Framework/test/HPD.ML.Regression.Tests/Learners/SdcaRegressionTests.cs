@@ -1,11 +1,8 @@
 namespace HPD.ML.Regression.Tests;
 
-using Helium.Algebra;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.BinaryClassification;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 public class SdcaRegressionTests
 {
@@ -52,7 +49,7 @@ public class SdcaRegressionTests
         var m2 = (LinearModelParameters)l2.Fit(new LearnerInput(data)).Parameters;
 
         for (int i = 0; i < m1.FeatureCount; i++)
-            Assert.Equal((double)m1.Weights[i], (double)m2.Weights[i], 0.0001);
+            Assert.Equal(m1.Weights[i], m2.Weights[i], 0.0001);
     }
 
     [Fact]

@@ -72,18 +72,18 @@ public interface IEventCoordinator
         EventSubscriptionOptions? options = null);
 
     /// <summary>
-    /// Subscribe directly to a typed class-event stream.
+    /// Create a caller-owned typed class-event inbox.
     /// </summary>
-    EventStreamSubscription<TEvent> SubscribeStream<TEvent>(
-        EventSubscriptionOptions? options = null)
+    EventInbox<TEvent> CreateInbox<TEvent>(
+        EventInboxOptions? options = null)
         where TEvent : Event;
 
     /// <summary>
-    /// Subscribe directly to a class-event channel stream.
+    /// Create a caller-owned class-event channel inbox.
     /// </summary>
-    EventStreamSubscription<Event> SubscribeChannel(
+    EventInbox<Event> CreateChannelInbox(
         EventChannel channel,
-        EventSubscriptionOptions? options = null);
+        EventInboxOptions? options = null);
 
     /// <summary>
     /// Try to emit a local struct event without waiting.
@@ -148,10 +148,10 @@ public interface IEventCoordinator
     bool TryRespond(string requestId, Event response);
 
     /// <summary>
-    /// Stream registry for managing interruptible event streams.
-    /// Allows grouping events into streams that can be interrupted together.
+    /// Registry for managing interruptible event flows.
+    /// Allows grouping events into flows that can be interrupted together.
     /// </summary>
-    IStreamRegistry Streams { get; }
+    IEventFlowRegistry EventFlows { get; }
 
     /// <summary>Returns current class-event bus health.</summary>
     EventCoordinatorStats GetStats();

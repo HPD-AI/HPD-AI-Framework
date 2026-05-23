@@ -33,7 +33,7 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
     public AgentConfig Config { get; }
     public IServiceProvider? Services { get; }
     public IEventCoordinator EventCoordinator { get; }
-    public IStreamRegistry Streams => EventCoordinator.Streams;
+    public IEventFlowRegistry EventFlows => EventCoordinator.EventFlows;
     public IRuntimeCapabilityRegistry RuntimeCapabilities { get; } = new RuntimeCapabilityRegistry();
     public string RuntimeId { get; }
     public DateTimeOffset CreatedAt { get; }
@@ -349,7 +349,7 @@ public abstract class RuntimeHookContext
     public AgentConfig Config => Base.Config;
     public IServiceProvider? Services => Base.Services;
     public IEventCoordinator EventCoordinator => Base.EventCoordinator;
-    public IStreamRegistry Streams => Base.Streams;
+    public IEventFlowRegistry EventFlows => Base.EventFlows;
     public IRuntimeCapabilityRegistry RuntimeCapabilities => Base.RuntimeCapabilities;
     public string RuntimeId => Base.RuntimeId;
     public DateTimeOffset CreatedAt => Base.CreatedAt;

@@ -1,0 +1,3 @@
+venue,allowed_order_types,allowed_tif,allow_post_only,min_qty,min_notional,currency
+Binance,Market|Limit|StopMarket|StopLimit|MarketIfTouched|LimitIfTouched|MarketToLimit|TrailingStopMarket|TrailingStopLimit,DAY|GTC|IOC|FOK|GTD,true,0.000001,5,USD
+Coinbase,Market|Limit|StopMarket|StopLimit|MarketIfTouched|LimitIfTouched|MarketToLimit|TrailingStopMarket|TrailingStopLimit,DAY|GTC|IOC|FOK|GTD,true,0.00000001,1,USD

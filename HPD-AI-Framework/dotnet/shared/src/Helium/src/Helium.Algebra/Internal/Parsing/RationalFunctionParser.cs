@@ -15,7 +15,7 @@ internal static class RationalFunctionParser
         {
             // No slash — treat entire input as numerator, denominator = 1.
             var num = UnivariatePolynomialParser.Parse<R>(s, provider);
-            return RationalFunction<R>.FromPolynomial(num);
+            return RationalFunction<R>.FromSparsePolynomial(num);
         }
 
         var numSpan = s[..slashIndex].Trim();

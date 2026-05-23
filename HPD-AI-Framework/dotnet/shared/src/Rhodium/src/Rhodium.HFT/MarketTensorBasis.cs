@@ -14,6 +14,9 @@ public sealed class MarketTensorBasis
         _config = config;
     }
 
+    public int PriceLevelsPerInstrument => _config.PriceLevelsPerInstrument;
+    public int OrderSlotsPerLevel => _config.OrderSlotsPerLevel;
+
     /// <summary>
     /// Register instrument and assign index.
     /// Must be called before GetVI for an instrument.

@@ -13,7 +13,7 @@
     <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj" />
+    <ProjectReference Include="../../src/HPD-Execution/HPD-Execution.Local/HPD-Execution.Local.csproj" />
   </ItemGroup>
 
 </Project>

@@ -4,8 +4,6 @@ namespace Helium.Primitives.Tests;
 
 public class FormattingTests
 {
-    // --- Integer ---
-
     [Fact]
     public void Integer_DefaultFormat()
     {
@@ -34,8 +32,6 @@ public class FormattingTests
         var big = Integer.Parse("123456789012345678901234567890");
         Assert.Equal("123456789012345678901234567890", big.ToString());
     }
-
-    // --- Rational ---
 
     [Fact]
     public void Rational_DefaultFormat()
@@ -74,35 +70,11 @@ public class FormattingTests
         Assert.Equal("<mfrac><mn>3</mn><mn>4</mn></mfrac>", r.ToString("M", null));
     }
 
-    // --- Complex ---
-
     [Fact]
-    public void Complex_PureReal()
+    public void Complex_Rational_Format()
     {
-        Assert.Equal("5", new Complex(5, 0).ToString());
-    }
-
-    [Fact]
-    public void Complex_PureImaginary()
-    {
-        Assert.Equal("i", new Complex(0, 1).ToString());
-        Assert.Equal("-i", new Complex(0, -1).ToString());
-        Assert.Equal("3i", new Complex(0, 3).ToString());
-        Assert.Equal("-3i", new Complex(0, -3).ToString());
-    }
-
-    [Fact]
-    public void Complex_General()
-    {
-        Assert.Equal("3 + 4i", new Complex(3, 4).ToString());
-        Assert.Equal("3 - 4i", new Complex(3, -4).ToString());
-        Assert.Equal("1 + i", new Complex(1, 1).ToString());
-        Assert.Equal("1 - i", new Complex(1, -1).ToString());
-    }
-
-    [Fact]
-    public void Complex_Zero()
-    {
-        Assert.Equal("0", Complex.Zero.ToString());
+        var z = new Complex<Rational>((Rational)3, (Rational)4);
+        Assert.Equal("3 + 4i", z.ToString());
+        Assert.Equal("<mn>3</mn><mo>+</mo><mn>4</mn><mi>i</mi>", z.ToString("M", null));
     }
 }

@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\HPD-Agent-Framework\HPD.Events\HPD.Events.csproj" />
+    <InternalsVisibleTo Include="Rhodium.Kernel" />
   </ItemGroup>
 
 </Project>

@@ -1,11 +1,8 @@
 namespace HPD.ML.Regression;
 
-using Helium.Algebra;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.BinaryClassification;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 public sealed record SdcaRegressionOptions
 {
@@ -47,20 +44,9 @@ public sealed class SdcaRegressionLearner : ILearner
 
     public IModel Fit(LearnerInput input)
     {
-        var (featuresD, labelsD, dim) = RegressionDataLoader.Load(
+        var (features, labels, dim) = RegressionDataLoader.Load(
             input.TrainData, _featureColumn, _labelColumn);
-        int n = featuresD.Count;
-
-        // Convert to double[][] for manual math
-        var features = new double[n][];
-        var labels = new double[n];
-        for (int i = 0; i < n; i++)
-        {
-            features[i] = new double[dim];
-            for (int j = 0; j < dim; j++)
-                features[i][j] = (double)featuresD[i][j];
-            labels[i] = labelsD[i];
-        }
+        int n = features.Count;
 
         double lambda = _options.L2Regularization;
         var rng = _options.Seed.HasValue ? new Random(_options.Seed.Value) : Random.Shared;
@@ -131,12 +117,7 @@ public sealed class SdcaRegressionLearner : ILearner
             prevLoss = loss;
         }
 
-        var wArr = new Double[dim];
-        for (int j = 0; j < dim; j++)
-            wArr[j] = new Double(weights[j]);
-
-        var parameters = new LinearModelParameters(
-            Vector<Double>.FromArray(wArr), new Double(bias));
+        var parameters = new LinearModelParameters(weights, bias);
         var transform = new RegressionScoringTransform(parameters, _featureColumn);
 
         _progress.OnCompleted();

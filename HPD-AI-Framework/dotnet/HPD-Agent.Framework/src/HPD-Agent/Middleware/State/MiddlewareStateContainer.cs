@@ -155,7 +155,7 @@ public sealed partial class MiddlewareState
     ///
     /// <para><b>External Package Usage:</b></para>
     /// <para>
-    /// External packages (like HPD.Sandbox.Local) can use this method directly
+    /// External packages can use this method directly
     /// with the fully-qualified type name as the key. The source generator will
     /// also create typed properties for consumer projects that reference the package.
     /// </para>
@@ -163,8 +163,8 @@ public sealed partial class MiddlewareState
     /// <example>
     /// <code>
     /// // External package can use:
-    /// var state = context.State.MiddlewareState.GetState&lt;SandboxStateData&gt;(
-    ///     "HPD.Sandbox.Local.State.SandboxStateData");
+    /// var state = context.State.MiddlewareState.GetState&lt;PackageState&gt;(
+    ///     "Example.Package.PackageState");
     /// </code>
     /// </example>
     public TState? GetState<TState>(string key) where TState : class
@@ -230,8 +230,8 @@ public sealed partial class MiddlewareState
     /// context.UpdateState(s => s with
     /// {
     ///     MiddlewareState = s.MiddlewareState.SetState(
-    ///         "HPD.Sandbox.Local.State.SandboxStateData",
-    ///         newSandboxState)
+    ///         "Example.Package.PackageState",
+    ///         newPackageState)
     /// });
     /// </code>
     /// </example>

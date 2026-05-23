@@ -22,7 +22,7 @@ namespace Helium.Algebra;
 ///   var grads = session.Backward(y);
 ///   T dfdx = grads[x.Index];
 /// </summary>
-public sealed class Tape<T> where T : IField<T>
+public sealed class Tape<T> where T : IRing<T>
 {
     [ThreadStatic]
     public static Tape<T>? Current;

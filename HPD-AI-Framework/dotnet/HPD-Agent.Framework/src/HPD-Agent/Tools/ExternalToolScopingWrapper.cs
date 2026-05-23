@@ -1,6 +1,7 @@
 using Microsoft.Extensions.AI;
 using System.Text.Json;
 using HPD.Agent;
+using HPD.Agent.Middleware;
 
 /// <summary>
 /// Wraps external tools (MCP, Client) with Harness Collapsing metadata at runtime.
@@ -347,26 +348,43 @@ public static class ExternalToolCollapsingWrapper
             return tool;
         }
 
+        var additionalProperties = tool.AdditionalProperties?.ToDictionary(kvp => kvp.Key, kvp => kvp.Value)
+            ?? new Dictionary<string, object?>();
+        additionalProperties["ParentHarness"] = parentHarnessName;
+        additionalProperties["ParentContainer"] = parentContainer; // For nested visibility (flat MCP tools under a harness)
+        additionalProperties["HarnessName"] = parentHarnessName;
+        additionalProperties["IsContainer"] = false;
+        additionalProperties["SourceType"] = sourceType;
+
         // Wrap the existing tool with metadata
         // This delegates invocation to the original tool while adding metadata
         return HPDAIFunctionFactory.Create(
-            async (args, _, ct) => await tool.InvokeAsync(args, ct),
+            async (args, functionContext, ct) => await InvokeWrappedToolAsync(tool, args, functionContext, ct).ConfigureAwait(false),
             new HPDAIFunctionFactoryOptions
             {
                 Name = tool.Name,
                 Description = tool.Description,
                 SchemaProvider = () => tool.JsonSchema,
-                RequiresPermission = true, // Preserve permission requirement from original tool
+                RequiresPermission = tool is HPDAIFunctionFactory.HPDAIFunction hpdFunction
+                    ? hpdFunction.HPDOptions.RequiresPermission
+                    : true,
                 Validator = (_, _) => new List<ValidationError>(), // Original tool handles validation
-                AdditionalProperties = new Dictionary<string, object?>
-                {
-                    ["ParentHarness"] = parentHarnessName,
-                    ["ParentContainer"] = parentContainer, // For nested visibility (flat MCP tools under a harness)
-                    ["HarnessName"] = parentHarnessName,
-                    ["IsContainer"] = false,
-                    ["SourceType"] = sourceType
-                }
+                AdditionalProperties = additionalProperties
             });
+    }
+
+    private static async Task<object?> InvokeWrappedToolAsync(
+        AIFunction tool,
+        AIFunctionArguments args,
+        FunctionExecutionContext functionContext,
+        CancellationToken cancellationToken)
+    {
+        if (tool is HPDAIFunctionFactory.HPDAIFunction hpdFunction)
+        {
+            return await hpdFunction.InvokeAsync(args, functionContext, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await tool.InvokeAsync(args, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

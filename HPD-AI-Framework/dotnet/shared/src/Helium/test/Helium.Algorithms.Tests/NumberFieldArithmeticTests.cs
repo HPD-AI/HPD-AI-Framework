@@ -8,9 +8,9 @@ public class NumberFieldArithmeticTests
 {
     // --- Helpers ---
 
-    private static readonly Polynomial<Rational> X   = Polynomial<Rational>.X;
-    private static readonly Polynomial<Rational> One = Polynomial<Rational>.One;
-    private static Polynomial<Rational> C(int n) => Polynomial<Rational>.C((Rational)n);
+    private static readonly SparsePolynomial<Rational> X   = SparsePolynomial<Rational>.X;
+    private static readonly SparsePolynomial<Rational> One = SparsePolynomial<Rational>.One;
+    private static SparsePolynomial<Rational> C(int n) => SparsePolynomial<Rational>.C((Rational)n);
 
     // K = Q[x]/(x^2 - 2), α = √2
     private static NumberField K2 => new(X * X - C(2));
@@ -19,7 +19,7 @@ public class NumberFieldArithmeticTests
     // K = Q[x]/(x^3 - 2), α = ∛2
     private static NumberField K3 => new(X * X * X - C(2));
 
-    private static NumberFieldElement Elt(Polynomial<Rational> p, NumberField k) =>
+    private static NumberFieldElement Elt(SparsePolynomial<Rational> p, NumberField k) =>
         NumberFieldElement.Create(p, k);
 
     private static Rational R(int num, int den) =>
@@ -215,7 +215,7 @@ public class NumberFieldArithmeticTests
     public void MinPoly_Zero_InK2_IsX()
     {
         // CharPoly(0) = x^n. MinPoly = x.
-        var mp = NumberFieldArithmetic.MinPoly(Elt(Polynomial<Rational>.Zero, K2));
+        var mp = NumberFieldArithmetic.MinPoly(Elt(SparsePolynomial<Rational>.Zero, K2));
         Assert.Equal(1, mp.Degree);
         Assert.Equal((Rational)1, mp[1]);
         Assert.Equal((Rational)0, mp[0]);
@@ -362,13 +362,13 @@ public class NumberFieldArithmeticTests
 
     // Evaluate polynomial p at element a in a number field, using field arithmetic.
     private static NumberFieldElement EvaluatePolynomialInField(
-        Polynomial<Rational> p, NumberFieldElement a, NumberField k)
+        SparsePolynomial<Rational> p, NumberFieldElement a, NumberField k)
     {
         var result = NumberFieldElement.FromInt(0);
         // Horner's method: result = 0, iterate from highest to lowest.
         for (int i = p.Degree; i >= 0; i--)
         {
-            var coeff = NumberFieldElement.Create(Polynomial<Rational>.C(p[i]), k);
+            var coeff = NumberFieldElement.Create(SparsePolynomial<Rational>.C(p[i]), k);
             result = result * a + coeff;
         }
         return result;

@@ -3,6 +3,8 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Xml;
+using HPD.Agent;
+using HPD.Agent.Harness.Coding;
 using HPD.Agent.Middleware;
 using HPDOS.Harneses.Middleware;
 using Microsoft.Extensions.AI;
@@ -33,7 +35,8 @@ public partial class CodingHarness
         [Description("Filters entries by kind.")] DirectoryEntryKindFilter kind = DirectoryEntryKindFilter.All,
         [Description("Controls entry ordering.")] DirectorySortBy sortBy = DirectorySortBy.Name,
         [Description("Controls ascending or descending sort order.")] SortDirection sortDirection = SortDirection.Ascending,
-        [Description("Whether to include size, last-write time, and symlink metadata.")] bool includeMetadata = false)
+        [Description("Whether to include size, last-write time, and symlink metadata.")] bool includeMetadata = false,
+        FunctionExecutionContext context = null!)
     {
         try
         {
@@ -41,7 +44,10 @@ public partial class CodingHarness
             if (argumentError != null)
                 return FormatListDirectoryError(path ?? string.Empty, argumentError);
 
-            var resolvedPath = ResolveDirectoryPath(path);
+            if (Path.IsPathRooted(path) && IsBlockedDirectoryPath(Path.GetFullPath(path)))
+                return FormatListDirectoryError(path, "Cannot list blocked system path.");
+
+            var resolvedPath = ResolveDirectoryPath(path, context);
             if (IsBlockedDirectoryPath(resolvedPath.FullPath))
                 return FormatListDirectoryError(resolvedPath.FullPath, "Cannot list blocked system path.");
 
@@ -70,6 +76,10 @@ public partial class CodingHarness
 
             var result = await ListLocalDirectoryAsync(request, CancellationToken.None).ConfigureAwait(false);
             return FormatDirectoryResult(result);
+        }
+        catch (AgentWorkspaceException ex)
+        {
+            return FormatListDirectoryError(path ?? string.Empty, $"Unable to list directory: {ex.Message}");
         }
         catch (UnauthorizedAccessException ex)
         {
@@ -129,11 +139,20 @@ public partial class CodingHarness
         return null;
     }
 
-    private static ResolvedDirectoryPath ResolveDirectoryPath(string path)
+    private static ResolvedDirectoryPath ResolveDirectoryPath(string path, FunctionExecutionContext? context)
     {
         var trimmedPath = path.Trim();
-        var fullPath = Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
+        var workspace = context is null
+            ? CreateDirectCallWorkspace()
+            : AgentWorkspace.From(context.RunConfig);
+        var fullPath = workspace.ResolvePath(trimmedPath);
         return new ResolvedDirectoryPath(trimmedPath, fullPath);
+    }
+
+    private static AgentWorkspace CreateDirectCallWorkspace()
+    {
+        var cwd = Directory.GetCurrentDirectory();
+        return new AgentWorkspace("default", cwd, [new AgentWorkspaceRoot("default", cwd)]);
     }
 
     private static bool IsBlockedDirectoryPath(string fullPath)

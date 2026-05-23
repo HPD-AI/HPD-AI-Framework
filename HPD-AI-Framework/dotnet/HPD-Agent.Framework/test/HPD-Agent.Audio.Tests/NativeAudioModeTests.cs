@@ -322,7 +322,7 @@ public class NativeAudioModeTests
         var contentStore = new SpyContentStore();
         var session = CreateSession("session-native-interrupted", contentStore);
 
-        var registry = new DelayedInterruptStreamRegistry();
+        var registry = new DelayedInterruptEventFlowRegistry();
         var model = new InterruptingNativeAudioChatClient(new byte[] { 0x01 }, registry);
 
         var middleware = new AudioPipelineMiddleware
@@ -340,7 +340,7 @@ public class NativeAudioModeTests
             State = state,
             Iteration = 0,
             Session = session,
-            Streams = registry
+            EventFlows = registry
         };
 
         // Act
@@ -648,10 +648,10 @@ public class NativeAudioModeTests
     private class InterruptingNativeAudioChatClient : IChatClient
     {
         private readonly byte[] _chunk;
-        private readonly DelayedInterruptStreamRegistry _registry;
+        private readonly DelayedInterruptEventFlowRegistry _registry;
         public ChatClientMetadata Metadata => new("interrupting-native-fake");
 
-        public InterruptingNativeAudioChatClient(byte[] chunk, DelayedInterruptStreamRegistry registry)
+        public InterruptingNativeAudioChatClient(byte[] chunk, DelayedInterruptEventFlowRegistry registry)
         {
             _chunk = chunk;
             _registry = registry;
@@ -724,8 +724,8 @@ public class NativeAudioModeTests
         public ValueTask EmitAsync(Event evt, CancellationToken ct = default) { Emit(evt); return ValueTask.CompletedTask; }
         public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler, EventSubscriptionOptions? options = null) where TEvent : Event => NoOpDisposable.Instance;
         public IDisposable SubscribeAny(Func<Event, ValueTask> handler, EventSubscriptionOptions? options = null) => NoOpDisposable.Instance;
-        public EventStreamSubscription<TEvent> SubscribeStream<TEvent>(EventSubscriptionOptions? options = null) where TEvent : Event => default;
-        public EventStreamSubscription<Event> SubscribeChannel(EventChannel channelName, EventSubscriptionOptions? options = null) => default;
+        public EventInbox<TEvent> CreateInbox<TEvent>(EventInboxOptions? options = null) where TEvent : Event => default;
+        public EventInbox<Event> CreateChannelInbox(EventChannel channelName, EventInboxOptions? options = null) => default;
         public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent => false;
         public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : struct, IStructEvent => ValueTask.CompletedTask;
         public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => NoOpDisposable.Instance;
@@ -741,7 +741,7 @@ public class NativeAudioModeTests
             => throw new NotImplementedException("RequestAsync not supported in test mock");
         public void Respond(string requestId, Event response) { }
         public bool TryRespond(string requestId, Event response) => false;
-        public IStreamRegistry Streams { get; } = new NoOpStreamRegistry();
+        public IEventFlowRegistry EventFlows { get; } = new NoOpEventFlowRegistry();
         public EventCoordinatorStats GetStats() => default;
         public IDisposable Subscribe(Action<AgentEvent> handler) => NoOpDisposable.Instance;
         private sealed class NoOpDisposable : IDisposable
@@ -749,28 +749,28 @@ public class NativeAudioModeTests
             public static readonly NoOpDisposable Instance = new();
             public void Dispose() { }
         }
-        private sealed class NoOpStreamRegistry : IStreamRegistry
+        private sealed class NoOpEventFlowRegistry : IEventFlowRegistry
         {
-            public IStreamHandle Create(string? streamId = null) => new NoOpStreamHandle();
-            public IStreamHandle BeginStream(string streamId) => new NoOpStreamHandle();
-            public IStreamHandle? Get(string streamId) => new NoOpStreamHandle();
-            public void InterruptStream(string streamId) { }
-            public void CompleteStream(string streamId) { }
+            public IEventFlowHandle Create(string? streamId = null) => new NoOpEventFlowHandle();
+            public IEventFlowHandle BeginFlow(string streamId) => new NoOpEventFlowHandle();
+            public IEventFlowHandle? Get(string streamId) => new NoOpEventFlowHandle();
+            public void InterruptFlow(string streamId) { }
+            public void CompleteFlow(string streamId) { }
             public bool IsActive(string streamId) => false;
             public void InterruptAll() { }
-            public void InterruptWhere(Func<IStreamHandle, bool> predicate) { }
-            public IReadOnlyList<IStreamHandle> ActiveStreams { get; } = Array.Empty<IStreamHandle>();
+            public void InterruptWhere(Func<IEventFlowHandle, bool> predicate) { }
+            public IReadOnlyList<IEventFlowHandle> ActiveFlows { get; } = Array.Empty<IEventFlowHandle>();
             public int ActiveCount => 0;
         }
-        private sealed class NoOpStreamHandle : IStreamHandle
+        private sealed class NoOpEventFlowHandle : IEventFlowHandle
         {
             public string StreamId => "noop-stream";
             public bool IsInterrupted => false;
             public bool IsCompleted => false;
             public int EmittedCount => 0;
             public int DroppedCount => 0;
-            public event Action<IStreamHandle>? OnInterrupted;
-            public event Action<IStreamHandle>? OnCompleted;
+            public event Action<IEventFlowHandle>? OnInterrupted;
+            public event Action<IEventFlowHandle>? OnCompleted;
             public void Interrupt() { }
             public void Complete() { }
             public Task WaitAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -867,23 +867,23 @@ public class NativeAudioModeTests
     // Delayed-interrupt infrastructure (re-used from OutputTests for test #54)
     // =========================================================================
 
-    private class DelayedInterruptStreamRegistry : IStreamRegistry
+    private class DelayedInterruptEventFlowRegistry : IEventFlowRegistry
     {
         private readonly DelayedInterruptHandle _handle = new();
 
-        public IStreamHandle Create(string? streamId = null) => _handle;
-        public IStreamHandle BeginStream(string streamId) => _handle;
-        public IStreamHandle? Get(string streamId) => _handle;
-        public void InterruptStream(string streamId) => _handle.Interrupt();
-        public void CompleteStream(string streamId) { }
+        public IEventFlowHandle Create(string? streamId = null) => _handle;
+        public IEventFlowHandle BeginFlow(string streamId) => _handle;
+        public IEventFlowHandle? Get(string streamId) => _handle;
+        public void InterruptFlow(string streamId) => _handle.Interrupt();
+        public void CompleteFlow(string streamId) { }
         public bool IsActive(string streamId) => !_handle.IsInterrupted;
         public void InterruptAll() => _handle.Interrupt();
-        public void InterruptWhere(Func<IStreamHandle, bool> predicate) { }
-        public IReadOnlyList<IStreamHandle> ActiveStreams => [];
+        public void InterruptWhere(Func<IEventFlowHandle, bool> predicate) { }
+        public IReadOnlyList<IEventFlowHandle> ActiveFlows => [];
         public int ActiveCount => 0;
     }
 
-    private class DelayedInterruptHandle : IStreamHandle
+    private class DelayedInterruptHandle : IEventFlowHandle
     {
         private volatile bool _interrupted;
         public string StreamId => "native-interrupt-stream";
@@ -891,9 +891,9 @@ public class NativeAudioModeTests
         public bool IsCompleted => _interrupted;
         public int EmittedCount => 0;
         public int DroppedCount => 0;
-        public event Action<IStreamHandle>? OnInterrupted;
+        public event Action<IEventFlowHandle>? OnInterrupted;
 #pragma warning disable CS0067
-        public event Action<IStreamHandle>? OnCompleted;
+        public event Action<IEventFlowHandle>? OnCompleted;
 #pragma warning restore CS0067
         public void Interrupt() { _interrupted = true; OnInterrupted?.Invoke(this); }
         public void Complete() { }

@@ -1,10 +1,7 @@
 namespace HPD.ML.BinaryClassification;
 
-using Helium.Algebra;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 /// <summary>
 /// Scores rows using w·x + b, then applies sigmoid for probability.
@@ -51,9 +48,9 @@ public sealed class LinearScoringTransform : ITransform
                     int d = _params.FeatureCount;
 
                     // w·x + b
-                    double score = (double)_params.Bias;
+                    double score = _params.Bias;
                     for (int i = 0; i < d; i++)
-                        score += (double)_params.Weights[i] * (double)features[i];
+                        score += _params.Weights[i] * features[i];
 
                     // Sigmoid
                     double probability = 1.0 / (1.0 + Math.Exp(-score));
@@ -71,17 +68,17 @@ public sealed class LinearScoringTransform : ITransform
             input.Ordering);
     }
 
-    private Double[] ExtractFeatures(IRow row)
+    private double[] ExtractFeatures(IRow row)
     {
         if (row.TryGetValue<float[]>(_featureColumn, out var vector))
         {
-            var values = new Double[vector.Length];
+            var values = new double[vector.Length];
             for (int i = 0; i < vector.Length; i++)
-                values[i] = new Double(vector[i]);
+                values[i] = vector[i];
             return values;
         }
 
         var scalar = row.GetValue<float>(_featureColumn);
-        return [new Double(scalar)];
+        return [scalar];
     }
 }

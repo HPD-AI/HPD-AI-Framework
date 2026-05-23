@@ -1,11 +1,8 @@
 namespace HPD.ML.Regression.Tests;
 
-using Helium.Algebra;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.BinaryClassification;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 public class RegressionScoringTransformTests
 {
@@ -14,7 +11,7 @@ public class RegressionScoringTransformTests
     {
         // w=[2], b=1 → score = 2*3 + 1 = 7
         var p = new LinearModelParameters(
-            Vector<Double>.FromArray(new Double(2)), new Double(1));
+            [2], 1);
         var transform = new RegressionScoringTransform(p, "Features");
 
         var data = TestHelper.Data(
@@ -30,8 +27,7 @@ public class RegressionScoringTransformTests
     public void Score_MultipleFeatures()
     {
         // w=[1,2], b=0.5 → score = 1*3 + 2*4 + 0.5 = 11.5
-        var p = new LinearModelParameters(
-            Vector<Double>.FromArray(new Double(1), new Double(2)), new Double(0.5));
+        var p = new LinearModelParameters([1, 2], 0.5);
         var transform = new RegressionScoringTransform(p, "Features");
 
         var data = TestHelper.Data(
@@ -46,8 +42,7 @@ public class RegressionScoringTransformTests
     [Fact]
     public void Score_ZeroWeights()
     {
-        var p = new LinearModelParameters(
-            Vector<Double>.FromArray(new Double(0), new Double(0)), new Double(5));
+        var p = new LinearModelParameters([0, 0], 5);
         var transform = new RegressionScoringTransform(p, "Features");
 
         var data = TestHelper.Data(
@@ -64,7 +59,7 @@ public class RegressionScoringTransformTests
     {
         // w=[1], b=0, x=2, applyExp=true → exp(2) ≈ 7.389
         var p = new LinearModelParameters(
-            Vector<Double>.FromArray(new Double(1)), new Double(0));
+            [1], 0);
         var transform = new RegressionScoringTransform(p, "Features", applyExp: true);
 
         var data = TestHelper.Data(
@@ -80,7 +75,7 @@ public class RegressionScoringTransformTests
     public void Score_WithExpApplied_ZeroScore()
     {
         var p = new LinearModelParameters(
-            Vector<Double>.FromArray(new Double(0)), new Double(0));
+            [0], 0);
         var transform = new RegressionScoringTransform(p, "Features", applyExp: true);
 
         var data = TestHelper.Data(
@@ -96,7 +91,7 @@ public class RegressionScoringTransformTests
     public void Score_PreservesInputColumns()
     {
         var p = new LinearModelParameters(
-            Vector<Double>.FromArray(new Double(1)), new Double(0));
+            [1], 0);
         var transform = new RegressionScoringTransform(p, "Features");
 
         var data = TestHelper.Data(
@@ -113,7 +108,7 @@ public class RegressionScoringTransformTests
     public void GetOutputSchema_AddsScoreColumn()
     {
         var p = new LinearModelParameters(
-            Vector<Double>.FromArray(new Double(1)), new Double(0));
+            [1], 0);
         var transform = new RegressionScoringTransform(p, "Features");
         var inputSchema = new SchemaBuilder().AddColumn<float>("Features").AddColumn<float>("Label").Build();
 
@@ -127,7 +122,7 @@ public class RegressionScoringTransformTests
     {
         // w=[1], b=0 → score = x
         var p = new LinearModelParameters(
-            Vector<Double>.FromArray(new Double(1)), new Double(0));
+            [1], 0);
         var transform = new RegressionScoringTransform(p, "Features");
 
         var data = TestHelper.Data(

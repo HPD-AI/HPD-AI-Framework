@@ -1,7 +1,9 @@
 using Microsoft.Extensions.AI;
 using Xunit;
 using FluentAssertions;
+using HPD.Agent.Middleware;
 using HPD.Agent.Tests.Infrastructure;
+using HPD.Events.Core;
 
 namespace HPD.Agent.Tests.Tools;
 
@@ -33,6 +35,40 @@ public class ExternalToolCollapsingWrapperMCPTests
         if (func.AdditionalProperties?.TryGetValue(key, out var val) == true)
             return val;
         return null;
+    }
+
+    private static FunctionExecutionContext CreateContext(AIFunction function)
+    {
+        var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
+        var session = new global::HPD.Agent.Session("session-1");
+        var branch = new global::HPD.Agent.Branch("session-1") { Id = "branch-1" };
+        var agentContext = new AgentContext(
+            "AgentA",
+            "conversation-1",
+            state,
+            new EventCoordinator(),
+            session,
+            branch,
+            CancellationToken.None);
+        var beforeContext = agentContext.AsBeforeFunction(
+            function,
+            "call-1",
+            new Dictionary<string, object?>(),
+            new AgentRunConfig(),
+            harnessName: null,
+            skillName: null);
+
+        return new FunctionExecutionContext(
+            beforeContext,
+            new FunctionRequest
+            {
+                Function = function,
+                CallId = "call-1",
+                Arguments = new Dictionary<string, object?>(),
+                State = state,
+                ResultMetadata = new ToolResultMetadata(),
+                EventCoordinator = agentContext.EventCoordinator
+            });
     }
 
     #endregion
@@ -168,6 +204,22 @@ public class ExternalToolCollapsingWrapperMCPTests
         // Assert
         var parentContainer = GetAdditionalProperty(wrapped, "ParentContainer");
         parentContainer.Should().Be("DevHarness");
+    }
+
+    [Fact]
+    public async Task AddParentToolMetadata_MCPWrappedHPDFunction_InvokesWithFunctionExecutionContext()
+    {
+        // Arrange
+        var tool = CollapsedHarnessTestHelper.CreateSimpleFunction("myTool", "desc", () => "mcp result");
+
+        // Act
+        var wrapped = ExternalToolCollapsingWrapper.AddParentToolMetadata(
+            tool, "MCP_server", "MCP", parentContainer: "DevHarness");
+        var hpdFunction = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(wrapped);
+        var result = await hpdFunction.InvokeAsync(new AIFunctionArguments(), CreateContext(wrapped), CancellationToken.None);
+
+        // Assert
+        result.Should().Be("mcp result");
     }
 
     [Fact]

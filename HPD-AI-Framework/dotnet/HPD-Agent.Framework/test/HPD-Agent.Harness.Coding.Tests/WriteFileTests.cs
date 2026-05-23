@@ -1,5 +1,6 @@
 using System.Text;
 using HPD.Agent;
+using HPD.Agent.Harness.Coding;
 using HPD.Agent.Middleware;
 using HPD.Events;
 using HPD.Events.Core;
@@ -383,7 +384,7 @@ public sealed class WriteFileTests : IDisposable
             callId: beforeContext.FunctionCallId,
             result: result,
             exception: null,
-            runConfig: new AgentRunConfig(),
+            runConfig: beforeContext.RunConfig,
             harnessName: "CodingHarness",
             resultMetadata: request.ResultMetadata);
 
@@ -419,7 +420,7 @@ public sealed class WriteFileTests : IDisposable
             callId: beforeContext.FunctionCallId,
             result: result,
             exception: null,
-            runConfig: new AgentRunConfig(),
+            runConfig: beforeContext.RunConfig,
             harnessName: "CodingHarness",
             resultMetadata: request.ResultMetadata);
 
@@ -444,6 +445,7 @@ public sealed class WriteFileTests : IDisposable
             CallId = beforeContext.FunctionCallId,
             Arguments = arguments,
             State = agentContext.State,
+            RunConfig = beforeContext.RunConfig,
             EventCoordinator = agentContext.EventCoordinator
         };
 
@@ -482,8 +484,23 @@ public sealed class WriteFileTests : IDisposable
             function: null,
             callId: "call-1",
             arguments: new Dictionary<string, object?>(),
-            runConfig: new AgentRunConfig(),
+            runConfig: CreateWorkspaceRunConfig(),
             harnessName: "CodingHarness");
+    }
+
+    private static AgentRunConfig CreateWorkspaceRunConfig()
+    {
+        var cwd = Directory.GetCurrentDirectory();
+        return new AgentRunConfig
+        {
+            ContextOverrides = new()
+            {
+                [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                    "default",
+                    cwd,
+                    [new AgentWorkspaceRoot("default", cwd)])
+            }
+        };
     }
 
     private static string FullPath(string relativePath)

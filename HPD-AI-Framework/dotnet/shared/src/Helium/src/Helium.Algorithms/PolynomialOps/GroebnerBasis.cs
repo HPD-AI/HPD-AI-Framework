@@ -163,7 +163,13 @@ public static class GroebnerBasis
         }
 
         // Sort by leading monomial.
-        basis.Sort((a, b) => a.LeadingMonomial.CompareTo(b.LeadingMonomial));
+        basis.Sort((a, b) => Monomial.CompareOrder(a.LeadingMonomial, b.LeadingMonomial) switch
+        {
+            Ordering.Less => -1,
+            Ordering.Equal => 0,
+            Ordering.Greater => 1,
+            _ => throw new InvalidOperationException("Invalid monomial ordering result.")
+        });
 
         return basis;
     }

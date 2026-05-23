@@ -1,6 +1,4 @@
 import type {
-	ClientToolInvokeResponse,
-	ClientToolInvokeRequestEvent,
 	AgentEvent,
 	AgentRunInputEvent,
 	EventSubscription,
@@ -21,6 +19,8 @@ import type {
 	AssetReference,
 	RunConfig,
 	ChatRunConfig,
+	ClientToolHandler,
+	ClientToolRegistry,
 } from '@hpd/hpd-agent-client';
 export type { RunConfig, ChatRunConfig };
 import type { AgentState } from '../agent/agent.svelte.ts';
@@ -39,6 +39,7 @@ export interface AgentClientLike {
 	onAny(handler: (event: AgentEvent) => void | Promise<void>): EventSubscription;
 	onError(handler: (error: Error) => void | Promise<void>): EventSubscription;
 	abort(): void;
+	tools?: Pick<ClientToolRegistry, 'registerFallback'>;
 
 	// Session CRUD
 	listSessions(options?: ListSessionsOptions): Promise<Session[]>;
@@ -76,7 +77,7 @@ export interface CreateWorkspaceOptions {
 	baseUrl: string;
 
 	/** Transport type (default: 'sse') */
-	transport?: 'sse' | 'websocket' | 'maui';
+	transport?: 'sse' | 'websocket';
 
 	/** Additional request headers (SSE only) */
 	headers?: Record<string, string>;
@@ -91,7 +92,7 @@ export interface CreateWorkspaceOptions {
 	maxCachedBranches?: number;
 
 	/** Handler for client tool invocations */
-	onClientToolInvoke?: (req: ClientToolInvokeRequestEvent) => Promise<ClientToolInvokeResponse>;
+	onClientToolInvoke?: ClientToolHandler;
 
 	/** Default agent definition ID to use for all streams (defaults to "default" on the server) */
 	agentId?: string;

@@ -32,7 +32,7 @@
     "coalesceDeltas": false
   },
   "createdAt": "2026-05-09T00:00:00Z",
-  "updatedAt": "2026-05-18T20:27:08.526079Z",
+  "updatedAt": "2026-05-21T17:39:48.250006Z",
   "metadata": {
     "source": "dev-seed",
     "description": "Default local HPD-OS workspace agent for quick development."

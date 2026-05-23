@@ -8,18 +8,20 @@ namespace Rhodium.Tensor.Tests;
 public class TensorIndTests
 {
     [Fact]
-    public void RSI_ClearsOutput_ForMinimalStub()
+    public void RSI_ComputesRollingWilderValues()
     {
-        // The minimal stub implementation just clears the output
-        var closes = new double[] { 100, 102, 101, 103, 105 };
-        var output = new double[5];
+        var closes = new double[] { 100, 102, 101, 103, 105, 104, 106 };
+        var output = new double[closes.Length];
 
-        // Pre-fill output to verify it gets cleared
-        Array.Fill(output, 99.0);
+        TensorInd.RSI(closes, output, period: 3);
 
-        TensorInd.RSI(closes, output);
-
-        Assert.All(output, x => Assert.Equal(0.0, x));
+        Assert.Equal(0.0, output[0]);
+        Assert.Equal(0.0, output[1]);
+        Assert.Equal(0.0, output[2]);
+        Assert.InRange(output[3], 79.99, 80.01);
+        Assert.InRange(output[4], 87.49, 87.51);
+        Assert.InRange(output[5], 68.29, 68.30);
+        Assert.InRange(output[6], 80.88, 80.89);
     }
 
     [Fact]
@@ -31,10 +33,10 @@ public class TensorIndTests
 
         // Should handle different period parameters
         TensorInd.RSI(closes, output, period: 7);
-        Assert.All(output, x => Assert.Equal(0.0, x));
+        Assert.Equal(50.0, output[7]);
 
         TensorInd.RSI(closes, output, period: 14);
-        Assert.All(output, x => Assert.Equal(0.0, x));
+        Assert.Equal(50.0, output[14]);
 
         TensorInd.RSI(closes, output, period: 21);
         Assert.All(output, x => Assert.Equal(0.0, x));
@@ -47,6 +49,15 @@ public class TensorIndTests
         var output = new double[5];
 
         Assert.Throws<ArgumentException>(() => TensorInd.RSI(closes, output));
+    }
+
+    [Fact]
+    public void RSI_ThrowsOnInvalidPeriod()
+    {
+        var closes = new double[10];
+        var output = new double[10];
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => TensorInd.RSI(closes, output, period: 0));
     }
 
     [Fact]
@@ -63,12 +74,13 @@ public class TensorIndTests
     public void RSI_DefaultPeriodIs14()
     {
         var closes = new double[20];
+        Array.Fill(closes, 100.0);
         var output = new double[20];
 
         // Should use default period of 14 when not specified
         TensorInd.RSI(closes, output);
 
-        Assert.All(output, x => Assert.Equal(0.0, x));
+        Assert.Equal(50.0, output[14]);
     }
 
     [Fact]
@@ -83,7 +95,7 @@ public class TensorIndTests
 
         TensorInd.RSI(closes, output);
 
-        Assert.All(output, x => Assert.Equal(0.0, x));
+        Assert.Contains(output, static x => x > 0.0);
     }
 
     [Fact]
@@ -95,7 +107,6 @@ public class TensorIndTests
 
         TensorInd.RSI(closes, output);
 
-        foreach (var value in output)
-            Assert.Equal(0.0, value);
+        Assert.Equal(0.0, output[0]);
     }
 }

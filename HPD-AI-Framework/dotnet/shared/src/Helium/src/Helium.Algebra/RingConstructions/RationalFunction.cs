@@ -6,9 +6,8 @@ namespace Helium.Algebra;
 
 /// <summary>
 /// Rational function: ratio of two univariate polynomials p(x)/q(x).
-/// Arithmetic is delegated to Localization&lt;Polynomial&lt;R&gt;&gt; — the single
-/// authoritative implementation of fraction arithmetic. This type adds
-/// its own formatting (LaTeX/MathML/Unicode) and a named public API.
+/// Owns numerator/denominator arithmetic directly; equality is cross-multiply
+/// equality in the polynomial ring.
 /// </summary>
 public readonly struct RationalFunction<R> :
     ICommRing<RationalFunction<R>>,
@@ -16,28 +15,37 @@ public readonly struct RationalFunction<R> :
     IFormattable
     where R : IRing<R>
 {
-    private readonly Localization<Polynomial<R>> _inner;
+    private readonly Func<SparsePolynomial<R>, SparsePolynomial<R>, (SparsePolynomial<R>, SparsePolynomial<R>)>? _normalize;
 
-    private RationalFunction(Localization<Polynomial<R>> inner) => _inner = inner;
+    private RationalFunction(
+        SparsePolynomial<R> numerator,
+        SparsePolynomial<R> denominator,
+        Func<SparsePolynomial<R>, SparsePolynomial<R>, (SparsePolynomial<R>, SparsePolynomial<R>)>? normalize)
+    {
+        (Numerator, Denominator) = normalize is null
+            ? (numerator, denominator)
+            : normalize(numerator, denominator);
+        _normalize = normalize;
+    }
 
-    public Polynomial<R> Numerator   => _inner.Numerator;
-    public Polynomial<R> Denominator => _inner.Denominator;
+    public SparsePolynomial<R> Numerator { get; }
+    public SparsePolynomial<R> Denominator { get; }
 
     // Expose the normalizer so extension methods can forward it.
-    internal Func<Polynomial<R>, Polynomial<R>, (Polynomial<R>, Polynomial<R>)>? Normalize =>
-        _inner.Normalize;
+    internal Func<SparsePolynomial<R>, SparsePolynomial<R>, (SparsePolynomial<R>, SparsePolynomial<R>)>? Normalize =>
+        _normalize;
 
     // --- Construction ---
 
-    public static RationalFunction<R> Create(Polynomial<R> numerator, Polynomial<R> denominator,
-        Func<Polynomial<R>, Polynomial<R>, (Polynomial<R>, Polynomial<R>)>? normalize = null) =>
-        new(Localization<Polynomial<R>>.Create(numerator, denominator, normalize));
+    public static RationalFunction<R> Create(SparsePolynomial<R> numerator, SparsePolynomial<R> denominator,
+        Func<SparsePolynomial<R>, SparsePolynomial<R>, (SparsePolynomial<R>, SparsePolynomial<R>)>? normalize = null) =>
+        new(numerator, denominator, normalize);
 
-    public static RationalFunction<R> FromPolynomial(Polynomial<R> p) =>
-        Create(p, Polynomial<R>.One);
+    public static RationalFunction<R> FromSparsePolynomial(SparsePolynomial<R> p) =>
+        Create(p, SparsePolynomial<R>.One);
 
-    public static RationalFunction<R> Zero => Create(Polynomial<R>.Zero, Polynomial<R>.One);
-    public static RationalFunction<R> One  => Create(Polynomial<R>.One,  Polynomial<R>.One);
+    public static RationalFunction<R> Zero => Create(SparsePolynomial<R>.Zero, SparsePolynomial<R>.One);
+    public static RationalFunction<R> One  => Create(SparsePolynomial<R>.One,  SparsePolynomial<R>.One);
 
     public bool IsZero => Numerator.IsZero;
 
@@ -46,30 +54,39 @@ public readonly struct RationalFunction<R> :
     static RationalFunction<R> IAdditiveIdentity<RationalFunction<R>, RationalFunction<R>>.AdditiveIdentity       => Zero;
     static RationalFunction<R> IMultiplicativeIdentity<RationalFunction<R>, RationalFunction<R>>.MultiplicativeIdentity => One;
 
-    // --- Arithmetic: delegate to Localization<Polynomial<R>> ---
+    // --- Arithmetic ---
 
     public static RationalFunction<R> operator +(RationalFunction<R> left, RationalFunction<R> right) =>
-        new(left._inner + right._inner);
+        Create(
+            left.Numerator * right.Denominator + right.Numerator * left.Denominator,
+            left.Denominator * right.Denominator,
+            left.Normalize ?? right.Normalize);
 
     public static RationalFunction<R> operator -(RationalFunction<R> left, RationalFunction<R> right) =>
-        new(left._inner - right._inner);
+        Create(
+            left.Numerator * right.Denominator - right.Numerator * left.Denominator,
+            left.Denominator * right.Denominator,
+            left.Normalize ?? right.Normalize);
 
     public static RationalFunction<R> operator *(RationalFunction<R> left, RationalFunction<R> right) =>
-        new(left._inner * right._inner);
+        Create(
+            left.Numerator * right.Numerator,
+            left.Denominator * right.Denominator,
+            left.Normalize ?? right.Normalize);
 
     public static RationalFunction<R> operator -(RationalFunction<R> value) =>
-        new(-value._inner);
+        Create(-value.Numerator, value.Denominator, value.Normalize);
 
-    // --- Equality (delegates to Localization cross-multiply) ---
+    // --- Equality ---
 
     public static bool operator ==(RationalFunction<R> left, RationalFunction<R> right) =>
-        left._inner == right._inner;
+        (left.Numerator * right.Denominator).Equals(right.Numerator * left.Denominator);
 
     public static bool operator !=(RationalFunction<R> left, RationalFunction<R> right) => !(left == right);
 
-    public bool Equals(RationalFunction<R> other) => _inner == other._inner;
+    public bool Equals(RationalFunction<R> other) => this == other;
     public override bool Equals(object? obj) => obj is RationalFunction<R> other && Equals(other);
-    public override int GetHashCode() => _inner.GetHashCode();
+    public override int GetHashCode() => HashCode.Combine(Numerator, Denominator);
 
     // --- Formatting ---
 
@@ -79,7 +96,7 @@ public readonly struct RationalFunction<R> :
     {
         if (IsZero) return "0";
 
-        if (Denominator.Equals(Polynomial<R>.One))
+        if (Denominator.Equals(SparsePolynomial<R>.One))
             return Numerator.ToString(format, provider);
 
         if (format == "M")
@@ -130,7 +147,7 @@ public static class RationalFunctionFieldExtensions
             if (self.IsZero) return self;
 
             var gcd = self.Numerator.Gcd(self.Denominator);
-            if (gcd.IsZero || gcd.Equals(Polynomial<R>.One))
+            if (gcd.IsZero || gcd.Equals(SparsePolynomial<R>.One))
                 return self;
 
             var (qN, _) = self.Numerator.DivMod(gcd);
@@ -163,16 +180,16 @@ public static class RationalFunctionField
     /// <summary>
     /// Create a rational function over a field with automatic GCD reduction.
     /// </summary>
-    public static RationalFunction<R> Of<R>(Polynomial<R> numerator, Polynomial<R> denominator)
+    public static RationalFunction<R> Of<R>(SparsePolynomial<R> numerator, SparsePolynomial<R> denominator)
         where R : IField<R>
     {
         return RationalFunction<R>.Create(numerator, denominator, (n, d) =>
         {
-            if (d.IsZero) return (Polynomial<R>.Zero, Polynomial<R>.One);
-            if (n.IsZero) return (Polynomial<R>.Zero, Polynomial<R>.One);
+            if (d.IsZero) return (SparsePolynomial<R>.Zero, SparsePolynomial<R>.One);
+            if (n.IsZero) return (SparsePolynomial<R>.Zero, SparsePolynomial<R>.One);
 
             var gcd = n.Gcd(d);
-            if (gcd.IsZero || gcd.Equals(Polynomial<R>.One))
+            if (gcd.IsZero || gcd.Equals(SparsePolynomial<R>.One))
                 return (n, d);
 
             var (qN, _) = n.DivMod(gcd);

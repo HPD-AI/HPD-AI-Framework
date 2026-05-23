@@ -6,26 +6,30 @@ namespace Helium.Primitives.Tests.Axioms;
 
 public static class OrderedAxioms
 {
-    public static void VerifyReflexivity<T>(T a) where T : IOrdered<T>
+    public static void VerifyReflexivity<T>(T a) where T : IPartialOrder<T>
     {
-        Assert.True(a <= a);
+        Assert.True(T.LessEqual(a, a));
     }
 
-    public static void VerifyTotality<T>(T a, T b) where T : IOrdered<T>
+    public static void VerifyTotality<T>(T a, T b) where T : ITotalOrder<T>
     {
-        Assert.True(a <= b || b <= a);
+        var ab = T.CompareOrder(a, b);
+        var ba = T.CompareOrder(b, a);
+        Assert.True(ab is Ordering.Less or Ordering.Equal or Ordering.Greater);
+        Assert.True(ba is Ordering.Less or Ordering.Equal or Ordering.Greater);
+        Assert.True(T.LessEqual(a, b) || T.LessEqual(b, a));
     }
 
-    public static void VerifyAntisymmetry<T>(T a) where T : IOrdered<T>, IEquatable<T>
+    public static void VerifyAntisymmetry<T>(T a) where T : IPartialOrder<T>
     {
-        Assert.True(a <= a);
-        Assert.Equal(a, a);
+        Assert.True(T.LessEqual(a, a));
+        Assert.True(T.DecidableEquals(a, a));
     }
 
     public static void VerifyTranslationInvariance<T>(T a, T b, T c)
-        where T : IOrdered<T>, IRing<T>
+        where T : ITotalOrder<T>, IRing<T>
     {
-        if (a <= b)
-            Assert.True((a + c) <= (b + c));
+        if (T.LessEqual(a, b))
+            Assert.True(T.LessEqual(a + c, b + c));
     }
 }

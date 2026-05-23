@@ -1,4 +1,4 @@
-using Rhodium.Platform;
+using Rhodium.Primitives;
 
 namespace Rhodium.Platform.Tests;
 

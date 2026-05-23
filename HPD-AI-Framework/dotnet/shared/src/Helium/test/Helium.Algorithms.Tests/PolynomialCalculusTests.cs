@@ -11,46 +11,46 @@ public class PolynomialCalculusTests
     [Fact]
     public void Derivative_OfXToTheFifth_Is5XToTheFourth()
     {
-        var p = Polynomial<Integer>.Monomial(5, (Integer)1);
+        var p = SparsePolynomial<Integer>.Monomial(5, (Integer)1);
         var dp = PolynomialCalculus.Derivative(p);
-        Assert.Equal(Polynomial<Integer>.Monomial(4, (Integer)5), dp);
+        Assert.Equal(SparsePolynomial<Integer>.Monomial(4, (Integer)5), dp);
     }
 
     [Fact]
     public void Derivative_OfConstant_IsZero()
     {
-        var p = Polynomial<Integer>.C((Integer)7);
-        Assert.Equal(Polynomial<Integer>.Zero, PolynomialCalculus.Derivative(p));
+        var p = SparsePolynomial<Integer>.C((Integer)7);
+        Assert.Equal(SparsePolynomial<Integer>.Zero, PolynomialCalculus.Derivative(p));
     }
 
     [Fact]
     public void Derivative_OfZero_IsZero()
     {
-        Assert.Equal(Polynomial<Integer>.Zero, PolynomialCalculus.Derivative(Polynomial<Integer>.Zero));
+        Assert.Equal(SparsePolynomial<Integer>.Zero, PolynomialCalculus.Derivative(SparsePolynomial<Integer>.Zero));
     }
 
     [Fact]
     public void Derivative_OfLinear_IsConstant()
     {
         // d/dx(3x + 2) = 3
-        var p = Polynomial<Integer>.FromCoeffs((Integer)2, (Integer)3);
+        var p = SparsePolynomial<Integer>.FromCoeffs((Integer)2, (Integer)3);
         var dp = PolynomialCalculus.Derivative(p);
-        Assert.Equal(Polynomial<Integer>.C((Integer)3), dp);
+        Assert.Equal(SparsePolynomial<Integer>.C((Integer)3), dp);
     }
 
     [Fact]
     public void Derivative_OfQuadratic()
     {
         // d/dx(2x^2 + 3x + 1) = 4x + 3
-        var p = Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)3, (Integer)2);
+        var p = SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)3, (Integer)2);
         var dp = PolynomialCalculus.Derivative(p);
-        Assert.Equal(Polynomial<Integer>.FromCoeffs((Integer)3, (Integer)4), dp);
+        Assert.Equal(SparsePolynomial<Integer>.FromCoeffs((Integer)3, (Integer)4), dp);
     }
 
     [Fact]
     public void Derivative_OfX_IsOne()
     {
-        Assert.Equal(Polynomial<Integer>.One, PolynomialCalculus.Derivative(Polynomial<Integer>.X));
+        Assert.Equal(SparsePolynomial<Integer>.One, PolynomialCalculus.Derivative(SparsePolynomial<Integer>.X));
     }
 
     // --- Derivative (properties) ---
@@ -59,10 +59,10 @@ public class PolynomialCalculusTests
     public void Derivative_Linearity()
     {
         // d(a*f + b*g) = a*df + b*dg
-        var f = Polynomial<Integer>.FromCoeffs((Integer)0, (Integer)2, (Integer)0, (Integer)1); // x^3 + 2x
-        var g = Polynomial<Integer>.FromCoeffs(-(Integer)1, (Integer)0, (Integer)1);             // x^2 - 1
-        var a = Polynomial<Integer>.C((Integer)3);
-        var b = Polynomial<Integer>.C((Integer)5);
+        var f = SparsePolynomial<Integer>.FromCoeffs((Integer)0, (Integer)2, (Integer)0, (Integer)1); // x^3 + 2x
+        var g = SparsePolynomial<Integer>.FromCoeffs(-(Integer)1, (Integer)0, (Integer)1);             // x^2 - 1
+        var a = SparsePolynomial<Integer>.C((Integer)3);
+        var b = SparsePolynomial<Integer>.C((Integer)5);
 
         var lhs = PolynomialCalculus.Derivative(a * f + b * g);
         var rhs = a * PolynomialCalculus.Derivative(f) + b * PolynomialCalculus.Derivative(g);
@@ -73,8 +73,8 @@ public class PolynomialCalculusTests
     public void Derivative_ProductRule()
     {
         // d(fg) = f*dg + g*df
-        var f = Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1); // x^2 + 1
-        var g = Polynomial<Integer>.FromCoeffs((Integer)3, (Integer)1);             // x + 3
+        var f = SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1); // x^2 + 1
+        var g = SparsePolynomial<Integer>.FromCoeffs((Integer)3, (Integer)1);             // x + 3
 
         var lhs = PolynomialCalculus.Derivative(f * g);
         var rhs = f * PolynomialCalculus.Derivative(g) + g * PolynomialCalculus.Derivative(f);
@@ -87,29 +87,29 @@ public class PolynomialCalculusTests
     public void NthDerivative_ThirdDerivativeOfXToFifth()
     {
         // d^3/dx^3(x^5) = 5*4*3 * x^2 = 60x^2
-        var p = Polynomial<Integer>.Monomial(5, (Integer)1);
+        var p = SparsePolynomial<Integer>.Monomial(5, (Integer)1);
         var d3 = PolynomialCalculus.NthDerivative(p, 3);
-        Assert.Equal(Polynomial<Integer>.Monomial(2, (Integer)60), d3);
+        Assert.Equal(SparsePolynomial<Integer>.Monomial(2, (Integer)60), d3);
     }
 
     [Fact]
     public void NthDerivative_ZeroOrder_ReturnsOriginal()
     {
-        var p = Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)2, (Integer)3);
+        var p = SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)2, (Integer)3);
         Assert.Equal(p, PolynomialCalculus.NthDerivative(p, 0));
     }
 
     [Fact]
     public void NthDerivative_ExceedsDegree_ReturnsZero()
     {
-        var p = Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)2, (Integer)3); // degree 2
-        Assert.Equal(Polynomial<Integer>.Zero, PolynomialCalculus.NthDerivative(p, 4));
+        var p = SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)2, (Integer)3); // degree 2
+        Assert.Equal(SparsePolynomial<Integer>.Zero, PolynomialCalculus.NthDerivative(p, 4));
     }
 
     [Fact]
     public void NthDerivative_NegativeN_Throws()
     {
-        var p = Polynomial<Integer>.X;
+        var p = SparsePolynomial<Integer>.X;
         Assert.Throws<ArgumentOutOfRangeException>(() => PolynomialCalculus.NthDerivative(p, -1));
     }
 
@@ -119,7 +119,7 @@ public class PolynomialCalculusTests
     public void Integrate_OfXCubed()
     {
         // integral(x^3 dx) = x^4/4
-        var p = Polynomial<Rational>.Monomial(3, (Rational)1);
+        var p = SparsePolynomial<Rational>.Monomial(3, (Rational)1);
         var ip = PolynomialCalculus.Integrate(p);
         Assert.Equal(Rational.Create((Integer)1, (Integer)4), ip[4]);
         Assert.Equal(4, ip.Degree);
@@ -129,7 +129,7 @@ public class PolynomialCalculusTests
     public void Integrate_OfConstant()
     {
         // integral(5 dx) = 5x
-        var p = Polynomial<Rational>.C((Rational)5);
+        var p = SparsePolynomial<Rational>.C((Rational)5);
         var ip = PolynomialCalculus.Integrate(p);
         Assert.Equal((Rational)5, ip[1]);
         Assert.True(ip[0].IsZero);
@@ -139,14 +139,14 @@ public class PolynomialCalculusTests
     [Fact]
     public void Integrate_OfZero_IsZero()
     {
-        Assert.Equal(Polynomial<Rational>.Zero, PolynomialCalculus.Integrate(Polynomial<Rational>.Zero));
+        Assert.Equal(SparsePolynomial<Rational>.Zero, PolynomialCalculus.Integrate(SparsePolynomial<Rational>.Zero));
     }
 
     [Fact]
     public void Integrate_ThenDerivative_IsOriginal()
     {
         // d/dx(integral(f)) = f
-        var f = Polynomial<Rational>.FromCoeffs((Rational)7, (Rational)2, (Rational)3); // 3x^2 + 2x + 7
+        var f = SparsePolynomial<Rational>.FromCoeffs((Rational)7, (Rational)2, (Rational)3); // 3x^2 + 2x + 7
         var result = PolynomialCalculus.Derivative(PolynomialCalculus.Integrate(f));
         Assert.Equal(f, result);
     }
@@ -155,10 +155,10 @@ public class PolynomialCalculusTests
     public void Derivative_ThenIntegrate_IsOriginalMinusConstant()
     {
         // integral(d/dx(f)) = f - f(0)
-        var f = Polynomial<Rational>.FromCoeffs((Rational)5, (Rational)2, (Rational)0, (Rational)1); // x^3 + 2x + 5
+        var f = SparsePolynomial<Rational>.FromCoeffs((Rational)5, (Rational)2, (Rational)0, (Rational)1); // x^3 + 2x + 5
         var result = PolynomialCalculus.Integrate(PolynomialCalculus.Derivative(f));
         // Expected: x^3 + 2x (no constant term)
-        var expected = Polynomial<Rational>.FromCoeffs((Rational)0, (Rational)2, (Rational)0, (Rational)1);
+        var expected = SparsePolynomial<Rational>.FromCoeffs((Rational)0, (Rational)2, (Rational)0, (Rational)1);
         Assert.Equal(expected, result);
     }
 
@@ -166,7 +166,7 @@ public class PolynomialCalculusTests
     public void Integrate_OfQuadratic()
     {
         // integral(6x^2 + 4x + 1 dx) = 2x^3 + 2x^2 + x
-        var p = Polynomial<Rational>.FromCoeffs((Rational)1, (Rational)4, (Rational)6);
+        var p = SparsePolynomial<Rational>.FromCoeffs((Rational)1, (Rational)4, (Rational)6);
         var ip = PolynomialCalculus.Integrate(p);
         Assert.Equal((Rational)1, ip[1]); // 1/1
         Assert.Equal((Rational)2, ip[2]); // 4/2
@@ -237,17 +237,17 @@ public class PolynomialCalculusTests
     [Fact]
     public void Derivative_OfXSquared_Is2X()
     {
-        var p = Polynomial<Integer>.FromCoeffs((Integer)0, (Integer)0, (Integer)1); // x^2
+        var p = SparsePolynomial<Integer>.FromCoeffs((Integer)0, (Integer)0, (Integer)1); // x^2
         var dp = PolynomialCalculus.Derivative(p);
-        Assert.Equal(Polynomial<Integer>.FromCoeffs((Integer)0, (Integer)2), dp); // 2x
+        Assert.Equal(SparsePolynomial<Integer>.FromCoeffs((Integer)0, (Integer)2), dp); // 2x
     }
 
     [Fact]
     public void Derivative_SubtractionLinearity()
     {
         // d(f - g) = df - dg
-        var f = Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1); // x^2 + 1
-        var g = Polynomial<Integer>.FromCoeffs(-(Integer)1, (Integer)0, (Integer)0, (Integer)1); // x^3 - 1
+        var f = SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1); // x^2 + 1
+        var g = SparsePolynomial<Integer>.FromCoeffs(-(Integer)1, (Integer)0, (Integer)0, (Integer)1); // x^3 - 1
 
         var lhs = PolynomialCalculus.Derivative(f - g);
         var rhs = PolynomialCalculus.Derivative(f) - PolynomialCalculus.Derivative(g);
@@ -258,11 +258,11 @@ public class PolynomialCalculusTests
     public void Derivative_ProductRule_PowerCheck()
     {
         // f=x^2, g=x^3: d(fg) = d(x^5) = 5x^4
-        var f = Polynomial<Integer>.FromCoeffs((Integer)0, (Integer)0, (Integer)1); // x^2
-        var g = Polynomial<Integer>.FromCoeffs((Integer)0, (Integer)0, (Integer)0, (Integer)1); // x^3
+        var f = SparsePolynomial<Integer>.FromCoeffs((Integer)0, (Integer)0, (Integer)1); // x^2
+        var g = SparsePolynomial<Integer>.FromCoeffs((Integer)0, (Integer)0, (Integer)0, (Integer)1); // x^3
 
         var dfg = PolynomialCalculus.Derivative(f * g);
-        Assert.Equal(Polynomial<Integer>.Monomial(4, (Integer)5), dfg);
+        Assert.Equal(SparsePolynomial<Integer>.Monomial(4, (Integer)5), dfg);
 
         // Also verify product rule: f*dg + g*df
         var rhs = f * PolynomialCalculus.Derivative(g) + g * PolynomialCalculus.Derivative(f);
@@ -273,7 +273,7 @@ public class PolynomialCalculusTests
     public void Derivative_DegreeDropsByOne()
     {
         // Degree(df) == Degree(f) - 1 for non-constant f
-        var p = Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)2, (Integer)3, (Integer)4); // 4x^3+3x^2+2x+1
+        var p = SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)2, (Integer)3, (Integer)4); // 4x^3+3x^2+2x+1
         Assert.Equal(3, p.Degree);
         Assert.Equal(2, PolynomialCalculus.Derivative(p).Degree);
     }
@@ -281,8 +281,8 @@ public class PolynomialCalculusTests
     [Fact]
     public void Derivative_OverRational()
     {
-        // Derivative of Polynomial<Rational>: coefficients stay in Rational
-        var p = Polynomial<Rational>.FromCoeffs(
+        // Derivative of SparsePolynomial<Rational>: coefficients stay in Rational
+        var p = SparsePolynomial<Rational>.FromCoeffs(
             Rational.Create((Integer)1, (Integer)2),
             (Rational)0,
             Rational.Create((Integer)3, (Integer)4)); // (3/4)x^2 + 1/2
@@ -296,24 +296,24 @@ public class PolynomialCalculusTests
     public void NthDerivative_SecondDerivativeOfCubic()
     {
         // d^2/dx^2(x^3) = 6x
-        var p = Polynomial<Integer>.Monomial(3, (Integer)1);
+        var p = SparsePolynomial<Integer>.Monomial(3, (Integer)1);
         var d2 = PolynomialCalculus.NthDerivative(p, 2);
-        Assert.Equal(Polynomial<Integer>.FromCoeffs((Integer)0, (Integer)6), d2);
+        Assert.Equal(SparsePolynomial<Integer>.FromCoeffs((Integer)0, (Integer)6), d2);
     }
 
     [Fact]
     public void NthDerivative_NthOfXToN_IsFactorial()
     {
         // d^4/dx^4(x^4) = 4! = 24
-        var p = Polynomial<Integer>.Monomial(4, (Integer)1);
+        var p = SparsePolynomial<Integer>.Monomial(4, (Integer)1);
         var d4 = PolynomialCalculus.NthDerivative(p, 4);
-        Assert.Equal(Polynomial<Integer>.C((Integer)24), d4);
+        Assert.Equal(SparsePolynomial<Integer>.C((Integer)24), d4);
     }
 
     [Fact]
     public void NthDerivative_FirstMatchesDerivative()
     {
-        var p = Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)3, (Integer)2); // 2x^2+3x+1
+        var p = SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)3, (Integer)2); // 2x^2+3x+1
         Assert.Equal(PolynomialCalculus.Derivative(p), PolynomialCalculus.NthDerivative(p, 1));
     }
 
@@ -321,7 +321,7 @@ public class PolynomialCalculusTests
     public void Derivative_SparsePolynomial()
     {
         // x^1000 + 1: derivative is 1000*x^999
-        var p = Polynomial<Integer>.Monomial(1000, (Integer)1) + Polynomial<Integer>.C((Integer)1);
+        var p = SparsePolynomial<Integer>.Monomial(1000, (Integer)1) + SparsePolynomial<Integer>.C((Integer)1);
         var dp = PolynomialCalculus.Derivative(p);
         Assert.Equal(999, dp.Degree);
         Assert.Equal((Integer)1000, dp[999]);
@@ -332,7 +332,7 @@ public class PolynomialCalculusTests
     [Fact]
     public void Integrate_OfOne_IsX()
     {
-        var p = Polynomial<Rational>.One;
+        var p = SparsePolynomial<Rational>.One;
         var ip = PolynomialCalculus.Integrate(p);
         Assert.Equal((Rational)1, ip[1]);
         Assert.Equal(1, ip.Degree);
@@ -341,7 +341,7 @@ public class PolynomialCalculusTests
     [Fact]
     public void Integrate_OfX_IsXSquaredOverTwo()
     {
-        var p = Polynomial<Rational>.X;
+        var p = SparsePolynomial<Rational>.X;
         var ip = PolynomialCalculus.Integrate(p);
         Assert.Equal(Rational.Create((Integer)1, (Integer)2), ip[2]);
         Assert.Equal(2, ip.Degree);
@@ -351,7 +351,7 @@ public class PolynomialCalculusTests
     public void Integrate_LinearPolynomial()
     {
         // integral(6x + 5) = 3x^2 + 5x
-        var p = Polynomial<Rational>.FromCoeffs((Rational)5, (Rational)6);
+        var p = SparsePolynomial<Rational>.FromCoeffs((Rational)5, (Rational)6);
         var ip = PolynomialCalculus.Integrate(p);
         Assert.Equal((Rational)5, ip[1]); // 5/1
         Assert.Equal((Rational)3, ip[2]); // 6/2
@@ -362,8 +362,8 @@ public class PolynomialCalculusTests
     public void Integrate_Linearity()
     {
         // integral(f + g) == integral(f) + integral(g)
-        var f = Polynomial<Rational>.FromCoeffs((Rational)1, (Rational)2); // 2x + 1
-        var g = Polynomial<Rational>.FromCoeffs((Rational)3, (Rational)0, (Rational)1); // x^2 + 3
+        var f = SparsePolynomial<Rational>.FromCoeffs((Rational)1, (Rational)2); // 2x + 1
+        var g = SparsePolynomial<Rational>.FromCoeffs((Rational)3, (Rational)0, (Rational)1); // x^2 + 3
 
         var lhs = PolynomialCalculus.Integrate(f + g);
         var rhs = PolynomialCalculus.Integrate(f) + PolynomialCalculus.Integrate(g);

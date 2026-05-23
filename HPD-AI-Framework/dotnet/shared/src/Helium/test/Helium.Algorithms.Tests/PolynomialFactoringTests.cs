@@ -6,19 +6,19 @@ namespace Helium.Algorithms.Tests;
 
 public class PolynomialFactoringTests
 {
-    private static QuotientRing<Integer> F(int v, int p) => ZMod.Create((Integer)v, (Integer)p);
+    private static ZModElement F(int v, int p) => ZMod.Create((Integer)v, (Integer)p);
     private static bool CongruentMod(Integer a, Integer b, Integer modulus) => Integer.DivMod(a - b, modulus).Remainder.IsZero;
 
-    private static void AssertPolynomialCongruentMod(Polynomial<Integer> left, Polynomial<Integer> right, Integer modulus)
+    private static void AssertPolynomialCongruentMod(SparsePolynomial<Integer> left, SparsePolynomial<Integer> right, Integer modulus)
     {
         int maxDegree = Math.Max(left.Degree, right.Degree);
         for (int i = 0; i <= maxDegree; i++)
             Assert.True(CongruentMod(left[i], right[i], modulus), $"Coefficient at degree {i} differs mod {modulus}.");
     }
 
-    private static Polynomial<Integer> ExpandIntegerFactors(List<(Polynomial<Integer> Factor, int Multiplicity)> factors)
+    private static SparsePolynomial<Integer> ExpandIntegerFactors(List<(SparsePolynomial<Integer> Factor, int Multiplicity)> factors)
     {
-        var product = Polynomial<Integer>.One;
+        var product = SparsePolynomial<Integer>.One;
         foreach (var (factor, multiplicity) in factors)
         {
             for (int i = 0; i < multiplicity; i++)
@@ -28,10 +28,10 @@ public class PolynomialFactoringTests
         return product;
     }
 
-    private static Polynomial<QuotientRing<Integer>> ExpandFiniteFieldFactors(
-        List<Polynomial<QuotientRing<Integer>>> factors)
+    private static SparsePolynomial<ZModElement> ExpandFiniteFieldFactors(
+        List<SparsePolynomial<ZModElement>> factors)
     {
-        var product = Polynomial<QuotientRing<Integer>>.One;
+        var product = SparsePolynomial<ZModElement>.One;
         foreach (var factor in factors)
             product *= factor;
         return product;
@@ -49,34 +49,34 @@ public class PolynomialFactoringTests
     [Fact]
     public void SquareFree_OfPerfectSquare_ReportsMultiplicity()
     {
-        var x = Polynomial<Integer>.X;
-        var f = (x - Polynomial<Integer>.One) * (x - Polynomial<Integer>.One);
+        var x = SparsePolynomial<Integer>.X;
+        var f = (x - SparsePolynomial<Integer>.One) * (x - SparsePolynomial<Integer>.One);
 
         var sf = PolynomialFactoring.SquareFreeFactorization(f);
 
         Assert.Single(sf);
-        Assert.Equal(x - Polynomial<Integer>.One, sf[0].Factor);
+        Assert.Equal(x - SparsePolynomial<Integer>.One, sf[0].Factor);
         Assert.Equal(2, sf[0].Multiplicity);
     }
 
     [Fact]
     public void FactorOverZ_X2Minus1()
     {
-        var x = Polynomial<Integer>.X;
-        var f = x * x - Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var f = x * x - SparsePolynomial<Integer>.One;
 
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         Assert.Equal(2, factors.Count);
-        Assert.Contains(factors, t => t.Factor == (x - Polynomial<Integer>.One) && t.Multiplicity == 1);
-        Assert.Contains(factors, t => t.Factor == (x + Polynomial<Integer>.One) && t.Multiplicity == 1);
+        Assert.Contains(factors, t => t.Factor == (x - SparsePolynomial<Integer>.One) && t.Multiplicity == 1);
+        Assert.Contains(factors, t => t.Factor == (x + SparsePolynomial<Integer>.One) && t.Multiplicity == 1);
     }
 
     [Fact]
     public void FactorOverZWithDiagnostics_SimpleLinearSplit_UsesNoRecombination()
     {
-        var x = Polynomial<Integer>.X;
-        var f = x * x - Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var f = x * x - SparsePolynomial<Integer>.One;
 
         var (factors, diagnostics) = PolynomialFactoring.FactorOverZWithDiagnostics(f);
 
@@ -89,38 +89,38 @@ public class PolynomialFactoringTests
     [Fact]
     public void FactorOverZ_X3Minus1()
     {
-        var x = Polynomial<Integer>.X;
-        var f = x * x * x - Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var f = x * x * x - SparsePolynomial<Integer>.One;
 
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         Assert.Equal(2, factors.Count);
-        Assert.Contains(factors, t => t.Factor == (x - Polynomial<Integer>.One) && t.Multiplicity == 1);
-        Assert.Contains(factors, t => t.Factor == (x * x + x + Polynomial<Integer>.One) && t.Multiplicity == 1);
+        Assert.Contains(factors, t => t.Factor == (x - SparsePolynomial<Integer>.One) && t.Multiplicity == 1);
+        Assert.Contains(factors, t => t.Factor == (x * x + x + SparsePolynomial<Integer>.One) && t.Multiplicity == 1);
     }
 
     [Fact]
     public void FactorOverZ_Multiplicity_IsPreserved()
     {
-        var x = Polynomial<Integer>.X;
-        var f = (x - Polynomial<Integer>.One) * (x - Polynomial<Integer>.One) * (x + Polynomial<Integer>.One);
+        var x = SparsePolynomial<Integer>.X;
+        var f = (x - SparsePolynomial<Integer>.One) * (x - SparsePolynomial<Integer>.One) * (x + SparsePolynomial<Integer>.One);
 
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         Assert.Equal(2, factors.Count);
-        Assert.Contains(factors, t => t.Factor == (x - Polynomial<Integer>.One) && t.Multiplicity == 2);
-        Assert.Contains(factors, t => t.Factor == (x + Polynomial<Integer>.One) && t.Multiplicity == 1);
+        Assert.Contains(factors, t => t.Factor == (x - SparsePolynomial<Integer>.One) && t.Multiplicity == 2);
+        Assert.Contains(factors, t => t.Factor == (x + SparsePolynomial<Integer>.One) && t.Multiplicity == 1);
     }
 
     [Fact]
     public void FactorOverZ_ContentIsIgnoredInFactorList()
     {
         // 6x^2 + 4x + 2 = 2*(3x^2 + 2x + 1), with primitive part irreducible over Z.
-        var f = Polynomial<Integer>.FromCoeffs((Integer)2, (Integer)4, (Integer)6);
+        var f = SparsePolynomial<Integer>.FromCoeffs((Integer)2, (Integer)4, (Integer)6);
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         Assert.Single(factors);
-        Assert.Equal(Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)2, (Integer)3), factors[0].Factor);
+        Assert.Equal(SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)2, (Integer)3), factors[0].Factor);
         Assert.Equal(1, factors[0].Multiplicity);
     }
 
@@ -128,34 +128,34 @@ public class PolynomialFactoringTests
     public void FactorOverZ_QuarticWithoutIntegerRoots_SplitsIntoQuadratics()
     {
         // x^4 + 3x^2 + 2 = (x^2 + 1)(x^2 + 2)
-        var f = Polynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)3, (Integer)0, (Integer)1);
+        var f = SparsePolynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)3, (Integer)0, (Integer)1);
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         Assert.Equal(2, factors.Count);
-        Assert.Contains(factors, t => t.Factor == Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1) && t.Multiplicity == 1);
-        Assert.Contains(factors, t => t.Factor == Polynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1) && t.Multiplicity == 1);
+        Assert.Contains(factors, t => t.Factor == SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1) && t.Multiplicity == 1);
+        Assert.Contains(factors, t => t.Factor == SparsePolynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1) && t.Multiplicity == 1);
     }
 
     [Fact]
     public void FactorOverZ_SexticWithoutIntegerRoots_SplitsIntoThreeQuadratics()
     {
         // (x^2 + 1)(x^2 + 2)(x^2 + 3) = x^6 + 6x^4 + 11x^2 + 6
-        var f = Polynomial<Integer>.FromCoeffs((Integer)6, (Integer)0, (Integer)11, (Integer)0, (Integer)6, (Integer)0, (Integer)1);
+        var f = SparsePolynomial<Integer>.FromCoeffs((Integer)6, (Integer)0, (Integer)11, (Integer)0, (Integer)6, (Integer)0, (Integer)1);
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         Assert.Equal(3, factors.Count);
-        Assert.Contains(factors, t => t.Factor == Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1) && t.Multiplicity == 1);
-        Assert.Contains(factors, t => t.Factor == Polynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1) && t.Multiplicity == 1);
-        Assert.Contains(factors, t => t.Factor == Polynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1) && t.Multiplicity == 1);
+        Assert.Contains(factors, t => t.Factor == SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1) && t.Multiplicity == 1);
+        Assert.Contains(factors, t => t.Factor == SparsePolynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1) && t.Multiplicity == 1);
+        Assert.Contains(factors, t => t.Factor == SparsePolynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1) && t.Multiplicity == 1);
     }
 
     [Fact]
     public void FactorOverZ_OcticWithoutIntegerRoots_SplitsIntoFourQuadratics()
     {
-        var q1 = Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1);
-        var q2 = Polynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1);
-        var q3 = Polynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1);
-        var q4 = Polynomial<Integer>.FromCoeffs((Integer)5, (Integer)0, (Integer)1);
+        var q1 = SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1);
+        var q2 = SparsePolynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1);
+        var q3 = SparsePolynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1);
+        var q4 = SparsePolynomial<Integer>.FromCoeffs((Integer)5, (Integer)0, (Integer)1);
         var f = q1 * q2 * q3 * q4;
 
         var factors = PolynomialFactoring.FactorOverZ(f);
@@ -172,12 +172,12 @@ public class PolynomialFactoringTests
     {
         var quadratics = new[]
         {
-            Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)5, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)6, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)7, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)5, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)6, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)7, (Integer)0, (Integer)1),
         };
 
         var f = quadratics[0];
@@ -194,7 +194,7 @@ public class PolynomialFactoringTests
     [Fact]
     public void FactorOverZWithDiagnostics_RecombinationPath_ReportsAttempts()
     {
-        var f = Polynomial<Integer>.FromCoeffs((Integer)6, (Integer)0, (Integer)11, (Integer)0, (Integer)6, (Integer)0, (Integer)1);
+        var f = SparsePolynomial<Integer>.FromCoeffs((Integer)6, (Integer)0, (Integer)11, (Integer)0, (Integer)6, (Integer)0, (Integer)1);
 
         var (factors, diagnostics) = PolynomialFactoring.FactorOverZWithDiagnostics(f);
 
@@ -213,12 +213,12 @@ public class PolynomialFactoringTests
     {
         var quadratics = new[]
         {
-            Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)5, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)6, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)7, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)5, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)6, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)7, (Integer)0, (Integer)1),
         };
 
         var f = quadratics[0];
@@ -242,9 +242,9 @@ public class PolynomialFactoringTests
         int expectedFactorCount,
         int maxPrimeAttempts)
     {
-        var f = Polynomial<Integer>.One;
+        var f = SparsePolynomial<Integer>.One;
         foreach (var c in constants)
-            f *= Polynomial<Integer>.FromCoeffs((Integer)c, (Integer)0, (Integer)1);
+            f *= SparsePolynomial<Integer>.FromCoeffs((Integer)c, (Integer)0, (Integer)1);
 
         var (factors, diagnostics) = PolynomialFactoring.FactorOverZWithDiagnostics(f);
 
@@ -262,7 +262,7 @@ public class PolynomialFactoringTests
             big *= (Integer)p;
 
         // x^2 + big*x + 1 has large coefficients and is irreducible over Z.
-        var f = Polynomial<Integer>.FromCoeffs((Integer)1, big, (Integer)1);
+        var f = SparsePolynomial<Integer>.FromCoeffs((Integer)1, big, (Integer)1);
 
         var factors = PolynomialFactoring.FactorOverZ(f);
 
@@ -276,18 +276,18 @@ public class PolynomialFactoringTests
     {
         var baseFactors = new[]
         {
-            Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)5, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)6, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)7, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)5, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)6, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)7, (Integer)0, (Integer)1),
         };
 
         var rng = new Random(20260209);
         for (int caseIndex = 0; caseIndex < 6; caseIndex++)
         {
-            var f = Polynomial<Integer>.One;
+            var f = SparsePolynomial<Integer>.One;
             int factorCount = 3 + (caseIndex % 4);
             for (int i = 0; i < factorCount; i++)
             {
@@ -304,48 +304,48 @@ public class PolynomialFactoringTests
     [Fact]
     public void FactorOverQ_ExtractsRationalContent()
     {
-        var x = Polynomial<Rational>.X;
-        var three = Polynomial<Rational>.C((Rational)3);
+        var x = SparsePolynomial<Rational>.X;
+        var three = SparsePolynomial<Rational>.C((Rational)3);
         var f = three * x * x - three;
 
         var result = PolynomialFactoring.Factor(f);
 
         Assert.Equal((Rational)3, result.Content);
         Assert.Equal(2, result.Factors.Count);
-        Assert.Contains(result.Factors, t => t.Factor == (x - Polynomial<Rational>.One) && t.Multiplicity == 1);
-        Assert.Contains(result.Factors, t => t.Factor == (x + Polynomial<Rational>.One) && t.Multiplicity == 1);
+        Assert.Contains(result.Factors, t => t.Factor == (x - SparsePolynomial<Rational>.One) && t.Multiplicity == 1);
+        Assert.Contains(result.Factors, t => t.Factor == (x + SparsePolynomial<Rational>.One) && t.Multiplicity == 1);
     }
 
     [Fact]
     public void FactorOverFiniteField_X2Minus1_Mod5()
     {
-        var f = Polynomial<QuotientRing<Integer>>.FromCoeffs(
+        var f = SparsePolynomial<ZModElement>.FromCoeffs(
             F(-1, 5), F(0, 5), F(1, 5)); // x^2 - 1
 
         var factors = PolynomialFactoring.FactorOverFiniteField(f, 5);
 
         Assert.Equal(2, factors.Count);
-        Assert.Contains(factors, x => x == Polynomial<QuotientRing<Integer>>.FromCoeffs(F(-1, 5), F(1, 5))); // x-1
-        Assert.Contains(factors, x => x == Polynomial<QuotientRing<Integer>>.FromCoeffs(F(1, 5), F(1, 5)));  // x+1
+        Assert.Contains(factors, x => x == SparsePolynomial<ZModElement>.FromCoeffs(F(-1, 5), F(1, 5))); // x-1
+        Assert.Contains(factors, x => x == SparsePolynomial<ZModElement>.FromCoeffs(F(1, 5), F(1, 5)));  // x+1
     }
 
     [Fact]
     public void FactorOverFiniteField_X2Plus1_Mod5()
     {
-        var f = Polynomial<QuotientRing<Integer>>.FromCoeffs(
+        var f = SparsePolynomial<ZModElement>.FromCoeffs(
             F(1, 5), F(0, 5), F(1, 5)); // x^2 + 1
 
         var factors = PolynomialFactoring.FactorOverFiniteField(f, 5);
 
         Assert.Equal(2, factors.Count);
-        Assert.Contains(factors, x => x == Polynomial<QuotientRing<Integer>>.FromCoeffs(F(-2, 5), F(1, 5))); // x-2
-        Assert.Contains(factors, x => x == Polynomial<QuotientRing<Integer>>.FromCoeffs(F(2, 5), F(1, 5)));  // x+2
+        Assert.Contains(factors, x => x == SparsePolynomial<ZModElement>.FromCoeffs(F(-2, 5), F(1, 5))); // x-2
+        Assert.Contains(factors, x => x == SparsePolynomial<ZModElement>.FromCoeffs(F(2, 5), F(1, 5)));  // x+2
     }
 
     [Fact]
     public void FactorOverFiniteField_X2Plus1_Mod3_IsIrreducible()
     {
-        var f = Polynomial<QuotientRing<Integer>>.FromCoeffs(
+        var f = SparsePolynomial<ZModElement>.FromCoeffs(
             F(1, 3), F(0, 3), F(1, 3)); // x^2 + 1
 
         var factors = PolynomialFactoring.FactorOverFiniteField(f, 3);
@@ -357,11 +357,11 @@ public class PolynomialFactoringTests
     [Fact]
     public void FactorOverFiniteField_RepeatedLinear_Mod5()
     {
-        var f = Polynomial<QuotientRing<Integer>>.FromCoeffs(
+        var f = SparsePolynomial<ZModElement>.FromCoeffs(
             F(1, 5), F(2, 5), F(1, 5)); // (x + 1)^2
 
         var factors = PolynomialFactoring.FactorOverFiniteField(f, 5);
-        var linear = Polynomial<QuotientRing<Integer>>.FromCoeffs(F(1, 5), F(1, 5)); // x + 1
+        var linear = SparsePolynomial<ZModElement>.FromCoeffs(F(1, 5), F(1, 5)); // x + 1
 
         Assert.Equal(2, factors.Count);
         Assert.Equal(2, factors.Count(x => x == linear));
@@ -370,11 +370,11 @@ public class PolynomialFactoringTests
     [Fact]
     public void FactorOverFiniteField_PthPower_Mod5()
     {
-        var f = Polynomial<QuotientRing<Integer>>.FromCoeffs(
+        var f = SparsePolynomial<ZModElement>.FromCoeffs(
             F(1, 5), F(0, 5), F(0, 5), F(0, 5), F(0, 5), F(1, 5)); // x^5 + 1 = (x+1)^5 over F5
 
         var factors = PolynomialFactoring.FactorOverFiniteField(f, 5);
-        var linear = Polynomial<QuotientRing<Integer>>.FromCoeffs(F(1, 5), F(1, 5)); // x + 1
+        var linear = SparsePolynomial<ZModElement>.FromCoeffs(F(1, 5), F(1, 5)); // x + 1
 
         Assert.Equal(5, factors.Count);
         Assert.Equal(5, factors.Count(x => x == linear));
@@ -383,8 +383,8 @@ public class PolynomialFactoringTests
     [Fact]
     public void FactorOverFiniteField_Reconstruction_WithMultiplicity_Mod5()
     {
-        var linear = Polynomial<QuotientRing<Integer>>.FromCoeffs(F(1, 5), F(1, 5)); // x + 1
-        var quadratic = Polynomial<QuotientRing<Integer>>.FromCoeffs(F(2, 5), F(0, 5), F(1, 5)); // x^2 + 2
+        var linear = SparsePolynomial<ZModElement>.FromCoeffs(F(1, 5), F(1, 5)); // x + 1
+        var quadratic = SparsePolynomial<ZModElement>.FromCoeffs(F(2, 5), F(0, 5), F(1, 5)); // x^2 + 2
         var f = linear * linear * linear * quadratic;
 
         var factors = PolynomialFactoring.FactorOverFiniteField(f, 5);
@@ -396,48 +396,48 @@ public class PolynomialFactoringTests
     [Fact]
     public void FactorOverFiniteField_X4Plus1_Mod5_SplitsIntoQuadratics()
     {
-        var f = Polynomial<QuotientRing<Integer>>.FromCoeffs(
+        var f = SparsePolynomial<ZModElement>.FromCoeffs(
             F(1, 5), F(0, 5), F(0, 5), F(0, 5), F(1, 5)); // x^4 + 1
 
         var factors = PolynomialFactoring.FactorOverFiniteField(f, 5);
 
         Assert.Equal(2, factors.Count);
-        Assert.Contains(factors, x => x == Polynomial<QuotientRing<Integer>>.FromCoeffs(F(2, 5), F(0, 5), F(1, 5))); // x^2 + 2
-        Assert.Contains(factors, x => x == Polynomial<QuotientRing<Integer>>.FromCoeffs(F(3, 5), F(0, 5), F(1, 5))); // x^2 + 3
+        Assert.Contains(factors, x => x == SparsePolynomial<ZModElement>.FromCoeffs(F(2, 5), F(0, 5), F(1, 5))); // x^2 + 2
+        Assert.Contains(factors, x => x == SparsePolynomial<ZModElement>.FromCoeffs(F(3, 5), F(0, 5), F(1, 5))); // x^2 + 3
     }
 
     [Fact]
     public void FactorOverFiniteField_X3MinusX_Mod11_SplitsCompletely()
     {
-        var f = Polynomial<QuotientRing<Integer>>.FromCoeffs(
+        var f = SparsePolynomial<ZModElement>.FromCoeffs(
             F(0, 11), F(-1, 11), F(0, 11), F(1, 11)); // x^3 - x
 
         var factors = PolynomialFactoring.FactorOverFiniteField(f, 11);
 
         Assert.Equal(3, factors.Count);
-        Assert.Contains(factors, x => x == Polynomial<QuotientRing<Integer>>.FromCoeffs(F(0, 11), F(1, 11)));  // x
-        Assert.Contains(factors, x => x == Polynomial<QuotientRing<Integer>>.FromCoeffs(F(-1, 11), F(1, 11))); // x-1
-        Assert.Contains(factors, x => x == Polynomial<QuotientRing<Integer>>.FromCoeffs(F(1, 11), F(1, 11)));  // x+1
+        Assert.Contains(factors, x => x == SparsePolynomial<ZModElement>.FromCoeffs(F(0, 11), F(1, 11)));  // x
+        Assert.Contains(factors, x => x == SparsePolynomial<ZModElement>.FromCoeffs(F(-1, 11), F(1, 11))); // x-1
+        Assert.Contains(factors, x => x == SparsePolynomial<ZModElement>.FromCoeffs(F(1, 11), F(1, 11)));  // x+1
     }
 
     [Fact]
     public void Berlekamp_X3MinusX_Mod3_SplitsCompletely()
     {
-        var f = Polynomial<QuotientRing<Integer>>.FromCoeffs(
+        var f = SparsePolynomial<ZModElement>.FromCoeffs(
             F(0, 3), F(-1, 3), F(0, 3), F(1, 3)); // x^3 - x
 
         var factors = PolynomialFactoring.Berlekamp(f, 3);
 
         Assert.Equal(3, factors.Count);
-        Assert.Contains(factors, x => x == Polynomial<QuotientRing<Integer>>.FromCoeffs(F(0, 3), F(1, 3)));  // x
-        Assert.Contains(factors, x => x == Polynomial<QuotientRing<Integer>>.FromCoeffs(F(-1, 3), F(1, 3))); // x-1
-        Assert.Contains(factors, x => x == Polynomial<QuotientRing<Integer>>.FromCoeffs(F(1, 3), F(1, 3)));  // x+1
+        Assert.Contains(factors, x => x == SparsePolynomial<ZModElement>.FromCoeffs(F(0, 3), F(1, 3)));  // x
+        Assert.Contains(factors, x => x == SparsePolynomial<ZModElement>.FromCoeffs(F(-1, 3), F(1, 3))); // x-1
+        Assert.Contains(factors, x => x == SparsePolynomial<ZModElement>.FromCoeffs(F(1, 3), F(1, 3)));  // x+1
     }
 
     [Fact]
     public void Berlekamp_X2PlusXPlus1_Mod2_IsIrreducible()
     {
-        var f = Polynomial<QuotientRing<Integer>>.FromCoeffs(
+        var f = SparsePolynomial<ZModElement>.FromCoeffs(
             F(1, 2), F(1, 2), F(1, 2));
 
         var factors = PolynomialFactoring.Berlekamp(f, 2);
@@ -449,21 +449,21 @@ public class PolynomialFactoringTests
     [Fact]
     public void CantorZassenhaus_X3MinusX_Mod3_SplitsCompletely()
     {
-        var f = Polynomial<QuotientRing<Integer>>.FromCoeffs(
+        var f = SparsePolynomial<ZModElement>.FromCoeffs(
             F(0, 3), F(-1, 3), F(0, 3), F(1, 3)); // x^3 - x
 
         var factors = PolynomialFactoring.CantorZassenhaus(f, 3);
 
         Assert.Equal(3, factors.Count);
-        Assert.Contains(factors, x => x == Polynomial<QuotientRing<Integer>>.FromCoeffs(F(0, 3), F(1, 3)));  // x
-        Assert.Contains(factors, x => x == Polynomial<QuotientRing<Integer>>.FromCoeffs(F(-1, 3), F(1, 3))); // x-1
-        Assert.Contains(factors, x => x == Polynomial<QuotientRing<Integer>>.FromCoeffs(F(1, 3), F(1, 3)));  // x+1
+        Assert.Contains(factors, x => x == SparsePolynomial<ZModElement>.FromCoeffs(F(0, 3), F(1, 3)));  // x
+        Assert.Contains(factors, x => x == SparsePolynomial<ZModElement>.FromCoeffs(F(-1, 3), F(1, 3))); // x-1
+        Assert.Contains(factors, x => x == SparsePolynomial<ZModElement>.FromCoeffs(F(1, 3), F(1, 3)));  // x+1
     }
 
     [Fact]
     public void CantorZassenhaus_X2PlusXPlus1_Mod2_IsIrreducible()
     {
-        var f = Polynomial<QuotientRing<Integer>>.FromCoeffs(
+        var f = SparsePolynomial<ZModElement>.FromCoeffs(
             F(1, 2), F(1, 2), F(1, 2));
 
         var factors = PolynomialFactoring.CantorZassenhaus(f, 2);
@@ -475,10 +475,10 @@ public class PolynomialFactoringTests
     [Fact]
     public void HenselLift_ExactFactors_RemainStable()
     {
-        var x = Polynomial<Integer>.X;
-        var f = x * x - Polynomial<Integer>.One;
-        var g = x - Polynomial<Integer>.One;
-        var h = x + Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var f = x * x - SparsePolynomial<Integer>.One;
+        var g = x - SparsePolynomial<Integer>.One;
+        var h = x + SparsePolynomial<Integer>.One;
 
         var (gLift, hLift) = PolynomialFactoring.HenselLift(f, g, h, (Integer)3, precision: 2);
 
@@ -490,10 +490,10 @@ public class PolynomialFactoringTests
     [Fact]
     public void HenselLift_LiftsMod5Factorization_ToMod25()
     {
-        var x = Polynomial<Integer>.X;
-        var f = x * x + Polynomial<Integer>.One;
-        var g = x - Polynomial<Integer>.C((Integer)2);
-        var h = x + Polynomial<Integer>.C((Integer)2);
+        var x = SparsePolynomial<Integer>.X;
+        var f = x * x + SparsePolynomial<Integer>.One;
+        var g = x - SparsePolynomial<Integer>.C((Integer)2);
+        var h = x + SparsePolynomial<Integer>.C((Integer)2);
 
         var (gLift, hLift) = PolynomialFactoring.HenselLift(f, g, h, (Integer)5, precision: 2);
         var product = gLift * hLift;
@@ -508,14 +508,14 @@ public class PolynomialFactoringTests
     [Fact]
     public void FactorOverZ_Zero_ReturnsEmpty()
     {
-        var factors = PolynomialFactoring.FactorOverZ(Polynomial<Integer>.Zero);
+        var factors = PolynomialFactoring.FactorOverZ(SparsePolynomial<Integer>.Zero);
         Assert.Empty(factors);
     }
 
     [Fact]
     public void FactorOverZ_Constant_ReturnsEmpty()
     {
-        var factors = PolynomialFactoring.FactorOverZ(Polynomial<Integer>.C((Integer)5));
+        var factors = PolynomialFactoring.FactorOverZ(SparsePolynomial<Integer>.C((Integer)5));
         Assert.Empty(factors);
     }
 
@@ -523,18 +523,18 @@ public class PolynomialFactoringTests
     public void FactorOverZ_Linear_IsSingleFactor()
     {
         // 3x + 6 = content 3, primitive part x + 2
-        var f = Polynomial<Integer>.FromCoeffs((Integer)6, (Integer)3);
+        var f = SparsePolynomial<Integer>.FromCoeffs((Integer)6, (Integer)3);
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         Assert.Single(factors);
-        Assert.Equal(Polynomial<Integer>.FromCoeffs((Integer)2, (Integer)1), factors[0].Factor); // x + 2
+        Assert.Equal(SparsePolynomial<Integer>.FromCoeffs((Integer)2, (Integer)1), factors[0].Factor); // x + 2
         Assert.Equal(1, factors[0].Multiplicity);
     }
 
     [Fact]
     public void FactorOverQ_Zero_ReturnsEmpty()
     {
-        var result = PolynomialFactoring.Factor(Polynomial<Rational>.Zero);
+        var result = PolynomialFactoring.Factor(SparsePolynomial<Rational>.Zero);
         Assert.Equal(Rational.Zero, result.Content);
         Assert.Empty(result.Factors);
     }
@@ -542,7 +542,7 @@ public class PolynomialFactoringTests
     [Fact]
     public void FactorOverQ_Constant_ReturnsContentOnly()
     {
-        var result = PolynomialFactoring.Factor(Polynomial<Rational>.C((Rational)5));
+        var result = PolynomialFactoring.Factor(SparsePolynomial<Rational>.C((Rational)5));
         Assert.Equal((Rational)5, result.Content);
         Assert.Empty(result.Factors);
     }
@@ -550,7 +550,7 @@ public class PolynomialFactoringTests
     [Fact]
     public void FactorOverQ_One_ReturnsContentOne()
     {
-        var result = PolynomialFactoring.Factor(Polynomial<Rational>.One);
+        var result = PolynomialFactoring.Factor(SparsePolynomial<Rational>.One);
         Assert.Equal((Rational)1, result.Content);
         Assert.Empty(result.Factors);
     }
@@ -559,14 +559,14 @@ public class PolynomialFactoringTests
     public void FactorOverQ_LinearWithContent()
     {
         // 3x + 6 = 3*(x + 2)
-        var x = Polynomial<Rational>.X;
-        var f = Polynomial<Rational>.C((Rational)3) * x + Polynomial<Rational>.C((Rational)6);
+        var x = SparsePolynomial<Rational>.X;
+        var f = SparsePolynomial<Rational>.C((Rational)3) * x + SparsePolynomial<Rational>.C((Rational)6);
 
         var result = PolynomialFactoring.Factor(f);
 
         Assert.Equal((Rational)3, result.Content);
         Assert.Single(result.Factors);
-        Assert.Equal(x + Polynomial<Rational>.C((Rational)2), result.Factors[0].Factor);
+        Assert.Equal(x + SparsePolynomial<Rational>.C((Rational)2), result.Factors[0].Factor);
     }
 
     // ===================================================================
@@ -577,15 +577,15 @@ public class PolynomialFactoringTests
     public void FactorOverZ_X4Minus1()
     {
         // x^4 - 1 = (x - 1)(x + 1)(x^2 + 1)
-        var x = Polynomial<Integer>.X;
-        var f = x * x * x * x - Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var f = x * x * x * x - SparsePolynomial<Integer>.One;
 
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         Assert.Equal(3, factors.Count);
-        Assert.Contains(factors, t => t.Factor == (x - Polynomial<Integer>.One) && t.Multiplicity == 1);
-        Assert.Contains(factors, t => t.Factor == (x + Polynomial<Integer>.One) && t.Multiplicity == 1);
-        Assert.Contains(factors, t => t.Factor == Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1) && t.Multiplicity == 1);
+        Assert.Contains(factors, t => t.Factor == (x - SparsePolynomial<Integer>.One) && t.Multiplicity == 1);
+        Assert.Contains(factors, t => t.Factor == (x + SparsePolynomial<Integer>.One) && t.Multiplicity == 1);
+        Assert.Contains(factors, t => t.Factor == SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1) && t.Multiplicity == 1);
 
         Assert.Equal(f, ExpandIntegerFactors(factors));
     }
@@ -594,8 +594,8 @@ public class PolynomialFactoringTests
     public void FactorOverZ_X6Minus1()
     {
         // x^6 - 1 = (x - 1)(x + 1)(x^2 + x + 1)(x^2 - x + 1)
-        var x = Polynomial<Integer>.X;
-        var one = Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var one = SparsePolynomial<Integer>.One;
         var f = x * x * x * x * x * x - one;
 
         var factors = PolynomialFactoring.FactorOverZ(f);
@@ -603,8 +603,8 @@ public class PolynomialFactoringTests
         Assert.Equal(4, factors.Count);
         Assert.Contains(factors, t => t.Factor == (x - one) && t.Multiplicity == 1);
         Assert.Contains(factors, t => t.Factor == (x + one) && t.Multiplicity == 1);
-        Assert.Contains(factors, t => t.Factor == Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)1, (Integer)1) && t.Multiplicity == 1); // x^2+x+1
-        Assert.Contains(factors, t => t.Factor == Polynomial<Integer>.FromCoeffs((Integer)1, -(Integer)1, (Integer)1) && t.Multiplicity == 1); // x^2-x+1
+        Assert.Contains(factors, t => t.Factor == SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)1, (Integer)1) && t.Multiplicity == 1); // x^2+x+1
+        Assert.Contains(factors, t => t.Factor == SparsePolynomial<Integer>.FromCoeffs((Integer)1, -(Integer)1, (Integer)1) && t.Multiplicity == 1); // x^2-x+1
 
         Assert.Equal(f, ExpandIntegerFactors(factors));
     }
@@ -625,7 +625,7 @@ public class PolynomialFactoringTests
         for (int i = 0; i < p; i++)
             coeffs[i] = Integer.One;
 
-        var phi = Polynomial<Integer>.FromCoeffs(coeffs);
+        var phi = SparsePolynomial<Integer>.FromCoeffs(coeffs);
         var factors = PolynomialFactoring.FactorOverZ(phi);
 
         Assert.Single(factors);
@@ -637,7 +637,7 @@ public class PolynomialFactoringTests
     public void FactorOverZ_Phi6_IsIrreducible()
     {
         // Phi_6(x) = x^2 - x + 1
-        var phi6 = Polynomial<Integer>.FromCoeffs((Integer)1, -(Integer)1, (Integer)1);
+        var phi6 = SparsePolynomial<Integer>.FromCoeffs((Integer)1, -(Integer)1, (Integer)1);
         var factors = PolynomialFactoring.FactorOverZ(phi6);
 
         Assert.Single(factors);
@@ -651,7 +651,7 @@ public class PolynomialFactoringTests
     [Fact]
     public void FactorOverZ_X2Plus1_IsIrreducible()
     {
-        var f = Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1); // x^2 + 1
+        var f = SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1); // x^2 + 1
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         Assert.Single(factors);
@@ -661,7 +661,7 @@ public class PolynomialFactoringTests
     [Fact]
     public void FactorOverZ_X2PlusXPlus1_IsIrreducible()
     {
-        var f = Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)1, (Integer)1); // x^2 + x + 1
+        var f = SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)1, (Integer)1); // x^2 + x + 1
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         Assert.Single(factors);
@@ -672,7 +672,7 @@ public class PolynomialFactoringTests
     public void FactorOverZ_Eisenstein_X2Plus2_IsIrreducible()
     {
         // x^2 + 2: Eisenstein at p=2 (2 | 2, 4 does not divide 2, 2 does not divide 1)
-        var f = Polynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1);
+        var f = SparsePolynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1);
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         Assert.Single(factors);
@@ -686,8 +686,8 @@ public class PolynomialFactoringTests
     [Fact]
     public void FactorOverZ_HighMultiplicity_XMinus1_ToThe5()
     {
-        var x = Polynomial<Integer>.X;
-        var lin = x - Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var lin = x - SparsePolynomial<Integer>.One;
         var f = lin * lin * lin * lin * lin; // (x-1)^5
 
         var factors = PolynomialFactoring.FactorOverZ(f);
@@ -701,9 +701,9 @@ public class PolynomialFactoringTests
     public void FactorOverZ_CombinedMultiplicities()
     {
         // (x-1)^3 * (x+1)^2
-        var x = Polynomial<Integer>.X;
-        var xm1 = x - Polynomial<Integer>.One;
-        var xp1 = x + Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var xm1 = x - SparsePolynomial<Integer>.One;
+        var xp1 = x + SparsePolynomial<Integer>.One;
         var f = xm1 * xm1 * xm1 * xp1 * xp1;
 
         var factors = PolynomialFactoring.FactorOverZ(f);
@@ -721,7 +721,7 @@ public class PolynomialFactoringTests
     [Fact]
     public void SquareFree_X3_ReportsMultiplicity3()
     {
-        var x = Polynomial<Integer>.X;
+        var x = SparsePolynomial<Integer>.X;
         var f = x * x * x;
 
         var sf = PolynomialFactoring.SquareFreeFactorization(f);
@@ -734,8 +734,8 @@ public class PolynomialFactoringTests
     [Fact]
     public void SquareFree_X2Minus1_AlreadySquareFree()
     {
-        var x = Polynomial<Integer>.X;
-        var f = x * x - Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var f = x * x - SparsePolynomial<Integer>.One;
 
         var sf = PolynomialFactoring.SquareFreeFactorization(f);
 
@@ -744,7 +744,7 @@ public class PolynomialFactoringTests
         foreach (var (factor, mult) in sf)
             Assert.Equal(1, mult);
 
-        var product = Polynomial<Integer>.One;
+        var product = SparsePolynomial<Integer>.One;
         foreach (var (factor, mult) in sf)
             for (int i = 0; i < mult; i++) product *= factor;
         Assert.Equal(f, product);
@@ -754,13 +754,13 @@ public class PolynomialFactoringTests
     public void SquareFree_X4Minus2X2Plus1()
     {
         // x^4 - 2x^2 + 1 = (x^2 - 1)^2 = (x-1)^2 * (x+1)^2
-        var x = Polynomial<Integer>.X;
-        var f = Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, -(Integer)2, (Integer)0, (Integer)1);
+        var x = SparsePolynomial<Integer>.X;
+        var f = SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, -(Integer)2, (Integer)0, (Integer)1);
 
         var sf = PolynomialFactoring.SquareFreeFactorization(f);
 
         // Should report multiplicity 2 for (x^2-1) or split further
-        var product = Polynomial<Integer>.One;
+        var product = SparsePolynomial<Integer>.One;
         foreach (var (factor, mult) in sf)
         {
             Assert.True(mult >= 2, "x^4 - 2x^2 + 1 has repeated factors, multiplicity >= 2 expected");
@@ -773,13 +773,13 @@ public class PolynomialFactoringTests
     public void SquareFree_Reconstruction()
     {
         // For any input: product of factor^mult == primitive part of original
-        var x = Polynomial<Integer>.X;
-        var one = Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var one = SparsePolynomial<Integer>.One;
         var f = (x - one) * (x - one) * (x + one) * (x + one) * (x + one);
 
         var sf = PolynomialFactoring.SquareFreeFactorization(f);
 
-        var product = Polynomial<Integer>.One;
+        var product = SparsePolynomial<Integer>.One;
         foreach (var (factor, mult) in sf)
             for (int i = 0; i < mult; i++) product *= factor;
         Assert.Equal(f, product);
@@ -793,16 +793,16 @@ public class PolynomialFactoringTests
     public void FactorOverQ_HalfX2MinusHalf()
     {
         // (1/2)x^2 - (1/2) = (1/2)*(x-1)*(x+1)
-        var x = Polynomial<Rational>.X;
-        var half = Polynomial<Rational>.C(Rational.Create((Integer)1, (Integer)2));
+        var x = SparsePolynomial<Rational>.X;
+        var half = SparsePolynomial<Rational>.C(Rational.Create((Integer)1, (Integer)2));
         var f = half * x * x - half;
 
         var result = PolynomialFactoring.Factor(f);
 
         Assert.Equal(Rational.Create((Integer)1, (Integer)2), result.Content);
         Assert.Equal(2, result.Factors.Count);
-        Assert.Contains(result.Factors, t => t.Factor == (x - Polynomial<Rational>.One) && t.Multiplicity == 1);
-        Assert.Contains(result.Factors, t => t.Factor == (x + Polynomial<Rational>.One) && t.Multiplicity == 1);
+        Assert.Contains(result.Factors, t => t.Factor == (x - SparsePolynomial<Rational>.One) && t.Multiplicity == 1);
+        Assert.Contains(result.Factors, t => t.Factor == (x + SparsePolynomial<Rational>.One) && t.Multiplicity == 1);
     }
 
     [Fact]
@@ -811,14 +811,14 @@ public class PolynomialFactoringTests
         // (2/3)x^2 + (4/3)x + (2/3) = (2/3)*(x^2 + 2x + 1) = (2/3)*(x+1)^2
         var twoThirds = Rational.Create((Integer)2, (Integer)3);
         var fourThirds = Rational.Create((Integer)4, (Integer)3);
-        var f = Polynomial<Rational>.FromCoeffs(twoThirds, fourThirds, twoThirds);
+        var f = SparsePolynomial<Rational>.FromCoeffs(twoThirds, fourThirds, twoThirds);
 
         var result = PolynomialFactoring.Factor(f);
 
         Assert.Equal(twoThirds, result.Content);
         Assert.Single(result.Factors);
-        var x = Polynomial<Rational>.X;
-        Assert.Equal(x + Polynomial<Rational>.One, result.Factors[0].Factor);
+        var x = SparsePolynomial<Rational>.X;
+        Assert.Equal(x + SparsePolynomial<Rational>.One, result.Factors[0].Factor);
         Assert.Equal(2, result.Factors[0].Multiplicity);
     }
 
@@ -826,13 +826,13 @@ public class PolynomialFactoringTests
     public void FactorOverQ_Reconstruction()
     {
         // content * product(factors^mult) == original
-        var x = Polynomial<Rational>.X;
-        var three = Polynomial<Rational>.C((Rational)3);
-        var f = three * (x * x - Polynomial<Rational>.One);
+        var x = SparsePolynomial<Rational>.X;
+        var three = SparsePolynomial<Rational>.C((Rational)3);
+        var f = three * (x * x - SparsePolynomial<Rational>.One);
 
         var result = PolynomialFactoring.Factor(f);
 
-        var product = Polynomial<Rational>.C(result.Content);
+        var product = SparsePolynomial<Rational>.C(result.Content);
         foreach (var (factor, mult) in result.Factors)
             for (int i = 0; i < mult; i++) product *= factor;
         Assert.Equal(f, product);
@@ -845,7 +845,7 @@ public class PolynomialFactoringTests
     [Fact]
     public void Performance_DerivativeOfDegree10000()
     {
-        var p = Polynomial<Integer>.Monomial(10000, (Integer)1) + Polynomial<Integer>.C((Integer)1);
+        var p = SparsePolynomial<Integer>.Monomial(10000, (Integer)1) + SparsePolynomial<Integer>.C((Integer)1);
         var dp = PolynomialCalculus.Derivative(p);
         Assert.Equal(9999, dp.Degree);
         Assert.Equal((Integer)10000, dp[9999]);
@@ -858,7 +858,7 @@ public class PolynomialFactoringTests
         var terms = Enumerable.Range(0, 100).Select(i => i == 0 ? "1" : i == 1 ? "x" : $"x^{i}").Reverse();
         var input = string.Join(" + ", terms);
 
-        var p = Polynomial<Integer>.Parse(input);
+        var p = SparsePolynomial<Integer>.Parse(input);
         Assert.Equal(99, p.Degree);
         for (int i = 0; i <= 99; i++)
             Assert.Equal(Integer.One, p[i]);
@@ -871,7 +871,7 @@ public class PolynomialFactoringTests
         var coeffs = new Integer[100];
         for (int i = 0; i < 100; i++)
             coeffs[i] = Integer.One;
-        var p = Polynomial<Integer>.FromCoeffs(coeffs);
+        var p = SparsePolynomial<Integer>.FromCoeffs(coeffs);
 
         var s = p.ToString();
         Assert.Contains("x^99", s);
@@ -892,7 +892,7 @@ public class PolynomialFactoringTests
     public void Performance_FactorXnMinus1(int n)
     {
         // x^n - 1 should factor in reasonable time
-        var f = Polynomial<Integer>.Monomial(n, Integer.One) - Polynomial<Integer>.One;
+        var f = SparsePolynomial<Integer>.Monomial(n, Integer.One) - SparsePolynomial<Integer>.One;
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         // Reconstruction: product of factors == original
@@ -900,16 +900,16 @@ public class PolynomialFactoringTests
 
         // Must have at least 2 factors for n >= 2 (x-1 is always a factor)
         Assert.True(factors.Count >= 2);
-        Assert.Contains(factors, t => t.Factor == (Polynomial<Integer>.X - Polynomial<Integer>.One));
+        Assert.Contains(factors, t => t.Factor == (SparsePolynomial<Integer>.X - SparsePolynomial<Integer>.One));
     }
 
     [Fact]
     public void Performance_FactorProductOfThreeDegree5()
     {
         // Three irreducible degree-2 polynomials multiplied together (degree 6 product)
-        var p1 = Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1);   // x^2 + 1
-        var p2 = Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)1, (Integer)1);   // x^2 + x + 1
-        var p3 = Polynomial<Integer>.FromCoeffs((Integer)1, -(Integer)1, (Integer)1);  // x^2 - x + 1
+        var p1 = SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1);   // x^2 + 1
+        var p2 = SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)1, (Integer)1);   // x^2 + x + 1
+        var p3 = SparsePolynomial<Integer>.FromCoeffs((Integer)1, -(Integer)1, (Integer)1);  // x^2 - x + 1
 
         var f = p1 * p2 * p3;
         var factors = PolynomialFactoring.FactorOverZ(f);
@@ -925,18 +925,18 @@ public class PolynomialFactoringTests
     public void Performance_SquareFreeHighMultiplicity()
     {
         // (x-1)^10 * (x+1)^10
-        var x = Polynomial<Integer>.X;
-        var xm1 = x - Polynomial<Integer>.One;
-        var xp1 = x + Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var xm1 = x - SparsePolynomial<Integer>.One;
+        var xp1 = x + SparsePolynomial<Integer>.One;
 
-        var f = Polynomial<Integer>.One;
+        var f = SparsePolynomial<Integer>.One;
         for (int i = 0; i < 10; i++) f *= xm1;
         for (int i = 0; i < 10; i++) f *= xp1;
 
         var sf = PolynomialFactoring.SquareFreeFactorization(f);
 
         // Reconstruction
-        var product = Polynomial<Integer>.One;
+        var product = SparsePolynomial<Integer>.One;
         foreach (var (factor, mult) in sf)
             for (int i = 0; i < mult; i++) product *= factor;
         Assert.Equal(f, product);
@@ -959,7 +959,7 @@ public class PolynomialFactoringTests
         for (int i = 0; i < p; i++)
             coeffs[i] = Integer.One;
 
-        var phi = Polynomial<Integer>.FromCoeffs(coeffs);
+        var phi = SparsePolynomial<Integer>.FromCoeffs(coeffs);
         var factors = PolynomialFactoring.FactorOverZ(phi);
 
         Assert.Single(factors);
@@ -971,10 +971,10 @@ public class PolynomialFactoringTests
     public void VanHoeij_Degree8Product_FourQuadratics_Reconstructs()
     {
         // (x^2+1)(x^2+2)(x^2+3)(x^2+5) — 4 irreducible quadratic factors, adversarial for subset recombination
-        var q1 = Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1);
-        var q2 = Polynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1);
-        var q3 = Polynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1);
-        var q5 = Polynomial<Integer>.FromCoeffs((Integer)5, (Integer)0, (Integer)1);
+        var q1 = SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1);
+        var q2 = SparsePolynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1);
+        var q3 = SparsePolynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1);
+        var q5 = SparsePolynomial<Integer>.FromCoeffs((Integer)5, (Integer)0, (Integer)1);
         var f = q1 * q2 * q3 * q5;
 
         var factors = PolynomialFactoring.FactorOverZ(f);
@@ -993,14 +993,14 @@ public class PolynomialFactoringTests
         // 5 irreducible quadratic factors — l = 5 lifted factors, LLL dimension = 5 + 11 = 16
         var quadratics = new[]
         {
-            Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)5, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)7, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)5, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)7, (Integer)0, (Integer)1),
         };
 
-        var f = quadratics.Aggregate(Polynomial<Integer>.One, (acc, q) => acc * q);
+        var f = quadratics.Aggregate(SparsePolynomial<Integer>.One, (acc, q) => acc * q);
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         Assert.Equal(f, ExpandIntegerFactors(factors));
@@ -1015,14 +1015,14 @@ public class PolynomialFactoringTests
         // 5 quadratics: adversarial for subset recombination
         var quadratics = new[]
         {
-            Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)5, (Integer)0, (Integer)1),
-            Polynomial<Integer>.FromCoeffs((Integer)6, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)2, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)3, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)5, (Integer)0, (Integer)1),
+            SparsePolynomial<Integer>.FromCoeffs((Integer)6, (Integer)0, (Integer)1),
         };
 
-        var f = quadratics.Aggregate(Polynomial<Integer>.One, (acc, q) => acc * q);
+        var f = quadratics.Aggregate(SparsePolynomial<Integer>.One, (acc, q) => acc * q);
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         Assert.Equal(f, ExpandIntegerFactors(factors));
@@ -1033,13 +1033,13 @@ public class PolynomialFactoringTests
     public void VanHoeij_Cyclotomic_X12Minus1_ReconstructsExactly()
     {
         // x^12 - 1 = (x-1)(x+1)(x^2+1)(x^2+x+1)(x^2-x+1)(x^4-x^2+1)
-        var f = Polynomial<Integer>.Monomial(12, Integer.One) - Polynomial<Integer>.One;
+        var f = SparsePolynomial<Integer>.Monomial(12, Integer.One) - SparsePolynomial<Integer>.One;
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         Assert.Equal(f, ExpandIntegerFactors(factors));
         Assert.True(factors.Count >= 4); // at least (x-1)(x+1)(x^2+1)(...)
-        Assert.Contains(factors, t => t.Factor == (Polynomial<Integer>.X - Polynomial<Integer>.One));
-        Assert.Contains(factors, t => t.Factor == (Polynomial<Integer>.X + Polynomial<Integer>.One));
+        Assert.Contains(factors, t => t.Factor == (SparsePolynomial<Integer>.X - SparsePolynomial<Integer>.One));
+        Assert.Contains(factors, t => t.Factor == (SparsePolynomial<Integer>.X + SparsePolynomial<Integer>.One));
     }
 
     [Fact]
@@ -1048,7 +1048,7 @@ public class PolynomialFactoringTests
         // x^n - 1 for n = 8, 10, 12, 15: all should reconstruct exactly
         foreach (int n in new[] { 8, 10, 12, 15 })
         {
-            var f = Polynomial<Integer>.Monomial(n, Integer.One) - Polynomial<Integer>.One;
+            var f = SparsePolynomial<Integer>.Monomial(n, Integer.One) - SparsePolynomial<Integer>.One;
             var factors = PolynomialFactoring.FactorOverZ(f);
             Assert.Equal(f, ExpandIntegerFactors(factors));
         }
@@ -1068,8 +1068,8 @@ public class PolynomialFactoringTests
     public void VanHoeij_Cyclotomic5_IrreducibleOverZ()
     {
         // Φ_5(x) = x^4 + x^3 + x^2 + x + 1 — irreducible over Z.
-        var x = Polynomial<Integer>.X;
-        var phi5 = x * x * x * x + x * x * x + x * x + x + Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var phi5 = x * x * x * x + x * x * x + x * x + x + SparsePolynomial<Integer>.One;
         var factors = PolynomialFactoring.FactorOverZ(phi5);
         Assert.Single(factors);
         Assert.Equal(phi5, ExpandIntegerFactors(factors));
@@ -1079,12 +1079,12 @@ public class PolynomialFactoringTests
     public void VanHoeij_Cyclotomic7_IrreducibleOverZ()
     {
         // Φ_7(x) = x^6 + x^5 + x^4 + x^3 + x^2 + x + 1 — irreducible over Z.
-        var x = Polynomial<Integer>.X;
-        var phi7 = Polynomial<Integer>.Monomial(6, Integer.One)
-            + Polynomial<Integer>.Monomial(5, Integer.One)
-            + Polynomial<Integer>.Monomial(4, Integer.One)
-            + Polynomial<Integer>.Monomial(3, Integer.One)
-            + x * x + x + Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var phi7 = SparsePolynomial<Integer>.Monomial(6, Integer.One)
+            + SparsePolynomial<Integer>.Monomial(5, Integer.One)
+            + SparsePolynomial<Integer>.Monomial(4, Integer.One)
+            + SparsePolynomial<Integer>.Monomial(3, Integer.One)
+            + x * x + x + SparsePolynomial<Integer>.One;
         var factors = PolynomialFactoring.FactorOverZ(phi7);
         Assert.Single(factors);
         Assert.Equal(phi7, ExpandIntegerFactors(factors));
@@ -1095,8 +1095,8 @@ public class PolynomialFactoringTests
     {
         // x^12 - 1 = Φ_1 * Φ_2 * Φ_3 * Φ_4 * Φ_6 * Φ_12
         //          = (x-1)(x+1)(x^2+x+1)(x^2+1)(x^2-x+1)(x^4-x^2+1)
-        var x = Polynomial<Integer>.X;
-        var f = Polynomial<Integer>.Monomial(12, Integer.One) - Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var f = SparsePolynomial<Integer>.Monomial(12, Integer.One) - SparsePolynomial<Integer>.One;
         var factors = PolynomialFactoring.FactorOverZ(f);
 
         // Product must equal f.
@@ -1113,15 +1113,15 @@ public class PolynomialFactoringTests
         // Both factors are cyclotomic (Φ_7 and Φ_10) — irreducible over Z.
         // Together they give a degree-10 polynomial with many modular factors,
         // which exercises van Hoeij recombination rather than simple linear splitting.
-        var x = Polynomial<Integer>.X;
-        var phi7 = Polynomial<Integer>.Monomial(6, Integer.One)
-            + Polynomial<Integer>.Monomial(5, Integer.One)
-            + Polynomial<Integer>.Monomial(4, Integer.One)
-            + Polynomial<Integer>.Monomial(3, Integer.One)
-            + x * x + x + Polynomial<Integer>.One;
-        var phi10 = Polynomial<Integer>.Monomial(4, Integer.One)
-            - Polynomial<Integer>.Monomial(3, Integer.One)
-            + x * x - x + Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var phi7 = SparsePolynomial<Integer>.Monomial(6, Integer.One)
+            + SparsePolynomial<Integer>.Monomial(5, Integer.One)
+            + SparsePolynomial<Integer>.Monomial(4, Integer.One)
+            + SparsePolynomial<Integer>.Monomial(3, Integer.One)
+            + x * x + x + SparsePolynomial<Integer>.One;
+        var phi10 = SparsePolynomial<Integer>.Monomial(4, Integer.One)
+            - SparsePolynomial<Integer>.Monomial(3, Integer.One)
+            + x * x - x + SparsePolynomial<Integer>.One;
         var f = phi7 * phi10;
 
         var factors = PolynomialFactoring.FactorOverZ(f);
@@ -1135,9 +1135,9 @@ public class PolynomialFactoringTests
     public void VanHoeij_Diagnostics_LllDimensionIsSet()
     {
         // Any polynomial that goes through van Hoeij should set LllDimension > 0.
-        var x = Polynomial<Integer>.X;
+        var x = SparsePolynomial<Integer>.X;
         // x^4 + 1 = Φ_8(x), irreducible over Z but factors mod every prime.
-        var phi8 = Polynomial<Integer>.Monomial(4, Integer.One) + Polynomial<Integer>.One;
+        var phi8 = SparsePolynomial<Integer>.Monomial(4, Integer.One) + SparsePolynomial<Integer>.One;
         var (_, diag) = PolynomialFactoring.FactorOverZWithDiagnostics(phi8);
 
         // LllDimension should be set if van Hoeij was invoked.
@@ -1155,9 +1155,9 @@ public class PolynomialFactoringTests
     {
         // f = 2*(x^2 + 1)*(x^2 + 2). FactorOverZ returns primitive factors — the content 2
         // is not part of the factor list. The primitive part of f is (x^2+1)*(x^2+2).
-        var x = Polynomial<Integer>.X;
-        var a = x * x + Polynomial<Integer>.One;
-        var b = x * x + Polynomial<Integer>.FromCoeffs((Integer)2);
+        var x = SparsePolynomial<Integer>.X;
+        var a = x * x + SparsePolynomial<Integer>.One;
+        var b = x * x + SparsePolynomial<Integer>.FromCoeffs((Integer)2);
         var primitive = a * b; // x^4 + 3x^2 + 2
 
         var factors = PolynomialFactoring.FactorOverZ(primitive);
@@ -1174,10 +1174,10 @@ public class PolynomialFactoringTests
     public void VanHoeij_MixedLinearAndQuadratic_FactorsCorrectly()
     {
         // f = (x - 1)(x + 2)(x^2 + x + 1)
-        var x = Polynomial<Integer>.X;
-        var l1 = x - Polynomial<Integer>.One;
-        var l2 = x + Polynomial<Integer>.FromCoeffs((Integer)2);
-        var q  = x * x + x + Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var l1 = x - SparsePolynomial<Integer>.One;
+        var l2 = x + SparsePolynomial<Integer>.FromCoeffs((Integer)2);
+        var q  = x * x + x + SparsePolynomial<Integer>.One;
         var f  = l1 * l2 * q;
 
         var factors = PolynomialFactoring.FactorOverZ(f);
@@ -1190,9 +1190,9 @@ public class PolynomialFactoringTests
     public void VanHoeij_LinearRootPlusHighDegreeIrreducible_FactorsCorrectly()
     {
         // f = (x - 3) * Φ_5(x)
-        var x    = Polynomial<Integer>.X;
-        var l    = x - Polynomial<Integer>.FromCoeffs((Integer)3);
-        var phi5 = x * x * x * x + x * x * x + x * x + x + Polynomial<Integer>.One;
+        var x    = SparsePolynomial<Integer>.X;
+        var l    = x - SparsePolynomial<Integer>.FromCoeffs((Integer)3);
+        var phi5 = x * x * x * x + x * x * x + x * x + x + SparsePolynomial<Integer>.One;
         var f    = l * phi5;
 
         var factors = PolynomialFactoring.FactorOverZ(f);
@@ -1211,9 +1211,9 @@ public class PolynomialFactoringTests
         // A polynomial with multiple lifted factors triggers VanHoeijRecombine.
         // (x^2+x+1)(x^2-x+1) = x^4+x^2+1 — two irreducible quadratics, no linear roots.
         // VanHoeijRecombine is invoked and sets LllDimension.
-        var x = Polynomial<Integer>.X;
-        var a = x * x + x + Polynomial<Integer>.One;
-        var b = x * x - x + Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var a = x * x + x + SparsePolynomial<Integer>.One;
+        var b = x * x - x + SparsePolynomial<Integer>.One;
         var f = a * b; // x^4 + x^2 + 1
 
         var (factors, diag) = PolynomialFactoring.FactorOverZWithDiagnostics(f);
@@ -1232,10 +1232,10 @@ public class PolynomialFactoringTests
     {
         // f = (x-2)(x-3)(x-5) — all integer roots, no van Hoeij needed,
         // but verifies factoring pipeline end-to-end with known roots.
-        var x = Polynomial<Integer>.X;
-        var f = (x - Polynomial<Integer>.FromCoeffs((Integer)2))
-              * (x - Polynomial<Integer>.FromCoeffs((Integer)3))
-              * (x - Polynomial<Integer>.FromCoeffs((Integer)5));
+        var x = SparsePolynomial<Integer>.X;
+        var f = (x - SparsePolynomial<Integer>.FromCoeffs((Integer)2))
+              * (x - SparsePolynomial<Integer>.FromCoeffs((Integer)3))
+              * (x - SparsePolynomial<Integer>.FromCoeffs((Integer)5));
 
         var factors = PolynomialFactoring.FactorOverZ(f);
         Assert.Equal(f, ExpandIntegerFactors(factors));
@@ -1250,8 +1250,8 @@ public class PolynomialFactoringTests
     public void VanHoeij_Phi8_IrreducibleOverZ()
     {
         // Φ_8(x) = x^4 + 1 is irreducible over Z but has many modular factors.
-        var x    = Polynomial<Integer>.X;
-        var phi8 = Polynomial<Integer>.Monomial(4, Integer.One) + Polynomial<Integer>.One;
+        var x    = SparsePolynomial<Integer>.X;
+        var phi8 = SparsePolynomial<Integer>.Monomial(4, Integer.One) + SparsePolynomial<Integer>.One;
 
         var factors = PolynomialFactoring.FactorOverZ(phi8);
         Assert.Single(factors);
@@ -1263,8 +1263,8 @@ public class PolynomialFactoringTests
     {
         // x^15 - 1 = Φ_1 * Φ_3 * Φ_5 * Φ_15, all distinct and irreducible.
         // We verify reconstruction only (factor count depends on pipeline routing).
-        var x = Polynomial<Integer>.X;
-        var f = Polynomial<Integer>.Monomial(15, Integer.One) - Polynomial<Integer>.One;
+        var x = SparsePolynomial<Integer>.X;
+        var f = SparsePolynomial<Integer>.Monomial(15, Integer.One) - SparsePolynomial<Integer>.One;
 
         var factors = PolynomialFactoring.FactorOverZ(f);
         Assert.Equal(f, ExpandIntegerFactors(factors));
@@ -1276,9 +1276,9 @@ public class PolynomialFactoringTests
     {
         // f = (x^2 + 1)(x^2 + 3) — both irreducible over Z.
         // Exercises MultiplyModPoly in the extraction step.
-        var x = Polynomial<Integer>.X;
-        var a = x * x + Polynomial<Integer>.One;
-        var b = x * x + Polynomial<Integer>.FromCoeffs((Integer)3);
+        var x = SparsePolynomial<Integer>.X;
+        var a = x * x + SparsePolynomial<Integer>.One;
+        var b = x * x + SparsePolynomial<Integer>.FromCoeffs((Integer)3);
         var f = a * b;
 
         var factors = PolynomialFactoring.FactorOverZ(f);
@@ -1286,4 +1286,5 @@ public class PolynomialFactoringTests
         Assert.Equal(2, factors.Count);
         Assert.All(factors, t => Assert.Equal(1, t.Multiplicity));
     }
+
 }

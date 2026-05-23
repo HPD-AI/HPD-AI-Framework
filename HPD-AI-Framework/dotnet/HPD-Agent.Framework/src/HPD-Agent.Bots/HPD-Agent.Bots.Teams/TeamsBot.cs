@@ -174,7 +174,7 @@ public sealed class TeamsBot(
 
             var agentId = _config.ResolveAgentId();
             var agent = await _agentManager.GetOrBuildAgentAsync(agentId, ct);
-            await using var subscription = agent.EventCoordinator.SubscribeStream<AgentEvent>();
+            await using var subscription = ((IEventInboxSource)agent.EventCoordinator).CreateInbox<AgentEvent>();
 
             async Task HandleEventAsync(AgentEvent evt)
             {
@@ -225,7 +225,7 @@ public sealed class TeamsBot(
     }
 
     private static async Task DrainEventsUntilRunCompletesAsync(
-        EventStreamSubscription<AgentEvent> subscription,
+        EventInbox<AgentEvent> subscription,
         Task runTask,
         Func<AgentEvent, Task> handleEventAsync,
         CancellationToken ct)

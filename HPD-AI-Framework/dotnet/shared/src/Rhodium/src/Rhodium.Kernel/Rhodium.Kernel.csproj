@@ -4,6 +4,7 @@
     <ProjectReference Include="..\Rhodium.Primitives\Rhodium.Primitives.csproj" />
     <ProjectReference Include="..\Rhodium.Tensor\Rhodium.Tensor.csproj" />
     <ProjectReference Include="..\Rhodium.HFT\Rhodium.HFT.csproj" />
+    <ProjectReference Include="..\Rhodium.Unsafe\Rhodium.Unsafe.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -13,5 +14,13 @@
     <LangVersion>preview</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Rhodium.Connectivity" />
+    <InternalsVisibleTo Include="Rhodium.Platform" />
+    <InternalsVisibleTo Include="Rhodium.Simulation" />
+    <InternalsVisibleTo Include="Rhodium.Control.Tests" />
+    <InternalsVisibleTo Include="Rhodium.Kernel.Tests" />
+  </ItemGroup>
 
 </Project>

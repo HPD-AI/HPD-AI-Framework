@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD.ML.Core/HPD.ML.Core.csproj" />
+    <ProjectReference Include="../HPD.ML.DeepLearning/HPD.ML.DeepLearning.csproj" />
   </ItemGroup>
 
 </Project>

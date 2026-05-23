@@ -6,8 +6,7 @@ namespace HPD.Agent;
 
 /// <summary>
 /// Crash recovery buffer for the current in-flight message turn.
-/// Stores only the delta (messages generated during this turn) plus
-/// the execution loop state needed to resume.
+/// Stores the execution loop state needed to resume.
 ///
 /// One per session. Overwritten after each tool batch and iteration. Deleted on turn completion.
 /// Stateless, last-write-wins — if a new message turn starts, the previous
@@ -31,12 +30,10 @@ public sealed record UncommittedTurn
     public required string BranchId { get; init; }
 
     /// <summary>
-    /// Messages generated during this turn only (the delta).
-    /// Includes: user input message + all assistant responses + all tool calls/results.
-    /// Does NOT include messages from previous turns (those are in the session).
-    /// On recovery: Session.Messages + TurnMessages = full conversation state.
+    /// Identifier of the in-flight turn.
+    /// Used to correlate checkpoint events and future turn-scoped recovery metadata.
     /// </summary>
-    public required IReadOnlyList<ChatMessage> TurnMessages { get; init; }
+    public required string TurnId { get; init; }
 
     /// <summary>Current iteration within this turn (0-based).</summary>
     public required int Iteration { get; init; }

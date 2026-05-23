@@ -1,11 +1,8 @@
 namespace HPD.ML.Regression.Tests;
 
-using Helium.Algebra;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.BinaryClassification;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 public class OnlineGradientDescentTests
 {
@@ -75,7 +72,7 @@ public class OnlineGradientDescentTests
         // Should differ because averaging produces different weights
         bool differ = false;
         for (int i = 0; i < p1.FeatureCount; i++)
-            if (Math.Abs((double)p1.Weights[i] - (double)p2.Weights[i]) > 0.001)
+            if (Math.Abs(p1.Weights[i] - p2.Weights[i]) > 0.001)
                 differ = true;
         Assert.True(differ, "Averaged and non-averaged models should differ");
     }
@@ -127,7 +124,7 @@ public class OnlineGradientDescentTests
 
         bool differ = false;
         for (int i = 0; i < freshModel.FeatureCount; i++)
-            if (Math.Abs((double)freshModel.Weights[i] - (double)resumeModel.Weights[i]) > 0.001)
+            if (Math.Abs(freshModel.Weights[i] - resumeModel.Weights[i]) > 0.001)
                 differ = true;
         Assert.True(differ, "Resumed model should differ from fresh model");
     }

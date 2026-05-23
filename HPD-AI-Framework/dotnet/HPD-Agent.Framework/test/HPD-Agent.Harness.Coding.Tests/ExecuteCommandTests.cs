@@ -1,8 +1,9 @@
 using System.ComponentModel;
 using System.Text.Json;
 using HPD.Agent;
+using HPD.Agent.Harness.Coding;
 using HPD.Agent.Middleware;
-using HPD.Agent.Sandbox;
+using HPD.Execution.Contracts;
 using HPD.Events;
 using HPD.Events.Core;
 using Microsoft.Extensions.AI;
@@ -38,8 +39,9 @@ public sealed class ExecuteCommandTests : IDisposable
             .Should().ContainSingle();
         method.GetCustomAttributes(typeof(RequiresPermissionAttribute), inherit: false)
             .Should().ContainSingle();
-        method.GetCustomAttributes(typeof(SandboxableAttribute), inherit: false)
-            .Should().ContainSingle();
+        method.GetCustomAttributes(inherit: false)
+            .Select(attribute => attribute.GetType().Name)
+            .Should().NotContain(name => name.Contains("Sandbox", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -69,7 +71,7 @@ public sealed class ExecuteCommandTests : IDisposable
             AutoBackgroundEligible = true,
             ProcessId = 123,
             TimeoutMilliseconds = 120_000,
-            StreamId = "cmd_1"
+            EventFlowId = "cmd_1"
         };
 
         var json = JsonSerializer.Serialize(
@@ -82,14 +84,14 @@ public sealed class ExecuteCommandTests : IDisposable
         roundTrip.Should().NotBeNull();
         roundTrip!.CommandId.Should().Be("cmd_1");
         roundTrip.Category.Should().Be(ExecuteCommandCategory.Test);
-        roundTrip.StreamId.Should().Be("cmd_1");
+        roundTrip.EventFlowId.Should().Be("cmd_1");
     }
 
     [Fact]
     public async Task ExecuteCommand_EmptyRunCommand_ReturnsValidationError()
     {
         var result = await new CodingHarness().ExecuteCommand(
-            context: CreateContext(new FakeSandboxedProcessRunner()),
+            context: CreateContext(new FakeProcessProvider()),
             command: "   ");
 
         result.ToString().Should().Contain("<execute_command_error");
@@ -101,12 +103,41 @@ public sealed class ExecuteCommandTests : IDisposable
     public async Task ExecuteCommand_MissingWorkingDirectory_ReturnsValidationError()
     {
         var result = await new CodingHarness().ExecuteCommand(
-            context: CreateContext(new FakeSandboxedProcessRunner()),
+            context: CreateContext(new FakeProcessProvider()),
             command: "dotnet test",
             workingDirectory: "missing");
 
         result.ToString().Should().Contain("kind=\"working_directory_not_found\"");
         result.ToString().Should().Contain(Path.Combine(_tempRoot, "missing"));
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_InvalidWorkspaceShape_ReturnsWorkspaceValidationError()
+    {
+        var workspaceJson = $$"""
+        {
+          "defaultRootId": "default",
+          "roots": [
+            { "id": "default", "path": "{{JsonEscape(_tempRoot)}}" }
+          ]
+        }
+        """;
+
+        using var document = JsonDocument.Parse(workspaceJson);
+        var runConfig = new AgentRunConfig
+        {
+            ContextOverrides = new()
+            {
+                [AgentWorkspace.ContextKey] = document.RootElement.Clone()
+            }
+        };
+
+        var result = await new CodingHarness().ExecuteCommand(
+            context: CreateContext(new FakeProcessProvider(), runConfig: runConfig),
+            command: "ls");
+
+        result.ToString().Should().Contain("kind=\"invalid_workspace\"");
+        result.ToString().Should().Contain("Workspace 'version' is required.");
     }
 
     [Fact]
@@ -116,12 +147,68 @@ public sealed class ExecuteCommandTests : IDisposable
         await File.WriteAllTextAsync(filePath, "hello");
 
         var result = await new CodingHarness().ExecuteCommand(
-            context: CreateContext(new FakeSandboxedProcessRunner()),
+            context: CreateContext(new FakeProcessProvider()),
             command: "dotnet test",
             workingDirectory: filePath);
 
         result.ToString().Should().Contain("kind=\"working_directory_is_file\"");
         result.ToString().Should().Contain(filePath);
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_DefaultWorkingDirectory_UsesWorkspaceDefaultRoot()
+    {
+        var docsRoot = Path.Combine(_tempRoot, "docs");
+        Directory.CreateDirectory(docsRoot);
+        var runner = new FakeProcessProvider();
+
+        await new CodingHarness().ExecuteCommand(
+            context: CreateContext(runner, runConfig: CreateWorkspaceRunConfig(_tempRoot, docsRoot)),
+            command: "pwd");
+
+        runner.LastSpec.Should().NotBeNull();
+        runner.LastSpec!.Command.WorkingDirectory.Should().Be(Path.GetFullPath(_tempRoot));
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_RootQualifiedWorkingDirectory_UsesSelectedRoot()
+    {
+        var docsRoot = Path.Combine(_tempRoot, "docs");
+        Directory.CreateDirectory(docsRoot);
+        var runner = new FakeProcessProvider();
+
+        await new CodingHarness().ExecuteCommand(
+            context: CreateContext(runner, runConfig: CreateWorkspaceRunConfig(_tempRoot, docsRoot)),
+            command: "pwd",
+            workingDirectory: "@docs");
+
+        runner.LastSpec.Should().NotBeNull();
+        runner.LastSpec!.Command.WorkingDirectory.Should().Be(Path.GetFullPath(docsRoot));
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_WorkingDirectoryOutsideWorkspace_Rejects()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), $"hpd-outside-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outside);
+        try
+        {
+            var runner = new FakeProcessProvider();
+
+            var result = await new CodingHarness().ExecuteCommand(
+                context: CreateContext(runner, runConfig: CreateWorkspaceRunConfig(_tempRoot)),
+                command: "pwd",
+                workingDirectory: outside);
+
+            result.ToString().Should().Contain("kind=\"working_directory_not_found\"");
+            result.ToString().Should().Contain("outside the configured workspace");
+            runner.StartCalls.Should().Be(0);
+        }
+        finally
+        {
+            if (Directory.Exists(outside))
+                Directory.Delete(outside, recursive: true);
+        }
     }
 
     [Theory]
@@ -142,7 +229,7 @@ public sealed class ExecuteCommandTests : IDisposable
         int delayMilliseconds,
         string expectedMessage)
     {
-        var runner = new FakeSandboxedProcessRunner();
+        var runner = new FakeProcessProvider();
 
         var result = await new CodingHarness().ExecuteCommand(
             action: action,
@@ -172,7 +259,7 @@ public sealed class ExecuteCommandTests : IDisposable
         int delayMilliseconds,
         string expectedMessage)
     {
-        var runner = new FakeSandboxedProcessRunner();
+        var runner = new FakeProcessProvider();
 
         var result = await new CodingHarness().ExecuteCommand(
             action: ExecuteCommandAction.ReadOutput,
@@ -188,9 +275,9 @@ public sealed class ExecuteCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecuteCommand_ForegroundRun_UsesSandboxRunnerAndFormatsOutput()
+    public async Task ExecuteCommand_ForegroundRun_UsesProcessProviderAndFormatsOutput()
     {
-        var runner = new FakeSandboxedProcessRunner
+        var runner = new FakeProcessProvider
         {
             Result = CreateResult(stdout: "hello\n", stderr: "warn\n", exitCode: 0)
         };
@@ -217,25 +304,22 @@ public sealed class ExecuteCommandTests : IDisposable
         xml.Should().Contain("<combined_output");
 
         runner.StartCalls.Should().Be(1);
-        runner.LastOptions.Should().NotBeNull();
-        runner.LastOptions!.Timeout.Should().Be(TimeSpan.FromMilliseconds(1_000));
-        runner.LastOptions.InactivityTimeout.Should().Be(TimeSpan.FromMilliseconds(
-            CodingHarnessDefaultExecuteCommandOptions.InactivityTimeoutMilliseconds));
-        runner.LastOptions.EventCoordinator.Should().NotBeNull();
-        runner.LastOptions.MaxCapturedBytesPerStream.Should().Be(1024);
-        runner.LastCommand.Should().NotBeNull();
-        runner.LastCommand!.Arguments.Should().Contain("printf hello");
-        runner.LastCommand.WorkingDirectory.Should().Be(Directory.GetCurrentDirectory());
-        runner.LastCommand.Environment.Should().ContainKey("PAGER");
-        runner.LastCommand.Environment.Should().ContainKey("GIT_TERMINAL_PROMPT");
-        runner.LastCommand.Environment["FOO"].Should().Be("bar");
+        runner.LastSpec.Should().NotBeNull();
+        runner.LastSpec!.Policy.Timeout.Should().Be(TimeSpan.FromMilliseconds(1_000));
+        runner.LastOutputSink.Should().NotBeNull();
+        runner.LastSpec.Io.StandardOutput.MaxCapturedBytes.Should().BeGreaterThan(0);
+        runner.LastSpec.Command.Arguments.Should().Contain("printf hello");
+        runner.LastSpec.Command.WorkingDirectory.Should().Be(Directory.GetCurrentDirectory());
+        runner.LastSpec.Command.Environment.Should().ContainKey("PAGER");
+        runner.LastSpec.Command.Environment.Should().ContainKey("GIT_TERMINAL_PROMPT");
+        runner.LastSpec.Command.Environment["FOO"].Should().Be("bar");
     }
 
     [Fact]
     public async Task ExecuteCommand_ForegroundRun_CommitsArtifactsWhenSessionContentStoreExists()
     {
         var store = new InMemorySessionStore();
-        var runner = new FakeSandboxedProcessRunner
+        var runner = new FakeProcessProvider
         {
             Result = CreateResult(stdout: "artifact stdout\n", stderr: "artifact stderr\n", exitCode: 0)
         };
@@ -271,7 +355,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public async Task ExecuteCommand_OutputStoreCommitFailure_ReturnsStructuredWarning()
     {
-        var runner = new FakeSandboxedProcessRunner
+        var runner = new FakeProcessProvider
         {
             Result = CreateResult(stdout: "preview survives\n", exitCode: 0)
         };
@@ -310,7 +394,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public async Task ExecuteCommand_NonzeroExit_ReturnsResultNotException()
     {
-        var runner = new FakeSandboxedProcessRunner
+        var runner = new FakeProcessProvider
         {
             Result = CreateResult(stderr: "failed\n", exitCode: 2)
         };
@@ -327,7 +411,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public async Task ExecuteCommand_RgNoMatchesExitOne_IsNotInterpretedAsError()
     {
-        var runner = new FakeSandboxedProcessRunner
+        var runner = new FakeProcessProvider
         {
             Result = CreateResult(stdout: "", exitCode: 1)
         };
@@ -346,7 +430,7 @@ public sealed class ExecuteCommandTests : IDisposable
     public async Task ExecuteCommand_LargeOutput_PreservesHeadAndTailPreview()
     {
         var stdout = "HEAD\n" + new string('x', 40_000) + "\nTAIL";
-        var runner = new FakeSandboxedProcessRunner
+        var runner = new FakeProcessProvider
         {
             Result = CreateResult(stdout: stdout, exitCode: 0)
         };
@@ -365,7 +449,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public async Task ExecuteCommand_BinaryLookingOutput_IsSummarized()
     {
-        var runner = new FakeSandboxedProcessRunner
+        var runner = new FakeProcessProvider
         {
             Result = CreateResult(stdout: CreateStream([0, 1, 2, 3, 4], "\0\u0001\u0002\u0003\u0004"), exitCode: 0)
         };
@@ -383,7 +467,7 @@ public sealed class ExecuteCommandTests : IDisposable
     public async Task ExecuteCommand_InvalidUtf8Output_DoesNotCrashFormatting()
     {
         var text = System.Text.Encoding.UTF8.GetString([0xFF, 0xFE, (byte)'o', (byte)'k']);
-        var runner = new FakeSandboxedProcessRunner
+        var runner = new FakeProcessProvider
         {
             Result = CreateResult(stdout: CreateStream([0xFF, 0xFE, (byte)'o', (byte)'k'], text), exitCode: 0)
         };
@@ -409,7 +493,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public async Task ExecuteCommand_QuietSuccessForKnownSilentCommand_MarksNoOutputExpected()
     {
-        var runner = new FakeSandboxedProcessRunner
+        var runner = new FakeProcessProvider
         {
             Result = CreateResult(stdout: "", stderr: "", exitCode: 0)
         };
@@ -425,7 +509,7 @@ public sealed class ExecuteCommandTests : IDisposable
     public async Task ExecuteCommand_BackgroundRun_ListAndRead_AreSessionScoped()
     {
         var sessionId = $"session-{Guid.NewGuid():N}";
-        var runner = new FakeSandboxedProcessRunner
+        var runner = new FakeProcessProvider
         {
             Result = CreateResult(stdout: "server ready\n", exitCode: 0)
         };
@@ -469,8 +553,8 @@ public sealed class ExecuteCommandTests : IDisposable
     public async Task ExecuteCommand_BackgroundRun_EnforcesActiveCommandCap()
     {
         var sessionId = $"session-{Guid.NewGuid():N}";
-        var completion = new TaskCompletionSource<SandboxedProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var runner = new FakeSandboxedProcessRunner
+        var completion = new TaskCompletionSource<ProcessInvocationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runner = new FakeProcessProvider
         {
             Completion = completion.Task
         };
@@ -500,9 +584,9 @@ public sealed class ExecuteCommandTests : IDisposable
     public async Task ExecuteCommand_StopBackgroundCommand_CallsProcessStop()
     {
         var sessionId = $"session-{Guid.NewGuid():N}";
-        var runner = new FakeSandboxedProcessRunner
+        var runner = new FakeProcessProvider
         {
-            Result = CreateResult(stdout: "stopped\n", exitCode: null, completionKind: SandboxedProcessCompletionKind.Stopped)
+            Result = CreateResult(stdout: "stopped\n", exitCode: null, completionKind: ProcessCompletionKind.Stopped)
         };
         var registry = new TestBackgroundTaskRegistry(startTasks: false);
         var harness = new CodingHarness();
@@ -535,8 +619,8 @@ public sealed class ExecuteCommandTests : IDisposable
     public async Task ExecuteCommand_ForegroundCommand_AutoBackgroundsWithoutRespawning()
     {
         var sessionId = $"session-{Guid.NewGuid():N}";
-        var completion = new TaskCompletionSource<SandboxedProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var runner = new FakeSandboxedProcessRunner
+        var completion = new TaskCompletionSource<ProcessInvocationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runner = new FakeProcessProvider
         {
             Completion = completion.Task
         };
@@ -570,7 +654,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public async Task ExecuteCommand_OutputChunkBudget_DoesNotDropCommandResultOutput()
     {
-        var runner = new FakeSandboxedProcessRunner
+        var runner = new FakeProcessProvider
         {
             Result = CreateResult(stdout: "one\ntwo\nthree\n", exitCode: 0)
         };
@@ -592,7 +676,7 @@ public sealed class ExecuteCommandTests : IDisposable
             MaxOutputChunkEventsPerCommand = 1,
             MaxOutputChunkEventsPerSecond = 100
         });
-        budget.Observe(SandboxedProcessStream.Stdout, 4).CombinedBytes.Should().Be(4);
+        budget.Observe(ProcessOutputStream.Stdout, 4).CombinedBytes.Should().Be(4);
         budget.TryReserveOutputEvent().Should().BeTrue();
         budget.TryReserveOutputEvent().Should().BeFalse();
         budget.OutputEventsSuppressed.Should().BeTrue();
@@ -601,8 +685,8 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public async Task ExecuteCommand_ForegroundRun_EmitsCommandEvents()
     {
-        var completion = new TaskCompletionSource<SandboxedProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var runner = new FakeSandboxedProcessRunner
+        var completion = new TaskCompletionSource<ProcessInvocationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runner = new FakeProcessProvider
         {
             Completion = completion.Task
         };
@@ -630,13 +714,8 @@ public sealed class ExecuteCommandTests : IDisposable
             context: context,
             command: "dotnet test");
 
-        await WaitForAsync(() => runner.LastOptions?.EventCoordinator is not null);
-        runner.LastOptions!.EventCoordinator!.Emit(new SandboxedProcessOutputEvent
-        {
-            ProcessId = "process-1",
-            Stream = SandboxedProcessStream.Stdout,
-            Bytes = System.Text.Encoding.UTF8.GetBytes("event output\n")
-        });
+        await WaitForAsync(() => runner.LastOutputSink is not null);
+        await runner.LastOutputSink!.OnOutputAsync(CreateOutputChunk("event output\n"));
         await WaitForAsync(() => chunks.Count > 0);
         completion.SetResult(CreateResult(stdout: "event output\n", exitCode: 0));
         await commandTask;
@@ -645,8 +724,8 @@ public sealed class ExecuteCommandTests : IDisposable
         started.Should().ContainSingle();
         chunks.Should().ContainSingle();
         exited.Should().ContainSingle();
-        started[0].StreamId.Should().Be(started[0].CommandId);
-        chunks[0].StreamId.Should().Be(started[0].CommandId);
+        started[0].EventFlowId.Should().Be(started[0].CommandId);
+        chunks[0].EventFlowId.Should().Be(started[0].CommandId);
         chunks[0].Text.Should().Contain("event output");
         chunks[0].Channel.Should().Be(EventChannel.Streaming);
         chunks[0].Kind.Should().Be(EventKind.Content);
@@ -657,8 +736,8 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public async Task ExecuteCommand_AutoBackgrounding_EmitsProgressAfterBudget()
     {
-        var completion = new TaskCompletionSource<SandboxedProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var runner = new FakeSandboxedProcessRunner
+        var completion = new TaskCompletionSource<ProcessInvocationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runner = new FakeProcessProvider
         {
             Completion = completion.Task
         };
@@ -698,7 +777,7 @@ public sealed class ExecuteCommandTests : IDisposable
             .ToArray();
 
         parameterNames.Should().NotContain([
-            "dangerouslyDisableSandbox",
+            "dangerouslyDisableIsolation",
             "requiresApproval",
             "safe",
             "dangerous",
@@ -708,10 +787,11 @@ public sealed class ExecuteCommandTests : IDisposable
     }
 
     private static FunctionExecutionContext CreateContext(
-        ISandboxedProcessRunner? runner,
+        IProcessProvider? runner,
         ISessionStore? sessionStore = null,
         IAgentBackgroundTaskRegistry? backgroundTasks = null,
-        string sessionId = "session-1")
+        string sessionId = "session-1",
+        AgentRunConfig? runConfig = null)
     {
         var function = AIFunctionFactory.Create(
             () => "ok",
@@ -734,13 +814,14 @@ public sealed class ExecuteCommandTests : IDisposable
             branch,
             CancellationToken.None);
         if (runner is not null)
-            agentContext.RuntimeCapabilities.Set<ISandboxedProcessRunner>(runner);
+            agentContext.RuntimeCapabilities.Set<IProcessProvider>(runner);
 
+        runConfig ??= CreateWorkspaceRunConfig();
         var beforeContext = agentContext.AsBeforeFunction(
             function,
             "call-1",
             new Dictionary<string, object?>(),
-            new AgentRunConfig(),
+            runConfig,
             harnessName: null,
             skillName: null,
             invocation: null);
@@ -750,12 +831,36 @@ public sealed class ExecuteCommandTests : IDisposable
             CallId = "call-1",
             Arguments = new Dictionary<string, object?>(),
             State = state,
+            RunConfig = runConfig,
             ResultMetadata = new ToolResultMetadata(),
             EventCoordinator = eventCoordinator,
             BackgroundTasks = backgroundTasks
         };
 
         return new FunctionExecutionContext(beforeContext, request);
+    }
+
+    private static AgentRunConfig CreateWorkspaceRunConfig(string? defaultRoot = null, string? docsRoot = null)
+    {
+        var cwd = Path.GetFullPath(defaultRoot ?? Directory.GetCurrentDirectory());
+        var roots = new List<AgentWorkspaceRoot>
+        {
+            new("default", cwd)
+        };
+
+        if (docsRoot is not null)
+            roots.Add(new AgentWorkspaceRoot("docs", Path.GetFullPath(docsRoot), "Docs"));
+
+        return new AgentRunConfig
+        {
+            ContextOverrides = new()
+            {
+                [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                    "default",
+                    cwd,
+                    roots)
+            }
+        };
     }
 
     private static string ExtractAttribute(string xml, string name)
@@ -768,6 +873,9 @@ public sealed class ExecuteCommandTests : IDisposable
         end.Should().BeGreaterThan(start);
         return xml[start..end];
     }
+
+    private static string JsonEscape(string value)
+        => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
 
     private static async Task WaitForAsync(Func<bool> predicate)
     {
@@ -783,46 +891,46 @@ public sealed class ExecuteCommandTests : IDisposable
         predicate().Should().BeTrue();
     }
 
-    private static SandboxedProcessResult CreateResult(
+    private static ProcessInvocationResult CreateResult(
         string stdout = "",
         string stderr = "",
         int? exitCode = 0,
-        SandboxedProcessCompletionKind completionKind = SandboxedProcessCompletionKind.Completed)
+        ProcessCompletionKind completionKind = ProcessCompletionKind.Completed)
         => CreateResult(CreateStream(stdout), CreateStream(stderr), exitCode, completionKind);
 
-    private static SandboxedProcessResult CreateResult(
-        SandboxedProcessStreamOutput? stdout = null,
-        SandboxedProcessStreamOutput? stderr = null,
+    private static ProcessInvocationResult CreateResult(
+        ProcessStreamOutput? stdout = null,
+        ProcessStreamOutput? stderr = null,
         int? exitCode = 0,
-        SandboxedProcessCompletionKind completionKind = SandboxedProcessCompletionKind.Completed)
+        ProcessCompletionKind completionKind = ProcessCompletionKind.Completed)
     {
-        return new SandboxedProcessResult
+        return new ProcessInvocationResult
         {
-            ProcessId = "process-1",
             SystemProcessId = 123,
             ExitCode = exitCode,
             CompletionKind = completionKind,
-            Output = new SandboxedProcessCapturedOutput
+            Output = new ProcessCapturedOutput
             {
                 Stdout = stdout ?? CreateStream(""),
                 Stderr = stderr ?? CreateStream(""),
+                MergedStandardError = false,
+                OutputDrainTimedOut = false,
                 OutputDrainTimeout = TimeSpan.FromSeconds(2)
             }
         };
     }
 
-    private static SandboxedProcessStreamOutput CreateStream(string text)
+    private static ProcessStreamOutput CreateStream(string text)
     {
         var bytes = System.Text.Encoding.UTF8.GetBytes(text);
         return CreateStream(bytes, text);
     }
 
-    private static SandboxedProcessStreamOutput CreateStream(byte[] bytes, string text)
+    private static ProcessStreamOutput CreateStream(byte[] bytes, string text)
     {
-        return new SandboxedProcessStreamOutput
+        return new ProcessStreamOutput
         {
             CapturedBytes = bytes,
-            Text = text,
             BytesObserved = bytes.Length,
             BytesCaptured = bytes.Length,
             BytesDiscarded = 0,
@@ -830,76 +938,111 @@ public sealed class ExecuteCommandTests : IDisposable
         };
     }
 
-    private sealed class FakeSandboxedProcessRunner : ISandboxedProcessRunner
+    private static ProcessOutputChunk CreateOutputChunk(string text) =>
+        new(
+            CreateProcessHandle(),
+            ProcessOutputStream.Stdout,
+            1,
+            DateTimeOffset.UtcNow,
+            System.Text.Encoding.UTF8.GetBytes(text),
+            ProcessOutputChunkFlags.None);
+
+    private static TargetHandle<ProcessInvocation> CreateProcessHandle() =>
+        new(
+            new TargetRoute
+            {
+                Kind = new TargetKind("test.process"),
+                Scope = new ResourceScope("test"),
+            },
+            TargetHandleLifetime.LiveCapability,
+            TargetHandleAuthority.Control | TargetHandleAuthority.Observe);
+
+    private sealed class FakeProcessProvider : IProcessProvider
     {
-        public SandboxedProcessCommand? LastCommand { get; private set; }
-        public SandboxConfigOverride? LastConfigOverride { get; private set; }
-        public SandboxedProcessOptions? LastOptions { get; private set; }
-        public FakeSandboxedProcessHandle? LastHandle { get; private set; }
+        public ProviderId ProviderId { get; } = new("test.process-provider");
+        public ProcessInvocationSpec? LastSpec { get; private set; }
+        public IProcessOutputSink? LastOutputSink { get; private set; }
+        public FakeProcessHandle? LastHandle { get; private set; }
         public int StartCalls { get; private set; }
-        public SandboxedProcessResult Result { get; init; } = CreateResult(stdout: "");
-        public Task<SandboxedProcessResult>? Completion { get; init; }
+        public ProcessInvocationResult Result { get; init; } = CreateResult(stdout: "");
+        public Task<ProcessInvocationResult>? Completion { get; init; }
         public bool EmitOutputEvents { get; init; }
         public IReadOnlyList<string> OutputChunks { get; init; } = [];
 
-        public Task<ISandboxedProcessHandle> StartAsync(
-            SandboxedProcessCommand command,
-            SandboxConfigOverride? configOverride = null,
-            SandboxedProcessOptions? options = null,
+        public async ValueTask<IProcessInvocationHandle> StartAsync(
+            ProcessInvocationSpec spec,
+            IProcessOutputSink? output = null,
             CancellationToken cancellationToken = default)
         {
             StartCalls++;
-            LastCommand = command;
-            LastConfigOverride = configOverride;
-            LastOptions = options;
-            LastHandle = new FakeSandboxedProcessHandle(command, options, Completion ?? Task.FromResult(Result));
-            if (EmitOutputEvents && options?.EventCoordinator is not null)
+            LastSpec = spec;
+            LastOutputSink = output;
+            LastHandle = new FakeProcessHandle(spec, Completion ?? Task.FromResult(Result));
+            if (EmitOutputEvents && output is not null)
             {
                 foreach (var chunk in OutputChunks)
                 {
-                    options.EventCoordinator.Emit(new SandboxedProcessOutputEvent
-                    {
-                        ProcessId = Result.ProcessId,
-                        Stream = SandboxedProcessStream.Stdout,
-                        Bytes = System.Text.Encoding.UTF8.GetBytes(chunk)
-                    });
+                    await output.OnOutputAsync(CreateOutputChunk(chunk), cancellationToken).ConfigureAwait(false);
                 }
             }
-            return Task.FromResult<ISandboxedProcessHandle>(LastHandle);
+            return LastHandle;
+        }
+
+        public async ValueTask<ProcessInvocationResult> RunAsync(
+            ProcessInvocationSpec spec,
+            IProcessOutputSink? output = null,
+            CancellationToken cancellationToken = default)
+        {
+            await using var handle = await StartAsync(spec, output, cancellationToken).ConfigureAwait(false);
+            return await handle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        public ValueTask SignalAsync(TargetHandle<ProcessInvocation> process, ProcessSignal signal, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask ResizeTerminalAsync(TargetHandle<ProcessInvocation> process, TerminalSpec size, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask<ProcessInvocationResult> WaitAsync(TargetHandle<ProcessInvocation> process, CancellationToken cancellationToken = default) => new(Result);
+        public async IAsyncEnumerable<ProcessOutputChunk> ReadOutputAsync(TargetHandle<ProcessInvocation> process, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            yield break;
         }
     }
 
-    private sealed class FakeSandboxedProcessHandle : ISandboxedProcessHandle
+    private sealed class FakeProcessHandle : IProcessInvocationHandle
     {
-        private readonly EventCoordinator _events = new();
-        private readonly SandboxedProcessCommand _command;
-        private readonly SandboxedProcessOptions? _options;
-        private readonly Task<SandboxedProcessResult> _completion;
+        private readonly ProcessInvocationSpec _spec;
+        private readonly Task<ProcessInvocationResult> _completion;
 
-        public FakeSandboxedProcessHandle(
-            SandboxedProcessCommand command,
-            SandboxedProcessOptions? options,
-            Task<SandboxedProcessResult> completion)
+        public FakeProcessHandle(
+            ProcessInvocationSpec spec,
+            Task<ProcessInvocationResult> completion)
         {
-            _command = command;
-            _options = options;
+            _spec = spec;
             _completion = completion;
         }
 
         public int StopCalls { get; private set; }
 
-        public string ProcessId => "process-1";
-        public int? SystemProcessId => 123;
-        public SandboxedProcessCommand Command => _command;
-        public SandboxedProcessOptions Options => _options ?? new SandboxedProcessOptions();
-        public IEventCoordinator Events => _options?.EventCoordinator ?? _events;
-        public Task<SandboxedProcessResult> Completion => _completion;
-        public Task StopAsync(SandboxedProcessStopReason reason = SandboxedProcessStopReason.Requested, CancellationToken cancellationToken = default)
+        public TargetHandle<ProcessInvocation> Handle { get; } = CreateProcessHandle();
+        public ResourceRef<ProcessInvocation>? Resource => null;
+        public ProcessInvocationSpec Spec => _spec;
+
+        public ValueTask WriteStdinAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask CloseStdinAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask SignalAsync(ProcessSignal signal, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+
+        public ValueTask StopAsync(ProcessStopRequest request, CancellationToken cancellationToken = default)
         {
             StopCalls++;
-            return Task.CompletedTask;
+            return ValueTask.CompletedTask;
         }
 
+        public ValueTask ResizeTerminalAsync(TerminalSpec size, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public async ValueTask<ProcessInvocationResult> WaitAsync(CancellationToken cancellationToken = default) => await _completion.ConfigureAwait(false);
+        public async IAsyncEnumerable<ProcessOutputChunk> ReadOutputAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 

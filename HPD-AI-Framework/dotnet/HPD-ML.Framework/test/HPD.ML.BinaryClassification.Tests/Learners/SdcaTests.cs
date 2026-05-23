@@ -1,8 +1,6 @@
 namespace HPD.ML.BinaryClassification.Tests;
 
-using Helium.Primitives;
 using HPD.ML.Abstractions;
-using Double = Helium.Primitives.Double;
 
 public class SdcaTests
 {
@@ -44,7 +42,7 @@ public class SdcaTests
         var m2 = (LinearModelParameters)l2.Fit(new LearnerInput(data)).Parameters;
 
         for (int i = 0; i < m1.FeatureCount; i++)
-            Assert.Equal((double)m1.Weights[i], (double)m2.Weights[i], 0.0001);
+            Assert.Equal(m1.Weights[i], m2.Weights[i], 0.0001);
     }
 
     [Fact]
@@ -60,7 +58,7 @@ public class SdcaTests
 
         bool differ = false;
         for (int i = 0; i < m1.FeatureCount; i++)
-            if (Math.Abs((double)m1.Weights[i] - (double)m2.Weights[i]) > 0.001) differ = true;
+            if (Math.Abs(m1.Weights[i] - m2.Weights[i]) > 0.001) differ = true;
         Assert.True(differ, "Different seeds should produce different weights");
     }
 

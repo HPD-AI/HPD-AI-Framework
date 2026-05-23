@@ -89,7 +89,7 @@ public class ProgressSubjectTests
     {
         using var coordinator = new EventCoordinator();
         using var subject = new ProgressSubject(coordinator);
-        await using var events = coordinator.SubscribeChannel(EventChannel.Synchronous);
+        await using var events = coordinator.CreateChannelInbox(EventChannel.Synchronous);
 
         subject.OnNext(MakeProgress(epoch: 5));
 

@@ -96,6 +96,7 @@ public static class RoundTripBuilder
                 o.Id,
                 o.Instrument,
                 o.VariantId,
+                new StrategyId(0),
                 o.Side,
                 o.FilledQty,
                 o.AvgFillPrice ?? Price.Zero,

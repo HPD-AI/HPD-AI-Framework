@@ -279,7 +279,7 @@ public abstract class HookContext
     /// Used by audio middleware for stream interruption and priority streaming.
     /// Forwarded from the base AgentContext for convenience.
     /// </remarks>
-    public IStreamRegistry? Streams => Base.Streams;
+    public IEventFlowRegistry? EventFlows => Base.EventFlows;
 
     /// <summary>
     /// Gets the event coordinator for hierarchical event bubbling in nested workflows.

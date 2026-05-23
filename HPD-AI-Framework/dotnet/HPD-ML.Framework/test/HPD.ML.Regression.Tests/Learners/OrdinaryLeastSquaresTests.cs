@@ -1,11 +1,8 @@
 namespace HPD.ML.Regression.Tests;
 
-using Helium.Algebra;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.BinaryClassification;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 public class OrdinaryLeastSquaresTests
 {
@@ -47,8 +44,8 @@ public class OrdinaryLeastSquaresTests
         var model = learner.Fit(new LearnerInput(data));
         var p = (LinearModelParameters)model.Parameters;
 
-        Assert.Equal(3.0, (double)p.Weights[0], 0.5);
-        Assert.Equal(2.0, (double)p.Bias, 0.5);
+        Assert.Equal(3.0, p.Weights[0], 0.5);
+        Assert.Equal(2.0, p.Bias, 0.5);
     }
 
     [Fact]

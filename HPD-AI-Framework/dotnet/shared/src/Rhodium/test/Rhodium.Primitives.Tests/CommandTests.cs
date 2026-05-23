@@ -10,7 +10,7 @@ public class SubmitOrderTests
     public void SubmitOrder_Market_ShouldCreateMarketOrder()
     {
         // Act
-        var cmd = SubmitOrder.Market(TestInst, Side.Buy, new Qty(100m));
+        var cmd = SubmitOrder.Market(new StrategyId(1), TestInst, Side.Buy, new Qty(100m));
 
         // Assert
         Assert.Equal(OrderType.Market, cmd.Type);
@@ -29,12 +29,28 @@ public class SubmitOrderTests
         var limitPrice = new Price(150m, Currency.USD);
 
         // Act
-        var cmd = SubmitOrder.Limit(TestInst, Side.Sell, new Qty(50m), limitPrice);
+        var cmd = SubmitOrder.Limit(new StrategyId(1), TestInst, Side.Sell, new Qty(50m), limitPrice);
 
         // Assert
         Assert.Equal(OrderType.Limit, cmd.Type);
         Assert.Equal(limitPrice, cmd.LimitPrice);
         Assert.Null(cmd.StopPrice);
+    }
+
+    [Fact]
+    public void SubmitOrder_IcebergLimit_ShouldStoreDisplayQuantity()
+    {
+        var cmd = SubmitOrder.IcebergLimit(
+            new StrategyId(1),
+            TestInst,
+            Side.Buy,
+            new Qty(100m),
+            new Price(150m, Currency.USD),
+            new Qty(10m));
+
+        Assert.Equal(OrderType.Limit, cmd.Type);
+        Assert.Equal(100m, cmd.Quantity.Value);
+        Assert.Equal(10m, cmd.DisplayQuantity?.Value);
     }
 
     [Fact]
@@ -44,7 +60,7 @@ public class SubmitOrderTests
         var stopPrice = new Price(145m);
 
         // Act
-        var cmd = SubmitOrder.StopMarket(TestInst, Side.Sell, new Qty(100m), stopPrice);
+        var cmd = SubmitOrder.StopMarket(new StrategyId(1), TestInst, Side.Sell, new Qty(100m), stopPrice);
 
         // Assert
         Assert.Equal(OrderType.StopMarket, cmd.Type);
@@ -60,7 +76,7 @@ public class SubmitOrderTests
         var limitPrice = new Price(144m);
 
         // Act
-        var cmd = SubmitOrder.StopLimit(TestInst, Side.Sell, new Qty(100m), stopPrice, limitPrice);
+        var cmd = SubmitOrder.StopLimit(new StrategyId(1), TestInst, Side.Sell, new Qty(100m), stopPrice, limitPrice);
 
         // Assert
         Assert.Equal(OrderType.StopLimit, cmd.Type);
@@ -72,7 +88,7 @@ public class SubmitOrderTests
     public void SubmitOrder_Buy_ShouldCreateBuyMarketOrder()
     {
         // Act
-        var cmd = SubmitOrder.Buy(TestInst, new Qty(100m));
+        var cmd = SubmitOrder.Buy(new StrategyId(1), TestInst, new Qty(100m));
 
         // Assert
         Assert.Equal(OrderType.Market, cmd.Type);
@@ -83,7 +99,7 @@ public class SubmitOrderTests
     public void SubmitOrder_Sell_ShouldCreateSellMarketOrder()
     {
         // Act
-        var cmd = SubmitOrder.Sell(TestInst, new Qty(100m));
+        var cmd = SubmitOrder.Sell(new StrategyId(1), TestInst, new Qty(100m));
 
         // Assert
         Assert.Equal(OrderType.Market, cmd.Type);
@@ -97,7 +113,7 @@ public class SubmitOrderTests
         var limitPrice = new Price(150m);
 
         // Act
-        var cmd = SubmitOrder.BuyLimit(TestInst, new Qty(100m), limitPrice);
+        var cmd = SubmitOrder.BuyLimit(new StrategyId(1), TestInst, new Qty(100m), limitPrice);
 
         // Assert
         Assert.Equal(OrderType.Limit, cmd.Type);
@@ -112,7 +128,7 @@ public class SubmitOrderTests
         var limitPrice = new Price(150m);
 
         // Act
-        var cmd = SubmitOrder.SellLimit(TestInst, new Qty(100m), limitPrice);
+        var cmd = SubmitOrder.SellLimit(new StrategyId(1), TestInst, new Qty(100m), limitPrice);
 
         // Assert
         Assert.Equal(OrderType.Limit, cmd.Type);
@@ -124,7 +140,7 @@ public class SubmitOrderTests
     public void SubmitOrder_TrailingStop_ShouldCreateTrailingStopOrder()
     {
         // Act
-        var cmd = SubmitOrder.TrailingStop(TestInst, Side.Sell, new Qty(100m), 2.50m);
+        var cmd = SubmitOrder.TrailingStop(new StrategyId(1), TestInst, Side.Sell, new Qty(100m), 2.50m);
 
         // Assert
         Assert.Equal(OrderType.TrailingStopMarket, cmd.Type);
@@ -137,7 +153,7 @@ public class SubmitOrderTests
     public void SubmitOrder_TrailingStop_WithPercentOffset_ShouldStorePercent()
     {
         // Act
-        var cmd = SubmitOrder.TrailingStop(
+        var cmd = SubmitOrder.TrailingStop(new StrategyId(1), 
             TestInst,
             Side.Sell,
             new Qty(100m),
@@ -156,7 +172,7 @@ public class SubmitOrderTests
         var limitOffset = new Price(1m);
 
         // Act
-        var cmd = SubmitOrder.TrailingStopLimit(
+        var cmd = SubmitOrder.TrailingStopLimit(new StrategyId(1), 
             TestInst,
             Side.Sell,
             new Qty(100m),
@@ -177,7 +193,7 @@ public class SubmitOrderTests
         var triggerPrice = new Price(148m);
 
         // Act
-        var cmd = SubmitOrder.MarketIfTouched(TestInst, Side.Buy, new Qty(100m), triggerPrice);
+        var cmd = SubmitOrder.MarketIfTouched(new StrategyId(1), TestInst, Side.Buy, new Qty(100m), triggerPrice);
 
         // Assert
         Assert.Equal(OrderType.MarketIfTouched, cmd.Type);
@@ -193,7 +209,7 @@ public class SubmitOrderTests
         var limitPrice = new Price(147m);
 
         // Act
-        var cmd = SubmitOrder.LimitIfTouched(TestInst, Side.Buy, new Qty(100m), triggerPrice, limitPrice);
+        var cmd = SubmitOrder.LimitIfTouched(new StrategyId(1), TestInst, Side.Buy, new Qty(100m), triggerPrice, limitPrice);
 
         // Assert
         Assert.Equal(OrderType.LimitIfTouched, cmd.Type);
@@ -208,7 +224,7 @@ public class SubmitOrderTests
         var algoParams = new Dictionary<string, string> { ["key"] = "value" };
 
         // Act
-        var cmd = SubmitOrder.WithAlgorithm(TestInst, Side.Buy, new Qty(100m), "CustomAlgo", algoParams);
+        var cmd = SubmitOrder.WithAlgorithm(new StrategyId(1), TestInst, Side.Buy, new Qty(100m), "CustomAlgo", algoParams);
 
         // Assert
         Assert.Equal("CustomAlgo", cmd.ExecAlgorithmId);
@@ -223,7 +239,7 @@ public class SubmitOrderTests
         var interval = TimeSpan.FromMinutes(5);
 
         // Act
-        var cmd = SubmitOrder.Twap(TestInst, Side.Buy, new Qty(1000m), horizon, interval);
+        var cmd = SubmitOrder.Twap(new StrategyId(1), TestInst, Side.Buy, new Qty(1000m), horizon, interval);
 
         // Assert
         Assert.Equal("TWAP", cmd.ExecAlgorithmId);
@@ -239,7 +255,7 @@ public class SubmitOrderTests
         var horizon = TimeSpan.FromHours(1);
 
         // Act
-        var cmd = SubmitOrder.Vwap(TestInst, Side.Sell, new Qty(500m), horizon, 0.2m);
+        var cmd = SubmitOrder.Vwap(new StrategyId(1), TestInst, Side.Sell, new Qty(500m), horizon, 0.2m);
 
         // Assert
         Assert.Equal("VWAP", cmd.ExecAlgorithmId);
@@ -249,10 +265,27 @@ public class SubmitOrderTests
     }
 
     [Fact]
+    public void SubmitOrder_Pov_ShouldCreateParticipationOrder()
+    {
+        var cmd = SubmitOrder.Pov(
+            new StrategyId(1),
+            TestInst,
+            Side.Buy,
+            new Qty(500m),
+            participationRate: 0.25m,
+            horizon: TimeSpan.FromMinutes(30));
+
+        Assert.Equal("POV", cmd.ExecAlgorithmId);
+        Assert.NotNull(cmd.ExecAlgorithmParams);
+        Assert.Equal("0.25", cmd.ExecAlgorithmParams["participation_rate"]);
+        Assert.Equal("1800", cmd.ExecAlgorithmParams["horizon_secs"]);
+    }
+
+    [Fact]
     public void SubmitOrder_WithVariantId_ShouldStoreVariantId()
     {
         // Act
-        var cmd = SubmitOrder.Market(TestInst, Side.Buy, new Qty(100m), variantId: 42);
+        var cmd = SubmitOrder.Market(new StrategyId(1), TestInst, Side.Buy, new Qty(100m), variantId: 42);
 
         // Assert
         Assert.Equal(42, cmd.VariantId);
@@ -262,7 +295,7 @@ public class SubmitOrderTests
     public void SubmitOrder_WithNumericTag_ShouldStoreNumericTag()
     {
         // Act
-        var cmd = SubmitOrder.Market(TestInst, Side.Buy, new Qty(100m), numericTag: 12345L);
+        var cmd = SubmitOrder.Market(new StrategyId(1), TestInst, Side.Buy, new Qty(100m), numericTag: 12345L);
 
         // Assert
         Assert.Equal(12345L, cmd.NumericTag);
@@ -272,10 +305,45 @@ public class SubmitOrderTests
     public void SubmitOrder_ShouldImplementICommand()
     {
         // Act
-        var cmd = SubmitOrder.Market(TestInst, Side.Buy, new Qty(100m));
+        var cmd = SubmitOrder.Market(new StrategyId(1), TestInst, Side.Buy, new Qty(100m));
 
         // Assert
         Assert.IsAssignableFrom<ICommand>(cmd);
+    }
+}
+
+public class ExecutionSpecTests
+{
+    [Fact]
+    public void GoodTil_ShouldSetGtdTimeInForceAndExpiry()
+    {
+        var expiry = Instant.FromUnixSeconds(1_000);
+
+        var spec = Execution.Limit().At(new Price(100m)).GoodTil(expiry);
+
+        Assert.Equal(TimeInForce.GTD, spec.TimeInForce);
+        Assert.Equal(expiry, spec.GoodTilDate);
+        Assert.Equal(OrderType.Limit, spec.OrderType);
+        Assert.Equal(new Price(100m), spec.LimitPrice);
+    }
+
+    [Fact]
+    public void ChainedExecutionSpecOptions_ShouldPreserveGoodTilDate()
+    {
+        var expiry = Instant.FromUnixSeconds(2_000);
+
+        var spec = Execution.Limit()
+            .GoodTil(expiry)
+            .AtBid()
+            .Display(new Qty(25m))
+            .WithPostOnly()
+            .WithMaxSlippageTicks(3);
+
+        Assert.Equal(TimeInForce.GTD, spec.TimeInForce);
+        Assert.Equal(expiry, spec.GoodTilDate);
+        Assert.True(spec.PostOnly);
+        Assert.Equal(3, spec.MaxSlippageTicks);
+        Assert.Equal(25m, spec.DisplayQuantity?.Value);
     }
 }
 

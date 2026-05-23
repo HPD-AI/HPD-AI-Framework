@@ -5,48 +5,48 @@ namespace Helium.Algebra.Tests;
 
 public class ParsingTests
 {
-    // --- Polynomial<Integer> ---
+    // --- SparsePolynomial<Integer> ---
 
     [Fact]
     public void Polynomial_Integer_SingleVariable()
     {
-        Assert.Equal(Polynomial<Integer>.X, Polynomial<Integer>.Parse("x"));
-        Assert.Equal(Polynomial<Integer>.Monomial(2, (Integer)1), Polynomial<Integer>.Parse("x^2"));
-        Assert.Equal(Polynomial<Integer>.Monomial(2, (Integer)3), Polynomial<Integer>.Parse("3x^2"));
+        Assert.Equal(SparsePolynomial<Integer>.X, SparsePolynomial<Integer>.Parse("x"));
+        Assert.Equal(SparsePolynomial<Integer>.Monomial(2, (Integer)1), SparsePolynomial<Integer>.Parse("x^2"));
+        Assert.Equal(SparsePolynomial<Integer>.Monomial(2, (Integer)3), SparsePolynomial<Integer>.Parse("3x^2"));
 
-        var p = Polynomial<Integer>.Parse("3x^2 + 5x + 1");
+        var p = SparsePolynomial<Integer>.Parse("3x^2 + 5x + 1");
         Assert.Equal(2, p.Degree);
         Assert.Equal((Integer)3, p[2]);
         Assert.Equal((Integer)5, p[1]);
         Assert.Equal((Integer)1, p[0]);
 
-        Assert.Equal(Polynomial<Integer>.FromCoeffs(-(Integer)1, (Integer)0, (Integer)1), Polynomial<Integer>.Parse("x^2 - 1"));
-        Assert.Equal(Polynomial<Integer>.C((Integer)1), Polynomial<Integer>.Parse("1"));
-        Assert.Equal(Polynomial<Integer>.Zero, Polynomial<Integer>.Parse("0"));
-        Assert.Equal(-Polynomial<Integer>.X, Polynomial<Integer>.Parse("-x"));
-        Assert.Equal(Polynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, -(Integer)3), Polynomial<Integer>.Parse("-3x^2 + 1"));
+        Assert.Equal(SparsePolynomial<Integer>.FromCoeffs(-(Integer)1, (Integer)0, (Integer)1), SparsePolynomial<Integer>.Parse("x^2 - 1"));
+        Assert.Equal(SparsePolynomial<Integer>.C((Integer)1), SparsePolynomial<Integer>.Parse("1"));
+        Assert.Equal(SparsePolynomial<Integer>.Zero, SparsePolynomial<Integer>.Parse("0"));
+        Assert.Equal(-SparsePolynomial<Integer>.X, SparsePolynomial<Integer>.Parse("-x"));
+        Assert.Equal(SparsePolynomial<Integer>.FromCoeffs((Integer)1, (Integer)0, -(Integer)3), SparsePolynomial<Integer>.Parse("-3x^2 + 1"));
     }
 
     [Fact]
     public void Polynomial_Integer_WhitespaceTolerance()
     {
-        var a = Polynomial<Integer>.Parse("3x^2+5x+1");
-        var b = Polynomial<Integer>.Parse("  3x^2  +  5x  +  1  ");
+        var a = SparsePolynomial<Integer>.Parse("3x^2+5x+1");
+        var b = SparsePolynomial<Integer>.Parse("  3x^2  +  5x  +  1  ");
         Assert.Equal(a, b);
     }
 
     [Fact]
     public void Polynomial_Integer_ImplicitMultiplication()
     {
-        Assert.Equal(Polynomial<Integer>.Parse("3*x"), Polynomial<Integer>.Parse("3x"));
+        Assert.Equal(SparsePolynomial<Integer>.Parse("3*x"), SparsePolynomial<Integer>.Parse("3x"));
     }
 
     [Fact]
     public void Polynomial_Integer_Roundtrip_DefaultToString()
     {
-        var p = Polynomial<Integer>.FromCoeffs((Integer)1, -(Integer)3, (Integer)2); // 2x^2 - 3x + 1
+        var p = SparsePolynomial<Integer>.FromCoeffs((Integer)1, -(Integer)3, (Integer)2); // 2x^2 - 3x + 1
         var s = p.ToString();
-        var q = Polynomial<Integer>.Parse(s);
+        var q = SparsePolynomial<Integer>.Parse(s);
         Assert.Equal(p, q);
         Assert.Equal(s, q.ToString());
     }
@@ -54,18 +54,18 @@ public class ParsingTests
     [Fact]
     public void Polynomial_Integer_InvalidInputs_FailGracefully()
     {
-        Assert.False(Polynomial<Integer>.TryParse("", null, out _));
-        Assert.False(Polynomial<Integer>.TryParse("3x^2 +", null, out _));
-        Assert.False(Polynomial<Integer>.TryParse("x^-1", null, out _));
+        Assert.False(SparsePolynomial<Integer>.TryParse("", null, out _));
+        Assert.False(SparsePolynomial<Integer>.TryParse("3x^2 +", null, out _));
+        Assert.False(SparsePolynomial<Integer>.TryParse("x^-1", null, out _));
     }
 
-    // --- Polynomial<Rational> ---
+    // --- SparsePolynomial<Rational> ---
 
     [Fact]
     public void Polynomial_Rational_CoefficientVariations()
     {
-        var a = Polynomial<Rational>.Parse("2/3 x^2");
-        var b = Polynomial<Rational>.Parse("(2/3)x^2");
+        var a = SparsePolynomial<Rational>.Parse("2/3 x^2");
+        var b = SparsePolynomial<Rational>.Parse("(2/3)x^2");
         Assert.Equal(a, b);
         Assert.Equal(Rational.Create((Integer)2, (Integer)3), a[2]);
     }
@@ -74,9 +74,9 @@ public class ParsingTests
     public void Polynomial_Rational_Roundtrip_ParensCoefficient()
     {
         // ToString() includes parentheses for rational coefficients before variables.
-        var p = Polynomial<Rational>.Monomial(1, Rational.Create((Integer)3, (Integer)4)) + Polynomial<Rational>.C((Rational)1);
+        var p = SparsePolynomial<Rational>.Monomial(1, Rational.Create((Integer)3, (Integer)4)) + SparsePolynomial<Rational>.C((Rational)1);
         var s = p.ToString(); // "(3/4)x + 1"
-        var q = Polynomial<Rational>.Parse(s);
+        var q = SparsePolynomial<Rational>.Parse(s);
         Assert.Equal(p, q);
         Assert.Equal(s, q.ToString());
     }

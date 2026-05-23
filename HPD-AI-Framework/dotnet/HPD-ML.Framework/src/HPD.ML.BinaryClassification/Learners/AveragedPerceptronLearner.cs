@@ -1,10 +1,7 @@
 namespace HPD.ML.BinaryClassification;
 
-using Helium.Algebra;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 /// <summary>
 /// Online averaged perceptron.
@@ -35,7 +32,7 @@ public sealed class AveragedPerceptronLearner : ILearner
 
     public ISchema GetOutputSchema(ISchema inputSchema)
         => new LinearScoringTransform(
-                new LinearModelParameters(Vector<Double>.Zero(1), new Double(0)),
+                new LinearModelParameters([0.0], 0.0),
                 _featureColumn)
             .GetOutputSchema(inputSchema);
 
@@ -54,8 +51,8 @@ public sealed class AveragedPerceptronLearner : ILearner
         {
             w = new double[featureCount];
             for (int i = 0; i < featureCount; i++)
-                w[i] = (double)initial.Weights[i];
-            bias = (double)initial.Bias;
+                w[i] = initial.Weights[i];
+            bias = initial.Bias;
         }
         else
         {
@@ -79,7 +76,7 @@ public sealed class AveragedPerceptronLearner : ILearner
                 // Predict
                 double wx = bias;
                 for (int j = 0; j < featureCount; j++)
-                    wx += w[j] * (double)features[i][j];
+                    wx += w[j] * features[i][j];
 
                 double prediction = wx >= 0 ? 1.0 : -1.0;
 
@@ -91,7 +88,7 @@ public sealed class AveragedPerceptronLearner : ILearner
                 if (y * wx < 1.0) // hinge loss margin
                 {
                     for (int j = 0; j < featureCount; j++)
-                        w[j] += lr * y * (double)features[i][j];
+                        w[j] += lr * y * features[i][j];
                     bias += lr * y;
 
                     if (prediction != y) errors++;
@@ -122,12 +119,7 @@ public sealed class AveragedPerceptronLearner : ILearner
         }
 
         // Use averaged weights for final model
-        var weights = new Double[featureCount];
-        for (int i = 0; i < featureCount; i++)
-            weights[i] = new Double(avgW[i]);
-
-        var parameters = new LinearModelParameters(
-            Vector<Double>.FromArray(weights), new Double(avgBias));
+        var parameters = new LinearModelParameters(avgW, avgBias);
 
         // Perceptron outputs uncalibrated scores — add Platt scaling if validation data available
         ITransform transform = new LinearScoringTransform(parameters, _featureColumn);

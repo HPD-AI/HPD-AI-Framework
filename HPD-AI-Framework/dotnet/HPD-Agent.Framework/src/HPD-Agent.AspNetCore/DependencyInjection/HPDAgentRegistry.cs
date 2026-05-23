@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using HPD.Agent;
 using HPD.Agent.AspNetCore.Lifecycle;
 using HPD.Agent.Hosting.Configuration;
+using HPD.Agent.Hosting.Lifecycle;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -48,11 +49,23 @@ internal sealed class HPDAgentRegistry
             name,
             agentFactory);
 
-        return new HPDAgentPair(agentManager, sessionManager);
+        var hostingServices = new HPDAgentHostingServices(
+            new AgentSessionService(sessionManager),
+            new AgentBranchService(sessionManager, agentManager),
+            new AgentAssetService(sessionManager),
+            new AgentDefinitionService(agentManager),
+            new AgentMiddlewareResponseService(sessionManager, agentManager),
+            new AgentStreamingService(sessionManager, agentManager));
+
+        return new HPDAgentPair(
+            agentManager,
+            sessionManager,
+            hostingServices);
     }
 }
 
 /// <summary>Holds the paired managers for one named agent registration.</summary>
 internal record HPDAgentPair(
     AspNetCoreAgentManager AgentManager,
-    AspNetCoreSessionManager SessionManager);
+    AspNetCoreSessionManager SessionManager,
+    HPDAgentHostingServices HostingServices);

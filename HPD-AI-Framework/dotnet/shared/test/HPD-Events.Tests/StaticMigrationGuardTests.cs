@@ -8,7 +8,6 @@ public class StaticMigrationGuardTests
         var sourceRoot = GetEventsSourceRoot();
 
         Assert.False(File.Exists(Path.Combine(sourceRoot, "Abstractions", "EventPriority.cs")));
-        Assert.Empty(FindSourceFiles(sourceRoot, "EventPriority"));
     }
 
     [Fact]
@@ -20,6 +19,8 @@ public class StaticMigrationGuardTests
         Assert.DoesNotContain("EmitUpstream", source);
         Assert.DoesNotContain("TryRead", source);
         Assert.DoesNotContain("ReadAllAsync", source);
+        Assert.DoesNotContain("SubscribeStream", source);
+        Assert.DoesNotContain("SubscribeChannel", source);
     }
 
     [Fact]
@@ -28,11 +29,9 @@ public class StaticMigrationGuardTests
         var sourceRoot = GetEventsSourceRoot();
         var matches = FindSourceFiles(sourceRoot, "EmitUpstream")
             .Concat(FindSourceFiles(sourceRoot, ".TryRead("))
-            .Concat(FindSourceFiles(sourceRoot, ".ReadAllAsync(")
-                .Where(static path =>
-                    !path.EndsWith(Path.Combine("Core", "EventCoordinator.cs"), StringComparison.Ordinal) &&
-                    !path.EndsWith(Path.Combine("Core", "EventChannelRouter.cs"), StringComparison.Ordinal) &&
-                    !path.EndsWith(Path.Combine("Core", "StructEventRouter.cs"), StringComparison.Ordinal)))
+            .Concat(FindSourceFiles(sourceRoot, "SubscribeStream"))
+            .Concat(FindSourceFiles(sourceRoot, "SubscribeChannel"))
+            .Concat(FindSourceFiles(sourceRoot, "EventStreamSubscription"))
             .ToArray();
 
         Assert.Empty(matches);

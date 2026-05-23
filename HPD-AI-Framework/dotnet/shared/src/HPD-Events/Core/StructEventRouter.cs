@@ -104,6 +104,36 @@ internal sealed class StructEventRouter : IDisposable
             writer => RemoveSubscriber<TEvent>(writer));
     }
 
+    public StructInbox<TEvent> CreateInbox<TEvent>(StructInboxOptions? options = null)
+        where TEvent : struct, IStructEvent
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        options ??= new StructInboxOptions();
+        if (options.Capacity <= 0)
+            throw new ArgumentOutOfRangeException(nameof(options), "Struct inbox capacity must be greater than zero.");
+
+        var channel = Channel.CreateBounded<TEvent>(new BoundedChannelOptions(options.Capacity)
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            FullMode = options.FullMode,
+            AllowSynchronousContinuations = false
+        });
+
+        var subscriber = new StructSubscriber<TEvent>(channel.Writer, options.ToSubscriptionOptions());
+        var subscribers = GetSubscribers<TEvent>();
+        lock (subscribers)
+        {
+            subscribers.Add(subscriber);
+        }
+
+        return new StructInbox<TEvent>(
+            channel.Reader,
+            channel.Writer,
+            writer => RemoveSubscriber<TEvent>(writer));
+    }
+
     public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null)
         where TEvent : struct, IStructEvent =>
         new(this, options);

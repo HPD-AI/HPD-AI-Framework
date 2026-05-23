@@ -520,7 +520,7 @@ public class BranchOperationTests : AgentTestBase
         {
             SessionId = "test-session",
             BranchId = "formal",
-            TurnMessages = [new ChatMessage(ChatRole.User, "Help me")],
+            TurnId = "turn-formal",
             Iteration = 1,
             CompletedFunctions = System.Collections.Immutable.ImmutableHashSet<string>.Empty,
             MiddlewareState = new MiddlewareState(),

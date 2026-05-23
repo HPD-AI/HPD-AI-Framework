@@ -1,119 +1,105 @@
 using Helium.Primitives;
-using Helium.Primitives.Tests.Axioms;
-using Complex = Helium.Primitives.Complex;
 
 namespace Helium.Primitives.Tests;
 
 public class ComplexTests
 {
-    private static void AssertApprox(Complex expected, Complex actual, double tol = 1e-10)
-    {
-        Assert.True(Math.Abs(expected.Re - actual.Re) < tol,
-            $"Re: expected {expected.Re}, got {actual.Re}");
-        Assert.True(Math.Abs(expected.Im - actual.Im) < tol,
-            $"Im: expected {expected.Im}, got {actual.Im}");
-    }
-
-    // --- Basic arithmetic ---
+    private static Rational R(int n) => (Rational)n;
+    private static Rational R(int num, int den) => Rational.Create((Integer)num, (Integer)den);
+    private static Complex<Rational> C(int re, int im) => new(R(re), R(im));
 
     [Fact]
-    public void Addition()
+    public void Add()
     {
-        var a = new Complex(1.0, 2.0);
-        var b = new Complex(3.0, 4.0);
-        Assert.Equal(new Complex(4.0, 6.0), a + b);
+        Assert.Equal(C(4, 6), C(1, 2) + C(3, 4));
     }
 
     [Fact]
-    public void Multiplication()
+    public void Multiply()
     {
-        var a = new Complex(1.0, 2.0);
-        var b = new Complex(3.0, 4.0);
-        // (1+2i)(3+4i) = 3+4i+6i+8i^2 = (3-8)+(4+6)i = -5+10i
-        Assert.Equal(new Complex(-5.0, 10.0), a * b);
+        Assert.Equal(C(-5, 10), C(1, 2) * C(3, 4));
     }
 
     [Fact]
-    public void ISquaredIsMinusOne()
+    public void ImaginaryUnitSquared()
     {
-        var i = Complex.I;
-        Assert.Equal(new Complex(-1.0, 0.0), i * i);
+        Assert.Equal(new Complex<Rational>(R(-1), Rational.Zero),
+            Complex<Rational>.I * Complex<Rational>.I);
     }
 
     [Fact]
-    public void Inversion()
+    public void Invert()
     {
-        var z = new Complex(3.0, 4.0);
-        var inv = Complex.Invert(z);
-        AssertApprox(Complex.One, z * inv);
+        var z = C(3, 4);
+        var inv = Complex<Rational>.Invert(z);
+        Assert.Equal(Complex<Rational>.One, z * inv);
+        Assert.Equal(new Complex<Rational>(R(3, 25), R(-4, 25)), inv);
     }
 
     [Fact]
-    public void InvertZero()
+    public void InvertZero_IsZero()
     {
-        Assert.Equal(Complex.Zero, Complex.Invert(Complex.Zero));
-    }
-
-    // --- Star (conjugation) ---
-
-    [Fact]
-    public void Conjugation()
-    {
-        var z = new Complex(3.0, 4.0);
-        Assert.Equal(new Complex(3.0, -4.0), Complex.Star(z));
+        Assert.Equal(Complex<Rational>.Zero, Complex<Rational>.Invert(Complex<Rational>.Zero));
     }
 
     [Fact]
-    public void StarIsInvolution()
+    public void Star_Conjugates()
     {
-        var z = new Complex(3.0, 4.0);
-        Assert.Equal(z, Complex.Star(Complex.Star(z)));
+        Assert.Equal(C(3, -4), Complex<Rational>.Star(C(3, 4)));
     }
 
     [Fact]
-    public void StarIsAdditive()
+    public void Star_Involution()
     {
-        var z = new Complex(1.0, 2.0);
-        var w = new Complex(3.0, 4.0);
-        Assert.Equal(Complex.Star(z) + Complex.Star(w), Complex.Star(z + w));
+        var z = C(3, 4);
+        Assert.Equal(z, Complex<Rational>.Star(Complex<Rational>.Star(z)));
     }
 
     [Fact]
-    public void ZTimesStarZIsRealNonNegative()
+    public void Star_DistributesOverAddition()
     {
-        var z = new Complex(3.0, 4.0);
-        var product = z * Complex.Star(z);
-        Assert.True(Math.Abs(product.Im) < 1e-10);
-        Assert.True(product.Re >= 0);
-        Assert.True(Math.Abs(product.Re - 25.0) < 1e-10); // 3^2 + 4^2
+        var z = C(1, 2);
+        var w = C(3, 4);
+        Assert.Equal(Complex<Rational>.Star(z) + Complex<Rational>.Star(w), Complex<Rational>.Star(z + w));
     }
-
-    // --- Ring axioms (approximate for floating-point) ---
-
-    [Theory]
-    [MemberData(nameof(Triples))]
-    public void RingAxiomsApprox(Complex a, Complex b, Complex c)
-    {
-        AssertApprox(a + b, b + a);
-        AssertApprox((a + b) + c, a + (b + c));
-        AssertApprox((a * b) * c, a * (b * c));
-        AssertApprox(a * (b + c), a * b + a * c);
-        AssertApprox(a + Complex.Zero, a);
-        AssertApprox(a * Complex.One, a);
-        AssertApprox(a + (-a), Complex.Zero);
-    }
-
-    // --- ICharP ---
 
     [Fact]
-    public void CharacteristicIsZero() => Assert.Equal(0, Complex.Characteristic);
-
-    // --- Test data ---
-
-    public static TheoryData<Complex, Complex, Complex> Triples() => new()
+    public void NormProduct_IsReal()
     {
-        { new Complex(1, 0), new Complex(0, 1), new Complex(1, 1) },
-        { new Complex(2, -3), new Complex(-1, 4), new Complex(0.5, 0.5) },
-        { Complex.Zero, Complex.One, Complex.I },
-    };
+        var z = C(3, 4);
+        Assert.Equal(new Complex<Rational>(R(25), Rational.Zero), z * Complex<Rational>.Star(z));
+    }
+
+    [Fact]
+    public void RingAxioms()
+    {
+        var a = C(1, 2);
+        var b = C(3, -4);
+        var c = C(-2, 5);
+
+        Assert.Equal(a, a + Complex<Rational>.Zero);
+        Assert.Equal(a, a * Complex<Rational>.One);
+        Assert.Equal(Complex<Rational>.Zero, a + (-a));
+        Assert.Equal((a + b) + c, a + (b + c));
+        Assert.Equal(a + b, b + a);
+        Assert.Equal(a * (b + c), a * b + a * c);
+    }
+
+    [Fact]
+    public void FromInt()
+    {
+        var c = Complex<Rational>.FromInt(7);
+        Assert.Equal(R(7), c.Re);
+        Assert.Equal(Rational.Zero, c.Im);
+    }
+
+    [Fact]
+    public void Formatting()
+    {
+        Assert.Equal("5", new Complex<Rational>(R(5), Rational.Zero).ToString());
+        Assert.Equal("i", Complex<Rational>.I.ToString());
+        Assert.Equal("-i", new Complex<Rational>(Rational.Zero, R(-1)).ToString());
+        Assert.Equal("3 + 4i", C(3, 4).ToString());
+        Assert.Equal("3 - 4i", C(3, -4).ToString());
+    }
 }

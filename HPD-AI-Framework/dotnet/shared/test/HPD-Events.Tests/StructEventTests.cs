@@ -43,6 +43,48 @@ public class StructEventTests
     }
 
     [Fact]
+    public async Task CreateInbox_ReceivesStructEvents()
+    {
+        using var coordinator = new EventCoordinator();
+        await using var inbox = coordinator.CreateInbox<TestStructEvent>();
+
+        Assert.True(coordinator.TryEmitStruct(new TestStructEvent("owned")));
+
+        Assert.Equal("owned", (await ReadOneAsync(inbox.Reader)).Message);
+    }
+
+    [Fact]
+    public async Task CreateInbox_DefaultsToBackpressureWait()
+    {
+        using var coordinator = new EventCoordinator();
+        await using var inbox = coordinator.CreateInbox<TestStructEvent>(
+            new StructInboxOptions { Capacity = 1 });
+
+        await coordinator.EmitStructAsync(new TestStructEvent("1"));
+        var emitTask = coordinator.EmitStructAsync(new TestStructEvent("2")).AsTask();
+
+        await Task.Delay(50);
+        Assert.False(emitTask.IsCompleted);
+
+        Assert.Equal("1", (await ReadOneAsync(inbox.Reader)).Message);
+
+        await emitTask.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("2", (await ReadOneAsync(inbox.Reader)).Message);
+    }
+
+    [Fact]
+    public async Task StructBusInterface_UsesNewNames()
+    {
+        using var coordinator = new EventCoordinator();
+        IStructEventBus bus = coordinator;
+        await using var inbox = bus.CreateInbox<TestStructEvent>();
+
+        Assert.True(bus.TryEmit(new TestStructEvent("new-name")));
+
+        Assert.Equal("new-name", (await ReadOneAsync(inbox.Reader)).Message);
+    }
+
+    [Fact]
     public async Task SubscribeStruct_DropOldest_KeepsNewestItems()
     {
         using var coordinator = new EventCoordinator();

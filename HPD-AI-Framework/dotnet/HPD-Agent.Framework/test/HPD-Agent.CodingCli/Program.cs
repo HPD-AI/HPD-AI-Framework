@@ -1,12 +1,10 @@
 using HPD.Agent;
-using HPD.Agent.Sandbox;
-using HPD.Sandbox.Local;
+using HPD.Execution.Local;
 using Microsoft.Extensions.AI;
 using System.Text.Json;
 
 var appsettingsPath = ResolveAppSettingsPath();
 var options = CodingCliOptions.Parse(args);
-var homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 if (options.ShowHelp)
 {
     PrintUsage();
@@ -16,21 +14,7 @@ if (options.ShowHelp)
 var agentBuilder = new AgentBuilder()
     .WithAPIConfiguration(appsettingsPath ?? "appsettings.json", optional: true)
     .WithName("Coding CLI Test Agent")
-    .WithSandbox(SandboxConfig.CreatePermissive() with
-    {
-        AllowWrite =
-        [
-            ".",
-            homeDirectory,
-            Path.Combine(homeDirectory, ".taskcli.json"),
-            "/tmp",
-            "/private/tmp",
-            "/var/tmp",
-            "/var/folders",
-            "/private/var/folders"
-        ],
-        NetworkMode = SandboxNetworkMode.Unrestricted
-    })
+    .WithLocalExecution()
     .WithToolCollapsing()
     .WithHarness<CodingHarness>();
 
@@ -173,7 +157,7 @@ CliConsole.WriteErrorLine(
     $"Interactive coding CLI started. session={options.SessionId} branch={options.BranchId}. Type exit or quit to leave.");
 CliConsole.WriteErrorLine(
     ConsoleColor.DarkCyan,
-    $"Sandbox profile: permissive network, writable home={homeDirectory}");
+    "Execution profile: local HPD Execution providers");
 
 var prompt = options.Prompt;
 while (true)

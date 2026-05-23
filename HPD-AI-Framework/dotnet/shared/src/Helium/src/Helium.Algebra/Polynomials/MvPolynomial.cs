@@ -10,34 +10,38 @@ namespace Helium.Algebra;
 /// </summary>
 public readonly struct Monomial :
     IEquatable<Monomial>,
-    IComparable<Monomial>,
+    IDecidableEq<Monomial>,
+    ITotalOrder<Monomial>,
     IAdditiveIdentity<Monomial, Monomial>,
     IEqualityOperators<Monomial, Monomial, bool>,
     IFormattable
 {
-    private readonly Finsupp<int, Integer> _exponents;
+    private readonly Finsupp<Nat, Integer> _exponents;
 
-    internal Finsupp<int, Integer> Exponents => _exponents;
+    internal Finsupp<Nat, Integer> Exponents => _exponents;
 
-    private Monomial(Finsupp<int, Integer> exponents)
+    private Monomial(Finsupp<Nat, Integer> exponents)
     {
         _exponents = exponents;
     }
 
     // --- Construction ---
 
-    public static Monomial One => new(Finsupp<int, Integer>.Empty);
+    public static Monomial One => new(Finsupp<Nat, Integer>.Empty);
     public static Monomial AdditiveIdentity => One;
 
     public static Monomial Variable(int index) =>
-        new(Finsupp<int, Integer>.Single(index, Integer.One));
+        index < 0
+            ? One
+            : new(Finsupp<Nat, Integer>.Single(new Nat(index), Integer.One));
 
     public static Monomial FromExponents(IEnumerable<KeyValuePair<int, Integer>> exponents) =>
-        new(Finsupp<int, Integer>.FromDictionary(exponents));
+        new(Finsupp<Nat, Integer>.FromDictionary(
+            exponents.Where(kv => kv.Key >= 0).Select(kv => new KeyValuePair<Nat, Integer>(new Nat(kv.Key), kv.Value))));
 
     // --- Access ---
 
-    public Integer this[int variableIndex] => _exponents[variableIndex];
+    public Integer this[int variableIndex] => variableIndex < 0 ? Integer.Zero : _exponents[new Nat(variableIndex)];
 
     public int TotalDegree
     {
@@ -50,7 +54,7 @@ public readonly struct Monomial :
         }
     }
 
-    public IEnumerable<int> Variables => _exponents.Support;
+    public IEnumerable<int> Variables => _exponents.Support.Select(v => v.Value);
 
     // --- Monomial multiplication = exponent addition ---
 
@@ -80,13 +84,13 @@ public readonly struct Monomial :
 
     // --- Comparison (graded lexicographic) ---
 
-    public int CompareTo(Monomial other)
+    private int CompareToCore(Monomial other)
     {
         int degCompare = TotalDegree.CompareTo(other.TotalDegree);
         if (degCompare != 0) return degCompare;
 
         // Lexicographic on variable indices.
-        var allVars = _exponents.Support.Concat(other._exponents.Support).Distinct().OrderBy(x => x);
+        var allVars = _exponents.Support.Concat(other._exponents.Support).Distinct().OrderBy(x => x.Value);
         foreach (var v in allVars)
         {
             int cmp = _exponents[v].CompareTo(other._exponents[v]);
@@ -103,6 +107,15 @@ public readonly struct Monomial :
 
     public static bool operator ==(Monomial left, Monomial right) => left.Equals(right);
     public static bool operator !=(Monomial left, Monomial right) => !left.Equals(right);
+    public static bool DecidableEquals(Monomial left, Monomial right) => left == right;
+    public static bool LessEqual(Monomial left, Monomial right) => CompareOrder(left, right) != Ordering.Greater;
+    public static Ordering CompareOrder(Monomial left, Monomial right)
+    {
+        var compare = left.CompareToCore(right);
+        return compare < 0 ? Ordering.Less :
+            compare > 0 ? Ordering.Greater :
+            Ordering.Equal;
+    }
 
     public override string ToString() => ToString(null, null);
 
@@ -113,9 +126,9 @@ public readonly struct Monomial :
             return FormatMathML();
 
         var sb = new StringBuilder();
-        foreach (var v in _exponents.Support.OrderBy(v => v))
+        foreach (var v in _exponents.Support.OrderBy(v => v.Value))
         {
-            var varName = VariableName(v);
+            var varName = VariableName(v.Value);
             int exp = (int)(BigInteger)(Integer)_exponents[v];
 
             if (exp == 1)
@@ -140,9 +153,9 @@ public readonly struct Monomial :
         if (_exponents.IsZero) return "<mn>1</mn>";
 
         var factors = new List<string>();
-        foreach (var v in _exponents.Support.OrderBy(v => v))
+        foreach (var v in _exponents.Support.OrderBy(v => v.Value))
         {
-            var varName = VariableName(v);
+            var varName = VariableName(v.Value);
             int exp = (int)(BigInteger)(Integer)_exponents[v];
             factors.Add(exp == 1
                 ? $"<mi>{varName}</mi>"
@@ -220,7 +233,7 @@ public readonly struct MvPolynomial<R> :
             bool first = true;
             foreach (var m in _coeffs.Support)
             {
-                if (first || m.CompareTo(max) > 0)
+                if (first || Monomial.CompareOrder(m, max) == Ordering.Greater)
                 {
                     max = m;
                     first = false;
@@ -288,7 +301,7 @@ public readonly struct MvPolynomial<R> :
         var sb = new StringBuilder();
         bool first = true;
 
-        foreach (var monomial in _coeffs.Support.OrderByDescending(m => m))
+        foreach (var monomial in _coeffs.Support.OrderBy(m => m, MonomialDescendingComparer.Instance))
         {
             var coeff = _coeffs[monomial];
             bool isConstant = monomial.Equals(Monomial.One);
@@ -327,7 +340,7 @@ public readonly struct MvPolynomial<R> :
         sb.Append("<mrow>");
 
         bool first = true;
-        foreach (var monomial in _coeffs.Support.OrderByDescending(m => m))
+        foreach (var monomial in _coeffs.Support.OrderBy(m => m, MonomialDescendingComparer.Instance))
         {
             var coeff = _coeffs[monomial];
             bool isConstant = monomial.Equals(Monomial.One);
@@ -392,4 +405,22 @@ public readonly struct MvPolynomial<R> :
         return sb.ToString();
     }
 
+}
+
+internal sealed class MonomialDescendingComparer : IComparer<Monomial>
+{
+    public static MonomialDescendingComparer Instance { get; } = new();
+
+    private MonomialDescendingComparer()
+    {
+    }
+
+    public int Compare(Monomial x, Monomial y) =>
+        Monomial.CompareOrder(x, y) switch
+        {
+            Ordering.Less => 1,
+            Ordering.Equal => 0,
+            Ordering.Greater => -1,
+            _ => throw new InvalidOperationException("Invalid monomial ordering result.")
+        };
 }

@@ -8,8 +8,8 @@ namespace Helium.Primitives;
 /// </summary>
 public interface IField<T> :
     ICommRing<T>,
+    IDivisionRing<T>,
     IDivisionOperators<T, T, T>
     where T : IField<T>
 {
-    static abstract T Invert(T a);
 }

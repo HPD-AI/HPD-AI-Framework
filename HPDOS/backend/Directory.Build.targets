@@ -1,5 +1,0 @@
-<Project>
-  <ItemGroup Condition="'$(PublishAot)' == 'true' and '$([MSBuild]::IsOSPlatform(`OSX`))' == 'true'">
-    <ExtraLinkerArg Include="-ld_classic" />
-  </ItemGroup>
-</Project>

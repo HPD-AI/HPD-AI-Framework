@@ -19,10 +19,10 @@ public class GcdAlgorithmTests
     public void GcdOverPolynomial_FindsCommonFactor()
     {
         // gcd((x-1)(x-2), (x-2)(x-3)) should be (x-2) (up to scalar)
-        var x = Polynomial<Rational>.X;
-        var one = Polynomial<Rational>.C((Rational)1);
-        var p = (x - one) * (x - Polynomial<Rational>.C((Rational)2));
-        var q = (x - Polynomial<Rational>.C((Rational)2)) * (x - Polynomial<Rational>.C((Rational)3));
+        var x = SparsePolynomial<Rational>.X;
+        var one = SparsePolynomial<Rational>.C((Rational)1);
+        var p = (x - one) * (x - SparsePolynomial<Rational>.C((Rational)2));
+        var q = (x - SparsePolynomial<Rational>.C((Rational)2)) * (x - SparsePolynomial<Rational>.C((Rational)3));
         var g = p.Gcd(q);
         // g should be monic (x - 2)
         Assert.Equal(1, g.Degree);

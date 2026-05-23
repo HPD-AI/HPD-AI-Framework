@@ -205,20 +205,32 @@ public static class SmithNormalForm
         for (int step = 0; step < k; step++)
         {
             // Find a nonzero entry in the submatrix [step..m, step..n].
-            bool found = false;
-            for (int i = step; i < m && !found; i++)
+            int pivotRow = -1;
+            int pivotCol = -1;
+            Integer? bestAbs = null;
+            for (int i = step; i < m; i++)
             {
-                for (int j = step; j < n && !found; j++)
+                for (int j = step; j < n; j++)
                 {
-                    if (!a[i * n + j].IsZero)
+                    var candidate = a[i * n + j];
+                    if (candidate.IsZero)
+                        continue;
+
+                    var abs = candidate.Abs();
+                    if (bestAbs is null || abs < bestAbs)
                     {
-                        if (i != step) { SwapRows(a, m, n, step, i); SwapRows(u, m, m, step, i); }
-                        if (j != step) { SwapCols(a, m, n, step, j); SwapCols(v, n, n, step, j); }
-                        found = true;
+                        bestAbs = abs;
+                        pivotRow = i;
+                        pivotCol = j;
                     }
                 }
             }
-            if (!found) break;
+
+            if (pivotRow < 0)
+                break;
+
+            if (pivotRow != step) { SwapRows(a, m, n, step, pivotRow); SwapRows(u, m, m, step, pivotRow); }
+            if (pivotCol != step) { SwapCols(a, m, n, step, pivotCol); SwapCols(v, n, n, step, pivotCol); }
 
             // Iteratively eliminate until a[step,step] divides all entries in its row and column.
             bool changed = true;
@@ -321,19 +333,69 @@ public static class SmithNormalForm
             {
                 var di  = a[i * n + i];
                 var di1 = a[(i + 1) * n + (i + 1)];
+                if (di.Sign < 0)
+                {
+                    NegateCol(a, m, n, i);
+                    NegateCol(v, n, n, i);
+                    di = -di;
+                }
+                if (di1.Sign < 0)
+                {
+                    NegateCol(a, m, n, i + 1);
+                    NegateCol(v, n, n, i + 1);
+                    di1 = -di1;
+                }
+                if (di.IsZero)
+                {
+                    if (!di1.IsZero)
+                    {
+                        SwapRows(a, m, n, i, i + 1);
+                        SwapRows(u, m, m, i, i + 1);
+                        SwapCols(a, m, n, i, i + 1);
+                        SwapCols(v, n, n, i, i + 1);
+                        changed = true;
+                    }
+
+                    continue;
+                }
+
                 var (_, rem) = Integer.DivMod(di1, di);
                 if (!rem.IsZero)
                 {
-                    // Replace (d_i, d_{i+1}) with (gcd, lcm).
-                    var g = Integer.Gcd(di, di1);
-                    var l = di.IsZero ? di1 : (di / g) * di1;
-                    a[i * n + i]           = g;
-                    a[(i + 1) * n + (i + 1)] = l;
-                    // Transformation tracking is approximate here (not exact unimodular).
+                    ReplaceAdjacentDiagonalByGcdLcm(a, m, n, u, v, i, di, di1);
                     changed = true;
                 }
             }
         }
+    }
+
+    private static void ReplaceAdjacentDiagonalByGcdLcm(
+        Integer[] a,
+        int rows,
+        int cols,
+        Integer[] u,
+        Integer[] v,
+        int index,
+        Integer di,
+        Integer dj)
+    {
+        var g = Integer.Gcd(di, dj);
+        var ai = di / g;
+        var bj = dj / g;
+        var (bezoutGcd, x, y) = Gcd.Extended(ai, bj);
+        if (bezoutGcd.Sign < 0)
+        {
+            x = -x;
+            y = -y;
+        }
+
+        int next = index + 1;
+
+        ApplyRowTransform(a, rows, cols, index, next, x, y, -bj, ai);
+        ApplyRowTransform(u, rows, rows, index, next, x, y, -bj, ai);
+
+        ApplyColTransform(a, rows, cols, index, next, Integer.One, -y * bj, Integer.One, x * ai);
+        ApplyColTransform(v, cols, cols, index, next, Integer.One, -y * bj, Integer.One, x * ai);
     }
 
     // -------------------------------------------------------------------------
@@ -415,6 +477,46 @@ public static class SmithNormalForm
     {
         for (int c = 0; c < cols; c++)
             (a[r1 * cols + c], a[r2 * cols + c]) = (a[r2 * cols + c], a[r1 * cols + c]);
+    }
+
+    private static void ApplyRowTransform(
+        Integer[] a,
+        int rows,
+        int cols,
+        int r1,
+        int r2,
+        Integer m00,
+        Integer m01,
+        Integer m10,
+        Integer m11)
+    {
+        for (int c = 0; c < cols; c++)
+        {
+            var x = a[r1 * cols + c];
+            var y = a[r2 * cols + c];
+            a[r1 * cols + c] = m00 * x + m01 * y;
+            a[r2 * cols + c] = m10 * x + m11 * y;
+        }
+    }
+
+    private static void ApplyColTransform(
+        Integer[] a,
+        int rows,
+        int cols,
+        int c1,
+        int c2,
+        Integer m00,
+        Integer m01,
+        Integer m10,
+        Integer m11)
+    {
+        for (int r = 0; r < rows; r++)
+        {
+            var x = a[r * cols + c1];
+            var y = a[r * cols + c2];
+            a[r * cols + c1] = x * m00 + y * m10;
+            a[r * cols + c2] = x * m01 + y * m11;
+        }
     }
 
     private static void NegateCol(Integer[] a, int rows, int cols, int c)

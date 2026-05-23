@@ -55,15 +55,10 @@ public class MCPServerConfig
     public bool RequiresPermission { get; set; } = false;
 
     /// <summary>
-    /// Sandbox configuration for this MCP server.
-    /// Controls filesystem and network restrictions when running the server process.
+    /// Process isolation policy for the MCP server process.
     /// </summary>
-    /// <remarks>
-    /// <para>If null, uses default restrictive sandbox (deny ~/.ssh, ~/.aws, no network).</para>
-    /// <para>If <c>enabled: false</c>, runs without sandbox (use for trusted servers only).</para>
-    /// </remarks>
-    [JsonPropertyName("sandbox")]
-    public MCPSandboxConfig? Sandbox { get; set; }
+    [JsonPropertyName("processIsolation")]
+    public MCPProcessIsolationConfig? ProcessIsolation { get; set; }
 
     /// <summary>
     /// Ephemeral instructions returned in function result when container is expanded (one-time).
@@ -153,7 +148,7 @@ public class MCPOptions
 /// </summary>
 [JsonSerializable(typeof(MCPManifest))]
 [JsonSerializable(typeof(MCPServerConfig))]
-[JsonSerializable(typeof(MCPSandboxConfig))]
+[JsonSerializable(typeof(MCPProcessIsolationConfig))]
 [JsonSerializable(typeof(List<MCPServerConfig>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true)]

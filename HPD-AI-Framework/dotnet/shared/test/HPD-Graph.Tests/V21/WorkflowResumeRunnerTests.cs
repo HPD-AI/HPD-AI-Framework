@@ -120,7 +120,7 @@ public sealed class WorkflowResumeRunnerTests
             services,
             checkpointStore,
             eventCoordinator: eventCoordinator);
-        await using var eventSubscription = eventCoordinator.SubscribeChannel(EventChannel.Synchronous);
+        await using var eventSubscription = eventCoordinator.CreateChannelInbox(EventChannel.Synchronous);
 
         var result = await runner.ResumeAsync(new WorkflowResumeRunnerRequest
         {

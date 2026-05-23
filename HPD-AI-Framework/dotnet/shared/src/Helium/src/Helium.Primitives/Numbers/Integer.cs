@@ -9,9 +9,12 @@ namespace Helium.Primitives;
 public readonly struct Integer :
     IRing<Integer>,
     ICommRing<Integer>,
+    IAddCommGroup<Integer>,
+    IModule<Integer, Integer>,
     IEuclideanDomain<Integer>,
     IGcdDomain<Integer>,
-    IOrdered<Integer>,
+    ITotalOrder<Integer>,
+    IDecidableEq<Integer>,
     INoZeroDivisors<Integer>,
     ICharP<Integer>,
     IComparable<Integer>,
@@ -80,6 +83,7 @@ public readonly struct Integer :
     public static Integer operator -(Integer left, Integer right) => new(left._value - right._value);
     public static Integer operator *(Integer left, Integer right) => new(left._value * right._value);
     public static Integer operator -(Integer value) => new(-value._value);
+    public static Integer ScalarMultiply(Integer scalar, Integer element) => scalar * element;
 
     // Division by zero returns zero (total function convention).
     public static Integer operator /(Integer left, Integer right) =>
@@ -124,6 +128,15 @@ public readonly struct Integer :
     public static bool operator >=(Integer left, Integer right) => left._value >= right._value;
 
     public int CompareTo(Integer other) => _value.CompareTo(other._value);
+
+    public static bool DecidableEquals(Integer left, Integer right) => left == right;
+
+    public static bool LessEqual(Integer left, Integer right) => left <= right;
+
+    public static Ordering CompareOrder(Integer left, Integer right) =>
+        left._value < right._value ? Ordering.Less :
+        left._value > right._value ? Ordering.Greater :
+        Ordering.Equal;
 
     // --- Equality ---
 

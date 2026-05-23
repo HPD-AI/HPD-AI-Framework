@@ -3,285 +3,149 @@ using System.Numerics;
 namespace Helium.Primitives;
 
 /// <summary>
-/// Complex number as a pair of doubles. Implements field operations and conjugation (IStar).
-/// Not IOrdered — the complex field has no compatible total order.
+/// Exact complex numbers over an exact field.
 /// </summary>
-public readonly record struct Complex(double Re, double Im) :
-    IField<Complex>,
-    IStar<Complex>,
-    ICharP<Complex>,
-    IFormattable,
-    IParsable<Complex>,
-    ISpanParsable<Complex>
+public readonly struct Complex<R> :
+    IField<Complex<R>>,
+    IStar<Complex<R>>,
+    IEquatable<Complex<R>>,
+    IDecidableEq<Complex<R>>,
+    IFormattable
+    where R : IField<R>, IDecidableEq<R>
 {
-    // --- Identity elements ---
+    public R Re { get; }
+    public R Im { get; }
 
-    public static Complex Zero => new(0.0, 0.0);
-    public static Complex One => new(1.0, 0.0);
-    public static Complex I => new(0.0, 1.0);
+    public Complex(R re, R im)
+    {
+        Re = re;
+        Im = im;
+    }
 
-    static Complex IAdditiveIdentity<Complex, Complex>.AdditiveIdentity => Zero;
-    static Complex IMultiplicativeIdentity<Complex, Complex>.MultiplicativeIdentity => One;
+    public static Complex<R> Zero => new(R.AdditiveIdentity, R.AdditiveIdentity);
+    public static Complex<R> One => new(R.MultiplicativeIdentity, R.AdditiveIdentity);
+    public static Complex<R> I => new(R.AdditiveIdentity, R.MultiplicativeIdentity);
 
-    // --- Arithmetic operators ---
+    static Complex<R> IAdditiveIdentity<Complex<R>, Complex<R>>.AdditiveIdentity => Zero;
+    static Complex<R> IMultiplicativeIdentity<Complex<R>, Complex<R>>.MultiplicativeIdentity => One;
 
-    public static Complex operator +(Complex left, Complex right) =>
+    public static Complex<R> FromInt(int n) => new(R.FromInt(n), R.AdditiveIdentity);
+
+    static Complex<R> IRing<Complex<R>>.FromInt(int n) => FromInt(n);
+
+    public static Complex<R> operator +(Complex<R> left, Complex<R> right) =>
         new(left.Re + right.Re, left.Im + right.Im);
 
-    public static Complex operator -(Complex left, Complex right) =>
+    public static Complex<R> operator -(Complex<R> left, Complex<R> right) =>
         new(left.Re - right.Re, left.Im - right.Im);
 
-    public static Complex operator *(Complex left, Complex right) =>
+    public static Complex<R> operator -(Complex<R> value) =>
+        new(-value.Re, -value.Im);
+
+    public static Complex<R> operator *(Complex<R> left, Complex<R> right) =>
         new(left.Re * right.Re - left.Im * right.Im,
             left.Re * right.Im + left.Im * right.Re);
 
-    public static Complex operator /(Complex left, Complex right) =>
+    public static Complex<R> operator /(Complex<R> left, Complex<R> right) =>
         left * Invert(right);
 
-    public static Complex operator -(Complex value) =>
-        new(-value.Re, -value.Im);
-
-    // --- IField ---
-
-    public static Complex Invert(Complex a)
+    public static Complex<R> Invert(Complex<R> a)
     {
         var norm = a.Re * a.Re + a.Im * a.Im;
-        if (norm == 0.0)
+        if (norm.Equals(R.AdditiveIdentity))
             return Zero;
-        return new(a.Re / norm, -a.Im / norm);
+
+        var invNorm = R.Invert(norm);
+        return new(a.Re * invNorm, -a.Im * invNorm);
     }
 
-    // --- IStar (conjugation) ---
+    public static Complex<R> Star(Complex<R> a) => new(a.Re, -a.Im);
 
-    public static Complex Star(Complex a) => new(a.Re, -a.Im);
-
-    // --- IRing.FromInt override ---
-
-    static Complex IRing<Complex>.FromInt(int n) => new((double)n, 0.0);
-
-    // --- ICharP ---
-
-    public static int Characteristic => 0;
-
-    // --- Equality (IEEE double semantics: NaN != NaN) ---
-
-    public bool Equals(Complex other) =>
-        Re == other.Re && Im == other.Im;
-
+    public bool Equals(Complex<R> other) => Re.Equals(other.Re) && Im.Equals(other.Im);
+    public override bool Equals(object? obj) => obj is Complex<R> other && Equals(other);
     public override int GetHashCode() => HashCode.Combine(Re, Im);
+    public static bool operator ==(Complex<R> left, Complex<R> right) => left.Equals(right);
+    public static bool operator !=(Complex<R> left, Complex<R> right) => !left.Equals(right);
+    public static bool DecidableEquals(Complex<R> left, Complex<R> right) =>
+        R.DecidableEquals(left.Re, right.Re) && R.DecidableEquals(left.Im, right.Im);
+
+    public bool IsZero => Re.Equals(R.AdditiveIdentity) && Im.Equals(R.AdditiveIdentity);
 
     public override string ToString() => ToString(null, null);
 
     public string ToString(string? format, IFormatProvider? formatProvider)
     {
         if (format == "M")
-            return FormatMathML();
-        return FormatComplex();
+            return FormatMathML(formatProvider);
+        return FormatDefault(format, formatProvider);
     }
 
-    private string FormatComplex()
+    private string FormatDefault(string? format, IFormatProvider? provider)
     {
-        if (Im == 0.0) return $"{Re}";
-        if (Re == 0.0) return FormatImaginary(Im);
+        if (Im.Equals(R.AdditiveIdentity))
+            return FormatElement(Re, format, provider);
 
-        if (Im > 0)
-            return $"{Re} + {FormatPositiveImaginary(Im)}";
-        return $"{Re} - {FormatPositiveImaginary(-Im)}";
+        if (Re.Equals(R.AdditiveIdentity))
+            return FormatImaginary(Im, format, provider);
+
+        if (IsNegativeLike(Im))
+            return $"{FormatElement(Re, format, provider)} - {FormatPositiveImaginary(-Im, format, provider)}";
+
+        return $"{FormatElement(Re, format, provider)} + {FormatPositiveImaginary(Im, format, provider)}";
     }
 
-    private static string FormatImaginary(double im)
+    private string FormatMathML(IFormatProvider? provider)
     {
-        if (im == 1.0) return "i";
-        if (im == -1.0) return "-i";
-        return $"{im}i";
+        if (Im.Equals(R.AdditiveIdentity))
+            return FormatElement(Re, "M", provider);
+
+        if (Re.Equals(R.AdditiveIdentity))
+            return FormatImaginaryMathML(Im, provider);
+
+        var re = FormatElement(Re, "M", provider);
+        if (IsNegativeLike(Im))
+            return $"{re}<mo>-</mo>{FormatPositiveImaginaryMathML(-Im, provider)}";
+
+        return $"{re}<mo>+</mo>{FormatPositiveImaginaryMathML(Im, provider)}";
     }
 
-    private static string FormatPositiveImaginary(double absIm)
+    private static string FormatImaginary(R im, string? format, IFormatProvider? provider)
     {
-        if (absIm == 1.0) return "i";
-        return $"{absIm}i";
+        if (im.Equals(R.MultiplicativeIdentity))
+            return "i";
+        if (im.Equals(-R.MultiplicativeIdentity))
+            return "-i";
+        return $"{FormatElement(im, format, provider)}i";
     }
 
-    private string FormatMathML()
+    private static string FormatPositiveImaginary(R im, string? format, IFormatProvider? provider)
     {
-        if (Im == 0.0) return $"<mn>{Re}</mn>";
-        if (Re == 0.0)
-        {
-            if (Im == 1.0) return "<mi>i</mi>";
-            if (Im == -1.0) return "<mo>-</mo><mi>i</mi>";
-            if (Im < 0) return $"<mo>-</mo><mn>{-Im}</mn><mi>i</mi>";
-            return $"<mn>{Im}</mn><mi>i</mi>";
-        }
-        if (Im == 1.0) return $"<mn>{Re}</mn><mo>+</mo><mi>i</mi>";
-        if (Im == -1.0) return $"<mn>{Re}</mn><mo>-</mo><mi>i</mi>";
-        if (Im < 0) return $"<mn>{Re}</mn><mo>-</mo><mn>{-Im}</mn><mi>i</mi>";
-        return $"<mn>{Re}</mn><mo>+</mo><mn>{Im}</mn><mi>i</mi>";
+        if (im.Equals(R.MultiplicativeIdentity))
+            return "i";
+        return $"{FormatElement(im, format, provider)}i";
     }
 
-    // --- Helpers ---
-
-    public double NormSquared => Re * Re + Im * Im;
-    public double Magnitude => Math.Sqrt(NormSquared);
-    public bool IsZero => Re == 0.0 && Im == 0.0;
-
-    public static implicit operator Complex(double re) => new(re, 0.0);
-
-    // --- Parsing (IParsable / ISpanParsable) ---
-
-    public static Complex Parse(string s, IFormatProvider? provider) =>
-        Parse(s.AsSpan(), provider);
-
-    public static bool TryParse(string? s, IFormatProvider? provider, out Complex result)
+    private static string FormatImaginaryMathML(R im, IFormatProvider? provider)
     {
-        if (s is null)
-        {
-            result = Zero;
-            return false;
-        }
-
-        return TryParse(s.AsSpan(), provider, out result);
+        if (im.Equals(R.MultiplicativeIdentity))
+            return "<mi>i</mi>";
+        if (im.Equals(-R.MultiplicativeIdentity))
+            return "<mo>-</mo><mi>i</mi>";
+        if (IsNegativeLike(im))
+            return $"<mo>-</mo>{FormatPositiveImaginaryMathML(-im, provider)}";
+        return FormatPositiveImaginaryMathML(im, provider);
     }
 
-    public static Complex Parse(ReadOnlySpan<char> s, IFormatProvider? provider)
+    private static string FormatPositiveImaginaryMathML(R im, IFormatProvider? provider)
     {
-        if (TryParse(s, provider, out var result))
-            return result;
-        throw new FormatException("Invalid complex literal.");
+        if (im.Equals(R.MultiplicativeIdentity))
+            return "<mi>i</mi>";
+        return $"{FormatElement(im, "M", provider)}<mi>i</mi>";
     }
 
-    public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider? provider, out Complex result)
-    {
-        s = Trim(s);
-        if (s.Length == 0)
-        {
-            result = Zero;
-            return false;
-        }
+    private static string FormatElement(R value, string? format, IFormatProvider? provider) =>
+        value is IFormattable f ? f.ToString(format, provider) : value.ToString() ?? "";
 
-        // We accept: a, bi, a+bi, a-bi, i, -i (whitespace ignored)
-        var t = RemoveWhitespace(s);
-
-        if (t.Length == 0)
-        {
-            result = Zero;
-            return false;
-        }
-
-        if (t[^1] != 'i')
-        {
-            if (double.TryParse(t, provider, out var re))
-            {
-                result = new Complex(re, 0.0);
-                return true;
-            }
-
-            result = Zero;
-            return false;
-        }
-
-        var body = t.AsSpan()[..^1];
-        if (body.Length == 0 || body.SequenceEqual("+".AsSpan()))
-        {
-            result = I;
-            return true;
-        }
-
-        if (body.SequenceEqual("-".AsSpan()))
-        {
-            result = new Complex(0.0, -1.0);
-            return true;
-        }
-
-        // Find separator between real and imaginary parts, if any.
-        int sep = LastPlusMinus(body);
-        if (sep > 0)
-        {
-            var reSpan = body[..sep];
-            var imSpan = body[sep..];
-
-            if (!double.TryParse(reSpan, provider, out var re))
-            {
-                result = Zero;
-                return false;
-            }
-
-            double im;
-            if (imSpan.SequenceEqual("+".AsSpan()))
-                im = 1.0;
-            else if (imSpan.SequenceEqual("-".AsSpan()))
-                im = -1.0;
-            else if (!double.TryParse(imSpan, provider, out im))
-            {
-                result = Zero;
-                return false;
-            }
-
-            result = new Complex(re, im);
-            return true;
-        }
-
-        // Pure imaginary.
-        if (body.SequenceEqual("+".AsSpan()))
-        {
-            result = I;
-            return true;
-        }
-
-        if (body.SequenceEqual("-".AsSpan()))
-        {
-            result = new Complex(0.0, -1.0);
-            return true;
-        }
-
-        if (!double.TryParse(body, provider, out var imag))
-        {
-            result = Zero;
-            return false;
-        }
-
-        result = new Complex(0.0, imag);
-        return true;
-    }
-
-    private static int LastPlusMinus(ReadOnlySpan<char> s)
-    {
-        for (int i = s.Length - 1; i >= 1; i--)
-        {
-            if (s[i] is '+' or '-')
-                return i;
-        }
-        return -1;
-    }
-
-    private static ReadOnlySpan<char> Trim(ReadOnlySpan<char> s)
-    {
-        int start = 0;
-        while (start < s.Length && char.IsWhiteSpace(s[start]))
-            start++;
-
-        int end = s.Length - 1;
-        while (end >= start && char.IsWhiteSpace(s[end]))
-            end--;
-
-        return s[start..(end + 1)];
-    }
-
-    private static string RemoveWhitespace(ReadOnlySpan<char> s)
-    {
-        int whitespaceCount = 0;
-        foreach (var c in s)
-            if (char.IsWhiteSpace(c))
-                whitespaceCount++;
-
-        if (whitespaceCount == 0)
-            return s.ToString();
-
-        var buffer = new char[s.Length - whitespaceCount];
-        int j = 0;
-        foreach (var c in s)
-            if (!char.IsWhiteSpace(c))
-                buffer[j++] = c;
-
-        return new string(buffer);
-    }
+    private static bool IsNegativeLike(R value) =>
+        value.ToString()?.StartsWith("-", StringComparison.Ordinal) == true;
 }

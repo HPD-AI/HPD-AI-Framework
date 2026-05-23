@@ -1,11 +1,8 @@
 namespace HPD.ML.Regression.Tests;
 
-using Helium.Algebra;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.BinaryClassification;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 public class PoissonRegressionTests
 {

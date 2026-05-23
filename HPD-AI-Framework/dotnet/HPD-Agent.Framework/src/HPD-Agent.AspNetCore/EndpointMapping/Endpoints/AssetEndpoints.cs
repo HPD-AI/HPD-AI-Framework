@@ -1,6 +1,5 @@
-using HPD.Agent;
-using HPD.Agent.AspNetCore.Lifecycle;
 using HPD.Agent.Hosting.Data;
+using HPD.Agent.Hosting.Lifecycle;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -17,30 +16,30 @@ internal static class AssetEndpoints
     /// <summary>
     /// Maps all asset-related endpoints.
     /// </summary>
-    internal static void Map(IEndpointRouteBuilder endpoints, AspNetCoreSessionManager manager)
+    internal static void Map(IEndpointRouteBuilder endpoints, IAgentAssetService assets)
     {
         // POST /sessions/{sid}/assets - Upload asset (multipart/form-data)
         endpoints.MapPost("/sessions/{sid}/assets", (string sid, HttpRequest request, CancellationToken ct) =>
-                UploadAsset(sid, request, manager, ct))
+                UploadAsset(sid, request, assets, ct))
             .WithName("UploadAsset")
             .WithSummary("Upload an asset (multipart/form-data)")
             .DisableAntiforgery(); // Allow multipart uploads
 
         // GET /sessions/{sid}/assets - List assets for session
         endpoints.MapGet("/sessions/{sid}/assets", (string sid, CancellationToken ct) =>
-                ListAssets(sid, manager, ct))
+                ListAssets(sid, assets, ct))
             .WithName("ListAssets")
             .WithSummary("List all assets in a session");
 
         // GET /sessions/{sid}/assets/{assetId} - Download asset (returns binary)
         endpoints.MapGet("/sessions/{sid}/assets/{assetId}", (string sid, string assetId, CancellationToken ct) =>
-                DownloadAsset(sid, assetId, manager, ct))
+                DownloadAsset(sid, assetId, assets, ct))
             .WithName("DownloadAsset")
             .WithSummary("Download an asset (returns binary content)");
 
         // DELETE /sessions/{sid}/assets/{assetId} - Delete asset
         endpoints.MapDelete("/sessions/{sid}/assets/{assetId}", (string sid, string assetId, CancellationToken ct) =>
-                DeleteAsset(sid, assetId, manager, ct))
+                DeleteAsset(sid, assetId, assets, ct))
             .WithName("DeleteAsset")
             .WithSummary("Delete an asset");
     }
@@ -48,26 +47,11 @@ internal static class AssetEndpoints
     private static async Task<Results<Created<AssetDto>, NotFound, ValidationProblem>> UploadAsset(
         string sid,
         HttpRequest request,
-        AspNetCoreSessionManager manager,
+        IAgentAssetService assets,
         CancellationToken ct = default)
     {
         try
         {
-            var session = await manager.Store.LoadSessionAsync(sid, ct);
-            if (session == null)
-            {
-                return TypedResults.NotFound();
-            }
-
-            var contentStore = manager.Store.GetContentStore(sid);
-            if (contentStore == null)
-            {
-                return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-                {
-                    ["AssetStoreNotAvailable"] = ["Content storage is not available for this session store."]
-                });
-            }
-
             if (!request.HasFormContentType)
             {
                 return TypedResults.ValidationProblem(new Dictionary<string, string[]>
@@ -87,47 +71,16 @@ internal static class AssetEndpoints
                 });
             }
 
-            using var stream = file.OpenReadStream();
-            using var memoryStream = new MemoryStream();
-            await stream.CopyToAsync(memoryStream, ct);
-
-            var assetData = memoryStream.ToArray();
-            var contentType = file.ContentType ?? "application/octet-stream";
-
-            // Upload to content store with session scope and /uploads folder tag
-            var assetId = await contentStore.PutAsync(
-                scope: sid,
-                data: assetData,
-                contentType: contentType,
-                metadata: new ContentMetadata
-                {
-                    Name = file.FileName,
-                    Origin = ContentSource.User,
-                    Tags = new Dictionary<string, string>
-                    {
-                        ["folder"] = "/uploads",
-                        ["session"] = sid
-                    }
-                },
-                cancellationToken: ct);
-
-            // Get metadata from the store
-            var content = await contentStore.GetAsync(sid, assetId, ct);
-            if (content == null)
+            await using var stream = file.OpenReadStream();
+            var result = await assets.UploadAssetAsync(sid, stream, file.FileName, file.ContentType, ct);
+            return result.Status switch
             {
-                return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-                {
-                    ["UploadFailed"] = ["Asset was uploaded but could not be retrieved."]
-                });
-            }
-
-            var dto = new AssetDto(
-                assetId,
-                content.ContentType,
-                content.Data.Length,
-                content.Info.CreatedAt.ToString("O"));
-
-            return TypedResults.Created($"/sessions/{sid}/assets/{assetId}", dto);
+                AgentServiceStatus.Success => TypedResults.Created(
+                    $"/sessions/{sid}/assets/{result.Value!.AssetId}",
+                    result.Value),
+                AgentServiceStatus.NotFound => TypedResults.NotFound(),
+                _ => TypedResults.ValidationProblem(ToValidation(result))
+            };
         }
         catch (Exception ex)
         {
@@ -140,35 +93,15 @@ internal static class AssetEndpoints
 
     private static async Task<Results<Ok<List<AssetDto>>, NotFound, ValidationProblem>> ListAssets(
         string sid,
-        AspNetCoreSessionManager manager,
+        IAgentAssetService assets,
         CancellationToken ct = default)
     {
         try
         {
-            var session = await manager.Store.LoadSessionAsync(sid, ct);
-            if (session == null)
-            {
-                return TypedResults.NotFound();
-            }
-
-            var contentStore = manager.Store.GetContentStore(sid);
-            if (contentStore == null)
-            {
-                return TypedResults.Ok(new List<AssetDto>());
-            }
-
-            // Query /uploads folder within session scope
-            var assets = await contentStore.QueryAsync(
-                scope: sid,
-                query: new ContentQuery { Tags = new Dictionary<string, string> { ["folder"] = "/uploads" } },
-                cancellationToken: ct);
-            var dtos = assets.Select(a => new AssetDto(
-                a.Id,
-                a.ContentType,
-                a.SizeBytes,
-                a.CreatedAt.ToString("O"))).ToList();
-
-            return TypedResults.Ok(dtos);
+            var result = await assets.ListAssetsAsync(sid, ct);
+            return result.Status == AgentServiceStatus.NotFound
+                ? TypedResults.NotFound()
+                : TypedResults.Ok(result.Value!.ToList());
         }
         catch (Exception ex)
         {
@@ -182,31 +115,16 @@ internal static class AssetEndpoints
     private static async Task<Results<FileContentHttpResult, NotFound, ValidationProblem>> DownloadAsset(
         string sid,
         string assetId,
-        AspNetCoreSessionManager manager,
+        IAgentAssetService assets,
         CancellationToken ct = default)
     {
         try
         {
-            var session = await manager.Store.LoadSessionAsync(sid, ct);
-            if (session == null)
-            {
+            var result = await assets.DownloadAssetAsync(sid, assetId, ct);
+            if (result.Status == AgentServiceStatus.NotFound)
                 return TypedResults.NotFound();
-            }
 
-            var contentStore = manager.Store.GetContentStore(sid);
-            if (contentStore == null)
-            {
-                return TypedResults.NotFound();
-            }
-
-            var content = await contentStore.GetAsync(sid, assetId, ct);
-            if (content == null)
-            {
-                return TypedResults.NotFound();
-            }
-
-            // Include filename in Content-Disposition header for proper download handling
-            return TypedResults.File(content.Data, content.ContentType, content.Info.Name);
+            return TypedResults.File(result.Value!.Data, result.Value.ContentType, result.Value.FileName);
         }
         catch (Exception ex)
         {
@@ -220,33 +138,15 @@ internal static class AssetEndpoints
     private static async Task<Results<NoContent, NotFound, ValidationProblem>> DeleteAsset(
         string sid,
         string assetId,
-        AspNetCoreSessionManager manager,
+        IAgentAssetService assets,
         CancellationToken ct = default)
     {
         try
         {
-            var session = await manager.Store.LoadSessionAsync(sid, ct);
-            if (session == null)
-            {
-                return TypedResults.NotFound();
-            }
-
-            var contentStore = manager.Store.GetContentStore(sid);
-            if (contentStore == null)
-            {
-                return TypedResults.NotFound();
-            }
-
-            // Check if asset exists before deleting
-            var content = await contentStore.GetAsync(sid, assetId, ct);
-            if (content == null)
-            {
-                return TypedResults.NotFound();
-            }
-
-            await contentStore.DeleteAsync(sid, assetId, ct);
-
-            return TypedResults.NoContent();
+            var result = await assets.DeleteAssetAsync(sid, assetId, ct);
+            return result.Status == AgentServiceStatus.NotFound
+                ? TypedResults.NotFound()
+                : TypedResults.NoContent();
         }
         catch (Exception ex)
         {
@@ -256,4 +156,10 @@ internal static class AssetEndpoints
             });
         }
     }
+
+    private static Dictionary<string, string[]> ToValidation<T>(AgentServiceResult<T> result) =>
+        new()
+        {
+            [result.ErrorCode ?? "AssetError"] = [result.ErrorMessage ?? "Asset operation failed."]
+        };
 }

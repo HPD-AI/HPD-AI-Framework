@@ -16,7 +16,7 @@ public class DefaultExecutionEnvironmentTests
 
         Assert.Same(NullLogger.Instance, env.Logger);
         Assert.Null(env.Seed);
-        Assert.Equal(ComputeBackend.Default, env.ComputeBackend);
+        Assert.Equal(BackendSpec.Default(), env.Backend);
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class DefaultExecutionEnvironmentTests
         using var coordinator = new EventCoordinator();
         var env = new DefaultExecutionEnvironment(coordinator: coordinator);
         using var subject = env.CreateProgressSubject();
-        await using var events = coordinator.SubscribeChannel(EventChannel.Synchronous);
+        await using var events = coordinator.CreateChannelInbox(EventChannel.Synchronous);
 
         subject.OnNext(new ProgressEvent { Epoch = 1 });
         var evt = await ReadFirstAsync(events.Reader);
@@ -85,17 +85,18 @@ public class DefaultExecutionEnvironmentTests
     }
 
     [Fact]
-    public void CreateChild_InheritsSchedulerAndDevice()
+    public void CreateChild_InheritsSchedulerDeviceAndBackend()
     {
         var device = new DevicePreference("gpu:0");
+        var backend = BackendSpec.Mlx("gpu");
         var env = new DefaultExecutionEnvironment(
             defaultDevicePreference: device,
-            computeBackend: ComputeBackend.MKL);
+            backend: backend);
 
         var child = env.CreateChild();
 
         Assert.Equal("gpu:0", child.DefaultDevicePreference.DeviceId);
-        Assert.Equal(ComputeBackend.MKL, child.ComputeBackend);
+        Assert.Equal(backend, child.Backend);
     }
 
     [Fact]
@@ -104,7 +105,7 @@ public class DefaultExecutionEnvironmentTests
         using var coordinator = new EventCoordinator();
         var env = new DefaultExecutionEnvironment(coordinator: coordinator);
         var child = env.CreateChild();
-        await using var events = coordinator.SubscribeChannel(EventChannel.Synchronous);
+        await using var events = coordinator.CreateChannelInbox(EventChannel.Synchronous);
 
         // The child's progress subject should bubble events to the parent coordinator
         using var subject = child.CreateProgressSubject();

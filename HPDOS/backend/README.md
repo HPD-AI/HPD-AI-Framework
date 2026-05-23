@@ -1,8 +1,8 @@
 # HPDOS Backend
 
-The HPDOS backend is the single local Kestrel runtime for HPD-OS UIs.
+The HPDOS backend is the local Kestrel runtime for the HPD-OS workspace shell.
 
-It hosts the HPD-Agent API once, so desktop, web, Tauri, mobile, CLI, or test UIs can all talk to the same runtime process.
+It serves the static browser UI and hosts the HPD-Agent API used by that UI.
 Agent definitions live in the configured agent store as JSON and are addressed by `agentId`.
 
 ## Endpoints
@@ -11,7 +11,6 @@ Agent definitions live in the configured agent store as JSON and are addressed b
 - `GET /health`
 - `GET /api/hpdos/runtime`
 - `POST /api/hpd-agent/agents`
-- `POST /api/hpd-agent/sessions`
 - `POST /api/hpd-agent/agents/{agentId}/sessions/{sessionId}/branches/{branchId}/stream`
 - `POST /api/hpd-agent/agents/{agentId}/sessions/{sessionId}/branches/{branchId}/events/stream`
 - `GET /api/hpd-agent/agents/{agentId}/sessions/{sessionId}/branches/{branchId}/ws`
@@ -37,18 +36,32 @@ In Development, the default data root is local to this project:
 HPDOS/backend/.hpdos
 ```
 
-Create agent definitions through `POST /api/hpd-agent/agents`, then use the returned `agentId` in stream and WebSocket routes.
+The browser chat uses the HPD Agent API for session creation, branch history, client tools, and streaming turns.
+The UI is split into a framework-free TSX view layer and a headless HPDOS core:
+
+- `wwwroot/src/core` owns runtime, workspace, session, artifact, and chat orchestration.
+- `wwwroot/src/view` owns DOM mounting and no-framework TSX components.
+- `wwwroot/src/shared` owns browser-agnostic formatting helpers.
+
+Build or type-check the UI with:
+
+```bash
+bun install
+bun run check:ui
+bun run build:ui
+```
 
 ## Configuration
 
-Configure stores and UI origins with `appsettings.json` or environment variables:
+Configure stores and the default project directory with `appsettings.json` or environment variables:
 
 - `HPDOS:DataRoot`
+- `HPDOS:ProjectDirectory`
 - `HPDOS:AgentStorePath`
 - `HPDOS:SessionStorePath`
-- `HPDOS:AllowedOrigins`
 
 Relative store paths resolve from the `HPDOS/backend` directory.
+`HPDOS:ProjectDirectory` becomes the default workspace root shown in the UI. The desktop shell sets it from `HPDOS__ProjectDirectory`; additional user-selected roots come from the Electrobun folder picker and are injected into `runConfig.contextOverrides.workspace`.
 
 Provider API keys are resolved by HPD-Agent provider secret resolution, for example:
 

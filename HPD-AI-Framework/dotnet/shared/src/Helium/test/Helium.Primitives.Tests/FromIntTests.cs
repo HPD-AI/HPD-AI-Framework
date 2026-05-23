@@ -51,37 +51,17 @@ public class FromIntTests
         Assert.Equal(Integer.One, r.Denominator);
     }
 
-    // --- Complex ---
+    // --- Complex<Rational> ---
 
     [Fact]
     public void Complex_FromInt_Zero() =>
-        Assert.Equal(Complex.Zero, FromInt<Complex>(0));
+        Assert.Equal(Complex<Rational>.Zero, FromInt<Complex<Rational>>(0));
 
     [Fact]
     public void Complex_FromInt_Seven()
     {
-        var c = FromInt<Complex>(7);
-        Assert.Equal(7.0, c.Re);
-        Assert.Equal(0.0, c.Im);
+        var c = FromInt<Complex<Rational>>(7);
+        Assert.Equal((Rational)7, c.Re);
+        Assert.Equal(Rational.Zero, c.Im);
     }
-
-    // --- Double ---
-
-    [Fact]
-    public void Double_FromInt_Zero() =>
-        Assert.Equal(Double.Zero, FromInt<Double>(0));
-
-    [Fact]
-    public void Double_FromInt_Five() =>
-        Assert.Equal(new Double(5.0), FromInt<Double>(5));
-
-    [Fact]
-    public void Double_FromInt_Negative() =>
-        Assert.Equal(new Double(-3.0), FromInt<Double>(-3));
-
-    // --- Float ---
-
-    [Fact]
-    public void Float_FromInt_Two() =>
-        Assert.Equal(new Float(2.0f), FromInt<Float>(2));
 }

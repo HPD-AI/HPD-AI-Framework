@@ -1,12 +1,8 @@
 namespace HPD.ML.Regression;
 
-using Helium.Algebra;
-using Helium.Algorithms;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.BinaryClassification;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 public sealed record OlsOptions
 {
@@ -18,7 +14,7 @@ public sealed record OlsOptions
 }
 
 /// <summary>
-/// Ordinary Least Squares regression via L-BFGS with Helium autodiff.
+/// Ordinary Least Squares regression via L-BFGS with analytic gradients.
 /// Minimizes (1/2n) Σ (w·x + b - y)² + regularization.
 /// </summary>
 public sealed class OrdinaryLeastSquaresLearner : ILearner
@@ -54,24 +50,29 @@ public sealed class OrdinaryLeastSquaresLearner : ILearner
         int n = features.Count;
         int d = featureCount;
 
-        // Loss: (1/2n) Σ (w·x + b - y)²
-        // Parameters layout: [w0, w1, ..., w_{d-1}, bias]
-        Func<Vector<Var<Double>>, Var<Double>> loss = parameters =>
+        (double Loss, double[] Gradient) Objective(double[] parameters)
         {
-            var totalLoss = Var<Double>.Constant(new Double(0));
+            var totalLoss = 0.0;
+            var gradient = new double[d + 1];
 
             for (int i = 0; i < n; i++)
             {
-                var score = parameters[d]; // bias
+                var score = parameters[d];
                 for (int j = 0; j < d; j++)
-                    score = score + parameters[j] * Var<Double>.Constant(features[i][j]);
+                    score += parameters[j] * features[i][j];
 
-                var diff = score - Var<Double>.Constant(new Double(labels[i]));
-                totalLoss = totalLoss + diff * diff;
+                var diff = score - labels[i];
+                totalLoss += diff * diff;
+                for (int j = 0; j < d; j++)
+                    gradient[j] += diff * features[i][j];
+                gradient[d] += diff;
             }
 
-            return totalLoss / Var<Double>.Constant(new Double(2.0 * n));
-        };
+            for (int i = 0; i < gradient.Length; i++)
+                gradient[i] /= n;
+
+            return (totalLoss / (2.0 * n), gradient);
+        }
 
         var optimizer = new LbfgsOptimizer(
             memorySize: _options.MemorySize,
@@ -80,17 +81,13 @@ public sealed class OrdinaryLeastSquaresLearner : ILearner
             l1Regularization: _options.L1Regularization,
             l2Regularization: _options.L2Regularization);
 
-        var initial = Vector<Double>.Zero(d + 1);
-        var optimized = optimizer.Minimize(loss, initial, _progress);
+        var initial = new double[d + 1];
+        var optimized = optimizer.Minimize(Objective, initial, _progress);
 
-        // Extract weights and bias
-        var weights = new Double[d];
-        for (int i = 0; i < d; i++)
-            weights[i] = optimized[i];
+        var weights = optimized[..d];
         var bias = optimized[d];
 
-        var parameters = new LinearModelParameters(
-            Vector<Double>.FromArray(weights), bias);
+        var parameters = new LinearModelParameters(weights, bias);
         var transform = new RegressionScoringTransform(parameters, _featureColumn);
 
         _progress.OnCompleted();

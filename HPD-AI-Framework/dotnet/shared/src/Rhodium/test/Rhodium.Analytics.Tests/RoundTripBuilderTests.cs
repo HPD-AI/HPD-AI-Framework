@@ -20,6 +20,7 @@ public class RoundTripBuilderTests
                 new OrderId(1),
                 inst,
                 0,
+                new StrategyId(1),
                 Side.Buy,
                 new Qty(10m),
                 new Price(50000m, Currency.USD),
@@ -33,6 +34,7 @@ public class RoundTripBuilderTests
                 new OrderId(2),
                 inst,
                 0,
+                new StrategyId(1),
                 Side.Sell,
                 new Qty(10m),
                 new Price(55000m, Currency.USD),
@@ -65,6 +67,7 @@ public class RoundTripBuilderTests
                 new OrderId(1),
                 inst,
                 0,
+                new StrategyId(1),
                 Side.Sell,
                 new Qty(10m),
                 new Price(55000m, Currency.USD),
@@ -78,6 +81,7 @@ public class RoundTripBuilderTests
                 new OrderId(2),
                 inst,
                 0,
+                new StrategyId(1),
                 Side.Buy,
                 new Qty(10m),
                 new Price(50000m, Currency.USD),
@@ -105,16 +109,20 @@ public class RoundTripBuilderTests
         var fills = new List<OrderFilled>
         {
             // Trade 1: Buy 10 @ 50000
-            new OrderFilled(new OrderId(1), inst, 0, Side.Buy, new Qty(10m), new Price(50000m, Currency.USD), new Money(50m, Currency.USD))
+            new OrderFilled(new OrderId(1), inst, 0, new StrategyId(1),
+                Side.Buy, new Qty(10m), new Price(50000m, Currency.USD), new Money(50m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(1000) },
             // Trade 1 exit: Sell 10 @ 55000
-            new OrderFilled(new OrderId(2), inst, 0, Side.Sell, new Qty(10m), new Price(55000m, Currency.USD), new Money(50m, Currency.USD))
+            new OrderFilled(new OrderId(2), inst, 0, new StrategyId(1),
+                Side.Sell, new Qty(10m), new Price(55000m, Currency.USD), new Money(50m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(2000) },
             // Trade 2: Buy 5 @ 51000
-            new OrderFilled(new OrderId(3), inst, 0, Side.Buy, new Qty(5m), new Price(51000m, Currency.USD), new Money(25m, Currency.USD))
+            new OrderFilled(new OrderId(3), inst, 0, new StrategyId(1),
+                Side.Buy, new Qty(5m), new Price(51000m, Currency.USD), new Money(25m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(3000) },
             // Trade 2 exit: Sell 5 @ 56000
-            new OrderFilled(new OrderId(4), inst, 0, Side.Sell, new Qty(5m), new Price(56000m, Currency.USD), new Money(25m, Currency.USD))
+            new OrderFilled(new OrderId(4), inst, 0, new StrategyId(1),
+                Side.Sell, new Qty(5m), new Price(56000m, Currency.USD), new Money(25m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(4000) }
         };
 
@@ -140,13 +148,16 @@ public class RoundTripBuilderTests
         var fills = new List<OrderFilled>
         {
             // Buy 10 @ 50000
-            new OrderFilled(new OrderId(1), inst, 0, Side.Buy, new Qty(10m), new Price(50000m, Currency.USD), new Money(50m, Currency.USD))
+            new OrderFilled(new OrderId(1), inst, 0, new StrategyId(1),
+                Side.Buy, new Qty(10m), new Price(50000m, Currency.USD), new Money(50m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(1000) },
             // Sell 5 @ 55000 (partial exit)
-            new OrderFilled(new OrderId(2), inst, 0, Side.Sell, new Qty(5m), new Price(55000m, Currency.USD), new Money(25m, Currency.USD))
+            new OrderFilled(new OrderId(2), inst, 0, new StrategyId(1),
+                Side.Sell, new Qty(5m), new Price(55000m, Currency.USD), new Money(25m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(2000) },
             // Sell 5 @ 56000 (remaining exit)
-            new OrderFilled(new OrderId(3), inst, 0, Side.Sell, new Qty(5m), new Price(56000m, Currency.USD), new Money(25m, Currency.USD))
+            new OrderFilled(new OrderId(3), inst, 0, new StrategyId(1),
+                Side.Sell, new Qty(5m), new Price(56000m, Currency.USD), new Money(25m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(3000) }
         };
 
@@ -172,7 +183,8 @@ public class RoundTripBuilderTests
         var fills = new List<OrderFilled>
         {
             // Buy 10 @ 50000 (no exit)
-            new OrderFilled(new OrderId(1), inst, 0, Side.Buy, new Qty(10m), new Price(50000m, Currency.USD), new Money(50m, Currency.USD))
+            new OrderFilled(new OrderId(1), inst, 0, new StrategyId(1),
+                Side.Buy, new Qty(10m), new Price(50000m, Currency.USD), new Money(50m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(1000) }
         };
 
@@ -189,16 +201,20 @@ public class RoundTripBuilderTests
         var fills = new List<OrderFilled>
         {
             // BTC trade
-            new OrderFilled(new OrderId(1), btc, 0, Side.Buy, new Qty(10m), new Price(50000m, Currency.USD), new Money(50m, Currency.USD))
+            new OrderFilled(new OrderId(1), btc, 0, new StrategyId(1),
+                Side.Buy, new Qty(10m), new Price(50000m, Currency.USD), new Money(50m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(1000) },
             // ETH trade
-            new OrderFilled(new OrderId(2), eth, 0, Side.Buy, new Qty(100m), new Price(3000m, Currency.USD), new Money(30m, Currency.USD))
+            new OrderFilled(new OrderId(2), eth, 0, new StrategyId(1),
+                Side.Buy, new Qty(100m), new Price(3000m, Currency.USD), new Money(30m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(2000) },
             // BTC exit
-            new OrderFilled(new OrderId(3), btc, 0, Side.Sell, new Qty(10m), new Price(55000m, Currency.USD), new Money(50m, Currency.USD))
+            new OrderFilled(new OrderId(3), btc, 0, new StrategyId(1),
+                Side.Sell, new Qty(10m), new Price(55000m, Currency.USD), new Money(50m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(3000) },
             // ETH exit
-            new OrderFilled(new OrderId(4), eth, 0, Side.Sell, new Qty(100m), new Price(3500m, Currency.USD), new Money(30m, Currency.USD))
+            new OrderFilled(new OrderId(4), eth, 0, new StrategyId(1),
+                Side.Sell, new Qty(100m), new Price(3500m, Currency.USD), new Money(30m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(4000) }
         };
 
@@ -222,10 +238,12 @@ public class RoundTripBuilderTests
         var fills = new List<OrderFilled>
         {
             // Buy 10 @ 50000 (commission 100)
-            new OrderFilled(new OrderId(1), inst, 0, Side.Buy, new Qty(10m), new Price(50000m, Currency.USD), new Money(100m, Currency.USD))
+            new OrderFilled(new OrderId(1), inst, 0, new StrategyId(1),
+                Side.Buy, new Qty(10m), new Price(50000m, Currency.USD), new Money(100m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(1000) },
             // Sell 5 @ 55000 (commission 50) - should get 50% of entry commission + all exit commission
-            new OrderFilled(new OrderId(2), inst, 0, Side.Sell, new Qty(5m), new Price(55000m, Currency.USD), new Money(50m, Currency.USD))
+            new OrderFilled(new OrderId(2), inst, 0, new StrategyId(1),
+                Side.Sell, new Qty(5m), new Price(55000m, Currency.USD), new Money(50m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(2000) }
         };
 
@@ -243,13 +261,16 @@ public class RoundTripBuilderTests
         var fills = new List<OrderFilled>
         {
             // Buy 10 @ 50000
-            new OrderFilled(new OrderId(1), inst, 0, Side.Buy, new Qty(10m), new Price(50000m, Currency.USD), new Money(50m, Currency.USD))
+            new OrderFilled(new OrderId(1), inst, 0, new StrategyId(1),
+                Side.Buy, new Qty(10m), new Price(50000m, Currency.USD), new Money(50m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(1000) },
             // Buy 5 @ 51000 (add to position)
-            new OrderFilled(new OrderId(2), inst, 0, Side.Buy, new Qty(5m), new Price(51000m, Currency.USD), new Money(25m, Currency.USD))
+            new OrderFilled(new OrderId(2), inst, 0, new StrategyId(1),
+                Side.Buy, new Qty(5m), new Price(51000m, Currency.USD), new Money(25m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(2000) },
             // Sell 15 @ 56000 (exit entire position)
-            new OrderFilled(new OrderId(3), inst, 0, Side.Sell, new Qty(15m), new Price(56000m, Currency.USD), new Money(75m, Currency.USD))
+            new OrderFilled(new OrderId(3), inst, 0, new StrategyId(1),
+                Side.Sell, new Qty(15m), new Price(56000m, Currency.USD), new Money(75m, Currency.USD))
             { Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(3000) }
         };
 

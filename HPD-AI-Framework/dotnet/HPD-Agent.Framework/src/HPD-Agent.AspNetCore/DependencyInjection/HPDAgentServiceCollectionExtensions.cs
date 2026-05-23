@@ -1,5 +1,6 @@
 using HPD.Agent.AspNetCore.Serialization;
 using HPD.Agent.Hosting.Configuration;
+using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.Hosting.Serialization;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
@@ -40,12 +41,25 @@ public static class HPDAgentServiceCollectionExtensions
 
         // Register the agent registry (one per app, manages all named agent pairs)
         services.TryAddSingleton<DependencyInjection.HPDAgentRegistry>();
+        services.TryAddSingleton<IHPDAgentHostingServicesProvider, DependencyInjection.HPDAgentHostingServicesProvider>();
 
         // Register AgentManager and SessionManager so tests and adapters can inject them directly.
         services.TryAddSingleton<HPD.Agent.Hosting.Lifecycle.AgentManager>(sp =>
             sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).AgentManager);
         services.TryAddSingleton<HPD.Agent.Hosting.Lifecycle.SessionManager>(sp =>
             sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).SessionManager);
+        services.TryAddSingleton<IAgentSessionService>(sp =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Sessions);
+        services.TryAddSingleton<IAgentBranchService>(sp =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Branches);
+        services.TryAddSingleton<IAgentAssetService>(sp =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Assets);
+        services.TryAddSingleton<IAgentDefinitionService>(sp =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Agents);
+        services.TryAddSingleton<IAgentMiddlewareResponseService>(sp =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.MiddlewareResponses);
+        services.TryAddSingleton<IAgentStreamingService>(sp =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Streaming);
 
         // Register JSON serialization context for AOT (once)
         services.TryAddEnumerable(

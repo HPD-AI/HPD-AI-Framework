@@ -64,6 +64,20 @@ export interface ListSessionsOptions {
   sortDirection?: 'asc' | 'desc';
 }
 
+/**
+ * Request to search sessions.
+ */
+export interface SearchSessionsRequest {
+  /** Metadata values that must match on the session */
+  metadata?: Record<string, unknown>;
+
+  /** Skip this many sessions (for pagination) */
+  offset?: number;
+
+  /** Maximum number of sessions to return */
+  limit?: number;
+}
+
 // ============================================
 // BRANCH
 // ============================================

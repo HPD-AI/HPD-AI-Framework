@@ -686,7 +686,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         CancellationToken cancellationToken)
     {
         if (!context.HasActiveRuntimeTurns &&
-            !context.Streams.ActiveStreams.Any(static stream => !stream.IsInterrupted))
+            !context.EventFlows.ActiveFlows.Any(static stream => !stream.IsInterrupted))
         {
             return;
         }
@@ -697,7 +697,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         });
 
         await context.RunAsync(new InterruptionRequestEvent(
-            StreamId: null,
+            eventFlowId: null,
             Reason: "vad_start_of_speech",
             Source: InterruptionSource.User), cancellationToken).ConfigureAwait(false);
     }
@@ -1234,11 +1234,11 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         [EnumeratorCancellation] CancellationToken ct)
     {
         // Create stream handle for interruption support (from Priority Streaming)
-        var stream = request.Streams?.Create();
+        var stream = request.EventFlows?.Create();
         var synthesisId = Guid.NewGuid().ToString("N")[..8];
         await using var outputSession = new SpeechOutputSession(
             speechId: synthesisId,
-            streamId: stream?.StreamId ?? synthesisId,
+            streamId: stream?.EventFlowId ?? synthesisId,
             sessionId: request.Session?.Id,
             synthesisId: synthesisId);
         RegisterActiveOutputSession(outputSession);
@@ -1274,7 +1274,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             request.EventCoordinator?.Emit(new SynthesisStartedEvent(synthesisId, model, voice)
             {
                 Channel = EventChannel.Synchronous,
-                StreamId = stream?.StreamId
+                EventFlowId = stream?.EventFlowId
             });
 
             ttsPacingTask = ProcessTtsPacingAsync(
@@ -1339,7 +1339,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                 request.EventCoordinator?.Emit(new SynthesisCompletedEvent(synthesisId, wasInterrupted, synthesisState.ChunkIndex, synthesisState.ChunkIndex)
                 {
                     Channel = EventChannel.Control,
-                    StreamId = stream?.StreamId,
+                    EventFlowId = stream?.EventFlowId,
                     CanInterrupt = false
                 });
                 stream?.Complete();
@@ -1412,7 +1412,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         AudioConfig effectiveConfig,
         [EnumeratorCancellation] CancellationToken ct)
     {
-        var stream = request.Streams?.Create();
+        var stream = request.EventFlows?.Create();
         var synthesisId = Guid.NewGuid().ToString("N")[..8];
         var synthesisState = new SynthesisState();
         var outputFormat = effectiveConfig.Tts?.OutputFormat ?? "audio/pcm";
@@ -1426,7 +1426,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             request.EventCoordinator?.Emit(new SynthesisStartedEvent(synthesisId, null, null)
             {
                 Channel = EventChannel.Synchronous,
-                StreamId = stream?.StreamId
+                EventFlowId = stream?.EventFlowId
             });
 
             await foreach (var update in handler(request).WithCancellation(ct))
@@ -1453,7 +1453,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                                 false)
                             {
                                 Channel = EventChannel.Streaming,
-                                StreamId = stream?.StreamId,
+                                EventFlowId = stream?.EventFlowId,
                                 CanInterrupt = true
                             };
 
@@ -1474,7 +1474,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             request.EventCoordinator?.Emit(new SynthesisCompletedEvent(synthesisId, wasInterrupted, synthesisState.ChunkIndex, synthesisState.ChunkIndex)
             {
                 Channel = EventChannel.Control,
-                StreamId = stream?.StreamId,
+                EventFlowId = stream?.EventFlowId,
                 CanInterrupt = false
             });
             stream?.Complete();
@@ -1638,7 +1638,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     }
 
     //
-    // VAD INTERRUPT HANDLING (uses core IStreamRegistry)
+    // VAD INTERRUPT HANDLING (uses core IEventFlowRegistry)
     //
 
     private void RegisterActiveOutputSession(ISpeechOutputSession outputSession)
@@ -1678,7 +1678,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         {
             _interruptionController ??= new InterruptionController(CreateInterruptionControllerOptions());
 
-            if (activeStream is not null && !_activeOutputSessions.ContainsKey(activeStream.StreamId))
+            if (activeStream is not null && !_activeOutputSessions.ContainsKey(activeStream.EventFlowId))
                 _interruptionController.Process(CreatePlaybackStartedForInterruption(activeStream, observedAt));
 
             decision = string.IsNullOrWhiteSpace(transcribedText)
@@ -1716,7 +1716,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             pauseDuration)
         {
             Channel = EventChannel.Control,
-            StreamId = stateToResume.SynthesisId
+            EventFlowId = stateToResume.SynthesisId
         });
 
         // Flush buffered chunks
@@ -1740,7 +1740,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             1,
             "count",
             SpeechId: stateToResume.OutputSession?.SpeechId,
-            OutputStreamId: stateToResume.StreamHandle.StreamId)
+            OutputStreamId: stateToResume.EventFlow.EventFlowId)
         {
             Channel = EventChannel.Streaming
         });
@@ -1750,7 +1750,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             1,
             "count",
             SpeechId: stateToResume.OutputSession?.SpeechId,
-            OutputStreamId: stateToResume.StreamHandle.StreamId)
+            OutputStreamId: stateToResume.EventFlow.EventFlowId)
         {
             Channel = EventChannel.Streaming
         });
@@ -1761,7 +1761,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
     private void ApplyInterruptionDecision(
         HookContext context,
-        IStreamHandle? activeStream,
+        IEventFlowHandle? activeStream,
         InterruptionDecision decision,
         string? transcribedText)
     {
@@ -1770,7 +1770,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             case InterruptionAction.PauseOutput:
                 if (activeStream is not null)
                 {
-                    var outputSession = TryGetActiveOutputSession(activeStream.StreamId);
+                    var outputSession = TryGetActiveOutputSession(activeStream.EventFlowId);
                     if (outputSession is not null)
                         _ = outputSession.PauseAsync(CancellationToken.None).AsTask();
 
@@ -1789,7 +1789,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             case InterruptionAction.InterruptOutput:
                 ISpeechOutputSession? interruptedOutput = null;
                 if (activeStream is not null &&
-                    TryGetActiveOutputSession(activeStream.StreamId) is { } interruptibleOutput)
+                    TryGetActiveOutputSession(activeStream.EventFlowId) is { } interruptibleOutput)
                 {
                     interruptedOutput = interruptibleOutput;
                     _ = interruptibleOutput.InterruptAsync(CancellationToken.None).AsTask();
@@ -1810,7 +1810,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
     private void PauseForPotentialInterruption(
         HookContext context,
-        IStreamHandle activeStream,
+        IEventFlowHandle activeStream,
         ISpeechOutputSession? outputSession,
         string reason)
     {
@@ -1821,18 +1821,18 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
             _pausedSynthesis = new PausedSynthesisState
             {
-                SynthesisId = activeStream.StreamId,
-                StreamHandle = activeStream,
+                SynthesisId = activeStream.EventFlowId,
+                EventFlow = activeStream,
                 OutputSession = outputSession,
                 PausedAt = DateTime.UtcNow
             };
 
             context.Emit(new SpeechPausedEvent(
-                activeStream.StreamId,
+                activeStream.EventFlowId,
                 reason)
             {
                 Channel = EventChannel.Control,
-                StreamId = activeStream.StreamId
+                EventFlowId = activeStream.EventFlowId
             });
 
             var resumeTimeoutCts = _pausedSynthesis.ResumeTimeoutCts;
@@ -1869,7 +1869,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         }
 
         // Interrupt all active audio streams
-        context.Streams?.InterruptAll();
+        context.EventFlows?.InterruptAll();
 
         context.Emit(new UserInterruptedEvent(transcribedText)
         {
@@ -1885,7 +1885,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             Math.Max(0, bargeInStopLatency.TotalMilliseconds),
             "ms",
             SpeechId: outputSession?.SpeechId ?? pausedState?.OutputSession?.SpeechId,
-            OutputStreamId: outputSession?.StreamId ?? pausedState?.StreamHandle.StreamId)
+            OutputStreamId: outputSession?.StreamId ?? pausedState?.EventFlow.EventFlowId)
         {
             Channel = EventChannel.Streaming
         });
@@ -1901,12 +1901,12 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             ResumeFalseInterruption = ResumeFalseInterruption
         };
 
-    private static IStreamHandle? TryGetFirstActiveStream(HookContext context)
+    private static IEventFlowHandle? TryGetFirstActiveStream(HookContext context)
     {
-        if (context.Streams is not { } streams)
+        if (context.EventFlows is not { } streams)
             return null;
 
-        foreach (var handle in streams.ActiveStreams)
+        foreach (var handle in streams.ActiveFlows)
         {
             if (!handle.IsInterrupted)
                 return handle;
@@ -1916,7 +1916,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     }
 
     private static SpeechOutputPlaybackStartedEvent CreatePlaybackStartedForInterruption(
-        IStreamHandle stream,
+        IEventFlowHandle stream,
         DateTimeOffset observedAt) =>
         new()
         {
@@ -1924,9 +1924,9 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                 RuntimeId: null,
                 SessionId: null,
                 BranchId: null,
-                SpeechId: stream.StreamId,
-                StreamId: stream.StreamId,
-                SynthesisId: stream.StreamId,
+                SpeechId: stream.EventFlowId,
+                StreamId: stream.EventFlowId,
+                SynthesisId: stream.EventFlowId,
                 Provider: null,
                 Model: null,
                 Voice: null,
@@ -2135,7 +2135,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     /// </summary>
     private async Task MonitorForFillerAsync(
         IEventCoordinator? eventCoordinator,
-        IStreamHandle? stream,
+        IEventFlowHandle? stream,
         string synthesisId,
         CancellationToken ct)
     {
@@ -2160,7 +2160,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                     true)
                 {
                     Channel = EventChannel.Streaming,
-                    StreamId = stream?.StreamId,
+                    EventFlowId = stream?.EventFlowId,
                     CanInterrupt = true
                 };
 
@@ -2203,7 +2203,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         IEventCoordinator? eventCoordinator,
         ISpeechOutputSession outputSession,
         string text,
-        IStreamHandle? stream,
+        IEventFlowHandle? stream,
         string synthesisId,
         TextToSpeechOptions options,
         SynthesisState state,
@@ -2233,7 +2233,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                 chunk.Kind == TextToSpeechResponseUpdateKind.SessionClose)
             {
                 Channel = EventChannel.Streaming,
-                StreamId = stream?.StreamId,
+                EventFlowId = stream?.EventFlowId,
                 CanInterrupt = true
             };
 
@@ -2258,7 +2258,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         ITtsPacer pacer,
         ISpeechOutputSession outputSession,
         IEventCoordinator? eventCoordinator,
-        IStreamHandle? stream,
+        IEventFlowHandle? stream,
         string synthesisId,
         TextToSpeechOptions ttsOptions,
         SynthesisState synthesisState,
@@ -2449,7 +2449,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     private sealed class PausedSynthesisState
     {
         public required string SynthesisId { get; init; }
-        public required IStreamHandle StreamHandle { get; init; }
+        public required IEventFlowHandle EventFlow { get; init; }
         public ISpeechOutputSession? OutputSession { get; init; }
         public required DateTime PausedAt { get; init; }
         public Queue<AudioChunkEvent> BufferedChunks { get; } = new();

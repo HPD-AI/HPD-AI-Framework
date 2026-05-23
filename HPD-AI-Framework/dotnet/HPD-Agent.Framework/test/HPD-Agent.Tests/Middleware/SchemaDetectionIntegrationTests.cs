@@ -194,10 +194,7 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
         {
             SessionId = sessionId,
             BranchId = UncommittedTurn.DefaultBranch,
-            TurnMessages = new List<ChatMessage>
-            {
-                new ChatMessage(ChatRole.Assistant, "Resuming from checkpoint")
-            },
+            TurnId = "schema-checkpoint-turn",
             Iteration = 1,
             CompletedFunctions = ImmutableHashSet<string>.Empty,
             MiddlewareState = middlewareState,

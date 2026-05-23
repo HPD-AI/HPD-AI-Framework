@@ -16,7 +16,13 @@
     <ProjectReference Include="..\Rhodium.Control\Rhodium.Control.csproj" />
     <ProjectReference Include="..\Rhodium.Platform\Rhodium.Platform.csproj" />
     <ProjectReference Include="..\Rhodium.Kernel\Rhodium.Kernel.csproj" />
-    <ProjectReference Include="..\..\HPD-Agent-Framework\HPD.Events\HPD.Events.csproj" />
+    <ProjectReference Include="..\Rhodium.Simulation\Rhodium.Simulation.csproj" />
+    <ProjectReference Include="..\..\..\HPD-Events\HPD-Events.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Data\PolicyFeeds\*.csv" />
+    <EmbeddedResource Include="Data\FinancingFeeds\*.csv" />
   </ItemGroup>
 
 </Project>

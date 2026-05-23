@@ -574,23 +574,159 @@ public sealed class Agent
     /// </summary>
     private void PublishOutputEvent(AgentEvent evt) => _eventCoordinator.Emit(evt);
 
+    private async Task CommitBranchMessagesAsync(
+        Session? session,
+        Branch? branch,
+        IEnumerable<ChatMessage> messages,
+        CancellationToken cancellationToken)
+    {
+        if (branch == null)
+            return;
+
+        var newMessages = new List<ChatMessage>();
+        var existingIds = branch.Messages
+            .Where(message => !string.IsNullOrWhiteSpace(message.MessageId))
+            .Select(message => message.MessageId!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var message in messages)
+        {
+            EnsureMessageIdentity(message);
+
+            if (existingIds.Add(message.MessageId!))
+            {
+                newMessages.Add(message);
+            }
+        }
+
+        if (newMessages.Count == 0)
+            return;
+
+        branch.AddMessages(newMessages);
+
+        var store = Config?.SessionStore;
+        if (store == null)
+            return;
+
+        if (session != null)
+        {
+            session.LastActivity = branch.LastActivity;
+            await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
+        }
+
+        await store.SaveBranchAsync(branch.SessionId, branch, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task ReconcileCommittedTurnHistoryAsync(
+        Session? session,
+        Branch? branch,
+        List<ChatMessage> turnHistory,
+        IReadOnlyList<string?> messageIdsBeforeAfterTurn,
+        CancellationToken cancellationToken)
+    {
+        if (branch == null || turnHistory.Count == 0)
+            return;
+
+        var changed = false;
+
+        for (var i = 0; i < turnHistory.Count; i++)
+        {
+            var message = turnHistory[i];
+            if (string.IsNullOrWhiteSpace(message.MessageId) &&
+                i < messageIdsBeforeAfterTurn.Count &&
+                !string.IsNullOrWhiteSpace(messageIdsBeforeAfterTurn[i]))
+            {
+                message.MessageId = messageIdsBeforeAfterTurn[i];
+                message.CreatedAt ??= branch.Messages.FirstOrDefault(m => m.MessageId == message.MessageId)?.CreatedAt
+                    ?? DateTimeOffset.UtcNow;
+            }
+
+            EnsureMessageIdentity(message);
+
+            var existingIndex = branch.Messages.FindIndex(existing => existing.MessageId == message.MessageId);
+            if (existingIndex >= 0)
+            {
+                if (!ReferenceEquals(branch.Messages[existingIndex], message))
+                {
+                    branch.Messages[existingIndex] = message;
+                    changed = true;
+                }
+            }
+            else
+            {
+                branch.Messages.Add(message);
+                changed = true;
+            }
+        }
+
+        if (!changed)
+            return;
+
+        branch.LastActivity = DateTime.UtcNow;
+
+        var store = Config?.SessionStore;
+        if (store == null)
+            return;
+
+        if (session != null)
+        {
+            session.LastActivity = branch.LastActivity;
+            await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
+        }
+
+        await store.SaveBranchAsync(branch.SessionId, branch, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static void EnsureMessageIdentity(ChatMessage message)
+    {
+        message.MessageId ??= Guid.NewGuid().ToString();
+        message.CreatedAt ??= DateTimeOffset.UtcNow;
+    }
+
+    private async Task SaveTurnCheckpointAsync(
+        ISessionStore? store,
+        Session? session,
+        Branch? branch,
+        string turnId,
+        DateTime turnStartTime,
+        AgentLoopState state,
+        CancellationToken cancellationToken)
+    {
+        if (store == null || session == null)
+            return;
+
+        await store.SaveUncommittedTurnAsync(new UncommittedTurn
+        {
+            SessionId = session.Id,
+            BranchId = branch?.Id ?? UncommittedTurn.DefaultBranch,
+            TurnId = turnId,
+            Iteration = state.Iteration,
+            CompletedFunctions = state.CompletedFunctions,
+            MiddlewareState = state.MiddlewareState,
+            IsTerminated = state.IsTerminated,
+            TerminationReason = state.TerminationReason,
+            CreatedAt = turnStartTime,
+            LastUpdatedAt = DateTime.UtcNow
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     private Task HandleInterruptionAsync(InterruptionRequestEvent interruption, CancellationToken cancellationToken)
     {
         var eventCoordinator = GetActiveEventCoordinator();
 
-        if (!string.IsNullOrWhiteSpace(interruption.StreamId))
+        if (!string.IsNullOrWhiteSpace(interruption.EventFlowId))
         {
-            eventCoordinator.Streams.InterruptStream(interruption.StreamId);
+            eventCoordinator.EventFlows.InterruptFlow(interruption.EventFlowId);
         }
         else
         {
-            eventCoordinator.Streams.InterruptAll();
+            eventCoordinator.EventFlows.InterruptAll();
         }
 
         CancelActiveRuntimeTurns();
 
         PublishOutputEvent(new InterruptionHandledEvent(
-            interruption.StreamId,
+            interruption.EventFlowId,
             interruption.Reason,
             interruption.Source));
 
@@ -1308,21 +1444,13 @@ public sealed class Agent
                 }
             }
 
-            // Track where session messages end and turn messages begin (for delta computation)
-            int sessionMessageCountAtStart = 0;
-
             if (uncommittedTurn != null && !newInputMessages.Any())
             {
                 // RESUME PATH: Restore from uncommitted turn (crash recovery)
                 var restoreStopwatch = Stopwatch.StartNew();
 
-                // Reconstruct full message list: branch messages + turn delta
-                var sessionMessages = branch!.Messages.ToList();
-                sessionMessageCountAtStart = sessionMessages.Count;
-
-                sharedMessages = new List<ChatMessage>(sessionMessages.Count + uncommittedTurn.TurnMessages.Count);
-                sharedMessages.AddRange(sessionMessages);
-                sharedMessages.AddRange(uncommittedTurn.TurnMessages);
+                // Reconstruct full message list from the durable branch transcript.
+                sharedMessages = branch!.Messages.ToList();
 
                 // Validate and migrate middleware schema
                 var restoredMiddlewareState = ValidateAndMigrateSchema(uncommittedTurn.MiddlewareState);
@@ -1382,7 +1510,6 @@ public sealed class Agent
                 // Create ONE shared mutable list for the entire turn - all contexts reference this same list
                 sharedMessages = new List<ChatMessage>(messages);
                 state = AgentLoopState.Initial(sharedMessages, messageTurnId, conversationId, this.Name, persistentState);
-                sessionMessageCountAtStart = sharedMessages.Count;
 
                 // Use PreparedTurn's already-prepared messages and options
                 effectiveMessages = turn.MessagesForLLM;
@@ -1501,6 +1628,12 @@ public sealed class Agent
                     }
                 }
             }
+
+            await CommitBranchMessagesAsync(
+                session,
+                branch,
+                turnHistory,
+                effectiveCancellationToken).ConfigureAwait(false);
 
             // Shared reference architecture: No sync needed!
             // state.CurrentMessages already sees middleware changes via MessagesRef
@@ -1788,7 +1921,7 @@ public sealed class Agent
                             Options = CollapsedOptions,
                             State = agentContext.State,
                             Iteration = state.Iteration,
-                            Streams = eventCoordinator.Streams,
+                            EventFlows = eventCoordinator.EventFlows,
                             RunConfig = effectiveRunConfig,
                             EventCoordinator = eventCoordinator,
                             Session = agentContext.Session
@@ -2205,6 +2338,19 @@ public sealed class Agent
                         {
                             var historyMessage = new ChatMessage(ChatRole.Assistant, historyContents);
                             turnHistory.Add(historyMessage);
+                            await CommitBranchMessagesAsync(
+                                session,
+                                branch,
+                                [historyMessage],
+                                effectiveCancellationToken).ConfigureAwait(false);
+                            await SaveTurnCheckpointAsync(
+                                store,
+                                session,
+                                branch,
+                                messageTurnId,
+                                orchestrationStartTime,
+                                state,
+                                effectiveCancellationToken).ConfigureAwait(false);
                         }
 
                         var effectiveOptionsForTools = beforeIterationContext.Options;
@@ -2299,43 +2445,6 @@ public sealed class Agent
                             break;
                         }
 
-                        //
-                        // SAVE UNCOMMITTED TURN (crash recovery — replaces pending writes + checkpoint)
-                        //
-                        if (session != null && store != null)
-                        {
-                            var turnStartTime = orchestrationStartTime;
-                            var capturedState = state;
-                            var capturedStore = store;
-                            var capturedSessionId = session.Id;
-                            // Capture turn delta: messages added since turn started
-                            var turnDelta = sharedMessages.Skip(sessionMessageCountAtStart).ToList();
-
-                            _ = Task.Run(async () =>
-                            {
-                                try
-                                {
-                                    await capturedStore.SaveUncommittedTurnAsync(new UncommittedTurn
-                                    {
-                                        SessionId = capturedSessionId,
-                                        BranchId = UncommittedTurn.DefaultBranch,
-                                        TurnMessages = turnDelta,
-                                        Iteration = capturedState.Iteration,
-                                        CompletedFunctions = capturedState.CompletedFunctions,
-                                        MiddlewareState = capturedState.MiddlewareState,
-                                        IsTerminated = capturedState.IsTerminated,
-                                        TerminationReason = capturedState.TerminationReason,
-                                        CreatedAt = turnStartTime,
-                                        LastUpdatedAt = DateTime.UtcNow
-                                    });
-                                }
-                                catch
-                                {
-                                    // Best-effort, same as current pending writes
-                                }
-                            }, CancellationToken.None);
-                        }
-     
                         // UPDATE STATE WITH COMPLETED FUNCTIONS   
                         foreach (var functionName in successfulFunctions)
                         {
@@ -2347,6 +2456,19 @@ public sealed class Agent
 
                         // Add all results to turnHistory (middleware will filter ephemeral results in AfterMessageTurnAsync)
                         turnHistory.Add(toolResultMessage);
+                        await CommitBranchMessagesAsync(
+                            session,
+                            branch,
+                            [toolResultMessage],
+                            effectiveCancellationToken).ConfigureAwait(false);
+                        await SaveTurnCheckpointAsync(
+                            store,
+                            session,
+                            branch,
+                            messageTurnId,
+                            orchestrationStartTime,
+                            state,
+                            effectiveCancellationToken).ConfigureAwait(false);
 
                         // Build callId → harnessName / callType mappings for result events
                         var callIdToHarness = toolRequests.ToDictionary(
@@ -2419,6 +2541,19 @@ public sealed class Agent
 
                                 // Add to turnHistory for session persistence
                                 turnHistory.Add(finalAssistantMessage);
+                                await CommitBranchMessagesAsync(
+                                    session,
+                                    branch,
+                                    [finalAssistantMessage],
+                                    effectiveCancellationToken).ConfigureAwait(false);
+                                await SaveTurnCheckpointAsync(
+                                    store,
+                                    session,
+                                    branch,
+                                    messageTurnId,
+                                    orchestrationStartTime,
+                                    state,
+                                    effectiveCancellationToken).ConfigureAwait(false);
                             }
                         }
 
@@ -2494,6 +2629,19 @@ public sealed class Agent
 
                         // Also add to turnHistory for session persistence
                         turnHistory.Add(finalAssistantMessage);
+                        await CommitBranchMessagesAsync(
+                            session,
+                            branch,
+                            [finalAssistantMessage],
+                            effectiveCancellationToken).ConfigureAwait(false);
+                        await SaveTurnCheckpointAsync(
+                            store,
+                            session,
+                            branch,
+                            messageTurnId,
+                            orchestrationStartTime,
+                            state,
+                            effectiveCancellationToken).ConfigureAwait(false);
                     }
                 }
             }
@@ -2561,6 +2709,10 @@ public sealed class Agent
             // Update AgentContext with final state
             agentContext.SyncState(state);
 
+            var messageIdsBeforeAfterTurn = turnHistory
+                .Select(message => message.MessageId)
+                .ToList();
+
             // Only call AfterMessageTurn if we have a response (may be null if terminated early)
             if (lastResponse != null)
             {
@@ -2577,24 +2729,15 @@ public sealed class Agent
             // V2: Sync state after middleware
             state = agentContext.State;
 
-            // Note: If AfterMessageTurn was called, middleware may have modified turnHistory
-            // The turnHistory variable is passed by reference and may have been updated
-
-            // PERSISTENCE: Save complete turn history to branch
-            if (branch != null && turnHistory.Count > 0)
-            {
-                try
-                {
-                    // Save ALL messages from this turn (user + assistant + tool)
-                    // Input messages were added to turnHistory at the start of execution
-                    // Middleware may have filtered this list (e.g., removed ephemeral container results)
-                    branch.AddMessages(turnHistory);
-                }
-                catch (Exception)
-                {
-                    // Ignore errors - message persistence is not critical to execution
-                }
-            }
+            // Durable transcript messages are committed incrementally at stable message boundaries.
+            // AfterMessageTurn may still rewrite turnHistory for next-turn behavior, so reconcile
+            // those edits back into the already-committed branch messages by stable message ID.
+            await ReconcileCommittedTurnHistoryAsync(
+                session,
+                branch,
+                turnHistory,
+                messageIdsBeforeAfterTurn,
+                effectiveCancellationToken).ConfigureAwait(false);
 
             // PERSISTENCE: Save persistent middleware state ( split by scope)
             if (session != null)
@@ -6701,6 +6844,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 CallId = functionCall.CallId,
                 Arguments = preparation.Arguments,
                 State = agentContext.State,
+                RunConfig = beforeFunctionContext.RunConfig,
                 Invocation = preparation.Invocation,
                 ResultMetadata = resultMetadata,
                 HarnessName = preparation.HarnessName,

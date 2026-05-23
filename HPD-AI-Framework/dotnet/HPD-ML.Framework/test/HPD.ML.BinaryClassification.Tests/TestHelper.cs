@@ -1,10 +1,7 @@
 namespace HPD.ML.BinaryClassification.Tests;
 
-using Helium.Algebra;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 public static class TestHelper
 {
@@ -124,7 +121,7 @@ public static class TestHelper
     {
         double sum = 0;
         for (int i = 0; i < p.FeatureCount; i++)
-            sum += (double)p.Weights[i] * (double)p.Weights[i];
+            sum += p.Weights[i] * p.Weights[i];
         return Math.Sqrt(sum);
     }
 }

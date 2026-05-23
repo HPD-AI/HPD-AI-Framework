@@ -1,15 +1,11 @@
 namespace HPD.ML.BinaryClassification;
 
-using Helium.Algebra;
-using Helium.Algorithms;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 /// <summary>
-/// L-BFGS optimizer using Helium's reverse-mode autodiff.
-/// Approximates the inverse Hessian using a history of gradient differences.
+/// Limited-memory BFGS optimizer for numeric ML objectives.
+/// The objective returns the loss and gradient for the provided parameter vector.
 /// </summary>
 internal sealed class LbfgsOptimizer
 {
@@ -33,82 +29,50 @@ internal sealed class LbfgsOptimizer
         _l2Regularization = l2Regularization;
     }
 
-    /// <summary>
-    /// Minimize a loss function. Returns optimized parameters.
-    /// </summary>
-    public Vector<Double> Minimize(
-        Func<Vector<Var<Double>>, Var<Double>> loss,
-        Vector<Double> initial,
+    public double[] Minimize(
+        Func<double[], (double Loss, double[] Gradient)> objective,
+        ReadOnlySpan<double> initial,
         ProgressSubject? progress = null)
     {
         int n = initial.Length;
-        var parameters = initial;
+        var parameters = initial.ToArray();
 
-        // L-BFGS history buffers
-        var sHistory = new Queue<Vector<Double>>(_memorySize);
-        var yHistory = new Queue<Vector<Double>>(_memorySize);
-        var rhoHistory = new Queue<Double>(_memorySize);
+        var sHistory = new Queue<double[]>(_memorySize);
+        var yHistory = new Queue<double[]>(_memorySize);
+        var rhoHistory = new Queue<double>(_memorySize);
 
-        Vector<Double>? prevGrad = null;
-        Vector<Double>? prevParams = null;
+        double[]? previousGradient = null;
+        double[]? previousParameters = null;
 
         for (int iter = 0; iter < _maxIterations; iter++)
         {
-            // Add L2 regularization to loss
-            Func<Vector<Var<Double>>, Var<Double>> regularizedLoss = p =>
-            {
-                var baseLoss = loss(p);
-
-                if (_l2Regularization > 0)
-                {
-                    var l2 = Var<Double>.Constant(new Double(0));
-                    for (int i = 0; i < p.Length; i++)
-                        l2 = l2 + p[i] * p[i];
-                    baseLoss = baseLoss + Var<Double>.Constant(new Double(_l2Regularization / 2)) * l2;
-                }
-
-                return baseLoss;
-            };
-
-            // Compute loss and gradient via Helium autodiff
-            var (lossValue, gradient) = Grad.ValueAndGrad(regularizedLoss, parameters);
-
-            // Check convergence
-            double gradNorm = 0;
-            for (int i = 0; i < n; i++)
-                gradNorm += (double)gradient[i] * (double)gradient[i];
-            gradNorm = Math.Sqrt(gradNorm);
+            var (loss, gradient) = EvaluateRegularized(objective, parameters);
+            var gradientNorm = Norm(gradient);
 
             progress?.OnNext(new ProgressEvent
             {
                 Epoch = iter,
-                MetricValue = (double)lossValue,
+                MetricValue = loss,
                 MetricName = "Loss"
             });
 
-            if (gradNorm < _tolerance)
+            if (gradientNorm < _tolerance)
                 break;
 
-            // L-BFGS two-loop recursion to compute search direction
             var direction = ComputeDirection(gradient, sHistory, yHistory, rhoHistory);
+            var step = LineSearch(objective, parameters, direction, loss, gradient);
 
-            // Line search (backtracking Armijo)
-            double step = LineSearch(regularizedLoss, parameters, direction, lossValue, gradient);
-
-            // Update parameters
-            var newParams = new Double[n];
+            var newParameters = new double[n];
             for (int i = 0; i < n; i++)
-                newParams[i] = parameters[i] + new Double(step) * direction[i];
-            var newParameters = Vector<Double>.FromArray(newParams);
+                newParameters[i] = parameters[i] + step * direction[i];
 
-            // Update L-BFGS history
-            if (prevGrad.HasValue && prevParams.HasValue)
+            if (previousGradient is not null && previousParameters is not null)
             {
-                var s = newParameters - prevParams.Value;
-                var y = gradient - prevGrad.Value;
-                var rho = Double.Invert(Dot(y, s));
+                var s = Subtract(newParameters, previousParameters);
+                var y = Subtract(gradient, previousGradient);
+                var ys = Dot(y, s);
 
-                if ((double)rho > 0) // Skip update if curvature condition violated
+                if (ys > 1e-20)
                 {
                     if (sHistory.Count >= _memorySize)
                     {
@@ -116,123 +80,114 @@ internal sealed class LbfgsOptimizer
                         yHistory.Dequeue();
                         rhoHistory.Dequeue();
                     }
+
                     sHistory.Enqueue(s);
                     yHistory.Enqueue(y);
-                    rhoHistory.Enqueue(rho);
+                    rhoHistory.Enqueue(1.0 / ys);
                 }
             }
 
-            prevGrad = gradient;
-            prevParams = parameters;
+            previousGradient = gradient;
+            previousParameters = parameters;
             parameters = newParameters;
         }
 
-        // Apply L1 proximal operator if needed
         if (_l1Regularization > 0)
         {
-            var pruned = new Double[n];
-            for (int i = 0; i < n; i++)
+            for (int i = 0; i < parameters.Length; i++)
             {
-                double w = (double)parameters[i];
-                pruned[i] = new Double(
-                    Math.Sign(w) * Math.Max(0, Math.Abs(w) - _l1Regularization));
+                var value = parameters[i];
+                parameters[i] = Math.Sign(value) * Math.Max(0, Math.Abs(value) - _l1Regularization);
             }
-            parameters = Vector<Double>.FromArray(pruned);
         }
 
         return parameters;
     }
 
-    private Vector<Double> ComputeDirection(
-        Vector<Double> gradient,
-        Queue<Vector<Double>> sHistory,
-        Queue<Vector<Double>> yHistory,
-        Queue<Double> rhoHistory)
+    private (double Loss, double[] Gradient) EvaluateRegularized(
+        Func<double[], (double Loss, double[] Gradient)> objective,
+        double[] parameters)
+    {
+        var (loss, gradient) = objective(parameters);
+
+        if (_l2Regularization <= 0)
+            return (loss, gradient);
+
+        var regularizedGradient = gradient.ToArray();
+        var l2 = 0.0;
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            l2 += parameters[i] * parameters[i];
+            regularizedGradient[i] += _l2Regularization * parameters[i];
+        }
+
+        return (loss + 0.5 * _l2Regularization * l2, regularizedGradient);
+    }
+
+    private double[] ComputeDirection(
+        double[] gradient,
+        Queue<double[]> sHistory,
+        Queue<double[]> yHistory,
+        Queue<double> rhoHistory)
     {
         int n = gradient.Length;
         int m = sHistory.Count;
 
         if (m == 0)
-        {
-            // Steepest descent
-            return -gradient;
-        }
+            return Scale(gradient, -1.0);
 
         var s = sHistory.ToArray();
         var y = yHistory.ToArray();
         var rho = rhoHistory.ToArray();
-        var alpha = new Double[m];
+        var alpha = new double[m];
+        var q = gradient.ToArray();
 
-        // q = gradient (copy)
-        var q = new Double[n];
-        for (int i = 0; i < n; i++) q[i] = gradient[i];
-
-        // First loop (reverse)
         for (int i = m - 1; i >= 0; i--)
         {
-            alpha[i] = rho[i] * DotRaw(s[i], q, n);
+            alpha[i] = rho[i] * Dot(s[i], q);
             for (int j = 0; j < n; j++)
-                q[j] = q[j] - alpha[i] * y[i][j];
+                q[j] -= alpha[i] * y[i][j];
         }
 
-        // Initial Hessian approximation: H0 = (s_k·y_k)/(y_k·y_k) * I
-        var lastS = s[m - 1];
-        var lastY = y[m - 1];
-        Double gamma = Dot(lastS, lastY) / Dot(lastY, lastY);
-        var r = new Double[n];
-        for (int i = 0; i < n; i++) r[i] = gamma * q[i];
+        var gammaDenominator = Dot(y[m - 1], y[m - 1]);
+        var gamma = gammaDenominator > 0
+            ? Dot(s[m - 1], y[m - 1]) / gammaDenominator
+            : 1.0;
 
-        // Second loop (forward)
+        var r = Scale(q, gamma);
+
         for (int i = 0; i < m; i++)
         {
-            Double beta = rho[i] * DotRaw(y[i], r, n);
+            var beta = rho[i] * Dot(y[i], r);
             for (int j = 0; j < n; j++)
-                r[j] = r[j] + (alpha[i] - beta) * s[i][j];
+                r[j] += (alpha[i] - beta) * s[i][j];
         }
 
-        // Negate for descent direction
-        for (int i = 0; i < n; i++) r[i] = -r[i];
-        return Vector<Double>.FromArray(r);
+        for (int i = 0; i < n; i++)
+            r[i] = -r[i];
+
+        return r;
     }
 
     private double LineSearch(
-        Func<Vector<Var<Double>>, Var<Double>> loss,
-        Vector<Double> parameters,
-        Vector<Double> direction,
-        Double currentLoss,
-        Vector<Double> gradient)
+        Func<double[], (double Loss, double[] Gradient)> objective,
+        double[] parameters,
+        double[] direction,
+        double currentLoss,
+        double[] gradient)
     {
-        double c = 1e-4; // Armijo condition parameter
-        double step = 1.0;
-        double dirGrad = (double)Dot(gradient, direction);
-        int n = parameters.Length;
+        const double c = 1e-4;
+        var step = 1.0;
+        var dirGrad = Dot(gradient, direction);
+        var trial = new double[parameters.Length];
 
-        for (int i = 0; i < 20; i++) // max 20 backtracking steps
+        for (int i = 0; i < 20; i++)
         {
-            var trial = new Double[n];
-            for (int j = 0; j < n; j++)
-                trial[j] = parameters[j] + new Double(step) * direction[j];
+            for (int j = 0; j < parameters.Length; j++)
+                trial[j] = parameters[j] + step * direction[j];
 
-            // Evaluate loss at trial point — suspend outer tape to avoid nesting
-            var trialParams = Vector<Double>.FromArray(trial);
-            var saved = Tape<Double>.Current;
-            Tape<Double>.Current = null;
-            Double trialLoss;
-            try
-            {
-                using var session = Tape<Double>.Begin();
-                var vars = new Var<Double>[n];
-                for (int j = 0; j < n; j++)
-                    vars[j] = Var<Double>.Constant(trial[j]);
-                var result = loss(Vector<Var<Double>>.FromArray(vars));
-                trialLoss = result.Value;
-            }
-            finally
-            {
-                Tape<Double>.Current = saved;
-            }
-
-            if ((double)trialLoss <= (double)currentLoss + c * step * dirGrad)
+            var (trialLoss, _) = EvaluateRegularized(objective, trial);
+            if (trialLoss <= currentLoss + c * step * dirGrad)
                 return step;
 
             step *= 0.5;
@@ -241,12 +196,29 @@ internal sealed class LbfgsOptimizer
         return step;
     }
 
-    // Vector helpers operating on Helium types
-    private static Double Dot(Vector<Double> a, Vector<Double> b) => Vector<Double>.Dot(a, b);
-    private static Double DotRaw(Vector<Double> a, Double[] b, int n)
+    private static double Dot(ReadOnlySpan<double> a, ReadOnlySpan<double> b)
     {
-        Double sum = new Double(0);
-        for (int i = 0; i < n; i++) sum = sum + a[i] * b[i];
+        var sum = 0.0;
+        for (int i = 0; i < a.Length; i++)
+            sum += a[i] * b[i];
         return sum;
+    }
+
+    private static double Norm(ReadOnlySpan<double> values) => Math.Sqrt(Dot(values, values));
+
+    private static double[] Scale(ReadOnlySpan<double> values, double scalar)
+    {
+        var result = new double[values.Length];
+        for (int i = 0; i < values.Length; i++)
+            result[i] = values[i] * scalar;
+        return result;
+    }
+
+    private static double[] Subtract(ReadOnlySpan<double> left, ReadOnlySpan<double> right)
+    {
+        var result = new double[left.Length];
+        for (int i = 0; i < left.Length; i++)
+            result[i] = left[i] - right[i];
+        return result;
     }
 }

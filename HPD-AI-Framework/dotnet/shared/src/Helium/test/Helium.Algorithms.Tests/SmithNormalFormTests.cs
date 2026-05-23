@@ -34,6 +34,22 @@ public class SmithNormalFormTests
         return true;
     }
 
+    private static void AssertSmithTransform(
+        Matrix<Integer> source,
+        IReadOnlyList<Integer> factors,
+        Matrix<Integer> u,
+        Matrix<Integer> v)
+    {
+        var transformed = u * source * v;
+
+        for (var i = 0; i < transformed.Rows; i++)
+        for (var j = 0; j < transformed.Cols; j++)
+        {
+            var expected = i == j && i < factors.Count ? factors[i].Abs() : Integer.Zero;
+            Assert.Equal(expected, transformed[i, j].Abs());
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Identity
     // -------------------------------------------------------------------------
@@ -259,6 +275,50 @@ public class SmithNormalFormTests
         for (int i = 0; i < UAV.Rows; i++)
             for (int j = 0; j < UAV.Cols; j++)
                 if (i != j) Assert.Equal(Integer.Zero, UAV[i, j]);
+    }
+
+    [Fact]
+    public void WithTransform_DiagonalCoprimeFactors_VerifiesExactUAV()
+    {
+        var A = M(2, 2,
+            2, 0,
+            0, 3);
+
+        var (factors, U, V) = SmithNormalForm.ComputeWithTransform(A);
+
+        AssertFactors(factors, 1, 6);
+        var UAV = U * A * V;
+        Assert.Equal((Integer)1, UAV[0, 0]);
+        Assert.Equal((Integer)6, UAV[1, 1]);
+        Assert.Equal(Integer.Zero, UAV[0, 1]);
+        Assert.Equal(Integer.Zero, UAV[1, 0]);
+    }
+
+    [Fact]
+    public void WithTransform_RectangularMatrix_VerifiesExactUAV()
+    {
+        var A = M(2, 3,
+            4, 6, 8,
+            2, 10, 14);
+
+        var (factors, U, V) = SmithNormalForm.ComputeWithTransform(A);
+
+        Assert.True(DivisibilityChainHolds(factors));
+        AssertSmithTransform(A, factors, U, V);
+    }
+
+    [Fact]
+    public void WithTransform_DenseRankDeficientMatrix_VerifiesExactUAV()
+    {
+        var A = M(3, 3,
+            2, 4, 6,
+            8, 10, 14,
+            6, 12, 18);
+
+        var (factors, U, V) = SmithNormalForm.ComputeWithTransform(A);
+
+        Assert.True(DivisibilityChainHolds(factors));
+        AssertSmithTransform(A, factors, U, V);
     }
 
     // -------------------------------------------------------------------------

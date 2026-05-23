@@ -4,13 +4,13 @@
  * What these tests cover:
  *   getScores, getScoresByBranch, writeScore, getEvaluatorSummary,
  *   getRiskAutonomyDistribution — one-line passthroughs to the underlying
- *   AgentTransport. The tests verify:
+ *   AgentHttpApi. The tests verify:
  *     1. The correct HTTP method and URL (including query params) are called.
  *     2. The request body (writeScore) carries the right payload.
  *     3. The return value is the parsed JSON the server sent back.
  *
  * Test type: unit — all network I/O is replaced by vi.spyOn(globalThis, 'fetch').
- * Transport under test: SseTransport (default).
+ * API under test: AgentHttpApi through AgentClient convenience methods.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';

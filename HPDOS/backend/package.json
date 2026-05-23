@@ -3,6 +3,20 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:ui": "bun build wwwroot/src/app.ts --outfile wwwroot/assets/app.js --format esm --target browser"
+    "build:ui": "vite build",
+    "check:ui": "svelte-check --tsconfig ./tsconfig.json",
+    "test:ui": "bun test ./wwwroot/src/**/*.test.js"
+  },
+  "dependencies": {
+    "@hpd/hpd-agent-client": "file:../../HPD-AI-Framework/typescript/hpd-agent-client"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@tailwindcss/vite": "^4.3.0",
+    "svelte": "^5.55.9",
+    "svelte-check": "^4.4.8",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.13"
   }
 }

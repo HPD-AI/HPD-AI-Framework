@@ -6,7 +6,7 @@ namespace Helium.Primitives;
 /// <summary>
 /// Formal power series: lazy infinite sequence of coefficients where the n-th coefficient
 /// is the coefficient of X^n. Backed by a generator function with memoization.
-/// Truncate/FromPolynomial deferred to Algebra layer (requires Polynomial type).
+/// Truncate/FromSparsePolynomial deferred to Algebra layer (requires SparsePolynomial type).
 /// </summary>
 public readonly struct FormalPowerSeries<R>
     : IField<FormalPowerSeries<R>>

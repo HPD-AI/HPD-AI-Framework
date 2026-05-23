@@ -7,6 +7,35 @@
 
 # HPDOS generated publish/build output
 HPDOS/backend/artifacts/
+HPDOSBenchmarkDotNet.Artifacts/
+BenchmarkDotNet.Artifacts/
+
+# Rhodium local verification artifacts
+rhodium-verify.log
+rhodium-benchmarks.log
+dispatch-benchmark-results.log
+memory-results.log
+memory-results.trx
+HPD-AI-Framework/dotnet/shared/src/Rhodium/benchmarks/vector-smoke-report.json
+
+# Local native/runtime artifacts
+artifacts/
+
+# Apple Virtualization real-acceptance local artifacts
+**/.hpd-real-acceptance-scratch/
+**/hpd-applevz-real.env
+**/apple-vz.serial.log
+**/qemu-prep.serial.log
+**/cidata/
+**/cidata.iso
+**/hpdboot.raw
+**/edk2-vars.fd
+**/base-ubuntu-24.04-arm64.img
+**/hpd-ubuntu-24.04-arm64.qcow2
+**/hpd-ubuntu-24.04-arm64.raw
+**/vmlinuz
+**/vmlinux
+**/initrd.img
 
 # HPDOS local runtime state
 HPDOS/backend/.hpdos/sessions/

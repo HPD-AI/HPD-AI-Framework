@@ -23,6 +23,13 @@ public interface IHftDepth
     /// <summary>Get quantity at a specific price tick.</summary>
     decimal QtyAtTick(Side side, long priceTick);
 
+    /// <summary>
+    /// Copy depth levels into the supplied buffer in book order.
+    /// Bids are highest-to-lowest. Asks are lowest-to-highest.
+    /// Returns the number of levels written.
+    /// </summary>
+    int CopyLevels(Side side, Span<DepthLevel> destination);
+
     /// <summary>Update depth from market event.</summary>
     void Update(Side side, long priceTick, decimal qty, Instant timestamp);
 

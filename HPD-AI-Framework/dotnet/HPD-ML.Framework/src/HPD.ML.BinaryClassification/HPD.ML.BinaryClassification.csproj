@@ -17,7 +17,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD.ML.Core/HPD.ML.Core.csproj" />
-    <ProjectReference Include="../../../shared/src/Helium/src/Helium.Algorithms/Helium.Algorithms.csproj" />
   </ItemGroup>
 
 </Project>

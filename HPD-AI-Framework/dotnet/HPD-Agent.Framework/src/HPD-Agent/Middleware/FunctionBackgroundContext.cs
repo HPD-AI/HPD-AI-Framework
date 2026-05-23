@@ -15,7 +15,7 @@ public sealed record FunctionBackgroundContext
 
     public IEventCoordinator? EventCoordinator { get; init; }
 
-    public IStreamRegistry? Streams => EventCoordinator?.Streams;
+    public IEventFlowRegistry? EventFlows => EventCoordinator?.EventFlows;
 
     public IServiceProvider? Services { get; init; }
 

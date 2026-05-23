@@ -1,7 +1,6 @@
 using Helium.Primitives;
 using Helium.Algebra;
 using Helium.Algorithms;
-using Double = Helium.Primitives.Double;
 
 namespace Helium.Algorithms.Tests;
 
@@ -26,7 +25,7 @@ public class ForwardDiffTests
     {
         // f(x) = 7 → f'(x) = 0
         var d = ForwardDiff.Diff<Rational>(
-            x => FormalPowerSeries<Rational>.Constant(R(7)), R(3));
+            x => Dual<Rational>.Constant(R(7)), R(3));
         Assert.Equal(R(0), d);
     }
 
@@ -35,7 +34,7 @@ public class ForwardDiffTests
     {
         // f(x) = 3x → f'(x) = 3
         var d = ForwardDiff.Diff<Rational>(
-            x => FormalPowerSeries<Rational>.Constant(R(3)) * x, R(2));
+            x => Dual<Rational>.Constant(R(3)) * x, R(2));
         Assert.Equal(R(3), d);
     }
 
@@ -76,8 +75,8 @@ public class ForwardDiffTests
     public void Diff_AffinePlusSq()
     {
         // f(x) = x² - 4x + 1 → f'(x) = 2x - 4, f'(1) = -2
-        var c4 = FormalPowerSeries<Rational>.Constant(R(4));
-        var c1 = FormalPowerSeries<Rational>.Constant(R(1));
+        var c4 = Dual<Rational>.Constant(R(4));
+        var c1 = Dual<Rational>.Constant(R(1));
         var d = ForwardDiff.Diff<Rational>(
             x => x * x - c4 * x + c1, R(1));
         Assert.Equal(R(-2), d);
@@ -87,7 +86,7 @@ public class ForwardDiffTests
     public void Diff_ProductRule()
     {
         // f(x) = (x+1)(x-1) = x²-1 → f'(x) = 2x, f'(3) = 6
-        var one = FormalPowerSeries<Rational>.Constant(R(1));
+        var one = Dual<Rational>.Constant(R(1));
         var d = ForwardDiff.Diff<Rational>(
             x => (x + one) * (x - one), R(3));
         Assert.Equal(R(6), d);
@@ -98,16 +97,8 @@ public class ForwardDiffTests
     {
         // f(x) = 1/x → f'(x) = -1/x², f'(2) = -1/4
         var d = ForwardDiff.Diff<Rational>(
-            x => FormalPowerSeries<Rational>.One / x, R(2));
+            x => Dual<Rational>.MultiplicativeIdentity / x, R(2));
         Assert.Equal(R(-1, 4), d);
-    }
-
-    [Fact]
-    public void Diff_Over_Double()
-    {
-        // f(x) = x² → f'(3.0) ≈ 6.0
-        var d = ForwardDiff.Diff<Double>(x => x * x, new Double(3.0));
-        Assert.Equal(new Double(6.0), d);
     }
 
     // --- ValueAndDiff ---
@@ -143,7 +134,7 @@ public class ForwardDiffTests
     [Fact]
     public void Regression_Derivative_Cubic()
     {
-        var p = Polynomial<Rational>.FromCoeffs([
+        var p = SparsePolynomial<Rational>.FromCoeffs([
             Rational.Zero, (Rational)2, Rational.Zero, Rational.One]);
         var dp = PolynomialCalculus.Derivative(p);
         Assert.Equal((Rational)2, dp[0]);
@@ -155,7 +146,7 @@ public class ForwardDiffTests
     public void Regression_Integrate_Linear()
     {
         // Integrate(2x) = x²
-        var p = Polynomial<Rational>.FromCoeffs([Rational.Zero, (Rational)2]);
+        var p = SparsePolynomial<Rational>.FromCoeffs([Rational.Zero, (Rational)2]);
         var ip = PolynomialCalculus.Integrate(p);
         Assert.Equal(Rational.Zero, ip[0]);
         Assert.Equal(Rational.Zero, ip[1]);

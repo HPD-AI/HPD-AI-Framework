@@ -1,16 +1,13 @@
 namespace HPD.ML.BinaryClassification.Tests;
 
-using Helium.Algebra;
-using Helium.Primitives;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 public class LinearScoringTransformTests
 {
     [Fact]
     public void Score_SingleFeature_PositiveWeight()
     {
-        var p = new LinearModelParameters(Vector<Double>.FromArray(new Double(2)), new Double(0));
+        var p = new LinearModelParameters([2], 0);
         var transform = new LinearScoringTransform(p, "Features");
         var data = TestHelper.Data(("Features", new float[][] { [3f] }), ("Label", new bool[] { true }));
 
@@ -27,7 +24,7 @@ public class LinearScoringTransformTests
     [Fact]
     public void Score_SingleFeature_NegativeScore()
     {
-        var p = new LinearModelParameters(Vector<Double>.FromArray(new Double(1)), new Double(-10));
+        var p = new LinearModelParameters([1], -10);
         var transform = new LinearScoringTransform(p, "Features");
         var data = TestHelper.Data(("Features", new float[][] { [1f] }), ("Label", new bool[] { false }));
 
@@ -41,9 +38,7 @@ public class LinearScoringTransformTests
     [Fact]
     public void Score_MultiFeature_DotProduct()
     {
-        var p = new LinearModelParameters(
-            Vector<Double>.FromArray(new Double(1), new Double(2), new Double(3)),
-            new Double(0));
+        var p = new LinearModelParameters([1, 2, 3], 0);
         var transform = new LinearScoringTransform(p, "Features");
         var data = TestHelper.Data(("Features", new float[][] { [1f, 1f, 1f] }));
 
@@ -55,9 +50,7 @@ public class LinearScoringTransformTests
     [Fact]
     public void Score_ZeroWeights_ReturnsBias()
     {
-        var p = new LinearModelParameters(
-            Vector<Double>.FromArray(new Double(0), new Double(0)),
-            new Double(1));
+        var p = new LinearModelParameters([0, 0], 1);
         var transform = new LinearScoringTransform(p, "Features");
         var data = TestHelper.Data(("Features", new float[][] { [5f, 5f] }));
 
@@ -68,7 +61,7 @@ public class LinearScoringTransformTests
     [Fact]
     public void Score_Sigmoid_ZeroLogit_IsHalf()
     {
-        var p = new LinearModelParameters(Vector<Double>.FromArray(new Double(0)), new Double(0));
+        var p = new LinearModelParameters([0], 0);
         var transform = new LinearScoringTransform(p, "Features");
         var data = TestHelper.Data(("Features", new float[][] { [0f] }));
 
@@ -79,7 +72,7 @@ public class LinearScoringTransformTests
     [Fact]
     public void Score_Sigmoid_LargePositive_NearOne()
     {
-        var p = new LinearModelParameters(Vector<Double>.FromArray(new Double(1)), new Double(0));
+        var p = new LinearModelParameters([1], 0);
         var transform = new LinearScoringTransform(p, "Features");
         var data = TestHelper.Data(("Features", new float[][] { [20f] }));
 
@@ -90,7 +83,7 @@ public class LinearScoringTransformTests
     [Fact]
     public void Score_Sigmoid_LargeNegative_NearZero()
     {
-        var p = new LinearModelParameters(Vector<Double>.FromArray(new Double(1)), new Double(0));
+        var p = new LinearModelParameters([1], 0);
         var transform = new LinearScoringTransform(p, "Features");
         var data = TestHelper.Data(("Features", new float[][] { [-20f] }));
 
@@ -102,7 +95,7 @@ public class LinearScoringTransformTests
     public void Score_CustomThreshold()
     {
         // Probability ≈ 0.73 (sigmoid(1)) but threshold is 0.8 → false
-        var p = new LinearModelParameters(Vector<Double>.FromArray(new Double(1)), new Double(0));
+        var p = new LinearModelParameters([1], 0);
         var transform = new LinearScoringTransform(p, "Features", threshold: 0.8);
         var data = TestHelper.Data(("Features", new float[][] { [1f] }));
 
@@ -113,7 +106,7 @@ public class LinearScoringTransformTests
     [Fact]
     public void Score_PreservesInputColumns()
     {
-        var p = new LinearModelParameters(Vector<Double>.FromArray(new Double(1)), new Double(0));
+        var p = new LinearModelParameters([1], 0);
         var transform = new LinearScoringTransform(p, "Features");
         var data = TestHelper.Data(
             ("Features", new float[][] { [1f] }),
@@ -131,7 +124,7 @@ public class LinearScoringTransformTests
     [Fact]
     public void Score_MultipleRows()
     {
-        var p = new LinearModelParameters(Vector<Double>.FromArray(new Double(1)), new Double(0));
+        var p = new LinearModelParameters([1], 0);
         var transform = new LinearScoringTransform(p, "Features");
         var data = TestHelper.Data(("Features", new float[][] { [-5f], [0f], [5f] }));
 
@@ -146,7 +139,7 @@ public class LinearScoringTransformTests
     [Fact]
     public void GetOutputSchema_AddsThreeColumns()
     {
-        var p = new LinearModelParameters(Vector<Double>.FromArray(new Double(1)), new Double(0));
+        var p = new LinearModelParameters([1], 0);
         var transform = new LinearScoringTransform(p, "Features");
         var inputSchema = new SchemaBuilder().AddColumn<float>("Features").AddColumn<int>("Name").Build();
 
@@ -158,9 +151,7 @@ public class LinearScoringTransformTests
     public void Score_FloatArrayFeatures()
     {
         // w=[1,2], b=1, features=[3,4] → score = 1*3 + 2*4 + 1 = 12
-        var p = new LinearModelParameters(
-            Vector<Double>.FromArray(new Double(1), new Double(2)),
-            new Double(1));
+        var p = new LinearModelParameters([1, 2], 1);
         var transform = new LinearScoringTransform(p, "Features");
         var data = TestHelper.Data(("Features", new float[][] { [3f, 4f] }));
 

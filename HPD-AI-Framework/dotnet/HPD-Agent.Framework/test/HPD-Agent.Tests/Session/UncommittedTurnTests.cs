@@ -19,11 +19,7 @@ public class UncommittedTurnTests : AgentTestBase
         {
             SessionId = sessionId,
             BranchId = UncommittedTurn.DefaultBranch,
-            TurnMessages = new List<ChatMessage>
-            {
-                new(ChatRole.User, "Help me refactor"),
-                new(ChatRole.Assistant, "I'll read the file first."),
-            },
+            TurnId = "turn-1",
             Iteration = 2,
             CompletedFunctions = ImmutableHashSet.Create("read_file", "write_file"),
             MiddlewareState = new MiddlewareState(),
@@ -50,7 +46,7 @@ public class UncommittedTurnTests : AgentTestBase
         Assert.NotNull(loaded);
         Assert.Equal("test-session", loaded.SessionId);
         Assert.Equal(UncommittedTurn.DefaultBranch, loaded.BranchId);
-        Assert.Equal(2, loaded.TurnMessages.Count);
+        Assert.Equal("turn-1", loaded.TurnId);
         Assert.Equal(2, loaded.Iteration);
         Assert.Contains("read_file", loaded.CompletedFunctions);
         Assert.Contains("write_file", loaded.CompletedFunctions);
@@ -141,7 +137,7 @@ public class UncommittedTurnTests : AgentTestBase
             Assert.NotNull(loaded);
             Assert.Equal("test-session", loaded.SessionId);
             Assert.Equal(UncommittedTurn.DefaultBranch, loaded.BranchId);
-            Assert.Equal(2, loaded.TurnMessages.Count);
+            Assert.Equal("turn-1", loaded.TurnId);
             Assert.Equal(2, loaded.Iteration);
             Assert.False(loaded.IsTerminated);
             Assert.Equal(1, loaded.Version);
@@ -258,7 +254,7 @@ public class UncommittedTurnTests : AgentTestBase
         Assert.NotNull(deserialized);
         Assert.Equal(turn.SessionId, deserialized.SessionId);
         Assert.Equal(turn.BranchId, deserialized.BranchId);
-        Assert.Equal(turn.TurnMessages.Count, deserialized.TurnMessages.Count);
+        Assert.Equal(turn.TurnId, deserialized.TurnId);
         Assert.Equal(turn.Iteration, deserialized.Iteration);
         Assert.Equal(turn.IsTerminated, deserialized.IsTerminated);
         Assert.Equal(turn.CreatedAt, deserialized.CreatedAt);

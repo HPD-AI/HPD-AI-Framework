@@ -9,18 +9,17 @@ namespace Helium.Algebra;
 /// Var&lt;T&gt; is a class (not struct): gradient accumulation is mutable and multiple
 /// tape nodes share gradient slots by index. The Value component is immutable.
 ///
-/// Var&lt;T&gt; implements IField&lt;Var&lt;T&gt;&gt;, so every algorithm constrained to IField&lt;R&gt;
-/// (LUDecomposition, LinearSolve, MatrixInverse, Determinant.ComputeOverField)
-/// accepts Matrix&lt;Var&lt;T&gt;&gt; without modification. Gradients through Gaussian
-/// elimination and LU factorization are obtained for free.
+/// Var&lt;T&gt; is ring-valued reverse-mode autodiff. It deliberately does not implement
+/// IField&lt;Var&lt;T&gt;&gt;: field algorithms require exact lawful division, and reverse-mode
+/// ring variables should not be smuggled into those APIs.
 ///
 /// Equality and IsZero are value-based (tape index ignored), so pivot detection in
 /// LU and linear solvers behaves identically to the unwrapped type.
 ///
-/// Scope: dense field algorithms (Matrix, Vector). Not sound for Polynomial/MvPolynomial
+/// Scope: dense field algorithms (Matrix, Vector). Not sound for SparsePolynomial/MvPolynomial
 /// because Finsupp drops zero-primal entries that may carry active gradients.
 /// </summary>
-public sealed class Var<T> : IField<Var<T>> where T : IField<T>
+public sealed class Var<T> : ICommRing<Var<T>> where T : IRing<T>
 {
     /// <summary>Primal value. Immutable.</summary>
     public T Value { get; }
@@ -114,28 +113,8 @@ public sealed class Var<T> : IField<Var<T>> where T : IField<T>
         });
     }
 
-    // Division is derived from field axioms: a / b = a * Invert(b)
-    public static Var<T> operator /(Var<T> a, Var<T> b) => a * Invert(b);
-
-    /// <summary>
-    /// Multiplicative inverse. Invert(0) = 0 (total function convention).
-    /// ∂/∂a of (1/a) = -1/a².
-    /// </summary>
-    public static Var<T> Invert(Var<T> a)
-    {
-        int ai = a.Index;
-        var inv = T.Invert(a.Value);
-        if (ai < 0) return new Var<T>(inv, -1);
-        T neg_inv_sq = -(inv * inv);
-        return Op(inv, (grads, ri) =>
-        {
-            var g = ri >= 0 ? grads[ri] : T.AdditiveIdentity;
-            if (ai >= 0) grads[ai] = grads[ai] + g * neg_inv_sq;
-        });
-    }
-
     // -------------------------------------------------------------------------
-    // IField<Var<T>> static identity members.
+    // ICommRing<Var<T>> static identity members.
     // Constants (Index = -1) have zero gradient, which is mathematically correct.
     // -------------------------------------------------------------------------
 
@@ -180,5 +159,35 @@ public sealed class Var<T> : IField<Var<T>> where T : IField<T>
         int ri = tape.AllocSlot();
         tape.PushClosure(grads => backward(grads, ri));
         return new Var<T>(value, ri);
+    }
+}
+
+/// <summary>
+/// Field-only operations for Var&lt;T&gt;. These are not part of Var&lt;T&gt;'s exact algebra
+/// interface because Var&lt;T&gt; itself is only a commutative ring.
+/// </summary>
+public static class VarFieldExtensions
+{
+    extension<T>(Var<T> self) where T : IField<T>
+    {
+        /// <summary>
+        /// Multiplicative inverse. Invert(0) = 0 (total function convention).
+        /// d(1/a)/da = -1/a^2.
+        /// </summary>
+        public static Var<T> Invert(Var<T> a)
+        {
+            int ai = a.Index;
+            var inv = T.Invert(a.Value);
+            if (ai < 0) return Var<T>.Constant(inv);
+            T negInvSq = -(inv * inv);
+            return Var<T>.Op(inv, (grads, ri) =>
+            {
+                var g = ri >= 0 ? grads[ri] : T.AdditiveIdentity;
+                if (ai >= 0) grads[ai] = grads[ai] + g * negInvSq;
+            });
+        }
+
+        /// <summary>Division derived from field inversion.</summary>
+        public static Var<T> operator /(Var<T> a, Var<T> b) => a * Invert(b);
     }
 }

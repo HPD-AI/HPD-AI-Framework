@@ -202,6 +202,26 @@ public class DepthUpdateTests
     }
 }
 
+public class BookDeltaTests
+{
+    [Fact]
+    public void BookDelta_ShouldStoreLevelActionAndSequence()
+    {
+        var delta = new BookDelta(
+            Side.Buy,
+            new Price(100.50m, Currency.USD),
+            new Qty(25m),
+            BookAction.Update,
+            Sequence: 42);
+
+        Assert.Equal(Side.Buy, delta.Side);
+        Assert.Equal(new Price(100.50m, Currency.USD), delta.Price);
+        Assert.Equal(new Qty(25m), delta.Size);
+        Assert.Equal(BookAction.Update, delta.Action);
+        Assert.Equal(42, delta.Sequence);
+    }
+}
+
 public class TickTests
 {
     [Fact]

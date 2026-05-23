@@ -9,13 +9,16 @@ namespace Helium.Primitives;
 /// Invariant: no duplicates, maintained by the sorted structure.
 /// </summary>
 [CollectionBuilder(typeof(Finset), nameof(Finset.Create))]
-public readonly struct Finset<T> : IEquatable<Finset<T>>
-    where T : notnull, IEquatable<T>, IComparable<T>
+public readonly struct Finset<T> : IEquatable<Finset<T>>, ITotalOrder<Finset<T>>
+    where T : notnull, ITotalOrder<T>
 {
     private readonly ImmutableSortedSet<T>? _data;
 
+    private static ImmutableSortedSet<T> EmptyData =>
+        ImmutableSortedSet<T>.Empty.WithComparer(TotalOrderComparer<T>.Instance);
+
     private ImmutableSortedSet<T> Data =>
-        _data ?? ImmutableSortedSet<T>.Empty;
+        _data ?? EmptyData;
 
     private Finset(ImmutableSortedSet<T> data)
     {
@@ -27,7 +30,7 @@ public readonly struct Finset<T> : IEquatable<Finset<T>>
     public static Finset<T> Empty => default;
 
     public static Finset<T> FromElements(IEnumerable<T> elements) =>
-        new(elements.ToImmutableSortedSet());
+        new(elements.ToImmutableSortedSet(TotalOrderComparer<T>.Instance));
 
     public static Finset<T> Of(params ReadOnlySpan<T> elements) =>
         FromElements(elements.ToArray());
@@ -54,10 +57,10 @@ public readonly struct Finset<T> : IEquatable<Finset<T>>
     // --- Functional operations ---
 
     public Finset<T> Filter(Func<T, bool> predicate) =>
-        new(Data.Where(predicate).ToImmutableSortedSet());
+        new(Data.Where(predicate).ToImmutableSortedSet(TotalOrderComparer<T>.Instance));
 
-    public Finset<U> Image<U>(Func<T, U> f) where U : notnull, IEquatable<U>, IComparable<U> =>
-        new(Data.Select(f).ToImmutableSortedSet());
+    public Finset<U> Image<U>(Func<T, U> f) where U : notnull, ITotalOrder<U> =>
+        new(Data.Select(f).ToImmutableSortedSet(TotalOrderComparer<U>.Instance));
 
     // --- Aggregation ---
 
@@ -86,7 +89,7 @@ public readonly struct Finset<T> : IEquatable<Finset<T>>
         int n = elements.Length;
         for (int mask = 0; mask < (1 << n); mask++)
         {
-            var builder = ImmutableSortedSet.CreateBuilder<T>();
+            var builder = ImmutableSortedSet.CreateBuilder<T>(TotalOrderComparer<T>.Instance);
             for (int i = 0; i < n; i++)
             {
                 if ((mask & (1 << i)) != 0)
@@ -119,7 +122,7 @@ public readonly struct Finset<T> : IEquatable<Finset<T>>
 
         while (true)
         {
-            var builder = ImmutableSortedSet.CreateBuilder<T>();
+            var builder = ImmutableSortedSet.CreateBuilder<T>(TotalOrderComparer<T>.Instance);
             for (int i = 0; i < k; i++)
                 builder.Add(elements[indices[i]]);
             yield return new Finset<T>(builder.ToImmutable());
@@ -140,6 +143,31 @@ public readonly struct Finset<T> : IEquatable<Finset<T>>
     public bool Equals(Finset<T> other) => Data.SetEquals(other.Data);
 
     public override bool Equals(object? obj) => obj is Finset<T> other && Equals(other);
+
+    public static bool DecidableEquals(Finset<T> left, Finset<T> right) => left == right;
+
+    public static bool LessEqual(Finset<T> left, Finset<T> right) =>
+        CompareOrder(left, right) != Ordering.Greater;
+
+    public static Ordering CompareOrder(Finset<T> left, Finset<T> right)
+    {
+        using var leftEnumerator = left.Data.GetEnumerator();
+        using var rightEnumerator = right.Data.GetEnumerator();
+
+        while (true)
+        {
+            var hasLeft = leftEnumerator.MoveNext();
+            var hasRight = rightEnumerator.MoveNext();
+
+            if (!hasLeft && !hasRight) return Ordering.Equal;
+            if (!hasLeft) return Ordering.Less;
+            if (!hasRight) return Ordering.Greater;
+
+            var elementCompare = T.CompareOrder(leftEnumerator.Current, rightEnumerator.Current);
+            if (elementCompare != Ordering.Equal)
+                return elementCompare;
+        }
+    }
 
     public override int GetHashCode()
     {
@@ -165,6 +193,6 @@ public readonly struct Finset<T> : IEquatable<Finset<T>>
 public static class Finset
 {
     public static Finset<T> Create<T>(ReadOnlySpan<T> values)
-        where T : notnull, IEquatable<T>, IComparable<T>
+        where T : notnull, ITotalOrder<T>
         => Finset<T>.Of(values);
 }

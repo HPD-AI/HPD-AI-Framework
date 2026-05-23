@@ -80,18 +80,18 @@ public enum InterruptionSource
 public record InterruptionRequestEvent : AgentInputEvent
 {
     public InterruptionRequestEvent(
-        string? StreamId,
+        string? eventFlowId,
         string Reason,
         InterruptionSource Source)
     {
-        this.StreamId = StreamId;
+        EventFlowId = eventFlowId;
         this.Reason = Reason;
         this.Source = Source;
     }
 
     public string Reason { get; init; }
     public InterruptionSource Source { get; init; }
-    public string? StreamId { get; init; }
+    public string? EventFlowId { get; init; }
 }
 
 /// <summary>
@@ -100,11 +100,11 @@ public record InterruptionRequestEvent : AgentInputEvent
 public sealed record InterruptionHandledEvent : AgentEvent
 {
     public InterruptionHandledEvent(
-        string? streamId,
+        string? eventFlowId,
         string reason,
         InterruptionSource source)
     {
-        StreamId = streamId;
+        EventFlowId = eventFlowId;
         Reason = reason;
         Source = source;
         CanInterrupt = false;
@@ -1761,7 +1761,7 @@ public sealed record StructuredOutputCompleteEvent(
 /// Provides observability into dropped events.
 /// </summary>
 public record EventDroppedEvent(
-    string DroppedStreamId,
+    string DroppedEventFlowId,
     string DroppedEventType,
     long DroppedSequenceNumber) : AgentEvent, IObservabilityEvent
 {

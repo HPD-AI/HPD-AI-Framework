@@ -9,4 +9,7 @@ using System.Text.Json.Serialization;
 [JsonSerializable(typeof(TransformEntry))]
 [JsonSerializable(typeof(List<TransformEntry>))]
 [JsonSerializable(typeof(SchemaInfo))]
+[JsonSerializable(typeof(NeuralNetworkParameterMetadata))]
+[JsonSerializable(typeof(NeuralNetworkLayerMetadata))]
+[JsonSerializable(typeof(NeuralNetworkLayerMetadata[]))]
 internal partial class SerializerJsonContext : JsonSerializerContext { }

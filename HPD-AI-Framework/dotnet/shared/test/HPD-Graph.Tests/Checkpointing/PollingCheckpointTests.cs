@@ -221,7 +221,7 @@ public class PollingCheckpointTests
 
         var pollingEvents = new List<NodePollingEvent>();
         var orchestrator = new GraphOrchestrator<GraphContext>(services, checkpointStore: store);
-        await using var eventSubscription = coordinator.SubscribeChannel(EventChannel.Synchronous);
+        await using var eventSubscription = coordinator.CreateChannelInbox(EventChannel.Synchronous);
 
         // Act - Execute and collect events
         var execTask = Task.Run(async () => await orchestrator.ExecuteAsync(context));

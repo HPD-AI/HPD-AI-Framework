@@ -1,7 +1,6 @@
 using Helium.Primitives;
 using Helium.Algebra;
 using Helium.Algorithms;
-using Double = Helium.Primitives.Double;
 
 namespace Helium.Algorithms.Tests;
 
@@ -42,13 +41,6 @@ public class GradTests
     [Fact]
     public void Scalar_InvertZero_TotalFunction() =>
         Assert.Equal(R(0), Grad.Scalar(x => Var<Rational>.Invert(x), R(0)));
-
-    [Fact]
-    public void Scalar_Over_Double()
-    {
-        var g = Grad.Scalar(x => x * x, new Double(3.0));
-        Assert.Equal(new Double(6.0), g);
-    }
 
     // =========================================================================
     // Grad.Of — gradient of vector → scalar
@@ -330,7 +322,7 @@ public class GradTests
         // f(x) = x² + 3x, f'(4) = 8 + 3 = 11
         Rational xi = R(4);
         var forward = ForwardDiff.Diff<Rational>(
-            x => x * x + FormalPowerSeries<Rational>.Constant(R(3)) * x, xi);
+            x => x * x + Dual<Rational>.Constant(R(3)) * x, xi);
         var reverse = Grad.Scalar(x => x * x + new Var<Rational>(R(3)) * x, xi);
         Assert.Equal(forward, reverse);
         Assert.Equal(R(11), forward);

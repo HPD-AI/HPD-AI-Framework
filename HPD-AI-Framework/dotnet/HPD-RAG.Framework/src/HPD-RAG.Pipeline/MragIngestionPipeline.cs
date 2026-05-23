@@ -87,7 +87,7 @@ public sealed class MragIngestionPipeline
     ///
     /// <para>
     /// Graph execution starts in a background task, and events are observed through
-    /// a fan-out <see cref="IEventCoordinator.SubscribeStream{TEvent}"/> subscription
+    /// a fan-out <see cref="IEventBus.CreateInbox{TEvent}"/> subscription
     /// until completion.
     /// </para>
     ///
@@ -122,7 +122,7 @@ public sealed class MragIngestionPipeline
             services,
             checkpointStore: null);
 
-        await using var events = eventCoordinator.SubscribeStream<Event>();
+        await using var events = eventCoordinator.CreateInbox<Event>();
 
         var executionTask = Task.Run(async () =>
         {

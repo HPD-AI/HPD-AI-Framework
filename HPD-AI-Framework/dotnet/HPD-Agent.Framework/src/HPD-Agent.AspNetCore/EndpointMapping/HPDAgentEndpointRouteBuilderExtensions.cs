@@ -1,6 +1,6 @@
 using HPD.Agent.AspNetCore.DependencyInjection;
 using HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
-using HPD.Agent.AspNetCore.Lifecycle;
+using HPD.Agent.Hosting.Lifecycle;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,9 +16,18 @@ public static class HPDAgentEndpointRouteBuilderExtensions
     /// <summary>
     /// Maps all HPD-Agent API endpoints for the default (unnamed) agent.
     /// </summary>
+    /// <remarks>
+    /// Endpoint behavior is resolved through <see cref="IHPDAgentHostingServicesProvider"/>.
+    /// Replace that provider to customize behavior behind built-in routes.
+    /// </remarks>
     public static RouteGroupBuilder MapHPDAgentApi(
         this IEndpointRouteBuilder endpoints)
         => endpoints.MapHPDAgentApi(Options.DefaultName);
+
+    public static RouteGroupBuilder MapHPDAgentApi(
+        this IEndpointRouteBuilder endpoints,
+        Action<HPDAgentEndpointOptions>? configure)
+        => endpoints.MapHPDAgentApi(Options.DefaultName, configure);
 
     /// <summary>
     /// Maps all HPD-Agent API endpoints for a named agent.
@@ -34,31 +43,49 @@ public static class HPDAgentEndpointRouteBuilderExtensions
     /// - Middleware responses (Permissions, Client Tools)
     /// - Agent definition CRUD (Create, List, Get, Update, Delete)
     /// </remarks>
+    /// <remarks>
+    /// Endpoint behavior is resolved through <see cref="IHPDAgentHostingServicesProvider"/>
+    /// for both default and named agents.
+    /// </remarks>
     public static RouteGroupBuilder MapHPDAgentApi(
         this IEndpointRouteBuilder endpoints,
         string name)
+        => endpoints.MapHPDAgentApi(name, null);
+
+    public static RouteGroupBuilder MapHPDAgentApi(
+        this IEndpointRouteBuilder endpoints,
+        string name,
+        Action<HPDAgentEndpointOptions>? configure)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentNullException.ThrowIfNull(name);
         // Allow empty string for Options.DefaultName
 
-        var routeGroup = endpoints.MapGroup("");
+        var options = new HPDAgentEndpointOptions();
+        configure?.Invoke(options);
 
-        // Resolve the named pair from the registry
-        var registry = endpoints.ServiceProvider.GetRequiredService<HPDAgentRegistry>();
-        var pair = registry.Get(name);
+        var routeGroup = endpoints.MapGroup(options.RoutePrefix);
 
-        var sessionManager = pair.SessionManager;
-        var agentManager = pair.AgentManager;
+        var servicesProvider = endpoints.ServiceProvider.GetRequiredService<IHPDAgentHostingServicesProvider>();
+        var hostingServices = servicesProvider.Get(name);
 
         // Map all endpoint groups
-        SessionEndpoints.Map(routeGroup, sessionManager);
-        BranchEndpoints.Map(routeGroup, sessionManager, agentManager);
-        AssetEndpoints.Map(routeGroup, sessionManager);
-        StreamingEndpoints.Map(routeGroup, sessionManager, agentManager);
-        MiddlewareResponseEndpoints.Map(routeGroup, sessionManager, agentManager);
-        AgentEndpoints.Map(routeGroup, agentManager);
-        EvalEndpoints.Map(routeGroup);
+        if (options.MapSessions)
+            SessionEndpoints.Map(routeGroup, hostingServices.Sessions);
+        if (options.MapBranches)
+            BranchEndpoints.Map(routeGroup, hostingServices.Branches);
+        if (options.MapAssets)
+            AssetEndpoints.Map(routeGroup, hostingServices.Assets);
+        if (options.MapStreaming)
+            StreamingEndpoints.Map(routeGroup, hostingServices.Streaming);
+        if (options.MapMiddlewareResponses)
+            MiddlewareResponseEndpoints.Map(routeGroup, hostingServices.MiddlewareResponses);
+        if (options.MapAgents)
+            AgentEndpoints.Map(routeGroup, hostingServices.Agents);
+        if (options.MapEvals)
+            EvalEndpoints.Map(routeGroup);
+
+        options.ConfigureRoutes?.Invoke(routeGroup);
 
         return routeGroup;
     }

@@ -1,6 +1,5 @@
-using HPD.Agent.AspNetCore.Lifecycle;
 using HPD.Agent.Hosting.Data;
-using HPD.Agent.Validation;
+using HPD.Agent.Hosting.Lifecycle;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -17,61 +16,52 @@ internal static class AgentEndpoints
 {
     internal static void Map(
         IEndpointRouteBuilder endpoints,
-        AspNetCoreAgentManager agentManager)
+        IAgentDefinitionService agents)
     {
         // POST /agents — create definition
         endpoints.MapPost("/agents", (CreateAgentRequest request, CancellationToken ct) =>
-                CreateAgent(request, agentManager, ct))
+                CreateAgent(request, agents, ct))
             .WithName("CreateAgent")
             .WithSummary("Create a new agent definition");
 
         // GET /agents — list definitions
         endpoints.MapGet("/agents", (CancellationToken ct) =>
-                ListAgents(agentManager, ct))
+                ListAgents(agents, ct))
             .WithName("ListAgents")
             .WithSummary("List all agent definitions");
 
         // GET /agents/{agentId} — get definition
         endpoints.MapGet("/agents/{agentId}", (string agentId, CancellationToken ct) =>
-                GetAgent(agentId, agentManager, ct))
+                GetAgent(agentId, agents, ct))
             .WithName("GetAgent")
             .WithSummary("Get an agent definition by ID");
 
         // PUT /agents/{agentId} — update definition (evicts cached instance)
         endpoints.MapPut("/agents/{agentId}", (string agentId, UpdateAgentRequest request, CancellationToken ct) =>
-                UpdateAgent(agentId, request, agentManager, ct))
+                UpdateAgent(agentId, request, agents, ct))
             .WithName("UpdateAgent")
             .WithSummary("Update an agent definition and evict the cached instance");
 
         // DELETE /agents/{agentId} — delete definition + evict cached instance
         endpoints.MapDelete("/agents/{agentId}", (string agentId, CancellationToken ct) =>
-                DeleteAgent(agentId, agentManager, ct))
+                DeleteAgent(agentId, agents, ct))
             .WithName("DeleteAgent")
             .WithSummary("Delete an agent definition and evict the cached instance");
     }
 
     private static async Task<Results<Created<StoredAgentDto>, ValidationProblem>> CreateAgent(
         CreateAgentRequest request,
-        AspNetCoreAgentManager agentManager,
+        IAgentDefinitionService agents,
         CancellationToken ct)
     {
-        var errors = AgentConfigValidator.Validate(request.Config);
-        if (errors.Count > 0)
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["config"] = errors.ToArray()
-            });
-
         try
         {
-            var stored = await agentManager.CreateDefinitionAsync(
-                request.Config,
-                request.Name,
-                request.Metadata,
-                ct);
-
-            var dto = ToDto(stored);
-            return TypedResults.Created($"/agents/{stored.Id}", dto);
+            var result = await agents.CreateAgentAsync(request, ct);
+            return result.Status switch
+            {
+                AgentServiceStatus.Success => TypedResults.Created($"/agents/{result.Value!.Id}", result.Value),
+                _ => ToValidation(result, "CreateAgentError")
+            };
         }
         catch (Exception ex)
         {
@@ -83,13 +73,12 @@ internal static class AgentEndpoints
     }
 
     private static async Task<Results<Ok<List<AgentSummaryDto>>, ValidationProblem>> ListAgents(
-        AspNetCoreAgentManager agentManager,
+        IAgentDefinitionService agents,
         CancellationToken ct)
     {
         try
         {
-            var agents = await agentManager.ListDefinitionsAsync(ct);
-            return TypedResults.Ok(agents.Select(ToSummaryDto).ToList());
+            return TypedResults.Ok((await agents.ListAgentsAsync(ct)).ToList());
         }
         catch (Exception ex)
         {
@@ -102,16 +91,16 @@ internal static class AgentEndpoints
 
     private static async Task<Results<Ok<StoredAgentDto>, NotFound, ValidationProblem>> GetAgent(
         string agentId,
-        AspNetCoreAgentManager agentManager,
+        IAgentDefinitionService agents,
         CancellationToken ct)
     {
         try
         {
-            var stored = await agentManager.GetDefinitionAsync(agentId, ct);
+            var stored = await agents.GetAgentAsync(agentId, ct);
             if (stored == null)
                 return TypedResults.NotFound();
 
-            return TypedResults.Ok(ToDto(stored));
+            return TypedResults.Ok(stored);
         }
         catch (Exception ex)
         {
@@ -125,24 +114,18 @@ internal static class AgentEndpoints
     private static async Task<Results<Ok<StoredAgentDto>, NotFound, ValidationProblem>> UpdateAgent(
         string agentId,
         UpdateAgentRequest request,
-        AspNetCoreAgentManager agentManager,
+        IAgentDefinitionService agents,
         CancellationToken ct)
     {
-        var errors = AgentConfigValidator.Validate(request.Config);
-        if (errors.Count > 0)
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["config"] = errors.ToArray()
-            });
-
         try
         {
-            var stored = await agentManager.UpdateDefinitionAsync(agentId, request.Config, ct);
-            return TypedResults.Ok(ToDto(stored));
-        }
-        catch (KeyNotFoundException)
-        {
-            return TypedResults.NotFound();
+            var result = await agents.UpdateAgentAsync(agentId, request, ct);
+            return result.Status switch
+            {
+                AgentServiceStatus.Success => TypedResults.Ok(result.Value!),
+                AgentServiceStatus.NotFound => TypedResults.NotFound(),
+                _ => ToValidation(result, "UpdateAgentError")
+            };
         }
         catch (Exception ex)
         {
@@ -155,17 +138,18 @@ internal static class AgentEndpoints
 
     private static async Task<Results<NoContent, NotFound, ValidationProblem>> DeleteAgent(
         string agentId,
-        AspNetCoreAgentManager agentManager,
+        IAgentDefinitionService agents,
         CancellationToken ct)
     {
         try
         {
-            var existing = await agentManager.GetDefinitionAsync(agentId, ct);
-            if (existing == null)
-                return TypedResults.NotFound();
-
-            await agentManager.DeleteDefinitionAsync(agentId, ct);
-            return TypedResults.NoContent();
+            var result = await agents.DeleteAgentAsync(agentId, ct);
+            return result.Status switch
+            {
+                AgentServiceStatus.Success => TypedResults.NoContent(),
+                AgentServiceStatus.NotFound => TypedResults.NotFound(),
+                _ => ToValidation(result, "DeleteAgentError")
+            };
         }
         catch (Exception ex)
         {
@@ -176,18 +160,30 @@ internal static class AgentEndpoints
         }
     }
 
-    private static StoredAgentDto ToDto(StoredAgent stored) => new(
-        stored.Id,
-        stored.Name,
-        stored.Config,
-        stored.CreatedAt,
-        stored.UpdatedAt,
-        stored.Metadata);
+    private static ValidationProblem ToValidation<T>(
+        AgentServiceResult<T> result,
+        string fallbackErrorCode)
+    {
+        var messages = result.ErrorMessages?.ToArray()
+            ?? [result.ErrorMessage ?? "Agent definition operation failed."];
 
-    private static AgentSummaryDto ToSummaryDto(StoredAgent stored) => new(
-        stored.Id,
-        stored.Name,
-        stored.CreatedAt,
-        stored.UpdatedAt,
-        stored.Metadata);
+        return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+        {
+            [result.ErrorCode ?? fallbackErrorCode] = messages
+        });
+    }
+
+    private static ValidationProblem ToValidation(
+        AgentServiceResult result,
+        string fallbackErrorCode)
+    {
+        var messages = result.ErrorMessages?.ToArray()
+            ?? [result.ErrorMessage ?? "Agent definition operation failed."];
+
+        return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+        {
+            [result.ErrorCode ?? fallbackErrorCode] = messages
+        });
+    }
+
 }

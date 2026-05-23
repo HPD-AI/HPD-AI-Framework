@@ -52,6 +52,17 @@ public interface IBarIndicator : IIndicator<decimal>
 }
 
 /// <summary>
+/// Streaming indicator that accepts tick/depth frames.
+/// </summary>
+public interface ITickIndicator : IIndicator<decimal>
+{
+    /// <summary>
+    /// Update indicator with the current tick frame. O(1), allocation-free.
+    /// </summary>
+    void Update(in TickFrame tick);
+}
+
+/// <summary>
 /// Base class for price indicators with common functionality.
 /// </summary>
 public abstract class PriceIndicatorBase : IPriceIndicator
@@ -85,6 +96,27 @@ public abstract class BarIndicatorBase : IBarIndicator
     public int Count => _count;
 
     public abstract void Update(Bar bar);
+
+    public virtual void Reset()
+    {
+        _count = 0;
+        _value = 0m;
+    }
+}
+
+/// <summary>
+/// Base class for tick indicators with common functionality.
+/// </summary>
+public abstract class TickIndicatorBase : ITickIndicator
+{
+    protected int _count;
+    protected decimal _value;
+
+    public decimal Value => _value;
+    public abstract bool IsReady { get; }
+    public int Count => _count;
+
+    public abstract void Update(in TickFrame tick);
 
     public virtual void Reset()
     {

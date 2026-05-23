@@ -2,12 +2,10 @@
  * Unit tests for AgentClient.uploadAsset() and runConfig threading.
  *
  * What these tests cover:
- *   1. uploadAsset() — SseTransport: correct URL, method, multipart body, return value,
+ *   1. uploadAsset() — AgentHttpApi via AgentClient: correct URL, method, multipart body, return value,
  *      error handling.
- *   2. uploadAsset() — WebSocketTransport: uses HTTP base URL, not the ws:// URL.
- *   3. uploadAsset() — AgentClient: delegates to transport.
- *   4. runConfig threading: USER_TEXT_INPUT.runConfig is forwarded in the event envelope.
- *   5. SseTransport: runConfig included/omitted from POST body based on input events.
+ *   2. runConfig threading: USER_TEXT_INPUT.runConfig is forwarded in the event envelope.
+ *   3. SseTransport: runConfig included/omitted from POST body based on input events.
  *
  * Test type: unit — all network I/O is replaced by vi.spyOn(globalThis, 'fetch').
  */
@@ -16,7 +14,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AgentClient } from '../src/client.js';
 import { SseTransport } from '../src/transports/sse.js';
 import { EventTypes } from '../src/types/events.js';
-import { WebSocketTransport } from '../src/transports/websocket.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -52,7 +49,7 @@ function makeBlob(type = 'application/octet-stream'): Blob {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('AgentClient.uploadAsset() — SseTransport', () => {
+describe('AgentClient.uploadAsset() — AgentHttpApi', () => {
   let client: AgentClient;
 
   beforeEach(() => {
@@ -134,26 +131,6 @@ describe('AgentClient.uploadAsset() — SseTransport', () => {
     await expect(client.uploadAsset('sess-1', makeFile())).rejects.toThrow('413');
   });
 });
-
-// ---------------------------------------------------------------------------
-
-describe('WebSocketTransport.uploadAsset() — uses HTTP base URL', () => {
-  beforeEach(() => vi.resetAllMocks());
-  afterEach(() => vi.restoreAllMocks());
-
-  it('calls POST on the HTTP URL, not a ws:// URL', async () => {
-    const transport = new WebSocketTransport('ws://localhost:5135');
-    mockFetchJson(ASSET_REFERENCE);
-
-    await transport.uploadAsset('sess-1', makeFile());
-
-    const [url] = vi.mocked(fetch).mock.calls[0];
-    expect(String(url)).toMatch(/^http:\/\//);
-    expect(String(url)).toContain('/sessions/sess-1/assets');
-  });
-});
-
-// ---------------------------------------------------------------------------
 
 describe('AgentClient.run() — runConfig threading', () => {
   let client: AgentClient;

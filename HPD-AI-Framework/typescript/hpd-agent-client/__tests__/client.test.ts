@@ -162,7 +162,7 @@ describe('AgentClient', () => {
       permissionId: 'perm-1',
       sourceName: 'PermissionMiddleware',
       approved: true,
-      choice: 'allow_once',
+      choice: 'allow_always',
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
@@ -197,15 +197,9 @@ describe('AgentClient', () => {
     expect(errors).toEqual(['stream broke']);
   });
 
-  it('auto responds to client tool invoke requests when configured', async () => {
-    const client = new AgentClient({
-      baseUrl: 'http://localhost:5135',
-      onClientToolInvoke: async (request) => ({
-        requestId: request.requestId,
-        success: true,
-        content: [{ type: 'text', text: 'done' }],
-      }),
-    });
+  it('auto responds to client tool invoke requests registered in the tool registry', async () => {
+    const client = new AgentClient('http://localhost:5135');
+    client.tools.register('echo', () => 'done');
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(okStream({

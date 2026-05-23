@@ -20,7 +20,7 @@ public sealed class DefaultExecutionEnvironment : IExecutionEnvironment
         CancellationToken cancellationToken = default,
         TaskScheduler? scheduler = null,
         DevicePreference? defaultDevicePreference = null,
-        ComputeBackend computeBackend = ComputeBackend.Default,
+        BackendSpec? backend = null,
         IEventCoordinator? coordinator = null)
     {
         Logger = logger ?? NullLogger.Instance;
@@ -28,7 +28,7 @@ public sealed class DefaultExecutionEnvironment : IExecutionEnvironment
         CancellationToken = cancellationToken;
         Scheduler = scheduler;
         DefaultDevicePreference = defaultDevicePreference ?? new DevicePreference(null);
-        ComputeBackend = computeBackend;
+        Backend = backend ?? BackendSpec.Default();
         _coordinator = coordinator;
     }
 
@@ -37,7 +37,7 @@ public sealed class DefaultExecutionEnvironment : IExecutionEnvironment
     public CancellationToken CancellationToken { get; }
     public TaskScheduler? Scheduler { get; }
     public DevicePreference DefaultDevicePreference { get; }
-    public ComputeBackend ComputeBackend { get; }
+    public BackendSpec Backend { get; }
 
     public IProgress<T> CreateProgress<T>(string name)
         => _coordinator is not null
@@ -65,7 +65,7 @@ public sealed class DefaultExecutionEnvironment : IExecutionEnvironment
             CancellationToken,
             Scheduler,
             DefaultDevicePreference,
-            ComputeBackend,
+            Backend,
             childCoordinator);
     }
 }

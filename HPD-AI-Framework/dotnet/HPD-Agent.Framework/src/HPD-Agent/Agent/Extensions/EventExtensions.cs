@@ -16,7 +16,7 @@ public static class EventExtensions
     /// <example>
     /// <code>
     /// // In GraphOrchestrator
-    /// await using var events = _coordinator.SubscribeChannel(EventChannel.Synchronous);
+    /// await using var events = _coordinator.CreateChannelInbox(EventChannel.Synchronous);
     /// await foreach (var evt in events.Reader.ReadAllAsync())
     /// {
     ///     var agentContext = evt.GetExecutionContext();

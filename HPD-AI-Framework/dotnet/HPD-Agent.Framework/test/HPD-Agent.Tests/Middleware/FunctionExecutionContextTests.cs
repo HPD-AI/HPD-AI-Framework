@@ -79,13 +79,30 @@ public sealed class FunctionExecutionContextTests
     }
 
     [Fact]
+    public void FunctionExecutionContext_RunConfig_IsSameInstance()
+    {
+        var runConfig = new AgentRunConfig
+        {
+            ContextOverrides = new Dictionary<string, object>
+            {
+                ["coding.workspaceRoot"] = "/tmp/workspace"
+            }
+        };
+
+        var context = CreateContext(runConfig: runConfig);
+
+        context.RunConfig.Should().BeSameAs(runConfig);
+        context.RunConfig.ContextOverrides.Should().ContainKey("coding.workspaceRoot");
+    }
+
+    [Fact]
     public void FunctionExecutionContext_ExposesEventCoordinatorAndStreams()
     {
         var coordinator = new EventCoordinator();
         var context = CreateContext(eventCoordinator: coordinator);
 
         context.EventCoordinator.Should().BeSameAs(coordinator);
-        context.Streams.Should().BeSameAs(coordinator.Streams);
+        context.EventFlows.Should().BeSameAs(coordinator.EventFlows);
         context.GetParentEventCoordinator().Should().BeSameAs(coordinator);
     }
 
@@ -196,8 +213,10 @@ public sealed class FunctionExecutionContextTests
         EventCoordinator? eventCoordinator = null,
         string? traceId = null,
         IServiceProvider? services = null,
-        IAgentBackgroundTaskRegistry? backgroundTasks = null)
+        IAgentBackgroundTaskRegistry? backgroundTasks = null,
+        AgentRunConfig? runConfig = null)
     {
+        runConfig ??= new AgentRunConfig();
         var function = AIFunctionFactory.Create(
             () => "ok",
             new AIFunctionFactoryOptions
@@ -223,7 +242,7 @@ public sealed class FunctionExecutionContextTests
             function,
             callId,
             new Dictionary<string, object?>(),
-            new AgentRunConfig(),
+            runConfig,
             harnessName: null,
             skillName: null,
             invocation: invocation);
@@ -233,6 +252,7 @@ public sealed class FunctionExecutionContextTests
             CallId = callId,
             Arguments = new Dictionary<string, object?>(),
             State = state,
+            RunConfig = runConfig,
             Invocation = invocation,
             ResultMetadata = metadata ?? new ToolResultMetadata(),
             EventCoordinator = eventCoordinator,

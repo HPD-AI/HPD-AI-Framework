@@ -31,11 +31,11 @@ public interface IConnector : IDisposable
     /// Returns when the stream ends (backtest) or is cancelled (live).
     /// </summary>
     /// <param name="subscriptions">Instruments and data types to subscribe to</param>
-    /// <param name="coordinator">Event coordinator for priority-based event emission</param>
+    /// <param name="events">Event publisher for connector emissions</param>
     /// <param name="ct">Cancellation token</param>
     Task StartAsync(
         IEnumerable<Subscription> subscriptions,
-        IEventCoordinator coordinator,
+        IEventPublisher events,
         CancellationToken ct);
 
     /// <summary>

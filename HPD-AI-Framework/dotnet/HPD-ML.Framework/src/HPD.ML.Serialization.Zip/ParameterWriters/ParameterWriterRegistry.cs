@@ -4,7 +4,8 @@ using HPD.ML.Abstractions;
 
 /// <summary>
 /// Maps ILearnedParameters types to their serialization writers.
-/// Algorithm packages register their own writers — no built-in registrations.
+/// Domain packages may register their own writers; HPD.ML-owned parameter
+/// types are registered by the serializer.
 /// </summary>
 public sealed class ParameterWriterRegistry
 {

@@ -33,10 +33,10 @@ public readonly record struct SecurityMetadata(
     public bool IsOption => OptionType.HasValue;
 
     public static SecurityMetadata Default(Instrument inst) =>
-        new(inst, TickSize: 0.01m, LotSize: 1m);
+        new(inst, TickSize: 0.01m, LotSize: 1m, Currency: Currency.USD);
 
     public static SecurityMetadata Equity(Instrument inst, decimal tickSize = 0.01m) =>
-        new(inst, tickSize, LotSize: 1m, ContractType: ContractType.Spot);
+        new(inst, tickSize, LotSize: 1m, Currency: Currency.USD, ContractType: ContractType.Spot);
 
     public static SecurityMetadata Crypto(Instrument inst, decimal tickSize, decimal lotSize) =>
         new(inst, tickSize, lotSize, ContractType: ContractType.Spot);

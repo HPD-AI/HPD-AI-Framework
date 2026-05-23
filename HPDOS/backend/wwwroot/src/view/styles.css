@@ -1,0 +1,935 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: "Bear Sans UI";
+  src: url("./fonts/BearSansUI-Regular.otf") format("opentype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bear Sans UI";
+  src: url("./fonts/BearSansUI-Medium.otf") format("opentype");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bear Sans UI";
+  src: url("./fonts/BearSansUI-Bold.otf") format("opentype");
+  font-style: normal;
+  font-weight: 700 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bear Sans UI";
+  src: url("./fonts/BearSansUI-Italic.otf") format("opentype");
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bear Sans UI";
+  src: url("./fonts/BearSansUI-MediumItalic.otf") format("opentype");
+  font-style: italic;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bear Sans UI";
+  src: url("./fonts/BearSansUI-BoldItalic.otf") format("opentype");
+  font-style: italic;
+  font-weight: 700 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bear Sans UI Heading";
+  src: url("./fonts/BearSansUIHeading-Regular.otf") format("opentype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bear Sans UI Heading";
+  src: url("./fonts/BearSansUIHeading-Bold.otf") format("opentype");
+  font-style: normal;
+  font-weight: 700 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bear Sans UI Heading";
+  src: url("./fonts/BearSansUIHeading-RegularItalic.otf") format("opentype");
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bear Sans UI Heading";
+  src: url("./fonts/BearSansUIHeading-BoldItalic.otf") format("opentype");
+  font-style: italic;
+  font-weight: 700 900;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: "Bear Sans UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-heading: "Bear Sans UI Heading", "Bear Sans UI", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --color-hpd-ink: var(--hpd-foreground);
+  --color-hpd-muted: var(--hpd-muted-foreground);
+  --color-hpd-line: var(--hpd-border);
+  --color-hpd-soft: var(--hpd-muted-background);
+  --color-hpd-panel: var(--hpd-panel-background);
+  --color-hpd-blue: var(--hpd-accent);
+  --color-hpd-green: var(--hpd-success);
+  --color-hpd-amber: var(--hpd-warning);
+  --color-hpd-red: var(--hpd-error);
+  --radius-hpd: var(--hpd-radius);
+  --shadow-hpd: var(--hpd-shadow);
+}
+
+@custom-variant selected (&[aria-current="page"]);
+
+@layer theme {
+  :root {
+    color-scheme: dark;
+    --hpd-foreground: #bcbec4;
+    --hpd-muted-foreground: #7a7e85;
+    --hpd-background: #121216;
+    --hpd-background-accent: #548af7;
+    --hpd-sidebar-background: #181818;
+    --hpd-panel-background: #181a1d;
+    --hpd-panel-background-translucent: color-mix(in oklab, var(--hpd-panel-background) 94%, transparent);
+    --hpd-muted-background: #25262a;
+    --hpd-elevated-background: #2b2d30;
+    --hpd-input-background: #181a1d;
+    --hpd-border: transparent;
+    --hpd-border-strong: transparent;
+    --hpd-accent: #548af7;
+    --hpd-accent-foreground: #ffffff;
+    --hpd-success: #73b00a;
+    --hpd-warning: #e8a33e;
+    --hpd-error: #f75464;
+    --hpd-code-background: #161619;
+    --hpd-code-foreground: #bcbec4;
+    --hpd-inline-code-background: #25324d;
+    --hpd-inline-code-foreground: #7cacf8;
+    --hpd-selection-background: #25262a90;
+    --hpd-selection-border: color-mix(in oklab, var(--hpd-accent) 30%, transparent);
+    --hpd-hover-background: #25262a50;
+    --hpd-shadow-color: 0 0 0;
+    --hpd-shadow: 0 2px 8px rgb(var(--hpd-shadow-color) / 0.30);
+    --hpd-radius: 1.5rem;
+    --hpd-panel-radius: 1.5rem;
+    --hpd-widget-radius: 0.875rem;
+    --hpd-input-radius: 0.75rem;
+    --hpd-item-radius: 0.375rem;
+    --hpd-panel-gap: 0.375rem;
+    --hpd-glass-border: none;
+    --hpd-panel-shadow: var(--hpd-shadow);
+    --hpd-text-size: 13px;
+    --hpd-title-size: 18px;
+    --hpd-title-sm-size: 13px;
+    --hpd-meta-size: 12px;
+    --hpd-label-size: 11px;
+    --hpd-compact-size: 11px;
+    --hpd-message-size: 14px;
+    --hpd-code-size: 12px;
+    --hpd-line-height: 1.45;
+    --hpd-message-line-height: 1.65;
+    --hpd-code-line-height: 1.8;
+  }
+}
+
+@utility hpd-panel {
+  border: 1px solid var(--hpd-border);
+  border-radius: var(--hpd-panel-radius);
+  background: var(--hpd-panel-background-translucent);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--hpd-panel-shadow);
+  overflow: hidden;
+}
+
+@utility hpd-button {
+  @apply inline-flex min-h-9 items-center justify-center gap-2 px-3 font-extrabold;
+  border-radius: var(--hpd-input-radius);
+  font-size: var(--hpd-text-size);
+  transition: color 150ms, background-color 150ms, border-color 150ms, box-shadow 150ms, opacity 150ms;
+}
+
+@utility hpd-input {
+  @apply min-h-9 w-full border border-hpd-line px-3 outline-none;
+  background: var(--hpd-input-background);
+  border-radius: var(--hpd-input-radius);
+  color: var(--hpd-foreground);
+  font-size: var(--hpd-text-size);
+}
+
+@utility hpd-badge {
+  @apply inline-flex items-center rounded-full border border-hpd-line bg-hpd-soft px-2 py-0.5 font-extrabold whitespace-nowrap;
+  font-size: var(--hpd-label-size);
+  line-height: 1rem;
+}
+
+@utility hpd-sidebar-section {
+  @apply grid gap-2 border-b border-hpd-line p-3;
+}
+
+@utility hpd-section-label {
+  @apply font-black uppercase text-hpd-muted;
+  font-family: var(--font-heading);
+  font-size: var(--hpd-label-size);
+  letter-spacing: 0.0625rem;
+}
+
+@utility hpd-path {
+  @apply truncate font-mono font-bold text-hpd-muted;
+  font-size: var(--hpd-label-size);
+}
+
+@utility hpd-empty {
+  @apply border border-dashed border-hpd-line p-3 font-bold text-hpd-muted;
+  background: color-mix(in oklab, var(--hpd-muted-background) 72%, transparent);
+  border-radius: var(--hpd-widget-radius);
+  font-size: var(--hpd-text-size);
+}
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    overflow: hidden;
+    background: var(--hpd-background);
+    color: var(--hpd-foreground);
+    font-size: var(--hpd-text-size);
+    font-family: var(--font-sans);
+    line-height: var(--hpd-line-height);
+    letter-spacing: 0;
+  }
+  button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; opacity: 0.55; }
+  textarea { resize: none; }
+}
+
+@layer components {
+  .hpd-title {
+    @apply truncate font-black;
+    font-family: var(--font-heading);
+    font-size: var(--hpd-title-size);
+  }
+  .hpd-title-sm {
+    @apply truncate font-black;
+    font-family: var(--font-heading);
+    font-size: var(--hpd-title-sm-size);
+  }
+  .hpd-meta {
+    @apply truncate font-bold text-hpd-muted;
+    font-size: var(--hpd-meta-size);
+  }
+  .hpd-inline {
+    @apply flex items-center gap-2;
+  }
+  .hpd-cluster {
+    @apply flex shrink-0 items-center gap-2;
+  }
+  .hpd-tab-group {
+    @apply flex rounded-full border border-hpd-line bg-hpd-soft p-0.5;
+  }
+
+  .hpd-app {
+    @apply grid h-dvh min-h-dvh;
+  }
+  .hpd-view {
+    @apply min-h-0 min-w-0 overflow-hidden;
+    padding: var(--hpd-panel-gap);
+  }
+  .hpd-shell {
+    @apply grid h-full min-h-0;
+    gap: var(--hpd-panel-gap);
+    grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
+  }
+  .hpd-toast {
+    @apply fixed bottom-4 z-50 mx-auto max-w-2xl border border-hpd-line p-3 font-bold shadow-hpd;
+    background: var(--hpd-elevated-background);
+    border-radius: var(--hpd-widget-radius);
+    font-size: var(--hpd-text-size);
+    inset-inline: 1rem;
+
+    &[data-visible="false"] { display: none; }
+  }
+
+  .hpd-sidebar {
+    @apply flex min-h-0 flex-col;
+    background: var(--hpd-sidebar-background);
+  }
+  .hpd-sidebar-route {
+    @apply flex min-h-0 flex-1 flex-col;
+  }
+  .hpd-sidebar-header {
+    @apply flex items-start justify-between gap-3 border-b border-hpd-line p-3;
+    background: color-mix(in oklab, var(--hpd-sidebar-background) 84%, transparent);
+  }
+  .hpd-sidebar-title {
+    @apply grid min-w-0 gap-1;
+  }
+  .hpd-sidebar-actions {
+    @apply grid border-b border-hpd-line p-3;
+  }
+  .hpd-button-primary {
+    background: var(--hpd-accent);
+    color: var(--hpd-accent-foreground);
+  }
+  .hpd-button-primary:hover {
+    background: color-mix(in oklab, var(--hpd-accent) 88%, var(--hpd-foreground));
+  }
+  .hpd-button-secondary {
+    @apply border border-hpd-line text-hpd-muted;
+    background: var(--hpd-panel-background);
+  }
+  .hpd-button-secondary:hover {
+    background: var(--hpd-hover-background);
+  }
+  .hpd-button-dark {
+    background: var(--hpd-foreground);
+    color: var(--hpd-panel-background);
+  }
+  .hpd-icon-button {
+    @apply min-h-9 w-9 shrink-0 border border-hpd-line px-0 text-hpd-muted;
+    background: var(--hpd-panel-background);
+  }
+
+  .hpd-session-scroll {
+    @apply min-h-0 flex-1 overflow-auto p-2;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--hpd-muted-foreground) 42%, transparent) transparent;
+  }
+  .hpd-session-sections {
+    @apply grid gap-3;
+  }
+  .hpd-session-section {
+    @apply grid gap-1;
+  }
+  .hpd-session-list {
+    @apply grid gap-1;
+  }
+  .hpd-session-row {
+    @apply grid items-center gap-1;
+    grid-template-columns: minmax(0, 1fr) 2rem;
+    border-radius: var(--hpd-item-radius);
+    transition: background-color 150ms, box-shadow 150ms;
+
+    &:hover {
+      background: var(--hpd-hover-background);
+    }
+
+    &[aria-current="page"] {
+      background: var(--hpd-selection-background);
+      box-shadow: 0 1px 2px rgb(var(--hpd-shadow-color) / 0.06);
+    }
+  }
+  .hpd-session {
+    @apply grid w-full min-w-0 border border-transparent px-3 py-2.5 text-left;
+    border-radius: var(--hpd-item-radius);
+    transition: color 150ms, background-color 150ms, border-color 150ms;
+
+    &:hover {
+      color: var(--hpd-foreground);
+    }
+  }
+  .hpd-session-delete {
+    @apply inline-flex h-8 w-8 items-center justify-center font-black text-hpd-muted;
+    border-radius: var(--hpd-item-radius);
+  }
+  .hpd-session-delete:hover:not(:disabled) {
+    color: var(--hpd-error);
+    background: color-mix(in oklab, var(--hpd-error) 12%, transparent);
+  }
+
+  .hpd-workspace-card {
+    @apply grid min-w-0 max-w-full gap-2 border border-hpd-line p-2;
+    background: var(--hpd-panel-background);
+    border-radius: var(--hpd-widget-radius);
+  }
+  .hpd-workspace-heading {
+    @apply flex items-center justify-between gap-2;
+  }
+  .hpd-workspace-manager-trigger {
+    @apply inline-flex h-7 min-w-7 items-center justify-center px-2 font-black text-hpd-muted;
+    background: var(--hpd-panel-background);
+    border-radius: var(--hpd-input-radius);
+    font-size: var(--hpd-compact-size);
+  }
+  .hpd-workspace-manager-trigger:hover {
+    background: var(--hpd-hover-background);
+  }
+  .hpd-workspace-name {
+    @apply grid min-w-0 gap-0.5 px-1;
+  }
+  .hpd-workspace-roots-header {
+    @apply flex items-center justify-between px-1 pt-1;
+  }
+  .hpd-workspace-roots {
+    @apply grid min-w-0 max-w-full gap-1;
+    max-height: 9rem;
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--hpd-muted-foreground) 42%, transparent) transparent;
+  }
+  .hpd-workspace-root {
+    @apply grid min-w-0 max-w-full items-center gap-2 border border-hpd-line px-2 py-1.5;
+    background: color-mix(in oklab, var(--hpd-muted-background) 64%, transparent);
+    border-radius: var(--hpd-item-radius);
+    grid-template-columns: minmax(0, 1fr) 2rem;
+  }
+  .hpd-workspace-root:hover {
+    background: var(--hpd-hover-background);
+  }
+  .hpd-workspace-root .hpd-icon-button {
+    min-height: 2rem;
+    width: 2rem;
+  }
+  .hpd-workspace-picker {
+    @apply w-full;
+  }
+  .hpd-workspace-manager {
+    @apply m-0 grid gap-2 p-2;
+    width: min(18rem, calc(100vw - 1rem));
+    max-height: min(22rem, calc(100vh - 1rem));
+    overflow: auto;
+    border: 1px solid var(--hpd-border);
+    border-radius: var(--hpd-panel-radius);
+    background: var(--hpd-panel-background);
+    color: var(--hpd-foreground);
+    box-shadow: 0 18px 40px rgb(var(--hpd-shadow-color) / 0.36);
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--hpd-muted-foreground) 42%, transparent) transparent;
+
+    &:not(:popover-open) {
+      display: none;
+    }
+
+    &:popover-open {
+      inset: auto;
+      position-area: inline-end span-block-start;
+      position-try-order: most-inline-size;
+      position-try-fallbacks:
+        inline-end span-block-end,
+        block-end span-inline-start,
+        block-start span-inline-start;
+    }
+  }
+  .hpd-workspace-manager-header {
+    @apply flex items-start justify-between gap-3 px-1 py-1;
+  }
+  .hpd-workspace-manager-list {
+    @apply grid gap-1 overflow-auto;
+    max-height: 10rem;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--hpd-muted-foreground) 42%, transparent) transparent;
+  }
+  .hpd-workspace-manager-row {
+    @apply grid items-center gap-1;
+    border-radius: var(--hpd-item-radius);
+    grid-template-columns: minmax(0, 1fr) 2rem;
+    background: color-mix(in oklab, var(--hpd-muted-background) 46%, transparent);
+
+    &:hover {
+      background: var(--hpd-hover-background);
+    }
+
+    &[aria-current="page"] {
+      background: var(--hpd-selection-background);
+      box-shadow: 0 1px 2px rgb(var(--hpd-shadow-color) / 0.06);
+    }
+  }
+  .hpd-workspace-manager-item {
+    @apply grid w-full gap-0.5 px-2.5 py-2 text-left;
+    border-radius: var(--hpd-item-radius);
+  }
+  .hpd-workspace-delete {
+    @apply inline-flex h-8 w-8 items-center justify-center font-black text-hpd-muted;
+    border-radius: var(--hpd-item-radius);
+  }
+  .hpd-workspace-delete:hover:not(:disabled) {
+    color: var(--hpd-error);
+    background: color-mix(in oklab, var(--hpd-error) 12%, transparent);
+  }
+  .hpd-workspace-manager-form {
+    @apply grid gap-2 border-t border-hpd-line pt-2;
+  }
+  .hpd-workspace-manager-form .hpd-button {
+    min-height: 2.25rem;
+  }
+  .hpd-workspace-manager-form .hpd-input {
+    min-height: 2.25rem;
+  }
+
+  .hpd-main-frame {
+    @apply grid min-h-0 overflow-hidden;
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .hpd-workspace-surface {
+    @apply min-h-0 overflow-auto p-4;
+    background: color-mix(in oklab, var(--hpd-muted-background) 72%, transparent);
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--hpd-muted-foreground) 42%, transparent) transparent;
+  }
+  .hpd-workspace-surface-stack {
+    @apply mx-auto grid w-full gap-4;
+    max-width: 56rem;
+  }
+  .hpd-surface-empty {
+    @apply h-full min-h-0;
+  }
+  .hpd-dashboard {
+    @apply mx-auto grid w-full gap-4;
+    max-width: 68rem;
+  }
+  .hpd-dashboard-hero {
+    @apply grid items-end gap-4 p-5;
+    min-height: 12rem;
+    border-radius: var(--hpd-panel-radius);
+    background: linear-gradient(135deg,
+      color-mix(in oklab, var(--hpd-accent) 14%, var(--hpd-panel-background)),
+      color-mix(in oklab, var(--hpd-panel-background) 88%, transparent));
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .hpd-dashboard-title {
+    @apply grid min-w-0 gap-2;
+  }
+  .hpd-dashboard-title h1 {
+    @apply m-0 truncate font-black;
+    color: var(--hpd-foreground);
+    font-family: var(--font-heading);
+    font-size: 3rem;
+    line-height: 0.95;
+  }
+  .hpd-dashboard-actions {
+    @apply flex flex-wrap justify-end gap-2;
+  }
+  .hpd-dashboard-grid {
+    @apply grid gap-2;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .hpd-dashboard-stat {
+    @apply grid gap-2 p-4;
+    min-height: 7rem;
+    border-radius: var(--hpd-widget-radius);
+    background: color-mix(in oklab, var(--hpd-panel-background) 86%, transparent);
+  }
+  .hpd-dashboard-stat strong {
+    @apply self-end truncate font-black;
+    color: var(--hpd-foreground);
+    font-family: var(--font-heading);
+    font-size: 1.75rem;
+    line-height: 1;
+  }
+  .hpd-dashboard-columns {
+    @apply grid gap-2;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  }
+  .hpd-dashboard-panel {
+    @apply grid gap-2 p-3;
+    border-radius: var(--hpd-widget-radius);
+    background: color-mix(in oklab, var(--hpd-panel-background) 76%, transparent);
+  }
+  .hpd-dashboard-panel-header {
+    @apply flex items-center justify-between gap-2 px-1;
+  }
+  .hpd-dashboard-list {
+    @apply grid gap-1;
+  }
+  .hpd-dashboard-list-item {
+    @apply grid w-full min-w-0 gap-1 px-3 py-2.5 text-left;
+    border-radius: var(--hpd-item-radius);
+    background: color-mix(in oklab, var(--hpd-muted-background) 48%, transparent);
+  }
+  button.hpd-dashboard-list-item:hover:not(:disabled) {
+    background: var(--hpd-hover-background);
+  }
+  .hpd-dashboard-timeline {
+    @apply grid gap-1;
+  }
+  .hpd-dashboard-timeline-item {
+    @apply flex items-center gap-2 px-3 py-2.5 font-bold text-hpd-muted;
+    border-radius: var(--hpd-item-radius);
+    background: color-mix(in oklab, var(--hpd-muted-background) 36%, transparent);
+    font-size: var(--hpd-text-size);
+  }
+  .hpd-dashboard-dot {
+    @apply h-2 w-2 shrink-0 rounded-full;
+    background: var(--hpd-accent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--hpd-accent) 16%, transparent);
+  }
+  .hpd-conversation-rail {
+    container: hpd-chat / inline-size;
+  }
+  .hpd-conversation-rail-header {
+    @apply flex items-center gap-2 border-b border-hpd-line p-2.5;
+    background: color-mix(in oklab, var(--hpd-sidebar-background) 76%, transparent);
+  }
+  .hpd-conversation-back {
+    min-height: 2rem;
+    padding-inline: 0.75rem;
+    white-space: nowrap;
+  }
+  .hpd-conversation-new {
+    margin-inline-start: auto;
+    min-height: 2rem;
+    width: 2rem;
+    padding-inline: 0;
+    flex-shrink: 0;
+    font-size: 1rem;
+  }
+  .hpd-conversation-rail-scroll {
+    @apply min-h-0 flex-1 overflow-auto p-2.5;
+    background: color-mix(in oklab, var(--hpd-muted-background) 50%, transparent);
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--hpd-muted-foreground) 42%, transparent) transparent;
+  }
+  .hpd-chat-stack {
+    @apply mx-auto grid w-full gap-3;
+    max-width: 100%;
+  }
+
+  .hpd-row {
+    @apply flex justify-start;
+    animation: hpd-item-in 180ms ease-out both;
+
+    &[data-role="user"] { justify-content: flex-end; }
+    &[data-kind="artifact"] { justify-content: center; }
+  }
+
+  .hpd-message, .hpd-error-message {
+    @apply max-w-[86%] rounded-2xl px-3 py-2.5 shadow-sm;
+    border-top-left-radius: var(--hpd-item-radius);
+    font-size: var(--hpd-message-size);
+    line-height: var(--hpd-message-line-height);
+  }
+
+  .hpd-message {
+    &[data-role="assistant"] {
+      border-color: transparent;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    &[data-role="user"] {
+      @apply max-w-[82%];
+      background: var(--hpd-accent);
+      color: var(--hpd-accent-foreground);
+      border-top-left-radius: var(--hpd-widget-radius);
+      border-top-right-radius: var(--hpd-item-radius);
+    }
+  }
+
+  .hpd-error-message {
+    @apply border;
+    border-color: color-mix(in oklab, var(--hpd-error) 32%, var(--hpd-border));
+    background: color-mix(in oklab, var(--hpd-error) 10%, var(--hpd-panel-background));
+    color: color-mix(in oklab, var(--hpd-error) 78%, var(--hpd-foreground));
+  }
+  .hpd-reasoning, .hpd-tool {
+    @apply border border-hpd-line shadow-sm;
+    background: var(--hpd-panel-background);
+    border-radius: var(--hpd-widget-radius);
+    animation: hpd-item-in 180ms ease-out both;
+  }
+
+  .hpd-reasoning {
+    background: color-mix(in oklab, var(--hpd-panel-background) 86%, transparent);
+
+    .hpd-disclosure-summary {
+      color: var(--hpd-muted-foreground);
+    }
+  }
+
+  .hpd-disclosure-summary {
+    @apply cursor-pointer px-3 py-2.5 font-black;
+    font-family: var(--font-heading);
+    font-size: var(--hpd-title-sm-size);
+  }
+
+  .hpd-tool {
+    &[data-status="streaming"] {
+      border-color: color-mix(in oklab, var(--hpd-warning) 42%, var(--hpd-border));
+      background: color-mix(in oklab, var(--hpd-warning) 8%, var(--hpd-panel-background));
+      box-shadow: 0 0 0 3px color-mix(in oklab, var(--hpd-warning) 15%, transparent);
+    }
+
+    &[data-status="complete"] {
+      border-color: color-mix(in oklab, var(--hpd-success) 32%, var(--hpd-border));
+    }
+  }
+
+  .hpd-tool-body {
+    @apply grid gap-2 border-t border-hpd-line p-2.5;
+  }
+
+  .hpd-conversation-rail {
+    .hpd-chat-stack {
+      gap: 0.625rem;
+    }
+
+    .hpd-row {
+      width: 100%;
+    }
+
+    .hpd-message,
+    .hpd-error-message {
+      max-width: 94%;
+      padding: 0.625rem 0.75rem;
+      font-size: var(--hpd-text-size);
+      line-height: 1.55;
+    }
+
+    .hpd-message[data-role="assistant"] {
+      max-width: 100%;
+      padding-inline: 0.25rem;
+    }
+
+    .hpd-message[data-role="user"] {
+      max-width: 88%;
+    }
+
+    .hpd-reasoning,
+    .hpd-tool {
+      width: 100%;
+      box-shadow: none;
+    }
+
+    .hpd-disclosure-summary {
+      padding: 0.625rem 0.75rem;
+      font-size: var(--hpd-text-size);
+    }
+
+    .hpd-tool-body {
+      padding: 0.625rem;
+    }
+
+    .hpd-code-box,
+    .message-markdown pre {
+      max-height: 12rem;
+      padding: 0.625rem;
+      font-size: 11px;
+      line-height: 1.55;
+    }
+  }
+
+  .hpd-composer {
+    @apply border-t border-hpd-line p-3;
+    background: var(--hpd-panel-background);
+  }
+  .hpd-composer-box {
+    @apply mx-auto w-full border border-hpd-line p-2 shadow-sm;
+    max-width: 26rem;
+    background: var(--hpd-panel-background);
+    border-radius: var(--hpd-widget-radius);
+  }
+  .hpd-composer-input {
+    @apply min-h-14 max-h-48 w-full bg-transparent px-3 py-2 outline-none;
+    color: var(--hpd-foreground);
+    font-size: var(--hpd-message-size);
+    line-height: var(--hpd-message-line-height);
+    field-sizing: content;
+  }
+  .hpd-composer-input::placeholder { color: color-mix(in oklab, var(--hpd-muted-foreground) 70%, transparent); }
+  .hpd-composer-footer {
+    @apply flex items-center justify-between gap-2 border-t border-hpd-line pt-2;
+  }
+  .hpd-runtime-trigger {
+    @apply cursor-pointer px-2 py-1 font-black text-hpd-muted;
+    font-family: var(--font-heading);
+    font-size: var(--hpd-compact-size);
+  }
+  .hpd-runtime-popover {
+    @apply mt-2 grid gap-2 border border-hpd-line bg-hpd-soft p-2.5;
+    border-radius: var(--hpd-widget-radius);
+    width: min(24rem, calc(100vw - 2rem));
+    height: fit-content;
+    margin: 0;
+    grid-template-columns: minmax(0, 1fr);
+
+    &:not(:popover-open) {
+      display: none;
+    }
+
+    &:popover-open {
+      display: grid;
+      inset: auto;
+      max-block-size: min(12rem, calc(100vh - 2rem));
+      overflow: auto;
+      position-area: block-start span-inline-end;
+      position-try-order: most-block-size;
+      position-try-fallbacks:
+        block-start span-inline-start,
+        block-end span-inline-end,
+        block-end span-inline-start;
+      @apply shadow-hpd;
+    }
+
+    .hpd-input {
+      @apply min-h-8 px-2.5;
+      font-size: var(--hpd-compact-size);
+    }
+  }
+
+  .message-markdown pre, .hpd-code-box {
+    @apply overflow-auto p-3 font-mono;
+    border-radius: var(--hpd-widget-radius);
+    font-family: var(--font-mono);
+    background: var(--hpd-code-background);
+    color: var(--hpd-code-foreground);
+    font-size: var(--hpd-code-size);
+    line-height: var(--hpd-code-line-height);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--hpd-code-foreground) 28%, transparent) transparent;
+  }
+
+  .message-markdown {
+    code {
+      border-radius: 0.25rem;
+      background: var(--hpd-inline-code-background);
+      color: var(--hpd-inline-code-foreground);
+      padding: 0.0625rem 0.3125rem;
+      font-size: 0.9em;
+    }
+
+    pre code {
+      background: transparent;
+      color: inherit;
+      padding: 0;
+    }
+  }
+
+  .hpd-artifact {
+    @apply w-full max-w-4xl overflow-hidden border border-hpd-line shadow-sm;
+    background: var(--hpd-panel-background);
+    border-radius: var(--hpd-widget-radius);
+    container: hpd-artifact / inline-size;
+
+    &[data-open="true"] {
+      border-color: color-mix(in oklab, var(--hpd-accent) 50%, var(--hpd-border));
+      box-shadow: 0 10px 28px color-mix(in oklab, var(--hpd-accent) 16%, transparent);
+    }
+  }
+
+  .hpd-artifact-header {
+    @apply flex items-center justify-between gap-3 border-b border-hpd-line px-3.5 py-3;
+    background: color-mix(in oklab, var(--hpd-muted-background) 76%, var(--hpd-panel-background));
+  }
+
+  .hpd-artifact-body {
+    @apply overflow-auto p-3.5;
+    max-height: min(62vh, 680px);
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--hpd-muted-foreground) 42%, transparent) transparent;
+  }
+
+  .hpd-artifact-tab {
+    @apply rounded-full border border-transparent px-2.5 py-1 font-extrabold text-hpd-muted;
+    font-size: var(--hpd-compact-size);
+
+    &[aria-current="page"] {
+      @apply border-hpd-line text-hpd-ink shadow-sm;
+      background: var(--hpd-panel-background);
+    }
+  }
+
+  .hpd-artifact-render {
+    font-size: var(--hpd-message-size);
+    overflow-wrap: anywhere;
+    line-height: var(--hpd-message-line-height);
+
+    pre {
+      @apply overflow-auto p-3.5 font-mono;
+      border-radius: var(--hpd-widget-radius);
+      background: var(--hpd-code-background);
+      color: var(--hpd-code-foreground);
+      font-size: var(--hpd-code-size);
+      line-height: var(--hpd-code-line-height);
+      white-space: pre-wrap;
+      scrollbar-width: thin;
+      scrollbar-color: color-mix(in oklab, var(--hpd-code-foreground) 28%, transparent) transparent;
+    }
+  }
+
+  .hpd-artifact-frame {
+    @apply min-h-[420px] w-full border border-hpd-line;
+    background: var(--hpd-panel-background);
+    border-radius: var(--hpd-widget-radius);
+  }
+}
+
+@keyframes hpd-item-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@starting-style {
+  :where(.hpd-row, .hpd-tool, .hpd-reasoning) {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@container hpd-chat (max-width: 680px) {
+  .hpd-conversation-rail-scroll { padding: 0.75rem; }
+  .hpd-chat-stack { gap: 0.75rem; }
+  :where(.hpd-message, .hpd-error-message) { max-width: 92%; }
+  .hpd-message[data-role="user"] { max-width: 88%; }
+  .hpd-disclosure-summary { padding: 0.625rem 0.75rem; }
+  .hpd-tool-body { padding: 0.625rem; }
+}
+
+@container hpd-artifact (max-width: 560px) {
+  .hpd-artifact-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .hpd-cluster {
+    justify-content: space-between;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(*, *::before, *::after) {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .hpd-shell { grid-template-columns: 1fr; }
+  .hpd-runtime-popover { grid-template-columns: 1fr; }
+  .hpd-dashboard-hero,
+  .hpd-dashboard-columns {
+    grid-template-columns: 1fr;
+  }
+  .hpd-dashboard-title h1 {
+    font-size: 2.25rem;
+  }
+  .hpd-dashboard-actions {
+    justify-content: stretch;
+  }
+  .hpd-dashboard-actions .hpd-button {
+    flex: 1;
+  }
+  .hpd-dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

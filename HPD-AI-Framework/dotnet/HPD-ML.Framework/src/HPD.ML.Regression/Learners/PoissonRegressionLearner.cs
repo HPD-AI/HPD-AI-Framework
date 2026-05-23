@@ -1,12 +1,8 @@
 namespace HPD.ML.Regression;
 
-using Helium.Algebra;
-using Helium.Algorithms;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.BinaryClassification;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 public sealed record PoissonRegressionOptions
 {
@@ -18,7 +14,7 @@ public sealed record PoissonRegressionOptions
 }
 
 /// <summary>
-/// Poisson regression via L-BFGS with Helium autodiff.
+/// Poisson regression via L-BFGS with analytic gradients.
 /// Model: E[y] = exp(w·x + b), trained by minimizing Poisson negative log-likelihood.
 /// Useful for count data (insurance claims, event rates, healthcare).
 /// </summary>
@@ -63,25 +59,30 @@ public sealed class PoissonRegressionLearner : ILearner
                     $"Poisson regression requires non-negative labels. Found {labels[i]} at row {i}.");
         }
 
-        // Loss: (1/n) Σ [exp(w·x + b) - y·(w·x + b)]
-        // Parameters layout: [w0, w1, ..., w_{d-1}, bias]
-        Func<Vector<Var<Double>>, Var<Double>> loss = parameters =>
+        (double Loss, double[] Gradient) Objective(double[] parameters)
         {
-            var totalLoss = Var<Double>.Constant(new Double(0));
+            var totalLoss = 0.0;
+            var gradient = new double[d + 1];
 
             for (int i = 0; i < n; i++)
             {
-                var linearScore = parameters[d]; // bias
+                var linearScore = parameters[d];
                 for (int j = 0; j < d; j++)
-                    linearScore = linearScore + parameters[j] * Var<Double>.Constant(features[i][j]);
+                    linearScore += parameters[j] * features[i][j];
 
-                // Poisson NLL: exp(z) - y·z
-                totalLoss = totalLoss + VarMath.Exp(linearScore)
-                          - Var<Double>.Constant(new Double(labels[i])) * linearScore;
+                var rate = Math.Exp(Math.Clamp(linearScore, -50.0, 50.0));
+                totalLoss += rate - labels[i] * linearScore;
+                var error = rate - labels[i];
+                for (int j = 0; j < d; j++)
+                    gradient[j] += error * features[i][j];
+                gradient[d] += error;
             }
 
-            return totalLoss / Var<Double>.Constant(new Double(n));
-        };
+            for (int i = 0; i < gradient.Length; i++)
+                gradient[i] /= n;
+
+            return (totalLoss / n, gradient);
+        }
 
         var optimizer = new LbfgsOptimizer(
             memorySize: _options.MemorySize,
@@ -90,16 +91,13 @@ public sealed class PoissonRegressionLearner : ILearner
             l1Regularization: _options.L1Regularization,
             l2Regularization: _options.L2Regularization);
 
-        var initial = Vector<Double>.Zero(d + 1);
-        var optimized = optimizer.Minimize(loss, initial, _progress);
+        var initial = new double[d + 1];
+        var optimized = optimizer.Minimize(Objective, initial, _progress);
 
-        var weights = new Double[d];
-        for (int i = 0; i < d; i++)
-            weights[i] = optimized[i];
+        var weights = optimized[..d];
         var bias = optimized[d];
 
-        var parameters = new LinearModelParameters(
-            Vector<Double>.FromArray(weights), bias);
+        var parameters = new LinearModelParameters(weights, bias);
         // Poisson: scoring applies exp() to the linear score
         var transform = new RegressionScoringTransform(parameters, _featureColumn, applyExp: true);
 

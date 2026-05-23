@@ -196,6 +196,60 @@ jobs:
         echo "All test result files collected."
 
   # ============================================
+  # Rhodium unmanaged memory leak gate
+  # ============================================
+  rhodium-memory-leak:
+    needs: paths-filter
+    runs-on: ubuntu-latest
+    if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Run Rhodium memory leak tests
+      run: dotnet run --file HPD-AI-Framework/dotnet/shared/src/Rhodium/eng/ci/run-memory-leak-tests.cs
+
+    - name: Upload memory leak test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: rhodium-memory-results
+        path: |
+          memory-results.log
+          **/memory-results.trx
+
+  # ============================================
+  # Rhodium benchmark compile gate
+  # ============================================
+  rhodium-benchmarks:
+    needs: paths-filter
+    runs-on: ubuntu-latest
+    if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Build Rhodium benchmarks
+      run: dotnet run --file HPD-AI-Framework/dotnet/shared/src/Rhodium/eng/ci/build-benchmarks.cs
+
+    - name: Upload benchmark build log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: rhodium-benchmark-build-log
+        path: rhodium-benchmarks.log
+
+  # ============================================
   # Package verification (like Microsoft does)
   # ============================================
   package-check:
@@ -216,7 +270,7 @@ jobs:
 
     - name: Prepare ripgrep binaries
       run: |
-        dotnet run --file HPD-AI-Framework/dotnet/HPD-Agent.Framework/eng/ripgrep-pack/prepare-ripgrep-binaries.cs -- \
+        dotnet run --file HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/Ripgrep/pack/prepare-ripgrep-binaries.cs -- \
           --project HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj
 
     - name: Pack NuGet packages
@@ -307,7 +361,7 @@ jobs:
   build-check:
     if: always()
     runs-on: ubuntu-latest
-    needs: [paths-filter, build-and-test, unit-test-summary, package-check]
+    needs: [paths-filter, build-and-test, unit-test-summary, rhodium-memory-leak, rhodium-benchmarks, package-check]
     steps:
       - name: Get workflow run info
         run: |

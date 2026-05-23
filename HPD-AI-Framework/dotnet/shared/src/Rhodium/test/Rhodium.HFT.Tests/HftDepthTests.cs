@@ -210,6 +210,62 @@ public class HftDepthTests
         Assert.Equal(10050, depth.BestAskTick);
     }
 
+    [Theory]
+    [InlineData(typeof(HashMapDepth))]
+    [InlineData(typeof(BTreeDepth))]
+    [InlineData(typeof(FusedDepth))]
+    [InlineData(typeof(RoiVectorDepth))]
+    public void AllImplementations_CopyBidLevelsInBookOrder(Type depthType)
+    {
+        var depth = CreateDepth(depthType);
+        depth.Update(Side.Buy, 9998, 80m, Now);
+        depth.Update(Side.Buy, 10000, 100m, Now);
+        depth.Update(Side.Buy, 9999, 90m, Now);
+        Span<DepthLevel> levels = stackalloc DepthLevel[2];
+
+        var count = depth.CopyLevels(Side.Buy, levels);
+
+        Assert.Equal(2, count);
+        Assert.Equal(new DepthLevel(10000, 100m), levels[0]);
+        Assert.Equal(new DepthLevel(9999, 90m), levels[1]);
+    }
+
+    [Theory]
+    [InlineData(typeof(HashMapDepth))]
+    [InlineData(typeof(BTreeDepth))]
+    [InlineData(typeof(FusedDepth))]
+    [InlineData(typeof(RoiVectorDepth))]
+    public void AllImplementations_CopyAskLevelsInBookOrder(Type depthType)
+    {
+        var depth = CreateDepth(depthType);
+        depth.Update(Side.Sell, 10003, 30m, Now);
+        depth.Update(Side.Sell, 10001, 10m, Now);
+        depth.Update(Side.Sell, 10002, 20m, Now);
+        Span<DepthLevel> levels = stackalloc DepthLevel[2];
+
+        var count = depth.CopyLevels(Side.Sell, levels);
+
+        Assert.Equal(2, count);
+        Assert.Equal(new DepthLevel(10001, 10m), levels[0]);
+        Assert.Equal(new DepthLevel(10002, 20m), levels[1]);
+    }
+
+    [Theory]
+    [InlineData(typeof(HashMapDepth))]
+    [InlineData(typeof(BTreeDepth))]
+    [InlineData(typeof(FusedDepth))]
+    [InlineData(typeof(RoiVectorDepth))]
+    public void AllImplementations_CopyLevelsReturnsZeroForEmptyBuffer(Type depthType)
+    {
+        var depth = CreateDepth(depthType);
+        depth.Update(Side.Buy, 10000, 100m, Now);
+        Span<DepthLevel> levels = [];
+
+        var count = depth.CopyLevels(Side.Buy, levels);
+
+        Assert.Equal(0, count);
+    }
+
     [Fact]
     public void HashMapDepth_HandlesMultipleLevels()
     {

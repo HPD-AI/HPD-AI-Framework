@@ -34,7 +34,7 @@ public class EventBubblingTests
         var parentCoordinator = new EventCoordinator();
         var childCoordinator = new EventCoordinator();
         childCoordinator.SetParent(parentCoordinator);
-        await using var subscription = parentCoordinator.SubscribeChannel(EventChannel.Streaming);
+        await using var subscription = parentCoordinator.CreateChannelInbox(EventChannel.Streaming);
 
         var receivedEvents = new List<Event>();
         var readTask = Task.Run(async () =>
@@ -65,7 +65,7 @@ public class EventBubblingTests
         var parentCoordinator = new EventCoordinator();
         var childCoordinator = new EventCoordinator();
         childCoordinator.SetParent(parentCoordinator);
-        await using var subscription = parentCoordinator.SubscribeChannel(EventChannel.Streaming);
+        await using var subscription = parentCoordinator.CreateChannelInbox(EventChannel.Streaming);
 
         var receivedEvents = new List<Event>();
         var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));

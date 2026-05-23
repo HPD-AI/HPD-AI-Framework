@@ -7,7 +7,7 @@ public class VarTests
 {
     private static Rational R(int n) => (Rational)n;
     private static Rational R(int num, int den) => Rational.Create((Integer)num, (Integer)den);
-    private static T VarFromInt<T>(int n) where T : IRing<T> => T.FromInt(n);
+    private static T VarFromInt<T>(int n) where T : ICommRing<T> => T.FromInt(n);
 
     // =========================================================================
     // Primal values (no tape needed)
@@ -91,7 +91,7 @@ public class VarTests
     // Gradients — scalar functions f : Rational → Rational
     // =========================================================================
 
-    private T GradOf<T>(Func<Var<T>, Var<T>> f, T x) where T : IField<T>
+    private T GradOf<T>(Func<Var<T>, Var<T>> f, T x) where T : ICommRing<T>
     {
         using var session = Tape<T>.Begin();
         var xv = new Var<T>(x);
@@ -214,7 +214,7 @@ public class VarTests
     // Two-variable gradients
     // =========================================================================
 
-    private (T Gx, T Gy) Grad2<T>(Func<Var<T>, Var<T>, Var<T>> f, T xi, T yi) where T : IField<T>
+    private (T Gx, T Gy) Grad2<T>(Func<Var<T>, Var<T>, Var<T>> f, T xi, T yi) where T : ICommRing<T>
     {
         using var session = Tape<T>.Begin();
         var x = new Var<T>(xi);

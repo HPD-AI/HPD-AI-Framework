@@ -1,9 +1,0 @@
-{
-  "appHost": {
-    "path": "apphost.cs",
-    "language": "csharp"
-  },
-  "sdk": {
-    "version": "13.2.0"
-  }
-}

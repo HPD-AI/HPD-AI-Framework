@@ -353,7 +353,7 @@ public partial class RuntimeHarness
     [InlineData("AgentContext context")]
     [InlineData("AgentLoopState state")]
     [InlineData("HPD.Events.IEventCoordinator events")]
-    [InlineData("HPD.Events.IStreamRegistry streams")]
+    [InlineData("HPD.Events.IEventFlowRegistry streams")]
     [InlineData("ToolResultMetadata metadata")]
     public void UnsupportedRuntimeParameters_ReportDiagnostic(string unsupportedParameter)
     {

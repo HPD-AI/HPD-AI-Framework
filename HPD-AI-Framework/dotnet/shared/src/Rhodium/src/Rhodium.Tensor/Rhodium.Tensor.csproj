@@ -10,6 +10,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Rhodium.Primitives\Rhodium.Primitives.csproj" />
+    <ProjectReference Include="..\Rhodium.Unsafe\Rhodium.Unsafe.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Rhodium.Kernel" />
+    <InternalsVisibleTo Include="Rhodium.Tensor.Tests" />
   </ItemGroup>
 
   <ItemGroup>

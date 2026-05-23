@@ -13,7 +13,7 @@ public static class PolynomialContent
     /// Computes the content of a polynomial: the GCD of all its coefficients.
     /// Returns zero for the zero polynomial.
     /// </summary>
-    public static R Compute<R>(Polynomial<R> p)
+    public static R Compute<R>(SparsePolynomial<R> p)
         where R : IRing<R>, IGcdDomain<R>
     {
         if (p.IsZero)
@@ -32,11 +32,11 @@ public static class PolynomialContent
     /// Each coefficient is divided by the content using DivMod.
     /// Returns zero for the zero polynomial.
     /// </summary>
-    public static Polynomial<R> PrimitivePart<R>(Polynomial<R> p)
+    public static SparsePolynomial<R> PrimitivePart<R>(SparsePolynomial<R> p)
         where R : IRing<R>, IGcdDomain<R>, IEuclideanDomain<R>
     {
         if (p.IsZero)
-            return Polynomial<R>.Zero;
+            return SparsePolynomial<R>.Zero;
 
         var c = Compute(p);
         if (c.Equals(R.MultiplicativeIdentity))
@@ -49,7 +49,7 @@ public static class PolynomialContent
             var (q, _) = R.DivMod(p[exp], c);
             coeffs.Add(new(exp, q));
         }
-        return Polynomial<R>.FromCoeffs(CoeffsToArray(coeffs));
+        return SparsePolynomial<R>.FromCoeffs(CoeffsToArray(coeffs));
     }
 
     private static R[] CoeffsToArray<R>(List<KeyValuePair<int, R>> coeffs)

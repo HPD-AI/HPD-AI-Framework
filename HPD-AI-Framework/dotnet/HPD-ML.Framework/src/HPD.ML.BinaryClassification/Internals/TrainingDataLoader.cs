@@ -1,8 +1,6 @@
 namespace HPD.ML.BinaryClassification;
 
 using HPD.ML.Abstractions;
-using Helium.Primitives;
-using Double = Helium.Primitives.Double;
 
 /// <summary>
 /// Shared helper for loading training data from IDataHandle into arrays
@@ -10,10 +8,10 @@ using Double = Helium.Primitives.Double;
 /// </summary>
 internal static class TrainingDataLoader
 {
-    public static (List<Double[]> Features, List<bool> Labels, int FeatureCount) Load(
+    public static (List<double[]> Features, List<bool> Labels, int FeatureCount) Load(
         IDataHandle data, string featureColumn, string labelColumn)
     {
-        var features = new List<Double[]>();
+        var features = new List<double[]>();
         var labels = new List<bool>();
         int featureCount = 0;
 
@@ -26,16 +24,16 @@ internal static class TrainingDataLoader
             if (row.TryGetValue<float[]>(featureColumn, out var vector))
             {
                 featureCount = vector.Length;
-                var d = new Double[vector.Length];
+                var d = new double[vector.Length];
                 for (int i = 0; i < vector.Length; i++)
-                    d[i] = new Double(vector[i]);
+                    d[i] = vector[i];
                 features.Add(d);
             }
             else
             {
                 featureCount = 1;
                 var scalar = row.GetValue<float>(featureColumn);
-                features.Add([new Double(scalar)]);
+                features.Add([scalar]);
             }
         }
 

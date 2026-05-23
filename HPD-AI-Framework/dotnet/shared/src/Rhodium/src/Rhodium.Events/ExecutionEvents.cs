@@ -9,7 +9,19 @@ namespace Rhodium.Events;
 /// </summary>
 public sealed record OrderAccepted(
     OrderId OrderId,
+    StrategyId StrategyId,
     int VariantId
+) : ExecutionEvent;
+
+/// <summary>
+/// Order was modified by venue.
+/// </summary>
+public sealed record OrderModified(
+    OrderId OrderId,
+    StrategyId StrategyId,
+    int VariantId,
+    Qty? NewQuantity = null,
+    Price? NewLimitPrice = null
 ) : ExecutionEvent;
 
 /// <summary>
@@ -17,6 +29,7 @@ public sealed record OrderAccepted(
 /// </summary>
 public sealed record OrderRejected(
     OrderId OrderId,
+    StrategyId StrategyId,
     int VariantId,
     string Reason
 ) : ExecutionEvent;
@@ -28,6 +41,7 @@ public sealed record OrderFilled(
     OrderId OrderId,
     Instrument Instrument,
     int VariantId,
+    StrategyId StrategyId,
     Side Side,
     Qty FilledQty,
     Price FillPrice,
@@ -42,6 +56,7 @@ public sealed record OrderFilled(
 /// </summary>
 public sealed record OrderCancelled(
     OrderId OrderId,
+    StrategyId StrategyId,
     int VariantId,
     Qty RemainingQty,
     string Reason
@@ -52,5 +67,6 @@ public sealed record OrderCancelled(
 /// </summary>
 public sealed record OrderExpired(
     OrderId OrderId,
+    StrategyId StrategyId,
     int VariantId
 ) : ExecutionEvent;

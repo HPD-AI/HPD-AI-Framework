@@ -9,7 +9,7 @@ public class FinsuppTests
     [Fact]
     public void EmptyIsZero()
     {
-        var f = Finsupp<int, Integer>.Empty;
+        var f = Finsupp<Nat, Integer>.Empty;
         Assert.True(f.IsZero);
         Assert.Equal(0, f.Count);
     }
@@ -17,7 +17,7 @@ public class FinsuppTests
     [Fact]
     public void SingleCreatesOneEntry()
     {
-        var f = Finsupp<int, Integer>.Single(3, (Integer)5);
+        var f = Finsupp<Nat, Integer>.Single(3, (Integer)5);
         Assert.False(f.IsZero);
         Assert.Equal(1, f.Count);
         Assert.Equal((Integer)5, f[3]);
@@ -26,7 +26,7 @@ public class FinsuppTests
     [Fact]
     public void SingleWithZeroIsEmpty()
     {
-        var f = Finsupp<int, Integer>.Single(3, Integer.Zero);
+        var f = Finsupp<Nat, Integer>.Single(3, Integer.Zero);
         Assert.True(f.IsZero);
         Assert.Equal(0, f.Count);
     }
@@ -34,7 +34,7 @@ public class FinsuppTests
     [Fact]
     public void FromDictionaryStripsZeros()
     {
-        var f = Finsupp<int, Integer>.FromDictionary(new Dictionary<int, Integer>
+        var f = Finsupp<Nat, Integer>.FromDictionary(new Dictionary<Nat, Integer>
         {
             { 0, (Integer)1 },
             { 1, Integer.Zero },
@@ -51,7 +51,7 @@ public class FinsuppTests
     [Fact]
     public void LookupAbsentKeyReturnsZero()
     {
-        var f = Finsupp<int, Integer>.Single(1, (Integer)42);
+        var f = Finsupp<Nat, Integer>.Single(1, (Integer)42);
         Assert.Equal(Integer.Zero, f[99]);
     }
 
@@ -60,9 +60,9 @@ public class FinsuppTests
     [Fact]
     public void ZipWithStripsZeros()
     {
-        var a = Finsupp<int, Integer>.Single(1, (Integer)5);
-        var b = Finsupp<int, Integer>.Single(1, (Integer)(-5));
-        var result = Finsupp<int, Integer>.ZipWith((x, y) => x + y, a, b);
+        var a = Finsupp<Nat, Integer>.Single(1, (Integer)5);
+        var b = Finsupp<Nat, Integer>.Single(1, (Integer)(-5));
+        var result = Finsupp<Nat, Integer>.ZipWith((x, y) => x + y, a, b);
         Assert.True(result.IsZero);
         Assert.Equal(0, result.Count);
     }
@@ -70,7 +70,7 @@ public class FinsuppTests
     [Fact]
     public void SubtractSelfGivesEmpty()
     {
-        var a = Finsupp<int, Integer>.FromDictionary(new Dictionary<int, Integer>
+        var a = Finsupp<Nat, Integer>.FromDictionary(new Dictionary<Nat, Integer>
         {
             { 0, (Integer)3 },
             { 1, (Integer)(-7) },
@@ -83,7 +83,7 @@ public class FinsuppTests
     [Fact]
     public void SetToZeroRemovesKey()
     {
-        var f = Finsupp<int, Integer>.Single(1, (Integer)42);
+        var f = Finsupp<Nat, Integer>.Single(1, (Integer)42);
         var g = f.Set(1, Integer.Zero);
         Assert.True(g.IsZero);
     }
@@ -91,8 +91,8 @@ public class FinsuppTests
     [Fact]
     public void MapRangeStripsZeros()
     {
-        var a = Finsupp<int, Integer>.Single(1, (Integer)5);
-        var result = Finsupp<int, Integer>.MapRange(x => x * Integer.Zero, a);
+        var a = Finsupp<Nat, Integer>.Single(1, (Integer)5);
+        var result = Finsupp<Nat, Integer>.MapRange(x => x * Integer.Zero, a);
         Assert.True(result.IsZero);
     }
 
@@ -101,12 +101,12 @@ public class FinsuppTests
     [Fact]
     public void ZipWithPointwiseAdd()
     {
-        var a = Finsupp<int, Integer>.FromDictionary(new Dictionary<int, Integer>
+        var a = Finsupp<Nat, Integer>.FromDictionary(new Dictionary<Nat, Integer>
         {
             { 0, (Integer)1 },
             { 1, (Integer)2 },
         });
-        var b = Finsupp<int, Integer>.FromDictionary(new Dictionary<int, Integer>
+        var b = Finsupp<Nat, Integer>.FromDictionary(new Dictionary<Nat, Integer>
         {
             { 1, (Integer)3 },
             { 2, (Integer)4 },
@@ -121,7 +121,7 @@ public class FinsuppTests
     [Fact]
     public void NegateAll()
     {
-        var a = Finsupp<int, Integer>.FromDictionary(new Dictionary<int, Integer>
+        var a = Finsupp<Nat, Integer>.FromDictionary(new Dictionary<Nat, Integer>
         {
             { 0, (Integer)3 },
             { 1, (Integer)(-7) },
@@ -134,7 +134,7 @@ public class FinsuppTests
     [Fact]
     public void ScalarMultiply()
     {
-        var a = Finsupp<int, Integer>.FromDictionary(new Dictionary<int, Integer>
+        var a = Finsupp<Nat, Integer>.FromDictionary(new Dictionary<Nat, Integer>
         {
             { 0, (Integer)2 },
             { 1, (Integer)3 },
@@ -147,7 +147,7 @@ public class FinsuppTests
     [Fact]
     public void ScalarMultiplyByZeroGivesEmpty()
     {
-        var a = Finsupp<int, Integer>.Single(1, (Integer)42);
+        var a = Finsupp<Nat, Integer>.Single(1, (Integer)42);
         var result = a.ScalarMultiply(Integer.Zero);
         Assert.True(result.IsZero);
     }
@@ -157,12 +157,12 @@ public class FinsuppTests
     [Fact]
     public void EqualFinsuppsAreEqual()
     {
-        var a = Finsupp<int, Integer>.FromDictionary(new Dictionary<int, Integer>
+        var a = Finsupp<Nat, Integer>.FromDictionary(new Dictionary<Nat, Integer>
         {
             { 1, (Integer)2 },
             { 3, (Integer)4 },
         });
-        var b = Finsupp<int, Integer>.FromDictionary(new Dictionary<int, Integer>
+        var b = Finsupp<Nat, Integer>.FromDictionary(new Dictionary<Nat, Integer>
         {
             { 3, (Integer)4 },
             { 1, (Integer)2 },
@@ -173,8 +173,8 @@ public class FinsuppTests
     [Fact]
     public void DifferentFinsuppsAreNotEqual()
     {
-        var a = Finsupp<int, Integer>.Single(1, (Integer)2);
-        var b = Finsupp<int, Integer>.Single(1, (Integer)3);
+        var a = Finsupp<Nat, Integer>.Single(1, (Integer)2);
+        var b = Finsupp<Nat, Integer>.Single(1, (Integer)3);
         Assert.NotEqual(a, b);
     }
 
@@ -183,7 +183,7 @@ public class FinsuppTests
     [Fact]
     public void SupportIsExactlyNonzeroKeys()
     {
-        var f = Finsupp<int, Integer>.FromDictionary(new Dictionary<int, Integer>
+        var f = Finsupp<Nat, Integer>.FromDictionary(new Dictionary<Nat, Integer>
         {
             { 0, (Integer)1 },
             { 1, Integer.Zero },

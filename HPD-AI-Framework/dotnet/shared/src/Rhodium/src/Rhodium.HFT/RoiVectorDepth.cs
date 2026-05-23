@@ -37,6 +37,34 @@ public sealed class RoiVectorDepth : IHftDepth
         return arr[TickToIndex(priceTick)];
     }
 
+    public int CopyLevels(Side side, Span<DepthLevel> destination)
+    {
+        if (destination.IsEmpty)
+            return 0;
+
+        var count = 0;
+        if (side == Side.Buy)
+        {
+            for (var i = _bids.Length - 1; i >= 0 && count < destination.Length; i--)
+            {
+                var qty = _bids[i];
+                if (qty > 0m)
+                    destination[count++] = new DepthLevel(_lowerBound + i, qty);
+            }
+        }
+        else
+        {
+            for (var i = 0; i < _asks.Length && count < destination.Length; i++)
+            {
+                var qty = _asks[i];
+                if (qty > 0m)
+                    destination[count++] = new DepthLevel(_lowerBound + i, qty);
+            }
+        }
+
+        return count;
+    }
+
     public void Update(Side side, long priceTick, decimal qty, Instant timestamp)
     {
         if (!InRange(priceTick)) return;

@@ -28,6 +28,7 @@ public sealed class Order
 
     // ==================== TIME ====================
     public TimeInForce TimeInForce { get; init; } = TimeInForce.Day;
+    public Instant? GoodTilDate { get; init; }
 
     /// <summary>Links order to a specific parameter set (grid search / variant).</summary>
     public int VariantId { get; init; }
@@ -96,6 +97,13 @@ public sealed class Order
     /// Contingency type when part of an order list.
     /// </summary>
     public ContingencyType? ContingencyType { get; init; }
+
+    // ==================== DISPLAY / ICEBERG ====================
+
+    /// <summary>
+    /// Visible slice for an iceberg-style order. Null means the full remaining quantity is displayed.
+    /// </summary>
+    public Qty? DisplayQuantity { get; init; }
 
     // ==================== EXECUTION ALGORITHM ====================
 

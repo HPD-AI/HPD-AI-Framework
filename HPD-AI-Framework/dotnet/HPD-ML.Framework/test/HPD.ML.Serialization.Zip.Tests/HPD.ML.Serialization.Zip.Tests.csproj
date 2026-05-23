@@ -24,6 +24,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\HPD.ML.Serialization.Zip\HPD.ML.Serialization.Zip.csproj" />
     <ProjectReference Include="..\..\src\HPD.ML.Core\HPD.ML.Core.csproj" />
+    <ProjectReference Include="..\..\src\HPD.ML.DeepLearning\HPD.ML.DeepLearning.csproj" />
   </ItemGroup>
 
 </Project>

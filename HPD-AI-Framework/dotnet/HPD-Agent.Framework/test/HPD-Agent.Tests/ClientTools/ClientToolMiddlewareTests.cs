@@ -718,6 +718,42 @@ public class ClientToolMiddlewareTests
     }
 
     [Fact]
+    public async Task BeforeIteration_CollapsedHarness_PreservesClientToolMetadata()
+    {
+        // Arrange
+        var middleware = new ClientToolMiddleware();
+        var Harness = new clientHarnessDefinition(
+            Name: "Browser",
+            Description: "Browser artifact tools",
+            Tools: new[] { CreateTestTool("write_artifact") },
+            StartCollapsed: true
+        );
+
+        var state = new ClientToolStateData()
+            .WithRegisteredHarness(Harness);
+        var agentState = CreateEmptyState() with
+        {
+            MiddlewareState = new MiddlewareState().WithClientTool(state)
+        };
+        var context = CreateIterationContext(agentState);
+
+        // Act
+        await middleware.BeforeIterationAsync(context, CancellationToken.None);
+
+        // Assert
+        var functions = context.Options.Tools.OfType<AIFunction>().ToList();
+        var writeArtifact = functions.First(f => f.Name == "write_artifact");
+
+        Assert.True(writeArtifact.AdditionalProperties?.ContainsKey("ParentHarness") == true);
+        Assert.Equal("Client_Browser", writeArtifact.AdditionalProperties!["ParentHarness"]);
+        Assert.NotNull(writeArtifact.AdditionalProperties);
+        Assert.True(writeArtifact.AdditionalProperties.TryGetValue("IsClientTool", out var isClientTool));
+        Assert.True(isClientTool is true);
+        Assert.Equal("Browser", writeArtifact.AdditionalProperties!["clientHarnessName"]);
+        Assert.Equal("clientHarness", writeArtifact.AdditionalProperties!["SourceType"]);
+    }
+
+    [Fact]
     public void SkillDefinition_Validation_RequiresName()
     {
         // Act & Assert

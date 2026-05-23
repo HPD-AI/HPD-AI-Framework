@@ -16,6 +16,8 @@ public sealed class ZipSerializer : ISerializer
 
     public ZipSerializer()
     {
+        _parameterWriters.Register(new NeuralNetworkParameterWriter());
+
         _jsonOptions = new JsonSerializerOptions
         {
             WriteIndented = true,

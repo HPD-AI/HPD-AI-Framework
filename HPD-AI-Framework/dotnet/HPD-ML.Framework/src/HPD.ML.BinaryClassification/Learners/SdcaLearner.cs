@@ -1,10 +1,7 @@
 namespace HPD.ML.BinaryClassification;
 
-using Helium.Algebra;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 /// <summary>
 /// Stochastic Dual Coordinate Ascent for binary classification.
@@ -36,7 +33,7 @@ public sealed class SdcaLearner : ILearner
 
     public ISchema GetOutputSchema(ISchema inputSchema)
         => new LinearScoringTransform(
-                new LinearModelParameters(Vector<Double>.Zero(1), new Double(0)),
+                new LinearModelParameters([0.0], 0.0),
                 _featureColumn)
             .GetOutputSchema(inputSchema);
 
@@ -70,7 +67,7 @@ public sealed class SdcaLearner : ILearner
                 // Compute w·x + b
                 double wx = bias;
                 for (int j = 0; j < featureCount; j++)
-                    wx += w[j] * (double)x[j];
+                    wx += w[j] * x[j];
 
                 // Compute optimal dual update for log-loss
                 double p = 1.0 / (1.0 + Math.Exp(-wx));
@@ -85,7 +82,7 @@ public sealed class SdcaLearner : ILearner
 
                 // Update primal: w += dualUpdate * x
                 for (int j = 0; j < featureCount; j++)
-                    w[j] += dualUpdate * (double)x[j];
+                    w[j] += dualUpdate * x[j];
                 bias += dualUpdate;
 
                 epochLoss += Math.Log(1.0 + Math.Exp(-y * wx));
@@ -103,12 +100,7 @@ public sealed class SdcaLearner : ILearner
                 break;
         }
 
-        var weights = new Double[featureCount];
-        for (int i = 0; i < featureCount; i++)
-            weights[i] = new Double(w[i]);
-
-        var parameters = new LinearModelParameters(
-            Vector<Double>.FromArray(weights), new Double(bias));
+        var parameters = new LinearModelParameters(w, bias);
         var transform = new LinearScoringTransform(parameters, _featureColumn);
         _progress.OnCompleted();
 

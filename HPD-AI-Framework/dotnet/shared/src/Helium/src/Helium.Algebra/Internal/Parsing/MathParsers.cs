@@ -4,7 +4,7 @@ namespace Helium.Algebra;
 
 internal static class UnivariatePolynomialParser
 {
-    internal static Polynomial<R> Parse<R>(ReadOnlySpan<char> s, IFormatProvider? provider)
+    internal static SparsePolynomial<R> Parse<R>(ReadOnlySpan<char> s, IFormatProvider? provider)
         where R : IRing<R>, ISpanParsable<R>
     {
         var parser = new Parser<R>(s, provider);
@@ -13,7 +13,7 @@ internal static class UnivariatePolynomialParser
         return result;
     }
 
-    internal static bool TryParse<R>(ReadOnlySpan<char> s, IFormatProvider? provider, out Polynomial<R> result)
+    internal static bool TryParse<R>(ReadOnlySpan<char> s, IFormatProvider? provider, out SparsePolynomial<R> result)
         where R : IRing<R>, ISpanParsable<R>
     {
         try
@@ -23,7 +23,7 @@ internal static class UnivariatePolynomialParser
         }
         catch
         {
-            result = Polynomial<R>.Zero;
+            result = SparsePolynomial<R>.Zero;
             return false;
         }
     }
@@ -42,7 +42,7 @@ internal static class UnivariatePolynomialParser
             _lexer = new MathLexer(source);
         }
 
-        public Polynomial<R> ParsePolynomial()
+        public SparsePolynomial<R> ParsePolynomial()
         {
             if (_lexer.Current.Kind is MathTokenKind.End)
                 throw new FormatException("Empty polynomial.");
@@ -58,7 +58,7 @@ internal static class UnivariatePolynomialParser
             return result;
         }
 
-        private Polynomial<R> ParseSignedTerm()
+        private SparsePolynomial<R> ParseSignedTerm()
         {
             bool negative = false;
             if (_lexer.Current.Kind == MathTokenKind.Plus)
@@ -75,7 +75,7 @@ internal static class UnivariatePolynomialParser
             return negative ? -term : term;
         }
 
-        private Polynomial<R> ParseTerm()
+        private SparsePolynomial<R> ParseTerm()
         {
             var result = ParseFactor();
 
@@ -104,19 +104,19 @@ internal static class UnivariatePolynomialParser
         private static bool CanStartFactor(MathTokenKind kind) =>
             kind is MathTokenKind.Number or MathTokenKind.Variable or MathTokenKind.LParen;
 
-        private Polynomial<R> ParseFactor()
+        private SparsePolynomial<R> ParseFactor()
         {
             return _lexer.Current.Kind switch
             {
-                MathTokenKind.Number or MathTokenKind.LParen => Polynomial<R>.C(ParseScalar()),
+                MathTokenKind.Number or MathTokenKind.LParen => SparsePolynomial<R>.C(ParseScalar()),
                 MathTokenKind.Variable => ParseVariableFactor(),
                 _ => throw new FormatException("Expected term factor.")
             };
         }
 
-        private Polynomial<R> ParseVariableFactor()
+        private SparsePolynomial<R> ParseVariableFactor()
         {
-            // We treat x/y/z/xN all as the single indeterminate for Polynomial<R>.
+            // We treat x/y/z/xN all as the single indeterminate for SparsePolynomial<R>.
             _lexer.Next();
 
             int exp = 1;
@@ -126,7 +126,7 @@ internal static class UnivariatePolynomialParser
                 exp = ParseNonNegativeInt();
             }
 
-            return Polynomial<R>.Monomial(exp, R.MultiplicativeIdentity);
+            return SparsePolynomial<R>.Monomial(exp, R.MultiplicativeIdentity);
         }
 
         private R ParseScalar()
@@ -610,4 +610,3 @@ internal static class MatrixParser
         }
     }
 }
-

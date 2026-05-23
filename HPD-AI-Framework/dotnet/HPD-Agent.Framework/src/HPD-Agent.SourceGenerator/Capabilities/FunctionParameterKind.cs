@@ -37,7 +37,7 @@ internal static class FunctionParameterClassifier
             "HPD.Agent.Middleware.AgentContext" => FunctionParameterKind.Unsupported,
             "HPD.Agent.AgentLoopState" => FunctionParameterKind.Unsupported,
             "HPD.Events.IEventCoordinator" => FunctionParameterKind.Unsupported,
-            "HPD.Events.IStreamRegistry" => FunctionParameterKind.Unsupported,
+            "HPD.Events.IEventFlowRegistry" => FunctionParameterKind.Unsupported,
             "HPD.Agent.Middleware.ToolResultMetadata" => FunctionParameterKind.Unsupported,
 
             _ => FunctionParameterKind.ModelFacing

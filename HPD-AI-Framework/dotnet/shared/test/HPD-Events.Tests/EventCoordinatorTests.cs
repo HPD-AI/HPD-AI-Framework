@@ -172,12 +172,12 @@ public class EventCoordinatorTests
     }
 
     [Fact]
-    public async Task TypedSubscriberAndStreamSubscriber_BothReceiveSameEvent()
+    public async Task TypedSubscriberAndInboxSubscriber_BothReceiveSameEvent()
     {
         using var coordinator = new EventCoordinator();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         var handled = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var stream = coordinator.SubscribeStream<TestEvent>();
+        await using var stream = coordinator.CreateInbox<TestEvent>();
 
         using var subscription = coordinator.Subscribe<TestEvent>(evt =>
         {
@@ -192,11 +192,55 @@ public class EventCoordinatorTests
     }
 
     [Fact]
+    public async Task CreateInbox_ReceivesEventWithoutStartingHandlerPump()
+    {
+        using var coordinator = new EventCoordinator();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await using var inbox = coordinator.CreateInbox<TestEvent>();
+
+        coordinator.Emit(new TestEvent("owned"));
+
+        Assert.Equal("owned", (await ReadOneAsync(inbox.Reader, cts.Token)).Message);
+    }
+
+    [Fact]
+    public async Task CreateInbox_DefaultsToBackpressureWait()
+    {
+        using var coordinator = new EventCoordinator();
+        await using var inbox = coordinator.CreateInbox<TestEvent>(
+            new EventInboxOptions { Capacity = 1 });
+
+        await coordinator.EmitAsync(new TestEvent("first"));
+        var emitTask = coordinator.EmitAsync(new TestEvent("second")).AsTask();
+        await Task.Delay(50);
+
+        Assert.False(emitTask.IsCompleted);
+
+        Assert.Equal("first", (await ReadOneAsync(inbox.Reader)).Message);
+        await emitTask.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("second", (await ReadOneAsync(inbox.Reader)).Message);
+    }
+
+    [Fact]
+    public async Task CreateInbox_CanUseLossyLatestOnlyMode()
+    {
+        using var coordinator = new EventCoordinator();
+        await using var inbox = coordinator.CreateInbox<TestEvent>(
+            EventInboxOptions.LatestOnly());
+
+        coordinator.Emit(new TestEvent("first"));
+        coordinator.Emit(new TestEvent("second"));
+
+        Assert.Equal("second", (await ReadOneAsync(inbox.Reader)).Message);
+        Assert.False(await WaitToReadSafelyAsync(inbox.Reader));
+    }
+
+    [Fact]
     public async Task ChannelSubscriber_ReceivesOnlyMatchingChannelWithoutStealing()
     {
         using var coordinator = new EventCoordinator();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        await using var streaming = coordinator.SubscribeChannel(EventChannel.Streaming);
+        await using var streaming = coordinator.CreateChannelInbox(EventChannel.Streaming);
         var handled = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         using var subscription = coordinator.Subscribe<TestStreamingEvent>(evt =>
@@ -212,6 +256,35 @@ public class EventCoordinatorTests
             await ReadOneAsync(streaming.Reader, cts.Token)).Message);
         Assert.Equal("stream", await handled.Task.WaitAsync(cts.Token));
         Assert.False(await WaitToReadSafelyAsync(streaming.Reader));
+    }
+
+    [Fact]
+    public async Task CreateChannelInbox_ReceivesOnlyMatchingChannel()
+    {
+        using var coordinator = new EventCoordinator();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await using var streaming = coordinator.CreateChannelInbox(EventChannel.Streaming);
+
+        coordinator.Emit(new TestEvent("sync"));
+        coordinator.Emit(new TestStreamingEvent("stream"));
+
+        Assert.Equal("stream", Assert.IsType<TestStreamingEvent>(
+            await ReadOneAsync(streaming.Reader, cts.Token)).Message);
+        Assert.False(await WaitToReadSafelyAsync(streaming.Reader));
+    }
+
+    [Fact]
+    public async Task EventBus_ExposesComposedInboxSurface()
+    {
+        using var bus = new EventBus();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        IEventBus eventBus = bus;
+        await using var inbox = eventBus.CreateInbox<TestEvent>();
+
+        eventBus.Emit(new TestEvent("bus"));
+
+        Assert.Equal("bus", (await ReadOneAsync(inbox.Reader, cts.Token)).Message);
+        Assert.Equal(1, eventBus.GetStats().InboxCount);
     }
 
     [Fact]
@@ -241,8 +314,8 @@ public class EventCoordinatorTests
     public async Task EmitAsync_WaitsForFullModeWaitSubscriber()
     {
         using var coordinator = new EventCoordinator();
-        await using var stream = coordinator.SubscribeStream<TestEvent>(
-            new EventSubscriptionOptions
+        await using var stream = coordinator.CreateInbox<TestEvent>(
+            new EventInboxOptions
             {
                 Capacity = 1,
                 FullMode = BoundedChannelFullMode.Wait
@@ -289,7 +362,7 @@ public class EventCoordinatorTests
     {
         using var coordinator = new EventCoordinator();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        await using var diagnostics = coordinator.SubscribeStream<EventSubscriberFaultedEvent>();
+        await using var diagnostics = coordinator.CreateInbox<EventSubscriberFaultedEvent>();
         var later = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         using var throwing = coordinator.Subscribe<TestEvent>(
@@ -315,7 +388,7 @@ public class EventCoordinatorTests
         using var child = new EventCoordinator();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         child.SetParent(parent);
-        await using var parentStream = parent.SubscribeStream<TestControlEvent>();
+        await using var parentStream = parent.CreateInbox<TestControlEvent>();
 
         var evt = new TestControlEvent("bubbled");
         child.Emit(evt);
@@ -339,7 +412,7 @@ public class EventCoordinatorTests
         using var child = new EventCoordinator();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         child.SetParent(parent);
-        await using var parentStream = parent.SubscribeStream<TestControlEvent>();
+        await using var parentStream = parent.CreateInbox<TestControlEvent>();
 
         child.Emit(new TestControlEvent("bubbled"));
 
@@ -357,7 +430,7 @@ public class EventCoordinatorTests
             eventFilter: evt => evt is TestControlEvent { Message: "allowed" });
         using var child = new EventCoordinator();
         child.SetParent(parent);
-        await using var parentStream = parent.SubscribeStream<TestControlEvent>();
+        await using var parentStream = parent.CreateInbox<TestControlEvent>();
 
         child.Emit(new TestControlEvent("blocked"));
         child.Emit(new TestControlEvent("allowed"));
@@ -374,7 +447,7 @@ public class EventCoordinatorTests
             {
                 Extensions = new Dictionary<string, object> { ["enriched"] = true }
             });
-        await using var stream = coordinator.SubscribeStream<TestEvent>();
+        await using var stream = coordinator.CreateInbox<TestEvent>();
 
         coordinator.Emit(new TestEvent("test"));
 
@@ -389,7 +462,7 @@ public class EventCoordinatorTests
     {
         using var coordinator = new EventCoordinator(
             eventFilter: evt => evt is TestEvent { Message: "allowed" });
-        await using var stream = coordinator.SubscribeStream<TestEvent>();
+        await using var stream = coordinator.CreateInbox<TestEvent>();
 
         coordinator.Emit(new TestEvent("allowed"));
         coordinator.Emit(new TestEvent("blocked"));
@@ -565,18 +638,18 @@ public class EventCoordinatorTests
     }
 
     [Fact]
-    public void StreamRegistry_IsAccessible()
+    public void EventFlowRegistry_IsAccessible()
     {
         var coordinator = new EventCoordinator();
 
-        Assert.IsAssignableFrom<IStreamRegistry>(coordinator.Streams);
+        Assert.IsAssignableFrom<IEventFlowRegistry>(coordinator.EventFlows);
     }
 
     [Fact]
     public async Task GetStats_ReportsSubscriberHealth()
     {
         using var coordinator = new EventCoordinator();
-        await using var stream = coordinator.SubscribeStream<TestEvent>();
+        await using var stream = coordinator.CreateInbox<TestEvent>();
         using var handler = coordinator.SubscribeAny(_ => ValueTask.CompletedTask);
 
         coordinator.Emit(new TestEvent("queued"));
@@ -584,7 +657,7 @@ public class EventCoordinatorTests
         var stats = coordinator.GetStats();
 
         Assert.Equal(2, stats.SubscriberCount);
-        Assert.Equal(1, stats.StreamSubscriberCount);
+        Assert.Equal(1, stats.InboxCount);
         Assert.True(stats.TotalQueued >= 1);
         Assert.True(stats.MaxSubscriberDepth >= 1);
     }

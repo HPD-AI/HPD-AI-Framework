@@ -1,11 +1,8 @@
 namespace HPD.ML.Regression;
 
-using Helium.Algebra;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.BinaryClassification;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 /// <summary>
 /// Applies a linear model to produce regression predictions.
@@ -51,9 +48,9 @@ public sealed class RegressionScoringTransform : ITransform
                     int d = _params.FeatureCount;
 
                     // w·x + b
-                    double score = (double)_params.Bias;
+                    double score = _params.Bias;
                     for (int i = 0; i < d; i++)
-                        score += (double)_params.Weights[i] * (double)features[i];
+                        score += _params.Weights[i] * features[i];
 
                     float output = _applyExp ? (float)Math.Exp(score) : (float)score;
 
@@ -68,17 +65,17 @@ public sealed class RegressionScoringTransform : ITransform
             input.Ordering);
     }
 
-    private Double[] ExtractFeatures(IRow row)
+    private double[] ExtractFeatures(IRow row)
     {
         if (row.TryGetValue<float[]>(_featureColumn, out var vector))
         {
-            var values = new Double[vector.Length];
+            var values = new double[vector.Length];
             for (int i = 0; i < vector.Length; i++)
-                values[i] = new Double(vector[i]);
+                values[i] = vector[i];
             return values;
         }
 
         var scalar = row.GetValue<float>(_featureColumn);
-        return [new Double(scalar)];
+        return [scalar];
     }
 }

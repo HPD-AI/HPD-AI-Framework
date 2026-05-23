@@ -398,6 +398,28 @@ export function createSuccessResponse(
 }
 
 /**
+ * Creates a successful text tool response.
+ */
+export function createTextResponse(
+  requestId: string,
+  text: string,
+  augmentation?: ClientToolAugmentation
+): ClientToolInvokeResponse {
+  return createSuccessResponse(requestId, createTextResult(text), augmentation);
+}
+
+/**
+ * Creates a successful JSON tool response.
+ */
+export function createJsonResponse(
+  requestId: string,
+  value: unknown,
+  augmentation?: ClientToolAugmentation
+): ClientToolInvokeResponse {
+  return createSuccessResponse(requestId, createJsonResult(value), augmentation);
+}
+
+/**
  * Creates a failed tool response.
  */
 export function createErrorResponse(

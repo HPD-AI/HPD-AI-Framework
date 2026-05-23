@@ -1,11 +1,11 @@
 namespace HPD.Events;
 
 /// <summary>
-/// Emitted when an event is dropped due to stream interruption.
+/// Emitted when an event is dropped due to event flow interruption.
 /// Universal diagnostic event across all domains (Agent, Graph, etc.).
 /// </summary>
 public record EventDroppedEvent(
-    string DroppedStreamId,
+    string DroppedEventFlowId,
     string DroppedEventType,
     long DroppedSequenceNumber
 ) : Event

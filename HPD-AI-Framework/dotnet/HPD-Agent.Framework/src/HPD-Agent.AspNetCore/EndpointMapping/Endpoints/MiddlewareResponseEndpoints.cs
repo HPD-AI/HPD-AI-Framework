@@ -1,8 +1,5 @@
-using System.Text.Json;
-using HPD.Agent;
-using HPD.Agent.AspNetCore.Lifecycle;
 using HPD.Agent.ClientTools;
-using HPD.Agent.Hosting.Data;
+using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.Middleware;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -22,30 +19,29 @@ internal static class MiddlewareResponseEndpoints
     /// </summary>
     internal static void Map(
         IEndpointRouteBuilder endpoints,
-        AspNetCoreSessionManager sessionManager,
-        AspNetCoreAgentManager agentManager)
+        IAgentMiddlewareResponseService responses)
     {
         // POST /agents/{agentId}/sessions/{sid}/branches/{bid}/permissions/respond - Permission decision
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/permissions/respond", (string agentId, string sid, string bid, PermissionResponseEvent evt, CancellationToken ct) =>
-                RespondToPermission(agentId, sid, bid, evt, sessionManager, agentManager, ct))
+                RespondToPermission(agentId, sid, bid, evt, responses, ct))
             .WithName("RespondToPermission")
             .WithSummary("Respond to a permission request from the agent");
 
         // POST /agents/{agentId}/sessions/{sid}/branches/{bid}/continuation/respond - Continuation decision
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/continuation/respond", (string agentId, string sid, string bid, ContinuationResponseEvent evt, CancellationToken ct) =>
-                RespondToContinuation(agentId, sid, bid, evt, sessionManager, agentManager, ct))
+                RespondToContinuation(agentId, sid, bid, evt, responses, ct))
             .WithName("RespondToContinuation")
             .WithSummary("Respond to a continuation request from the agent");
 
         // POST /agents/{agentId}/sessions/{sid}/branches/{bid}/clarifications/respond - Clarification answer
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/clarifications/respond", (string agentId, string sid, string bid, ClarificationResponseEvent evt, CancellationToken ct) =>
-                RespondToClarification(agentId, sid, bid, evt, sessionManager, agentManager, ct))
+                RespondToClarification(agentId, sid, bid, evt, responses, ct))
             .WithName("RespondToClarification")
             .WithSummary("Respond to a clarification request from the agent");
 
         // POST /agents/{agentId}/sessions/{sid}/branches/{bid}/client-tools/respond - Client tool result
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/client-tools/respond", (string agentId, string sid, string bid, ClientToolInvokeResponseEvent evt, CancellationToken ct) =>
-                RespondToClientTool(agentId, sid, bid, evt, sessionManager, agentManager, ct))
+                RespondToClientTool(agentId, sid, bid, evt, responses, ct))
             .WithName("RespondToClientTool")
             .WithSummary("Respond to a client tool execution request from the agent");
     }
@@ -55,28 +51,12 @@ internal static class MiddlewareResponseEndpoints
         string sid,
         string bid,
         PermissionResponseEvent evt,
-        AspNetCoreSessionManager sessionManager,
-        AspNetCoreAgentManager agentManager,
+        IAgentMiddlewareResponseService responses,
         CancellationToken ct = default)
     {
         try
         {
-            if (!await RouteScopeExistsAsync(sessionManager, sid, bid, ct))
-            {
-                return TypedResults.NotFound();
-            }
-
-            var agent = agentManager.GetAgent(agentId);
-            if (agent == null)
-            {
-                return TypedResults.NotFound();
-            }
-
-            // Send response to the waiting permission middleware.
-            if (!await agent.TryRespondAsync(evt, ct))
-                return TypedResults.Conflict();
-
-            return TypedResults.Ok();
+            return ToHttpResult(await responses.RespondToPermissionAsync(agentId, sid, bid, evt, ct));
         }
         catch (Exception ex)
         {
@@ -92,28 +72,12 @@ internal static class MiddlewareResponseEndpoints
         string sid,
         string bid,
         ContinuationResponseEvent evt,
-        AspNetCoreSessionManager sessionManager,
-        AspNetCoreAgentManager agentManager,
+        IAgentMiddlewareResponseService responses,
         CancellationToken ct = default)
     {
         try
         {
-            if (!await RouteScopeExistsAsync(sessionManager, sid, bid, ct))
-            {
-                return TypedResults.NotFound();
-            }
-
-            var agent = agentManager.GetAgent(agentId);
-            if (agent == null)
-            {
-                return TypedResults.NotFound();
-            }
-
-            // Send response to the waiting continuation middleware.
-            if (!await agent.TryRespondAsync(evt, ct))
-                return TypedResults.Conflict();
-
-            return TypedResults.Ok();
+            return ToHttpResult(await responses.RespondToContinuationAsync(agentId, sid, bid, evt, ct));
         }
         catch (Exception ex)
         {
@@ -129,27 +93,12 @@ internal static class MiddlewareResponseEndpoints
         string sid,
         string bid,
         ClarificationResponseEvent evt,
-        AspNetCoreSessionManager sessionManager,
-        AspNetCoreAgentManager agentManager,
+        IAgentMiddlewareResponseService responses,
         CancellationToken ct = default)
     {
         try
         {
-            if (!await RouteScopeExistsAsync(sessionManager, sid, bid, ct))
-            {
-                return TypedResults.NotFound();
-            }
-
-            var agent = agentManager.GetAgent(agentId);
-            if (agent == null)
-            {
-                return TypedResults.NotFound();
-            }
-
-            if (!await agent.TryRespondAsync(evt, ct))
-                return TypedResults.Conflict();
-
-            return TypedResults.Ok();
+            return ToHttpResult(await responses.RespondToClarificationAsync(agentId, sid, bid, evt, ct));
         }
         catch (Exception ex)
         {
@@ -165,28 +114,12 @@ internal static class MiddlewareResponseEndpoints
         string sid,
         string bid,
         ClientToolInvokeResponseEvent evt,
-        AspNetCoreSessionManager sessionManager,
-        AspNetCoreAgentManager agentManager,
+        IAgentMiddlewareResponseService responses,
         CancellationToken ct = default)
     {
         try
         {
-            if (!await RouteScopeExistsAsync(sessionManager, sid, bid, ct))
-            {
-                return TypedResults.NotFound();
-            }
-
-            var agent = agentManager.GetAgent(agentId);
-            if (agent == null)
-            {
-                return TypedResults.NotFound();
-            }
-
-            // Send response to the waiting ClientToolMiddleware.
-            if (!await agent.TryRespondAsync(evt, ct))
-                return TypedResults.Conflict();
-
-            return TypedResults.Ok();
+            return ToHttpResult(await responses.RespondToClientToolAsync(agentId, sid, bid, evt, ct));
         }
         catch (Exception ex)
         {
@@ -197,17 +130,17 @@ internal static class MiddlewareResponseEndpoints
         }
     }
 
-    private static async Task<bool> RouteScopeExistsAsync(
-        AspNetCoreSessionManager sessionManager,
-        string sid,
-        string bid,
-        CancellationToken ct)
+    private static Results<Ok, NotFound, Conflict, ValidationProblem> ToHttpResult(AgentServiceResult result)
     {
-        var session = await sessionManager.Store.LoadSessionAsync(sid, ct);
-        if (session == null)
-            return false;
-
-        var branch = await sessionManager.Store.LoadBranchAsync(sid, bid, ct);
-        return branch != null;
+        return result.Status switch
+        {
+            AgentServiceStatus.Success => TypedResults.Ok(),
+            AgentServiceStatus.NotFound => TypedResults.NotFound(),
+            AgentServiceStatus.Conflict => TypedResults.Conflict(),
+            _ => TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [result.ErrorCode ?? "MiddlewareResponseError"] = [result.ErrorMessage ?? "Middleware response failed."]
+            })
+        };
     }
 }

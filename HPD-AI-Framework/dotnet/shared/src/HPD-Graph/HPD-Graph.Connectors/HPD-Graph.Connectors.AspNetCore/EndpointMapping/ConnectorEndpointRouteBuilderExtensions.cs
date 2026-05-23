@@ -435,7 +435,7 @@ public static class ConnectorEndpointRouteBuilderExtensions
         CancellationToken ct)
     {
         httpContext.Response.ContentType = "text/event-stream";
-        await using var subscription = events.SubscribeChannel(EventChannel.Synchronous);
+        await using var subscription = ((IEventInboxSource)events).CreateChannelInbox(EventChannel.Synchronous);
         await foreach (var evt in subscription.Reader.ReadAllAsync(ct).ConfigureAwait(false))
         {
             await httpContext.Response.WriteAsync("event: ", ct).ConfigureAwait(false);
@@ -458,7 +458,7 @@ public static class ConnectorEndpointRouteBuilderExtensions
             writer.WriteString("kind", evt.Kind.ToString());
             writer.WriteString("channel", evt.Channel.ToString());
             writer.WriteNumber("sequenceNumber", evt.SequenceNumber);
-            writer.WriteString("streamId", evt.StreamId);
+            writer.WriteString("eventFlowId", evt.EventFlowId);
             writer.WriteString("timestamp", evt.Timestamp);
             writer.WriteNumber("exchangeTimestampNs", evt.ExchangeTimestampNs);
             writer.WriteEndObject();

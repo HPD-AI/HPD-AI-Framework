@@ -1,18 +1,14 @@
 namespace HPD.ML.BinaryClassification;
 
-using Helium.Algebra;
-using Helium.Primitives;
 using HPD.ML.Abstractions;
 using HPD.ML.Core;
-using Double = Helium.Primitives.Double;
 
 /// <summary>
 /// Logistic regression via L-BFGS optimization.
 ///
 /// Loss function: -Σ[y·log(σ(w·x+b)) + (1-y)·log(1-σ(w·x+b))] / n
 ///
-/// Helium's autodiff computes the gradient of this loss automatically.
-/// L-BFGS uses gradient history to approximate the inverse Hessian.
+/// L-BFGS uses analytic gradients and gradient history to approximate the inverse Hessian.
 /// </summary>
 public sealed class LogisticRegressionLearner : ILearner
 {
@@ -35,7 +31,7 @@ public sealed class LogisticRegressionLearner : ILearner
 
     public ISchema GetOutputSchema(ISchema inputSchema)
         => new LinearScoringTransform(
-                new LinearModelParameters(Vector<Double>.Zero(1), new Double(0)),
+                new LinearModelParameters([0.0], 0.0),
                 _featureColumn)
             .GetOutputSchema(inputSchema);
 
@@ -45,35 +41,36 @@ public sealed class LogisticRegressionLearner : ILearner
             input.TrainData, _featureColumn, _labelColumn);
         int n = features.Count;
 
-        // Define loss function: negative log-likelihood
-        // Parameters layout: [w0, w1, ..., w_{d-1}, bias]
-        Func<Vector<Var<Double>>, Var<Double>> loss = parameters =>
+        (double Loss, double[] Gradient) Objective(double[] parameters)
         {
             int d = featureCount;
-            var totalLoss = Var<Double>.Constant(new Double(0));
+            var totalLoss = 0.0;
+            var gradient = new double[d + 1];
 
             for (int i = 0; i < n; i++)
             {
-                // w·x + b
-                var logit = parameters[d]; // bias
+                var logit = parameters[d];
                 for (int j = 0; j < d; j++)
-                    logit = logit + parameters[j] * Var<Double>.Constant(features[i][j]);
+                    logit += parameters[j] * features[i][j];
 
-                // Numerically stable log-loss via log(1 + exp(±z))
                 var y = labels[i];
-                if (y)
-                    totalLoss = totalLoss + LogOnePlusExp(-logit);
-                else
-                    totalLoss = totalLoss + LogOnePlusExp(logit);
+                totalLoss += y ? LogOnePlusExp(-logit) : LogOnePlusExp(logit);
+
+                var probability = Sigmoid(logit);
+                var error = probability - (y ? 1.0 : 0.0);
+                for (int j = 0; j < d; j++)
+                    gradient[j] += error * features[i][j];
+                gradient[d] += error;
             }
 
-            return totalLoss / Var<Double>.Constant(new Double(n));
-        };
+            for (int i = 0; i < gradient.Length; i++)
+                gradient[i] /= n;
 
-        // Initialize parameters to zero
-        var initial = Vector<Double>.Zero(featureCount + 1); // weights + bias
+            return (totalLoss / n, gradient);
+        }
 
-        // Optimize via L-BFGS
+        var initial = new double[featureCount + 1];
+
         var optimizer = new LbfgsOptimizer(
             memorySize: _options.MemorySize,
             tolerance: _options.OptimizationTolerance,
@@ -81,17 +78,11 @@ public sealed class LogisticRegressionLearner : ILearner
             l1Regularization: _options.L1Regularization,
             l2Regularization: _options.L2Regularization);
 
-        var optimized = optimizer.Minimize(loss, initial, _progress);
-
-        // Extract weights and bias
-        var weights = new Double[featureCount];
-        for (int i = 0; i < featureCount; i++)
-            weights[i] = optimized[i];
+        var optimized = optimizer.Minimize(Objective, initial, _progress);
+        var weights = optimized[..featureCount];
         var bias = optimized[featureCount];
 
-        var parameters = new LinearModelParameters(
-            Vector<Double>.FromArray(weights), bias);
-
+        var parameters = new LinearModelParameters(weights, bias);
         var transform = new LinearScoringTransform(parameters, _featureColumn);
         _progress.OnCompleted();
 
@@ -101,13 +92,11 @@ public sealed class LogisticRegressionLearner : ILearner
     public Task<IModel> FitAsync(LearnerInput input, CancellationToken ct = default)
         => Task.Run(() => Fit(input), ct);
 
-    /// <summary>Numerically stable log(1 + exp(x))</summary>
-    private static Var<Double> LogOnePlusExp(Var<Double> x)
-    {
-        var expX = VarMath.Exp(x);
-        var onePlusExpX = Var<Double>.Constant(new Double(1)) + expX;
-        return VarMath.Log(onePlusExpX);
-    }
+    private static double LogOnePlusExp(double x) =>
+        x > 0 ? x + Math.Log(1.0 + Math.Exp(-x)) : Math.Log(1.0 + Math.Exp(x));
+
+    private static double Sigmoid(double x) =>
+        x >= 0 ? 1.0 / (1.0 + Math.Exp(-x)) : Math.Exp(x) / (1.0 + Math.Exp(x));
 }
 
 public sealed record LogisticRegressionOptions

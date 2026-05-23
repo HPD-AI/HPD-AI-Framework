@@ -19,6 +19,10 @@ public static class AotRegistry
         RegisterField(Field.LowRaw);
         RegisterField(Field.CloseRaw);
         RegisterField(Field.VolumeRaw);
+        RegisterField(Field.BidRaw);
+        RegisterField(Field.AskRaw);
+        RegisterField(Field.BidSizeRaw);
+        RegisterField(Field.AskSizeRaw);
 
         RegisterField(Field.SplitFactor);
         RegisterField(Field.DividendScale);
@@ -30,6 +34,10 @@ public static class AotRegistry
         RegisterField(Field.Low);
         RegisterField(Field.Close);
         RegisterField(Field.Volume);
+        RegisterField(Field.Bid);
+        RegisterField(Field.Ask);
+        RegisterField(Field.BidSize);
+        RegisterField(Field.AskSize);
 
         // Register kernel types
         RegisterKernel<AdjustmentKernel>();

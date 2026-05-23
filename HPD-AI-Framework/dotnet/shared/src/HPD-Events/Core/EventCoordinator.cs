@@ -3,7 +3,13 @@ namespace HPD.Events.Core;
 /// <summary>
 /// Public event coordinator facade.
 /// </summary>
-public sealed class EventCoordinator : IEventCoordinator, IDisposable
+public sealed class EventCoordinator :
+    IEventCoordinator,
+    IEventBus,
+    IRequestResponseBus,
+    IHierarchicalEventBus,
+    IStructEventBus,
+    IDisposable
 {
     private readonly EventChannelRouter _events;
     private readonly StructEventRouter _structs = new();
@@ -25,7 +31,7 @@ public sealed class EventCoordinator : IEventCoordinator, IDisposable
     internal void UnregisterChildRouter(EventChannelRouter child) => _events.UnregisterChild(child);
 
     /// <inheritdoc />
-    public IStreamRegistry Streams => _events.Streams;
+    public IEventFlowRegistry EventFlows => _events.EventFlows;
 
     /// <inheritdoc />
     public void Emit(Event evt) => _events.Emit(evt);
@@ -48,24 +54,30 @@ public sealed class EventCoordinator : IEventCoordinator, IDisposable
         _events.SubscribeAny(handler, options);
 
     /// <inheritdoc />
-    public EventStreamSubscription<TEvent> SubscribeStream<TEvent>(
-        EventSubscriptionOptions? options = null)
+    public EventInbox<TEvent> CreateInbox<TEvent>(
+        EventInboxOptions? options = null)
         where TEvent : Event =>
-        _events.SubscribeStream<TEvent>(options);
+        _events.CreateInbox<TEvent>(options);
 
     /// <inheritdoc />
-    public EventStreamSubscription<Event> SubscribeChannel(
+    public EventInbox<Event> CreateChannelInbox(
         EventChannel channel,
-        EventSubscriptionOptions? options = null) =>
-        _events.SubscribeChannel(channel, options);
+        EventInboxOptions? options = null) =>
+        _events.CreateChannelInbox(channel, options);
 
     /// <inheritdoc />
     public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent =>
         _structs.TryEmitStruct(in evt);
 
+    bool IStructEventBus.TryEmit<TEvent>(in TEvent evt) =>
+        _structs.TryEmitStruct(in evt);
+
     /// <inheritdoc />
     public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default)
         where TEvent : struct, IStructEvent =>
+        _structs.EmitStructAsync(evt, ct);
+
+    ValueTask IStructEventBus.EmitAsync<TEvent>(TEvent evt, CancellationToken ct) =>
         _structs.EmitStructAsync(evt, ct);
 
     /// <inheritdoc />
@@ -74,13 +86,24 @@ public sealed class EventCoordinator : IEventCoordinator, IDisposable
         _structs.SubscribeStruct<TEvent>(options);
 
     /// <inheritdoc />
+    public StructInbox<TEvent> CreateInbox<TEvent>(StructInboxOptions? options = null)
+        where TEvent : struct, IStructEvent =>
+        _structs.CreateInbox<TEvent>(options);
+
+    /// <inheritdoc />
     public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler)
         where TEvent : struct, IStructEvent =>
+        _structs.SubscribeStruct(handler);
+
+    IDisposable IStructEventBus.Subscribe<TEvent>(Func<TEvent, ValueTask> handler) =>
         _structs.SubscribeStruct(handler);
 
     /// <inheritdoc />
     public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null)
         where TEvent : struct, IStructEvent =>
+        _structs.CreateStructEmitter(options);
+
+    StructEmitter<TEvent> IStructEventBus.CreateEmitter<TEvent>(StructEmitterOptions<TEvent>? options) =>
         _structs.CreateStructEmitter(options);
 
     /// <inheritdoc />
@@ -94,6 +117,17 @@ public sealed class EventCoordinator : IEventCoordinator, IDisposable
 
         if (parent is EventCoordinator next)
             next.RegisterChildRouter(_events);
+    }
+
+    void IHierarchicalEventBus.SetParent(IEventBus parent)
+    {
+        if (parent is not EventCoordinator coordinator)
+        {
+            throw new NotSupportedException(
+                "Full event-bus hierarchy support requires an EventCoordinator parent.");
+        }
+
+        SetParent(coordinator);
     }
 
     /// <inheritdoc />
@@ -144,6 +178,8 @@ public sealed class EventCoordinator : IEventCoordinator, IDisposable
 
     /// <inheritdoc />
     public EventCoordinatorStats GetStats() => _events.GetStats();
+
+    EventBusStats IEventBus.GetStats() => _events.GetBusStats();
 
     /// <summary>
     /// Dispose coordinator and complete all class-event channels and struct subscriptions.

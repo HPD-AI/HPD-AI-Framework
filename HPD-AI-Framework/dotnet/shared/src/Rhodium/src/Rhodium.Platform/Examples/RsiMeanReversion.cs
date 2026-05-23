@@ -1,99 +1,69 @@
-using Rhodium.Platform.Extensions;
-using Rhodium.Platform.Patterns;
-using Rhodium.Primitives;
+using Rhodium.Indicators.Streaming;
 using Rhodium.Kernel;
+using Rhodium.Platform.Attributes;
+using Rhodium.Platform.Extensions;
+using Rhodium.Primitives;
 
 namespace Rhodium.Platform.Examples;
 
-/// <summary>
-/// Struct visitor that scans for RSI mean reversion signals.
-/// Used with EngineLoops.ForEachAsset for zero-allocation iteration.
-/// </summary>
-readonly struct SignalScanner : ITickVisitor
+public sealed partial class RsiMeanReversion : Strategy
 {
-    public void Visit(AssetId id, ref TradingEngine engine)
-    {
-        double rsi = engine.GetRsi14(id);
+    [BarField(Name = "RSI_14", ReadOnly = true)]
+    [BarIndicator(typeof(RSI), 14)]
+    public partial double Rsi { get; }
 
-        // Oversold condition - buy signal
-        if (rsi < 30)
+    [TickField(ReadOnly = true)]
+    [TickIndicator(typeof(Spread))]
+    public partial long SpreadTicks { get; }
+
+    private AssetId _spy;
+    private AssetId _spyOptimized;
+
+    protected override void OnInitialize(in SetupContext setup)
+    {
+        _spy = setup.AddEquity("SPY");
+        _spyOptimized = setup.AddEquity("SPY", 1);
+    }
+
+    partial void OnTick(ref TickContext tick)
+    {
+        if (tick.AssetId == _spy && tick.SpreadTicks <= 1)
         {
-            engine.SetPosition(id, new Qty(0.5m));
+            // Tick path intentionally stays tiny; bar path owns the RSI signal.
         }
-        // Overbought condition - sell signal
-        else if (rsi > 70)
-        {
-            engine.Flatten(id);
-        }
+    }
+
+    partial void OnBar(ref BarContext bar)
+    {
+        if (!bar.RsiIsReady) return;
+
+        if (bar.Rsi < 30)
+            bar.TargetQuantity(new Qty(0.5m));
+        else if (bar.Rsi > 70)
+            bar.Flatten();
     }
 }
 
-/// <summary>
-/// Example RSI mean reversion strategy demonstrating the Platform Layer API.
-/// Trades multiple instruments using RSI(14) indicator with oversold/overbought thresholds.
-/// </summary>
-public sealed class RsiMeanReversion : StrategyBase
+public sealed partial class SimpleRsiStrategy : Strategy
 {
-    private AssetId _spy;
-    private AssetId _spyOptimized; // Variant 1 - for parameter optimization grid
+    [BarField(Name = "RSI_14", ReadOnly = true)]
+    [BarIndicator(typeof(RSI), 14)]
+    public partial double Rsi { get; }
 
-    protected override void OnInitialize()
-    {
-        // Register primary instrument
-        _spy = AddEquity("SPY");
-
-        // Register variant for grid search/optimization
-        _spyOptimized = AddEquity("SPY", 1);
-
-        // Register RSI(14) indicator column
-        // This ensures the column is allocated and rooted for NativeAOT
-        RegisterIndicator(Fields.RSI_14);
-    }
-
-    public override void OnTick()
-    {
-        // Example: Check if market data is available
-        if (Engine.GetBestBidTick(_spy).HasValue)
-        {
-            decimal depth = Engine.GetBidDepth(_spy);
-
-            // Could use depth for position sizing or filtering
-            // if (depth < 1000m) return;
-        }
-
-        // Use struct visitor pattern for zero-cost iteration
-        var scanner = new SignalScanner();
-        EngineLoops.ForEachAsset(ref Engine, ref scanner);
-    }
-}
-
-/// <summary>
-/// Alternative RSI strategy using direct position management instead of visitor pattern.
-/// Demonstrates both approaches for strategy implementation.
-/// </summary>
-public sealed class SimpleRsiStrategy : StrategyBase
-{
     private AssetId _spy;
 
-    protected override void OnInitialize()
+    protected override void OnInitialize(in SetupContext setup)
     {
-        _spy = AddEquity("SPY");
-        RegisterIndicator(Fields.RSI_14);
+        _spy = setup.AddEquity("SPY");
     }
 
-    public override void OnTick()
+    partial void OnBar(ref BarContext bar)
     {
-        double rsi = Engine.GetRsi14(_spy);
+        if (bar.AssetId != _spy || !bar.RsiIsReady) return;
 
-        if (rsi < 30 && Engine.GetPosition(_spy) == 0)
-        {
-            // Buy when oversold
-            Engine.Buy(_spy, new Qty(100m), ExecutionPolicy.Safe);
-        }
-        else if (rsi > 70 && Engine.GetPosition(_spy) > 0)
-        {
-            // Sell when overbought
-            Engine.Flatten(_spy);
-        }
+        if (bar.Rsi < 30 && bar.PositionQuantity == 0m)
+            bar.Buy(new Qty(100m));
+        else if (bar.Rsi > 70 && bar.PositionQuantity > 0m)
+            bar.Flatten();
     }
 }

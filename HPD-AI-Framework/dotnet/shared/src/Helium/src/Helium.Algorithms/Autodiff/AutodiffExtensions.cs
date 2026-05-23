@@ -13,7 +13,7 @@ namespace Helium.Algorithms;
 /// </summary>
 public static class AutodiffExtensions
 {
-    extension<T>(Func<Var<T>, Var<T>> f) where T : IField<T>
+    extension<T>(Func<Var<T>, Var<T>> f) where T : ICommRing<T>
     {
         /// <summary>Differentiates f once. Returns x ↦ f'(x).</summary>
         public Func<T, T> Grad() => x => Algorithms.Grad.Scalar(f, x);
@@ -27,7 +27,7 @@ public static class AutodiffExtensions
             throw new NotSupportedException("Grad2 requires a forward-over-reverse implementation. Use Grad.HessianExact for second derivatives.");
     }
 
-    extension<T>(Func<Vector<Var<T>>, Var<T>> f) where T : IField<T>
+    extension<T>(Func<Vector<Var<T>>, Var<T>> f) where T : ICommRing<T>
     {
         /// <summary>Returns x ↦ ∇f(x) as a Vector&lt;T&gt;.</summary>
         public Func<Vector<T>, Vector<T>> Grad() => x => Algorithms.Grad.Of(f, x);
@@ -48,7 +48,7 @@ public static class AutodiffExtensions
             x => Algorithms.Grad.HessianExact(f, x);
     }
 
-    extension<T>(Func<Vector<Var<T>>, Vector<Var<T>>> f) where T : IField<T>
+    extension<T>(Func<Vector<Var<T>>, Vector<Var<T>>> f) where T : ICommRing<T>
     {
         /// <summary>Returns x ↦ Jacobian of f at x as a LinearMap&lt;T&gt;.</summary>
         public Func<Vector<T>, LinearMap<T>> Jacobian() => x => Algorithms.Grad.Jacobian(f, x);

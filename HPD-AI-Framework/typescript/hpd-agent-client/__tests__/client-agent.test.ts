@@ -3,7 +3,7 @@
  *
  * What these tests cover:
  *   listAgents, getAgent, createAgent, updateAgent, deleteAgent — one-line
- *   passthroughs to the underlying AgentTransport. The tests verify:
+ *   convenience methods backed by AgentHttpApi. The tests verify:
  *     1. The correct HTTP method and URL are called.
  *     2. The request body (where applicable) carries the right payload.
  *     3. The return value is the parsed JSON the server sent back.
@@ -11,7 +11,7 @@
  *     5. Void-returning deleteAgent resolves without a value.
  *
  * Test type: unit — all network I/O is replaced by vi.spyOn(globalThis, 'fetch').
- * Transport under test: SseTransport (default).
+ * API under test: AgentHttpApi through AgentClient convenience methods.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';

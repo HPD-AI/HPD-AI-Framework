@@ -35,173 +35,94 @@ public class Ideal<R>
     public static Ideal<R> UnitIdeal => Principal(R.MultiplicativeIdentity);
 }
 
-/// <summary>
-/// Shared context for a quotient ring R / I. Holds the reduction function and
-/// provides reference-equality-based context resolution for arithmetic.
-///
-/// The sentinel instance is used by the static AdditiveIdentity and MultiplicativeIdentity
-/// members to satisfy the ICommRing interface without knowing the actual quotient.
-/// </summary>
-public sealed class QuotientContext<R> where R : ICommRing<R>
+public readonly struct ZModElement :
+    ICommRing<ZModElement>,
+    IEquatable<ZModElement>
 {
-    /// <summary>The reduction function x ↦ canonical representative of [x].</summary>
-    public Func<R, R> Reduce { get; }
+    public Integer Value { get; }
 
-    private readonly bool _isSentinel;
+    public Integer Modulus { get; }
 
-    private QuotientContext(Func<R, R> reduce, bool isSentinel)
+    private ZModElement(Integer value, Integer modulus)
     {
-        Reduce = reduce;
-        _isSentinel = isSentinel;
+        Modulus = modulus.IsZero ? Integer.Zero : modulus.Abs();
+        Value = Modulus.IsZero ? value : Reduce(value, Modulus);
     }
 
-    /// <summary>Create a real context with the given reduction function.</summary>
-    public static QuotientContext<R> Create(Func<R, R> reduce) => new(reduce, isSentinel: false);
+    public static ZModElement Create(Integer value, Integer modulus) => new(value, modulus);
 
-    /// <summary>The sentinel context used by identity elements.</summary>
-    public static QuotientContext<R> Sentinel { get; } = new(x => x, isSentinel: true);
+    public static ZModElement AdditiveIdentity => new(Integer.Zero, Integer.Zero);
 
-    public bool IsSentinel => _isSentinel;
+    public static ZModElement MultiplicativeIdentity => new(Integer.One, Integer.Zero);
 
-    /// <summary>
-    /// Resolves the context to use for an arithmetic operation.
-    ///
-    /// Rules:
-    /// - Both same real context (reference equality): use it.
-    /// - One sentinel, one real: use the real silently.
-    ///   Required for generic accumulators seeded with AdditiveIdentity.
-    /// - Both real but different: throw InvalidOperationException.
-    ///   This catches silent mixing of different quotients.
-    /// </summary>
-    public static QuotientContext<R> Resolve(QuotientContext<R> left, QuotientContext<R> right)
+    static ZModElement IAdditiveIdentity<ZModElement, ZModElement>.AdditiveIdentity => AdditiveIdentity;
+
+    static ZModElement IMultiplicativeIdentity<ZModElement, ZModElement>.MultiplicativeIdentity => MultiplicativeIdentity;
+
+    public static ZModElement operator +(ZModElement left, ZModElement right)
     {
-        if (ReferenceEquals(left, right)) return left;
-        if (left._isSentinel) return right;
-        if (right._isSentinel) return left;
+        var modulus = ResolveModulus(left, right);
+        return new(left.Value + right.Value, modulus);
+    }
+
+    public static ZModElement operator -(ZModElement left, ZModElement right)
+    {
+        var modulus = ResolveModulus(left, right);
+        return new(left.Value - right.Value, modulus);
+    }
+
+    public static ZModElement operator *(ZModElement left, ZModElement right)
+    {
+        var modulus = ResolveModulus(left, right);
+        return new(left.Value * right.Value, modulus);
+    }
+
+    public static ZModElement operator -(ZModElement value) =>
+        new(-value.Value, value.Modulus);
+
+    public static bool operator ==(ZModElement left, ZModElement right) => left.Equals(right);
+
+    public static bool operator !=(ZModElement left, ZModElement right) => !left.Equals(right);
+
+    public bool Equals(ZModElement other)
+    {
+        if (Modulus.IsZero || other.Modulus.IsZero)
+            return Value.Equals(other.Value);
+        return Modulus.Equals(other.Modulus) && Value.Equals(other.Value);
+    }
+
+    public override bool Equals(object? obj) => obj is ZModElement other && Equals(other);
+
+    public override int GetHashCode() => HashCode.Combine(Value, Modulus);
+
+    public override string ToString() =>
+        Modulus.IsZero ? Value.ToString() : $"{Value} (mod {Modulus})";
+
+    private static Integer ResolveModulus(ZModElement left, ZModElement right)
+    {
+        if (left.Modulus.IsZero) return right.Modulus;
+        if (right.Modulus.IsZero) return left.Modulus;
+        if (left.Modulus.Equals(right.Modulus)) return left.Modulus;
         throw new InvalidOperationException(
-            "Cannot mix elements from different quotient rings. " +
-            "Ensure both operands belong to the same QuotientContext.");
+            $"Cannot mix ZMod elements with moduli {left.Modulus} and {right.Modulus}.");
+    }
+
+    private static Integer Reduce(Integer value, Integer modulus)
+    {
+        var (_, r) = Integer.DivMod(value, modulus);
+        if (r < Integer.Zero)
+            r += modulus;
+        return r;
     }
 }
 
 /// <summary>
-/// Quotient ring R / I. Elements are equivalence classes represented by a canonical
-/// representative, reduced modulo the ideal.
-///
-/// For principal ideals over Euclidean domains, reduction is via DivMod.
-/// Elements carry a reference to a shared QuotientContext&lt;R&gt; rather than their
-/// own closure, ensuring that operations on elements from different quotients are
-/// detected and rejected rather than silently producing wrong results.
-/// </summary>
-public readonly struct QuotientRing<R> :
-    ICommRing<QuotientRing<R>>,
-    IEquatable<QuotientRing<R>>
-    where R : ICommRing<R>
-{
-    /// <summary>The canonical representative of the equivalence class.</summary>
-    public R Representative { get; }
-
-    private readonly QuotientContext<R> _context;
-
-    private QuotientRing(R representative, QuotientContext<R> context)
-    {
-        _context = context;
-        Representative = context.Reduce(representative);
-    }
-
-    /// <summary>
-    /// Create a quotient ring element with the given shared context.
-    /// </summary>
-    public static QuotientRing<R> Create(R value, QuotientContext<R> context) =>
-        new(value, context);
-
-    // --- Identity elements (use sentinel context) ---
-
-    public static QuotientRing<R> AdditiveIdentity =>
-        new(R.AdditiveIdentity, QuotientContext<R>.Sentinel);
-
-    public static QuotientRing<R> MultiplicativeIdentity =>
-        new(R.MultiplicativeIdentity, QuotientContext<R>.Sentinel);
-
-    static QuotientRing<R> IAdditiveIdentity<QuotientRing<R>, QuotientRing<R>>.AdditiveIdentity => AdditiveIdentity;
-    static QuotientRing<R> IMultiplicativeIdentity<QuotientRing<R>, QuotientRing<R>>.MultiplicativeIdentity => MultiplicativeIdentity;
-
-    // --- Arithmetic (operates on reps, then reduces via resolved context) ---
-
-    public static QuotientRing<R> operator +(QuotientRing<R> left, QuotientRing<R> right)
-    {
-        var ctx = QuotientContext<R>.Resolve(left._context, right._context);
-        return new(left.Representative + right.Representative, ctx);
-    }
-
-    public static QuotientRing<R> operator -(QuotientRing<R> left, QuotientRing<R> right)
-    {
-        var ctx = QuotientContext<R>.Resolve(left._context, right._context);
-        return new(left.Representative - right.Representative, ctx);
-    }
-
-    public static QuotientRing<R> operator *(QuotientRing<R> left, QuotientRing<R> right)
-    {
-        var ctx = QuotientContext<R>.Resolve(left._context, right._context);
-        return new(left.Representative * right.Representative, ctx);
-    }
-
-    public static QuotientRing<R> operator -(QuotientRing<R> value) =>
-        new(-value.Representative, value._context);
-
-    // --- Equality (on representatives, which are canonical after reduction) ---
-
-    public static bool operator ==(QuotientRing<R> left, QuotientRing<R> right) =>
-        left.Representative.Equals(right.Representative);
-
-    public static bool operator !=(QuotientRing<R> left, QuotientRing<R> right) => !(left == right);
-
-    public bool Equals(QuotientRing<R> other) => Representative.Equals(other.Representative);
-    public override bool Equals(object? obj) => obj is QuotientRing<R> other && Equals(other);
-    public override int GetHashCode() => Representative.GetHashCode();
-    public override string ToString() => Representative.ToString() ?? "0";
-}
-
-/// <summary>
-/// Factory for ZMod(n): integers modulo n as a quotient ring.
-/// Contexts are cached by modulus so that all elements of the same ZMod ring
-/// share one context object, enabling reference-equality-based context resolution.
+/// Factory for integer residue classes Z/nZ.
 /// </summary>
 public static class ZMod
 {
-    // Cache: absolute value of modulus → shared context.
-    // Using Dictionary with lock for thread safety.
-    private static readonly Dictionary<Integer, QuotientContext<Integer>> _cache = [];
-    private static readonly Lock _lock = new();
-
-    public static QuotientRing<Integer> Create(Integer value, Integer modulus)
-    {
-        var ctx = Context(modulus);
-        return QuotientRing<Integer>.Create(value, ctx);
-    }
-
-    public static QuotientContext<Integer> Context(Integer modulus)
-    {
-        if (modulus.IsZero)
-            return QuotientContext<Integer>.Create(x => x);
-
-        var abs = modulus.Abs();
-        lock (_lock)
-        {
-            if (_cache.TryGetValue(abs, out var cached))
-                return cached;
-
-            var ctx = QuotientContext<Integer>.Create(x =>
-            {
-                var (_, r) = Integer.DivMod(x, abs);
-                if (r < Integer.Zero)
-                    r += abs;
-                return r;
-            });
-            _cache[abs] = ctx;
-            return ctx;
-        }
-    }
+    public static ZModElement Create(Integer value, Integer modulus) =>
+        ZModElement.Create(value, modulus);
 
     public static Func<Integer, Integer> Reducer(Integer modulus)
     {

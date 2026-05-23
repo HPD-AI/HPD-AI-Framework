@@ -373,3 +373,99 @@ public class OrderIdTests
         Assert.Equal("99999", str);
     }
 }
+
+public class SettlementIdTests
+{
+    [Fact]
+    public void SettlementId_New_ShouldGenerateUniqueIds()
+    {
+        var id1 = SettlementId.New();
+        var id2 = SettlementId.New();
+        var id3 = SettlementId.New();
+
+        Assert.NotEqual(id1, id2);
+        Assert.NotEqual(id2, id3);
+        Assert.True(id2.Value > id1.Value);
+        Assert.True(id3.Value > id2.Value);
+    }
+
+    [Fact]
+    public void SettlementId_ShouldSupportImplicitConversion()
+    {
+        SettlementId settlementId = 12345L;
+
+        Assert.Equal(12345L, settlementId.Value);
+    }
+
+    [Fact]
+    public void SettlementId_ToString_ShouldReturnValue()
+    {
+        SettlementId settlementId = 99999L;
+
+        Assert.Equal("99999", settlementId.ToString());
+    }
+}
+
+public class AssetDeliveryIdTests
+{
+    [Fact]
+    public void AssetDeliveryId_New_ShouldGenerateUniqueIds()
+    {
+        var id1 = AssetDeliveryId.New();
+        var id2 = AssetDeliveryId.New();
+        var id3 = AssetDeliveryId.New();
+
+        Assert.NotEqual(id1, id2);
+        Assert.NotEqual(id2, id3);
+        Assert.True(id2.Value > id1.Value);
+        Assert.True(id3.Value > id2.Value);
+    }
+
+    [Fact]
+    public void AssetDeliveryId_ShouldSupportImplicitConversion()
+    {
+        AssetDeliveryId deliveryId = 12345L;
+
+        Assert.Equal(12345L, deliveryId.Value);
+    }
+
+    [Fact]
+    public void AssetDeliveryId_ToString_ShouldReturnValue()
+    {
+        AssetDeliveryId deliveryId = 99999L;
+
+        Assert.Equal("99999", deliveryId.ToString());
+    }
+}
+
+public class AccountTransferIdTests
+{
+    [Fact]
+    public void AccountTransferId_New_ShouldGenerateUniqueIds()
+    {
+        var id1 = AccountTransferId.New();
+        var id2 = AccountTransferId.New();
+        var id3 = AccountTransferId.New();
+
+        Assert.NotEqual(id1, id2);
+        Assert.NotEqual(id2, id3);
+        Assert.True(id2.Value > id1.Value);
+        Assert.True(id3.Value > id2.Value);
+    }
+
+    [Fact]
+    public void AccountTransferId_ShouldSupportImplicitConversion()
+    {
+        AccountTransferId transferId = 12345L;
+
+        Assert.Equal(12345L, transferId.Value);
+    }
+
+    [Fact]
+    public void AccountTransferId_ToString_ShouldReturnValue()
+    {
+        AccountTransferId transferId = 99999L;
+
+        Assert.Equal("99999", transferId.ToString());
+    }
+}

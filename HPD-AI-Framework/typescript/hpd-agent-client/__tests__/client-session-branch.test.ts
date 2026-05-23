@@ -4,15 +4,14 @@
  * What these tests cover:
  *   The session CRUD, branch CRUD, and sibling navigation methods added to
  *   AgentClient in the 009-platform-adapters prerequisite. Each method is a
- *   one-line passthrough to the underlying AgentTransport; the tests verify:
+ *   convenience methods backed by AgentHttpApi; the tests verify:
  *     1. The correct HTTP method and URL are called.
  *     2. The request body (where applicable) carries the right payload.
  *     3. The return value is the parsed JSON the server sent back.
  *     4. Void-returning methods (delete) resolve without a value.
  *
  * Test type: unit — all network I/O is replaced by vi.spyOn(globalThis, 'fetch').
- * Transport under test: SseTransport (default when no transport is specified),
- * which means the session/branch HTTP calls use plain fetch just like SSE.
+ * API under test: AgentHttpApi through AgentClient convenience methods.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -93,7 +92,7 @@ describe('AgentClient — session/branch passthroughs', () => {
       await client.listSessions({ metadata: { projectId: 'p1' } });
 
       const [url] = spy.mock.calls[0];
-      // The transport must include the metadata filter somewhere — either via
+      // The API must include the metadata filter somewhere — either via
       // query string (GET) or a POST body. Either way the URL base is /sessions.
       expect(String(url)).toContain('/sessions');
     });
@@ -223,7 +222,7 @@ describe('AgentClient — session/branch passthroughs', () => {
       const fork = { ...BRANCH, id: 'branch-2' };
       mockFetchJson(fork, 201);
 
-      const result = await client.forkBranch('sess-1', 'branch-1', { agentId: 'agent-1', forkAtMessageIndex: 3 });
+      const result = await client.forkBranch('sess-1', 'branch-1', { agentId: 'agent-1', fromMessageIndex: 3 });
 
       const [url, init] = vi.mocked(fetch).mock.calls[0];
       expect(String(url)).toBe(`${BASE}/agents/agent-1/sessions/sess-1/branches/branch-1/fork`);
@@ -248,7 +247,7 @@ describe('AgentClient — session/branch passthroughs', () => {
       await client.deleteBranch('sess-1', 'branch-1', { recursive: true });
 
       const [url] = vi.mocked(fetch).mock.calls[0];
-      // Transport encodes recursive either as query param or body — URL must
+      // The API encodes recursive either as query param or body — URL must
       // include the base path at minimum.
       expect(String(url)).toContain('/sessions/sess-1/branches/branch-1');
     });
@@ -292,7 +291,7 @@ describe('AgentClient — session/branch passthroughs', () => {
 
   describe('getNextSibling', () => {
     it('resolves the next sibling by following nextSiblingId from the current branch', async () => {
-      // Transport calls getBranch twice: once to get nextSiblingId, once to fetch that branch.
+      // The API calls getBranch twice: once to get nextSiblingId, once to fetch that branch.
       const current = { ...BRANCH, id: 'branch-1', nextSiblingId: 'branch-2' };
       const next    = { ...BRANCH, id: 'branch-2' };
 
@@ -323,7 +322,7 @@ describe('AgentClient — session/branch passthroughs', () => {
 
   describe('getPreviousSibling', () => {
     it('resolves the previous sibling by following previousSiblingId from the current branch', async () => {
-      // Transport calls getBranch twice: once to get previousSiblingId, once to fetch that branch.
+      // The API calls getBranch twice: once to get previousSiblingId, once to fetch that branch.
       const current = { ...BRANCH, id: 'branch-1', previousSiblingId: 'branch-0' };
       const prev    = { ...BRANCH, id: 'branch-0' };
 

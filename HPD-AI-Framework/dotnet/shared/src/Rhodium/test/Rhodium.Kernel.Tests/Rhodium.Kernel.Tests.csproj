@@ -20,6 +20,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Rhodium.Kernel\Rhodium.Kernel.csproj" />
+    <ProjectReference Include="..\..\src\Rhodium.Primitives\Rhodium.Primitives.csproj" />
+    <ProjectReference Include="..\..\src\Rhodium.Tensor\Rhodium.Tensor.csproj" />
+    <ProjectReference Include="..\..\src\Rhodium.Unsafe\Rhodium.Unsafe.csproj" />
   </ItemGroup>
 
 </Project>

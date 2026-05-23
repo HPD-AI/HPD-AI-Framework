@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Net.Http.Json;
 using FluentAssertions;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
@@ -311,6 +312,28 @@ public class SessionEndpointsTests : IClassFixture<TestWebApplicationFactory>
         // Assert
         var updated = await updateResponse.Content.ReadFromJsonAsync<SessionDto>();
         updated!.Metadata.Should().NotContainKey("removeMe");
+    }
+
+    [Fact]
+    public async Task UpdateSession_TreatsNullMetadata_AsNoOp()
+    {
+        // Arrange
+        var initialMetadata = new Dictionary<string, object> { ["keepMe"] = "value" };
+        var createResponse = await _client.PostAsJsonAsync("/sessions",
+            new CreateSessionRequest(null, initialMetadata));
+        var session = await createResponse.Content.ReadFromJsonAsync<SessionDto>();
+
+        // Act
+        using var content = new StringContent(
+            "{\"metadata\":null}",
+            Encoding.UTF8,
+            "application/json");
+        var updateResponse = await _client.PatchAsync($"/sessions/{session!.Id}", content);
+
+        // Assert
+        updateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updated = await updateResponse.Content.ReadFromJsonAsync<SessionDto>();
+        updated!.Metadata.Should().ContainKey("keepMe");
     }
 
     [Fact]

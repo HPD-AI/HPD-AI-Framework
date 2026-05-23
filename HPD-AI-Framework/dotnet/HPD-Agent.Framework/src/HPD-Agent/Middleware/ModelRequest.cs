@@ -89,7 +89,7 @@ public sealed record ModelRequest
     /// </para>
     /// <para><b>Example (AudioPipelineMiddleware):</b></para>
     /// <code>
-    /// var stream = request.Streams?.Create();
+    /// var stream = request.EventFlows?.Create();
     /// try
     /// {
     ///     await foreach (var update in handler(request))
@@ -104,7 +104,7 @@ public sealed record ModelRequest
     /// }
     /// </code>
     /// </remarks>
-    public IStreamRegistry? Streams { get; init; }
+    public IEventFlowRegistry? EventFlows { get; init; }
 
     /// <summary>
     /// The current session. Provides access to session storage (content store, asset store).
@@ -148,7 +148,7 @@ public sealed record ModelRequest
     ///     Duration: TimeSpan.FromMilliseconds(100))
     /// {
     ///     Channel = EventChannel.Streaming,
-    ///     StreamId = stream?.StreamId
+    ///     StreamId = stream?.EventFlowId
     /// });
     /// </code>
     /// </remarks>
@@ -168,7 +168,7 @@ public sealed record ModelRequest
     /// </para>
     /// <para><b>Note:</b></para>
     /// <para>
-    /// Streams, RunConfig, and EventCoordinator are NOT overrideable via this method.
+    /// EventFlows, RunConfig, and EventCoordinator are NOT overrideable via this method.
     /// These properties come from the agent runtime and should not be modified by middleware.
     /// </para>
     /// <para><b>Example:</b></para>

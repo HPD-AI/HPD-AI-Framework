@@ -4,7 +4,7 @@
  * Core type definitions for the Agent state manager.
  */
 
-import type { AgentExecutionContext, ToolResultPayload } from '@hpd/hpd-agent-client';
+import type { AgentExecutionContext, ClientToolHandler, ToolResultPayload } from '@hpd/hpd-agent-client';
 
 // ============================================
 // Message Types
@@ -105,9 +105,7 @@ export interface CreateAgentOptions {
 	headers?: Record<string, string>;
 
 	/** Client tool invocation handler */
-	onClientToolInvoke?: (
-		request: import('@hpd/hpd-agent-client').ClientToolInvokeRequest
-	) => Promise<import('@hpd/hpd-agent-client').ClientToolInvokeResponse>;
+	onClientToolInvoke?: ClientToolHandler;
 
 	/** Error callback */
 	onError?: (message: string) => void;

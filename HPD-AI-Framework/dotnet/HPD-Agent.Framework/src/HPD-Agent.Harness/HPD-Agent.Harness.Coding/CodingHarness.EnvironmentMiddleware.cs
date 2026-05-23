@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using HPD.Agent;
+using HPD.Agent.Harness.Coding;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
@@ -39,9 +40,10 @@ public sealed class EnvironmentContextMiddleware : IHarnessMiddleware
     public Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken cancellationToken)
     {
         var environmentContext = EnvironmentContext.CreateCurrent(_config);
-        var environmentInstructions = environmentContext.SerializeToXml();
+        AgentWorkspace.TryFrom(context.RunConfig, out var workspace, out _);
+        var environmentInstructions = environmentContext.SerializeToXml(workspace);
         var state = context.GetMiddlewareState<EnvironmentContextState>();
-        if (state?.LastContext?.SerializeToXml() == environmentInstructions)
+        if (state?.LastSerializedContext == environmentInstructions)
             return Task.CompletedTask;
 
         context.Options.Instructions = string.IsNullOrWhiteSpace(context.Options.Instructions)
@@ -50,7 +52,8 @@ public sealed class EnvironmentContextMiddleware : IHarnessMiddleware
 
         context.UpdateMiddlewareState<EnvironmentContextState>(s => s with
         {
-            LastContext = environmentContext
+            LastContext = environmentContext,
+            LastSerializedContext = environmentInstructions
         });
 
         return Task.CompletedTask;
@@ -157,6 +160,8 @@ public sealed class EnvironmentContextMiddleware : IHarnessMiddleware
 public sealed record EnvironmentContextState
 {
     public EnvironmentContext? LastContext { get; init; }
+
+    public string? LastSerializedContext { get; init; }
 }
 
 public sealed record CodingFileMutationSnapshot
@@ -243,7 +248,7 @@ public sealed record EnvironmentContext
         };
     }
 
-    public string SerializeToXml()
+    public string SerializeToXml(AgentWorkspace? workspace = null)
     {
         var builder = new StringBuilder();
 
@@ -266,6 +271,20 @@ public sealed record EnvironmentContext
         builder.AppendLine($"    <path_separator>{EscapeXml(PathSeparator)}</path_separator>");
         builder.AppendLine($"    <is_git_repository>{IsGitRepository.ToString().ToLowerInvariant()}</is_git_repository>");
         builder.AppendLine($"    <workspace_root>{EscapeXml(WorkspaceRoot)}</workspace_root>");
+        if (workspace is not null)
+        {
+            builder.AppendLine("    <selected_workspace>");
+            builder.AppendLine($"      <default_root_id>{EscapeXml(workspace.DefaultRootId)}</default_root_id>");
+            builder.AppendLine($"      <default_root_path>{EscapeXml(workspace.DefaultRootPath)}</default_root_path>");
+            builder.AppendLine("      <roots>");
+            foreach (var root in workspace.Roots)
+            {
+                builder.AppendLine(
+                    $"        <root id=\"{EscapeXml(root.Id)}\" label=\"{EscapeXml(root.Label ?? root.Id)}\" path=\"{EscapeXml(root.Path)}\" />");
+            }
+            builder.AppendLine("      </roots>");
+            builder.AppendLine("    </selected_workspace>");
+        }
         builder.AppendLine($"    <temp_directory>{EscapeXml(TempDirectory)}</temp_directory>");
         builder.AppendLine("    <available_shells>");
         foreach (var shell in AvailableShells)

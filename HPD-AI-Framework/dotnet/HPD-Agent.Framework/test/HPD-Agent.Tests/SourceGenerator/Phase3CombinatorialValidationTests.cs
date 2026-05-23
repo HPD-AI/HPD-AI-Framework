@@ -1,9 +1,13 @@
 using System.Linq;
+using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.AI;
 using Xunit;
 using HPD.Agent;
+using HPD.Agent.Middleware;
 using HPD.Agent.Tests.TestHarneses;
+using HPD.Events.Core;
 
 namespace HPD.Agent.Tests.SourceGenerator;
 
@@ -286,13 +290,51 @@ public class Phase3CombinatorialValidationTests
         Assert.NotNull(skill);
 
         // Activate the skill
-        var result = await skill!.InvokeAsync(new AIFunctionArguments());
+        var hpdSkill = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(skill);
+        var result = await hpdSkill.InvokeAsync(
+            new AIFunctionArguments(),
+            CreateFunctionExecutionContext(skill!),
+            CancellationToken.None);
 
         Assert.NotNull(result);
 
         // Result should contain activation message
         var resultText = result?.ToString() ?? "";
         Assert.Contains("activated", resultText.ToLower());
+    }
+
+    private static FunctionExecutionContext CreateFunctionExecutionContext(AIFunction function)
+    {
+        var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
+        var session = new global::HPD.Agent.Session("session-1");
+        var branch = new global::HPD.Agent.Branch("session-1") { Id = "branch-1" };
+        var agentContext = new AgentContext(
+            "AgentA",
+            "conversation-1",
+            state,
+            new EventCoordinator(),
+            session,
+            branch,
+            CancellationToken.None);
+        var beforeContext = agentContext.AsBeforeFunction(
+            function,
+            "call-1",
+            new Dictionary<string, object?>(),
+            new AgentRunConfig(),
+            harnessName: null,
+            skillName: null);
+
+        return new FunctionExecutionContext(
+            beforeContext,
+            new FunctionRequest
+            {
+                Function = function,
+                CallId = "call-1",
+                Arguments = new Dictionary<string, object?>(),
+                State = state,
+                ResultMetadata = new ToolResultMetadata(),
+                EventCoordinator = agentContext.EventCoordinator
+            });
     }
 
     /// <summary>

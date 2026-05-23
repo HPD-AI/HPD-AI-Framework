@@ -1,7 +1,7 @@
 {
   "name": "@hpd/hpd-agent-client",
   "version": "0.1.0",
-  "description": "TypeScript client SDK for HPD-Agent event streaming",
+  "description": "TypeScript chat/runtime SDK for HPD-Agent",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

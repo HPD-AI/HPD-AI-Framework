@@ -71,6 +71,13 @@ public sealed record FunctionRequest
     public required AgentLoopState State { get; init; }
 
     /// <summary>
+    /// Run options for the turn that requested this function.
+    /// Exposes per-run configuration to wrapping middleware and function bodies without
+    /// requiring mutable global state or rebuilding the agent.
+    /// </summary>
+    public AgentRunConfig RunConfig { get; init; } = new();
+
+    /// <summary>
     /// Runtime-assigned invocation metadata, if this request belongs to a model tool-call batch.
     /// </summary>
     public ToolInvocationInfo? Invocation { get; init; }

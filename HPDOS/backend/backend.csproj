@@ -4,39 +4,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UserSecretsId>hpdos-backend-dev</UserSecretsId>
-    <PublishAot>false</PublishAot>
-    <IsAotCompatible>false</IsAotCompatible>
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
-    <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
-    <PackAsTool>false</PackAsTool>
-    <OptimizationPreference>Size</OptimizationPreference>
-    <DebugType>none</DebugType>
-    <NativeDebugSymbols>false</NativeDebugSymbols>
-    <DebuggerSupport>false</DebuggerSupport>
-    <StackTraceSupport>false</StackTraceSupport>
-    <EventSourceSupport>true</EventSourceSupport>
-    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
-    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.2" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.15.1" />
-  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent/HPD-Agent.csproj" />
     <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
-    <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.AspNetCore/HPD-Agent.Bots.AspNetCore.csproj" />
-    <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.Discord/HPD-Agent.Bots.Discord.csproj" />
-    <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.Slack/HPD-Agent.Bots.Slack.csproj" />
-    <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.Teams/HPD-Agent.Bots.Teams.csproj" />
-    <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.Telegram/HPD-Agent.Bots.Telegram.csproj" />
-    <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Bots/HPD-Agent.Bots.WhatsApp/HPD-Agent.Bots.WhatsApp.csproj" />
-    <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
     <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj" />
     <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj" />
     <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAIInference/HPD-Agent.Providers.AzureAIInference.csproj" />
@@ -47,12 +19,7 @@
     <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/HPD-Agent.Providers.Ollama.csproj" />
     <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj" />
     <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj" />
-    <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj" />
-    <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Auth.Framework/src/HPD.Auth/HPD.Auth.csproj" />
-    <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Auth.Framework/src/HPD.Auth.Authentication/HPD.Auth.Authentication.csproj" />
-    <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Auth.Framework/src/HPD.Auth.Authorization/HPD.Auth.Authorization.csproj" />
-    <ProjectReference Include="../../HPD-AI-Framework/dotnet/shared/src/HPD-Graph/HPD-Graph.AspNetCore/HPD-Graph.AspNetCore.csproj" />
+    <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Execution/HPD-Execution.Local/HPD-Execution.Local.csproj" />
     <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj" />
-    <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding.SourceGenerator/HPD-Agent.Harness.Coding.SourceGenerator.csproj" />
   </ItemGroup>
 </Project>

@@ -1971,12 +1971,12 @@ public class RuntimeLifecycleTests : AgentTestBase
     public async Task InterruptionRequest_WithStreamId_InterruptsRuntimeScopedStream()
     {
         var order = new List<string>();
-        IStreamHandle? runtimeStream = null;
+        IEventFlowHandle? runtimeStream = null;
         var middleware = new RuntimeHookRecordingMiddleware("A", order)
         {
             OnAfterStarted = (context, _) =>
             {
-                runtimeStream = context.Streams.Create("runtime-stream");
+                runtimeStream = context.EventFlows.Create("runtime-stream");
                 return Task.CompletedTask;
             }
         };
@@ -2831,8 +2831,8 @@ public class RuntimeLifecycleTests : AgentTestBase
     public async Task InterruptionRequest_WithStreamId_InterruptsOnlyMatchingStream()
     {
         var agent = CreateAgent(client: new FakeChatClient());
-        var stream1 = agent.EventCoordinator.Streams.Create("stream-1");
-        var stream2 = agent.EventCoordinator.Streams.Create("stream-2");
+        var stream1 = agent.EventCoordinator.EventFlows.Create("stream-1");
+        var stream2 = agent.EventCoordinator.EventFlows.Create("stream-2");
         var interruptions = new List<InterruptionHandledEvent>();
         var gate = new object();
 
@@ -2860,7 +2860,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             snapshot = interruptions.ToList();
 
         Assert.Single(snapshot);
-        Assert.Equal("stream-1", snapshot[0].StreamId);
+        Assert.Equal("stream-1", snapshot[0].EventFlowId);
     }
 
     [Fact]

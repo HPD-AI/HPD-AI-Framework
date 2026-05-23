@@ -1,7 +1,5 @@
 namespace HPD.ML.Regression.Tests;
 
-using Helium.Primitives;
-using Double = Helium.Primitives.Double;
 
 public class RegressionDataLoaderTests
 {
@@ -16,8 +14,8 @@ public class RegressionDataLoaderTests
 
         Assert.Equal(2, featureCount);
         Assert.Equal(2, features.Count);
-        Assert.Equal(1.0, (double)features[0][0], 0.001);
-        Assert.Equal(2.0, (double)features[0][1], 0.001);
+        Assert.Equal(1.0, features[0][0], 0.001);
+        Assert.Equal(2.0, features[0][1], 0.001);
     }
 
     [Fact]
@@ -30,7 +28,7 @@ public class RegressionDataLoaderTests
         var (features, labels, featureCount) = RegressionDataLoader.Load(data, "Features", "Label");
 
         Assert.Equal(1, featureCount);
-        Assert.Equal(5.0, (double)features[0][0], 0.001);
+        Assert.Equal(5.0, features[0][0], 0.001);
     }
 
     [Fact]

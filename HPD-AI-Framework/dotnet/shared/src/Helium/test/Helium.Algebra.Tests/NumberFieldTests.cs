@@ -7,9 +7,9 @@ public class NumberFieldTests
 {
     // --- Helpers ---
 
-    private static readonly Polynomial<Rational> X   = Polynomial<Rational>.X;
-    private static readonly Polynomial<Rational> One = Polynomial<Rational>.One;
-    private static Polynomial<Rational> C(int n) => Polynomial<Rational>.C((Rational)n);
+    private static readonly SparsePolynomial<Rational> X   = SparsePolynomial<Rational>.X;
+    private static readonly SparsePolynomial<Rational> One = SparsePolynomial<Rational>.One;
+    private static SparsePolynomial<Rational> C(int n) => SparsePolynomial<Rational>.C((Rational)n);
 
     // K = Q[x]/(x^2 - 2), generator = √2
     private static NumberField K2 => new(X * X - C(2));
@@ -18,7 +18,7 @@ public class NumberFieldTests
     // K = Q[x]/(x^3 - 2), generator = ∛2
     private static NumberField K3 => new(X * X * X - C(2));
 
-    private static NumberFieldElement Elt(Polynomial<Rational> p, NumberField k) =>
+    private static NumberFieldElement Elt(SparsePolynomial<Rational> p, NumberField k) =>
         NumberFieldElement.Create(p, k);
 
     // =========================================================================
@@ -56,19 +56,19 @@ public class NumberFieldTests
     }
 
     [Fact]
-    public void NumberField_SamePolynomial_SameContextReference()
+    public void NumberField_SamePolynomial_AreEqual()
     {
         var f = X * X - C(2);
         var K1 = new NumberField(f);
         var K2b = new NumberField(f);
-        Assert.True(ReferenceEquals(K1.Context, K2b.Context));
+        Assert.Equal(K1, K2b);
     }
 
     [Fact]
-    public void NumberField_DifferentPolynomials_DifferentContextReference()
+    public void NumberField_DifferentPolynomials_AreNotEqual()
     {
-        Assert.False(ReferenceEquals(K2.Context, Ki.Context));
-        Assert.False(ReferenceEquals(K2.Context, K3.Context));
+        Assert.NotEqual(K2, Ki);
+        Assert.NotEqual(K2, K3);
     }
 
     [Fact]
@@ -237,7 +237,7 @@ public class NumberFieldTests
         var inv = NumberFieldElement.Invert(alpha);
         // inv.Value = (1/2)x
         var half = Rational.Create((Integer)1, (Integer)2);
-        Assert.Equal(Polynomial<Rational>.C(half) * X, inv.Value);
+        Assert.Equal(SparsePolynomial<Rational>.C(half) * X, inv.Value);
     }
 
     [Fact]
@@ -270,7 +270,7 @@ public class NumberFieldTests
         var two = Elt(C(2), K2);
         var inv = NumberFieldElement.Invert(two);
         var half = Rational.Create((Integer)1, (Integer)2);
-        Assert.Equal(Polynomial<Rational>.C(half), inv.Value);
+        Assert.Equal(SparsePolynomial<Rational>.C(half), inv.Value);
     }
 
     [Fact]
@@ -341,7 +341,7 @@ public class NumberFieldTests
         var a = Elt(X + One, Ki);
         var inv = NumberFieldElement.Invert(a);
         var half = Rational.Create((Integer)1, (Integer)2);
-        var expected = Polynomial<Rational>.C(half) * (-X + One);
+        var expected = SparsePolynomial<Rational>.C(half) * (-X + One);
         Assert.Equal(expected, inv.Value);
         Assert.Equal(One, (a * inv).Value);
     }
@@ -415,7 +415,7 @@ public class NumberFieldTests
     {
         var K = new NumberField(X * X - C(2), "α");
         var elem = NumberFieldElement.Create(X, K);
-        // Polynomial.ToString of x is "x"; after Replace("x","α") → "α"
+        // SparsePolynomial.ToString of x is "x"; after Replace("x","α") → "α"
         Assert.Equal("α", elem.ToString());
     }
 

@@ -9,12 +9,15 @@ namespace Helium.Primitives;
 /// </summary>
 [CollectionBuilder(typeof(Multiset), nameof(Multiset.Create))]
 public readonly struct Multiset<T> : IEquatable<Multiset<T>>
-    where T : notnull, IEquatable<T>, IComparable<T>
+    where T : notnull, ITotalOrder<T>
 {
     private readonly ImmutableSortedDictionary<T, int>? _data;
 
+    private static ImmutableSortedDictionary<T, int> EmptyData =>
+        ImmutableSortedDictionary<T, int>.Empty.WithComparers(TotalOrderComparer<T>.Instance);
+
     private ImmutableSortedDictionary<T, int> Data =>
-        _data ?? ImmutableSortedDictionary<T, int>.Empty;
+        _data ?? EmptyData;
 
     private Multiset(ImmutableSortedDictionary<T, int> data)
     {
@@ -27,7 +30,7 @@ public readonly struct Multiset<T> : IEquatable<Multiset<T>>
 
     public static Multiset<T> FromElements(IEnumerable<T> elements)
     {
-        var builder = ImmutableSortedDictionary.CreateBuilder<T, int>();
+        var builder = ImmutableSortedDictionary.CreateBuilder<T, int>(TotalOrderComparer<T>.Instance);
         foreach (var e in elements)
         {
             builder.TryGetValue(e, out var count);
@@ -38,7 +41,7 @@ public readonly struct Multiset<T> : IEquatable<Multiset<T>>
 
     public static Multiset<T> FromCounts(IEnumerable<KeyValuePair<T, int>> counts)
     {
-        var builder = ImmutableSortedDictionary.CreateBuilder<T, int>();
+        var builder = ImmutableSortedDictionary.CreateBuilder<T, int>(TotalOrderComparer<T>.Instance);
         foreach (var (element, count) in counts)
         {
             if (count > 0)
@@ -78,7 +81,7 @@ public readonly struct Multiset<T> : IEquatable<Multiset<T>>
     /// <summary>Union: max of multiplicities for each element.</summary>
     public Multiset<T> Union(Multiset<T> other)
     {
-        var builder = ImmutableSortedDictionary.CreateBuilder<T, int>();
+        var builder = ImmutableSortedDictionary.CreateBuilder<T, int>(TotalOrderComparer<T>.Instance);
         foreach (var (e, c) in Data)
             builder[e] = Math.Max(c, other.Count(e));
         foreach (var (e, c) in other.Data)
@@ -92,7 +95,7 @@ public readonly struct Multiset<T> : IEquatable<Multiset<T>>
     /// <summary>Intersection: min of multiplicities for each element.</summary>
     public Multiset<T> Inter(Multiset<T> other)
     {
-        var builder = ImmutableSortedDictionary.CreateBuilder<T, int>();
+        var builder = ImmutableSortedDictionary.CreateBuilder<T, int>(TotalOrderComparer<T>.Instance);
         foreach (var (e, c) in Data)
         {
             var min = Math.Min(c, other.Count(e));
@@ -105,7 +108,7 @@ public readonly struct Multiset<T> : IEquatable<Multiset<T>>
     /// <summary>Sum (disjoint union): sum of multiplicities.</summary>
     public Multiset<T> Sum(Multiset<T> other)
     {
-        var builder = ImmutableSortedDictionary.CreateBuilder<T, int>();
+        var builder = ImmutableSortedDictionary.CreateBuilder<T, int>(TotalOrderComparer<T>.Instance);
         foreach (var (e, c) in Data)
             builder[e] = c;
         foreach (var (e, c) in other.Data)
@@ -118,9 +121,9 @@ public readonly struct Multiset<T> : IEquatable<Multiset<T>>
 
     // --- Functional operations ---
 
-    public Multiset<U> Map<U>(Func<T, U> f) where U : notnull, IEquatable<U>, IComparable<U>
+    public Multiset<U> Map<U>(Func<T, U> f) where U : notnull, ITotalOrder<U>
     {
-        var builder = ImmutableSortedDictionary.CreateBuilder<U, int>();
+        var builder = ImmutableSortedDictionary.CreateBuilder<U, int>(TotalOrderComparer<U>.Instance);
         foreach (var (e, c) in Data)
         {
             var mapped = f(e);
@@ -132,7 +135,7 @@ public readonly struct Multiset<T> : IEquatable<Multiset<T>>
 
     public Multiset<T> Filter(Func<T, bool> predicate)
     {
-        var builder = ImmutableSortedDictionary.CreateBuilder<T, int>();
+        var builder = ImmutableSortedDictionary.CreateBuilder<T, int>(TotalOrderComparer<T>.Instance);
         foreach (var (e, c) in Data)
         {
             if (predicate(e))
@@ -188,6 +191,6 @@ public readonly struct Multiset<T> : IEquatable<Multiset<T>>
 public static class Multiset
 {
     public static Multiset<T> Create<T>(ReadOnlySpan<T> values)
-        where T : notnull, IEquatable<T>, IComparable<T>
+        where T : notnull, ITotalOrder<T>
         => Multiset<T>.FromElements(values.ToArray());
 }

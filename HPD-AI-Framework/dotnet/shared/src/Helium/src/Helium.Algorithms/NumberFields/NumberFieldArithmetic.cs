@@ -38,7 +38,7 @@ public static class NumberFieldArithmetic
 
             // current ← α · current mod f (multiply by x, then reduce).
             if (j < n - 1)
-                current = (Polynomial<Rational>.X * current).DivMod(f).Remainder;
+                current = (SparsePolynomial<Rational>.X * current).DivMod(f).Remainder;
         }
 
         return Matrix<Rational>.FromArray(n, n, data);
@@ -69,7 +69,7 @@ public static class NumberFieldArithmetic
     /// <summary>
     /// Characteristic polynomial: char_poly(a) = det(xI - M_a). Monic polynomial of degree n in Q[x].
     /// </summary>
-    public static Polynomial<Rational> CharPoly(NumberFieldElement a)
+    public static SparsePolynomial<Rational> CharPoly(NumberFieldElement a)
     {
         var m = MultiplicationMatrix(a);
         return CharacteristicPolynomial.Compute(m);
@@ -79,7 +79,7 @@ public static class NumberFieldArithmetic
     /// Minimal polynomial: the monic polynomial of least degree in Q[x] satisfied by a.
     /// Equals the squarefree part of CharPoly: min_poly = char_poly / gcd(char_poly, char_poly').
     /// </summary>
-    public static Polynomial<Rational> MinPoly(NumberFieldElement a)
+    public static SparsePolynomial<Rational> MinPoly(NumberFieldElement a)
     {
         var cp = CharPoly(a);
         var cpPrime = PolynomialCalculus.Derivative<Rational>(cp);

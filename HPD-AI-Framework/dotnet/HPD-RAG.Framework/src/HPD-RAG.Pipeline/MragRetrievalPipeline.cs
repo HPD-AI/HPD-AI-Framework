@@ -125,7 +125,7 @@ public sealed class MragRetrievalPipeline : IMragRetriever
             services,
             checkpointStore: null);
 
-        await using var events = eventCoordinator.SubscribeStream<Event>();
+        await using var events = eventCoordinator.CreateInbox<Event>();
 
         var executionTask = Task.Run(async () =>
         {

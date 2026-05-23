@@ -1,4 +1,5 @@
 using HPD.Agent;
+using HPD.Agent.Harness.Coding;
 using HPD.Agent.Middleware;
 using HPD.Events;
 using HPD.Events.Core;
@@ -486,7 +487,7 @@ public sealed class EditFileTests : IDisposable
             callId: beforeContext.FunctionCallId,
             result: result,
             exception: null,
-            runConfig: new AgentRunConfig(),
+            runConfig: beforeContext.RunConfig,
             harnessName: "CodingHarness",
             resultMetadata: request.ResultMetadata);
 
@@ -540,7 +541,7 @@ public sealed class EditFileTests : IDisposable
             callId: beforeContext.FunctionCallId,
             result: result,
             exception: null,
-            runConfig: new AgentRunConfig(),
+            runConfig: beforeContext.RunConfig,
             harnessName: "CodingHarness",
             resultMetadata: request.ResultMetadata);
 
@@ -565,6 +566,7 @@ public sealed class EditFileTests : IDisposable
             CallId = beforeContext.FunctionCallId,
             Arguments = arguments,
             State = agentContext.State,
+            RunConfig = beforeContext.RunConfig,
             EventCoordinator = agentContext.EventCoordinator
         };
 
@@ -616,15 +618,30 @@ public sealed class EditFileTests : IDisposable
             function: null,
             callId: "call-1",
             arguments: new Dictionary<string, object?>(),
-            runConfig: new AgentRunConfig(),
+            runConfig: CreateWorkspaceRunConfig(),
             harnessName: "CodingHarness");
+    }
+
+    private static AgentRunConfig CreateWorkspaceRunConfig()
+    {
+        var cwd = Directory.GetCurrentDirectory();
+        return new AgentRunConfig
+        {
+            ContextOverrides = new()
+            {
+                [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                    "default",
+                    cwd,
+                    [new AgentWorkspaceRoot("default", cwd)])
+            }
+        };
     }
 
     private sealed class ThrowingEventCoordinator : IEventCoordinator
     {
         private readonly EventCoordinator _inner = new();
 
-        public IStreamRegistry Streams => _inner.Streams;
+        public IEventFlowRegistry EventFlows => _inner.EventFlows;
 
         public void Emit(Event evt) => throw new InvalidOperationException("boom");
 
@@ -638,12 +655,12 @@ public sealed class EditFileTests : IDisposable
         public IDisposable SubscribeAny(Func<Event, ValueTask> handler, EventSubscriptionOptions? options = null)
             => _inner.SubscribeAny(handler, options);
 
-        public EventStreamSubscription<TEvent> SubscribeStream<TEvent>(EventSubscriptionOptions? options = null)
+        public EventInbox<TEvent> CreateInbox<TEvent>(EventInboxOptions? options = null)
             where TEvent : Event
-            => _inner.SubscribeStream<TEvent>(options);
+            => _inner.CreateInbox<TEvent>(options);
 
-        public EventStreamSubscription<Event> SubscribeChannel(EventChannel channel, EventSubscriptionOptions? options = null)
-            => _inner.SubscribeChannel(channel, options);
+        public EventInbox<Event> CreateChannelInbox(EventChannel channel, EventInboxOptions? options = null)
+            => _inner.CreateChannelInbox(channel, options);
 
         public bool TryEmitStruct<TEvent>(in TEvent evt)
             where TEvent : struct, IStructEvent

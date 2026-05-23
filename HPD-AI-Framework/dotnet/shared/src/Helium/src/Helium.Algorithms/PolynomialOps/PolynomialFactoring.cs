@@ -5,7 +5,7 @@ using Helium.Algebra;
 namespace Helium.Algorithms;
 
 /// <summary>
-/// Polynomial factoring over Z and Q.
+/// SparsePolynomial factoring over Z and Q.
 /// Current implementation provides square-free decomposition and integer/rational-root extraction.
 /// </summary>
 public static class PolynomialFactoring
@@ -31,8 +31,8 @@ public static class PolynomialFactoring
             new(PrimeAttempts, PrimeAccepted, SubsetMasksTried, HenselLiftAttempts, HenselLiftSuccesses, LllDimension);
     }
 
-    public static (Rational Content, List<(Polynomial<Rational> Factor, int Multiplicity)> Factors)
-        Factor(Polynomial<Rational> f)
+    public static (Rational Content, List<(SparsePolynomial<Rational> Factor, int Multiplicity)> Factors)
+        Factor(SparsePolynomial<Rational> f)
     {
         if (f.IsZero)
             return (Rational.Zero, []);
@@ -53,14 +53,14 @@ public static class PolynomialFactoring
         return (rationalContent, factors);
     }
 
-    public static List<(Polynomial<Integer> Factor, int Multiplicity)>
-        FactorOverZ(Polynomial<Integer> f)
+    public static List<(SparsePolynomial<Integer> Factor, int Multiplicity)>
+        FactorOverZ(SparsePolynomial<Integer> f)
     {
         return FactorOverZWithDiagnostics(f).Factors;
     }
 
-    public static (List<(Polynomial<Integer> Factor, int Multiplicity)> Factors, FactorOverZDiagnostics Diagnostics)
-        FactorOverZWithDiagnostics(Polynomial<Integer> f)
+    public static (List<(SparsePolynomial<Integer> Factor, int Multiplicity)> Factors, FactorOverZDiagnostics Diagnostics)
+        FactorOverZWithDiagnostics(SparsePolynomial<Integer> f)
     {
         var diagnostics = new DiagnosticsAccumulator();
         if (f.IsZero || f.Degree <= 0)
@@ -70,7 +70,7 @@ public static class PolynomialFactoring
         if (primitive.Degree <= 0)
             return ([], diagnostics.Snapshot());
 
-        var result = new List<(Polynomial<Integer> Factor, int Multiplicity)>();
+        var result = new List<(SparsePolynomial<Integer> Factor, int Multiplicity)>();
         var squareFree = SquareFreeFactorization(primitive);
         foreach (var (part, multiplicity) in squareFree)
         {
@@ -82,8 +82,8 @@ public static class PolynomialFactoring
         return (MergeMultiplicities(result), diagnostics.Snapshot());
     }
 
-    public static List<(Polynomial<Integer> Factor, int Multiplicity)>
-        SquareFreeFactorization(Polynomial<Integer> f)
+    public static List<(SparsePolynomial<Integer> Factor, int Multiplicity)>
+        SquareFreeFactorization(SparsePolynomial<Integer> f)
     {
         if (f.IsZero || f.Degree <= 0)
             return [];
@@ -95,7 +95,7 @@ public static class PolynomialFactoring
         var g = fr.Gcd(derivative);
         var w = DivideExact(fr, g);
         var i = 1;
-        var output = new List<(Polynomial<Integer> Factor, int Multiplicity)>();
+        var output = new List<(SparsePolynomial<Integer> Factor, int Multiplicity)>();
 
         while (!IsOne(w))
         {
@@ -112,8 +112,8 @@ public static class PolynomialFactoring
         return output;
     }
 
-    public static List<Polynomial<QuotientRing<Integer>>>
-        FactorOverFiniteField(Polynomial<QuotientRing<Integer>> f, int p)
+    public static List<SparsePolynomial<ZModElement>>
+        FactorOverFiniteField(SparsePolynomial<ZModElement> f, int p)
     {
         if (p <= 1)
             throw new ArgumentOutOfRangeException(nameof(p), "Modulus must be greater than 1.");
@@ -123,7 +123,7 @@ public static class PolynomialFactoring
 
         var input = Monic(ToModCoefficients(f, p), p);
         var squareFreeParts = SquareFreeFactorizationMod(input, p);
-        var output = new List<Polynomial<QuotientRing<Integer>>>();
+        var output = new List<SparsePolynomial<ZModElement>>();
 
         foreach (var (part, multiplicity) in squareFreeParts)
         {
@@ -142,8 +142,8 @@ public static class PolynomialFactoring
         return output;
     }
 
-    public static List<Polynomial<QuotientRing<Integer>>>
-        Berlekamp(Polynomial<QuotientRing<Integer>> f, int p)
+    public static List<SparsePolynomial<ZModElement>>
+        Berlekamp(SparsePolynomial<ZModElement> f, int p)
     {
         if (p <= 1)
             throw new ArgumentOutOfRangeException(nameof(p), "Modulus must be greater than 1.");
@@ -180,8 +180,8 @@ public static class PolynomialFactoring
         return output.Select(x => FromModCoefficients(x, p)).ToList();
     }
 
-    public static List<Polynomial<QuotientRing<Integer>>>
-        CantorZassenhaus(Polynomial<QuotientRing<Integer>> f, int p)
+    public static List<SparsePolynomial<ZModElement>>
+        CantorZassenhaus(SparsePolynomial<ZModElement> f, int p)
     {
         if (p <= 1)
             throw new ArgumentOutOfRangeException(nameof(p), "Modulus must be greater than 1.");
@@ -201,9 +201,9 @@ public static class PolynomialFactoring
         return output.Select(x => FromModCoefficients(x, p)).ToList();
     }
 
-    public static (Polynomial<Integer> G, Polynomial<Integer> H)
-        HenselLift(Polynomial<Integer> f,
-                   Polynomial<Integer> g, Polynomial<Integer> h,
+    public static (SparsePolynomial<Integer> G, SparsePolynomial<Integer> H)
+        HenselLift(SparsePolynomial<Integer> f,
+                   SparsePolynomial<Integer> g, SparsePolynomial<Integer> h,
                    Integer p, int precision)
     {
         if (precision < 1)
@@ -256,16 +256,16 @@ public static class PolynomialFactoring
         return (gk, hk);
     }
 
-    private static List<Polynomial<Integer>> FactorSquareFreeOverZ(Polynomial<Integer> f, DiagnosticsAccumulator diagnostics)
+    private static List<SparsePolynomial<Integer>> FactorSquareFreeOverZ(SparsePolynomial<Integer> f, DiagnosticsAccumulator diagnostics)
     {
-        var factors = new List<Polynomial<Integer>>();
+        var factors = new List<SparsePolynomial<Integer>>();
         var current = NormalizePrimitive(f);
 
         while (current.Degree > 0)
         {
             if (current[0].IsZero)
             {
-                factors.Add(Polynomial<Integer>.X);
+                factors.Add(SparsePolynomial<Integer>.X);
                 current = DivideByLinearExact(current, Integer.Zero);
                 continue;
             }
@@ -277,7 +277,7 @@ public static class PolynomialFactoring
                 if (!TryDivideByLinear(current, root, out var quotient))
                     continue;
 
-                factors.Add(Polynomial<Integer>.FromCoeffs(-root, Integer.One));
+                factors.Add(SparsePolynomial<Integer>.FromCoeffs(-root, Integer.One));
                 current = NormalizePrimitive(quotient);
                 found = true;
                 break;
@@ -307,8 +307,8 @@ public static class PolynomialFactoring
 
     // Entry point: tries van Hoeij factoring. Returns list of all irreducible factors
     // (possibly just [f] if f is irreducible), or null if no good prime was found.
-    private static List<Polynomial<Integer>>? TrySplitWithVanHoeij(
-        Polynomial<Integer> f,
+    private static List<SparsePolynomial<Integer>>? TrySplitWithVanHoeij(
+        SparsePolynomial<Integer> f,
         DiagnosticsAccumulator diagnostics)
     {
         if (f.Degree <= 1)
@@ -361,15 +361,15 @@ public static class PolynomialFactoring
     // Multi-factor Hensel lift: lift all l modular factors to precision p^k.
     // Strategy: lift each factor g_i against h_i = f / g_i (mod p) using binary Hensel.
     // Returns centered-lifted Integer polynomials mod p^k, one per modular factor.
-    private static Polynomial<Integer>[]? HenselLiftAll(
-        Polynomial<Integer> f,
+    private static SparsePolynomial<Integer>[]? HenselLiftAll(
+        SparsePolynomial<Integer> f,
         List<int[]> modFactors,
         int p,
         int precision,
         Integer modulusPow)
     {
         int l = modFactors.Count;
-        var lifted = new Polynomial<Integer>[l];
+        var lifted = new SparsePolynomial<Integer>[l];
         int leadingMod = NormalizeBigMod((BigInteger)f.LeadingCoefficient, p);
 
         try
@@ -407,9 +407,9 @@ public static class PolynomialFactoring
     // g_i together and trial-divide to confirm.
     //
     // Reference: PARI QX_factor.c — LLL_cmbf, chk_factors, combine_factors.
-    private static List<Polynomial<Integer>> VanHoeijRecombine(
-        Polynomial<Integer> f,
-        Polynomial<Integer>[] liftedFactors,
+    private static List<SparsePolynomial<Integer>> VanHoeijRecombine(
+        SparsePolynomial<Integer> f,
+        SparsePolynomial<Integer>[] liftedFactors,
         Integer modulus,
         DiagnosticsAccumulator diagnostics)
     {
@@ -436,7 +436,7 @@ public static class PolynomialFactoring
             newtonCache[i] = new List<Integer> { Integer.Zero }; // index 0 unused
 
         var remaining  = NormalizePrimitive(f);
-        var result     = new List<Polynomial<Integer>>();
+        var result     = new List<SparsePolynomial<Integer>>();
         var lc         = f.LeadingCoefficient;
         bool lcIsOne   = lc == Integer.One || lc == -Integer.One;
 
@@ -610,7 +610,7 @@ public static class PolynomialFactoring
     //     p_k + a_{d-1} p_{k-1} + ... + a_0 p_{k-d}                  = 0  for k > d
     // cache[j] = p_j (1-indexed), cache[0] = 0 (unused placeholder).
     private static Integer NewtonSumMod(
-        Polynomial<Integer> g, int k, List<Integer> cache, Integer modulus)
+        SparsePolynomial<Integer> g, int k, List<Integer> cache, Integer modulus)
     {
         // Return cached value if already computed.
         if (k < cache.Count) return cache[k];
@@ -670,14 +670,14 @@ public static class PolynomialFactoring
     // Given the short LLL rows (each of length l, scaled by C), extract factor candidates.
     // Each row encodes a combination: divide entries by C to get ±1 or 0 subset indicators.
     // Collect the g_i where the indicator is nonzero, multiply them mod modulus, center-lift.
-    private static List<Polynomial<Integer>> ExtractFactorCandidates(
+    private static List<SparsePolynomial<Integer>> ExtractFactorCandidates(
         List<Integer[]> cmLRows,
         int l,
         int C,
-        Polynomial<Integer>[] liftedFactors,
+        SparsePolynomial<Integer>[] liftedFactors,
         Integer modulus)
     {
-        var candidates = new List<Polynomial<Integer>>();
+        var candidates = new List<SparsePolynomial<Integer>>();
         var ci = (Integer)C;
 
         // Transpose: cmLRows[row][col] — we want to look at each column as a combination vector.
@@ -701,7 +701,7 @@ public static class PolynomialFactoring
 
             // Multiply the selected g_i together mod modulus.
             bool started = false;
-            Polynomial<Integer> product = Polynomial<Integer>.One;
+            SparsePolynomial<Integer> product = SparsePolynomial<Integer>.One;
             for (int i = 0; i < l; i++)
             {
                 if (mask[i] == 0) continue;
@@ -719,8 +719,8 @@ public static class PolynomialFactoring
     }
 
     // Multiply two polynomials with coefficients mod modulus.
-    private static Polynomial<Integer> MultiplyModPoly(
-        Polynomial<Integer> a, Polynomial<Integer> b, Integer modulus)
+    private static SparsePolynomial<Integer> MultiplyModPoly(
+        SparsePolynomial<Integer> a, SparsePolynomial<Integer> b, Integer modulus)
     {
         int da = a.Degree, db = b.Degree;
         var coeffs = new Integer[da + db + 1];
@@ -731,12 +731,12 @@ public static class PolynomialFactoring
                 var prod = ((BigInteger)a[i] * (BigInteger)b[j]) % mod;
                 coeffs[i + j] = (Integer)(((BigInteger)coeffs[i + j] + prod) % mod);
             }
-        return Polynomial<Integer>.FromCoeffs(coeffs);
+        return SparsePolynomial<Integer>.FromCoeffs(coeffs);
     }
 
     // Mignotte bound: C(n, n/2) * ||f||_2 * max(|lc|, |f(0)|)
     // Returns a valid upper bound B such that any factor coefficient has absolute value ≤ B.
-    private static Integer MignotteBound(Polynomial<Integer> f)
+    private static Integer MignotteBound(SparsePolynomial<Integer> f)
     {
         if (f.IsZero) return Integer.One;
 
@@ -756,13 +756,13 @@ public static class PolynomialFactoring
     // -------------------------------------------------------------------------
 
     private static bool TrySplitWithTwoFactorHensel(
-        Polynomial<Integer> f,
+        SparsePolynomial<Integer> f,
         DiagnosticsAccumulator diagnostics,
-        out Polynomial<Integer> left,
-        out Polynomial<Integer> right)
+        out SparsePolynomial<Integer> left,
+        out SparsePolynomial<Integer> right)
     {
-        left = Polynomial<Integer>.Zero;
-        right = Polynomial<Integer>.Zero;
+        left = SparsePolynomial<Integer>.Zero;
+        right = SparsePolynomial<Integer>.Zero;
         if (f.Degree <= 1)
             return false;
 
@@ -830,7 +830,7 @@ public static class PolynomialFactoring
     }
 
     private static IEnumerable<int> EnumerateGoodRecombinationPrimes(
-        Polynomial<Integer> f,
+        SparsePolynomial<Integer> f,
         DiagnosticsAccumulator diagnostics,
         int maxPrimes)
     {
@@ -858,7 +858,7 @@ public static class PolynomialFactoring
         }
     }
 
-    private static IEnumerable<Integer> IntegerRootCandidates(Polynomial<Integer> f)
+    private static IEnumerable<Integer> IntegerRootCandidates(SparsePolynomial<Integer> f)
     {
         var c = f[0];
         if (c.IsZero)
@@ -894,11 +894,11 @@ public static class PolynomialFactoring
         }
     }
 
-    private static bool TryDivideByLinear(Polynomial<Integer> f, Integer root, out Polynomial<Integer> quotient)
+    private static bool TryDivideByLinear(SparsePolynomial<Integer> f, Integer root, out SparsePolynomial<Integer> quotient)
     {
         if (f.Degree <= 0)
         {
-            quotient = Polynomial<Integer>.Zero;
+            quotient = SparsePolynomial<Integer>.Zero;
             return false;
         }
 
@@ -919,22 +919,22 @@ public static class PolynomialFactoring
         var remainder = a[0] + root * carry;
         if (!remainder.IsZero)
         {
-            quotient = Polynomial<Integer>.Zero;
+            quotient = SparsePolynomial<Integer>.Zero;
             return false;
         }
 
-        quotient = NormalizePrimitive(Polynomial<Integer>.FromCoeffs(q));
+        quotient = NormalizePrimitive(SparsePolynomial<Integer>.FromCoeffs(q));
         return true;
     }
 
-    private static Polynomial<Integer> DivideByLinearExact(Polynomial<Integer> f, Integer root)
+    private static SparsePolynomial<Integer> DivideByLinearExact(SparsePolynomial<Integer> f, Integer root)
     {
         if (!TryDivideByLinear(f, root, out var quotient))
             throw new InvalidOperationException("Expected exact linear division.");
         return quotient;
     }
 
-    private static Polynomial<Rational> DivideExact(Polynomial<Rational> a, Polynomial<Rational> b)
+    private static SparsePolynomial<Rational> DivideExact(SparsePolynomial<Rational> a, SparsePolynomial<Rational> b)
     {
         var (q, r) = a.DivMod(b);
         if (!r.IsZero)
@@ -942,21 +942,21 @@ public static class PolynomialFactoring
         return q;
     }
 
-    private static Polynomial<Rational> ToRational(Polynomial<Integer> p)
+    private static SparsePolynomial<Rational> ToRational(SparsePolynomial<Integer> p)
     {
         if (p.IsZero)
-            return Polynomial<Rational>.Zero;
+            return SparsePolynomial<Rational>.Zero;
 
         var coeffs = new Rational[p.Degree + 1];
         for (int i = 0; i <= p.Degree; i++)
             coeffs[i] = Rational.FromInteger(p[i]);
-        return Polynomial<Rational>.FromCoeffs(coeffs);
+        return SparsePolynomial<Rational>.FromCoeffs(coeffs);
     }
 
-    private static Polynomial<Integer> ToIntegerPrimitive(Polynomial<Rational> p)
+    private static SparsePolynomial<Integer> ToIntegerPrimitive(SparsePolynomial<Rational> p)
     {
         if (p.IsZero)
-            return Polynomial<Integer>.Zero;
+            return SparsePolynomial<Integer>.Zero;
 
         var lcm = Integer.One;
         foreach (var exp in p.Support)
@@ -970,17 +970,17 @@ public static class PolynomialFactoring
             coeffs[i] = scaled;
         }
 
-        return NormalizePrimitive(PolynomialContent.PrimitivePart(Polynomial<Integer>.FromCoeffs(coeffs)));
+        return NormalizePrimitive(PolynomialContent.PrimitivePart(SparsePolynomial<Integer>.FromCoeffs(coeffs)));
     }
 
-    private static Polynomial<Integer> ClearDenominators(Polynomial<Rational> p, out Integer lcm)
+    private static SparsePolynomial<Integer> ClearDenominators(SparsePolynomial<Rational> p, out Integer lcm)
     {
         lcm = Integer.One;
         foreach (var exp in p.Support)
             lcm = Integer.Lcm(lcm, p[exp].Denominator);
 
         if (p.IsZero)
-            return Polynomial<Integer>.Zero;
+            return SparsePolynomial<Integer>.Zero;
 
         var coeffs = new Integer[p.Degree + 1];
         for (int i = 0; i <= p.Degree; i++)
@@ -989,10 +989,10 @@ public static class PolynomialFactoring
             coeffs[i] = c.Numerator * (lcm / c.Denominator);
         }
 
-        return Polynomial<Integer>.FromCoeffs(coeffs);
+        return SparsePolynomial<Integer>.FromCoeffs(coeffs);
     }
 
-    private static Polynomial<Integer> NormalizePrimitive(Polynomial<Integer> p)
+    private static SparsePolynomial<Integer> NormalizePrimitive(SparsePolynomial<Integer> p)
     {
         if (p.IsZero)
             return p;
@@ -1003,13 +1003,13 @@ public static class PolynomialFactoring
         return primitive;
     }
 
-    private static bool IsOne(Polynomial<Rational> p) =>
+    private static bool IsOne(SparsePolynomial<Rational> p) =>
         p.Degree == 0 && p[0] == Rational.One;
 
-    private static List<(Polynomial<Integer> Factor, int Multiplicity)> MergeMultiplicities(
-        List<(Polynomial<Integer> Factor, int Multiplicity)> factors)
+    private static List<(SparsePolynomial<Integer> Factor, int Multiplicity)> MergeMultiplicities(
+        List<(SparsePolynomial<Integer> Factor, int Multiplicity)> factors)
     {
-        var merged = new List<(Polynomial<Integer> Factor, int Multiplicity)>();
+        var merged = new List<(SparsePolynomial<Integer> Factor, int Multiplicity)>();
         foreach (var (factor, multiplicity) in factors)
         {
             int index = merged.FindIndex(x => x.Factor == factor);
@@ -1026,18 +1026,18 @@ public static class PolynomialFactoring
         return merged;
     }
 
-    private static int[] ToModCoefficients(Polynomial<QuotientRing<Integer>> f, int p)
+    private static int[] ToModCoefficients(SparsePolynomial<ZModElement> f, int p)
     {
         var coeffs = new int[f.Degree + 1];
         for (int i = 0; i <= f.Degree; i++)
         {
-            coeffs[i] = NormalizeBigMod((BigInteger)f[i].Representative, p);
+            coeffs[i] = NormalizeBigMod((BigInteger)f[i].Value, p);
         }
 
         return TrimTrailingZeros(coeffs);
     }
 
-    private static int[] ToModCoefficients(Polynomial<Integer> f, int p)
+    private static int[] ToModCoefficients(SparsePolynomial<Integer> f, int p)
     {
         if (f.IsZero)
             return [0];
@@ -1118,7 +1118,7 @@ public static class PolynomialFactoring
                 continue;
 
             if (i % p != 0)
-                throw new InvalidOperationException("Polynomial is not a p-th power in finite field square-free decomposition.");
+                throw new InvalidOperationException("SparsePolynomial is not a p-th power in finite field square-free decomposition.");
 
             root[i / p] = coeff;
         }
@@ -1262,18 +1262,18 @@ public static class PolynomialFactoring
         _ => 32
     };
 
-    private static Polynomial<QuotientRing<Integer>> FromModCoefficients(int[] coeffs, int p)
+    private static SparsePolynomial<ZModElement> FromModCoefficients(int[] coeffs, int p)
     {
         if (coeffs.Length == 0)
-            return Polynomial<QuotientRing<Integer>>.Zero;
+            return SparsePolynomial<ZModElement>.Zero;
 
-        var values = new QuotientRing<Integer>[coeffs.Length];
+        var values = new ZModElement[coeffs.Length];
         for (int i = 0; i < coeffs.Length; i++)
             values[i] = ZMod.Create((Integer)coeffs[i], (Integer)p);
-        return Polynomial<QuotientRing<Integer>>.FromCoeffs(values);
+        return SparsePolynomial<ZModElement>.FromCoeffs(values);
     }
 
-    private static Polynomial<QuotientRing<Integer>> LinearFactor(int root, int p)
+    private static SparsePolynomial<ZModElement> LinearFactor(int root, int p)
     {
         // x - root over Z/pZ
         var constant = NormalizeMod(-root, p);
@@ -1814,18 +1814,18 @@ public static class PolynomialFactoring
     }
 
     private static bool TryLiftedSplitCandidate(
-        Polynomial<Integer> f,
+        SparsePolynomial<Integer> f,
         DiagnosticsAccumulator diagnostics,
         int[] g0,
         int[] h0,
         int p,
         Integer modulusPow,
         int precision,
-        out Polynomial<Integer> left,
-        out Polynomial<Integer> right)
+        out SparsePolynomial<Integer> left,
+        out SparsePolynomial<Integer> right)
     {
-        left = Polynomial<Integer>.Zero;
-        right = Polynomial<Integer>.Zero;
+        left = SparsePolynomial<Integer>.Zero;
+        right = SparsePolynomial<Integer>.Zero;
         diagnostics.HenselLiftAttempts++;
 
         var gSeed = FromSmallModCoefficients(g0);
@@ -1859,7 +1859,7 @@ public static class PolynomialFactoring
         return false;
     }
 
-    private static Integer MignotteBoundUpper(Polynomial<Integer> f)
+    private static Integer MignotteBoundUpper(SparsePolynomial<Integer> f)
     {
         if (f.IsZero)
             return Integer.Zero;
@@ -1888,10 +1888,10 @@ public static class PolynomialFactoring
         return result;
     }
 
-    private static Polynomial<Integer> CenterCoefficientsMod(Polynomial<Integer> poly, Integer modulus)
+    private static SparsePolynomial<Integer> CenterCoefficientsMod(SparsePolynomial<Integer> poly, Integer modulus)
     {
         if (poly.IsZero)
-            return Polynomial<Integer>.Zero;
+            return SparsePolynomial<Integer>.Zero;
 
         var modBig = BigInteger.Abs((BigInteger)modulus);
         if (modBig <= BigInteger.One)
@@ -1909,15 +1909,15 @@ public static class PolynomialFactoring
             coeffs[i] = (Integer)c;
         }
 
-        return Polynomial<Integer>.FromCoeffs(coeffs);
+        return SparsePolynomial<Integer>.FromCoeffs(coeffs);
     }
 
     private static bool TryDivideExactOverZ(
-        Polynomial<Integer> dividend,
-        Polynomial<Integer> divisor,
-        out Polynomial<Integer> quotient)
+        SparsePolynomial<Integer> dividend,
+        SparsePolynomial<Integer> divisor,
+        out SparsePolynomial<Integer> quotient)
     {
-        quotient = Polynomial<Integer>.Zero;
+        quotient = SparsePolynomial<Integer>.Zero;
         if (divisor.IsZero || divisor.Degree <= 0 || divisor.Degree >= dividend.Degree)
             return false;
 
@@ -1934,7 +1934,7 @@ public static class PolynomialFactoring
             coeffs[i] = c.Numerator;
         }
 
-        quotient = Polynomial<Integer>.FromCoeffs(coeffs);
+        quotient = SparsePolynomial<Integer>.FromCoeffs(coeffs);
         return divisor * quotient == dividend;
     }
 
@@ -1946,21 +1946,21 @@ public static class PolynomialFactoring
         return TrimTrailingZeros(result);
     }
 
-    private static Polynomial<Integer> ScaleByInteger(Polynomial<Integer> poly, Integer scalar)
+    private static SparsePolynomial<Integer> ScaleByInteger(SparsePolynomial<Integer> poly, Integer scalar)
     {
         if (poly.IsZero || scalar.IsZero)
-            return Polynomial<Integer>.Zero;
+            return SparsePolynomial<Integer>.Zero;
 
         var coeffs = new Integer[Math.Max(0, poly.Degree + 1)];
         for (int i = 0; i <= poly.Degree; i++)
             coeffs[i] = poly[i] * scalar;
-        return Polynomial<Integer>.FromCoeffs(coeffs);
+        return SparsePolynomial<Integer>.FromCoeffs(coeffs);
     }
 
-    private static Polynomial<Integer> DivideByScalarPower(Polynomial<Integer> poly, Integer divisor)
+    private static SparsePolynomial<Integer> DivideByScalarPower(SparsePolynomial<Integer> poly, Integer divisor)
     {
         if (poly.IsZero)
-            return Polynomial<Integer>.Zero;
+            return SparsePolynomial<Integer>.Zero;
 
         var coeffs = new Integer[Math.Max(0, poly.Degree + 1)];
         for (int i = 0; i <= poly.Degree; i++)
@@ -1968,18 +1968,18 @@ public static class PolynomialFactoring
             var (q, _) = Integer.DivMod(poly[i], divisor);
             coeffs[i] = q;
         }
-        return Polynomial<Integer>.FromCoeffs(coeffs);
+        return SparsePolynomial<Integer>.FromCoeffs(coeffs);
     }
 
-    private static Polynomial<Integer> FromSmallModCoefficients(int[] coeffs)
+    private static SparsePolynomial<Integer> FromSmallModCoefficients(int[] coeffs)
     {
         if (coeffs.Length == 0)
-            return Polynomial<Integer>.Zero;
+            return SparsePolynomial<Integer>.Zero;
 
         var ints = new Integer[coeffs.Length];
         for (int i = 0; i < coeffs.Length; i++)
             ints[i] = (Integer)coeffs[i];
-        return Polynomial<Integer>.FromCoeffs(ints);
+        return SparsePolynomial<Integer>.FromCoeffs(ints);
     }
 
     private static readonly int[] CandidatePrimes =

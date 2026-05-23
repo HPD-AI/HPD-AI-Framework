@@ -17,7 +17,7 @@ public static class Grad
     /// Gradient of a scalar-to-scalar function. Returns df/dx at x.
     /// </summary>
     public static T Scalar<T>(Func<Var<T>, Var<T>> f, T x)
-        where T : IField<T>
+        where T : ICommRing<T>
     {
         using var session = Tape<T>.Begin();
         var xv = new Var<T>(x);
@@ -30,7 +30,7 @@ public static class Grad
     /// Gradient of a vector-to-scalar function. Returns ∇f(x) as a Vector&lt;T&gt;.
     /// </summary>
     public static Vector<T> Of<T>(Func<Vector<Var<T>>, Var<T>> f, Vector<T> x)
-        where T : IField<T>
+        where T : ICommRing<T>
     {
         using var session = Tape<T>.Begin();
         var xvars = MakeInputs(x);
@@ -43,7 +43,7 @@ public static class Grad
     /// Returns (f(x), f'(x)) in a single forward+backward pass.
     /// </summary>
     public static (T Value, T Grad) ValueAndGrad<T>(Func<Var<T>, Var<T>> f, T x)
-        where T : IField<T>
+        where T : ICommRing<T>
     {
         using var session = Tape<T>.Begin();
         var xv = new Var<T>(x);
@@ -58,7 +58,7 @@ public static class Grad
     /// </summary>
     public static (T Value, Vector<T> Grad) ValueAndGrad<T>(
         Func<Vector<Var<T>>, Var<T>> f, Vector<T> x)
-        where T : IField<T>
+        where T : ICommRing<T>
     {
         using var session = Tape<T>.Begin();
         var xvars = MakeInputs(x);
@@ -73,7 +73,7 @@ public static class Grad
     /// J[i, j] = ∂f_i/∂x_j.
     /// </summary>
     public static LinearMap<T> Jacobian<T>(Func<Vector<Var<T>>, Vector<Var<T>>> f, Vector<T> x)
-        where T : IField<T>
+        where T : ICommRing<T>
     {
         int n = x.Length;
 
@@ -118,7 +118,7 @@ public static class Grad
     /// Use <see cref="HessianExact{T}"/> for exact computation.
     /// </summary>
     public static BilinearForm<T> Hessian<T>(Func<Vector<Var<T>>, Var<T>> f, Vector<T> x)
-        where T : IField<T>
+        where T : ICommRing<T>
     {
         throw new NotSupportedException(
             "Exact Hessian requires a polymorphic function parameter. Use Grad.HessianExact instead.");
@@ -166,7 +166,7 @@ public static class Grad
     /// If no inputs are active (all Index == -1) or no tape is active, returns a constant.
     /// </summary>
     public static Var<T> CustomVjp<T>(T primalValue, Var<T>[] inputs, Func<T, T[]> backward)
-        where T : IField<T>
+        where T : ICommRing<T>
     {
         if (inputs.All(v => v.Index < 0) || Tape<T>.Current is null)
             return Var<T>.Constant(primalValue);
@@ -193,7 +193,7 @@ public static class Grad
     /// The segment function must be re-entrant (no external mutable state).
     /// </summary>
     public static Var<T> Checkpoint<T>(Var<T> input, Func<Var<T>, Var<T>> segment)
-        where T : IField<T>
+        where T : ICommRing<T>
     {
         if (Tape<T>.Current is null)
             return segment(input);
@@ -230,7 +230,7 @@ public static class Grad
     /// accumulates per-input cotangents via the chain rule.
     /// </summary>
     public static Var<T> Checkpoint<T>(Vector<Var<T>> inputs, Func<Vector<Var<T>>, Var<T>> segment)
-        where T : IField<T>
+        where T : ICommRing<T>
     {
         if (Tape<T>.Current is null)
             return segment(inputs);
@@ -288,7 +288,7 @@ public static class Grad
     // Helpers
     // -------------------------------------------------------------------------
 
-    private static Var<T>[] MakeInputs<T>(Vector<T> x) where T : IField<T>
+    private static Var<T>[] MakeInputs<T>(Vector<T> x) where T : ICommRing<T>
     {
         var vars = new Var<T>[x.Length];
         for (int i = 0; i < x.Length; i++)
@@ -296,7 +296,7 @@ public static class Grad
         return vars;
     }
 
-    private static Vector<T> ReadGrads<T>(Var<T>[] xvars, T[] grads) where T : IField<T>
+    private static Vector<T> ReadGrads<T>(Var<T>[] xvars, T[] grads) where T : ICommRing<T>
     {
         var result = new T[xvars.Length];
         for (int i = 0; i < xvars.Length; i++)
@@ -304,7 +304,7 @@ public static class Grad
         return Vector<T>.FromArray(result);
     }
 
-    private static T[] ReadGradsToArray<T>(Var<T>[] xvars, T[] grads) where T : IField<T>
+    private static T[] ReadGradsToArray<T>(Var<T>[] xvars, T[] grads) where T : ICommRing<T>
     {
         var result = new T[xvars.Length];
         for (int i = 0; i < xvars.Length; i++)

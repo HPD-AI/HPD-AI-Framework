@@ -24,6 +24,18 @@ public static class Field
     /// <summary>Raw volume (before corporate action adjustments).</summary>
     public static readonly VectorField<SizeF64> VolumeRaw = new("VolumeRaw");
 
+    /// <summary>Raw best bid price.</summary>
+    public static readonly VectorField<PriceF64> BidRaw = new("BidRaw");
+
+    /// <summary>Raw best ask price.</summary>
+    public static readonly VectorField<PriceF64> AskRaw = new("AskRaw");
+
+    /// <summary>Raw best bid size.</summary>
+    public static readonly VectorField<SizeF64> BidSizeRaw = new("BidSizeRaw");
+
+    /// <summary>Raw best ask size.</summary>
+    public static readonly VectorField<SizeF64> AskSizeRaw = new("AskSizeRaw");
+
     // === Factors (Source of Truth, Default 1.0) ===
 
     /// <summary>
@@ -68,4 +80,16 @@ public static class Field
 
     /// <summary>Adjusted volume (Volume = VolumeRaw * VolumeScale).</summary>
     public static readonly VectorField<SizeF64> Volume = new("Volume");
+
+    /// <summary>Adjusted best bid price.</summary>
+    public static readonly VectorField<PriceF64> Bid = new("Bid");
+
+    /// <summary>Adjusted best ask price.</summary>
+    public static readonly VectorField<PriceF64> Ask = new("Ask");
+
+    /// <summary>Adjusted best bid size.</summary>
+    public static readonly VectorField<SizeF64> BidSize = new("BidSize");
+
+    /// <summary>Adjusted best ask size.</summary>
+    public static readonly VectorField<SizeF64> AskSize = new("AskSize");
 }

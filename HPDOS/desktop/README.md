@@ -31,7 +31,8 @@ Build/export publishes the backend first, then bundles Electrobun. The published
 resources/backend/backend
 ```
 
-The publish intentionally uses `PublishSingleFile=false` and `SelfContained=false`. That still gives the desktop shell a real executable, but avoids the slower and less predictable single-file extraction path.
+The backend project publishes framework-dependent output by default. That still gives the desktop shell a real executable, but avoids the slower and less predictable single-file extraction path.
 
 Set `HPDOS_BACKEND_URL` to point the desktop shell at a different backend.
 Set `HPDOS_BACKEND_EXECUTABLE` to use a specific backend binary.
+Set `HPDOS_PROJECT_DIRECTORY` to choose the default project/workspace directory passed to the backend.

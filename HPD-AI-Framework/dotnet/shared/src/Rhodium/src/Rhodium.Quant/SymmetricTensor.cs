@@ -12,7 +12,7 @@ namespace Rhodium.Quant;
 /// Packed symmetric storage: only lower/upper triangle stored.
 /// For dimension N, stores N*(N+1)/2 elements.
 /// </remarks>
-public sealed unsafe class SymmetricTensor : IDisposable
+public sealed class SymmetricTensor : IDisposable
 {
     private readonly double[] _data;
     private bool _disposed;

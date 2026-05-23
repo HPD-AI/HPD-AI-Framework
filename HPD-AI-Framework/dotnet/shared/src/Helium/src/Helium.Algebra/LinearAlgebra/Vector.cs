@@ -5,7 +5,9 @@ namespace Helium.Algebra;
 /// <summary>
 /// Dense vector over a ring R. Flat array backed.
 /// </summary>
-public readonly struct Vector<R> : IEquatable<Vector<R>>, IFormattable
+public readonly struct Vector<R> :
+    IEquatable<Vector<R>>,
+    IFormattable
     where R : IRing<R>
 {
     private readonly R[] _data;
@@ -45,6 +47,7 @@ public readonly struct Vector<R> : IEquatable<Vector<R>>, IFormattable
 
     public static Vector<R> operator +(Vector<R> left, Vector<R> right)
     {
+        EnsureSameLength(left, right);
         var data = new R[left.Length];
         for (int i = 0; i < left.Length; i++)
             data[i] = left._data[i] + right._data[i];
@@ -53,6 +56,7 @@ public readonly struct Vector<R> : IEquatable<Vector<R>>, IFormattable
 
     public static Vector<R> operator -(Vector<R> left, Vector<R> right)
     {
+        EnsureSameLength(left, right);
         var data = new R[left.Length];
         for (int i = 0; i < left.Length; i++)
             data[i] = left._data[i] - right._data[i];
@@ -80,6 +84,7 @@ public readonly struct Vector<R> : IEquatable<Vector<R>>, IFormattable
     /// </summary>
     public static R Dot(Vector<R> left, Vector<R> right)
     {
+        EnsureSameLength(left, right);
         var sum = R.AdditiveIdentity;
         for (int i = 0; i < left.Length; i++)
             sum = sum + left._data[i] * right._data[i];
@@ -118,5 +123,11 @@ public readonly struct Vector<R> : IEquatable<Vector<R>>, IFormattable
             "M" => "<mrow><mo>(</mo><mtable>" + string.Concat(_data.Select(x => $"<mtr><mtd>{FormatHelpers.FormatElement(x, "M", provider)}</mtd></mtr>")) + "</mtable><mo>)</mo></mrow>",
             _ => "[" + string.Join(", ", _data.Select(x => FormatHelpers.FormatElement(x, format, provider))) + "]"
         };
+    }
+
+    private static void EnsureSameLength(Vector<R> left, Vector<R> right)
+    {
+        if (left.Length != right.Length)
+            throw new ArgumentException("Vector dimensions must match.");
     }
 }
