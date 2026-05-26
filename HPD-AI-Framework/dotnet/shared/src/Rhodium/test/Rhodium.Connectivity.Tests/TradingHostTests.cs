@@ -772,7 +772,7 @@ public class TradingHostTests
 
         var vector = Rhodium.Simulation.Rhodium.Simulate<CrossModeGeneratedStrategy>()
             .WithHistory(SharedHistory.Load([CreateBarClosed(123m)]))
-            .WithFidelity(SimulationFidelity.Vector)
+            .WithMatchingFidelity(MatchingFidelity.FastVectorApproximation)
             .Run();
 
         Assert.Single(vector.OrderIntents);
@@ -781,7 +781,7 @@ public class TradingHostTests
 
         var queue = Rhodium.Simulation.Rhodium.Simulate<CrossModeGeneratedStrategy>()
             .WithHistory(SharedHistory.Load([CreateBarClosed(123m), CreateBarClosed(123m)]))
-            .WithFidelity(SimulationFidelity.Queue)
+            .WithMatchingFidelity(MatchingFidelity.QueueAccurate)
             .Run();
 
         Assert.Single(queue.OrderIntents);
@@ -895,6 +895,38 @@ public class TradingHostTests
     }
 
     [Fact]
+    public async Task RunAsync_AppliesConnectorAccountTransferBeforeStrategyEvents()
+    {
+        using var runtime = new RhodiumRuntime();
+        var connector = new TestConnector();
+        using var host = new TradingHost(connector, new EventBus(), runtime);
+        var strategyId = host.RegisterStrategy<InstrumentStrategy>(depth: 0);
+
+        var instrument = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NASDAQ);
+        connector.Events.Add(new AccountTransferCompleted(
+            AccountTransferId.New(),
+            strategyId,
+            VariantId: 0,
+            AccountTransferType.AssetDeposit,
+            CashAmount: null,
+            instrument,
+            new Qty(7m),
+            Instant.FromUnixSeconds(1),
+            ExternalReference: "live-sync",
+            Venue: Venue.NASDAQ,
+            CarryingPrice: new Price(420m, Currency.USD))
+        {
+            Time = Instant.FromUnixSeconds(1)
+        });
+
+        await host.RunAsync();
+
+        ref var position = ref runtime.WorldState.PositionAt(strategyId, virtualIndex: 0);
+        Assert.Equal(7m, position.Quantity);
+        Assert.Equal(420m, position.AvgEntryPrice);
+    }
+
+    [Fact]
     public async Task RunAsync_RoutesQuoteAndBarToMatchingGeneratedHooksOnly()
     {
         EventSeparationStrategy.Reset();
@@ -956,7 +988,7 @@ public class TradingHostTests
         connector.Events.Add(new TradeOccurred(
             instrument,
             new Trade(new Price(101m, Currency.USD), new Qty(5m), Side.Buy, default)));
-        connector.Events.Add(new BookUpdated(
+        connector.Events.Add(new BookSnapshotReceived(
             instrument,
             new Book
             {
@@ -981,7 +1013,7 @@ public class TradingHostTests
         var strategyId = host.RegisterStrategy<BookBidBuyingStrategy>(depth: 0);
 
         var instrument = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NASDAQ);
-        connector.Events.Add(new BookUpdated(
+        connector.Events.Add(new BookSnapshotReceived(
             instrument,
             new Book
             {
@@ -1421,7 +1453,7 @@ internal sealed partial class MultiVenueGeneratedStrategy : Strategy
     protected override void OnInitialize(in SetupContext setup)
     {
         _spy = setup.AddInstrument(new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NASDAQ));
-        _btc = setup.AddInstrument(new Instrument(new Asset("BTCUSDT", AssetClass.Crypto), Venue.Binance));
+        _btc = setup.AddInstrument(Contracts.CryptoSpot("BTCUSDT", Venue.Binance, Currency.BTC, Currency.USDT, tick: 0.01m, lot: 0.0001m));
     }
 
     partial void OnBar(ref BarContext bar)
@@ -1446,9 +1478,8 @@ internal sealed class CrossVenueQuoteStrategy : Strategy
 {
     protected override void OnInitialize(in SetupContext setup)
     {
-        var asset = new Asset("BTCUSDT", AssetClass.Crypto);
-        setup.AddInstrument(new Instrument(asset, Venue.Binance));
-        setup.AddInstrument(new Instrument(asset, Venue.Coinbase));
+        setup.AddInstrument(Contracts.CryptoSpot("BTCUSDT", Venue.Binance, Currency.BTC, Currency.USDT, tick: 0.01m, lot: 0.0001m));
+        setup.AddInstrument(Contracts.CryptoSpot("BTCUSDT", Venue.Coinbase, Currency.BTC, Currency.USDT, tick: 0.01m, lot: 0.0001m));
     }
 
     protected override void __GeneratedRunTick(in MarketKernel market, ref PortfolioContext portfolio)
@@ -1466,9 +1497,8 @@ internal sealed partial class BestVenueBuyStrategy : Strategy
 
     protected override void OnInitialize(in SetupContext setup)
     {
-        var asset = new Asset("BTCUSDT", AssetClass.Crypto);
-        _binance = setup.AddInstrument(new Instrument(asset, Venue.Binance));
-        setup.AddInstrument(new Instrument(asset, Venue.Coinbase));
+        _binance = setup.AddInstrument(Contracts.CryptoSpot("BTCUSDT", Venue.Binance, Currency.BTC, Currency.USDT, tick: 0.01m, lot: 0.0001m));
+        setup.AddInstrument(Contracts.CryptoSpot("BTCUSDT", Venue.Coinbase, Currency.BTC, Currency.USDT, tick: 0.01m, lot: 0.0001m));
     }
 
     partial void OnBar(ref BarContext bar)
@@ -1491,9 +1521,8 @@ internal sealed partial class IocBestVenueBuyStrategy : Strategy
 
     protected override void OnInitialize(in SetupContext setup)
     {
-        var asset = new Asset("BTCUSDT", AssetClass.Crypto);
-        _binance = setup.AddInstrument(new Instrument(asset, Venue.Binance));
-        setup.AddInstrument(new Instrument(asset, Venue.Coinbase));
+        _binance = setup.AddInstrument(Contracts.CryptoSpot("BTCUSDT", Venue.Binance, Currency.BTC, Currency.USDT, tick: 0.01m, lot: 0.0001m));
+        setup.AddInstrument(Contracts.CryptoSpot("BTCUSDT", Venue.Coinbase, Currency.BTC, Currency.USDT, tick: 0.01m, lot: 0.0001m));
     }
 
     partial void OnBar(ref BarContext bar)
@@ -1516,9 +1545,8 @@ internal sealed partial class BestVenueSellStrategy : Strategy
 
     protected override void OnInitialize(in SetupContext setup)
     {
-        var asset = new Asset("BTCUSDT", AssetClass.Crypto);
-        _binance = setup.AddInstrument(new Instrument(asset, Venue.Binance));
-        setup.AddInstrument(new Instrument(asset, Venue.Coinbase));
+        _binance = setup.AddInstrument(Contracts.CryptoSpot("BTCUSDT", Venue.Binance, Currency.BTC, Currency.USDT, tick: 0.01m, lot: 0.0001m));
+        setup.AddInstrument(Contracts.CryptoSpot("BTCUSDT", Venue.Coinbase, Currency.BTC, Currency.USDT, tick: 0.01m, lot: 0.0001m));
     }
 
     partial void OnBar(ref BarContext bar)
@@ -1541,9 +1569,8 @@ internal sealed partial class SweepBuyStrategy : Strategy
 
     protected override void OnInitialize(in SetupContext setup)
     {
-        var asset = new Asset("BTCUSDT", AssetClass.Crypto);
-        _binance = setup.AddInstrument(new Instrument(asset, Venue.Binance));
-        setup.AddInstrument(new Instrument(asset, Venue.Coinbase));
+        _binance = setup.AddInstrument(Contracts.CryptoSpot("BTCUSDT", Venue.Binance, Currency.BTC, Currency.USDT, tick: 0.01m, lot: 0.0001m));
+        setup.AddInstrument(Contracts.CryptoSpot("BTCUSDT", Venue.Coinbase, Currency.BTC, Currency.USDT, tick: 0.01m, lot: 0.0001m));
     }
 
     partial void OnBar(ref BarContext bar)
@@ -1566,9 +1593,8 @@ internal sealed partial class SweepSellStrategy : Strategy
 
     protected override void OnInitialize(in SetupContext setup)
     {
-        var asset = new Asset("BTCUSDT", AssetClass.Crypto);
-        _binance = setup.AddInstrument(new Instrument(asset, Venue.Binance));
-        setup.AddInstrument(new Instrument(asset, Venue.Coinbase));
+        _binance = setup.AddInstrument(Contracts.CryptoSpot("BTCUSDT", Venue.Binance, Currency.BTC, Currency.USDT, tick: 0.01m, lot: 0.0001m));
+        setup.AddInstrument(Contracts.CryptoSpot("BTCUSDT", Venue.Coinbase, Currency.BTC, Currency.USDT, tick: 0.01m, lot: 0.0001m));
     }
 
     partial void OnBar(ref BarContext bar)
@@ -1651,7 +1677,7 @@ internal sealed partial class TradeBookStrategy : Strategy
             TradeCount++;
     }
 
-    partial void OnBook(ref BookContext book)
+    partial void OnBookSnapshot(ref BookSnapshotContext book)
     {
         if (book.AssetId == _spy)
             BookCount++;
@@ -1667,7 +1693,7 @@ internal sealed partial class BookBidBuyingStrategy : Strategy
         _spy = setup.AddEquity("SPY");
     }
 
-    partial void OnBook(ref BookContext book)
+    partial void OnBookSnapshot(ref BookSnapshotContext book)
     {
         if (book.AssetId == _spy)
         book.Buy(new Qty(1m), Execution.Limit().AtBid());

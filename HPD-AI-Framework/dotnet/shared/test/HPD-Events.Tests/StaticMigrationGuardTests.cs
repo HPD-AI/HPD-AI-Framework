@@ -28,10 +28,30 @@ public class StaticMigrationGuardTests
     {
         var sourceRoot = GetEventsSourceRoot();
         var matches = FindSourceFiles(sourceRoot, "EmitUpstream")
-            .Concat(FindSourceFiles(sourceRoot, ".TryRead("))
             .Concat(FindSourceFiles(sourceRoot, "SubscribeStream"))
             .Concat(FindSourceFiles(sourceRoot, "SubscribeChannel"))
             .Concat(FindSourceFiles(sourceRoot, "EventStreamSubscription"))
+            .ToArray();
+
+        Assert.Empty(matches);
+    }
+
+    [Fact]
+    public void Production_Source_Does_Not_Expose_Old_Struct_Bus_Apis()
+    {
+        var sourceRoot = GetEventsSourceRoot();
+        var matches = FindSourceRegex(sourceRoot, @"\bIStructEventBus\b")
+            .Concat(FindSourceRegex(sourceRoot, @"\bStructEventRouter\b"))
+            .Concat(FindSourceRegex(sourceRoot, @"\bStructEmitter\b"))
+            .Concat(FindSourceRegex(sourceRoot, @"\bStructEmitterOptions\b"))
+            .Concat(FindSourceRegex(sourceRoot, @"\bStructInbox\b"))
+            .Concat(FindSourceRegex(sourceRoot, @"\bStructInboxOptions\b"))
+            .Concat(FindSourceRegex(sourceRoot, @"\bStructSubscription\b"))
+            .Concat(FindSourceRegex(sourceRoot, @"\bStructSubscriptionOptions\b"))
+            .Concat(FindSourceRegex(sourceRoot, @"\bTryEmitStruct\b"))
+            .Concat(FindSourceRegex(sourceRoot, @"\bEmitStructAsync\b"))
+            .Concat(FindSourceRegex(sourceRoot, @"\bSubscribeStruct\b"))
+            .Concat(FindSourceRegex(sourceRoot, @"\bCreateStructEmitter\b"))
             .ToArray();
 
         Assert.Empty(matches);
@@ -64,5 +84,11 @@ public class StaticMigrationGuardTests
     {
         return Directory.EnumerateFiles(sourceRoot, "*.cs", SearchOption.AllDirectories)
             .Where(path => File.ReadAllText(path).Contains(text, StringComparison.Ordinal));
+    }
+
+    private static IEnumerable<string> FindSourceRegex(string sourceRoot, string pattern)
+    {
+        return Directory.EnumerateFiles(sourceRoot, "*.cs", SearchOption.AllDirectories)
+            .Where(path => System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(path), pattern));
     }
 }

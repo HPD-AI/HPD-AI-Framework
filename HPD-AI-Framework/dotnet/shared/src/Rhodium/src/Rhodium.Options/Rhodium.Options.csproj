@@ -7,4 +7,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Rhodium.Primitives\Rhodium.Primitives.csproj" />
+  </ItemGroup>
+
 </Project>

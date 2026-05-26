@@ -28,31 +28,6 @@ export type { ChatSessionOptions, OpenChatOptions, SendTextOptions } from './cha
 export { ClientToolRegistry, normalizeClientToolName } from './tools.js';
 export type { ClientToolHandler, ClientToolHandlerResult } from './tools.js';
 
-// Conversation helpers
-export {
-  ConversationState,
-  isFunctionCallContent,
-  isFunctionResultContent,
-  isReasoningContent,
-  isTextContent,
-  readBranchMessage,
-} from './conversation.js';
-export type {
-  ConversationChange,
-  ConversationHistoryItem,
-  ConversationItem,
-  ConversationItemStatus,
-  ConversationMessageItem,
-  ConversationReasoningItem,
-  ConversationSource,
-  ConversationTextHistoryItem,
-  ConversationToolItem,
-  ConversationToolCallHistoryItem,
-  ConversationToolResultHistoryItem,
-  ConversationErrorHistoryItem,
-  ConversationReasoningHistoryItem,
-} from './conversation.js';
-
 // Error handling
 export {
   AgentError,

@@ -21,6 +21,8 @@
     <InternalsVisibleTo Include="Rhodium.Simulation" />
     <InternalsVisibleTo Include="Rhodium.Control.Tests" />
     <InternalsVisibleTo Include="Rhodium.Kernel.Tests" />
+    <InternalsVisibleTo Include="Rhodium.Platform.Tests" />
+    <InternalsVisibleTo Include="Rhodium.Quant.Tests" />
   </ItemGroup>
 
 </Project>

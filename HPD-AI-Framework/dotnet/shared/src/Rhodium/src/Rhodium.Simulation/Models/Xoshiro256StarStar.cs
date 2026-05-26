@@ -1,9 +1,9 @@
 namespace Rhodium.Simulation;
 
 /// <summary>
-/// Xoshiro256** - Fast, high-quality pseudorandom number generator.
+/// Xoshiro256StarStar - Fast, high-quality pseudorandom number generator.
 /// Period: 2^256 - 1
-/// Reference: Blackman & Vigna (2018)
+/// Reference: Blackman and Vigna (2018)
 /// Thread-Safety: NOT thread-safe. Each thread must have its own instance.
 /// </summary>
 public ref struct Xoshiro256StarStar

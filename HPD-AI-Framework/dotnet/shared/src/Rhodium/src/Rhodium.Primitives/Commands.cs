@@ -91,7 +91,9 @@ public readonly struct ExecutionSpec
         decimal participationRate = 0m,
         Price? stopPrice = null,
         Instant? goodTilDate = null,
-        Qty? displayQuantity = null)
+        Qty? displayQuantity = null,
+        decimal? trailingOffset = null,
+        TrailingOffsetType? trailingOffsetType = null)
     {
         OrderType = orderType;
         LimitPrice = limitPrice;
@@ -106,6 +108,8 @@ public readonly struct ExecutionSpec
         StopPrice = stopPrice;
         GoodTilDate = goodTilDate;
         DisplayQuantity = displayQuantity;
+        TrailingOffset = trailingOffset;
+        TrailingOffsetType = trailingOffsetType;
     }
 
     public OrderType OrderType { get; }
@@ -121,32 +125,49 @@ public readonly struct ExecutionSpec
     public Price? StopPrice { get; }
     public Instant? GoodTilDate { get; }
     public Qty? DisplayQuantity { get; }
+    public decimal? TrailingOffset { get; }
+    public TrailingOffsetType? TrailingOffsetType { get; }
 
     public ExecutionSpec AtBid() => WithLimitMode(ExecutionLimitPriceMode.Bid);
     public ExecutionSpec AtAsk() => WithLimitMode(ExecutionLimitPriceMode.Ask);
     public ExecutionSpec AtMid() => WithLimitMode(ExecutionLimitPriceMode.Mid);
-    public ExecutionSpec At(Price price) => new(OrderType.Limit, price, ExecutionLimitPriceMode.Explicit, TimeInForce, PostOnly, MaxSlippageTicks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity);
-    public ExecutionSpec GoodTilCancelled() => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce.GTC, PostOnly, MaxSlippageTicks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity);
-    public ExecutionSpec GoodTil(Instant time) => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce.GTD, PostOnly, MaxSlippageTicks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, time, DisplayQuantity);
-    public ExecutionSpec ImmediateOrCancel() => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce.IOC, PostOnly, MaxSlippageTicks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity);
-    public ExecutionSpec WithPostOnly() => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce, postOnly: true, MaxSlippageTicks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity);
-    public ExecutionSpec WithMaxSlippageTicks(int ticks) => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce, PostOnly, ticks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity);
-    public ExecutionSpec Over(Duration horizon) => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce, PostOnly, MaxSlippageTicks, Algorithm, horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity);
-    public ExecutionSpec Every(Duration interval) => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce, PostOnly, MaxSlippageTicks, Algorithm, Horizon, interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity);
-    public ExecutionSpec MaxParticipation(decimal rate) => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce, PostOnly, MaxSlippageTicks, Algorithm, Horizon, Interval, rate, StopPrice, GoodTilDate, DisplayQuantity);
-    public ExecutionSpec Display(Qty quantity) => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce, PostOnly, MaxSlippageTicks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, quantity);
+    public ExecutionSpec At(Price price) => new(OrderType.Limit, price, ExecutionLimitPriceMode.Explicit, TimeInForce, PostOnly, MaxSlippageTicks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity, TrailingOffset, TrailingOffsetType);
+    public ExecutionSpec GoodTilCancelled() => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce.GTC, PostOnly, MaxSlippageTicks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity, TrailingOffset, TrailingOffsetType);
+    public ExecutionSpec GoodTil(Instant time) => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce.GTD, PostOnly, MaxSlippageTicks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, time, DisplayQuantity, TrailingOffset, TrailingOffsetType);
+    public ExecutionSpec ImmediateOrCancel() => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce.IOC, PostOnly, MaxSlippageTicks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity, TrailingOffset, TrailingOffsetType);
+    public ExecutionSpec WithPostOnly() => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce, postOnly: true, MaxSlippageTicks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity, TrailingOffset, TrailingOffsetType);
+    public ExecutionSpec WithMaxSlippageTicks(int ticks) => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce, PostOnly, ticks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity, TrailingOffset, TrailingOffsetType);
+    public ExecutionSpec Over(Duration horizon) => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce, PostOnly, MaxSlippageTicks, Algorithm, horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity, TrailingOffset, TrailingOffsetType);
+    public ExecutionSpec Every(Duration interval) => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce, PostOnly, MaxSlippageTicks, Algorithm, Horizon, interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity, TrailingOffset, TrailingOffsetType);
+    public ExecutionSpec MaxParticipation(decimal rate) => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce, PostOnly, MaxSlippageTicks, Algorithm, Horizon, Interval, rate, StopPrice, GoodTilDate, DisplayQuantity, TrailingOffset, TrailingOffsetType);
+    public ExecutionSpec Display(Qty quantity) => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce, PostOnly, MaxSlippageTicks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, quantity, TrailingOffset, TrailingOffsetType);
+    public ExecutionSpec WithStopPrice(Price price) => new(OrderType, LimitPrice, LimitPriceMode, TimeInForce, PostOnly, MaxSlippageTicks, Algorithm, Horizon, Interval, ParticipationRate, price, GoodTilDate, DisplayQuantity, TrailingOffset, TrailingOffsetType);
 
     private ExecutionSpec WithLimitMode(ExecutionLimitPriceMode mode)
-        => new(OrderType.Limit, LimitPrice, mode, TimeInForce, PostOnly, MaxSlippageTicks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity);
+        => new(OrderType.Limit, LimitPrice, mode, TimeInForce, PostOnly, MaxSlippageTicks, Algorithm, Horizon, Interval, ParticipationRate, StopPrice, GoodTilDate, DisplayQuantity, TrailingOffset, TrailingOffsetType);
 }
 
 public static class Execution
 {
     public static ExecutionSpec Market() => ExecutionSpec.Market;
     public static ExecutionSpec Limit() => new(OrderType.Limit);
+    public static ExecutionSpec MarketToLimit() => new(OrderType.MarketToLimit);
     public static ExecutionSpec StopMarket(Price stopPrice) => new(OrderType.StopMarket, stopPrice: stopPrice);
     public static ExecutionSpec StopLimit(Price stopPrice, Price limitPrice) =>
         new(OrderType.StopLimit, limitPrice, ExecutionLimitPriceMode.Explicit, stopPrice: stopPrice);
+    public static ExecutionSpec TrailingStop(
+        decimal offset,
+        TrailingOffsetType offsetType = TrailingOffsetType.Price) =>
+        new(OrderType.TrailingStopMarket, trailingOffset: offset, trailingOffsetType: offsetType);
+    public static ExecutionSpec TrailingStopLimit(
+        decimal trailingOffset,
+        TrailingOffsetType offsetType,
+        Price limitPrice) =>
+        new(OrderType.TrailingStopLimit, limitPrice, ExecutionLimitPriceMode.Explicit, trailingOffset: trailingOffset, trailingOffsetType: offsetType);
+    public static ExecutionSpec MarketIfTouched(Price triggerPrice) =>
+        new(OrderType.MarketIfTouched, stopPrice: triggerPrice);
+    public static ExecutionSpec LimitIfTouched(Price triggerPrice, Price limitPrice) =>
+        new(OrderType.LimitIfTouched, limitPrice, ExecutionLimitPriceMode.Explicit, stopPrice: triggerPrice);
     public static ExecutionSpec Twap() => new(OrderType.Market, algorithm: ExecutionAlgorithm.Twap);
     public static ExecutionSpec Vwap() => new(OrderType.Market, algorithm: ExecutionAlgorithm.Vwap);
     public static ExecutionSpec Pov(decimal participationRate = 0.1m) =>
@@ -158,7 +179,43 @@ public readonly record struct OrderIntent(
     AssetId AssetId,
     Side Side,
     Qty Quantity,
-    ExecutionSpec Execution);
+    ExecutionSpec Execution,
+    OrderIntentKind Kind = OrderIntentKind.Submit,
+    OrderId OrderId = default,
+    Qty? NewQuantity = null,
+    Price? NewLimitPrice = null,
+    string? Reason = null)
+{
+    public static OrderIntent Submit(
+        StrategyId strategyId,
+        AssetId assetId,
+        Side side,
+        Qty quantity,
+        ExecutionSpec execution)
+        => new(strategyId, assetId, side, quantity, execution);
+
+    public static OrderIntent Cancel(
+        StrategyId strategyId,
+        AssetId assetId,
+        OrderId orderId,
+        string? reason = null)
+        => new(strategyId, assetId, default, Qty.Zero, global::Rhodium.Primitives.Execution.Market(), OrderIntentKind.Cancel, orderId, Reason: reason);
+
+    public static OrderIntent Modify(
+        StrategyId strategyId,
+        AssetId assetId,
+        OrderId orderId,
+        Qty? newQuantity = null,
+        Price? newLimitPrice = null)
+        => new(strategyId, assetId, default, Qty.Zero, global::Rhodium.Primitives.Execution.Market(), OrderIntentKind.Modify, orderId, newQuantity, newLimitPrice);
+}
+
+public enum OrderIntentKind : byte
+{
+    Submit = 0,
+    Cancel = 1,
+    Modify = 2
+}
 
 // ==================== ACCOUNT TRANSFER COMMANDS ====================
 
@@ -452,6 +509,57 @@ public readonly record struct FinancingChargeCommand(
             quantity,
             rate,
             externalReference);
+
+    public static FinancingChargeCommand FromContractRate(
+        StrategyId strategyId,
+        InstrumentContract contract,
+        Money baseAmount,
+        decimal rate,
+        Qty quantity = default,
+        int variantId = 0,
+        Instant effectiveAt = default,
+        decimal accrualFraction = 1m,
+        string? externalReference = null)
+    {
+        ValidatePositiveAmount(baseAmount, nameof(baseAmount));
+        if (accrualFraction <= 0m)
+            throw new ArgumentOutOfRangeException(nameof(accrualFraction), "Accrual fraction must be positive.");
+
+        return contract.Financing switch
+        {
+            FinancingTerms.PerpetualFunding funding => PerpetualFunding(
+                strategyId,
+                contract.Instrument,
+                new Money(-baseAmount.Amount * rate * accrualFraction, baseAmount.Currency),
+                quantity,
+                variantId,
+                effectiveAt,
+                rate,
+                externalReference ?? funding.RateSource),
+            FinancingTerms.ForexRollover rollover => ForexRollover(
+                strategyId,
+                contract.Instrument,
+                new Money(baseAmount.Amount * rate * accrualFraction, baseAmount.Currency),
+                quantity,
+                variantId,
+                effectiveAt,
+                rate,
+                externalReference ?? rollover.RateSource),
+            FinancingTerms.Borrow borrow => BorrowFee(
+                strategyId,
+                contract.Instrument,
+                new Money(Math.Abs(baseAmount.Amount * rate * accrualFraction), baseAmount.Currency),
+                quantity,
+                variantId,
+                effectiveAt,
+                rate,
+                externalReference ?? borrow.RateSource),
+            FinancingTerms.NoFinancing => throw new InvalidOperationException(
+                $"Instrument {contract.Instrument} does not define financing terms."),
+            _ => throw new InvalidOperationException(
+                $"Instrument {contract.Instrument} has unsupported financing terms {contract.Financing.GetType().Name}.")
+        };
+    }
 
     private static FinancingChargeCommand New(
         FinancingChargeType chargeType,

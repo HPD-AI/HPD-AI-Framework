@@ -1,4 +1,5 @@
 using Rhodium.Options;
+using Rhodium.Primitives;
 
 namespace Rhodium.Options.Tests;
 
@@ -8,7 +9,7 @@ public class GreeksTests
     public void Calculate_ComputesAllGreeksForCallOption()
     {
         var result = Greeks.Calculate(
-            OptionType.Call,
+            OptionRight.Call,
             underlyingPrice: 100m,
             strikePrice: 100m,
             timeToExpiryYears: 1m,
@@ -39,7 +40,7 @@ public class GreeksTests
     public void Calculate_ComputesAllGreeksForPutOption()
     {
         var result = Greeks.Calculate(
-            OptionType.Put,
+            OptionRight.Put,
             underlyingPrice: 100m,
             strikePrice: 100m,
             timeToExpiryYears: 1m,
@@ -69,8 +70,8 @@ public class GreeksTests
     [Fact]
     public void Delta_IncreasesAsOptionGoesInTheMoney()
     {
-        var atmDelta = Greeks.Delta(OptionType.Call, 100m, 100m, 1m, 0.2m, 0.05m);
-        var itmDelta = Greeks.Delta(OptionType.Call, 110m, 100m, 1m, 0.2m, 0.05m); // In the money
+        var atmDelta = Greeks.Delta(OptionRight.Call, 100m, 100m, 1m, 0.2m, 0.05m);
+        var itmDelta = Greeks.Delta(OptionRight.Call, 110m, 100m, 1m, 0.2m, 0.05m); // In the money
 
         Assert.True(itmDelta > atmDelta);
         Assert.True(itmDelta > 0.5m); // ITM call delta > 0.5
@@ -92,8 +93,8 @@ public class GreeksTests
     [Fact]
     public void Theta_IncreasesAsExpirationApproaches()
     {
-        var longTermTheta = Greeks.Theta(OptionType.Call, 100m, 100m, 1m, 0.2m, 0.05m);
-        var shortTermTheta = Greeks.Theta(OptionType.Call, 100m, 100m, 0.1m, 0.2m, 0.05m);
+        var longTermTheta = Greeks.Theta(OptionRight.Call, 100m, 100m, 1m, 0.2m, 0.05m);
+        var shortTermTheta = Greeks.Theta(OptionRight.Call, 100m, 100m, 0.1m, 0.2m, 0.05m);
 
         // Theta magnitude increases as expiration approaches
         Assert.True(Math.Abs(shortTermTheta) > Math.Abs(longTermTheta));
@@ -111,8 +112,8 @@ public class GreeksTests
     [Fact]
     public void Rho_IsPositiveForCallsNegativeForPuts()
     {
-        var callRho = Greeks.Rho(OptionType.Call, 100m, 100m, 1m, 0.2m, 0.05m);
-        var putRho = Greeks.Rho(OptionType.Put, 100m, 100m, 1m, 0.2m, 0.05m);
+        var callRho = Greeks.Rho(OptionRight.Call, 100m, 100m, 1m, 0.2m, 0.05m);
+        var putRho = Greeks.Rho(OptionRight.Put, 100m, 100m, 1m, 0.2m, 0.05m);
 
         Assert.True(callRho > 0);
         Assert.True(putRho < 0);
@@ -122,10 +123,10 @@ public class GreeksTests
     public void ImpliedVolatility_ConvergesToInputVolatility()
     {
         var inputVol = 0.25m;
-        var theoreticalPrice = Greeks.Price(OptionType.Call, 100m, 100m, 1m, inputVol, 0.05m);
+        var theoreticalPrice = Greeks.Price(OptionRight.Call, 100m, 100m, 1m, inputVol, 0.05m);
 
         var impliedVol = Greeks.ImpliedVolatility(
-            OptionType.Call,
+            OptionRight.Call,
             theoreticalPrice,
             100m,
             100m,
@@ -146,8 +147,8 @@ public class GreeksTests
         var r = 0.05m;
         var v = 0.2m;
 
-        var callPrice = Greeks.Price(OptionType.Call, s, k, t, v, r);
-        var putPrice = Greeks.Price(OptionType.Put, s, k, t, v, r);
+        var callPrice = Greeks.Price(OptionRight.Call, s, k, t, v, r);
+        var putPrice = Greeks.Price(OptionRight.Put, s, k, t, v, r);
 
         // Put-Call Parity: C - P = S - K * e^(-r*t)
         var leftSide = callPrice - putPrice;
@@ -168,8 +169,8 @@ public class GreeksTests
     [Fact]
     public void Charm_MeasuresDeltaDecayOverTime()
     {
-        var callCharm = Greeks.Charm(OptionType.Call, 100m, 100m, 1m, 0.2m, 0.05m);
-        var putCharm = Greeks.Charm(OptionType.Put, 100m, 100m, 1m, 0.2m, 0.05m);
+        var callCharm = Greeks.Charm(OptionRight.Call, 100m, 100m, 1m, 0.2m, 0.05m);
+        var putCharm = Greeks.Charm(OptionRight.Put, 100m, 100m, 1m, 0.2m, 0.05m);
 
         // Charm for ITM call is typically negative, OTM put is positive
         // For ATM, magnitude should be small
@@ -190,19 +191,19 @@ public class GreeksTests
     public void Calculate_HandlesEdgeCases()
     {
         // Zero time to expiry
-        var zeroTime = Greeks.Calculate(OptionType.Call, 100m, 100m, 0m, 0.2m, 0.05m);
+        var zeroTime = Greeks.Calculate(OptionRight.Call, 100m, 100m, 0m, 0.2m, 0.05m);
         Assert.Equal(default(GreeksResult), zeroTime);
 
         // Zero volatility
-        var zeroVol = Greeks.Calculate(OptionType.Call, 100m, 100m, 1m, 0m, 0.05m);
+        var zeroVol = Greeks.Calculate(OptionRight.Call, 100m, 100m, 1m, 0m, 0.05m);
         Assert.Equal(default(GreeksResult), zeroVol);
     }
 
     [Fact]
     public void Calculate_HandlesWithDividendYield()
     {
-        var noDividend = Greeks.Calculate(OptionType.Call, 100m, 100m, 1m, 0.2m, 0.05m, 0m);
-        var withDividend = Greeks.Calculate(OptionType.Call, 100m, 100m, 1m, 0.2m, 0.05m, 0.02m);
+        var noDividend = Greeks.Calculate(OptionRight.Call, 100m, 100m, 1m, 0.2m, 0.05m, 0m);
+        var withDividend = Greeks.Calculate(OptionRight.Call, 100m, 100m, 1m, 0.2m, 0.05m, 0.02m);
 
         // Dividend reduces call value
         Assert.True(withDividend.TheoreticalPrice < noDividend.TheoreticalPrice);
@@ -215,11 +216,88 @@ public class GreeksTests
     public void ImpliedVolatility_HandlesExtremePrices()
     {
         // Very low price
-        var lowVol = Greeks.ImpliedVolatility(OptionType.Call, 0.01m, 100m, 100m, 1m, 0.05m);
+        var lowVol = Greeks.ImpliedVolatility(OptionRight.Call, 0.01m, 100m, 100m, 1m, 0.05m);
         Assert.True(lowVol > 0);
 
         // Very high price (deep ITM)
-        var highVol = Greeks.ImpliedVolatility(OptionType.Call, 50m, 100m, 50m, 1m, 0.05m);
+        var highVol = Greeks.ImpliedVolatility(OptionRight.Call, 50m, 100m, 50m, 1m, 0.05m);
         Assert.True(highVol > 0);
+    }
+
+    [Fact]
+    public void BlackScholesModel_PricesFromInstrumentContractAndMarketState()
+    {
+        var underlying = Contracts.Equity("SPY", Venue.NYSE, Currency.USD).Instrument;
+        var expiry = Instant.FromUnixSeconds(1_796_016_000);
+        var contract = Contracts.OptionContract(
+            "SPY-20261225-500-C",
+            "OPRA",
+            underlying,
+            Currency.USD,
+            0.01m,
+            1m,
+            100m,
+            new Price(500m, Currency.USD),
+            expiry,
+            OptionRight.Call,
+            ExerciseStyle.European);
+        var market = new OptionMarketState(
+            contract.Instrument,
+            Timestamp: expiry - Duration.FromDays(365),
+            Last: new Price(30m, Currency.USD),
+            OpenInterest: 10_000m,
+            UnderlyingMark: new Price(505m, Currency.USD),
+            ObservedImpliedVolatility: 0.20m);
+
+        var valuation = BlackScholesOptionAnalyticsModel.Instance.Price(
+            contract,
+            market,
+            new OptionPricingScenario(RiskFreeRate: 0.05m));
+        var greeks = BlackScholesOptionAnalyticsModel.Instance.Greeks(
+            contract,
+            market,
+            new OptionPricingScenario(RiskFreeRate: 0.05m));
+
+        Assert.True(valuation.TheoreticalValue.Amount > 0m);
+        Assert.Equal(500m, valuation.IntrinsicValue.Amount);
+        Assert.True(greeks.Delta > 0m);
+        Assert.Equal(10_000m, market.OpenInterest);
+    }
+
+    [Fact]
+    public void BlackScholesModel_FailsUnsupportedAmericanContractUnlessApproximationAllowed()
+    {
+        var underlying = Contracts.Equity("AAPL", Venue.NASDAQ, Currency.USD).Instrument;
+        var expiry = Instant.FromUnixSeconds(1_796_016_000);
+        var contract = Contracts.OptionContract(
+            "AAPL-20261225-250-C",
+            "OPRA",
+            underlying,
+            Currency.USD,
+            0.01m,
+            1m,
+            100m,
+            new Price(250m, Currency.USD),
+            expiry,
+            OptionRight.Call,
+            ExerciseStyle.American);
+        var market = new OptionMarketState(
+            contract.Instrument,
+            Timestamp: expiry - Duration.FromDays(365),
+            UnderlyingMark: new Price(255m, Currency.USD),
+            ObservedImpliedVolatility: 0.20m);
+
+        Assert.False(BlackScholesOptionAnalyticsModel.Instance.Supports(contract));
+        Assert.Throws<InvalidOperationException>(() =>
+            BlackScholesOptionAnalyticsModel.Instance.Price(
+                contract,
+                market,
+                new OptionPricingScenario(RiskFreeRate: 0.05m)));
+
+        var approximate = BlackScholesOptionAnalyticsModel.Instance.Price(
+            contract,
+            market,
+            new OptionPricingScenario(RiskFreeRate: 0.05m, AllowApproximation: true));
+        Assert.True(approximate.TheoreticalValue.Amount > 0m);
     }
 }

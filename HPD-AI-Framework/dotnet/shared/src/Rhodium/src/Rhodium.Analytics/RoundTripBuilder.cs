@@ -10,33 +10,49 @@ public static class RoundTripBuilder
 {
     public static IEnumerable<RoundTrip> FromFills(IEnumerable<OrderFilled> fills)
     {
-        var fillsByInstrument = fills
-            .GroupBy(f => f.Instrument)
-            .ToDictionary(g => g.Key, g => g.OrderBy(f => f.Time).ToList());
+        ArgumentNullException.ThrowIfNull(fills);
 
-        foreach (var (instrument, instrumentFills) in fillsByInstrument)
+        var orderedFills = new List<OrderFilled>();
+        foreach (var fill in fills)
+            orderedFills.Add(fill);
+
+        orderedFills.Sort(CompareFills);
+
+        var start = 0;
+        while (start < orderedFills.Count)
         {
-            foreach (var roundTrip in MatchFifo(instrument, instrumentFills))
-            {
+            var instrument = orderedFills[start].Instrument;
+            var end = start + 1;
+            while (end < orderedFills.Count && orderedFills[end].Instrument == instrument)
+                end++;
+
+            foreach (var roundTrip in MatchFifo(instrument, orderedFills, start, end))
                 yield return roundTrip;
-            }
+
+            start = end;
         }
     }
 
     private static IEnumerable<RoundTrip> MatchFifo(
         Instrument instrument,
-        List<OrderFilled> fills)
+        IReadOnlyList<OrderFilled> fills,
+        int start,
+        int end)
     {
-        var openPositions = new Queue<(OrderFilled Fill, decimal Remaining)>();
+        var openFills = new List<OrderFilled>();
+        var openRemaining = new List<decimal>();
+        var openIndex = 0;
 
-        foreach (var fill in fills)
+        for (var i = start; i < end; i++)
         {
+            var fill = fills[i];
             var remaining = fill.FilledQty.Value;
 
             // Try to match against existing positions (opposite side)
-            while (remaining > 0 && openPositions.Count > 0)
+            while (remaining > 0 && openIndex < openFills.Count)
             {
-                var (entryFill, entryRemaining) = openPositions.Peek();
+                var entryFill = openFills[openIndex];
+                var entryRemaining = openRemaining[openIndex];
 
                 // Same side = adding to position, stop matching
                 if (entryFill.Side == fill.Side)
@@ -64,24 +80,18 @@ public static class RoundTripBuilder
                 remaining -= matchQty;
                 var newEntryRemaining = entryRemaining - matchQty;
 
-                // Remove fully matched entry
-                openPositions.Dequeue();
-
-                // Re-add if partially matched
                 if (newEntryRemaining > 0)
-                {
-                    // Create new queue with updated entry at front
-                    var temp = openPositions.ToList();
-                    openPositions.Clear();
-                    openPositions.Enqueue((entryFill, newEntryRemaining));
-                    foreach (var item in temp)
-                        openPositions.Enqueue(item);
-                }
+                    openRemaining[openIndex] = newEntryRemaining;
+                else
+                    openIndex++;
             }
 
             // Add remaining as new open position
             if (remaining > 0)
-                openPositions.Enqueue((fill, remaining));
+            {
+                openFills.Add(fill);
+                openRemaining.Add(remaining);
+            }
         }
     }
 
@@ -90,22 +100,42 @@ public static class RoundTripBuilder
     /// </summary>
     public static IEnumerable<RoundTrip> FromOrders(IEnumerable<Order> orders)
     {
-        var fills = orders
-            .Where(o => o.FilledQty > Qty.Zero)
-            .Select(o => new OrderFilled(
-                o.Id,
-                o.Instrument,
-                o.VariantId,
-                new StrategyId(0),
-                o.Side,
-                o.FilledQty,
-                o.AvgFillPrice ?? Price.Zero,
-                o.TotalCommission)
-            {
-                // Use the response timestamp as fill time
-                Timestamp = o.ResponseTimestamp.ToDateTimeOffset()
-            });
+        ArgumentNullException.ThrowIfNull(orders);
+
+        var fills = new List<OrderFilled>();
+        foreach (var order in orders)
+        {
+            if (order.FilledQty <= Qty.Zero)
+                continue;
+
+            fills.Add(new OrderFilled(
+                    order.Id,
+                    order.Instrument,
+                    order.VariantId,
+                    new StrategyId(0),
+                    order.Side,
+                    order.FilledQty,
+                    order.AvgFillPrice ?? Price.Zero,
+                    order.TotalCommission)
+                {
+                    // Use the response timestamp as fill time
+                    Timestamp = order.ResponseTimestamp.ToDateTimeOffset()
+                });
+        }
 
         return FromFills(fills);
+    }
+
+    private static int CompareFills(OrderFilled left, OrderFilled right)
+    {
+        var venue = string.CompareOrdinal(left.Instrument.Venue.Name, right.Instrument.Venue.Name);
+        if (venue != 0)
+            return venue;
+
+        var symbol = string.CompareOrdinal(left.Instrument.Asset.Symbol, right.Instrument.Asset.Symbol);
+        if (symbol != 0)
+            return symbol;
+
+        return left.Time.CompareTo(right.Time);
     }
 }

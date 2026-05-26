@@ -68,7 +68,7 @@ public static class SimField
     /// <summary>
     /// Active buy order ID (0 = no active order).
     /// Type: FactorF64 (untyped scalar carve-out - order ID as double).
-    /// Note: OrderId is a long, stored as double (safe for IDs < 2^53).
+    /// Note: OrderId is a long, stored as double (safe for IDs less than 2^53).
     /// </summary>
     public static readonly VectorField<FactorF64> BuyOrderId = new("sim.buy_order_id");
 

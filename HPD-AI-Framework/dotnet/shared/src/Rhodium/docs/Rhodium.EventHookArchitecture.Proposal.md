@@ -19,7 +19,7 @@ This proposal replaces the single universal generated dispatch path with an even
 ```csharp
 partial void OnQuote(ref QuoteContext quote);
 partial void OnTrade(ref TradeContext trade);
-partial void OnBook(ref BookContext book);
+partial void OnBookSnapshot(ref BookSnapshotContext book);
 partial void OnBar(ref BarContext bar);
 partial void OnTick(ref TickContext tick);
 
@@ -44,7 +44,7 @@ The design borrows the best parts of HPD Agent middleware: typed hook contexts, 
 
 The current Rhodium code already contains the right ingredients:
 
-- `MarketEvents.cs` defines `QuoteReceived`, `TradeOccurred`, `BarClosed`, and `BookUpdated`.
+- `MarketEvents.cs` defines `QuoteReceived`, `TradeOccurred`, `BarClosed`, and `BookSnapshotReceived`.
 - `ExecutionEvents.cs` defines strategy-routed order events, including `StrategyId`.
 - `LifecycleEvents.cs` defines session, market, scheduled, and universe events.
 - `StrategyGenerator` already emits generated partial market hooks for tick and bar contexts.
@@ -57,7 +57,7 @@ Current flow:
 
 ```csharp
 TradingHost.ProcessEvent(any FinanceEvent)
-    -> StateTransitions.Apply(...)
+    -> SimulationMarketProjector.Apply(...) or SimulationPortfolioProjector.Apply(...)
     -> market.RunAdjustmentKernel()
     -> internal event-specific dispatch loop
     -> Strategy.OnTick(...)
@@ -141,7 +141,7 @@ Generated partial hooks:
 ```csharp
 partial void OnQuote(ref QuoteContext quote);
 partial void OnTrade(ref TradeContext trade);
-partial void OnBook(ref BookContext book);
+partial void OnBookSnapshot(ref BookSnapshotContext book);
 partial void OnBar(ref BarContext bar);
 partial void OnTick(ref TickContext tick);
 ```
@@ -242,11 +242,9 @@ Target shape:
 ```csharp
 private void ProcessEvent(FinanceEvent evt)
 {
-    var transition = StateTransitions.Apply(
-        _runtime.WorldState,
-        _runtime.Tensors,
-        _runtime.BatchMap,
-        evt);
+    var transition = evt is ExecutionEvent execution
+        ? _portfolioProjector.Apply(execution, _runtime)
+        : _marketProjector.Apply(evt, _runtime);
 
     var market = _runtime.CreateMarketKernel();
 
@@ -263,7 +261,7 @@ private void ProcessEvent(FinanceEvent evt)
             DispatchTrade(in market, trade);
             break;
 
-        case BookUpdated book:
+        case BookSnapshotReceived book:
             DispatchBook(in market, book);
             break;
 
@@ -291,7 +289,7 @@ private void ProcessEvent(FinanceEvent evt)
 ```csharp
 internal void RunQuoteGuarded(in MarketKernel market, ref PortfolioContext portfolio, in QuoteReceived evt);
 internal void RunTradeGuarded(in MarketKernel market, ref PortfolioContext portfolio, in TradeOccurred evt);
-internal void RunBookGuarded(in MarketKernel market, ref PortfolioContext portfolio, in BookUpdated evt);
+internal void RunBookSnapshotGuarded(in MarketKernel market, ref PortfolioContext portfolio, in BookSnapshotReceived evt);
 internal void RunBarGuarded(in MarketKernel market, ref PortfolioContext portfolio, in BarClosed evt);
 internal void RunTickGuarded(in MarketKernel market, ref PortfolioContext portfolio);
 internal void RunGroupGuarded(in MarketKernel market, ref PortfolioContext portfolio);
@@ -304,7 +302,7 @@ authoring (`EditorBrowsable(Never)`). They are not a documented user strategy su
 ```csharp
 protected virtual void __GeneratedRunQuote(in MarketKernel market, ref PortfolioContext portfolio, in QuoteReceived evt) {}
 protected virtual void __GeneratedRunTrade(in MarketKernel market, ref PortfolioContext portfolio, in TradeOccurred evt) {}
-protected virtual void __GeneratedRunBook(in MarketKernel market, ref PortfolioContext portfolio, in BookUpdated evt) {}
+protected virtual void __GeneratedRunBookSnapshot(in MarketKernel market, ref PortfolioContext portfolio, in BookSnapshotReceived evt) {}
 protected virtual void __GeneratedRunBars(in MarketKernel market, ref PortfolioContext portfolio, in BarClosed evt) {}
 protected virtual void __GeneratedRunTick(in MarketKernel market, ref PortfolioContext portfolio) {}
 ```
@@ -343,7 +341,7 @@ public ref struct QuoteContext
 }
 ```
 
-`TradeContext`, `BookContext`, `BarContext`, and `TickContext` follow the same pattern.
+`TradeContext`, `BookSnapshotContext`, `BarContext`, and `TickContext` follow the same pattern.
 
 ### Execution Contexts
 
@@ -374,7 +372,7 @@ public ref struct FillContext
 
 ### Position Contexts
 
-Position hooks are synthesized from execution transitions. `StateTransitions.ApplyOrderFilled` should return before/after position metadata rather than only mutating state.
+Position hooks are synthesized from execution transitions. `SimulationPortfolioProjector.Apply(OrderFilled, ...)` should return before/after position metadata rather than only mutating state.
 
 ```csharp
 public enum PositionTransitionKind
@@ -472,12 +470,17 @@ Rhodium should provide fewer hooks than Nautilus initially, but each hook should
 - Route lifecycle hooks to all or scoped strategies.
 - Drain order intents after each routed event.
 
-### `src/Rhodium.Control/StateTransitions.cs`
+### `src/Rhodium.Simulation/Projection/SimulationMarketProjector.cs`
 
 - Return a `StateTransitionResult`.
-- Apply `QuoteReceived`, `TradeOccurred`, and `BookUpdated`.
-- Expand `OrderFilled` transition to include before/after position state.
+- Apply `QuoteReceived`, `TradeOccurred`, and `BookSnapshotReceived`.
 - Mark whether adjusted market fields require recomputation.
+
+### `src/Rhodium.Simulation/Projection/SimulationPortfolioProjector.cs`
+
+- Return a `StateTransitionResult`.
+- Apply execution and account events.
+- Expand `OrderFilled` transition to include before/after position state.
 
 ### `src/Rhodium.Platform/Strategy.Core.cs`
 
@@ -494,7 +497,7 @@ Rhodium should provide fewer hooks than Nautilus initially, but each hook should
 
 ### `src/Rhodium.Generators/StrategyGenerator.cs`
 
-- Generate `QuoteContext`, `TradeContext`, and `BookContext` hooks.
+- Generate `QuoteContext`, `TradeContext`, and `BookSnapshotContext` hooks.
 - Change bar generation to accept the triggering `BarClosed` event.
 - Generate no-op-free calls only for implemented partial hooks.
 - Preserve existing generated `TickContext` support for synthetic/manual tick dispatch.
@@ -512,7 +515,7 @@ Rhodium should provide fewer hooks than Nautilus initially, but each hook should
 ```text
 src/Rhodium.Platform/QuoteContext.cs
 src/Rhodium.Platform/TradeContext.cs
-src/Rhodium.Platform/BookContext.cs
+src/Rhodium.Platform/BookSnapshotContext.cs
 src/Rhodium.Platform/OrderContext.cs
 src/Rhodium.Platform/FillContext.cs
 src/Rhodium.Platform/PositionContext.cs
@@ -595,13 +598,13 @@ Goal: Make HFT-facing market hooks first-class.
 Work:
 
 - Add `[QuoteField]`, `[TradeField]`, or extend existing tick field attributes if the existing model is sufficient.
-- Generate `QuoteContext`, `TradeContext`, and `BookContext`.
+- Generate `QuoteContext`, `TradeContext`, and `BookSnapshotContext`.
 - Generate partial hooks:
 
 ```csharp
 partial void OnQuote(ref QuoteContext quote);
 partial void OnTrade(ref TradeContext trade);
-partial void OnBook(ref BookContext book);
+partial void OnBookSnapshot(ref BookSnapshotContext book);
 ```
 
 - Add cross-asset accessors for generated quote/trade/book fields.

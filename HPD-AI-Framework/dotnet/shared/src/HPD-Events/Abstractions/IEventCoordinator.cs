@@ -20,6 +20,11 @@ namespace HPD.Events;
 public interface IEventCoordinator
 {
     /// <summary>
+    /// Process-local high-throughput struct event lanes.
+    /// </summary>
+    ILocalStructEventBus LocalStructs { get; }
+
+    /// <summary>
     /// Publish an event downstream without waiting for subscriber mailbox capacity.
     /// The event is assigned a sequence number and routed to matching subscriber mailboxes.
     /// If a parent coordinator is set, event bubbles up automatically.
@@ -84,37 +89,6 @@ public interface IEventCoordinator
     EventInbox<Event> CreateChannelInbox(
         EventChannel channel,
         EventInboxOptions? options = null);
-
-    /// <summary>
-    /// Try to emit a local struct event without waiting.
-    /// </summary>
-    bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent;
-
-    /// <summary>
-    /// Publish a local struct event asynchronously, waiting only when subscriber mailboxes
-    /// request backpressure. Handler callbacks run on subscriber pumps.
-    /// </summary>
-    ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default)
-        where TEvent : struct, IStructEvent;
-
-    /// <summary>
-    /// Subscribe directly to a local struct event stream.
-    /// </summary>
-    StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null)
-        where TEvent : struct, IStructEvent;
-
-    /// <summary>
-    /// Register a removable handler for an exact local struct event type. The handler is
-    /// processed by a background subscriber pump.
-    /// </summary>
-    IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler)
-        where TEvent : struct, IStructEvent;
-
-    /// <summary>
-    /// Create a pre-bound hot-path emitter for local struct events.
-    /// </summary>
-    StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null)
-        where TEvent : struct, IStructEvent;
 
     /// <summary>
     /// Set parent coordinator for hierarchical event bubbling.

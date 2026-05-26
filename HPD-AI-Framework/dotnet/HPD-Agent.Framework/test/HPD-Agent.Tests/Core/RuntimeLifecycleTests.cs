@@ -1885,16 +1885,12 @@ public class RuntimeLifecycleTests : AgentTestBase
         {
             OnAfterStarted = (context, _) =>
             {
-                var subscription = context.EventCoordinator.SubscribeStruct<TestStructFrame>();
-                context.RegisterBackgroundTask(async runtimeToken =>
+                var subscription = context.EventCoordinator.LocalStructs.Route<TestStructFrame>().Observe(frame =>
                 {
-                    await foreach (var frame in subscription.Reader.ReadAllAsync(runtimeToken).ConfigureAwait(false))
-                    {
-                        received.TrySetResult(frame);
-                        break;
-                    }
+                    received.TrySetResult(frame);
+                    return ValueTask.CompletedTask;
                 });
-                context.RegisterAsyncDisposable(subscription);
+                context.RegisterDisposable(subscription);
                 return Task.CompletedTask;
             }
         };
@@ -1920,16 +1916,12 @@ public class RuntimeLifecycleTests : AgentTestBase
         {
             OnAfterStarted = (context, _) =>
             {
-                var subscription = context.EventCoordinator.SubscribeStruct<TestStructFrame>();
-                context.RegisterBackgroundTask(async runtimeToken =>
+                var subscription = context.EventCoordinator.LocalStructs.Route<TestStructFrame>().Observe(frame =>
                 {
-                    await foreach (var frame in subscription.Reader.ReadAllAsync(runtimeToken).ConfigureAwait(false))
-                    {
-                        received.TrySetResult(frame);
-                        break;
-                    }
+                    received.TrySetResult(frame);
+                    return ValueTask.CompletedTask;
                 });
-                context.RegisterAsyncDisposable(subscription);
+                context.RegisterDisposable(subscription);
                 return Task.CompletedTask;
             }
         };
@@ -1952,7 +1944,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         var agent = CreateAgent(client: new FakeChatClient());
         var frames = new List<TestStructFrame>();
 
-        agent.SubscribeStruct<TestStructFrame>(frame =>
+        agent.ObserveStruct<TestStructFrame>(frame =>
         {
             frames.Add(frame);
             return ValueTask.CompletedTask;
@@ -2314,7 +2306,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         var agent = CreateAgent(client: new FakeChatClient());
         var received = new TaskCompletionSource<TestStructFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        agent.SubscribeStruct<TestStructFrame>(frame =>
+        agent.ObserveStruct<TestStructFrame>(frame =>
         {
             received.TrySetResult(frame);
             return ValueTask.CompletedTask;
@@ -2332,7 +2324,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         var agent = CreateAgent(client: new FakeChatClient());
         var received = new TaskCompletionSource<TestStructFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        agent.SubscribeStruct<TestStructFrame>(frame =>
+        agent.ObserveStruct<TestStructFrame>(frame =>
         {
             received.TrySetResult(frame);
             return ValueTask.CompletedTask;
@@ -2352,13 +2344,13 @@ public class RuntimeLifecycleTests : AgentTestBase
         var agent = CreateAgent(client: new FakeChatClient());
         var received = new TaskCompletionSource<TestStructFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        agent.SubscribeStruct<TestStructFrame>(frame =>
+        agent.ObserveStruct<TestStructFrame>(frame =>
         {
             received.TrySetResult(frame);
             return ValueTask.CompletedTask;
         });
 
-        await agent.EventCoordinator.EmitStructAsync(new TestStructFrame(7), TestCancellationToken);
+        agent.EventCoordinator.LocalStructs.Route<TestStructFrame>().CreateEmitter().Emit(new TestStructFrame(7));
 
         var frame = await received.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         Assert.Equal(7, frame.Value);
@@ -2370,7 +2362,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         var agent = CreateAgent(client: new FakeChatClient());
         var received = new TaskCompletionSource<TestStructFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        agent.SubscribeStruct<TestStructFrame>(frame =>
+        agent.ObserveStruct<TestStructFrame>(frame =>
         {
             received.TrySetResult(frame);
             return ValueTask.CompletedTask;

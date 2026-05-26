@@ -8,7 +8,6 @@ public sealed class EventBus :
     IEventBus,
     IRequestResponseBus,
     IHierarchicalEventBus,
-    IStructEventBus,
     IDisposable
 {
     private readonly EventCoordinator _coordinator;
@@ -24,6 +23,9 @@ public sealed class EventBus :
     }
 
     internal EventCoordinator Coordinator => _coordinator;
+
+    /// <summary>Process-local high-throughput struct event lanes.</summary>
+    public ILocalStructEventBus LocalStructs => _coordinator.LocalStructs;
 
     /// <inheritdoc />
     public IEventFlowRegistry EventFlows => _coordinator.EventFlows;
@@ -96,32 +98,6 @@ public sealed class EventBus :
                     "Full event-bus hierarchy support requires an EventBus or EventCoordinator parent.");
         }
     }
-
-    /// <inheritdoc />
-    public bool TryEmit<TEvent>(in TEvent evt)
-        where TEvent : struct, IStructEvent =>
-        ((IStructEventBus)_coordinator).TryEmit(in evt);
-
-    /// <inheritdoc />
-    public ValueTask EmitAsync<TEvent>(TEvent evt, CancellationToken ct = default)
-        where TEvent : struct, IStructEvent =>
-        ((IStructEventBus)_coordinator).EmitAsync(evt, ct);
-
-    /// <inheritdoc />
-    public StructInbox<TEvent> CreateInbox<TEvent>(StructInboxOptions? options = null)
-        where TEvent : struct, IStructEvent =>
-        _coordinator.CreateInbox<TEvent>(options);
-
-    /// <inheritdoc />
-    public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler)
-        where TEvent : struct, IStructEvent =>
-        ((IStructEventBus)_coordinator).Subscribe(handler);
-
-    /// <inheritdoc />
-    public StructEmitter<TEvent> CreateEmitter<TEvent>(
-        StructEmitterOptions<TEvent>? options = null)
-        where TEvent : struct, IStructEvent =>
-        ((IStructEventBus)_coordinator).CreateEmitter(options);
 
     /// <inheritdoc />
     public void Dispose() => _coordinator.Dispose();

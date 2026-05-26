@@ -27,7 +27,7 @@ public class FinanceReplayOrderingPolicyTests
         Assert.Collection(
             result,
             evt => Assert.IsType<MarketOpened>(evt),
-            evt => Assert.IsType<BookUpdated>(evt),
+            evt => Assert.IsType<BookSnapshotReceived>(evt),
             evt => Assert.IsType<QuoteReceived>(evt),
             evt => Assert.IsType<TradeOccurred>(evt),
             evt => Assert.IsType<BarClosed>(evt),
@@ -62,7 +62,7 @@ public class FinanceReplayOrderingPolicyTests
         Assert.Equal(99, key.EventSequenceNumber);
     }
 
-    private static BookUpdated Book(Instant time)
+    private static BookSnapshotReceived Book(Instant time)
     {
         var book = new Book
         {
@@ -72,7 +72,7 @@ public class FinanceReplayOrderingPolicyTests
             Asks = [new Level(new Price(101m, Currency.USD), new Qty(20m), OrderCount: 3)]
         };
 
-        return new BookUpdated(Instrument, book) { Time = time };
+        return new BookSnapshotReceived(Instrument, book) { Time = time };
     }
 
     private static QuoteReceived Quote(Instant time)

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Rhodium.Tensor;
 
 namespace Rhodium.Simulation;
@@ -53,15 +54,20 @@ public sealed class InterpolatedLatencyModel
     private static List<LatencyMeasurement> LoadFromCsv(string path)
     {
         var measurements = new List<LatencyMeasurement>();
+        var isHeader = true;
+        var lineNumber = 0;
 
-        foreach (var line in File.ReadLines(path).Skip(1)) // Skip header
+        foreach (var line in File.ReadLines(path))
         {
-            var parts = line.Split(',');
-            if (parts.Length < 3) continue;
+            lineNumber++;
+            if (isHeader)
+            {
+                isHeader = false;
+                continue;
+            }
 
-            long reqTs = long.Parse(parts[0].Trim());
-            long exchTs = long.Parse(parts[1].Trim());
-            long respTs = long.Parse(parts[2].Trim());
+            if (!TryParseLatencyRow(line.AsSpan(), out var reqTs, out var exchTs, out var respTs))
+                throw new FormatException($"Latency CSV line {lineNumber} must contain three integer timestamp columns.");
 
             measurements.Add(new LatencyMeasurement(
                 EntryLatencyNanos: exchTs - reqTs,
@@ -70,5 +76,46 @@ public sealed class InterpolatedLatencyModel
         }
 
         return measurements;
+    }
+
+    private static bool TryParseLatencyRow(
+        ReadOnlySpan<char> row,
+        out long requestTimestamp,
+        out long exchangeTimestamp,
+        out long responseTimestamp)
+    {
+        requestTimestamp = 0;
+        exchangeTimestamp = 0;
+        responseTimestamp = 0;
+
+        if (!TryReadCsvField(ref row, out var request)
+            || !TryReadCsvField(ref row, out var exchange)
+            || !TryReadCsvField(ref row, out var response))
+            return false;
+
+        return long.TryParse(request, NumberStyles.Integer, CultureInfo.InvariantCulture, out requestTimestamp)
+            && long.TryParse(exchange, NumberStyles.Integer, CultureInfo.InvariantCulture, out exchangeTimestamp)
+            && long.TryParse(response, NumberStyles.Integer, CultureInfo.InvariantCulture, out responseTimestamp);
+    }
+
+    private static bool TryReadCsvField(ref ReadOnlySpan<char> row, out ReadOnlySpan<char> field)
+    {
+        if (row.Length == 0)
+        {
+            field = default;
+            return false;
+        }
+
+        var comma = row.IndexOf(',');
+        if (comma < 0)
+        {
+            field = row.Trim();
+            row = [];
+            return true;
+        }
+
+        field = row[..comma].Trim();
+        row = row[(comma + 1)..];
+        return true;
     }
 }

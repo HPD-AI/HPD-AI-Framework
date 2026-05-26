@@ -62,12 +62,30 @@ public enum BookAction : byte
 /// <summary>
 /// A single price-level order-book delta.
 /// </summary>
-public readonly record struct BookDelta(
+public readonly record struct BookLevelDelta(
     Side Side,
     Price Price,
     Qty Size,
     BookAction Action,
-    long Sequence = 0);
+    long VenueSequence = 0,
+    byte Flags = 0);
+
+/// <summary>
+/// External order identity from an L3 market-by-order feed.
+/// </summary>
+public readonly record struct BookOrderId(long Value)
+{
+    public static implicit operator BookOrderId(long value) => new(value);
+}
+
+/// <summary>
+/// Individual order in an L3 market-by-order feed.
+/// </summary>
+public readonly record struct BookOrder(
+    BookOrderId OrderId,
+    Side Side,
+    Price Price,
+    Qty Size);
 
 /// <summary>
 /// A single price tick (for tick-by-tick data).

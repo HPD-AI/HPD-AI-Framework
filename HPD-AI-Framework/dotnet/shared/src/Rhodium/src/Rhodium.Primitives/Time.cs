@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Rhodium.Primitives;
 
 /// <summary>
@@ -9,7 +11,7 @@ public readonly record struct Instant(long Nanos) : IComparable<Instant>
     public static readonly Instant MaxValue = new(long.MaxValue);
     public static readonly Instant Epoch = new(0);
 
-    public static Instant Now => FromDateTimeOffset(DateTimeOffset.UtcNow);
+    [JsonIgnore] public static Instant Now => FromDateTimeOffset(DateTimeOffset.UtcNow);
 
     public static Instant FromDateTimeOffset(DateTimeOffset dto)
     {
@@ -64,10 +66,10 @@ public readonly record struct Duration(long Nanos) : IComparable<Duration>
 
     public TimeSpan ToTimeSpan() => TimeSpan.FromTicks(Nanos / 100);
 
-    public double TotalSeconds => Nanos / 1_000_000_000.0;
-    public double TotalMinutes => TotalSeconds / 60.0;
-    public double TotalHours => TotalMinutes / 60.0;
-    public double TotalDays => TotalHours / 24.0;
+    [JsonIgnore] public double TotalSeconds => Nanos / 1_000_000_000.0;
+    [JsonIgnore] public double TotalMinutes => TotalSeconds / 60.0;
+    [JsonIgnore] public double TotalHours => TotalMinutes / 60.0;
+    [JsonIgnore] public double TotalDays => TotalHours / 24.0;
 
     public int CompareTo(Duration other) => Nanos.CompareTo(other.Nanos);
 
@@ -99,7 +101,7 @@ public readonly record struct DualTimestamp(
     /// <summary>
     /// Feed latency (how stale your data is).
     /// </summary>
-    public Duration FeedLatency => LocalTime - ExchangeTime;
+    [JsonIgnore] public Duration FeedLatency => LocalTime - ExchangeTime;
 
     public static DualTimestamp Now(Instant exchTime) => new(exchTime, Instant.Now);
     public static DualTimestamp Synchronized(Instant time) => new(time, time);

@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using Rhodium.Platform.Attributes;
 using Rhodium.Platform.Patterns;
 
@@ -82,7 +81,11 @@ public sealed class ParameterGridTests
 
         Assert.Equal(3, ids.Count);
         Assert.Equal(3, strategyGrid.Variants.Count);
-        Assert.Equal([10, 14, 21], tree.Nodes.Select(static node => ((ParamStrategy)node.Strategy).RsiPeriod).ToArray());
+        var periods = new int[tree.NodeCount];
+        for (var i = 0; i < periods.Length; i++)
+            periods[i] = ((ParamStrategy)tree.GetNode(i).Strategy).RsiPeriod;
+
+        Assert.Equal([10, 14, 21], periods);
         Assert.Equal(ids[2], strategyGrid.Variants[2].StrategyId);
         Assert.Equal(21, strategyGrid.Variants[2].Parameters.Get<int>(nameof(ParamStrategy.RsiPeriod)));
     }
@@ -100,9 +103,9 @@ public sealed class ParameterGridTests
         var ids = strategyGrid.RegisterAll(tree, depth: 0);
 
         Assert.Equal(1_000, ids.Count);
-        Assert.Equal(1_000, tree.Nodes.Count);
+        Assert.Equal(1_000, tree.NodeCount);
         Assert.Equal(1_000, strategyGrid.Variants.Count);
-        var last = (LargeParamStrategy)tree.Nodes[^1].Strategy;
+        var last = (LargeParamStrategy)tree.GetNode(tree.NodeCount - 1).Strategy;
         Assert.Equal(10, last.Fast);
         Assert.Equal(20, last.Slow);
         Assert.Equal(30, last.Signal);
@@ -137,27 +140,30 @@ public sealed class ParameterGridTests
     }
 
     [Fact]
-    public void StrategyGrid_PreservesParameterPropertiesForTrimmedVariantConstruction()
+    public void StrategyGrid_UsesGeneratedVariantFactory()
     {
-        var genericParameter = typeof(StrategyGrid<>).GetGenericArguments()[0];
-        var attr = Assert.Single(genericParameter.GetCustomAttributes(typeof(DynamicallyAccessedMembersAttribute), inherit: false)
-            .Cast<DynamicallyAccessedMembersAttribute>());
+        var parameters = new ParameterSet(new Dictionary<string, object>
+        {
+            [nameof(ParamStrategy.RsiPeriod)] = 34,
+            [nameof(ParamStrategy.UseStops)] = true
+        });
 
-        Assert.True(attr.MemberTypes.HasFlag(DynamicallyAccessedMemberTypes.PublicProperties));
-        Assert.True(attr.MemberTypes.HasFlag(DynamicallyAccessedMemberTypes.NonPublicProperties));
+        var strategy = ParamStrategy.CreateVariant(parameters);
+
+        Assert.Equal(34, strategy.RsiPeriod);
+        Assert.True(strategy.UseStops);
     }
+}
 
-    public sealed partial class ParamStrategy : Strategy
-    {
-        [Param] public int RsiPeriod { get; init; }
-        [Param] public bool UseStops { get; init; }
-    }
+public sealed partial class ParamStrategy : Strategy
+{
+    [Param] public int RsiPeriod { get; init; }
+    [Param] public bool UseStops { get; init; }
+}
 
-    public sealed partial class LargeParamStrategy : Strategy
-    {
-        [Param] public int Fast { get; init; }
-        [Param] public int Slow { get; init; }
-        [Param] public int Signal { get; init; }
-    }
-
+public sealed partial class LargeParamStrategy : Strategy
+{
+    [Param] public int Fast { get; init; }
+    [Param] public int Slow { get; init; }
+    [Param] public int Signal { get; init; }
 }

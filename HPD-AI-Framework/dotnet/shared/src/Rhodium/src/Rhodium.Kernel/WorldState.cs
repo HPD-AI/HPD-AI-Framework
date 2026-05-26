@@ -11,21 +11,12 @@ namespace Rhodium.Kernel;
 public sealed class WorldState : IDisposable
 {
     private const int PageSize = 1024;
+    private static readonly InstrumentContract SnapshotFallbackContract =
+        Contracts.Equity("UNKNOWN", Venue.Unknown, Currency.USD);
 
-    private readonly Dictionary<StrategyId, UnmanagedPagedStore<PositionState>> _strategyPositionPages = new();
-    private readonly Dictionary<StrategyId, UnmanagedPagedStore<OrderState>> _strategyOrderPages = new();
-    private readonly Dictionary<StrategyId, Money> _strategyCash = new();
-    private readonly Dictionary<StrategyId, PagedTensorStore> _strategyTensors = new();
-    private readonly Dictionary<StrategyId, int> _strategyTensorSizes = new();
-    private readonly Dictionary<StrategyId, Position[]> _snapshotPositionBuffers = new();
-    private readonly Dictionary<StrategyId, Instrument[]> _snapshotInstrumentBuffers = new();
-    private readonly Dictionary<StrategyId, decimal> _allocationWeights = new();
-    private readonly Dictionary<StrategyId, Money?> _maxCapital = new();
-    private readonly HashSet<StrategyId> _pausedStrategies = new();
-    private readonly Dictionary<StrategyId, OrderIntent[]> _pendingOrderIntents = new();
-    private readonly Dictionary<StrategyId, int> _pendingOrderIntentCounts = new();
+    private readonly Dictionary<StrategyId, StrategyStateSlice> _strategies = new();
     private readonly GlobalMemoryTracker? _tracker;
-    private readonly object _gate = new();
+    private readonly object _strategiesGate = new();
 
     public WorldState()
     {
@@ -38,66 +29,83 @@ public sealed class WorldState : IDisposable
 
     public void AllocatePage(StrategyId strategyId, int pageIndex)
     {
-        lock (_gate)
+        var slice = GetOrCreateSlice(strategyId);
+        lock (slice.Gate)
         {
-            EnsureStrategySlice(strategyId);
-            var posPages = _strategyPositionPages[strategyId];
-            posPages.EnsurePage(pageIndex);
-            _strategyOrderPages[strategyId].EnsurePage(pageIndex);
+            slice.PositionPages.EnsurePage(pageIndex);
+            slice.OrderPages.EnsurePage(pageIndex);
         }
     }
 
     public ref PositionState PositionAt(StrategyId strategyId, int virtualIndex)
     {
-        AllocatePage(strategyId, virtualIndex / PageSize);
-        return ref _strategyPositionPages[strategyId].ValueAt(virtualIndex);
+        var slice = GetOrCreateSlice(strategyId);
+        lock (slice.Gate)
+        {
+            slice.PositionPages.EnsurePage(virtualIndex / PageSize);
+        }
+
+        return ref slice.PositionPages.ValueAt(virtualIndex);
     }
 
     public ref OrderState OrderAt(StrategyId strategyId, int virtualIndex)
     {
-        AllocatePage(strategyId, virtualIndex / PageSize);
-        return ref _strategyOrderPages[strategyId].ValueAt(virtualIndex);
+        var slice = GetOrCreateSlice(strategyId);
+        lock (slice.Gate)
+        {
+            slice.OrderPages.EnsurePage(virtualIndex / PageSize);
+        }
+
+        return ref slice.OrderPages.ValueAt(virtualIndex);
+    }
+
+    public void AdjustCash(StrategyId strategyId, Money delta)
+    {
+        var slice = GetOrCreateSlice(strategyId);
+        lock (slice.Gate)
+        {
+            var current = slice.Cash;
+            if (!current.IsZero && current.Currency != delta.Currency)
+                throw new InvalidOperationException($"Cash adjustment currency {delta.Currency} does not match strategy cash currency {current.Currency}.");
+
+            slice.Cash = current + delta;
+        }
     }
 
     public void RegisterStrategyField<T>(StrategyId strategyId, VectorField<T> field, int universeSize)
         where T : unmanaged
     {
-        lock (_gate)
+        var slice = GetOrCreateSlice(strategyId);
+        lock (slice.Gate)
         {
-            var tensors = EnsureStrategyTensorStore(strategyId);
-            EnsureStrategyTensorCapacity(strategyId, universeSize);
+            EnsureStrategyTensorCapacity(slice, universeSize);
             if (universeSize > 0)
-                _ = tensors.GetScalar(field, 0);
+                _ = slice.StrategyTensors.GetScalar(field, 0);
         }
     }
 
     public void EnsureSnapshotCapacity(StrategyId strategyId, int universeSize)
     {
-        lock (_gate)
+        var slice = GetOrCreateSlice(strategyId);
+        lock (slice.Gate)
         {
-            EnsureStrategySlice(strategyId);
-            if (_snapshotPositionBuffers.TryGetValue(strategyId, out var existingPositions) &&
-                existingPositions.Length >= universeSize)
+            if (slice.SnapshotPositions.Length >= universeSize)
             {
                 return;
             }
 
-            _snapshotInstrumentBuffers.TryGetValue(strategyId, out var existingInstruments);
-
             var nextPositions = new Position[universeSize];
             var nextInstruments = new Instrument[universeSize];
-            if (existingPositions is not null)
-                Array.Copy(existingPositions, nextPositions, existingPositions.Length);
-            if (existingInstruments is not null)
-                Array.Copy(existingInstruments, nextInstruments, existingInstruments.Length);
+            Array.Copy(slice.SnapshotPositions, nextPositions, slice.SnapshotPositions.Length);
+            Array.Copy(slice.SnapshotInstruments, nextInstruments, slice.SnapshotInstruments.Length);
 
-            for (var i = existingPositions?.Length ?? 0; i < nextPositions.Length; i++)
+            for (var i = slice.SnapshotPositions.Length; i < nextPositions.Length; i++)
                 nextPositions[i] = Position.Empty(Instrument.Unknown);
-            for (var i = existingInstruments?.Length ?? 0; i < nextInstruments.Length; i++)
+            for (var i = slice.SnapshotInstruments.Length; i < nextInstruments.Length; i++)
                 nextInstruments[i] = new Instrument(new Asset($"Virtual-{i}", AssetClass.Equity), Venue.Unknown);
 
-            _snapshotPositionBuffers[strategyId] = nextPositions;
-            _snapshotInstrumentBuffers[strategyId] = nextInstruments;
+            slice.SnapshotPositions = nextPositions;
+            slice.SnapshotInstruments = nextInstruments;
         }
     }
 
@@ -110,7 +118,7 @@ public sealed class WorldState : IDisposable
         ReadOnlySpan<PortfolioSnapshot> childSnapshots = default,
         Span<OrderIntent> orderIntents = default)
     {
-        AllocatePage(strategyId, 0);
+        var slice = GetOrCreateSlice(strategyId);
         Span<PositionState> positions;
         Span<OrderState> orders;
         PagedTensorStore strategyTensors;
@@ -119,19 +127,17 @@ public sealed class WorldState : IDisposable
         Money? maxCapital;
         bool isPaused;
 
-        lock (_gate)
+        lock (slice.Gate)
         {
-            positions = _strategyPositionPages[strategyId].PageSpan(0);
-            orders = _strategyOrderPages[strategyId].PageSpan(0);
-            strategyTensors = EnsureStrategyTensorStore(strategyId);
-            cash = _strategyCash.TryGetValue(strategyId, out var value)
-                ? value
-                : Money.Zero(Currency.USD);
-            allocationWeight = _allocationWeights.TryGetValue(strategyId, out var weight)
-                ? weight
-                : 1m;
-            _maxCapital.TryGetValue(strategyId, out maxCapital);
-            isPaused = _pausedStrategies.Contains(strategyId);
+            slice.PositionPages.EnsurePage(0);
+            slice.OrderPages.EnsurePage(0);
+            positions = slice.PositionPages.PageSpan(0);
+            orders = slice.OrderPages.PageSpan(0);
+            strategyTensors = slice.StrategyTensors;
+            cash = slice.Cash;
+            allocationWeight = slice.AllocationWeight;
+            maxCapital = slice.MaxCapital;
+            isPaused = slice.IsPaused;
         }
 
         return new PortfolioContext(
@@ -153,16 +159,13 @@ public sealed class WorldState : IDisposable
 
     public void CommitContext(StrategyId strategyId, ref PortfolioContext portfolio)
     {
-        lock (_gate)
+        var slice = GetOrCreateSlice(strategyId);
+        lock (slice.Gate)
         {
-            _strategyCash[strategyId] = portfolio.Cash;
-            _allocationWeights[strategyId] = portfolio.AllocationWeight;
-            _maxCapital[strategyId] = portfolio.MaxCapital;
-
-            if (portfolio.IsPaused)
-                _pausedStrategies.Add(strategyId);
-            else
-                _pausedStrategies.Remove(strategyId);
+            slice.Cash = portfolio.Cash;
+            slice.AllocationWeight = portfolio.AllocationWeight;
+            slice.MaxCapital = portfolio.MaxCapital;
+            slice.IsPaused = portfolio.IsPaused;
         }
 
         foreach (var intent in portfolio.DrainOrderIntents())
@@ -171,125 +174,146 @@ public sealed class WorldState : IDisposable
 
     public int DrainOrderIntents(StrategyId strategyId, Span<OrderIntent> destination)
     {
-        lock (_gate)
+        var slice = GetOrCreateSlice(strategyId);
+        lock (slice.Gate)
         {
-            if (!_pendingOrderIntents.TryGetValue(strategyId, out var source) ||
-                !_pendingOrderIntentCounts.TryGetValue(strategyId, out var count) ||
-                count == 0)
+            if (slice.PendingOrderIntentCount == 0)
             {
                 return 0;
             }
 
-            if (destination.Length < count)
+            if (destination.Length < slice.PendingOrderIntentCount)
                 throw new InvalidOperationException("Order intent destination buffer is too small.");
 
-            source.AsSpan(0, count).CopyTo(destination);
-            _pendingOrderIntentCounts[strategyId] = 0;
+            slice.PendingOrderIntents.AsSpan(0, slice.PendingOrderIntentCount).CopyTo(destination);
+            var count = slice.PendingOrderIntentCount;
+            slice.PendingOrderIntentCount = 0;
             return count;
         }
     }
 
     private void AddOrderIntent(OrderIntent intent)
     {
-        lock (_gate)
+        var slice = GetOrCreateSlice(intent.StrategyId);
+        lock (slice.Gate)
         {
-            if (!_pendingOrderIntents.TryGetValue(intent.StrategyId, out var buffer))
-            {
-                buffer = new OrderIntent[32];
-                _pendingOrderIntents[intent.StrategyId] = buffer;
-                _pendingOrderIntentCounts[intent.StrategyId] = 0;
-            }
-
-            var count = _pendingOrderIntentCounts[intent.StrategyId];
-            if (count >= buffer.Length)
+            if (slice.PendingOrderIntentCount >= slice.PendingOrderIntents.Length)
                 throw new InvalidOperationException("WorldState order intent buffer is full.");
 
-            buffer[count] = intent;
-            _pendingOrderIntentCounts[intent.StrategyId] = count + 1;
+            slice.PendingOrderIntents[slice.PendingOrderIntentCount++] = intent;
         }
     }
 
     public void ApplyAllocationCommand(in AllocationCommand command)
     {
-        lock (_gate)
+        var slice = GetOrCreateSlice(command.TargetStrategy);
+        lock (slice.Gate)
         {
-            EnsureStrategySlice(command.TargetStrategy);
-
             if (command.HasAllocationWeight)
-                _allocationWeights[command.TargetStrategy] = command.AllocationWeight;
+                slice.AllocationWeight = command.AllocationWeight;
 
             if (command.HasMaxCapital)
-                _maxCapital[command.TargetStrategy] = Money.USD(command.MaxCapitalAmount);
+                slice.MaxCapital = Money.USD(command.MaxCapitalAmount);
 
             if (command.HasPause)
-            {
-                if (command.Pause)
-                    _pausedStrategies.Add(command.TargetStrategy);
-                else
-                    _pausedStrategies.Remove(command.TargetStrategy);
-            }
+                slice.IsPaused = command.Pause;
         }
     }
 
-    public PortfolioSnapshot BuildSnapshot(StrategyId strategyId, int universeSize)
+    public PortfolioSnapshot BuildSnapshot(StrategyId strategyId, int universeSize, Instant snapshotTime) =>
+        BuildSnapshot(strategyId, universeSize, snapshotTime, null, null);
+
+    public PortfolioSnapshot BuildSnapshot(
+        StrategyId strategyId,
+        int universeSize,
+        Instant snapshotTime,
+        IReadOnlyDictionary<int, InstrumentContract>? contracts,
+        IReadOnlyDictionary<int, Price>? marks = null)
     {
-        if (universeSize > 0)
-            AllocatePage(strategyId, (universeSize - 1) / PageSize);
-        else
-            EnsureStrategySlice(strategyId);
-
-        EnsureSnapshotCapacity(strategyId, universeSize);
-
-        var positionCount = 0;
-        var grossExposure = 0m;
-        var netExposure = 0m;
-        var realizedPnL = 0m;
-
-        for (var i = 0; i < universeSize; i++)
+        var slice = GetOrCreateSlice(strategyId);
+        lock (slice.Gate)
         {
-            ref var state = ref PositionAt(strategyId, i);
-            if (state.IsFlat) continue;
+            if (universeSize > 0)
+            {
+                slice.PositionPages.EnsurePage((universeSize - 1) / PageSize);
+            }
 
-            var notional = state.Quantity * state.AvgEntryPrice;
-            grossExposure += Math.Abs(notional);
-            netExposure += notional;
-            realizedPnL += state.RealizedPnL;
-            positionCount++;
-        }
+            EnsureSnapshotCapacity(slice, universeSize);
 
-        var positions = _snapshotPositionBuffers[strategyId];
-        var instruments = _snapshotInstrumentBuffers[strategyId];
-        if (positionCount > 0)
-        {
-            var positionIndex = 0;
+            var positionCount = 0;
+            var grossExposure = 0m;
+            var netExposure = 0m;
+            var realizedPnL = 0m;
+            var valuation = DefaultInstrumentValuationModel.Instance;
+
             for (var i = 0; i < universeSize; i++)
             {
-                ref var state = ref PositionAt(strategyId, i);
+                ref var state = ref slice.PositionPages.ValueAt(i);
                 if (state.IsFlat) continue;
 
-                positions[positionIndex++].ResetSnapshot(
-                    instruments[i],
-                    new Qty(state.Quantity),
-                    new Price(state.AvgEntryPrice, Currency.USD),
-                    Money.USD(state.RealizedPnL),
-                    Instant.Now);
+                var contract = GetSnapshotContract(i, contracts);
+                var mark = GetSnapshotMark(i, state, contract, marks);
+                var quantity = new Qty(state.Quantity);
+                var notional = valuation.Notional(contract, quantity, mark);
+                var marketValue = valuation.MarketValue(contract, quantity, mark);
+                grossExposure += Math.Abs(notional.Amount);
+                netExposure += marketValue.Amount;
+                realizedPnL += state.RealizedPnL;
+                positionCount++;
             }
+
+            var positions = slice.SnapshotPositions;
+            var instruments = slice.SnapshotInstruments;
+            if (positionCount > 0)
+            {
+                var positionIndex = 0;
+                for (var i = 0; i < universeSize; i++)
+                {
+                    ref var state = ref slice.PositionPages.ValueAt(i);
+                    if (state.IsFlat) continue;
+
+                    var contract = GetSnapshotContract(i, contracts);
+                    positions[positionIndex++].ResetSnapshot(
+                        contract.Instrument == Instrument.Unknown ? instruments[i] : contract.Instrument,
+                        new Qty(state.Quantity),
+                        new Price(state.AvgEntryPrice, contract.Exposure.QuoteCurrency()),
+                        new Money(state.RealizedPnL, contract.Exposure.SettlementCurrency()),
+                        snapshotTime);
+                }
+            }
+
+            var cash = slice.Cash;
+
+            return new PortfolioSnapshot(
+                strategyId,
+                Money.USD(cash.Amount + netExposure),
+                Money.USD(0m),
+                Money.USD(realizedPnL),
+                grossExposure,
+                netExposure,
+                default,
+                positions,
+                positionCount);
         }
+    }
 
-        var cash = _strategyCash.TryGetValue(strategyId, out var cashValue)
-            ? cashValue
-            : Money.Zero(Currency.USD);
+    private static InstrumentContract GetSnapshotContract(
+        int virtualIndex,
+        IReadOnlyDictionary<int, InstrumentContract>? contracts) =>
+        contracts is not null && contracts.TryGetValue(virtualIndex, out var contract)
+            ? contract
+            : SnapshotFallbackContract;
 
-        return new PortfolioSnapshot(
-            strategyId,
-            Money.USD(cash.Amount + netExposure),
-            Money.USD(0m),
-            Money.USD(realizedPnL),
-            grossExposure,
-            netExposure,
-            default,
-            positions,
-            positionCount);
+    private static Price GetSnapshotMark(
+        int virtualIndex,
+        in PositionState state,
+        InstrumentContract contract,
+        IReadOnlyDictionary<int, Price>? marks)
+    {
+        if (marks is not null && marks.TryGetValue(virtualIndex, out var mark))
+            return mark;
+
+        return new Price(state.AvgEntryPrice, contract.Exposure.QuoteCurrency());
     }
 
     public void Pin() { }
@@ -297,58 +321,86 @@ public sealed class WorldState : IDisposable
 
     public void Dispose()
     {
-        foreach (var pages in _strategyPositionPages.Values)
-            pages.Dispose();
-
-        foreach (var pages in _strategyOrderPages.Values)
-            pages.Dispose();
-
-        _strategyPositionPages.Clear();
-        _strategyOrderPages.Clear();
-        _strategyCash.Clear();
-        foreach (var tensors in _strategyTensors.Values)
-            tensors.Dispose();
-        _strategyTensors.Clear();
-        _strategyTensorSizes.Clear();
-        _snapshotPositionBuffers.Clear();
-        _snapshotInstrumentBuffers.Clear();
-        _allocationWeights.Clear();
-        _maxCapital.Clear();
-        _pausedStrategies.Clear();
-    }
-
-    private void EnsureStrategySlice(StrategyId id)
-    {
-        if (_strategyPositionPages.ContainsKey(id)) return;
-        _strategyPositionPages[id] = new UnmanagedPagedStore<PositionState>(PageSize, _tracker);
-        _strategyOrderPages[id] = new UnmanagedPagedStore<OrderState>(PageSize, _tracker);
-        _strategyCash[id] = Money.Zero(Currency.USD);
-        _allocationWeights[id] = 1m;
-        _maxCapital[id] = null;
-    }
-
-    private PagedTensorStore EnsureStrategyTensorStore(StrategyId id)
-    {
-        EnsureStrategySlice(id);
-        if (_strategyTensors.TryGetValue(id, out var tensors))
-            return tensors;
-
-        tensors = _tracker is null ? new PagedTensorStore() : new PagedTensorStore(_tracker);
-        _strategyTensors[id] = tensors;
-        _strategyTensorSizes[id] = 0;
-        return tensors;
-    }
-
-    private void EnsureStrategyTensorCapacity(StrategyId id, int universeSize)
-    {
-        var tensors = EnsureStrategyTensorStore(id);
-        var current = _strategyTensorSizes[id];
-        while (current < universeSize)
+        lock (_strategiesGate)
         {
-            tensors.Grow();
-            current++;
+            foreach (var slice in _strategies.Values)
+                slice.Dispose();
+
+            _strategies.Clear();
+        }
+    }
+
+    private StrategyStateSlice GetOrCreateSlice(StrategyId id)
+    {
+        lock (_strategiesGate)
+        {
+            if (_strategies.TryGetValue(id, out var slice))
+                return slice;
+
+            slice = new StrategyStateSlice(_tracker);
+            _strategies[id] = slice;
+            return slice;
+        }
+    }
+
+    private static void EnsureSnapshotCapacity(StrategyStateSlice slice, int universeSize)
+    {
+        if (slice.SnapshotPositions.Length >= universeSize)
+        {
+            return;
         }
 
-        _strategyTensorSizes[id] = current;
+        var nextPositions = new Position[universeSize];
+        var nextInstruments = new Instrument[universeSize];
+        Array.Copy(slice.SnapshotPositions, nextPositions, slice.SnapshotPositions.Length);
+        Array.Copy(slice.SnapshotInstruments, nextInstruments, slice.SnapshotInstruments.Length);
+
+        for (var i = slice.SnapshotPositions.Length; i < nextPositions.Length; i++)
+            nextPositions[i] = Position.Empty(Instrument.Unknown);
+        for (var i = slice.SnapshotInstruments.Length; i < nextInstruments.Length; i++)
+            nextInstruments[i] = new Instrument(new Asset($"Virtual-{i}", AssetClass.Equity), Venue.Unknown);
+
+        slice.SnapshotPositions = nextPositions;
+        slice.SnapshotInstruments = nextInstruments;
+    }
+
+    private static void EnsureStrategyTensorCapacity(StrategyStateSlice slice, int universeSize)
+    {
+        while (slice.StrategyTensorSize < universeSize)
+        {
+            slice.StrategyTensors.Grow();
+            slice.StrategyTensorSize++;
+        }
+    }
+
+    private sealed class StrategyStateSlice : IDisposable
+    {
+        public StrategyStateSlice(GlobalMemoryTracker? tracker)
+        {
+            PositionPages = new UnmanagedPagedStore<PositionState>(PageSize, tracker);
+            OrderPages = new UnmanagedPagedStore<OrderState>(PageSize, tracker);
+            StrategyTensors = tracker is null ? new PagedTensorStore() : new PagedTensorStore(tracker);
+        }
+
+        public object Gate { get; } = new();
+        public UnmanagedPagedStore<PositionState> PositionPages { get; }
+        public UnmanagedPagedStore<OrderState> OrderPages { get; }
+        public PagedTensorStore StrategyTensors { get; }
+        public int StrategyTensorSize { get; set; }
+        public Position[] SnapshotPositions { get; set; } = [];
+        public Instrument[] SnapshotInstruments { get; set; } = [];
+        public Money Cash { get; set; } = Money.Zero(Currency.USD);
+        public decimal AllocationWeight { get; set; } = 1m;
+        public Money? MaxCapital { get; set; }
+        public bool IsPaused { get; set; }
+        public OrderIntent[] PendingOrderIntents { get; } = new OrderIntent[32];
+        public int PendingOrderIntentCount { get; set; }
+
+        public void Dispose()
+        {
+            PositionPages.Dispose();
+            OrderPages.Dispose();
+            StrategyTensors.Dispose();
+        }
     }
 }

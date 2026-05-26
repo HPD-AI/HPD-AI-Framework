@@ -93,7 +93,7 @@ public class ReplayConnectorTests
 
     private static async IAsyncEnumerable<FinanceEvent> CreateHistoryWithBook()
     {
-        yield return new BookUpdated(
+        yield return new BookSnapshotReceived(
             TestInstrument,
             new Book
             {
@@ -117,7 +117,7 @@ public class ReplayConnectorTests
     {
         for (var i = 0; i < count; i++)
         {
-            yield return new BookUpdated(
+            yield return new BookSnapshotReceived(
                 TestInstrument,
                 new Book
                 {
@@ -668,7 +668,7 @@ public class ReplayConnectorTests
         var subscriptions = new[] { new Subscription(TestInstrument, SubscriptionType.Depth, SubscriptionDepth.L2_20) };
         events.OnEmit = evt =>
         {
-            if (evt is BookUpdated)
+            if (evt is BookSnapshotReceived)
             {
                 connector.SubmitOrderAsync(
                     SubmitOrder.Market(new StrategyId(7), TestInstrument, Side.Buy, new Qty(10m)),
@@ -769,7 +769,7 @@ public class ReplayConnectorTests
         var subscriptions = new[] { new Subscription(TestInstrument, SubscriptionType.Depth, SubscriptionDepth.L2_20) };
         events.OnEmit = evt =>
         {
-            if (submitted || evt is not BookUpdated)
+            if (submitted || evt is not BookSnapshotReceived)
                 return;
 
             submitted = true;
@@ -964,7 +964,7 @@ public class ReplayConnectorTests
     public async Task SubmitOrderAsync_VenuePolicyPriceProtectionStopsMarketWalk()
     {
         var time = Instant.Now;
-        var wideBook = new BookUpdated(
+        var wideBook = new BookSnapshotReceived(
             TestInstrument,
             new Book
             {
@@ -993,7 +993,7 @@ public class ReplayConnectorTests
         var events = new TestEventPublisher();
         events.OnEmit = evt =>
         {
-            if (evt is BookUpdated)
+            if (evt is BookSnapshotReceived)
             {
                 connector.SubmitOrderAsync(
                     SubmitOrder.Market(new StrategyId(7), TestInstrument, Side.Buy, new Qty(60m)),
@@ -1025,7 +1025,7 @@ public class ReplayConnectorTests
         var subscriptions = new[] { new Subscription(TestInstrument, SubscriptionType.Depth, SubscriptionDepth.L2_20) };
         events.OnEmit = evt =>
         {
-            if (evt is BookUpdated)
+            if (evt is BookSnapshotReceived)
             {
                 connector.SubmitOrderAsync(
                     SubmitOrder.Market(new StrategyId(7), TestInstrument, Side.Buy, new Qty(10m)),
@@ -1049,7 +1049,7 @@ public class ReplayConnectorTests
         var subscriptions = new[] { new Subscription(TestInstrument, SubscriptionType.Depth, SubscriptionDepth.L2_20) };
         events.OnEmit = evt =>
         {
-            if (evt is BookUpdated)
+            if (evt is BookSnapshotReceived)
             {
                 connector.SubmitOrderAsync(
                     SubmitOrder.Market(new StrategyId(7), TestInstrument, Side.Buy, new Qty(60m)) with
@@ -1079,7 +1079,7 @@ public class ReplayConnectorTests
         var subscriptions = new[] { new Subscription(TestInstrument, SubscriptionType.Depth, SubscriptionDepth.L2_20) };
         events.OnEmit = evt =>
         {
-            if (evt is BookUpdated)
+            if (evt is BookSnapshotReceived)
             {
                 connector.SubmitOrderAsync(
                     SubmitOrder.Market(new StrategyId(7), TestInstrument, Side.Buy, new Qty(150m)) with
@@ -1112,7 +1112,7 @@ public class ReplayConnectorTests
         var subscriptions = new[] { new Subscription(TestInstrument, SubscriptionType.Depth, SubscriptionDepth.L2_20) };
         events.OnEmit = evt =>
         {
-            if (evt is BookUpdated)
+            if (evt is BookSnapshotReceived)
             {
                 connector.SubmitOrderAsync(
                     SubmitOrder.Market(new StrategyId(7), TestInstrument, Side.Buy, new Qty(70m)) with
@@ -1153,7 +1153,7 @@ public class ReplayConnectorTests
         var subscriptions = new[] { new Subscription(TestInstrument, SubscriptionType.Depth, SubscriptionDepth.L2_20) };
         events.OnEmit = evt =>
         {
-            if (evt is BookUpdated)
+            if (evt is BookSnapshotReceived)
             {
                 connector.SubmitOrderAsync(
                     SubmitOrder.Market(new StrategyId(7), TestInstrument, Side.Buy, new Qty(70m)) with
@@ -1193,7 +1193,7 @@ public class ReplayConnectorTests
         var subscriptions = new[] { new Subscription(TestInstrument, SubscriptionType.Depth, SubscriptionDepth.L2_20) };
         events.OnEmit = evt =>
         {
-            if (evt is BookUpdated)
+            if (evt is BookSnapshotReceived)
             {
                 connector.SubmitOrderAsync(
                     SubmitOrder.Market(new StrategyId(7), TestInstrument, Side.Sell, new Qty(80m)) with
@@ -1234,7 +1234,7 @@ public class ReplayConnectorTests
         var subscriptions = new[] { new Subscription(TestInstrument, SubscriptionType.Depth, SubscriptionDepth.L2_20) };
         events.OnEmit = evt =>
         {
-            if (evt is BookUpdated)
+            if (evt is BookSnapshotReceived)
             {
                 connector.SubmitOrderAsync(
                     SubmitOrder.Market(new StrategyId(7), TestInstrument, Side.Sell, new Qty(80m)) with
@@ -1275,7 +1275,7 @@ public class ReplayConnectorTests
         var subscriptions = new[] { new Subscription(TestInstrument, SubscriptionType.Depth, SubscriptionDepth.L2_20) };
         events.OnEmit = evt =>
         {
-            if (evt is BookUpdated)
+            if (evt is BookSnapshotReceived)
             {
                 bookCount++;
                 var orderId = bookCount == 1 ? firstOrderId : secondOrderId;
@@ -1301,9 +1301,9 @@ public class ReplayConnectorTests
     {
         var time = Instant.FromUnixSeconds(1);
         var connector = new ReplayConnector(
-            CreateHistory(new BookDeltaReceived(
+            CreateHistory(new BookLevelDeltaReceived(
                 TestInstrument,
-                new BookDelta(Side.Sell, new Price(101m, Currency.USD), new Qty(10m), BookAction.Add))
+                new BookLevelDelta(Side.Sell, new Price(101m, Currency.USD), new Qty(10m), BookAction.Add))
             {
                 Time = time
             }));
@@ -1311,7 +1311,7 @@ public class ReplayConnectorTests
         var subscriptions = new[] { new Subscription(TestInstrument, SubscriptionType.Depth) };
         events.OnEmit = evt =>
         {
-            if (evt is BookDeltaReceived)
+            if (evt is BookLevelDeltaReceived)
             {
                 connector.SubmitOrderAsync(
                     SubmitOrder.Market(new StrategyId(7), TestInstrument, Side.Buy, new Qty(5m)),
@@ -1332,12 +1332,12 @@ public class ReplayConnectorTests
     {
         var time = Instant.FromUnixSeconds(1);
         var connector = new ReplayConnector(
-            CreateHistory(new BookDeltasReceived(
+            CreateHistory(new BookLevelDeltasReceived(
                 TestInstrument,
                 [
-                    new BookDelta(Side.Sell, new Price(101m, Currency.USD), new Qty(10m), BookAction.Add, Sequence: 1),
-                    new BookDelta(Side.Sell, new Price(102m, Currency.USD), new Qty(10m), BookAction.Add, Sequence: 2),
-                    new BookDelta(Side.Sell, new Price(101m, Currency.USD), Qty.Zero, BookAction.Delete, Sequence: 3)
+                    new BookLevelDelta(Side.Sell, new Price(101m, Currency.USD), new Qty(10m), BookAction.Add, VenueSequence: 1),
+                    new BookLevelDelta(Side.Sell, new Price(102m, Currency.USD), new Qty(10m), BookAction.Add, VenueSequence: 2),
+                    new BookLevelDelta(Side.Sell, new Price(101m, Currency.USD), Qty.Zero, BookAction.Delete, VenueSequence: 3)
                 ])
             {
                 Time = time
@@ -1346,7 +1346,7 @@ public class ReplayConnectorTests
         var subscriptions = new[] { new Subscription(TestInstrument, SubscriptionType.Depth) };
         events.OnEmit = evt =>
         {
-            if (evt is BookDeltasReceived)
+            if (evt is BookLevelDeltasReceived)
             {
                 connector.SubmitOrderAsync(
                     SubmitOrder.Market(new StrategyId(7), TestInstrument, Side.Buy, new Qty(5m)),
@@ -1374,7 +1374,7 @@ public class ReplayConnectorTests
         };
         var connector = new ReplayConnector(
             CreateHistory(
-                new BookUpdated(TestInstrument, initialBook) { Time = time },
+                new BookSnapshotReceived(TestInstrument, initialBook) { Time = time },
                 new BookDepthSnapshotReceived(
                     TestInstrument,
                     Bids: [new Level(new Price(98m, Currency.USD), new Qty(10m))],
@@ -3328,7 +3328,7 @@ public class ReplayConnectorTests
         var subscriptions = new[] { new Subscription(TestInstrument, SubscriptionType.Depth) };
         events.OnEmit = evt =>
         {
-            if (evt is BookUpdated && submissions < 2)
+            if (evt is BookSnapshotReceived && submissions < 2)
             {
                 submissions++;
                 connector.SubmitOrderAsync(
@@ -6301,23 +6301,29 @@ public class ReplayConnectorTests
         public int PreProcessCount { get; private set; }
         public int ProcessCount { get; private set; }
 
-        public void PreProcess(FinanceEvent evt, ReplayModuleContext context)
+        public void PreProcess(
+            in FinanceEvent evt,
+            ReplayModuleContext context,
+            ReplayModuleSinks sinks)
         {
             if (evt is QuoteReceived)
                 PreProcessCount++;
         }
 
-        public IEnumerable<FinanceEvent> Process(Instant now, ReplayModuleContext context)
+        public void Process(
+            Instant now,
+            ReplayModuleContext context,
+            ReplayModuleSinks sinks)
         {
             ProcessCount++;
             if (_emitted || now != _closeAt)
-                yield break;
+                return;
 
             _emitted = true;
-            yield return new InstrumentStatusChanged(_instrument, MarketStatus.Closed, "module close")
+            sinks.Emit(new InstrumentStatusChanged(_instrument, MarketStatus.Closed, "module close")
             {
                 Time = now
-            };
+            });
         }
 
         public void Reset()

@@ -1,4 +1,3 @@
-using System.Threading.Channels;
 using HPD.Events;
 using HPD.Events.Core;
 
@@ -17,182 +16,327 @@ public class StructEventTests
             this with { SequenceNumber = sequenceNumber };
     }
 
+    private readonly record struct NumericStructEvent(
+        int Value,
+        long TimestampNs = 0,
+        long SequenceNumber = 0) : IStructEvent, ISequencedStructEvent<NumericStructEvent>
+    {
+        public EventKind Kind => EventKind.Content;
+
+        public NumericStructEvent WithSequenceNumber(long sequenceNumber) =>
+            this with { SequenceNumber = sequenceNumber };
+    }
+
     private record TestClassEvent(string Message) : Event;
 
     [Fact]
-    public void TryEmitStruct_ReturnsFalse_WhenNoSubscriberAccepts()
+    public void Emit_ReturnsNoSubscribers_WhenRouteIsEmpty()
     {
         using var coordinator = new EventCoordinator();
+        var emitter = coordinator.LocalStructs.Route<TestStructEvent>().CreateEmitter();
 
-        var accepted = coordinator.TryEmitStruct(new TestStructEvent("none"));
+        var result = emitter.Emit(new TestStructEvent("none"));
 
-        Assert.False(accepted);
+        Assert.Equal(LocalStructEmitStatus.NoSubscribers, result.Status);
+        Assert.False(result.Accepted);
     }
 
     [Fact]
-    public async Task TryEmitStruct_FansOutToAllSubscribers()
+    public void Emit_FansOutToAllSubscribers()
     {
         using var coordinator = new EventCoordinator();
-        await using var first = coordinator.SubscribeStruct<TestStructEvent>();
-        await using var second = coordinator.SubscribeStruct<TestStructEvent>();
+        var route = coordinator.LocalStructs.Route<TestStructEvent>();
+        using var first = route.Subscribe();
+        using var second = route.Subscribe();
+        var emitter = route.CreateEmitter();
 
-        Assert.True(coordinator.TryEmitStruct(new TestStructEvent("frame")));
+        var result = emitter.Emit(new TestStructEvent("frame"));
 
-        Assert.Equal("frame", (await ReadOneAsync(first.Reader)).Message);
-        Assert.Equal("frame", (await ReadOneAsync(second.Reader)).Message);
+        Assert.Equal(LocalStructEmitStatus.Accepted, result.Status);
+        Assert.Equal(2, result.AcceptedCount);
+        Assert.True(first.TryRead(out var firstEvent));
+        Assert.True(second.TryRead(out var secondEvent));
+        Assert.Equal("frame", firstEvent.Message);
+        Assert.Equal("frame", secondEvent.Message);
     }
 
     [Fact]
-    public async Task CreateInbox_ReceivesStructEvents()
+    public void CreateInbox_ReceivesStructEvents()
     {
         using var coordinator = new EventCoordinator();
-        await using var inbox = coordinator.CreateInbox<TestStructEvent>();
+        var route = coordinator.LocalStructs.Route<TestStructEvent>();
+        using var inbox = route.CreateInbox();
+        var emitter = route.CreateEmitter();
 
-        Assert.True(coordinator.TryEmitStruct(new TestStructEvent("owned")));
+        Assert.True(emitter.Emit(new TestStructEvent("owned")).Accepted);
 
-        Assert.Equal("owned", (await ReadOneAsync(inbox.Reader)).Message);
+        Assert.True(inbox.TryRead(out var evt));
+        Assert.Equal("owned", evt.Message);
     }
 
     [Fact]
-    public async Task CreateInbox_DefaultsToBackpressureWait()
+    public void CreateInbox_DefaultsToBackpressure()
     {
         using var coordinator = new EventCoordinator();
-        await using var inbox = coordinator.CreateInbox<TestStructEvent>(
-            new StructInboxOptions { Capacity = 1 });
+        var route = coordinator.LocalStructs.Route<TestStructEvent>();
+        using var inbox = route.CreateInbox(new LocalStructInboxOptions { Capacity = 1 });
+        var emitter = route.CreateEmitter();
 
-        await coordinator.EmitStructAsync(new TestStructEvent("1"));
-        var emitTask = coordinator.EmitStructAsync(new TestStructEvent("2")).AsTask();
+        Assert.Equal(LocalStructEmitStatus.Accepted, emitter.Emit(new TestStructEvent("1")).Status);
+        Assert.Equal(LocalStructEmitStatus.Backpressured, emitter.Emit(new TestStructEvent("2")).Status);
 
-        await Task.Delay(50);
-        Assert.False(emitTask.IsCompleted);
-
-        Assert.Equal("1", (await ReadOneAsync(inbox.Reader)).Message);
-
-        await emitTask.WaitAsync(TimeSpan.FromSeconds(2));
-        Assert.Equal("2", (await ReadOneAsync(inbox.Reader)).Message);
+        Assert.True(inbox.TryRead(out var evt));
+        Assert.Equal("1", evt.Message);
+        Assert.Equal(LocalStructEmitStatus.Accepted, emitter.Emit(new TestStructEvent("3")).Status);
     }
 
     [Fact]
-    public async Task StructBusInterface_UsesNewNames()
+    public void LocalStructBus_RouteCachesByType()
     {
-        using var coordinator = new EventCoordinator();
-        IStructEventBus bus = coordinator;
-        await using var inbox = bus.CreateInbox<TestStructEvent>();
+        using var bus = new LocalStructEventBus();
 
-        Assert.True(bus.TryEmit(new TestStructEvent("new-name")));
+        var first = bus.Route<TestStructEvent>();
+        var second = bus.Route<TestStructEvent>();
 
-        Assert.Equal("new-name", (await ReadOneAsync(inbox.Reader)).Message);
+        Assert.Same(first, second);
     }
 
     [Fact]
-    public async Task SubscribeStruct_DropOldest_KeepsNewestItems()
+    public void CachedEmit_ToRingBufferSubscriber_AllocatesZeroBytesInSteadyState()
     {
-        using var coordinator = new EventCoordinator();
-        await using var subscription = coordinator.SubscribeStruct<TestStructEvent>(
-            new StructSubscriptionOptions
-            {
-                Capacity = 2,
-                FullMode = BoundedChannelFullMode.DropOldest
-            });
+        const int Iterations = 1024;
+        using var bus = new LocalStructEventBus();
+        var route = bus.Route<NumericStructEvent>();
+        using var subscription = route.Subscribe(new LocalStructSubscriptionOptions
+        {
+            Capacity = Iterations + 1
+        });
+        var emitter = route.CreateEmitter();
 
-        Assert.True(coordinator.TryEmitStruct(new TestStructEvent("1")));
-        Assert.True(coordinator.TryEmitStruct(new TestStructEvent("2")));
-        Assert.True(coordinator.TryEmitStruct(new TestStructEvent("3")));
+        Assert.True(emitter.Emit(new NumericStructEvent(-1)).Accepted);
+        Assert.True(subscription.TryRead(out _));
 
-        var events = await ReadManyAsync(subscription.Reader, 2);
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        var before = GC.GetAllocatedBytesForCurrentThread();
 
-        Assert.Equal(["2", "3"], events.Select(static evt => evt.Message));
+        for (var i = 0; i < Iterations; i++)
+            emitter.Emit(new NumericStructEvent(i));
+
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(0, allocated);
     }
 
     [Fact]
-    public async Task EmitStructAsync_WaitsForWaitSubscriberCapacity()
+    public void CachedBatchEmit_ToRingBufferSubscriber_AllocatesZeroBytesInSteadyState()
     {
-        using var coordinator = new EventCoordinator();
-        await using var subscription = coordinator.SubscribeStruct<TestStructEvent>(
-            new StructSubscriptionOptions
-            {
-                Capacity = 1,
-                FullMode = BoundedChannelFullMode.Wait
-            });
+        const int BatchSize = 128;
+        const int Batches = 64;
+        using var bus = new LocalStructEventBus();
+        var route = bus.Route<NumericStructEvent>();
+        using var subscription = route.Subscribe(new LocalStructSubscriptionOptions
+        {
+            Capacity = (BatchSize * Batches) + BatchSize
+        });
+        var emitter = route.CreateEmitter();
+        var events = new NumericStructEvent[BatchSize];
+        for (var i = 0; i < events.Length; i++)
+            events[i] = new NumericStructEvent(i);
 
-        await coordinator.EmitStructAsync(new TestStructEvent("1"));
-        var emitTask = coordinator.EmitStructAsync(new TestStructEvent("2")).AsTask();
+        Assert.Equal(BatchSize, emitter.EmitBatch(events).AcceptedEvents);
+        var drain = new NumericStructEvent[BatchSize];
+        Assert.Equal(BatchSize, subscription.TryReadBatch(drain));
 
-        await Task.Delay(50);
-        Assert.False(emitTask.IsCompleted);
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        var before = GC.GetAllocatedBytesForCurrentThread();
 
-        Assert.Equal("1", (await ReadOneAsync(subscription.Reader)).Message);
+        for (var i = 0; i < Batches; i++)
+            emitter.EmitBatch(events);
 
-        await emitTask.WaitAsync(TimeSpan.FromSeconds(2));
-        Assert.Equal("2", (await ReadOneAsync(subscription.Reader)).Message);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(0, allocated);
     }
 
     [Fact]
-    public async Task StructEmitter_AssignsSequence_WhenSupported()
+    public void BatchDrain_FromRingBufferSubscriber_AllocatesZeroBytesInSteadyState()
+    {
+        const int Count = 512;
+        using var bus = new LocalStructEventBus();
+        var route = bus.Route<NumericStructEvent>();
+        using var subscription = route.Subscribe(new LocalStructSubscriptionOptions
+        {
+            Capacity = Count + 1
+        });
+        var emitter = route.CreateEmitter();
+        for (var i = 0; i < Count; i++)
+            Assert.True(emitter.Emit(new NumericStructEvent(i)).Accepted);
+        var destination = new NumericStructEvent[Count];
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        var before = GC.GetAllocatedBytesForCurrentThread();
+
+        var read = subscription.TryReadBatch(destination);
+
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(Count, read);
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void Subscribe_DropOldest_KeepsNewestItems()
     {
         using var coordinator = new EventCoordinator();
-        await using var subscription = coordinator.SubscribeStruct<TestStructEvent>();
-        var emitter = coordinator.CreateStructEmitter<TestStructEvent>(
-            new StructEmitterOptions<TestStructEvent> { AssignSequenceNumbers = true });
+        var route = coordinator.LocalStructs.Route<TestStructEvent>();
+        using var subscription = route.Subscribe(new LocalStructSubscriptionOptions
+        {
+            Capacity = 2,
+            FullMode = LocalStructFullMode.DropOldest
+        });
+        var emitter = route.CreateEmitter();
 
-        Assert.True(emitter.TryEmit(new TestStructEvent("sequenced")));
+        Assert.True(emitter.Emit(new TestStructEvent("1")).Accepted);
+        Assert.True(emitter.Emit(new TestStructEvent("2")).Accepted);
+        Assert.True(emitter.Emit(new TestStructEvent("3")).Accepted);
 
-        var evt = await ReadOneAsync(subscription.Reader);
+        var buffer = new TestStructEvent[2];
+        Assert.Equal(2, subscription.TryReadBatch(buffer));
+        Assert.Equal(["2", "3"], buffer.Select(static evt => evt.Message));
+    }
 
+    [Fact]
+    public void Subscribe_DropOldest_TracksDepthAndSubscriberDrops()
+    {
+        using var coordinator = new EventCoordinator();
+        var route = coordinator.LocalStructs.Route<TestStructEvent>();
+        using var subscription = route.Subscribe(new LocalStructSubscriptionOptions
+        {
+            Capacity = 2,
+            FullMode = LocalStructFullMode.DropOldest
+        });
+        var emitter = route.CreateEmitter();
+
+        Assert.True(emitter.Emit(new TestStructEvent("1")).Accepted);
+        Assert.True(emitter.Emit(new TestStructEvent("2")).Accepted);
+        var overwrite = emitter.Emit(new TestStructEvent("3"));
+
+        Assert.Equal(LocalStructEmitStatus.Accepted, overwrite.Status);
+        Assert.Equal(1, overwrite.DroppedCount);
+
+        var stats = route.GetStats();
+        Assert.Equal(2, stats.CurrentQueued);
+        Assert.Equal(1, stats.SubscriberDrops);
+
+        var buffer = new TestStructEvent[2];
+        Assert.Equal(2, subscription.TryReadBatch(buffer));
+        Assert.Equal(0, route.GetStats().CurrentQueued);
+    }
+
+    [Fact]
+    public void Subscribe_Reject_ReturnsRejected_WhenFull()
+    {
+        using var coordinator = new EventCoordinator();
+        var route = coordinator.LocalStructs.Route<TestStructEvent>();
+        using var subscription = route.Subscribe(new LocalStructSubscriptionOptions
+        {
+            Capacity = 1,
+            FullMode = LocalStructFullMode.Reject
+        });
+        var emitter = route.CreateEmitter();
+
+        Assert.Equal(LocalStructEmitStatus.Accepted, emitter.Emit(new TestStructEvent("1")).Status);
+        Assert.Equal(LocalStructEmitStatus.Rejected, emitter.Emit(new TestStructEvent("2")).Status);
+    }
+
+    [Fact]
+    public void SequencedEmitter_AssignsSequence_WhenSupported()
+    {
+        using var coordinator = new EventCoordinator();
+        var route = coordinator.LocalStructs.Route<TestStructEvent>();
+        using var subscription = route.Subscribe();
+        var emitter = route.CreateSequencedEmitter();
+
+        Assert.True(emitter.Emit(new TestStructEvent("sequenced")).Accepted);
+
+        Assert.True(subscription.TryRead(out var evt));
         Assert.Equal(1, evt.SequenceNumber);
     }
 
     [Fact]
-    public async Task StructEmitter_Filter_SkipsRejectedEvents()
+    public void Emitter_Filter_SkipsRejectedEvents()
     {
         using var coordinator = new EventCoordinator();
-        await using var subscription = coordinator.SubscribeStruct<TestStructEvent>();
-        var emitter = coordinator.CreateStructEmitter<TestStructEvent>(
-            new StructEmitterOptions<TestStructEvent>
-            {
-                Filter = static evt => evt.Message == "allowed"
-            });
-
-        Assert.False(emitter.TryEmit(new TestStructEvent("blocked")));
-        Assert.True(emitter.TryEmit(new TestStructEvent("allowed")));
-
-        Assert.Equal("allowed", (await ReadOneAsync(subscription.Reader)).Message);
-    }
-
-    [Fact]
-    public async Task StructSubscription_Dispose_RemovesSubscriber()
-    {
-        using var coordinator = new EventCoordinator();
-        var subscription = coordinator.SubscribeStruct<TestStructEvent>();
-
-        await subscription.DisposeAsync();
-
-        Assert.False(coordinator.TryEmitStruct(new TestStructEvent("after-dispose")));
-    }
-
-    [Fact]
-    public async Task SubscribeStructHandler_DispatchesWithoutRunAsync()
-    {
-        using var coordinator = new EventCoordinator();
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        var handled = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        using var handlerSubscription = coordinator.SubscribeStruct<TestStructEvent>(evt =>
+        var route = coordinator.LocalStructs.Route<TestStructEvent>();
+        using var subscription = route.Subscribe();
+        var emitter = route.CreateEmitter(new LocalStructEmitterOptions<TestStructEvent>
         {
-            handled.TrySetResult(evt.Message);
-            return ValueTask.CompletedTask;
+            Filter = static evt => evt.Message == "allowed"
         });
 
-        Assert.True(coordinator.TryEmitStruct(new TestStructEvent("handled")));
+        Assert.Equal(LocalStructEmitStatus.Filtered, emitter.Emit(new TestStructEvent("blocked")).Status);
+        Assert.True(emitter.Emit(new TestStructEvent("allowed")).Accepted);
 
-        Assert.Equal("handled", await handled.Task.WaitAsync(cts.Token));
+        Assert.True(subscription.TryRead(out var evt));
+        Assert.Equal("allowed", evt.Message);
+        Assert.False(subscription.TryRead(out _));
     }
 
     [Fact]
-    public async Task SubscribeStructHandler_DoesNotDispatchToClassSubscribeAny()
+    public void Subscription_Dispose_RemovesSubscriber()
     {
         using var coordinator = new EventCoordinator();
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        var route = coordinator.LocalStructs.Route<TestStructEvent>();
+        var subscription = route.Subscribe();
+        subscription.Dispose();
+        var emitter = route.CreateEmitter();
+
+        Assert.Equal(LocalStructEmitStatus.NoSubscribers, emitter.Emit(new TestStructEvent("after-dispose")).Status);
+    }
+
+    [Fact]
+    public void Subscription_Dispose_RemovesQueuedDepth()
+    {
+        using var coordinator = new EventCoordinator();
+        var route = coordinator.LocalStructs.Route<TestStructEvent>();
+        var subscription = route.Subscribe();
+        var emitter = route.CreateEmitter();
+
+        Assert.True(emitter.Emit(new TestStructEvent("queued")).Accepted);
+        Assert.Equal(1, route.GetStats().CurrentQueued);
+
+        subscription.Dispose();
+
+        var stats = route.GetStats();
+        Assert.Equal(0, stats.SubscriberCount);
+        Assert.Equal(0, stats.CurrentQueued);
+    }
+
+    [Fact]
+    public void Observe_DispatchesSynchronously()
+    {
+        using var coordinator = new EventCoordinator();
+        var route = coordinator.LocalStructs.Route<TestStructEvent>();
+        var handled = "";
+        using var observer = route.Observe(evt =>
+        {
+            handled = evt.Message;
+            return ValueTask.CompletedTask;
+        });
+        var emitter = route.CreateEmitter();
+
+        Assert.True(emitter.Emit(new TestStructEvent("handled")).Accepted);
+
+        Assert.Equal("handled", handled);
+    }
+
+    [Fact]
+    public async Task StructObserver_DoesNotDispatchToClassSubscribeAny()
+    {
+        using var coordinator = new EventCoordinator();
         var sawClassEvent = false;
 
         using var anySubscription = coordinator.SubscribeAny(_ =>
@@ -201,8 +345,9 @@ public class StructEventTests
             return ValueTask.CompletedTask;
         });
 
-        using var structSubscription = coordinator.SubscribeStruct<TestStructEvent>(_ => ValueTask.CompletedTask);
-        Assert.True(coordinator.TryEmitStruct(new TestStructEvent("struct-only")));
+        var route = coordinator.LocalStructs.Route<TestStructEvent>();
+        using var observer = route.Observe(_ => ValueTask.CompletedTask);
+        Assert.True(route.CreateEmitter().Emit(new TestStructEvent("struct-only")).Accepted);
 
         await Task.Delay(50, CancellationToken.None);
 
@@ -214,7 +359,6 @@ public class StructEventTests
     {
         using var parent = new EventCoordinator();
         using var child = new EventCoordinator();
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
         var parentSawEvent = false;
 
         child.SetParent(parent);
@@ -225,9 +369,11 @@ public class StructEventTests
             return ValueTask.CompletedTask;
         });
 
-        await using var subscription = child.SubscribeStruct<TestStructEvent>();
-        Assert.True(child.TryEmitStruct(new TestStructEvent("local")));
-        Assert.Equal("local", (await ReadOneAsync(subscription.Reader)).Message);
+        var route = child.LocalStructs.Route<TestStructEvent>();
+        using var subscription = route.Subscribe();
+        Assert.True(route.CreateEmitter().Emit(new TestStructEvent("local")).Accepted);
+        Assert.True(subscription.TryRead(out var evt));
+        Assert.Equal("local", evt.Message);
 
         await Task.Delay(50, CancellationToken.None);
 
@@ -235,59 +381,85 @@ public class StructEventTests
     }
 
     [Fact]
-    public void SubscribeStruct_HandlerDispose_RemovesSubscriber()
+    public void Observe_Dispose_RemovesSubscriber()
     {
         using var coordinator = new EventCoordinator();
+        var route = coordinator.LocalStructs.Route<TestStructEvent>();
 
-        var subscription = coordinator.SubscribeStruct<TestStructEvent>(_ => ValueTask.CompletedTask);
-        subscription.Dispose();
+        var observer = route.Observe(_ => ValueTask.CompletedTask);
+        observer.Dispose();
 
-        Assert.False(coordinator.TryEmitStruct(new TestStructEvent("removed")));
+        Assert.Equal(LocalStructEmitStatus.NoSubscribers, route.CreateEmitter().Emit(new TestStructEvent("removed")).Status);
     }
 
     [Fact]
-    public async Task StructAndClassHandlers_RunConcurrently()
+    public void Observe_HandlerFault_RemovesOnlyFaultedObserver()
+    {
+        using var coordinator = new EventCoordinator();
+        var route = coordinator.LocalStructs.Route<TestStructEvent>();
+        var healthyCount = 0;
+
+        using var healthy = route.Observe(_ =>
+        {
+            healthyCount++;
+            return ValueTask.CompletedTask;
+        });
+        using var faulty = route.Observe(_ => throw new InvalidOperationException("boom"));
+
+        var first = route.CreateEmitter().Emit(new TestStructEvent("first"));
+        var second = route.CreateEmitter().Emit(new TestStructEvent("second"));
+
+        Assert.Equal(LocalStructEmitStatus.Accepted, first.Status);
+        Assert.Equal(LocalStructEmitStatus.Accepted, second.Status);
+        Assert.Equal(2, healthyCount);
+        Assert.Equal(1, route.GetStats().ObserverCount);
+    }
+
+    [Fact]
+    public async Task StructAndClassHandlers_DoNotBlockEachOther()
     {
         using var coordinator = new EventCoordinator();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         var releaseClassHandler = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var structHandled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var structHandled = false;
 
         using var classSubscription = coordinator.Subscribe<TestClassEvent>(
             async _ => await releaseClassHandler.Task.WaitAsync(cts.Token));
-        using var structSubscription = coordinator.SubscribeStruct<TestStructEvent>(_ =>
+        using var observer = coordinator.LocalStructs.Route<TestStructEvent>().Observe(_ =>
         {
-            structHandled.TrySetResult();
+            structHandled = true;
             return ValueTask.CompletedTask;
         });
 
         coordinator.Emit(new TestClassEvent("slow"));
-        Assert.True(coordinator.TryEmitStruct(new TestStructEvent("fast")));
+        Assert.True(coordinator.LocalStructs.Route<TestStructEvent>().CreateEmitter().Emit(new TestStructEvent("fast")).Accepted);
 
-        await structHandled.Task.WaitAsync(cts.Token);
+        Assert.True(structHandled);
         releaseClassHandler.SetResult();
+        await Task.Delay(10, cts.Token);
     }
 
-    private static async Task<TEvent> ReadOneAsync<TEvent>(
-        ChannelReader<TEvent> reader,
-        CancellationToken ct = default)
+    [Fact]
+    public void Stats_TrackRouteActivity()
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
+        using var coordinator = new EventCoordinator();
+        var route = coordinator.LocalStructs.Route<TestStructEvent>();
+        using var inbox = route.CreateInbox();
+        var emitter = route.CreateEmitter(new LocalStructEmitterOptions<TestStructEvent>
+        {
+            Filter = static evt => evt.Message != "filtered"
+        });
 
-        return await reader.ReadAsync(linked.Token);
-    }
+        Assert.Equal(LocalStructEmitStatus.Filtered, emitter.Emit(new TestStructEvent("filtered")).Status);
+        Assert.True(emitter.Emit(new TestStructEvent("accepted")).Accepted);
+        Assert.True(inbox.TryRead(out _));
 
-    private static async Task<List<TEvent>> ReadManyAsync<TEvent>(
-        ChannelReader<TEvent> reader,
-        int count)
-    {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        var events = new List<TEvent>(count);
-
-        while (events.Count < count)
-            events.Add(await reader.ReadAsync(timeout.Token));
-
-        return events;
+        var stats = route.GetStats();
+        Assert.Equal(1, stats.SubscriberCount);
+        Assert.Equal(1, stats.InboxCount);
+        Assert.Equal(1, stats.Emitted);
+        Assert.Equal(1, stats.Accepted);
+        Assert.Equal(1, stats.Filtered);
+        Assert.Equal(0, stats.CurrentQueued);
     }
 }

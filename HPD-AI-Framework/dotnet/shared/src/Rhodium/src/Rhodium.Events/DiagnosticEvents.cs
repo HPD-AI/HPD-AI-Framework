@@ -175,7 +175,9 @@ public sealed record AccountTransferRequested(
     Instant RequestedAt,
     string? ExternalReference = null,
     StrategyId? DestinationStrategyId = null,
-    int DestinationVariantId = 0
+    int DestinationVariantId = 0,
+    Venue? Venue = null,
+    Price? CarryingPrice = null
 ) : DiagnosticEvent;
 
 /// <summary>
@@ -192,7 +194,9 @@ public sealed record AccountTransferCompleted(
     Instant CompletedAt,
     string? ExternalReference = null,
     StrategyId? DestinationStrategyId = null,
-    int DestinationVariantId = 0
+    int DestinationVariantId = 0,
+    Venue? Venue = null,
+    Price? CarryingPrice = null
 ) : DiagnosticEvent;
 
 /// <summary>
@@ -210,7 +214,9 @@ public sealed record AccountTransferCanceled(
     string? Reason = null,
     string? ExternalReference = null,
     StrategyId? DestinationStrategyId = null,
-    int DestinationVariantId = 0
+    int DestinationVariantId = 0,
+    Venue? Venue = null,
+    Price? CarryingPrice = null
 ) : DiagnosticEvent;
 
 /// <summary>
@@ -228,7 +234,9 @@ public sealed record AccountTransferFailed(
     string Reason,
     string? ExternalReference = null,
     StrategyId? DestinationStrategyId = null,
-    int DestinationVariantId = 0
+    int DestinationVariantId = 0,
+    Venue? Venue = null,
+    Price? CarryingPrice = null
 ) : DiagnosticEvent;
 
 /// <summary>
@@ -247,7 +255,9 @@ public sealed record AccountTransferStatusSnapshot(
     string? Reason = null,
     string? ExternalReference = null,
     StrategyId? DestinationStrategyId = null,
-    int DestinationVariantId = 0
+    int DestinationVariantId = 0,
+    Venue? Venue = null,
+    Price? CarryingPrice = null
 ) : DiagnosticEvent;
 
 /// <summary>
@@ -296,6 +306,131 @@ public sealed record FinancingChargeApplied(
     decimal Rate = 0m,
     string? ExternalReference = null
 ) : DiagnosticEvent;
+
+/// <summary>
+/// Replay-visible option lifecycle effect produced by expiry, exercise, assignment, or settlement.
+/// </summary>
+public sealed record OptionLifecycleApplied : DiagnosticEvent
+{
+    public OptionLifecycleApplied(
+        StrategyId StrategyId,
+        int VariantId,
+        Instrument Instrument,
+        OptionLifecycleKind LifecycleKind,
+        Qty Quantity,
+        Money CashFlow,
+        Instant AppliedAt,
+        Price? UnderlyingMark = null,
+        Instrument? Deliverable = null,
+        Qty? DeliverableQuantity = null,
+        Price? SettlementPrice = null,
+        OptionLifecycleReferenceSource ReferenceSource = OptionLifecycleReferenceSource.None,
+        string? Reason = null)
+    {
+        if (!Enum.IsDefined(LifecycleKind))
+            throw new ArgumentOutOfRangeException(nameof(LifecycleKind), LifecycleKind, "Unknown option lifecycle kind.");
+
+        if (!Enum.IsDefined(ReferenceSource))
+            throw new ArgumentOutOfRangeException(nameof(ReferenceSource), ReferenceSource, "Unknown option lifecycle reference source.");
+
+        if (Quantity.IsZero)
+            throw new ArgumentException("Option lifecycle event requires a nonzero quantity.", nameof(Quantity));
+
+        if (LifecycleKind == OptionLifecycleKind.Blocked && ReferenceSource != OptionLifecycleReferenceSource.None)
+            throw new ArgumentException("Blocked option lifecycle event must use reference source None.", nameof(ReferenceSource));
+
+        if (LifecycleKind != OptionLifecycleKind.Blocked && ReferenceSource == OptionLifecycleReferenceSource.None)
+            throw new ArgumentException("Resolved option lifecycle event requires a non-None reference source.", nameof(ReferenceSource));
+
+        if (LifecycleKind != OptionLifecycleKind.Blocked && UnderlyingMark is null)
+            throw new ArgumentException("Resolved option lifecycle event requires an underlying/reference mark.", nameof(UnderlyingMark));
+
+        if (LifecycleKind == OptionLifecycleKind.PhysicalDelivery)
+        {
+            if (Deliverable is null)
+                throw new ArgumentException("Physical delivery lifecycle event requires a deliverable instrument.", nameof(Deliverable));
+            if (DeliverableQuantity is null || DeliverableQuantity.Value.IsZero)
+                throw new ArgumentException("Physical delivery lifecycle event requires a nonzero deliverable quantity.", nameof(DeliverableQuantity));
+            if (SettlementPrice is null)
+                throw new ArgumentException("Physical delivery lifecycle event requires a settlement price.", nameof(SettlementPrice));
+        }
+        else
+        {
+            if (Deliverable is not null)
+                throw new ArgumentException("Only physical delivery lifecycle events can carry a deliverable instrument.", nameof(Deliverable));
+            if (DeliverableQuantity is not null)
+                throw new ArgumentException("Only physical delivery lifecycle events can carry a deliverable quantity.", nameof(DeliverableQuantity));
+        }
+
+        if (LifecycleKind == OptionLifecycleKind.Blocked)
+        {
+            if (!CashFlow.IsZero)
+                throw new ArgumentException("Blocked option lifecycle event cannot carry cash flow.", nameof(CashFlow));
+            if (UnderlyingMark is not null)
+                throw new ArgumentException("Blocked option lifecycle event cannot carry an underlying mark.", nameof(UnderlyingMark));
+            if (SettlementPrice is not null)
+                throw new ArgumentException("Blocked option lifecycle event cannot carry a settlement price.", nameof(SettlementPrice));
+        }
+
+        if (LifecycleKind is OptionLifecycleKind.Exercise or OptionLifecycleKind.Assignment && !CashFlow.IsZero)
+        {
+            throw new ArgumentException("Exercise and assignment lifecycle events cannot carry cash flow.", nameof(CashFlow));
+        }
+
+        if (Reason is not null && string.IsNullOrWhiteSpace(Reason))
+            throw new ArgumentException("Option lifecycle event reason cannot be empty.", nameof(Reason));
+
+        this.StrategyId = StrategyId;
+        this.VariantId = VariantId;
+        this.Instrument = Instrument;
+        this.LifecycleKind = LifecycleKind;
+        this.Quantity = Quantity;
+        this.CashFlow = CashFlow;
+        this.AppliedAt = AppliedAt;
+        this.UnderlyingMark = UnderlyingMark;
+        this.Deliverable = Deliverable;
+        this.DeliverableQuantity = DeliverableQuantity;
+        this.SettlementPrice = SettlementPrice;
+        this.ReferenceSource = ReferenceSource;
+        this.Reason = Reason;
+    }
+
+    public StrategyId StrategyId { get; }
+    public int VariantId { get; }
+    public Instrument Instrument { get; }
+    public OptionLifecycleKind LifecycleKind { get; }
+    public Qty Quantity { get; }
+    public Money CashFlow { get; }
+    public Instant AppliedAt { get; }
+    public Price? UnderlyingMark { get; }
+    public Instrument? Deliverable { get; }
+    public Qty? DeliverableQuantity { get; }
+    public Price? SettlementPrice { get; }
+    public OptionLifecycleReferenceSource ReferenceSource { get; }
+    public string? Reason { get; }
+}
+
+public enum OptionLifecycleKind : byte
+{
+    Exercise,
+    Assignment,
+    ExpireWorthless,
+    ExpireUnexercised,
+    ExpireUnassigned,
+    CashSettlement,
+    PhysicalDelivery,
+    Blocked
+}
+
+public enum OptionLifecycleReferenceSource : byte
+{
+    None,
+    MarketMark,
+    InstrumentSettlementData,
+    UnderlyingSettlementData,
+    InstrumentSettlementOverride,
+    UnderlyingSettlementOverride
+}
 
 /// <summary>
 /// Replay-visible order lifecycle state.

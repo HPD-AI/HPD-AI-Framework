@@ -26,14 +26,14 @@ public sealed class StrategyTree
         {
             Id = id,
             Depth = depth,
-            ChildIds = children?.ToArray() ?? ReadOnlyMemory<StrategyId>.Empty
+            ChildIds = CopyChildren(children)
         };
 
         if (children != null)
         {
             foreach (var childId in children)
             {
-                var childIdx = _nodes.FindIndex(n => n.Node.Id == childId);
+                var childIdx = FindNodeIndex(childId);
                 var (childStrategy, childNode) = _nodes[childIdx];
                 _nodes[childIdx] = (childStrategy, childNode with { ParentId = id });
             }
@@ -43,12 +43,53 @@ public sealed class StrategyTree
         return id;
     }
 
-    public IReadOnlyList<(Strategy Strategy, StrategyNode Node)> Nodes => _nodes;
+    public int NodeCount => _nodes.Count;
+
+    public (Strategy Strategy, StrategyNode Node) GetNode(int index)
+        => _nodes[index];
+
+    public (Strategy Strategy, StrategyNode Node)[] GetNodesSnapshot()
+    {
+        var nodes = new (Strategy Strategy, StrategyNode Node)[_nodes.Count];
+        for (var i = 0; i < _nodes.Count; i++)
+            nodes[i] = _nodes[i];
+        return nodes;
+    }
 
     public IReadOnlyList<(Strategy Strategy, StrategyNode Node)> GetByDepth(int depth)
-        => _nodes.Where(n => n.Node.Depth == depth).ToArray();
+    {
+        var count = 0;
+        for (var i = 0; i < _nodes.Count; i++)
+        {
+            if (_nodes[i].Node.Depth == depth)
+                count++;
+        }
 
-    public int MaxDepth => _nodes.Count == 0 ? 0 : _nodes.Max(n => n.Node.Depth);
+        var nodes = new (Strategy Strategy, StrategyNode Node)[count];
+        var index = 0;
+        for (var i = 0; i < _nodes.Count; i++)
+        {
+            if (_nodes[i].Node.Depth == depth)
+                nodes[index++] = _nodes[i];
+        }
+
+        return nodes;
+    }
+
+    public int MaxDepth
+    {
+        get
+        {
+            var maxDepth = 0;
+            for (var i = 0; i < _nodes.Count; i++)
+            {
+                if (_nodes[i].Node.Depth > maxDepth)
+                    maxDepth = _nodes[i].Node.Depth;
+            }
+
+            return maxDepth;
+        }
+    }
 
     private void ValidateChildren(int parentDepth, IReadOnlyList<StrategyId> children)
     {
@@ -58,7 +99,7 @@ public sealed class StrategyTree
             if (!seen.Add(childId))
                 throw new InvalidOperationException($"Strategy child '{childId}' is listed more than once.");
 
-            var childIdx = _nodes.FindIndex(n => n.Node.Id == childId);
+            var childIdx = FindNodeIndex(childId);
             if (childIdx < 0)
                 throw new InvalidOperationException($"Strategy child '{childId}' has not been registered.");
 
@@ -72,5 +113,28 @@ public sealed class StrategyTree
             if (childNode.ParentId.HasValue)
                 throw new InvalidOperationException($"Strategy child '{childId}' already has parent '{childNode.ParentId.Value}'.");
         }
+    }
+
+    private static ReadOnlyMemory<StrategyId> CopyChildren(IReadOnlyList<StrategyId>? children)
+    {
+        if (children is null || children.Count == 0)
+            return ReadOnlyMemory<StrategyId>.Empty;
+
+        var copied = new StrategyId[children.Count];
+        for (var i = 0; i < children.Count; i++)
+            copied[i] = children[i];
+
+        return copied;
+    }
+
+    private int FindNodeIndex(StrategyId id)
+    {
+        for (var i = 0; i < _nodes.Count; i++)
+        {
+            if (_nodes[i].Node.Id == id)
+                return i;
+        }
+
+        return -1;
     }
 }

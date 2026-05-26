@@ -35,7 +35,7 @@ public class VectorSimulationBenchmarks
         => Rhodium.Simulation.Rhodium.Simulate<VectorNoOrderStrategy>()
             .WithHistory(_history)
             .WithGrid(_grid)
-            .WithFidelity(SimulationFidelity.Vector)
+            .WithMatchingFidelity(MatchingFidelity.FastVectorApproximation)
             .WithMaxDegreeOfParallelism(Environment.ProcessorCount)
             .Run();
 
@@ -57,13 +57,19 @@ public class VectorSimulationBenchmarks
         }
     }
 
-    public sealed class VectorNoOrderStrategy : Strategy
+    public sealed class VectorNoOrderStrategy : Strategy, IStrategyParameterFactory<VectorNoOrderStrategy>
     {
         private AssetId _spy;
         private double _lastSignal;
 
         [Param]
         public int Threshold { get; init; }
+
+        public static VectorNoOrderStrategy CreateVariant(ParameterSet parameters)
+            => new()
+            {
+                Threshold = parameters.GetRequired<int>(nameof(Threshold), nameof(Threshold))
+            };
 
         protected override void OnInitialize(in SetupContext setup)
         {

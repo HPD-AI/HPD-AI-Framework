@@ -37,7 +37,12 @@ public enum FeeModelType : byte
     /// Different fees by direction (buy vs sell).
     /// Used in some crypto exchanges.
     /// </summary>
-    Directional = 4
+    Directional = 4,
+
+    /// <summary>
+    /// Use the registered instrument contract's FeeTerms.
+    /// </summary>
+    ContractTerms = 5
 }
 
 /// <summary>
@@ -70,6 +75,11 @@ public sealed record FeeParams
     public static readonly FeeParams Zero = new()
     {
         Model = FeeModelType.PercentageOfValue
+    };
+
+    public static readonly FeeParams ContractTerms = new()
+    {
+        Model = FeeModelType.ContractTerms
     };
 
     public static FeeParams MakerTaker(decimal makerBps, decimal takerBps) => new()
@@ -122,29 +132,41 @@ public sealed record FeeParams
 /// </summary>
 public sealed record TieredFeeSchedule
 {
-    public required List<FeeTier> Tiers { get; init; }
+    public required IReadOnlyList<FeeTier> Tiers { get; init; }
 
     public (decimal MakerBps, decimal TakerBps) GetFeeRate(Money thirtyDayVolume)
     {
-        foreach (var tier in Tiers.OrderByDescending(t => t.MinVolume.Amount))
+        if (Tiers.Count == 0)
+            return (0m, 0m);
+
+        var fallback = Tiers[0];
+        FeeTier? selected = null;
+        for (var i = 0; i < Tiers.Count; i++)
         {
-            if (thirtyDayVolume.Amount >= tier.MinVolume.Amount)
-                return (tier.MakerBps, tier.TakerBps);
+            var tier = Tiers[i];
+            if (tier.MinVolume.Amount < fallback.MinVolume.Amount)
+                fallback = tier;
+
+            if (thirtyDayVolume.Amount < tier.MinVolume.Amount)
+                continue;
+
+            if (selected is null || tier.MinVolume.Amount > selected.MinVolume.Amount)
+                selected = tier;
         }
 
-        var defaultTier = Tiers.OrderBy(t => t.MinVolume).First();
-        return (defaultTier.MakerBps, defaultTier.TakerBps);
+        var rate = selected ?? fallback;
+        return (rate.MakerBps, rate.TakerBps);
     }
 
     public static TieredFeeSchedule BinanceFuturesVIP() => new()
     {
-        Tiers = new()
-        {
+        Tiers =
+        [
             new(new Money(0, Currency.USD), 2m, 4m),
             new(new Money(10_000_000, Currency.USD), 1.6m, 3.6m),
             new(new Money(50_000_000, Currency.USD), 1.4m, 3.4m),
             new(new Money(100_000_000, Currency.USD), 1.2m, 3.2m),
-        }
+        ]
     };
 }
 

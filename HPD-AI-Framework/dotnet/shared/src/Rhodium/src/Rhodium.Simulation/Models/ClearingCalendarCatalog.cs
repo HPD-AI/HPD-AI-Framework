@@ -37,11 +37,7 @@ public static class ClearingCalendarCatalog
         ["CME"] = UsMarketDatasetId
     };
 
-    public static IReadOnlyCollection<string> BundledDatasetIds => VenueDatasets
-        .Values
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .Order(StringComparer.OrdinalIgnoreCase)
-        .ToArray();
+    public static IReadOnlyCollection<string> BundledDatasetIds => GetBundledDatasetIds();
 
     public static ClearingCalendar ForVenue(
         Venue venue,
@@ -263,10 +259,31 @@ public static class ClearingCalendarCatalog
         if (trimmed.Length == 0 || trimmed.StartsWith('#'))
             return null;
 
-        var fields = trimmed.Split(',');
-        return fields
-            .Select(static field => field.Trim().Trim('"'))
-            .FirstOrDefault(static field => field.Length > 0);
+        var remaining = trimmed.AsSpan();
+        while (true)
+        {
+            var comma = remaining.IndexOf(',');
+            ReadOnlySpan<char> rawField;
+            if (comma < 0)
+            {
+                rawField = remaining;
+                remaining = [];
+            }
+            else
+            {
+                rawField = remaining[..comma];
+                remaining = remaining[(comma + 1)..];
+            }
+
+            var field = rawField.Trim().Trim('"');
+            if (field.Length > 0)
+                return field.ToString();
+
+            if (remaining.Length == 0)
+                break;
+        }
+
+        return null;
     }
 
     private static bool TryParseHolidayDate(string value, out DateOnly date)
@@ -300,6 +317,21 @@ public static class ClearingCalendarCatalog
             ?? throw new ArgumentException($"Bundled clearing-calendar dataset '{datasetId}' was not found.", nameof(datasetId));
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
+    }
+
+    private static string[] GetBundledDatasetIds()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var id in VenueDatasets.Values)
+            seen.Add(id);
+
+        var ids = new string[seen.Count];
+        var index = 0;
+        foreach (var id in seen)
+            ids[index++] = id;
+
+        Array.Sort(ids, StringComparer.OrdinalIgnoreCase);
+        return ids;
     }
 
     private static DateOnly ObservedFixedHoliday(int year, int month, int day)

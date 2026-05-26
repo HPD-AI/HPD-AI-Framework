@@ -10,7 +10,9 @@ namespace Rhodium.Events;
 public sealed record OrderAccepted(
     OrderId OrderId,
     StrategyId StrategyId,
-    int VariantId
+    int VariantId,
+    VenueOrderId VenueOrderId = default,
+    AssetId? AssetId = null
 ) : ExecutionEvent;
 
 /// <summary>
@@ -21,7 +23,9 @@ public sealed record OrderModified(
     StrategyId StrategyId,
     int VariantId,
     Qty? NewQuantity = null,
-    Price? NewLimitPrice = null
+    Price? NewLimitPrice = null,
+    VenueOrderId VenueOrderId = default,
+    AssetId? AssetId = null
 ) : ExecutionEvent;
 
 /// <summary>
@@ -31,7 +35,8 @@ public sealed record OrderRejected(
     OrderId OrderId,
     StrategyId StrategyId,
     int VariantId,
-    string Reason
+    string Reason,
+    AssetId? AssetId = null
 ) : ExecutionEvent;
 
 /// <summary>
@@ -45,11 +50,31 @@ public sealed record OrderFilled(
     Side Side,
     Qty FilledQty,
     Price FillPrice,
-    Money Commission
+    Money Commission,
+    ExecutionId ExecutionId = default,
+    VenueOrderId VenueOrderId = default,
+    AssetId? AssetId = null
 ) : ExecutionEvent
 {
     public Money Value => new(FilledQty.Value * FillPrice.Value, FillPrice.Currency);
 }
+
+/// <summary>
+/// One accounting leg created by an atomic package fill.
+/// </summary>
+public sealed record PackageLegFilled(
+    OrderId OrderId,
+    Instrument PackageInstrument,
+    Instrument LegInstrument,
+    int VariantId,
+    StrategyId StrategyId,
+    Side Side,
+    Qty FilledQty,
+    Price FillPrice,
+    ExecutionId ExecutionId = default,
+    VenueOrderId VenueOrderId = default,
+    AssetId? PackageAssetId = null
+) : ExecutionEvent;
 
 /// <summary>
 /// Order was cancelled.
@@ -59,7 +84,9 @@ public sealed record OrderCancelled(
     StrategyId StrategyId,
     int VariantId,
     Qty RemainingQty,
-    string Reason
+    string Reason,
+    VenueOrderId VenueOrderId = default,
+    AssetId? AssetId = null
 ) : ExecutionEvent;
 
 /// <summary>
@@ -68,5 +95,7 @@ public sealed record OrderCancelled(
 public sealed record OrderExpired(
     OrderId OrderId,
     StrategyId StrategyId,
-    int VariantId
+    int VariantId,
+    VenueOrderId VenueOrderId = default,
+    AssetId? AssetId = null
 ) : ExecutionEvent;

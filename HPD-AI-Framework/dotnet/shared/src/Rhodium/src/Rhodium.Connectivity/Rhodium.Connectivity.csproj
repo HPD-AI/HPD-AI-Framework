@@ -13,6 +13,7 @@
     <ProjectReference Include="..\Rhodium.Tensor\Rhodium.Tensor.csproj" />
     <ProjectReference Include="..\Rhodium.Data\Rhodium.Data.csproj" />
     <ProjectReference Include="..\Rhodium.HFT\Rhodium.HFT.csproj" />
+    <ProjectReference Include="..\Rhodium.Options\Rhodium.Options.csproj" />
     <ProjectReference Include="..\Rhodium.Control\Rhodium.Control.csproj" />
     <ProjectReference Include="..\Rhodium.Platform\Rhodium.Platform.csproj" />
     <ProjectReference Include="..\Rhodium.Kernel\Rhodium.Kernel.csproj" />

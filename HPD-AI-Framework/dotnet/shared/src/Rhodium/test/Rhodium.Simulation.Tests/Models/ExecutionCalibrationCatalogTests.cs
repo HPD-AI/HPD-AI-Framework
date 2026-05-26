@@ -103,7 +103,7 @@ public class ExecutionCalibrationCatalogTests
         var profile = ExecutionCalibrationCatalog
             .FromBundledCalibrationFeed("calibration-us-listed-equities")[Venue.NASDAQ];
 
-        var config = SimulationConfig.Queue() with
+        var config = SimulationConfig.Instant() with
         {
             Slippage = profile.Slippage,
             PriceImprovement = profile.PriceImprovement

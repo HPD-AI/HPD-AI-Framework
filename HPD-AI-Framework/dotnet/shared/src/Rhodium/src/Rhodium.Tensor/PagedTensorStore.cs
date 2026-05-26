@@ -49,7 +49,7 @@ public sealed class PagedTensorStore : ITensorStore, IDisposable
     {
     }
 
-    internal PagedTensorStore(GlobalMemoryTracker tracker)
+    internal PagedTensorStore(GlobalMemoryTracker? tracker)
     {
         _tracker = tracker;
     }

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Rhodium.Primitives;
 
 /// <summary>
@@ -7,11 +9,11 @@ public readonly record struct Qty(decimal Value) : IComparable<Qty>
 {
     public static readonly Qty Zero = new(0m);
 
-    public bool IsZero => Value == 0m;
-    public bool IsPositive => Value > 0m;
-    public bool IsNegative => Value < 0m;
-    public Qty Abs => new(Math.Abs(Value));
-    public Qty Negate => new(-Value);
+    [JsonIgnore] public bool IsZero => Value == 0m;
+    [JsonIgnore] public bool IsPositive => Value > 0m;
+    [JsonIgnore] public bool IsNegative => Value < 0m;
+    [JsonIgnore] public Qty Abs => new(Math.Abs(Value));
+    [JsonIgnore] public Qty Negate => new(-Value);
 
     public int CompareTo(Qty other) => Value.CompareTo(other.Value);
 
@@ -40,8 +42,8 @@ public readonly record struct Price(decimal Value, Currency Currency = default) 
 {
     public static readonly Price Zero = new(0m);
 
-    public bool IsZero => Value == 0m;
-    public bool IsPositive => Value > 0m;
+    [JsonIgnore] public bool IsZero => Value == 0m;
+    [JsonIgnore] public bool IsPositive => Value > 0m;
 
     public int CompareTo(Price other) => Value.CompareTo(other.Value);
 
@@ -107,6 +109,7 @@ public readonly record struct Currency(string Code)
     public static readonly Currency BTC = new("BTC");
     public static readonly Currency ETH = new("ETH");
     public static readonly Currency USDT = new("USDT");
+    public static readonly Currency None = new("NONE");
 
     public static implicit operator Currency(string code) => new(code);
     public override string ToString() => Code;
@@ -120,9 +123,9 @@ public readonly record struct Money(decimal Amount, Currency Currency)
     public static Money Zero(Currency c) => new(0m, c);
     public static Money USD(decimal amount) => new(amount, Currency.USD);
 
-    public bool IsZero => Amount == 0m;
-    public bool IsPositive => Amount > 0m;
-    public bool IsNegative => Amount < 0m;
+    [JsonIgnore] public bool IsZero => Amount == 0m;
+    [JsonIgnore] public bool IsPositive => Amount > 0m;
+    [JsonIgnore] public bool IsNegative => Amount < 0m;
 
     public static Money operator +(Money a, Money b) => new(a.Amount + b.Amount, a.Currency);
     public static Money operator -(Money a, Money b) => new(a.Amount - b.Amount, a.Currency);

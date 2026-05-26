@@ -20,17 +20,44 @@ public class RhodiumRuntimeTests
     }
 
     [Fact]
-    public void MarketKernel_ReadsMetadataFromRuntime()
+    public void MarketKernel_ReadsContractProjectionFromRuntime()
     {
         using var runtime = new RhodiumRuntime();
-        var inst = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NYSE);
-        var meta = SecurityMetadata.Equity(inst, tickSize: 0.05m);
+        var underlying = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NYSE);
+        var contract = Contracts.OptionContract(
+            "SPY-C-500",
+            "OPRA",
+            underlying,
+            Currency.USD,
+            tick: 0.05m,
+            lot: 1m,
+            multiplier: 100m,
+            new Price(500m, Currency.USD),
+            Instant.FromUnixSeconds(1_796_016_000),
+            OptionRight.Call,
+            ExerciseStyle.American,
+            unitOfTrade: 100m);
 
-        runtime.SetMetadata(0, meta);
+        runtime.SetContract(0, contract);
         var market = runtime.CreateMarketKernel();
+        var assetId = new AssetId(0);
 
-        Assert.Equal(0.05m, market.GetMetadata(new AssetId(0)).TickSize);
-        Assert.Equal(Currency.USD, market.GetMetadata(new AssetId(0)).Currency);
+        Assert.Equal(contract.Instrument, market.GetContract(assetId).Instrument);
+        Assert.Equal(0.05m, market.GetPriceIncrement(assetId));
+        Assert.Equal(1m, market.GetSizeIncrement(assetId));
+        Assert.Equal(1m, market.GetLotSize(assetId));
+        Assert.Equal(100m, market.GetMultiplier(assetId));
+        Assert.Equal(100m, market.GetContractUnitOfTrade(assetId));
+        Assert.Equal(EconomicExposureKind.Linear, market.GetExposureKind(assetId));
+        Assert.Equal(Currency.USD, market.GetQuoteCurrency(assetId));
+        Assert.Equal(Currency.USD, market.GetSettlementCurrency(assetId));
+        Assert.True(market.IsTradable(assetId));
+        Assert.True(market.SupportsExecution(assetId));
+        Assert.True(market.IsOption(assetId));
+        Assert.False(market.IsPackage(assetId));
+        Assert.Equal(contract.VenueRules.AllowedOrderTypes, market.GetAllowedOrderTypes(assetId));
+        Assert.Equal(contract.VenueRules.AllowedTimeInForce, market.GetAllowedTimeInForce(assetId));
+        Assert.Equal(0.05m, market.GetGrid(assetId).PriceIncrement);
     }
 
     [Fact]
@@ -62,6 +89,45 @@ public class RhodiumRuntimeTests
 
         Assert.Equal(10m, runtime.WorldState.PositionAt(a, 0).Quantity);
         Assert.Equal(20m, runtime.WorldState.PositionAt(b, 0).Quantity);
+    }
+
+    [Fact]
+    public void Runtime_BuildSnapshot_UsesInstrumentContractsForExposure()
+    {
+        using var runtime = new RhodiumRuntime();
+        var strategyId = new StrategyId(1);
+        var underlying = new Instrument(new Asset("ES", AssetClass.Index), Venue.CME);
+        var contract = Contracts.Future(
+            "ESZ6",
+            Venue.CME,
+            underlying,
+            Currency.USD,
+            tick: 0.25m,
+            lot: 1m,
+            multiplier: 50m,
+            expiry: Instant.FromUnixSeconds(1_796_016_000));
+        runtime.SetContract(0, contract);
+        runtime.SetTime(Instant.FromUnixSeconds(100));
+
+        runtime.WorldState.PositionAt(strategyId, 0).ApplyFill(
+            contract,
+            Side.Buy,
+            new Qty(2m),
+            new Price(5000m, Currency.USD),
+            Money.USD(0m));
+
+        var snapshot = runtime.BuildSnapshot(
+            strategyId,
+            universeSize: 1,
+            new Dictionary<int, Price>
+            {
+                [0] = new Price(5010m, Currency.USD)
+            });
+
+        Assert.Equal(501000m, snapshot.GrossExposure);
+        Assert.Equal(501000m, snapshot.NetExposure);
+        Assert.Equal(1, snapshot.GetPositions().Length);
+        Assert.Equal(contract.Instrument, snapshot.GetPositions()[0].Instrument);
     }
 
     [Fact]

@@ -563,59 +563,71 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
     private async Task RunAudioInputLoopAsync(
         RuntimeHookContext context,
-        ChannelReader<AudioInputFrame> frames,
+        LocalStructSubscription<AudioInputFrame> frames,
         AudioConfig effectiveConfig,
         CancellationToken cancellationToken)
     {
         try
         {
-            await foreach (var frame in frames.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            var framesBatch = new AudioInputFrame[64];
+            while (!cancellationToken.IsCancellationRequested)
             {
-                if (frame.Audio.IsEmpty && !frame.IsFinal)
-                    continue;
-
-                AudioInputBuffer? completedBuffer = null;
-                var shouldInterrupt = false;
-                var timestamp = TimeSpan.FromTicks(frame.TimestampNs / 100);
-                lock (_runtimeInputLock)
+                var count = frames.TryReadBatch(framesBatch);
+                if (count == 0)
                 {
-                    var key = new AudioInputKey(frame.SessionId, frame.BranchId);
-                    if (!_runtimeInputBuffers.TryGetValue(key, out var buffer))
-                    {
-                        buffer = new AudioInputBuffer(frame.SessionId, frame.BranchId, frame.MimeType);
-                        _runtimeInputBuffers[key] = buffer;
-                    }
-
-                    if (!frame.Audio.IsEmpty)
-                    {
-                        buffer.Append(frame.Audio);
-                        var vadResult = ProcessVadFrame(frame, timestamp);
-                        if (vadResult.HasValue)
-                            shouldInterrupt = ObserveVadResult(context, buffer, timestamp, vadResult.Value);
-                    }
-
-                    if (frame.IsFinal)
-                        buffer.MarkFinalFrame();
-
-                    if (frame.IsFinal || buffer.ShouldCommitFromVad)
-                    {
-                        completedBuffer = buffer;
-                        _runtimeInputBuffers.Remove(key);
-                    }
+                    await Task.Yield();
+                    continue;
                 }
 
-                if (shouldInterrupt)
-                    await InterruptForVadStartAsync(context, cancellationToken).ConfigureAwait(false);
+                for (var i = 0; i < count; i++)
+                {
+                    var frame = framesBatch[i];
+                    if (frame.Audio.IsEmpty && !frame.IsFinal)
+                        continue;
 
-                if (completedBuffer != null)
-                    await CommitAudioInputAsync(
-                            context,
-                            completedBuffer,
-                            effectiveConfig,
-                            completedBuffer.CommitReason,
-                            completedBuffer.LastSilenceDuration,
-                            cancellationToken)
-                        .ConfigureAwait(false);
+                    AudioInputBuffer? completedBuffer = null;
+                    var shouldInterrupt = false;
+                    var timestamp = TimeSpan.FromTicks(frame.TimestampNs / 100);
+                    lock (_runtimeInputLock)
+                    {
+                        var key = new AudioInputKey(frame.SessionId, frame.BranchId);
+                        if (!_runtimeInputBuffers.TryGetValue(key, out var buffer))
+                        {
+                            buffer = new AudioInputBuffer(frame.SessionId, frame.BranchId, frame.MimeType);
+                            _runtimeInputBuffers[key] = buffer;
+                        }
+
+                        if (!frame.Audio.IsEmpty)
+                        {
+                            buffer.Append(frame.Audio);
+                            var vadResult = ProcessVadFrame(frame, timestamp);
+                            if (vadResult.HasValue)
+                                shouldInterrupt = ObserveVadResult(context, buffer, timestamp, vadResult.Value);
+                        }
+
+                        if (frame.IsFinal)
+                            buffer.MarkFinalFrame();
+
+                        if (frame.IsFinal || buffer.ShouldCommitFromVad)
+                        {
+                            completedBuffer = buffer;
+                            _runtimeInputBuffers.Remove(key);
+                        }
+                    }
+
+                    if (shouldInterrupt)
+                        await InterruptForVadStartAsync(context, cancellationToken).ConfigureAwait(false);
+
+                    if (completedBuffer != null)
+                        await CommitAudioInputAsync(
+                                context,
+                                completedBuffer,
+                                effectiveConfig,
+                                completedBuffer.CommitReason,
+                                completedBuffer.LastSilenceDuration,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -857,10 +869,10 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
         EnsureRuntimeProviders(effectiveConfig, context.Services);
 
-        var subscription = context.EventCoordinator.SubscribeStruct<AudioInputFrame>();
-        context.RegisterAsyncDisposable(subscription);
+        var subscription = context.EventCoordinator.LocalStructs.Route<AudioInputFrame>().Subscribe();
+        context.RegisterDisposable(subscription);
         context.RegisterBackgroundTask(runtimeToken =>
-            RunAudioInputLoopAsync(context, subscription.Reader, effectiveConfig, runtimeToken));
+            RunAudioInputLoopAsync(context, subscription, effectiveConfig, runtimeToken));
 
         return Task.CompletedTask;
     }
@@ -2318,22 +2330,21 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         }
     }
 
-    private static StructEmitter<AudioChunkFrame>? CreateAudioChunkFrameEmitter(IEventCoordinator? eventCoordinator) =>
-        eventCoordinator?.CreateStructEmitter<AudioChunkFrame>(
-            new StructEmitterOptions<AudioChunkFrame> { AssignSequenceNumbers = true });
+    private static LocalSequencedStructEmitter<AudioChunkFrame>? CreateAudioChunkFrameEmitter(IEventCoordinator? eventCoordinator) =>
+        eventCoordinator?.LocalStructs.Route<AudioChunkFrame>().CreateSequencedEmitter();
 
     private static void EmitAudioChunkFrame(
-        StructEmitter<AudioChunkFrame>? emitter,
+        LocalSequencedStructEmitter<AudioChunkFrame>? emitter,
         AudioChunkFrame frame)
     {
         if (emitter is not { } audioFrames)
             return;
 
-        audioFrames.TryEmit(frame);
+        audioFrames.Emit(frame);
     }
 
     private static void EmitAudioChunkFrame(
-        StructEmitter<AudioChunkFrame>? emitter,
+        LocalSequencedStructEmitter<AudioChunkFrame>? emitter,
         AudioChunkEvent audioChunk,
         ReadOnlyMemory<byte> audioBytes) =>
         EmitAudioChunkFrame(emitter, CreateAudioChunkFrame(audioChunk, audioBytes));

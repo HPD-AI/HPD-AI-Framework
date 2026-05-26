@@ -64,10 +64,7 @@ public static class ExecutionCalibrationCatalog
         return profiles;
     }
 
-    public static IReadOnlyCollection<string> BundledDatasetIds => BundledDatasets
-        .Keys
-        .Order(StringComparer.OrdinalIgnoreCase)
-        .ToArray();
+    public static IReadOnlyCollection<string> BundledDatasetIds => GetBundledDatasetIds();
 
     public static string BundledCalibrationFeedDataset(string datasetId)
     {
@@ -101,24 +98,25 @@ public static class ExecutionCalibrationCatalog
             if (IsCommentOrBlank(line))
                 continue;
 
-            var cells = line.Split(',').Select(static cell => cell.Trim()).ToArray();
-            if (LooksLikeCalibrationFeedHeader(cells))
+            var row = new CalibrationFeedRow(line);
+            if (LooksLikeCalibrationFeedHeader(row))
                 continue;
 
-            if (cells.Length < 1 || string.IsNullOrWhiteSpace(cells[0]))
+            var venueCell = row.GetString(0);
+            if (venueCell is null)
                 throw new FormatException($"Execution calibration feed line {lineNumber} is missing a venue.");
 
-            var venue = new Venue(cells[0]);
+            var venue = new Venue(venueCell);
             var existing = profiles.TryGetValue(venue, out var profile)
                 ? profile
                 : new ExecutionCalibrationProfile(venue, SlippageParams.None, PriceImprovementParams.None);
 
-            var slippageModel = ParseOptionalSlippageModel(cells, 1) ?? existing.Slippage.Model;
-            var bpsPerLotSize = ParseOptionalDecimal(cells, 2, "slippage bps per lot") ?? existing.Slippage.BpsPerLotSize;
-            var referenceQuantity = ParseOptionalDecimal(cells, 3, "slippage reference quantity") ?? existing.Slippage.ReferenceQuantity;
-            var volatilityBps = ParseOptionalDecimal(cells, 4, "volatility bps") ?? existing.Slippage.VolatilityBps;
-            var takerImprovementBps = ParseOptionalDecimal(cells, 5, "taker price improvement bps") ?? existing.PriceImprovement.TakerBps;
-            var makerImprovementBps = ParseOptionalDecimal(cells, 6, "maker price improvement bps") ?? existing.PriceImprovement.MakerBps;
+            var slippageModel = ParseOptionalSlippageModel(row, 1) ?? existing.Slippage.Model;
+            var bpsPerLotSize = ParseOptionalDecimal(row, 2, "slippage bps per lot") ?? existing.Slippage.BpsPerLotSize;
+            var referenceQuantity = ParseOptionalDecimal(row, 3, "slippage reference quantity") ?? existing.Slippage.ReferenceQuantity;
+            var volatilityBps = ParseOptionalDecimal(row, 4, "volatility bps") ?? existing.Slippage.VolatilityBps;
+            var takerImprovementBps = ParseOptionalDecimal(row, 5, "taker price improvement bps") ?? existing.PriceImprovement.TakerBps;
+            var makerImprovementBps = ParseOptionalDecimal(row, 6, "maker price improvement bps") ?? existing.PriceImprovement.MakerBps;
 
             profiles[venue] = new ExecutionCalibrationProfile(
                 venue,
@@ -143,26 +141,28 @@ public static class ExecutionCalibrationCatalog
         return trimmed.Length == 0 || trimmed.StartsWith('#');
     }
 
-    private static bool LooksLikeCalibrationFeedHeader(IReadOnlyList<string> cells)
-        => cells.Count > 0 && cells[0].Equals("venue", StringComparison.OrdinalIgnoreCase);
+    private static bool LooksLikeCalibrationFeedHeader(CalibrationFeedRow row)
+        => row.GetSpan(0).Equals("venue".AsSpan(), StringComparison.OrdinalIgnoreCase);
 
-    private static SlippageModelType? ParseOptionalSlippageModel(IReadOnlyList<string> cells, int index)
+    private static SlippageModelType? ParseOptionalSlippageModel(CalibrationFeedRow row, int index)
     {
-        if (index >= cells.Count || string.IsNullOrWhiteSpace(cells[index]))
+        var value = row.GetSpan(index);
+        if (value.Length == 0)
             return null;
 
-        return Enum.TryParse<SlippageModelType>(cells[index], ignoreCase: true, out var model)
+        return Enum.TryParse<SlippageModelType>(value, ignoreCase: true, out var model)
             ? model
-            : throw new FormatException($"Unsupported slippage model '{cells[index]}'.");
+            : throw new FormatException($"Unsupported slippage model '{value.ToString()}'.");
     }
 
-    private static decimal? ParseOptionalDecimal(IReadOnlyList<string> cells, int index, string name)
+    private static decimal? ParseOptionalDecimal(CalibrationFeedRow row, int index, string name)
     {
-        if (index >= cells.Count || string.IsNullOrWhiteSpace(cells[index]))
+        var text = row.GetSpan(index);
+        if (text.Length == 0)
             return null;
 
-        if (!decimal.TryParse(cells[index], NumberStyles.Number, CultureInfo.InvariantCulture, out var value))
-            throw new FormatException($"Unsupported {name} value '{cells[index]}'.");
+        if (!decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var value))
+            throw new FormatException($"Unsupported {name} value '{text.ToString()}'.");
 
         if (value < 0m)
             throw new FormatException($"{name} cannot be negative.");
@@ -181,5 +181,53 @@ public static class ExecutionCalibrationCatalog
             ?? throw new ArgumentException($"Bundled execution-calibration dataset '{datasetId}' was not found.", nameof(datasetId));
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
+    }
+
+    private static string[] GetBundledDatasetIds()
+    {
+        var ids = new string[BundledDatasets.Count];
+        var index = 0;
+        foreach (var id in BundledDatasets.Keys)
+            ids[index++] = id;
+
+        Array.Sort(ids, StringComparer.OrdinalIgnoreCase);
+        return ids;
+    }
+
+    private readonly ref struct CalibrationFeedRow
+    {
+        private readonly ReadOnlySpan<char> _line;
+
+        public CalibrationFeedRow(string line)
+        {
+            _line = line.AsSpan();
+        }
+
+        public string? GetString(int index)
+        {
+            var span = GetSpan(index);
+            return span.Length == 0 ? null : span.ToString();
+        }
+
+        public ReadOnlySpan<char> GetSpan(int index)
+        {
+            var remaining = _line;
+            for (var current = 0; ; current++)
+            {
+                var comma = remaining.IndexOf(',');
+                ReadOnlySpan<char> field;
+                if (comma < 0)
+                {
+                    field = remaining.Trim();
+                    return current == index ? field : [];
+                }
+
+                field = remaining[..comma].Trim();
+                if (current == index)
+                    return field;
+
+                remaining = remaining[(comma + 1)..];
+            }
+        }
     }
 }

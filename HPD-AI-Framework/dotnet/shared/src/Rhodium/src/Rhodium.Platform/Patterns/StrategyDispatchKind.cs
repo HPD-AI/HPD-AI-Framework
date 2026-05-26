@@ -6,7 +6,7 @@ internal enum StrategyDispatchKind
     Quote,
     Trade,
     Book,
-    BookDelta,
-    BookDeltas,
+    BookLevelDelta,
+    BookLevelDeltas,
     Bar
 }

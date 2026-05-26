@@ -68,6 +68,38 @@ describe('AgentClient', () => {
     ]);
   });
 
+  it('preserves unknown custom events for onAny handlers', async () => {
+    const events: unknown[] = [];
+    const client = new AgentClient('http://localhost:5135');
+    client.onAny((event) => events.push(event));
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okStream({
+      version: '1.0',
+      type: 'EXECUTE_COMMAND_PROCESS_EXITED',
+      toolCallId: 'call-1',
+      command: 'bun test',
+      exitCode: 0,
+      durationMilliseconds: 321,
+    }));
+
+    await client.run({
+      type: EventTypes.USER_TEXT_INPUT,
+      text: 'Hi',
+      sessionId: 'session-123',
+      agentId: 'agent-1',
+      branchId: 'main',
+    });
+
+    expect(events).toEqual([{
+      version: '1.0',
+      type: 'EXECUTE_COMMAND_PROCESS_EXITED',
+      toolCallId: 'call-1',
+      command: 'bun test',
+      exitCode: 0,
+      durationMilliseconds: 321,
+    }]);
+  });
+
   it('disposes typed and onAny subscriptions', async () => {
     const typed = vi.fn();
     const any = vi.fn();

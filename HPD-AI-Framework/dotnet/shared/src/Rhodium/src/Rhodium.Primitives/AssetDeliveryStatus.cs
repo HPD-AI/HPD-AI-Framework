@@ -6,6 +6,7 @@ namespace Rhodium.Primitives;
 public enum AssetDeliveryStatus : byte
 {
     Scheduled = 1,
-    Delivered = 2,
-    Canceled = 3
+    Pending = 2,
+    Delivered = 3,
+    Canceled = 4
 }

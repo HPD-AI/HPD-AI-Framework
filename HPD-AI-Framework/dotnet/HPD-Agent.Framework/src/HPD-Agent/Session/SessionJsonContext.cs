@@ -1,6 +1,9 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using HPD.Agent.ClientTools;
+using HPD.Agent.Planning;
 using Microsoft.Extensions.AI;
 
 
@@ -25,6 +28,47 @@ namespace HPD.Agent;
 // HPD-specific types
 [JsonSerializable(typeof(AgentLoopState))]
 [JsonSerializable(typeof(ValidationErrorResponse))]
+[JsonSerializable(typeof(MiddlewareState))]
+[JsonSerializable(typeof(ClientToolStateData))]
+[JsonSerializable(typeof(ClientToolAugmentation))]
+[JsonSerializable(typeof(clientHarnessDefinition))]
+[JsonSerializable(typeof(clientHarnessDefinition[]))]
+[JsonSerializable(typeof(ClientToolDefinition))]
+[JsonSerializable(typeof(ClientToolDefinition[]))]
+[JsonSerializable(typeof(ClientSkillDefinition))]
+[JsonSerializable(typeof(ClientSkillDefinition[]))]
+[JsonSerializable(typeof(ClientSkillReference))]
+[JsonSerializable(typeof(ClientSkillReference[]))]
+[JsonSerializable(typeof(ClientSkillDocument))]
+[JsonSerializable(typeof(ClientSkillDocument[]))]
+[JsonSerializable(typeof(ContextItem))]
+[JsonSerializable(typeof(ContextItem[]))]
+[JsonSerializable(typeof(ImmutableHashSet<string>))]
+[JsonSerializable(typeof(ImmutableDictionary<string, object?>), TypeInfoPropertyName = "ImmutableDictionaryStringObjectNullable")]
+[JsonSerializable(typeof(ImmutableDictionary<string, int>))]
+[JsonSerializable(typeof(ImmutableDictionary<string, clientHarnessDefinition>), TypeInfoPropertyName = "ImmutableDictionaryStringClientHarnessDefinition")]
+[JsonSerializable(typeof(ImmutableDictionary<string, ContextItem>), TypeInfoPropertyName = "ImmutableDictionaryStringContextItem")]
+[JsonSerializable(typeof(IReadOnlyList<clientHarnessDefinition>))]
+[JsonSerializable(typeof(IReadOnlyList<ContextItem>))]
+[JsonSerializable(typeof(IReadOnlySet<string>))]
+
+// Common middleware state types that may be checkpointed in AgentLoopState.
+[JsonSerializable(typeof(BatchPermissionStateData))]
+[JsonSerializable(typeof(CircuitBreakerStateData))]
+[JsonSerializable(typeof(ContinuationPermissionStateData))]
+[JsonSerializable(typeof(ErrorTrackingStateData))]
+[JsonSerializable(typeof(HistoryReductionStateData))]
+[JsonSerializable(typeof(CachedReduction))]
+[JsonSerializable(typeof(PermissionPersistentStateData))]
+[JsonSerializable(typeof(TotalErrorThresholdStateData))]
+[JsonSerializable(typeof(PlanModePersistentStateData))]
+[JsonSerializable(typeof(AgentPlanData))]
+[JsonSerializable(typeof(PlanStepData))]
+[JsonSerializable(typeof(ContainerMiddlewareState))]
+[JsonSerializable(typeof(ContainerInstructionSet))]
+[JsonSerializable(typeof(RecoveryInfo))]
+[JsonSerializable(typeof(ImmutableDictionary<string, ContainerInstructionSet>), TypeInfoPropertyName = "ImmutableDictionaryStringContainerInstructionSet")]
+[JsonSerializable(typeof(ImmutableDictionary<string, RecoveryInfo>), TypeInfoPropertyName = "ImmutableDictionaryStringRecoveryInfo")]
 
 // M.E.AI types (explicitly added for session persistence)
 // Note: Most M.E.AI types are registered via AIJsonUtilities.DefaultOptions

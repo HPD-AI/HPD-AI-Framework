@@ -287,8 +287,7 @@ public sealed class Agent
 
     private sealed class RuntimeStructHandlerSubscription(
         Agent agent,
-        CancellationTokenSource cancellationTokenSource,
-        Func<ValueTask> disposeSubscription) : IDisposable
+        IDisposable innerSubscription) : IDisposable
     {
         private int _disposed;
 
@@ -297,9 +296,7 @@ public sealed class Agent
             if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
 
-            cancellationTokenSource.Cancel();
-            disposeSubscription().AsTask().GetAwaiter().GetResult();
-            cancellationTokenSource.Dispose();
+            innerSubscription.Dispose();
             agent.RemoveStructHandlerSubscription(this);
         }
     }
@@ -309,42 +306,6 @@ public sealed class Agent
         lock (_structHandlerLock)
         {
             _structHandlerSubscriptions.Remove(subscription);
-        }
-    }
-
-    private async Task RunStructHandlerPumpAsync<TEvent>(
-        StructSubscription<TEvent> subscription,
-        Func<TEvent, ValueTask> handler,
-        CancellationToken cancellationToken)
-        where TEvent : struct, IStructEvent
-    {
-        try
-        {
-            await foreach (var evt in subscription.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
-            {
-                try
-                {
-                    await handler(evt).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _agentLogger?.LogError(ex,
-                        "Agent struct subscriber failed processing {EventType}",
-                        typeof(TEvent).Name);
-                }
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // Cooperative subscription shutdown.
-        }
-        finally
-        {
-            await subscription.DisposeAsync().ConfigureAwait(false);
         }
     }
 
@@ -417,26 +378,33 @@ public sealed class Agent
     /// Registers a removable handler for a process-local struct event type.
     /// Agent owns the subscription pump; callers do not need to run the event coordinator.
     /// </summary>
-    public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler)
+    public IDisposable ObserveStruct<TEvent>(Func<TEvent, ValueTask> handler)
         where TEvent : struct, IStructEvent
     {
         ArgumentNullException.ThrowIfNull(handler);
 
-        var subscription = _eventCoordinator.SubscribeStruct<TEvent>();
-        var cts = new CancellationTokenSource();
+        var subscription = _eventCoordinator.LocalStructs.Route<TEvent>().Observe(evt =>
+        {
+            try
+            {
+                return handler(evt);
+            }
+            catch (Exception ex)
+            {
+                _agentLogger?.LogError(ex,
+                    "Agent struct observer failed processing {EventType}",
+                    typeof(TEvent).Name);
+                return ValueTask.CompletedTask;
+            }
+        });
         var runtimeSubscription = new RuntimeStructHandlerSubscription(
             this,
-            cts,
-            subscription.DisposeAsync);
+            subscription);
 
         lock (_structHandlerLock)
         {
             _structHandlerSubscriptions.Add(runtimeSubscription);
         }
-
-        _ = Task.Run(
-            () => RunStructHandlerPumpAsync(subscription, handler, cts.Token),
-            CancellationToken.None);
 
         return runtimeSubscription;
     }
@@ -445,11 +413,11 @@ public sealed class Agent
     /// Registers a removable handler for a process-local struct event type.
     /// Agent owns the subscription pump; callers do not need to run the event coordinator.
     /// </summary>
-    public IDisposable SubscribeStruct<TEvent>(Action<TEvent> handler)
+    public IDisposable ObserveStruct<TEvent>(Action<TEvent> handler)
         where TEvent : struct, IStructEvent
     {
         ArgumentNullException.ThrowIfNull(handler);
-        return SubscribeStruct<TEvent>(evt =>
+        return ObserveStruct<TEvent>(evt =>
         {
             handler(evt);
             return ValueTask.CompletedTask;
@@ -1286,20 +1254,12 @@ public sealed class Agent
         where TEvent : struct, IStructEvent
     {
         var eventCoordinator = GetActiveEventCoordinator();
-        if (ReferenceEquals(eventCoordinator, _eventCoordinator))
-            return _eventCoordinator.EmitStructAsync(input, cancellationToken);
+        eventCoordinator.LocalStructs.Route<TEvent>().CreateEmitter().Emit(input);
 
-        return EmitRuntimeStructAndMirrorToRootAsync(eventCoordinator, input, cancellationToken);
-    }
+        if (!ReferenceEquals(eventCoordinator, _eventCoordinator))
+            _eventCoordinator.LocalStructs.Route<TEvent>().CreateEmitter().Emit(input);
 
-    private async ValueTask EmitRuntimeStructAndMirrorToRootAsync<TEvent>(
-        HPD.Events.IEventCoordinator runtimeCoordinator,
-        TEvent input,
-        CancellationToken cancellationToken)
-        where TEvent : struct, IStructEvent
-    {
-        await runtimeCoordinator.EmitStructAsync(input, cancellationToken).ConfigureAwait(false);
-        await _eventCoordinator.EmitStructAsync(input, cancellationToken).ConfigureAwait(false);
+        return ValueTask.CompletedTask;
     }
 
     /// <summary>

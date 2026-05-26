@@ -19,7 +19,7 @@ describe('ChatSession', () => {
   beforeEach(() => vi.resetAllMocks());
   afterEach(() => vi.restoreAllMocks());
 
-  it('opens an existing session from search metadata and loads history', async () => {
+  it('opens an existing session from search metadata and reads branch messages', async () => {
     const client = new AgentClient('http://localhost:5135');
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
@@ -42,17 +42,21 @@ describe('ChatSession', () => {
       agentId: 'a1',
       session: { search: { metadata: { project: 'p1' } } },
     });
-    await chat.loadHistory();
+    const messages = await chat.getBranchMessages();
 
     expect(chat.sessionId).toBe('s1');
-    expect(chat.conversation.items).toEqual([
-      expect.objectContaining({ kind: 'message', text: 'history' }),
+    expect(messages).toEqual([
+      expect.objectContaining({ id: 'm1', role: 'assistant' }),
     ]);
     chat.dispose();
   });
 
-  it('sends text through the client and reduces streamed output', async () => {
+  it('sends text through the client and leaves streamed output to event handlers', async () => {
     const client = new AgentClient('http://localhost:5135');
+    const events: unknown[] = [];
+    client.onAny((event) => {
+      events.push(event);
+    });
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(okStream(
       { type: EventTypes.TEXT_DELTA, messageId: 'm1', text: 'response' },
     ));
@@ -60,9 +64,8 @@ describe('ChatSession', () => {
     const chat = client.chat.session({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
     await chat.sendText('hello');
 
-    expect(chat.conversation.items).toEqual([
-      expect.objectContaining({ kind: 'message', role: 'user', text: 'hello' }),
-      expect.objectContaining({ kind: 'message', role: 'assistant', text: 'response' }),
+    expect(events).toEqual([
+      expect.objectContaining({ type: EventTypes.TEXT_DELTA, messageId: 'm1', text: 'response' }),
     ]);
     chat.dispose();
   });

@@ -498,8 +498,10 @@ public class TestEventCoordinator : IEventCoordinator
     private readonly List<Event> _emittedEvents = new();
     private readonly Dictionary<string, TaskCompletionSource<Event>> _waiters = new();
     private readonly object _lock = new();
+    private readonly LocalStructEventBus _localStructs = new();
 
     public IReadOnlyList<Event> EmittedEvents => _emittedEvents;
+    public ILocalStructEventBus LocalStructs => _localStructs;
 
     public void Emit(Event evt)
     {
@@ -514,11 +516,6 @@ public class TestEventCoordinator : IEventCoordinator
     public IDisposable SubscribeAny(Func<Event, ValueTask> handler, EventSubscriptionOptions? options = null) => new NoopSubscription();
     public EventInbox<TEvent> CreateInbox<TEvent>(EventInboxOptions? options = null) where TEvent : Event => default;
     public EventInbox<Event> CreateChannelInbox(EventChannel channel, EventInboxOptions? options = null) => default;
-    public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent => false;
-    public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : struct, IStructEvent => ValueTask.CompletedTask;
-    public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => new NoopSubscription();
-    public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null) where TEvent : struct, IStructEvent => default;
-    public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null) where TEvent : struct, IStructEvent => default;
     public EventCoordinatorStats GetStats() => default;
 
     public void SetParent(IEventCoordinator parent) { }

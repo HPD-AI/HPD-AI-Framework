@@ -16,7 +16,7 @@ public struct PositionState
 
     public readonly bool IsFlat => Quantity == 0m;
 
-    public void ApplyFill(Side side, Qty qty, Price price, Money commission)
+    public void ApplyFill(InstrumentContract contract, Side side, Qty qty, Price price, Money commission)
     {
         var fillSign = side == Side.Buy ? 1m : -1m;
         var fillQty = qty.Value * fillSign;
@@ -33,9 +33,14 @@ public struct PositionState
         }
 
         var closingQty = Math.Min(qty.Value, Math.Abs(Quantity));
-        var pnl = (price.Value - AvgEntryPrice) * closingQty * (Quantity > 0m ? 1m : -1m);
+        var signedClosingQty = new Qty(closingQty * (Quantity > 0m ? 1m : -1m));
+        var pnl = DefaultInstrumentValuationModel.Instance.RealizedPnL(
+            contract,
+            signedClosingQty,
+            new Price(AvgEntryPrice, price.Currency),
+            price);
         Quantity = newQty;
-        RealizedPnL += pnl - commission.Amount;
+        RealizedPnL += pnl.Amount - commission.Amount;
 
         if (Math.Abs(Quantity) < 0.0000001m)
         {

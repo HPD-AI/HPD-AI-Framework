@@ -13,9 +13,7 @@ public sealed class SnapshotManagerTests
         using var runtime = CreateRuntime();
         var strategyId = new StrategyId(10);
         var market = runtime.CreateMarketKernel();
-        Span<AllocationCommand> commands = stackalloc AllocationCommand[32];
-        var portfolio = runtime.WorldState.BuildContext(strategyId, null, default, CreateCounters(), commands);
-        portfolio.Buy(new AssetId(0), new Qty(2m), in market);
+        ApplyTestFill(runtime, strategyId, new AssetId(0), Side.Buy, new Qty(2m), new Price(100m, Currency.USD));
 
         using var manager = new SnapshotManager();
         using var snapshot = manager.TakeSnapshot(in market, runtime.WorldState, strategyId);
@@ -68,7 +66,9 @@ public sealed class SnapshotManagerTests
     private static RhodiumRuntime CreateRuntime()
     {
         var runtime = new RhodiumRuntime();
-        runtime.BatchMap.AddInstrument(new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NASDAQ));
+        var contract = Contracts.Equity("SPY", Venue.NASDAQ, Currency.USD);
+        runtime.BatchMap.AddInstrument(contract.Instrument);
+        runtime.SetContract(0, contract);
         runtime.Tensors.Grow();
         runtime.Tensors.GetScalar(Field.Open, 0) = new PriceF64(99);
         runtime.Tensors.GetScalar(Field.High, 0) = new PriceF64(101);
@@ -78,5 +78,16 @@ public sealed class SnapshotManagerTests
         return runtime;
     }
 
-    private static int[] CreateCounters() => new int[PortfolioContext.CounterCount];
+    private static void ApplyTestFill(
+        RhodiumRuntime runtime,
+        StrategyId strategyId,
+        AssetId assetId,
+        Side side,
+        Qty quantity,
+        Price price)
+    {
+        var contract = runtime.CreateMarketKernel().GetContract(assetId);
+        runtime.WorldState.PositionAt(strategyId, assetId.VirtualIndex)
+            .ApplyFill(contract, side, quantity, price, Money.Zero(price.Currency));
+    }
 }

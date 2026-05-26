@@ -39,8 +39,15 @@ internal sealed class StrategyEventProcessor : IDisposable
 
     public void Initialize()
     {
-        foreach (var (strategy, _) in _tree.Nodes.OrderBy(static n => n.Node.Depth))
-            strategy.Initialize(_runtime);
+        for (var depth = 0; depth <= _tree.MaxDepth; depth++)
+        {
+            for (var i = 0; i < _tree.NodeCount; i++)
+            {
+                var (strategy, node) = _tree.GetNode(i);
+                if (node.Depth == depth)
+                    strategy.Initialize(_runtime);
+            }
+        }
 
         BuildDispatchContexts();
         if (UseParallelDispatch)
@@ -53,11 +60,8 @@ internal sealed class StrategyEventProcessor : IDisposable
         }
     }
 
-    public void ProcessEvent(FinanceEvent evt)
+    internal void ProcessProjectedEvent(FinanceEvent evt, in StateTransitionResult transition)
     {
-        var transition = StateTransitions.Apply(_runtime.WorldState, _runtime.Tensors, _runtime.BatchMap, evt);
-        UpdateMarketDepth(evt);
-
         var market = _runtime.CreateMarketKernel();
         if (transition.RequiresAdjustment)
             market.RunAdjustmentKernel();
@@ -106,7 +110,7 @@ internal sealed class StrategyEventProcessor : IDisposable
             return;
         }
 
-        if (evt is BookUpdated book)
+        if (evt is BookSnapshotReceived book)
         {
             var (start, length) = _runtime.BatchMap.GetInstrumentRange(book.Instrument);
             EngineLoops.DispatchBooksHierarchical(in market, _tree, _runtime.WorldState, _dispatchContexts, in book, start, length);
@@ -114,18 +118,18 @@ internal sealed class StrategyEventProcessor : IDisposable
             return;
         }
 
-        if (evt is BookDeltaReceived bookDelta)
+        if (evt is BookLevelDeltaReceived bookDelta)
         {
             var (start, length) = _runtime.BatchMap.GetInstrumentRange(bookDelta.Instrument);
-            EngineLoops.DispatchBookDeltasHierarchical(in market, _tree, _runtime.WorldState, _dispatchContexts, in bookDelta, start, length);
+            EngineLoops.DispatchBookLevelDeltasHierarchical(in market, _tree, _runtime.WorldState, _dispatchContexts, in bookDelta, start, length);
             SubmitOrderIntents(in market);
             return;
         }
 
-        if (evt is BookDeltasReceived bookDeltas)
+        if (evt is BookLevelDeltasReceived bookDeltas)
         {
             var (start, length) = _runtime.BatchMap.GetInstrumentRange(bookDeltas.Instrument);
-            EngineLoops.DispatchBookDeltasHierarchical(in market, _tree, _runtime.WorldState, _dispatchContexts, in bookDeltas, start, length);
+            EngineLoops.DispatchBookLevelDeltasHierarchical(in market, _tree, _runtime.WorldState, _dispatchContexts, in bookDeltas, start, length);
             SubmitOrderIntents(in market);
             return;
         }
@@ -138,80 +142,6 @@ internal sealed class StrategyEventProcessor : IDisposable
         SubmitOrderIntents(in market);
     }
 
-    private void UpdateMarketDepth(FinanceEvent evt)
-    {
-        if (evt is QuoteReceived quote)
-        {
-            var (start, length) = _runtime.BatchMap.GetInstrumentRange(quote.Instrument);
-            for (var i = 0; i < length; i++)
-            {
-                var virtualIndex = start + i;
-                _runtime.UpdateDepthLevel(virtualIndex, quote.Instrument, Side.Buy, quote.Quote.Bid, quote.Quote.BidSize, quote.Quote.Time.ExchangeTime);
-                _runtime.UpdateDepthLevel(virtualIndex, quote.Instrument, Side.Sell, quote.Quote.Ask, quote.Quote.AskSize, quote.Quote.Time.ExchangeTime);
-            }
-        }
-        else if (evt is BookUpdated book)
-        {
-            var (start, length) = _runtime.BatchMap.GetInstrumentRange(book.Instrument);
-            for (var i = 0; i < length; i++)
-            {
-                var virtualIndex = start + i;
-                _runtime.ClearDepth(virtualIndex, book.Instrument);
-
-                foreach (var level in book.Book.Bids)
-                    _runtime.UpdateDepthLevel(virtualIndex, book.Instrument, Side.Buy, level.Price, level.Size, book.Book.Time);
-
-                foreach (var level in book.Book.Asks)
-                    _runtime.UpdateDepthLevel(virtualIndex, book.Instrument, Side.Sell, level.Price, level.Size, book.Book.Time);
-            }
-        }
-        else if (evt is BookDeltaReceived delta)
-        {
-            var (start, length) = _runtime.BatchMap.GetInstrumentRange(delta.Instrument);
-            for (var i = 0; i < length; i++)
-                ApplyBookDelta(start + i, delta.Instrument, delta.Delta, delta.Time);
-        }
-        else if (evt is BookDeltasReceived deltas)
-        {
-            var (start, length) = _runtime.BatchMap.GetInstrumentRange(deltas.Instrument);
-            for (var i = 0; i < length; i++)
-            {
-                var virtualIndex = start + i;
-                foreach (var bookDelta in deltas.Deltas)
-                    ApplyBookDelta(virtualIndex, deltas.Instrument, bookDelta, deltas.Time);
-            }
-        }
-        else if (evt is BookDepthSnapshotReceived snapshot)
-        {
-            var (start, length) = _runtime.BatchMap.GetInstrumentRange(snapshot.Instrument);
-            for (var i = 0; i < length; i++)
-            {
-                var virtualIndex = start + i;
-                _runtime.ClearDepth(virtualIndex, snapshot.Instrument);
-
-                foreach (var level in snapshot.Bids.Take(snapshot.Depth))
-                    _runtime.UpdateDepthLevel(virtualIndex, snapshot.Instrument, Side.Buy, level.Price, level.Size, snapshot.Time);
-
-                foreach (var level in snapshot.Asks.Take(snapshot.Depth))
-                    _runtime.UpdateDepthLevel(virtualIndex, snapshot.Instrument, Side.Sell, level.Price, level.Size, snapshot.Time);
-            }
-        }
-    }
-
-    private void ApplyBookDelta(int virtualIndex, Instrument instrument, BookDelta delta, Instant time)
-    {
-        if (delta.Action == BookAction.Clear)
-        {
-            _runtime.ClearDepth(virtualIndex, instrument);
-            return;
-        }
-
-        var quantity = delta.Action == BookAction.Delete
-            ? Qty.Zero
-            : delta.Size;
-        _runtime.UpdateDepthLevel(virtualIndex, instrument, delta.Side, delta.Price, quantity, time);
-    }
-
     private void DispatchExecution(in MarketKernel market, ExecutionEvent execution, in StateTransitionResult transition)
     {
         var strategyId = execution switch
@@ -222,6 +152,7 @@ internal sealed class StrategyEventProcessor : IDisposable
             OrderCancelled e => e.StrategyId,
             OrderExpired e => e.StrategyId,
             OrderFilled e => e.StrategyId,
+            PackageLegFilled e => e.StrategyId,
             _ => default
         };
 
@@ -255,6 +186,13 @@ internal sealed class StrategyEventProcessor : IDisposable
         for (var i = 0; i < _dispatchContexts.Length; i++)
         {
             ref var context = ref _dispatchContexts[i];
+            if (lifecycle is Scheduled scheduled
+                && scheduled.StrategyId.HasValue
+                && context.Node.Id != scheduled.StrategyId.Value)
+            {
+                continue;
+            }
+
             Span<AllocationCommand> commands = stackalloc AllocationCommand[32];
             var counters = context.Counters.AsSpan();
             counters.Clear();
@@ -282,7 +220,7 @@ internal sealed class StrategyEventProcessor : IDisposable
             throw new InvalidOperationException("Strategy context child snapshot buffer is smaller than its child set.");
 
         for (var i = 0; i < context.Node.ChildIds.Length; i++)
-            context.ChildSnapshots[i] = _runtime.WorldState.BuildSnapshot(context.Node.ChildIds.Span[i], universeSize);
+            context.ChildSnapshots[i] = _runtime.WorldState.BuildSnapshot(context.Node.ChildIds.Span[i], universeSize, _runtime.CurrentTime);
 
         return context.ChildSnapshots.AsSpan(0, context.Node.ChildIds.Length);
     }
@@ -294,25 +232,27 @@ internal sealed class StrategyEventProcessor : IDisposable
             return;
 
         var intents = _orderIntentSubmitBuffer.AsSpan();
-        foreach (var (strategy, _) in _tree.Nodes)
+        for (var i = 0; i < _tree.NodeCount; i++)
         {
+            var (strategy, _) = _tree.GetNode(i);
             var count = _runtime.WorldState.DrainOrderIntents(strategy.Id, intents);
-            for (var i = 0; i < count; i++)
-                sink(in intents[i], in market);
+            for (var intentIndex = 0; intentIndex < count; intentIndex++)
+                sink(in intents[intentIndex], in market);
         }
     }
 
     private void BuildDispatchContexts()
     {
-        var nodes = _tree.Nodes;
-        _dispatchContexts = new StrategyContext[nodes.Count];
-        for (var i = 0; i < nodes.Count; i++)
+        var nodeCount = _tree.NodeCount;
+        _dispatchContexts = new StrategyContext[nodeCount];
+        for (var i = 0; i < nodeCount; i++)
         {
+            var (strategy, node) = _tree.GetNode(i);
             _dispatchContexts[i] = new StrategyContext
             {
-                Strategy = nodes[i].Strategy,
-                Node = nodes[i].Node,
-                ChildSnapshots = new PortfolioSnapshot[nodes[i].Node.ChildIds.Length],
+                Strategy = strategy,
+                Node = node,
+                ChildSnapshots = new PortfolioSnapshot[node.ChildIds.Length],
                 Counters = new int[PortfolioContext.CounterCount],
                 OrderIntents = new OrderIntent[32]
             };

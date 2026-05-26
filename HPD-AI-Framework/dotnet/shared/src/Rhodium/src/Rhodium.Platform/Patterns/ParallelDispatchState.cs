@@ -34,18 +34,19 @@ public sealed class ParallelDispatchState : IDisposable
         _tree = tree;
         ThreadCount = threadCount > 0 ? threadCount : Environment.ProcessorCount;
 
-        var nodes = tree.Nodes;
-        _contexts = new StrategyContext[nodes.Count];
-        _commandBuffers = new AllocationCommand[nodes.Count][];
-        _commandCounts = new int[nodes.Count];
+        var nodeCount = tree.NodeCount;
+        _contexts = new StrategyContext[nodeCount];
+        _commandBuffers = new AllocationCommand[nodeCount][];
+        _commandCounts = new int[nodeCount];
 
-        for (var i = 0; i < nodes.Count; i++)
+        for (var i = 0; i < nodeCount; i++)
         {
+            var (strategy, node) = tree.GetNode(i);
             _contexts[i] = new StrategyContext
             {
-                Strategy = nodes[i].Strategy,
-                Node = nodes[i].Node,
-                ChildSnapshots = new PortfolioSnapshot[nodes[i].Node.ChildIds.Length],
+                Strategy = strategy,
+                Node = node,
+                ChildSnapshots = new PortfolioSnapshot[node.ChildIds.Length],
                 Counters = new int[PortfolioContext.CounterCount],
                 OrderIntents = new OrderIntent[32]
             };
@@ -55,14 +56,22 @@ public sealed class ParallelDispatchState : IDisposable
         _indicesByDepth = new int[tree.MaxDepth + 1][];
         for (var depth = 0; depth < _indicesByDepth.Length; depth++)
         {
-            var indices = new List<int>();
+            var count = 0;
             for (var i = 0; i < _contexts.Length; i++)
             {
                 if (_contexts[i].Node.Depth == depth)
-                    indices.Add(i);
+                    count++;
             }
 
-            _indicesByDepth[depth] = indices.ToArray();
+            var indices = new int[count];
+            var index = 0;
+            for (var i = 0; i < _contexts.Length; i++)
+            {
+                if (_contexts[i].Node.Depth == depth)
+                    indices[index++] = i;
+            }
+
+            _indicesByDepth[depth] = indices;
         }
 
     }

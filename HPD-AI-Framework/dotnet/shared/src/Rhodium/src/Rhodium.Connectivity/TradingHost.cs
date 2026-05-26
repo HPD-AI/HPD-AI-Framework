@@ -6,6 +6,7 @@ using Rhodium.Platform;
 using Rhodium.Platform.Patterns;
 using Rhodium.Primitives;
 using Rhodium.Simulation;
+using Rhodium.Simulation.Projection;
 
 namespace Rhodium.Connectivity;
 
@@ -22,6 +23,8 @@ public sealed class TradingHost : IDisposable
     private readonly RhodiumRuntime _runtime;
     private readonly StrategyTree _tree = new();
     private readonly StrategyEventProcessor _processor;
+    private readonly SimulationMarketProjector _marketProjector = new();
+    private readonly SimulationPortfolioProjector _portfolioProjector = new();
     private readonly Dictionary<(Asset Asset, Venue Venue), Quote> _latestQuotes = [];
 
     public bool UseParallelDispatch { get; set; }
@@ -125,9 +128,29 @@ public sealed class TradingHost : IDisposable
 
     private void ProcessHostEvent(FinanceEvent evt)
     {
+        _runtime.SetTime(GetEventTime(evt));
         ProcessHostMarketDiagnostics(evt);
-        _processor.ProcessEvent(evt);
+        var transition = evt switch
+        {
+            ExecutionEvent execution => _portfolioProjector.Apply(execution, _runtime),
+            CorporateActionEffectSnapshot corporateAction => _portfolioProjector.Apply(corporateAction, _runtime),
+            AccountTransferCompleted transfer => _portfolioProjector.Apply(transfer, _runtime),
+            _ => _marketProjector.Apply(evt, _runtime)
+        };
+        _processor.ProcessProjectedEvent(evt, in transition);
     }
+
+    private static Instant GetEventTime(FinanceEvent evt)
+        => evt switch
+        {
+            QuoteReceived quote => quote.Quote.Time.ExchangeTime,
+            TradeOccurred trade => trade.Trade.Time.ExchangeTime,
+            BarClosed bar => bar.Bar.Time,
+            BookSnapshotReceived book => book.Book.Time,
+            BookDepthSnapshotReceived snapshot => snapshot.Time,
+            BookDepth10Received snapshot => snapshot.Time,
+            _ => evt.Time
+        };
 
     private void ProcessHostMarketDiagnostics(FinanceEvent evt)
     {
@@ -250,6 +273,26 @@ public sealed class TradingHost : IDisposable
 
     private void SubmitOrderIntent(in OrderIntent intent, in MarketKernel market)
     {
+        if (intent.Kind == OrderIntentKind.Cancel)
+        {
+            var (instrument, _) = _runtime.BatchMap.GetContext(intent.AssetId.VirtualIndex);
+            ResolveConnector(instrument)
+                .CancelOrderAsync(new CancelOrder(intent.OrderId), CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
+            return;
+        }
+
+        if (intent.Kind == OrderIntentKind.Modify)
+        {
+            var (instrument, _) = _runtime.BatchMap.GetContext(intent.AssetId.VirtualIndex);
+            ResolveConnector(instrument)
+                .ModifyOrderAsync(new ModifyOrder(intent.OrderId, intent.NewQuantity, intent.NewLimitPrice), CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
+            return;
+        }
+
         if (TryBuildMarketSweepOrders(intent, out var sweepOrders))
         {
             foreach (var sweepOrder in sweepOrders)
@@ -493,7 +536,13 @@ public sealed class TradingHost : IDisposable
     {
         var price = side == Side.Buy ? quote.Ask : quote.Bid;
         var fee = CrossVenueRoutingFees.TryGetValue(instrument.Venue, out var fees)
-            ? fees.Calculate(quantity, price, side, isMaker: false)
+            ? fees.Calculate(
+                GetRoutingContract(instrument),
+                quantity,
+                price,
+                side,
+                isMaker: false,
+                thirtyDayVolume: Money.Zero(price.Currency))
             : Money.Zero(price.Currency);
 
         if (fee.Currency != price.Currency)
@@ -503,6 +552,12 @@ public sealed class TradingHost : IDisposable
             ? price.Value * quantity.Value + fee.Amount
             : price.Value * quantity.Value - fee.Amount;
     }
+
+    private InstrumentContract GetRoutingContract(Instrument instrument)
+        => _runtime.TryGetContract(instrument, out var contract)
+            ? contract
+            : throw new InvalidOperationException(
+                $"Instrument {instrument} has no registered InstrumentContract for cross-venue routing.");
 
     private bool MeetsMinMarketRoutingNotional(Instrument instrument, Side side, Qty quantity, Quote quote)
     {
@@ -592,25 +647,26 @@ public sealed class TradingHost : IDisposable
         if (execution.LimitPrice.HasValue)
             return execution.LimitPrice;
 
-        var metadata = market.GetMetadata(id);
         return execution.LimitPriceMode switch
         {
-            ExecutionLimitPriceMode.Bid => ResolveTickPrice(market.GetBestBidTick(id), metadata),
-            ExecutionLimitPriceMode.Ask => ResolveTickPrice(market.GetBestAskTick(id), metadata),
-            ExecutionLimitPriceMode.Mid => ResolveMidPrice(id, in market, metadata),
+            ExecutionLimitPriceMode.Bid => ResolveTickPrice(market.GetBestBidTick(id), id, in market),
+            ExecutionLimitPriceMode.Ask => ResolveTickPrice(market.GetBestAskTick(id), id, in market),
+            ExecutionLimitPriceMode.Mid => ResolveMidPrice(id, in market),
             _ => null
         };
     }
 
-    private static Price? ResolveTickPrice(long? tick, SecurityMetadata metadata)
-        => tick.HasValue ? new Price(tick.Value * metadata.TickSize, metadata.Currency) : null;
+    private static Price? ResolveTickPrice(long? tick, AssetId id, in MarketKernel market)
+        => tick.HasValue
+            ? new Price(tick.Value * market.GetPriceIncrement(id), market.GetQuoteCurrency(id))
+            : null;
 
-    private static Price? ResolveMidPrice(AssetId id, in MarketKernel market, SecurityMetadata metadata)
+    private static Price? ResolveMidPrice(AssetId id, in MarketKernel market)
     {
         var bid = market.GetBestBidTick(id);
         var ask = market.GetBestAskTick(id);
         return bid.HasValue && ask.HasValue
-            ? new Price(((bid.Value + ask.Value) * metadata.TickSize) / 2m, metadata.Currency)
+            ? new Price(((bid.Value + ask.Value) * market.GetPriceIncrement(id)) / 2m, market.GetQuoteCurrency(id))
             : null;
     }
 

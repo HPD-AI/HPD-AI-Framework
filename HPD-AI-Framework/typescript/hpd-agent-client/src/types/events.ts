@@ -144,6 +144,15 @@ export interface BaseEvent {
   streamId?: string;
 }
 
+/**
+ * Event emitted by a harness, middleware, or host extension that this client
+ * version does not model explicitly. The raw payload is preserved so
+ * applications can opt into local custom-event handling via onAny().
+ */
+export interface UnknownAgentEvent extends BaseEvent {
+  [key: string]: unknown;
+}
+
 // ============================================
 // Input Events
 // ============================================
@@ -679,7 +688,7 @@ export interface FillerAudioPlayedEvent extends BaseEvent {
  * Union of all core agent events that clients typically handle.
  * Does not include observability events (which are for debugging).
  */
-export type AgentEvent =
+export type KnownAgentEvent =
   // Input Events
   | UserTextInputEvent
   | UserMessagesInputEvent
@@ -749,6 +758,8 @@ export type AgentEvent =
   | TurnDetectedEvent
   | FillerAudioPlayedEvent;
 
+export type AgentEvent = KnownAgentEvent | UnknownAgentEvent;
+
 export type AgentRunInputEvent =
   | UserTextInputEvent
   | UserMessagesInputEvent
@@ -758,8 +769,8 @@ export type AgentRunInputEvent =
   | ClientToolInvokeResponseEvent
   | InterruptionRequestEvent;
 
-export type AgentEventOfType<TType extends AgentEvent['type']> =
-  Extract<AgentEvent, { type: TType }>;
+export type AgentEventOfType<TType extends KnownAgentEvent['type']> =
+  Extract<KnownAgentEvent, { type: TType }>;
 
 // ============================================
 // Type Guards

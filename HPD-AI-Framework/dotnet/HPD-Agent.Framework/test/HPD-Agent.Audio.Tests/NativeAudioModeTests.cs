@@ -67,7 +67,7 @@ public class NativeAudioModeTests
         // Arrange — real coordinator receives local struct frames alongside class events
         var audioBytes = new byte[] { 0x01, 0x02, 0x03, 0x04 };
         using var coordinator = new HPD.Events.Core.EventCoordinator();
-        await using var audioFrames = coordinator.SubscribeStruct<AudioChunkFrame>();
+        using var audioFrames = coordinator.LocalStructs.Route<AudioChunkFrame>().Subscribe();
 
         var model = new AudioDataChatClient([new DataContent(audioBytes, "audio/pcm")]);
         var middleware = new AudioPipelineMiddleware
@@ -83,8 +83,7 @@ public class NativeAudioModeTests
             r => r.Model.GetStreamingResponseAsync(r.Messages, r.Options), CancellationToken.None)!);
 
         // Assert — local frame preserves raw bytes and receives a struct sequence number
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        var frame = await audioFrames.Reader.ReadAsync(timeout.Token);
+        Assert.True(audioFrames.TryRead(out var frame));
         Assert.Equal(audioBytes, frame.Audio.ToArray());
         Assert.Equal("audio/pcm", frame.MimeType);
         Assert.Equal(0, frame.ChunkIndex);
@@ -457,7 +456,7 @@ public class NativeAudioModeTests
         // Arrange — pipeline TTS audio also emits local raw-byte struct frames
         var tts = new CallCountingTtsClient();
         using var coordinator = new HPD.Events.Core.EventCoordinator();
-        await using var audioFrames = coordinator.SubscribeStruct<AudioChunkFrame>();
+        using var audioFrames = coordinator.LocalStructs.Route<AudioChunkFrame>().Subscribe();
 
         var middleware = new AudioPipelineMiddleware
         {
@@ -476,8 +475,7 @@ public class NativeAudioModeTests
             r => r.Model.GetStreamingResponseAsync(r.Messages, r.Options), CancellationToken.None)!);
 
         // Assert
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        var frame = await audioFrames.Reader.ReadAsync(timeout.Token);
+        Assert.True(audioFrames.TryRead(out var frame));
         Assert.Equal(new byte[] { 0x00 }, frame.Audio.ToArray());
         Assert.Equal("audio/mpeg", frame.MimeType);
         Assert.Equal(0, frame.ChunkIndex);
@@ -718,19 +716,16 @@ public class NativeAudioModeTests
 
     private class CapturingEventCoordinator : IEventCoordinator
     {
+        private readonly LocalStructEventBus _localStructs = new();
         private readonly Action<AgentEvent> _onEmit;
         public CapturingEventCoordinator(Action<AgentEvent> onEmit) => _onEmit = onEmit;
+        public ILocalStructEventBus LocalStructs => _localStructs;
         public void Emit(Event evt) => _onEmit((AgentEvent)evt);
         public ValueTask EmitAsync(Event evt, CancellationToken ct = default) { Emit(evt); return ValueTask.CompletedTask; }
         public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler, EventSubscriptionOptions? options = null) where TEvent : Event => NoOpDisposable.Instance;
         public IDisposable SubscribeAny(Func<Event, ValueTask> handler, EventSubscriptionOptions? options = null) => NoOpDisposable.Instance;
         public EventInbox<TEvent> CreateInbox<TEvent>(EventInboxOptions? options = null) where TEvent : Event => default;
         public EventInbox<Event> CreateChannelInbox(EventChannel channelName, EventInboxOptions? options = null) => default;
-        public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent => false;
-        public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : struct, IStructEvent => ValueTask.CompletedTask;
-        public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler) where TEvent : struct, IStructEvent => NoOpDisposable.Instance;
-        public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null) where TEvent : struct, IStructEvent => default;
-        public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null) where TEvent : struct, IStructEvent => default;
         public void SetParent(IEventCoordinator parent) { }
         public Task<TResponse> RequestAsync<TRequest, TResponse>(
             TRequest request,

@@ -1,6 +1,8 @@
 using System.Reflection;
+using System.Text.Json;
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
+using HPD.Agent.Serialization;
 using HPDOS.Harneses.Middleware;
 
 namespace HPD.Agent.Harness.Coding.Tests;
@@ -59,6 +61,18 @@ public sealed class FileMutationEventTests
 
         diff.Lines.Should().Contain(line => line.Type == ChangeType.Deleted && line.Text == "class A {}");
         diff.Lines.Should().Contain(line => line.Type == ChangeType.Inserted && line.Text == "class A { void M() {} }");
+    }
+
+    [Fact]
+    public void FileMutationAppliedEvent_SerializesForAgentEventStream()
+    {
+        var json = AgentEventSerializer.ToJson(CreateWriteEvent());
+        using var doc = JsonDocument.Parse(json);
+
+        doc.RootElement.GetProperty("type").GetString().Should().Be("FILE_WRITE_APPLIED");
+        doc.RootElement.GetProperty("toolCallId").GetString().Should().Be("call_1");
+        doc.RootElement.GetProperty("hunks").EnumerateArray().Should().ContainSingle();
+        doc.RootElement.GetProperty("diffStat").GetProperty("addedLines").GetInt32().Should().Be(1);
     }
 
     [Fact]

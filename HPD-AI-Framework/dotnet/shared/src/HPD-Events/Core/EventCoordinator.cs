@@ -8,11 +8,10 @@ public sealed class EventCoordinator :
     IEventBus,
     IRequestResponseBus,
     IHierarchicalEventBus,
-    IStructEventBus,
     IDisposable
 {
     private readonly EventChannelRouter _events;
-    private readonly StructEventRouter _structs = new();
+    private readonly LocalStructEventBus _localStructs = new();
 
     /// <summary>
     /// Creates a new event coordinator with fan-out event-bus routing.
@@ -25,6 +24,9 @@ public sealed class EventCoordinator :
     }
 
     internal IEventCoordinator? ParentCoordinatorForCycleDetection => _events.ParentCoordinator;
+
+    /// <summary>Process-local high-throughput struct event lanes.</summary>
+    public ILocalStructEventBus LocalStructs => _localStructs;
 
     internal void RegisterChildRouter(EventChannelRouter child) => _events.RegisterChild(child);
 
@@ -64,47 +66,6 @@ public sealed class EventCoordinator :
         EventChannel channel,
         EventInboxOptions? options = null) =>
         _events.CreateChannelInbox(channel, options);
-
-    /// <inheritdoc />
-    public bool TryEmitStruct<TEvent>(in TEvent evt) where TEvent : struct, IStructEvent =>
-        _structs.TryEmitStruct(in evt);
-
-    bool IStructEventBus.TryEmit<TEvent>(in TEvent evt) =>
-        _structs.TryEmitStruct(in evt);
-
-    /// <inheritdoc />
-    public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default)
-        where TEvent : struct, IStructEvent =>
-        _structs.EmitStructAsync(evt, ct);
-
-    ValueTask IStructEventBus.EmitAsync<TEvent>(TEvent evt, CancellationToken ct) =>
-        _structs.EmitStructAsync(evt, ct);
-
-    /// <inheritdoc />
-    public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null)
-        where TEvent : struct, IStructEvent =>
-        _structs.SubscribeStruct<TEvent>(options);
-
-    /// <inheritdoc />
-    public StructInbox<TEvent> CreateInbox<TEvent>(StructInboxOptions? options = null)
-        where TEvent : struct, IStructEvent =>
-        _structs.CreateInbox<TEvent>(options);
-
-    /// <inheritdoc />
-    public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler)
-        where TEvent : struct, IStructEvent =>
-        _structs.SubscribeStruct(handler);
-
-    IDisposable IStructEventBus.Subscribe<TEvent>(Func<TEvent, ValueTask> handler) =>
-        _structs.SubscribeStruct(handler);
-
-    /// <inheritdoc />
-    public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null)
-        where TEvent : struct, IStructEvent =>
-        _structs.CreateStructEmitter(options);
-
-    StructEmitter<TEvent> IStructEventBus.CreateEmitter<TEvent>(StructEmitterOptions<TEvent>? options) =>
-        _structs.CreateStructEmitter(options);
 
     /// <inheritdoc />
     public void SetParent(IEventCoordinator parent)
@@ -182,11 +143,11 @@ public sealed class EventCoordinator :
     EventBusStats IEventBus.GetStats() => _events.GetBusStats();
 
     /// <summary>
-    /// Dispose coordinator and complete all class-event channels and struct subscriptions.
+    /// Dispose coordinator and complete all class-event channels and local struct routes.
     /// </summary>
     public void Dispose()
     {
         _events.Dispose();
-        _structs.Dispose();
+        _localStructs.Dispose();
     }
 }

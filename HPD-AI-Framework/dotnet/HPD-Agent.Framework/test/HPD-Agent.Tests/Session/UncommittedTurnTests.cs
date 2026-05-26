@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using HPD.Agent.ClientTools;
 using Microsoft.Extensions.AI;
 using Xunit;
 using HPD.Agent;
@@ -277,5 +278,45 @@ public class UncommittedTurnTests : AgentTestBase
         Assert.NotNull(deserialized);
         Assert.True(deserialized.IsTerminated);
         Assert.Equal("Max iterations reached", deserialized.TerminationReason);
+    }
+
+    [Fact]
+    public void UncommittedTurn_ClientToolMiddlewareState_SerializesCorrectly()
+    {
+        using var schema = JsonDocument.Parse("""{"type":"object","properties":{}}""");
+        using var contextValue = JsonDocument.Parse("""{"workspace":"HPD-OS"}""");
+
+        var clientToolState = new ClientToolStateData()
+            .WithRegisteredHarness(new clientHarnessDefinition(
+                Name: "hpdos.browser",
+                Description: "Browser-side HPD-OS tools.",
+                Tools:
+                [
+                    new ClientToolDefinition(
+                        Name: "list_artifacts",
+                        Description: "List browser artifacts.",
+                        ParametersSchema: schema.RootElement.Clone())
+                ],
+                StartCollapsed: false))
+            .WithContextItem(new ContextItem(
+                description: "The active HPD-OS workspace.",
+                value: contextValue.RootElement.Clone(),
+                key: "hpdos.activeView"));
+
+        var turn = CreateTestTurn() with
+        {
+            MiddlewareState = new MiddlewareState()
+                .SetState(typeof(ClientToolStateData).FullName!, clientToolState)
+        };
+
+        var json = JsonSerializer.Serialize(turn, SessionJsonContext.CombinedOptions);
+        var deserialized = JsonSerializer.Deserialize<UncommittedTurn>(json, SessionJsonContext.CombinedOptions);
+
+        Assert.NotNull(deserialized);
+
+        var restored = deserialized.MiddlewareState.GetState<ClientToolStateData>(typeof(ClientToolStateData).FullName!);
+        Assert.NotNull(restored);
+        Assert.True(restored.RegisteredHarnesses.ContainsKey("hpdos.browser"));
+        Assert.True(restored.Context.ContainsKey("hpdos.activeView"));
     }
 }

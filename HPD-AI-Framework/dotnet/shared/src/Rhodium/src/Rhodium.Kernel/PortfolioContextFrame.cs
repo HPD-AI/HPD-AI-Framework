@@ -54,24 +54,17 @@ public ref struct PortfolioContextFrame
     public readonly Money? MaxCapital { get; }
     public readonly bool IsPaused { get; }
 
-    public void Buy(AssetId id, Qty qty, in MarketKernel market)
-        => ApplySyntheticFill(id, Side.Buy, qty, market);
-
-    public void Sell(AssetId id, Qty qty, in MarketKernel market)
-        => ApplySyntheticFill(id, Side.Sell, qty, market);
-
     public void Buy(AssetId id, Qty qty, ExecutionSpec execution)
         => AddOrderIntent(id, Side.Buy, qty, execution);
 
     public void Sell(AssetId id, Qty qty, ExecutionSpec execution)
         => AddOrderIntent(id, Side.Sell, qty, execution);
 
-    public void Flatten(AssetId id, in MarketKernel market)
-    {
-        var qty = GetPositionQty(id);
-        if (qty == 0m) return;
-        ApplySyntheticFill(id, qty > 0m ? Side.Sell : Side.Buy, new Qty(Math.Abs(qty)), market);
-    }
+    public void Cancel(AssetId id, OrderId orderId, string? reason = null)
+        => AddOrderIntent(OrderIntent.Cancel(StrategyId, id, orderId, reason));
+
+    public void Modify(AssetId id, OrderId orderId, Qty? newQuantity = null, Price? newLimitPrice = null)
+        => AddOrderIntent(OrderIntent.Modify(StrategyId, id, orderId, newQuantity, newLimitPrice));
 
     public decimal GetPositionQty(AssetId id)
         => Slot(id).Quantity;
@@ -130,18 +123,16 @@ public ref struct PortfolioContextFrame
     }
 
     private void AddOrderIntent(AssetId id, Side side, Qty qty, ExecutionSpec execution)
+        => AddOrderIntent(OrderIntent.Submit(StrategyId, id, side, qty, execution));
+
+    private void AddOrderIntent(OrderIntent intent)
     {
         var count = _counters[PortfolioContext.OrderIntentCounter];
         if (count >= _orderIntents.Length)
             throw new InvalidOperationException("Order intent buffer is full.");
 
-        _orderIntents[count] = new OrderIntent(StrategyId, id, side, qty, execution);
+        _orderIntents[count] = intent;
         _counters[PortfolioContext.OrderIntentCounter] = count + 1;
     }
 
-    private void ApplySyntheticFill(AssetId id, Side side, Qty qty, in MarketKernel market)
-    {
-        var price = new Price((decimal)market.GetScalar(Field.Close, id), market.GetMetadata(id).Currency);
-        Slot(id).ApplyFill(side, qty, price, Money.Zero(price.Currency));
-    }
 }

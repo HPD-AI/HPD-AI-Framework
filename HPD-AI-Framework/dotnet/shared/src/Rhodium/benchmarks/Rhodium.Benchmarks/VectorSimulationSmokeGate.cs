@@ -31,7 +31,7 @@ public static class VectorSimulationSmokeGate
         var result = Rhodium.Simulation.Rhodium.Simulate<SmokeVectorStrategy>()
             .WithHistory(history)
             .WithGrid(grid)
-            .WithFidelity(SimulationFidelity.Vector)
+            .WithMatchingFidelity(MatchingFidelity.FastVectorApproximation)
             .WithMaxDegreeOfParallelism(maxDegreeOfParallelism)
             .Run();
         stopwatch.Stop();
@@ -143,13 +143,19 @@ public static class VectorSimulationSmokeGate
         bool Passed,
         string? Failure);
 
-    private sealed class SmokeVectorStrategy : Strategy
+    private sealed class SmokeVectorStrategy : Strategy, IStrategyParameterFactory<SmokeVectorStrategy>
     {
         private AssetId _spy;
         private double _lastSignal;
 
         [Param]
         public int Threshold { get; init; }
+
+        public static SmokeVectorStrategy CreateVariant(ParameterSet parameters)
+            => new()
+            {
+                Threshold = parameters.GetRequired<int>(nameof(Threshold), nameof(Threshold))
+            };
 
         protected override void OnInitialize(in SetupContext setup)
         {

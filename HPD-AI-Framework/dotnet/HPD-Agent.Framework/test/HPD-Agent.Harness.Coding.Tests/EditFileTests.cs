@@ -662,25 +662,7 @@ public sealed class EditFileTests : IDisposable
         public EventInbox<Event> CreateChannelInbox(EventChannel channel, EventInboxOptions? options = null)
             => _inner.CreateChannelInbox(channel, options);
 
-        public bool TryEmitStruct<TEvent>(in TEvent evt)
-            where TEvent : struct, IStructEvent
-            => _inner.TryEmitStruct(in evt);
-
-        public ValueTask EmitStructAsync<TEvent>(TEvent evt, CancellationToken ct = default)
-            where TEvent : struct, IStructEvent
-            => _inner.EmitStructAsync(evt, ct);
-
-        public StructSubscription<TEvent> SubscribeStruct<TEvent>(StructSubscriptionOptions? options = null)
-            where TEvent : struct, IStructEvent
-            => _inner.SubscribeStruct<TEvent>(options);
-
-        public IDisposable SubscribeStruct<TEvent>(Func<TEvent, ValueTask> handler)
-            where TEvent : struct, IStructEvent
-            => _inner.SubscribeStruct(handler);
-
-        public StructEmitter<TEvent> CreateStructEmitter<TEvent>(StructEmitterOptions<TEvent>? options = null)
-            where TEvent : struct, IStructEvent
-            => _inner.CreateStructEmitter(options);
+        public ILocalStructEventBus LocalStructs => _inner.LocalStructs;
 
         public void SetParent(IEventCoordinator parent) => _inner.SetParent(parent);
 

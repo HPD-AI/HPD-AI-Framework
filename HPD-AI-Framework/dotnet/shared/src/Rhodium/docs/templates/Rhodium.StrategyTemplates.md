@@ -51,7 +51,7 @@ public sealed partial class BookAwareScalper : Strategy
     [BookField(ReadOnly = true)]
     public partial double Close { get; }
 
-    partial void OnBook(ref BookContext book)
+    partial void OnBookSnapshot(ref BookSnapshotContext book)
     {
         if (book.AssetId != _spy)
             return;

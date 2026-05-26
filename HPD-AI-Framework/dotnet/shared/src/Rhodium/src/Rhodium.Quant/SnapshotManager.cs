@@ -59,7 +59,7 @@ public sealed class SnapshotManager : IDisposable
 
         try
         {
-            var portfolio = world.BuildSnapshot(strategyId, market.UniverseSize);
+            var portfolio = world.BuildSnapshot(strategyId, market.UniverseSize, market.Time);
             var marketData = MarketDataSnapshot.Capture(in market);
             return new EngineSnapshot(
                 this,

@@ -262,11 +262,18 @@ public static partial class AgentEventSerializer
     /// </summary>
     /// <param name="eventType">The event type to register.</param>
     /// <param name="discriminator">The SCREAMING_SNAKE_CASE discriminator.</param>
-    internal static void RegisterEventType(Type eventType, string discriminator)
+    public static void RegisterEventType(Type eventType, string discriminator, JsonTypeInfo? typeInfo = null)
     {
+        ArgumentNullException.ThrowIfNull(eventType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(discriminator);
+
+        if (!typeof(AgentEvent).IsAssignableFrom(eventType) && !typeof(AgentInputEvent).IsAssignableFrom(eventType))
+            throw new ArgumentException($"Type '{eventType.FullName}' is not an agent event type.", nameof(eventType));
+
         TypeNames[eventType] = discriminator;
-        // Keep reverse lookup in sync
         DiscriminatorToType[discriminator] = eventType;
+        if (typeInfo is not null)
+            TypeInfos[eventType] = typeInfo;
     }
 
     // Reverse lookup: SCREAMING_SNAKE_CASE discriminator → concrete event type

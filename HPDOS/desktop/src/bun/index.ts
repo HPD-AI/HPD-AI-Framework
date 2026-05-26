@@ -1,7 +1,8 @@
-import Electrobun, { BrowserView, BrowserWindow, PATHS, Utils, type RPCSchema } from "electrobun/bun";
+import Electrobun, { BrowserWindow, PATHS } from "electrobun/bun";
 import { existsSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readShellLayout, writeShellLayout, type ShellLayoutSnapshot } from "./settingsStore";
 
 const backendUrl = process.env.HPDOS_BACKEND_URL ?? "http://127.0.0.1:4317";
 const appDir = dirname(fileURLToPath(import.meta.url));
@@ -13,41 +14,118 @@ const executableName = process.platform === "win32" ? "backend.exe" : "backend";
 
 let backendProcess: Bun.Subprocess | null = null;
 let backendProcessMode: "run" | "published" | null = null;
+let mainWindow: BrowserWindow | null = null;
+let chromeModeInterval: Timer | null = null;
+const pendingShellLayoutResponses: ShellLayoutHostResponse[] = [];
 
-type HpdosDesktopRPC = {
-  bun: RPCSchema<{
-    requests: {
-      pickWorkspaceFolders: {
-        params: {};
-        response: string[];
-      };
+type ShellLayoutHostRequest =
+  | { source: "hpdos.shell.layout"; type: "request"; id: number; method: "read"; params: {} }
+  | {
+      source: "hpdos.shell.layout";
+      type: "request";
+      id: number;
+      method: "write";
+      params: ShellLayoutSnapshot;
     };
-    messages: {};
-  }>;
-  webview: RPCSchema<{
-    requests: {};
-    messages: {};
-  }>;
-};
 
-const hpdosDesktopRpc = BrowserView.defineRPC<HpdosDesktopRPC>({
-  maxRequestTime: 60_000,
-  handlers: {
-    requests: {
-      pickWorkspaceFolders: async () => {
-        const paths = await Utils.openFileDialog({
-          startingFolder: process.env.HOME || projectDirectory,
-          allowedFileTypes: "*",
-          canChooseFiles: false,
-          canChooseDirectory: true,
-          allowsMultipleSelection: true
-        });
-        return paths.map(path => path.trim()).filter(Boolean);
-      }
-    },
-    messages: {}
+type ShellLayoutHostResponse =
+  | { source: "hpdos.shell.layout"; type: "response"; id: number; success: true; payload: unknown }
+  | { source: "hpdos.shell.layout"; type: "response"; id: number; success: false; error?: string };
+
+function syncWindowChromeMode(): void {
+  if (!mainWindow) return;
+  const isFullScreen = mainWindow.isFullScreen();
+  mainWindow.webview.executeJavascript(
+    `document.body.dataset.hpdWindowFullscreen = ${JSON.stringify(String(isFullScreen))};`
+  );
+}
+
+function handleShellLayoutHostMessage(message: unknown): void {
+  if (!isShellLayoutRequest(message)) return;
+
+  try {
+    if (message.method === "read") {
+      sendShellLayoutResponse({
+        source: "hpdos.shell.layout",
+        type: "response",
+        id: message.id,
+        success: true,
+        payload: readShellLayout()
+      });
+      return;
+    }
+
+    writeShellLayout(message.params);
+    sendShellLayoutResponse({
+      source: "hpdos.shell.layout",
+      type: "response",
+      id: message.id,
+      success: true,
+      payload: { success: true }
+    });
+  } catch (error) {
+    sendShellLayoutResponse({
+      source: "hpdos.shell.layout",
+      type: "response",
+      id: message.id,
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    });
   }
-});
+}
+
+function isShellLayoutRequest(message: unknown): message is ShellLayoutHostRequest {
+  if (typeof message !== "object" || message === null) return false;
+
+  const request = message as Partial<ShellLayoutHostRequest>;
+  if (
+    request.source !== "hpdos.shell.layout"
+    || request.type !== "request"
+    || typeof request.id !== "number"
+  ) {
+    return false;
+  }
+
+  if (request.method === "read") return true;
+
+  return request.method === "write" && normalizeShellLayoutSnapshot(request.params) !== null;
+}
+
+function sendShellLayoutResponse(response: ShellLayoutHostResponse): void {
+  if (!mainWindow) {
+    pendingShellLayoutResponses.push(response);
+    return;
+  }
+
+  mainWindow.webview.executeJavascript(
+    `window.dispatchEvent(new CustomEvent("hpdos-shell-layout-response", { detail: ${JSON.stringify(response)} }));`
+  );
+}
+
+function flushShellLayoutResponses(): void {
+  while (pendingShellLayoutResponses.length > 0) {
+    const response = pendingShellLayoutResponses.shift();
+    if (response) sendShellLayoutResponse(response);
+  }
+}
+
+function normalizeShellLayoutSnapshot(value: unknown): ShellLayoutSnapshot | null {
+  if (typeof value !== "object" || value === null) return null;
+
+  const record = value as Partial<ShellLayoutSnapshot>;
+
+  return {
+    sidebarCollapsed: record.sidebarCollapsed === true,
+    expandedAppPaneWidth: normalizePaneWidth(record.expandedAppPaneWidth),
+    collapsedAppPaneWidth: normalizePaneWidth(record.collapsedAppPaneWidth)
+  };
+}
+
+function normalizePaneWidth(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
+
+  return value;
+}
 
 async function isBackendReady(): Promise<boolean> {
   try {
@@ -176,23 +254,48 @@ function findDotnetExecutable(): string | null {
   return null;
 }
 
+Electrobun.events.on("host-message", (event) => {
+  handleShellLayoutHostMessage((event as { data?: { detail?: unknown } }).data?.detail);
+});
+
 await startBackendIfNeeded();
 
 const ready = await waitForBackend();
-const mainWindow = new BrowserWindow({
-  title: "HPD-OS",
+const hpdosWindow = new BrowserWindow({
+  title: "",
   url: ready ? backendUrl : "views://mainview/loading.html",
-  rpc: hpdosDesktopRpc,
   frame: {
     width: 1440,
     height: 940,
     x: 120,
     y: 80
   },
-  titleBarStyle: "default"
+  titleBarStyle: "hiddenInset",
+  trafficLightOffset: {
+    x: 14,
+    y: 17
+  }
+});
+mainWindow = hpdosWindow;
+flushShellLayoutResponses();
+
+hpdosWindow.on("resize", () => {
+  syncWindowChromeMode();
 });
 
-mainWindow.on("close", stopBackend);
-Electrobun.events.on("before-quit", stopBackend);
+setTimeout(syncWindowChromeMode, 250);
+setTimeout(syncWindowChromeMode, 750);
+chromeModeInterval = setInterval(syncWindowChromeMode, 500);
+
+hpdosWindow.on("close", () => {
+  if (chromeModeInterval) {
+    clearInterval(chromeModeInterval);
+    chromeModeInterval = null;
+  }
+  stopBackend();
+});
+Electrobun.events.on("before-quit", () => {
+  stopBackend();
+});
 
 console.log(ready ? `HPD-OS desktop loaded ${backendUrl}` : "HPD-OS backend did not become ready.");

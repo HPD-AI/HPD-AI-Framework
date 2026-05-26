@@ -1,9 +1,6 @@
-namespace Rhodium.Options;
+using Rhodium.Primitives;
 
-/// <summary>
-/// Option type.
-/// </summary>
-public enum OptionType { Call, Put }
+namespace Rhodium.Options;
 
 /// <summary>
 /// Complete Greeks result.
@@ -26,7 +23,7 @@ public static class Greeks
     /// Calculate all Greeks at once.
     /// </summary>
     public static GreeksResult Calculate(
-        OptionType type,
+        OptionRight type,
         decimal underlyingPrice,
         decimal strikePrice,
         decimal timeToExpiryYears,
@@ -47,8 +44,8 @@ public static class Greeks
         var d1 = (Math.Log(s / k) + (r - q + v * v / 2) * t) / (v * sqrtT);
         var d2 = d1 - v * sqrtT;
 
-        var nd1 = NormCdf(type == OptionType.Call ? d1 : -d1);
-        var nd2 = NormCdf(type == OptionType.Call ? d2 : -d2);
+        var nd1 = NormCdf(type == OptionRight.Call ? d1 : -d1);
+        var nd2 = NormCdf(type == OptionRight.Call ? d2 : -d2);
         var npd1 = NormPdf(d1);
 
         var expQt = Math.Exp(-q * t);
@@ -56,14 +53,14 @@ public static class Greeks
 
         // Price
         double price;
-        if (type == OptionType.Call)
+        if (type == OptionRight.Call)
             price = s * expQt * NormCdf(d1) - k * expRt * NormCdf(d2);
         else
             price = k * expRt * NormCdf(-d2) - s * expQt * NormCdf(-d1);
 
         // Delta
         double delta;
-        if (type == OptionType.Call)
+        if (type == OptionRight.Call)
             delta = expQt * NormCdf(d1);
         else
             delta = -expQt * NormCdf(-d1);
@@ -74,7 +71,7 @@ public static class Greeks
         // Theta
         double theta;
         var term1 = -s * expQt * npd1 * v / (2 * sqrtT);
-        if (type == OptionType.Call)
+        if (type == OptionRight.Call)
             theta = term1 - r * k * expRt * NormCdf(d2) + q * s * expQt * NormCdf(d1);
         else
             theta = term1 + r * k * expRt * NormCdf(-d2) - q * s * expQt * NormCdf(-d1);
@@ -85,7 +82,7 @@ public static class Greeks
 
         // Rho
         double rho;
-        if (type == OptionType.Call)
+        if (type == OptionRight.Call)
             rho = k * t * expRt * NormCdf(d2) / 100; // Per 1% rate change
         else
             rho = -k * t * expRt * NormCdf(-d2) / 100;
@@ -104,7 +101,7 @@ public static class Greeks
     /// Delta - rate of change of option price with respect to underlying price.
     /// </summary>
     public static decimal Delta(
-        OptionType type,
+        OptionRight type,
         decimal underlyingPrice,
         decimal strikePrice,
         decimal timeToExpiryYears,
@@ -123,13 +120,13 @@ public static class Greeks
         decimal volatility,
         decimal riskFreeRate,
         decimal dividendYield = 0) =>
-        Calculate(OptionType.Call, underlyingPrice, strikePrice, timeToExpiryYears, volatility, riskFreeRate, dividendYield).Gamma;
+        Calculate(OptionRight.Call, underlyingPrice, strikePrice, timeToExpiryYears, volatility, riskFreeRate, dividendYield).Gamma;
 
     /// <summary>
     /// Theta - rate of change of option price with respect to time (time decay).
     /// </summary>
     public static decimal Theta(
-        OptionType type,
+        OptionRight type,
         decimal underlyingPrice,
         decimal strikePrice,
         decimal timeToExpiryYears,
@@ -148,13 +145,13 @@ public static class Greeks
         decimal volatility,
         decimal riskFreeRate,
         decimal dividendYield = 0) =>
-        Calculate(OptionType.Call, underlyingPrice, strikePrice, timeToExpiryYears, volatility, riskFreeRate, dividendYield).Vega;
+        Calculate(OptionRight.Call, underlyingPrice, strikePrice, timeToExpiryYears, volatility, riskFreeRate, dividendYield).Vega;
 
     /// <summary>
     /// Rho - rate of change of option price with respect to interest rate.
     /// </summary>
     public static decimal Rho(
-        OptionType type,
+        OptionRight type,
         decimal underlyingPrice,
         decimal strikePrice,
         decimal timeToExpiryYears,
@@ -167,7 +164,7 @@ public static class Greeks
     /// Implied Volatility - solve for volatility given market price.
     /// </summary>
     public static decimal ImpliedVolatility(
-        OptionType type,
+        OptionRight type,
         decimal marketPrice,
         decimal underlyingPrice,
         decimal strikePrice,
@@ -196,7 +193,7 @@ public static class Greeks
     /// Theoretical option price using Black-Scholes.
     /// </summary>
     public static decimal Price(
-        OptionType type,
+        OptionRight type,
         decimal underlyingPrice,
         decimal strikePrice,
         decimal timeToExpiryYears,
@@ -239,7 +236,7 @@ public static class Greeks
     /// Charm - rate of change of delta over time (delta decay).
     /// </summary>
     public static decimal Charm(
-        OptionType type,
+        OptionRight type,
         decimal underlyingPrice,
         decimal strikePrice,
         decimal timeToExpiryYears,
@@ -261,9 +258,9 @@ public static class Greeks
         var d2 = d1 - v * sqrtT;
 
         var term = 2 * (r - q) * t - d2 * v * sqrtT;
-        var charm = q * Math.Exp(-q * t) * NormCdf(type == OptionType.Call ? d1 : -d1)
+        var charm = q * Math.Exp(-q * t) * NormCdf(type == OptionRight.Call ? d1 : -d1)
                     - Math.Exp(-q * t) * NormPdf(d1) * term / (2 * t * v * sqrtT);
-        if (type == OptionType.Put) charm = -charm;
+        if (type == OptionRight.Put) charm = -charm;
 
         return (decimal)charm / 365; // Per day
     }

@@ -1,3 +1,4 @@
+using Rhodium.Control;
 using Rhodium.Events;
 using Rhodium.Kernel;
 using Rhodium.Platform.Patterns;
@@ -20,9 +21,9 @@ public class EngineLoopsTests
         var parallelTree = CreateInitializedTree(parallelRuntime, strategyCount: 12);
 
         var market = sequentialRuntime.CreateMarketKernel();
-        var nodes = sequentialTree.Nodes;
-        var contexts = new StrategyContext[nodes.Count];
-        for (var i = 0; i < nodes.Count; i++)
+        var nodes = sequentialTree.GetNodesSnapshot();
+        var contexts = new StrategyContext[nodes.Length];
+        for (var i = 0; i < nodes.Length; i++)
             contexts[i] = new StrategyContext
             {
                 Strategy = nodes[i].Strategy,
@@ -45,10 +46,10 @@ public class EngineLoopsTests
 
         for (var i = 0; i < 12; i++)
         {
-            var sequentialId = sequentialTree.Nodes[i].Node.Id;
-            var parallelId = parallelTree.Nodes[i].Node.Id;
-            var sequentialSnapshot = sequentialRuntime.WorldState.BuildSnapshot(sequentialId, sequentialRuntime.BatchMap.TotalSize);
-            var parallelSnapshot = parallelRuntime.WorldState.BuildSnapshot(parallelId, parallelRuntime.BatchMap.TotalSize);
+            var sequentialId = sequentialTree.GetNode(i).Node.Id;
+            var parallelId = parallelTree.GetNode(i).Node.Id;
+            var sequentialSnapshot = sequentialRuntime.WorldState.BuildSnapshot(sequentialId, sequentialRuntime.BatchMap.TotalSize, sequentialRuntime.CurrentTime);
+            var parallelSnapshot = parallelRuntime.WorldState.BuildSnapshot(parallelId, parallelRuntime.BatchMap.TotalSize, parallelRuntime.CurrentTime);
             AssertEquivalentSnapshot(sequentialSnapshot, parallelSnapshot);
         }
     }
@@ -64,9 +65,16 @@ public class EngineLoopsTests
 
         EngineLoops.DispatchHierarchical(in market, tree, runtime.WorldState, contexts);
 
-        Assert.Equal(100, tree.Nodes.Count);
-        foreach (var (strategy, _) in tree.Nodes)
-            Assert.Equal(1m, runtime.WorldState.PositionAt(strategy.Id, 0).Quantity);
+        Assert.Equal(100, tree.NodeCount);
+        for (var i = 0; i < tree.NodeCount; i++)
+        {
+            var (strategy, _) = tree.GetNode(i);
+            var drained = new OrderIntent[1];
+            var count = runtime.WorldState.DrainOrderIntents(strategy.Id, drained);
+            Assert.Equal(1, count);
+            Assert.Equal(Side.Buy, drained[0].Side);
+            Assert.Equal(new Qty(1m), drained[0].Quantity);
+        }
     }
 
     [Fact]
@@ -102,6 +110,7 @@ public class EngineLoopsTests
         var leaf = new AllocationAwareLeafStrategy();
         var group = new SnapshotCommandGroupStrategy();
         var tree = CreateHierarchy(runtime, leaf, group);
+        ApplyTestFill(runtime, leaf.Id, new AssetId(0), Side.Buy, new Qty(1m), new Price(100m, Currency.USD));
         var contexts = CreateContexts(tree);
         var market = runtime.CreateMarketKernel();
 
@@ -126,6 +135,7 @@ public class EngineLoopsTests
         var leaf = new AllocationAwareLeafStrategy();
         var group = new GeneratedGroupStrategy();
         var tree = CreateHierarchy(runtime, leaf, group);
+        ApplyTestFill(runtime, leaf.Id, new AssetId(0), Side.Buy, new Qty(1m), new Price(100m, Currency.USD));
         var contexts = CreateContexts(tree);
         var market = runtime.CreateMarketKernel();
 
@@ -146,6 +156,7 @@ public class EngineLoopsTests
         var leaf = new AllocationAwareLeafStrategy();
         var group = new SnapshotCommandGroupStrategy();
         var tree = CreateHierarchy(runtime, leaf, group);
+        ApplyTestFill(runtime, leaf.Id, new AssetId(0), Side.Buy, new Qty(1m), new Price(100m, Currency.USD));
 
         using var state = new ParallelDispatchState(tree, threadCount: 2)
         {
@@ -199,7 +210,7 @@ public class EngineLoopsTests
         };
 
         processor.Initialize();
-        processor.ProcessEvent(new TestFinanceEvent());
+        processor.ProcessProjectedEvent(new TestFinanceEvent(), StateTransitionResult.None);
 
         Assert.Equal(2, processor.LastQueuedParallelWorkerCount);
     }
@@ -352,7 +363,7 @@ public class EngineLoopsTests
         {
             var instrument = new Instrument(new Asset($"ASSET{i}", AssetClass.Equity), Venue.NASDAQ);
             runtime.BatchMap.AddInstrument(instrument);
-            runtime.SetMetadata(i, SecurityMetadata.Equity(instrument));
+            runtime.SetContract(i, Contracts.Equity($"ASSET{i}", Venue.NASDAQ, Currency.USD));
             runtime.Tensors.Grow();
         }
 
@@ -381,17 +392,20 @@ public class EngineLoopsTests
         var leafId = tree.Register(leaf, depth: 0);
         tree.Register(group, depth: 1, children: [leafId]);
 
-        foreach (var (strategy, _) in tree.Nodes)
+        for (var i = 0; i < tree.NodeCount; i++)
+        {
+            var (strategy, _) = tree.GetNode(i);
             strategy.Initialize(runtime);
+        }
 
         return tree;
     }
 
     private static StrategyContext[] CreateContexts(StrategyTree tree)
     {
-        var nodes = tree.Nodes;
-        var contexts = new StrategyContext[nodes.Count];
-        for (var i = 0; i < nodes.Count; i++)
+        var nodes = tree.GetNodesSnapshot();
+        var contexts = new StrategyContext[nodes.Length];
+        for (var i = 0; i < nodes.Length; i++)
         {
             contexts[i] = new StrategyContext
             {
@@ -429,10 +443,23 @@ public class EngineLoopsTests
 
     private static int[] CreateCounters() => new int[PortfolioContext.CounterCount];
 
+    private static void ApplyTestFill(
+        RhodiumRuntime runtime,
+        StrategyId strategyId,
+        AssetId assetId,
+        Side side,
+        Qty quantity,
+        Price price)
+    {
+        var contract = runtime.CreateMarketKernel().GetContract(assetId);
+        runtime.WorldState.PositionAt(strategyId, assetId.VirtualIndex)
+            .ApplyFill(contract, side, quantity, price, Money.Zero(price.Currency));
+    }
+
     private sealed class BuyOnceStrategy : Strategy
     {
         protected override void __GeneratedRunTick(in MarketKernel market, ref PortfolioContext portfolio)
-            => portfolio.Buy(new AssetId(0), new Qty(1m), in market);
+            => portfolio.Buy(new AssetId(0), new Qty(1m), Execution.Market());
     }
 
     private sealed record TestFinanceEvent : FinanceEvent;
@@ -452,7 +479,7 @@ public class EngineLoopsTests
             => setup.AddEquity("ASSET0");
 
         protected override void __GeneratedRunTick(in MarketKernel market, ref PortfolioContext portfolio)
-            => portfolio.Buy(new AssetId(0), new Qty(portfolio.AllocationWeight), in market);
+            => portfolio.Buy(new AssetId(0), new Qty(portfolio.AllocationWeight), Execution.Market());
     }
 
     private sealed class SnapshotCommandGroupStrategy : Strategy

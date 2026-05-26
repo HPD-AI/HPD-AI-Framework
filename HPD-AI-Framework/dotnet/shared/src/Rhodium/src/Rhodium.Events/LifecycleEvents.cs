@@ -8,7 +8,8 @@ namespace Rhodium.Events;
 /// Scheduled event fired.
 /// </summary>
 public sealed record Scheduled(
-    string Name
+    string Name,
+    StrategyId? StrategyId = null
 ) : LifecycleEvent;
 
 /// <summary>
@@ -62,3 +63,31 @@ public sealed record UniverseChanged(
 {
     public bool HasChanges => Added.Count > 0 || Removed.Count > 0;
 }
+
+/// <summary>
+/// Official reference price used for contract lifecycle settlement.
+/// </summary>
+public sealed record SettlementReferencePricePublished(
+    Instrument Instrument,
+    Price Price,
+    Instant EffectiveAt,
+    string Source,
+    string? ExternalReference = null
+) : LifecycleEvent;
+
+/// <summary>
+/// Official or scenario-provided option assignment input for short-option lifecycle processing.
+/// </summary>
+public sealed record OptionAssignmentNoticePublished(
+    StrategyId StrategyId,
+    int VariantId,
+    Instrument Instrument,
+    Instant EffectiveAt,
+    string Source,
+    bool? IsSelectedForRandomAssignment = null,
+    decimal? ProRataAssignmentRatio = null,
+    Money? MinimumIntrinsicValue = null,
+    bool? AssignShortPositions = null,
+    string? Reason = null,
+    string? ExternalReference = null
+) : LifecycleEvent;

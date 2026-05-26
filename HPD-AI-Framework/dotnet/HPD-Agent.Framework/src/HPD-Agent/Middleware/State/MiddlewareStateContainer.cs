@@ -44,6 +44,7 @@ namespace HPD.Agent;
 /// });
 /// </code>
 /// </remarks>
+[JsonConverter(typeof(MiddlewareStateJsonConverter))]
 public sealed partial class MiddlewareState
 {
     //      
@@ -485,5 +486,143 @@ public sealed partial class MiddlewareState
             SchemaVersion = Math.Max(SchemaVersion, other.SchemaVersion),
             StateVersions = StateVersions ?? other.StateVersions
         };
+    }
+}
+
+internal sealed class MiddlewareStateJsonConverter : JsonConverter<MiddlewareState>
+{
+    public override MiddlewareState Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        using var document = JsonDocument.ParseValue(ref reader);
+        var root = document.RootElement;
+        var states = ImmutableDictionary<string, object?>.Empty;
+        string? schemaSignature = null;
+        var schemaVersion = 1;
+        ImmutableDictionary<string, int>? stateVersions = null;
+
+        if (root.TryGetProperty("states", out var statesElement)
+            && statesElement.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in statesElement.EnumerateObject())
+            {
+                states = states.SetItem(property.Name, property.Value.Clone());
+            }
+        }
+
+        if (root.TryGetProperty("schemaSignature", out var schemaSignatureElement)
+            && schemaSignatureElement.ValueKind == JsonValueKind.String)
+        {
+            schemaSignature = schemaSignatureElement.GetString();
+        }
+
+        if (root.TryGetProperty("schemaVersion", out var schemaVersionElement)
+            && schemaVersionElement.ValueKind == JsonValueKind.Number
+            && schemaVersionElement.TryGetInt32(out var parsedSchemaVersion))
+        {
+            schemaVersion = parsedSchemaVersion;
+        }
+
+        if (root.TryGetProperty("stateVersions", out var stateVersionsElement)
+            && stateVersionsElement.ValueKind == JsonValueKind.Object)
+        {
+            var builder = ImmutableDictionary.CreateBuilder<string, int>(StringComparer.Ordinal);
+            foreach (var property in stateVersionsElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind == JsonValueKind.Number
+                    && property.Value.TryGetInt32(out var version))
+                {
+                    builder[property.Name] = version;
+                }
+            }
+
+            stateVersions = builder.ToImmutable();
+        }
+
+        return new MiddlewareState
+        {
+            States = states,
+            SchemaSignature = schemaSignature,
+            SchemaVersion = schemaVersion,
+            StateVersions = stateVersions
+        };
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        MiddlewareState value,
+        JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+
+        writer.WritePropertyName("states");
+        writer.WriteStartObject();
+        foreach (var (key, stateValue) in value.States)
+        {
+            writer.WritePropertyName(key);
+            WriteStateValue(writer, key, stateValue, options);
+        }
+        writer.WriteEndObject();
+
+        if (value.SchemaSignature is not null)
+            writer.WriteString("schemaSignature", value.SchemaSignature);
+
+        writer.WriteNumber("schemaVersion", value.SchemaVersion);
+
+        if (value.StateVersions is not null)
+        {
+            writer.WritePropertyName("stateVersions");
+            writer.WriteStartObject();
+            foreach (var (key, version) in value.StateVersions)
+                writer.WriteNumber(key, version);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndObject();
+    }
+
+    private static void WriteStateValue(
+        Utf8JsonWriter writer,
+        string key,
+        object? value,
+        JsonSerializerOptions options)
+    {
+        if (value is null)
+        {
+            writer.WriteNullValue();
+            return;
+        }
+
+        if (value is JsonElement element)
+        {
+            element.WriteTo(writer);
+            return;
+        }
+
+        if (TryWriteWithFactory(writer, key, value))
+            return;
+
+        JsonSerializer.Serialize(writer, value, value.GetType(), options);
+    }
+
+    private static bool TryWriteWithFactory(
+        Utf8JsonWriter writer,
+        string key,
+        object value)
+    {
+        var (_, _, states) = AgentGeneratedRegistry.Snapshot();
+        foreach (var factory in states)
+        {
+            if (!string.Equals(factory.FullyQualifiedName, key, StringComparison.Ordinal))
+                continue;
+
+            using var document = JsonDocument.Parse(factory.Serialize(value));
+            document.RootElement.WriteTo(writer);
+            return true;
+        }
+
+        return false;
     }
 }

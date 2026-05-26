@@ -72,7 +72,7 @@ internal static class EngineLoops
         StrategyTree tree,
         WorldState world,
         Span<StrategyContext> contexts,
-        in BookUpdated evt,
+        in BookSnapshotReceived evt,
         int assetRangeStart,
         int assetRangeLength)
         => DispatchHierarchical(
@@ -89,12 +89,12 @@ internal static class EngineLoops
             assetRangeStart,
             assetRangeLength);
 
-    internal static void DispatchBookDeltasHierarchical(
+    internal static void DispatchBookLevelDeltasHierarchical(
         in MarketKernel market,
         StrategyTree tree,
         WorldState world,
         Span<StrategyContext> contexts,
-        in BookDeltaReceived evt,
+        in BookLevelDeltaReceived evt,
         int assetRangeStart,
         int assetRangeLength)
         => DispatchHierarchical(
@@ -102,7 +102,7 @@ internal static class EngineLoops
             tree,
             world,
             contexts,
-            StrategyDispatchKind.BookDelta,
+            StrategyDispatchKind.BookLevelDelta,
             null,
             null,
             null,
@@ -111,12 +111,12 @@ internal static class EngineLoops
             assetRangeStart,
             assetRangeLength);
 
-    internal static void DispatchBookDeltasHierarchical(
+    internal static void DispatchBookLevelDeltasHierarchical(
         in MarketKernel market,
         StrategyTree tree,
         WorldState world,
         Span<StrategyContext> contexts,
-        in BookDeltasReceived evt,
+        in BookLevelDeltasReceived evt,
         int assetRangeStart,
         int assetRangeLength)
         => DispatchHierarchical(
@@ -124,7 +124,7 @@ internal static class EngineLoops
             tree,
             world,
             contexts,
-            StrategyDispatchKind.BookDeltas,
+            StrategyDispatchKind.BookLevelDeltas,
             null,
             null,
             null,
@@ -155,7 +155,7 @@ internal static class EngineLoops
                     counters.Clear();
                     var orderIntents = context.OrderIntents.AsSpan();
                     orderIntents.Clear();
-                    var childSnapshots = BuildChildSnapshots(world, context.Node, market.UniverseSize, context.ChildSnapshots);
+                    var childSnapshots = BuildChildSnapshots(world, context.Node, market.UniverseSize, context.ChildSnapshots, market.Time);
                     var portfolio = world.BuildContext(
                         context.Node.Id,
                         context.Node.ParentId,
@@ -200,9 +200,9 @@ internal static class EngineLoops
         StrategyDispatchKind kind,
         QuoteReceived? quote = null,
         TradeOccurred? trade = null,
-        BookUpdated? book = null,
-        BookDeltaReceived? bookDelta = null,
-        BookDeltasReceived? bookDeltas = null,
+        BookSnapshotReceived? book = null,
+        BookLevelDeltaReceived? bookDelta = null,
+        BookLevelDeltasReceived? bookDeltas = null,
         int assetRangeStart = 0,
         int assetRangeLength = int.MaxValue)
     {
@@ -225,7 +225,7 @@ internal static class EngineLoops
                     counters.Clear();
                     var orderIntents = context.OrderIntents.AsSpan();
                     orderIntents.Clear();
-                    var childSnapshots = BuildChildSnapshots(world, context.Node, market.UniverseSize, context.ChildSnapshots);
+                    var childSnapshots = BuildChildSnapshots(world, context.Node, market.UniverseSize, context.ChildSnapshots, market.Time);
                     var portfolio = world.BuildContext(
                         context.Node.Id,
                         context.Node.ParentId,
@@ -338,7 +338,7 @@ internal static class EngineLoops
                 counters.Clear();
                 var orderIntents = context.OrderIntents.AsSpan();
                 orderIntents.Clear();
-                var childSnapshots = BuildChildSnapshots(runtime.WorldState, context.Node, market.UniverseSize, context.ChildSnapshots);
+                var childSnapshots = BuildChildSnapshots(runtime.WorldState, context.Node, market.UniverseSize, context.ChildSnapshots, market.Time);
                 var portfolio = runtime.WorldState.BuildContext(
                     context.Node.Id,
                     context.Node.ParentId,
@@ -405,7 +405,7 @@ internal static class EngineLoops
         counters.Clear();
         var orderIntents = context.OrderIntents.AsSpan();
         orderIntents.Clear();
-        var childSnapshots = BuildChildSnapshots(runtime.WorldState, context.Node, market.UniverseSize, context.ChildSnapshots);
+        var childSnapshots = BuildChildSnapshots(runtime.WorldState, context.Node, market.UniverseSize, context.ChildSnapshots, market.Time);
         var portfolio = runtime.WorldState.BuildContext(
             context.Node.Id,
             context.Node.ParentId,
@@ -452,14 +452,15 @@ internal static class EngineLoops
         WorldState world,
         StrategyNode node,
         int universeSize,
-        PortfolioSnapshot[] snapshotBuffer)
+        PortfolioSnapshot[] snapshotBuffer,
+        Instant snapshotTime)
     {
         if (node.ChildIds.IsEmpty) return default;
         if (snapshotBuffer.Length < node.ChildIds.Length)
             throw new InvalidOperationException("Strategy context child snapshot buffer is smaller than its child set.");
 
         for (var i = 0; i < node.ChildIds.Length; i++)
-            snapshotBuffer[i] = world.BuildSnapshot(node.ChildIds.Span[i], universeSize);
+            snapshotBuffer[i] = world.BuildSnapshot(node.ChildIds.Span[i], universeSize, snapshotTime);
 
         return snapshotBuffer.AsSpan(0, node.ChildIds.Length);
     }
@@ -480,9 +481,9 @@ internal static class EngineLoops
         ref PortfolioContext portfolio,
         QuoteReceived? quote = null,
         TradeOccurred? trade = null,
-        BookUpdated? book = null,
-        BookDeltaReceived? bookDelta = null,
-        BookDeltasReceived? bookDeltas = null,
+        BookSnapshotReceived? book = null,
+        BookLevelDeltaReceived? bookDelta = null,
+        BookLevelDeltasReceived? bookDeltas = null,
         int assetRangeStart = 0,
         int assetRangeLength = int.MaxValue)
     {
@@ -495,13 +496,13 @@ internal static class EngineLoops
                 strategy.RunTradeGuarded(in market, ref portfolio, trade!, assetRangeStart, assetRangeLength);
                 break;
             case StrategyDispatchKind.Book:
-                strategy.RunBookGuarded(in market, ref portfolio, book!, assetRangeStart, assetRangeLength);
+                strategy.RunBookSnapshotGuarded(in market, ref portfolio, book!, assetRangeStart, assetRangeLength);
                 break;
-            case StrategyDispatchKind.BookDelta:
-                strategy.RunBookDeltaGuarded(in market, ref portfolio, bookDelta!, assetRangeStart, assetRangeLength);
+            case StrategyDispatchKind.BookLevelDelta:
+                strategy.RunBookLevelDeltaGuarded(in market, ref portfolio, bookDelta!, assetRangeStart, assetRangeLength);
                 break;
-            case StrategyDispatchKind.BookDeltas:
-                strategy.RunBookDeltasGuarded(in market, ref portfolio, bookDeltas!, assetRangeStart, assetRangeLength);
+            case StrategyDispatchKind.BookLevelDeltas:
+                strategy.RunBookLevelDeltasGuarded(in market, ref portfolio, bookDeltas!, assetRangeStart, assetRangeLength);
                 break;
             case StrategyDispatchKind.Bar:
                 strategy.RunBarGuarded(in market, ref portfolio);

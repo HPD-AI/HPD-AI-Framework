@@ -225,7 +225,7 @@ public sealed class StrategyGeneratorTests
                     trade.Sell(new Qty(1m));
                 }
 
-                partial void OnBook(ref BookContext book)
+                partial void OnBookSnapshot(ref BookSnapshotContext book)
                 {
                     _ = book.BestBid;
                     book.Flatten();
@@ -544,7 +544,7 @@ public sealed class StrategyGeneratorTests
     }
 
     [Fact]
-    public void BookField_GeneratesCompilingBookContext()
+    public void BookField_GeneratesCompilingBookSnapshotContext()
     {
         var diagnostics = RunGeneratorAndCompilation("""
             using Rhodium.Platform;
@@ -558,7 +558,7 @@ public sealed class StrategyGeneratorTests
                 [BookField(ReadOnly = true)]
                 public partial double Close { get; }
 
-                partial void OnBook(ref BookContext book)
+                partial void OnBookSnapshot(ref BookSnapshotContext book)
                 {
                     if (book.TopLevelImbalance > 0.5m)
                         book.Buy(new Qty(1m), Execution.Limit().AtBid());
@@ -570,7 +570,7 @@ public sealed class StrategyGeneratorTests
     }
 
     [Fact]
-    public void BookDeltaHooks_GenerateCompilingContexts()
+    public void BookLevelDeltaHooks_GenerateCompilingContexts()
     {
         var diagnostics = RunGeneratorAndCompilation("""
             using Rhodium.Platform;
@@ -578,15 +578,15 @@ public sealed class StrategyGeneratorTests
 
             namespace Rhodium.Platform.TestSubject;
 
-            public sealed partial class BookDeltaStrategy : Strategy
+            public sealed partial class BookLevelDeltaStrategy : Strategy
             {
-                partial void OnBookDelta(ref BookDeltaContext book)
+                partial void OnBookLevelDelta(ref BookLevelDeltaContext book)
                 {
                     if (book.Action == BookAction.Add && book.Side == Side.Buy)
                         book.Buy(new Qty(1m), Execution.Limit().At(book.Price));
                 }
 
-                partial void OnBookDeltas(ref BookDeltasContext book)
+                partial void OnBookLevelDeltas(ref BookLevelDeltasContext book)
                 {
                     if (book.Count > 0)
                         book.Sell(new Qty(1m), Execution.Market());
@@ -630,7 +630,7 @@ public sealed class StrategyGeneratorTests
                 partial void OnTick(ref TickContext tick) => tick.Buy(new Qty(1m), Execution.Market());
                 partial void OnQuote(ref QuoteContext quote) => quote.Buy(new Qty(1m), Execution.Market());
                 partial void OnTrade(ref TradeContext trade) => trade.Buy(new Qty(1m), Execution.Market());
-                partial void OnBook(ref BookContext book) => book.Buy(new Qty(1m), Execution.Market());
+                partial void OnBookSnapshot(ref BookSnapshotContext book) => book.Buy(new Qty(1m), Execution.Market());
                 partial void OnBar(ref BarContext bar) => bar.Buy(new Qty(1m), Execution.Market());
             }
             """);
@@ -641,7 +641,7 @@ public sealed class StrategyGeneratorTests
         Assert.Contains("new TickContext(id, this, in market, ref portfolio, in frame)", generated);
         Assert.Contains("new QuoteContext(id, this, in market, ref portfolio, in evt)", generated);
         Assert.Contains("new TradeContext(id, this, in market, ref portfolio, in evt)", generated);
-        Assert.Contains("new BookContext(id, this, in market, ref portfolio, in evt)", generated);
+        Assert.Contains("new BookSnapshotContext(id, this, in market, ref portfolio, in evt)", generated);
         Assert.Contains("new BarContext(id, this, in market, ref portfolio)", generated);
         Assert.DoesNotContain("private PortfolioContext _portfolio;", generated);
         Assert.DoesNotContain("public MarketKernel Market", generated);
@@ -668,7 +668,31 @@ public sealed class StrategyGeneratorTests
             """);
 
         Assert.Contains("new global::Rhodium.Indicators.Streaming.RSI(RsiPeriod)", generated);
+        Assert.Contains("global::Rhodium.Platform.IStrategyParameterFactory<ParamStrategy>", generated);
+        Assert.Contains("public static ParamStrategy CreateVariant(global::Rhodium.Platform.ParameterSet parameters)", generated);
+        Assert.Contains("RsiPeriod = parameters.GetRequired<int>(@\"RsiPeriod\", @\"RsiPeriod\")", generated);
         Assert.DoesNotContain("ParameterSet.Get", generated);
+    }
+
+    [Fact]
+    public void ParamOnlyStrategy_EmitsStaticVariantFactory()
+    {
+        var generated = RunGeneratorAndGetOutput("""
+            using Rhodium.Platform;
+            using Rhodium.Platform.Attributes;
+
+            namespace Rhodium.Platform.TestSubject;
+
+            public sealed partial class ParamStrategy : Strategy
+            {
+                [Param] public int Fast { get; init; }
+                [Param(Name = "slow-period")] public int Slow { get; init; }
+            }
+            """);
+
+        Assert.Contains("partial class ParamStrategy : global::Rhodium.Platform.IStrategyParameterFactory<ParamStrategy>", generated);
+        Assert.Contains("Fast = parameters.GetRequired<int>(@\"Fast\", @\"Fast\")", generated);
+        Assert.Contains("Slow = parameters.GetRequired<int>(@\"slow-period\", @\"Slow\")", generated);
     }
 
     [Fact]

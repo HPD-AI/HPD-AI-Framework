@@ -18,17 +18,17 @@ public sealed class ParameterGrid
 
     public static ParameterGrid Create() => new();
 
-    public static ParameterGrid FromParameterSets(IEnumerable<ParameterSet> parameters)
+    public static ParameterGrid FromParameterSets(IReadOnlyList<ParameterSet> parameters)
     {
         ArgumentNullException.ThrowIfNull(parameters);
 
-        var rows = parameters
-            .Select(static parameter => new ParameterSet(
-                parameter.All.ToDictionary(
-                    static item => item.Name,
-                    static item => item.Value,
-                    StringComparer.Ordinal)))
-            .ToArray();
+        var rows = new ParameterSet[parameters.Count];
+        for (var i = 0; i < parameters.Count; i++)
+        {
+            var values = new Dictionary<string, object>(parameters[i].Count, StringComparer.Ordinal);
+            parameters[i].CopyTo(values);
+            rows[i] = values.Count == 0 ? ParameterSet.Empty : new ParameterSet(values);
+        }
 
         return new ParameterGrid(rows);
     }
@@ -58,11 +58,8 @@ public sealed class ParameterGrid
     public int Count => _rows is not null ? _rows.Length : _axes.Count == 0 ? 0 : _count;
 
     public IReadOnlyList<string> ParameterNames => _rows is not null
-        ? _rows
-            .SelectMany(static row => row.All.Select(static item => item.Name))
-            .Distinct(StringComparer.Ordinal)
-            .ToArray()
-        : _axes.Select(static axis => axis.Name).ToArray();
+        ? GetExactRowParameterNames()
+        : GetAxisParameterNames();
 
     public ParameterSet GetParametersForVariant(int variantIndex)
     {
@@ -85,4 +82,23 @@ public sealed class ParameterGrid
     }
 
     private readonly record struct ParameterAxis(string Name, object[] Values);
+
+    private string[] GetExactRowParameterNames()
+    {
+        var names = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < _rows!.Length; i++)
+            _rows[i].AddNamesTo(names, seen);
+
+        return names.ToArray();
+    }
+
+    private string[] GetAxisParameterNames()
+    {
+        var names = new string[_axes.Count];
+        for (var i = 0; i < _axes.Count; i++)
+            names[i] = _axes[i].Name;
+
+        return names;
+    }
 }

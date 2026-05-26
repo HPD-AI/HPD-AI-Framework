@@ -111,7 +111,7 @@ public sealed class StrategyGenerator : IIncrementalGenerator
 
         var hooks = context.SyntaxProvider
             .CreateSyntaxProvider(
-                static (node, _) => node is MethodDeclarationSyntax { Identifier.ValueText: "OnBar" or "OnTick" or "OnQuote" or "OnTrade" or "OnBook" or "OnBookDelta" or "OnBookDeltas" },
+                static (node, _) => node is MethodDeclarationSyntax { Identifier.ValueText: "OnBar" or "OnTick" or "OnQuote" or "OnTrade" or "OnBookSnapshot" or "OnBookLevelDelta" or "OnBookLevelDeltas" },
                 static (ctx, _) => GetHookModel(ctx))
             .Where(static model => model is not null)
             .Collect();
@@ -232,12 +232,25 @@ public sealed class StrategyGenerator : IIncrementalGenerator
         var diagnostics = new List<Diagnostic>();
         var canGenerate = true;
         if (param is not null)
+        {
+            var diagnosticCount = diagnostics.Count;
             ValidateParameterProperty(symbol, syntax, diagnostics);
+            if (diagnostics.Count != diagnosticCount)
+                canGenerate = false;
+        }
 
         if (barField is null && tickField is null && quoteField is null && tradeField is null && bookField is null &&
             barIndicator is null && tickIndicator is null && barIndicatorGroup is null && window is null)
         {
-            return GeneratedProperty.DiagnosticsOnly(symbol.ContainingType, symbol.Name, diagnostics);
+            return param is null
+                ? GeneratedProperty.DiagnosticsOnly(symbol.ContainingType, symbol.Name, diagnostics)
+                : GeneratedProperty.Parameter(
+                    symbol.ContainingType,
+                    symbol.Name,
+                    symbol.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                    GetStringNamedArgument(param, "Name") ?? symbol.Name,
+                    diagnostics,
+                    canGenerate);
         }
 
         if (barIndicatorGroup is not null)
@@ -373,9 +386,9 @@ public sealed class StrategyGenerator : IIncrementalGenerator
             "OnTick" => FieldFrequency.Tick,
             "OnQuote" => FieldFrequency.Quote,
             "OnTrade" => FieldFrequency.Trade,
-            "OnBook" => FieldFrequency.Book,
-            "OnBookDelta" => FieldFrequency.Book,
-            "OnBookDeltas" => FieldFrequency.Book,
+            "OnBookSnapshot" => FieldFrequency.Book,
+            "OnBookLevelDelta" => FieldFrequency.Book,
+            "OnBookLevelDeltas" => FieldFrequency.Book,
             "OnBar" => FieldFrequency.Bar,
             _ => (FieldFrequency?)null
         };
@@ -384,8 +397,9 @@ public sealed class StrategyGenerator : IIncrementalGenerator
 
         var expectedContextName = symbol.Name switch
         {
-            "OnBookDelta" => "BookDeltaContext",
-            "OnBookDeltas" => "BookDeltasContext",
+            "OnBookSnapshot" => "BookSnapshotContext",
+            "OnBookLevelDelta" => "BookLevelDeltaContext",
+            "OnBookLevelDeltas" => "BookLevelDeltasContext",
             _ => frequency.Value + "Context"
         };
 
@@ -416,7 +430,8 @@ public sealed class StrategyGenerator : IIncrementalGenerator
         var ns = type.ContainingNamespace.IsGlobalNamespace ? null : type.ContainingNamespace.ToDisplayString();
         var typeName = type.Name;
         var hookTriggers = properties.Where(static p => p.IsHookTrigger).ToArray();
-        var generatedProperties = properties.Where(static p => !p.IsHookTrigger).ToArray();
+        var parameterProperties = properties.Where(static p => p.IsParameter).ToArray();
+        var generatedProperties = properties.Where(static p => !p.IsHookTrigger && !p.IsParameter).ToArray();
         var barProperties = generatedProperties.Where(static p => p.Frequency == FieldFrequency.Bar).ToArray();
         var tickProperties = generatedProperties.Where(static p => p.Frequency == FieldFrequency.Tick).ToArray();
         var quoteProperties = generatedProperties.Where(static p => p.Frequency == FieldFrequency.Quote).ToArray();
@@ -432,10 +447,10 @@ public sealed class StrategyGenerator : IIncrementalGenerator
         var hasTickHook = hookTriggers.Any(static p => p.Frequency == FieldFrequency.Tick);
         var hasQuoteHook = hookTriggers.Any(static p => p.Frequency == FieldFrequency.Quote);
         var hasTradeHook = hookTriggers.Any(static p => p.Frequency == FieldFrequency.Trade);
-        var hasBookHook = hookTriggers.Any(static p => p.PropertyName == "OnBook");
-        var hasBookDeltaHook = hookTriggers.Any(static p => p.PropertyName == "OnBookDelta");
-        var hasBookDeltasHook = hookTriggers.Any(static p => p.PropertyName == "OnBookDeltas");
-        var hasAnyBookHook = hasBookHook || hasBookDeltaHook || hasBookDeltasHook;
+        var hasBookHook = hookTriggers.Any(static p => p.PropertyName == "OnBookSnapshot");
+        var hasBookLevelDeltaHook = hookTriggers.Any(static p => p.PropertyName == "OnBookLevelDelta");
+        var hasBookLevelDeltasHook = hookTriggers.Any(static p => p.PropertyName == "OnBookLevelDeltas");
+        var hasAnyBookHook = hasBookHook || hasBookLevelDeltaHook || hasBookLevelDeltasHook;
         var sb = new StringBuilder();
 
         sb.AppendLine("// <auto-generated />");
@@ -455,7 +470,10 @@ public sealed class StrategyGenerator : IIncrementalGenerator
             sb.AppendLine();
         }
 
-        sb.Append("partial class ").Append(typeName).AppendLine();
+        sb.Append("partial class ").Append(typeName);
+        if (parameterProperties.Length > 0)
+            sb.Append(" : global::Rhodium.Platform.IStrategyParameterFactory<").Append(typeName).Append(">");
+        sb.AppendLine();
         sb.AppendLine("{");
 
         foreach (var property in generatedProperties)
@@ -493,21 +511,47 @@ public sealed class StrategyGenerator : IIncrementalGenerator
         GenerateTick(sb, typeName, tickProperties, hasTickHook);
         GenerateQuotes(sb, typeName, quoteProperties, hasQuoteHook);
         GenerateTrades(sb, typeName, tradeProperties, hasTradeHook);
-        GenerateBooks(sb, typeName, bookProperties, hasBookHook, hasBookDeltaHook, hasBookDeltasHook);
+        GenerateBookSnapshots(sb, typeName, bookProperties, hasBookHook, hasBookLevelDeltaHook, hasBookLevelDeltasHook);
         GenerateBars(sb, typeName, barProperties, groupProperties, hasBarHook);
         GenerateContextOnlyProperties(sb, generatedProperties);
         GenerateTickContext(sb, typeName, tickProperties, hasTickHook);
         GenerateQuoteContext(sb, typeName, quoteProperties, hasQuoteHook);
         GenerateTradeContext(sb, typeName, tradeProperties, hasTradeHook);
-        GenerateBookContext(sb, typeName, bookProperties, hasBookHook);
-        GenerateBookDeltaContext(sb, typeName, hasBookDeltaHook);
-        GenerateBookDeltasContext(sb, typeName, hasBookDeltasHook);
+        GenerateBookSnapshotContext(sb, typeName, bookProperties, hasBookHook);
+        GenerateBookLevelDeltaContext(sb, typeName, hasBookLevelDeltaHook);
+        GenerateBookLevelDeltasContext(sb, typeName, hasBookLevelDeltasHook);
         GenerateBarContext(sb, typeName, barProperties, groupProperties, hasBarHook);
         GenerateExplicitAccessors(sb, generatedProperties);
         GenerateGroupViews(sb, groupProperties);
+        GenerateParameterFactory(sb, typeName, parameterProperties);
 
         sb.AppendLine("}");
         return sb.ToString();
+    }
+
+    private static void GenerateParameterFactory(
+        StringBuilder sb,
+        string typeName,
+        IReadOnlyList<GeneratedProperty> parameterProperties)
+    {
+        if (parameterProperties.Count == 0)
+            return;
+
+        sb.AppendLine();
+        sb.Append("    public static ").Append(typeName).AppendLine(" CreateVariant(global::Rhodium.Platform.ParameterSet parameters)");
+        sb.AppendLine("    {");
+        sb.Append("        return new ").Append(typeName).AppendLine();
+        sb.AppendLine("        {");
+        foreach (var property in parameterProperties)
+        {
+            sb.Append("            ").Append(property.PropertyName)
+                .Append(" = parameters.GetRequired<").Append(property.PropertyType).Append(">(")
+                .Append(StringExpression(property.ParameterName ?? property.PropertyName)).Append(", ")
+                .Append(StringExpression(property.PropertyName)).AppendLine("),");
+        }
+
+        sb.AppendLine("        };");
+        sb.AppendLine("    }");
     }
 
     private static void GenerateInitialize(
@@ -593,10 +637,10 @@ public sealed class StrategyGenerator : IIncrementalGenerator
         sb.AppendLine("    {");
         sb.AppendLine("        var bidTick = market.GetBestBidTick(id);");
         sb.AppendLine("        var askTick = market.GetBestAskTick(id);");
-        sb.AppendLine("        var metadata = market.GetMetadata(id);");
+        sb.AppendLine("        var tickSize = market.GetPriceIncrement(id);");
         sb.AppendLine("        var bidSize = bidTick.HasValue ? market.GetQtyAtTick(id, Side.Buy, bidTick.Value) : 0m;");
         sb.AppendLine("        var askSize = askTick.HasValue ? market.GetQtyAtTick(id, Side.Sell, askTick.Value) : 0m;");
-        sb.AppendLine("        var frame = new TickFrame(id, TickEventType.Snapshot, bidTick, askTick, bidSize, askSize, metadata.TickSize, default);");
+        sb.AppendLine("        var frame = new TickFrame(id, TickEventType.Snapshot, bidTick, askTick, bidSize, askSize, tickSize, default);");
 
         foreach (var property in tickProperties.Where(static p => p.HasIndicator))
         {
@@ -679,7 +723,7 @@ public sealed class StrategyGenerator : IIncrementalGenerator
         sb.AppendLine("    partial void OnTrade(ref TradeContext trade);");
     }
 
-    private static void GenerateBooks(
+    private static void GenerateBookSnapshots(
         StringBuilder sb,
         string typeName,
         IReadOnlyList<GeneratedProperty> bookProperties,
@@ -693,9 +737,9 @@ public sealed class StrategyGenerator : IIncrementalGenerator
         if (bookProperties.Count > 0 || force)
         {
             sb.AppendLine();
-            sb.AppendLine("    protected override void __GeneratedRunBook(in MarketKernel market, ref PortfolioContext portfolio, BookUpdated evt, int assetRangeStart, int assetRangeLength)");
+            sb.AppendLine("    protected override void __GeneratedRunBookSnapshot(in MarketKernel market, ref PortfolioContext portfolio, BookSnapshotReceived evt, int assetRangeStart, int assetRangeLength)");
             sb.AppendLine("    {");
-            sb.AppendLine("        base.__GeneratedRunBook(in market, ref portfolio, evt, assetRangeStart, assetRangeLength);");
+            sb.AppendLine("        base.__GeneratedRunBookSnapshot(in market, ref portfolio, evt, assetRangeStart, assetRangeLength);");
             sb.AppendLine("        var assets = RegisteredAssets;");
             sb.AppendLine("        var assetRangeEnd = assetRangeStart + assetRangeLength;");
             sb.AppendLine("        for (var i = 0; i < assets.Length; i++)");
@@ -707,53 +751,53 @@ public sealed class StrategyGenerator : IIncrementalGenerator
             sb.AppendLine("    }");
 
             sb.AppendLine();
-            sb.AppendLine("    private void __Rhodium_OnBookAsset(AssetId id, in MarketKernel market, ref PortfolioContext portfolio, in BookUpdated evt)");
+            sb.AppendLine("    private void __Rhodium_OnBookAsset(AssetId id, in MarketKernel market, ref PortfolioContext portfolio, in BookSnapshotReceived evt)");
             sb.AppendLine("    {");
-            sb.AppendLine("        var book = new BookContext(id, this, in market, ref portfolio, in evt);");
-            sb.AppendLine("        OnBook(ref book);");
+            sb.AppendLine("        var book = new BookSnapshotContext(id, this, in market, ref portfolio, in evt);");
+            sb.AppendLine("        OnBookSnapshot(ref book);");
             sb.AppendLine("    }");
             sb.AppendLine();
-            sb.AppendLine("    partial void OnBook(ref BookContext book);");
+            sb.AppendLine("    partial void OnBookSnapshot(ref BookSnapshotContext book);");
         }
 
         if (forceDelta)
         {
             sb.AppendLine();
-            sb.AppendLine("    protected override void __GeneratedRunBookDelta(in MarketKernel market, ref PortfolioContext portfolio, BookDeltaReceived evt, int assetRangeStart, int assetRangeLength)");
+            sb.AppendLine("    protected override void __GeneratedRunBookLevelDelta(in MarketKernel market, ref PortfolioContext portfolio, BookLevelDeltaReceived evt, int assetRangeStart, int assetRangeLength)");
             sb.AppendLine("    {");
-            sb.AppendLine("        base.__GeneratedRunBookDelta(in market, ref portfolio, evt, assetRangeStart, assetRangeLength);");
+            sb.AppendLine("        base.__GeneratedRunBookLevelDelta(in market, ref portfolio, evt, assetRangeStart, assetRangeLength);");
             sb.AppendLine("        var assets = RegisteredAssets;");
             sb.AppendLine("        var assetRangeEnd = assetRangeStart + assetRangeLength;");
             sb.AppendLine("        for (var i = 0; i < assets.Length; i++)");
             sb.AppendLine("        {");
             sb.AppendLine("            var id = assets[i];");
             sb.AppendLine("            if (id.VirtualIndex < assetRangeStart || id.VirtualIndex >= assetRangeEnd) continue;");
-            sb.AppendLine("            var book = new BookDeltaContext(id, this, in market, ref portfolio, in evt);");
-            sb.AppendLine("            OnBookDelta(ref book);");
+            sb.AppendLine("            var book = new BookLevelDeltaContext(id, this, in market, ref portfolio, in evt);");
+            sb.AppendLine("            OnBookLevelDelta(ref book);");
             sb.AppendLine("        }");
             sb.AppendLine("    }");
             sb.AppendLine();
-            sb.AppendLine("    partial void OnBookDelta(ref BookDeltaContext book);");
+            sb.AppendLine("    partial void OnBookLevelDelta(ref BookLevelDeltaContext book);");
         }
 
         if (forceDeltas)
         {
             sb.AppendLine();
-            sb.AppendLine("    protected override void __GeneratedRunBookDeltas(in MarketKernel market, ref PortfolioContext portfolio, BookDeltasReceived evt, int assetRangeStart, int assetRangeLength)");
+            sb.AppendLine("    protected override void __GeneratedRunBookLevelDeltas(in MarketKernel market, ref PortfolioContext portfolio, BookLevelDeltasReceived evt, int assetRangeStart, int assetRangeLength)");
             sb.AppendLine("    {");
-            sb.AppendLine("        base.__GeneratedRunBookDeltas(in market, ref portfolio, evt, assetRangeStart, assetRangeLength);");
+            sb.AppendLine("        base.__GeneratedRunBookLevelDeltas(in market, ref portfolio, evt, assetRangeStart, assetRangeLength);");
             sb.AppendLine("        var assets = RegisteredAssets;");
             sb.AppendLine("        var assetRangeEnd = assetRangeStart + assetRangeLength;");
             sb.AppendLine("        for (var i = 0; i < assets.Length; i++)");
             sb.AppendLine("        {");
             sb.AppendLine("            var id = assets[i];");
             sb.AppendLine("            if (id.VirtualIndex < assetRangeStart || id.VirtualIndex >= assetRangeEnd) continue;");
-            sb.AppendLine("            var book = new BookDeltasContext(id, this, in market, ref portfolio, in evt);");
-            sb.AppendLine("            OnBookDeltas(ref book);");
+            sb.AppendLine("            var book = new BookLevelDeltasContext(id, this, in market, ref portfolio, in evt);");
+            sb.AppendLine("            OnBookLevelDeltas(ref book);");
             sb.AppendLine("        }");
             sb.AppendLine("    }");
             sb.AppendLine();
-            sb.AppendLine("    partial void OnBookDeltas(ref BookDeltasContext book);");
+            sb.AppendLine("    partial void OnBookLevelDeltas(ref BookLevelDeltasContext book);");
         }
     }
 
@@ -869,8 +913,8 @@ public sealed class StrategyGenerator : IIncrementalGenerator
         sb.AppendLine("        public Price Mid => _quote.Quote.Mid;");
         sb.AppendLine("        public Price Spread => _quote.Quote.Spread;");
         sb.AppendLine("        public decimal SpreadBps => _quote.Quote.SpreadBps;");
-        sb.AppendLine("        public long BidTick => _quote.Quote.BidTick(_market.GetMetadata(_assetId).TickSize).Ticks;");
-        sb.AppendLine("        public long AskTick => _quote.Quote.AskTick(_market.GetMetadata(_assetId).TickSize).Ticks;");
+        sb.AppendLine("        public long BidTick => _quote.Quote.BidTick(_market.GetPriceIncrement(_assetId)).Ticks;");
+        sb.AppendLine("        public long AskTick => _quote.Quote.AskTick(_market.GetPriceIncrement(_assetId)).Ticks;");
         sb.AppendLine("        public long SpreadTicks => AskTick - BidTick;");
         sb.AppendLine();
         GenerateContextProperties(sb, quoteProperties, "Quote");
@@ -894,7 +938,7 @@ public sealed class StrategyGenerator : IIncrementalGenerator
         sb.AppendLine("        public Price Price => _trade.Trade.Price;");
         sb.AppendLine("        public Qty Size => _trade.Trade.Size;");
         sb.AppendLine("        public Side AggressorSide => _trade.Trade.AggressorSide;");
-        sb.AppendLine("        public long PriceTick => _trade.Trade.PriceTick(_market.GetMetadata(_assetId).TickSize).Ticks;");
+        sb.AppendLine("        public long PriceTick => _trade.Trade.PriceTick(_market.GetPriceIncrement(_assetId)).Ticks;");
         sb.AppendLine();
         GenerateContextProperties(sb, tradeProperties, "Trade");
         GenerateContextAssetAccessors(sb, tradeProperties);
@@ -902,7 +946,7 @@ public sealed class StrategyGenerator : IIncrementalGenerator
         sb.AppendLine("    }");
     }
 
-    private static void GenerateBookContext(
+    private static void GenerateBookSnapshotContext(
         StringBuilder sb,
         string typeName,
         IReadOnlyList<GeneratedProperty> bookProperties,
@@ -911,8 +955,8 @@ public sealed class StrategyGenerator : IIncrementalGenerator
         if (bookProperties.Count == 0 && !force)
             return;
 
-        GenerateEventContextHeader(sb, typeName, "BookContext", "BookUpdated", "book");
-        sb.AppendLine("        public BookUpdated Event => _book;");
+        GenerateEventContextHeader(sb, typeName, "BookSnapshotContext", "BookSnapshotReceived", "book");
+        sb.AppendLine("        public BookSnapshotReceived Event => _book;");
         sb.AppendLine("        public Book Book => _book.Book;");
         sb.AppendLine("        public Level? BestBid => _book.Book.BestBid;");
         sb.AppendLine("        public Level? BestAsk => _book.Book.BestAsk;");
@@ -937,7 +981,7 @@ public sealed class StrategyGenerator : IIncrementalGenerator
         sb.AppendLine("    }");
     }
 
-    private static void GenerateBookDeltaContext(
+    private static void GenerateBookLevelDeltaContext(
         StringBuilder sb,
         string typeName,
         bool force)
@@ -945,20 +989,20 @@ public sealed class StrategyGenerator : IIncrementalGenerator
         if (!force)
             return;
 
-        GenerateEventContextHeader(sb, typeName, "BookDeltaContext", "BookDeltaReceived", "book");
-        sb.AppendLine("        public BookDeltaReceived Event => _book;");
-        sb.AppendLine("        public BookDelta Delta => _book.Delta;");
+        GenerateEventContextHeader(sb, typeName, "BookLevelDeltaContext", "BookLevelDeltaReceived", "book");
+        sb.AppendLine("        public BookLevelDeltaReceived Event => _book;");
+        sb.AppendLine("        public BookLevelDelta Delta => _book.Delta;");
         sb.AppendLine("        public Side Side => _book.Delta.Side;");
         sb.AppendLine("        public Price Price => _book.Delta.Price;");
         sb.AppendLine("        public Qty Size => _book.Delta.Size;");
         sb.AppendLine("        public BookAction Action => _book.Delta.Action;");
-        sb.AppendLine("        public long Sequence => _book.Delta.Sequence;");
+        sb.AppendLine("        public long VenueSequence => _book.Delta.VenueSequence;");
         sb.AppendLine();
         GenerateOrderHelpers(sb);
         sb.AppendLine("    }");
     }
 
-    private static void GenerateBookDeltasContext(
+    private static void GenerateBookLevelDeltasContext(
         StringBuilder sb,
         string typeName,
         bool force)
@@ -966,9 +1010,9 @@ public sealed class StrategyGenerator : IIncrementalGenerator
         if (!force)
             return;
 
-        GenerateEventContextHeader(sb, typeName, "BookDeltasContext", "BookDeltasReceived", "book");
-        sb.AppendLine("        public BookDeltasReceived Event => _book;");
-        sb.AppendLine("        public global::System.Collections.Generic.IReadOnlyList<BookDelta> Deltas => _book.Deltas;");
+        GenerateEventContextHeader(sb, typeName, "BookLevelDeltasContext", "BookLevelDeltasReceived", "book");
+        sb.AppendLine("        public BookLevelDeltasReceived Event => _book;");
+        sb.AppendLine("        public global::System.Collections.Generic.IReadOnlyList<BookLevelDelta> Deltas => _book.Deltas;");
         sb.AppendLine("        public int Count => _book.Deltas.Count;");
         sb.AppendLine();
         GenerateOrderHelpers(sb);
@@ -1134,56 +1178,68 @@ public sealed class StrategyGenerator : IIncrementalGenerator
 
     private static void GenerateOrderHelpers(StringBuilder sb)
     {
-        sb.AppendLine("        public void Buy(Qty quantity, ExecutionPolicy policy = ExecutionPolicy.Safe)");
-        sb.AppendLine("            => _portfolio.Buy(_assetId, quantity, in _market);");
+        sb.AppendLine("        public void Buy(Qty quantity)");
+        sb.AppendLine("            => _portfolio.Buy(_assetId, quantity, Execution.Market());");
         sb.AppendLine();
         sb.AppendLine("        public void Buy(Qty quantity, ExecutionSpec execution)");
         sb.AppendLine("            => _portfolio.Buy(_assetId, quantity, execution);");
         sb.AppendLine();
-        sb.AppendLine("        public void Buy(AssetId id, Qty quantity, ExecutionPolicy policy = ExecutionPolicy.Safe)");
-        sb.AppendLine("            => _portfolio.Buy(id, quantity, in _market);");
+        sb.AppendLine("        public void Buy(AssetId id, Qty quantity)");
+        sb.AppendLine("            => _portfolio.Buy(id, quantity, Execution.Market());");
         sb.AppendLine();
         sb.AppendLine("        public void Buy(AssetId id, Qty quantity, ExecutionSpec execution)");
         sb.AppendLine("            => _portfolio.Buy(id, quantity, execution);");
         sb.AppendLine();
-        sb.AppendLine("        public void Sell(Qty quantity, ExecutionPolicy policy = ExecutionPolicy.Safe)");
-        sb.AppendLine("            => _portfolio.Sell(_assetId, quantity, in _market);");
+        sb.AppendLine("        public void Sell(Qty quantity)");
+        sb.AppendLine("            => _portfolio.Sell(_assetId, quantity, Execution.Market());");
         sb.AppendLine();
         sb.AppendLine("        public void Sell(Qty quantity, ExecutionSpec execution)");
         sb.AppendLine("            => _portfolio.Sell(_assetId, quantity, execution);");
         sb.AppendLine();
-        sb.AppendLine("        public void Sell(AssetId id, Qty quantity, ExecutionPolicy policy = ExecutionPolicy.Safe)");
-        sb.AppendLine("            => _portfolio.Sell(id, quantity, in _market);");
+        sb.AppendLine("        public void Sell(AssetId id, Qty quantity)");
+        sb.AppendLine("            => _portfolio.Sell(id, quantity, Execution.Market());");
         sb.AppendLine();
         sb.AppendLine("        public void Sell(AssetId id, Qty quantity, ExecutionSpec execution)");
         sb.AppendLine("            => _portfolio.Sell(id, quantity, execution);");
         sb.AppendLine();
-        sb.AppendLine("        public void Flatten(ExecutionPolicy policy = ExecutionPolicy.Safe)");
-        sb.AppendLine("            => _portfolio.Flatten(_assetId, in _market);");
+        sb.AppendLine("        public void Cancel(OrderId orderId, string? reason = null)");
+        sb.AppendLine("            => _portfolio.Cancel(_assetId, orderId, reason);");
         sb.AppendLine();
-        sb.AppendLine("        public void Flatten(AssetId id, ExecutionPolicy policy = ExecutionPolicy.Safe)");
-        sb.AppendLine("            => _portfolio.Flatten(id, in _market);");
+        sb.AppendLine("        public void Cancel(AssetId id, OrderId orderId, string? reason = null)");
+        sb.AppendLine("            => _portfolio.Cancel(id, orderId, reason);");
         sb.AppendLine();
-        sb.AppendLine("        public void TargetQuantity(Qty quantity, ExecutionPolicy policy = ExecutionPolicy.Safe)");
+        sb.AppendLine("        public void Modify(OrderId orderId, Qty? newQuantity = null, Price? newLimitPrice = null)");
+        sb.AppendLine("            => _portfolio.Modify(_assetId, orderId, newQuantity, newLimitPrice);");
+        sb.AppendLine();
+        sb.AppendLine("        public void Modify(AssetId id, OrderId orderId, Qty? newQuantity = null, Price? newLimitPrice = null)");
+        sb.AppendLine("            => _portfolio.Modify(id, orderId, newQuantity, newLimitPrice);");
+        sb.AppendLine();
+        sb.AppendLine("        public void Flatten()");
+        sb.AppendLine("            => TargetQuantity(Qty.Zero);");
+        sb.AppendLine();
+        sb.AppendLine("        public void Flatten(AssetId id)");
+        sb.AppendLine("            => TargetQuantity(id, Qty.Zero);");
+        sb.AppendLine();
+        sb.AppendLine("        public void TargetQuantity(Qty quantity)");
         sb.AppendLine("        {");
         sb.AppendLine("            var current = _portfolio.GetPositionQty(_assetId);");
         sb.AppendLine("            var delta = quantity.Value - current;");
         sb.AppendLine("            if (delta == 0m) return;");
         sb.AppendLine("            if (delta > 0m)");
-        sb.AppendLine("                _portfolio.Buy(_assetId, new Qty(delta), in _market);");
+        sb.AppendLine("                _portfolio.Buy(_assetId, new Qty(delta), Execution.Market());");
         sb.AppendLine("            else");
-        sb.AppendLine("                _portfolio.Sell(_assetId, new Qty(global::System.Math.Abs(delta)), in _market);");
+        sb.AppendLine("                _portfolio.Sell(_assetId, new Qty(global::System.Math.Abs(delta)), Execution.Market());");
         sb.AppendLine("        }");
         sb.AppendLine();
-        sb.AppendLine("        public void TargetQuantity(AssetId id, Qty quantity, ExecutionPolicy policy = ExecutionPolicy.Safe)");
+        sb.AppendLine("        public void TargetQuantity(AssetId id, Qty quantity)");
         sb.AppendLine("        {");
         sb.AppendLine("            var current = _portfolio.GetPositionQty(id);");
         sb.AppendLine("            var delta = quantity.Value - current;");
         sb.AppendLine("            if (delta == 0m) return;");
         sb.AppendLine("            if (delta > 0m)");
-        sb.AppendLine("                _portfolio.Buy(id, new Qty(delta), in _market);");
+        sb.AppendLine("                _portfolio.Buy(id, new Qty(delta), Execution.Market());");
         sb.AppendLine("            else");
-        sb.AppendLine("                _portfolio.Sell(id, new Qty(global::System.Math.Abs(delta)), in _market);");
+        sb.AppendLine("                _portfolio.Sell(id, new Qty(global::System.Math.Abs(delta)), Execution.Market());");
         sb.AppendLine("        }");
     }
 
@@ -1372,6 +1428,9 @@ public sealed class StrategyGenerator : IIncrementalGenerator
             _ => constant.Value.ToString() ?? ""
         };
     }
+
+    private static string StringExpression(string value)
+        => "@\"" + value.Replace("\"", "\"\"") + "\"";
 
     private static bool GetBoolNamedArgument(AttributeData? attr, string name, bool defaultValue)
     {
@@ -1674,6 +1733,32 @@ public sealed class StrategyGenerator : IIncrementalGenerator
             IsHookTrigger = true;
         }
 
+        private GeneratedProperty(
+            INamedTypeSymbol containingType,
+            string propertyName,
+            string propertyType,
+            string parameterName,
+            IReadOnlyList<Diagnostic> diagnostics,
+            bool canGenerate)
+            : this(
+                containingType,
+                propertyName,
+                propertyType,
+                propertyName,
+                readOnly: true,
+                FieldFrequency.Bar,
+                hasIndicator: false,
+                indicatorTypeName: null,
+                ImmutableArray<IndicatorArgument>.Empty,
+                ImmutableArray<int>.Empty,
+                source: "",
+                diagnostics,
+                canGenerate)
+        {
+            IsParameter = true;
+            ParameterName = parameterName;
+        }
+
         public static GeneratedProperty Group(
             INamedTypeSymbol containingType,
             string propertyName,
@@ -1712,6 +1797,15 @@ public sealed class StrategyGenerator : IIncrementalGenerator
             bool canGenerate)
             => new(containingType, hookName, frequency, diagnostics, canGenerate);
 
+        public static GeneratedProperty Parameter(
+            INamedTypeSymbol containingType,
+            string propertyName,
+            string propertyType,
+            string parameterName,
+            IReadOnlyList<Diagnostic> diagnostics,
+            bool canGenerate)
+            => new(containingType, propertyName, propertyType, parameterName, diagnostics, canGenerate);
+
         public INamedTypeSymbol ContainingType { get; }
         public string PropertyName { get; }
         public string PropertyType { get; }
@@ -1727,6 +1821,8 @@ public sealed class StrategyGenerator : IIncrementalGenerator
         public bool CanGenerate { get; }
         public bool IsGroup { get; }
         public bool IsHookTrigger { get; }
+        public bool IsParameter { get; }
+        public string? ParameterName { get; }
         public bool HasWindow => WindowLengths.Length > 0;
         public int WindowCapacity => HasWindow ? WindowLengths.Max() : 0;
     }

@@ -663,6 +663,95 @@ public class SimulationConfigTests
         Assert.Throws<ArgumentOutOfRangeException>(() => SettlementParams.CalendarDays(-1));
     }
 
+    [Theory]
+    [InlineData(-0.1)]
+    [InlineData(0.0)]
+    [InlineData(1.1)]
+    public void SimulationOptionAssignmentInput_RejectsInvalidProRataRatio(double ratio)
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new SimulationOptionAssignmentInput(proRataAssignmentRatio: (decimal)ratio));
+
+        Assert.Equal("proRataAssignmentRatio", exception.ParamName);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void SimulationOptionAssignmentInput_RejectsEmptyReason(string reason)
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            new SimulationOptionAssignmentInput(reason: reason));
+
+        Assert.Equal("reason", exception.ParamName);
+    }
+
+    [Fact]
+    public void SimulationLifecycleConfig_SnapshotsSettlementReferencePrices()
+    {
+        var instrument = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NASDAQ);
+        var prices = new Dictionary<Instrument, Price>
+        {
+            [instrument] = new Price(100m, Currency.USD)
+        };
+        var config = new SimulationLifecycleConfig(settlementReferencePrices: prices);
+
+        prices[instrument] = new Price(200m, Currency.USD);
+
+        Assert.Equal(new Price(100m, Currency.USD), config.SettlementReferencePrices[instrument]);
+    }
+
+    [Fact]
+    public void SimulationLifecycleConfig_SnapshotsAssignmentInputs()
+    {
+        var strategyId = new StrategyId(1);
+        var instrument = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NASDAQ);
+        var key = new SimulationOptionAssignmentKey(strategyId, 0, instrument);
+        var first = new SimulationOptionAssignmentInput(isSelectedForRandomAssignment: true);
+        var second = new SimulationOptionAssignmentInput(isSelectedForRandomAssignment: false);
+        var inputs = new Dictionary<SimulationOptionAssignmentKey, SimulationOptionAssignmentInput>
+        {
+            [key] = first
+        };
+        var config = new SimulationLifecycleConfig(assignmentInputs: inputs);
+
+        inputs[key] = second;
+
+        Assert.True(config.TryGetAssignmentInput(strategyId, 0, instrument, out var resolved));
+        Assert.Same(first, resolved);
+    }
+
+    [Fact]
+    public void SimulationLifecycleConfig_RejectsNullAssignmentInput()
+    {
+        var instrument = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NASDAQ);
+        var inputs = new Dictionary<SimulationOptionAssignmentKey, SimulationOptionAssignmentInput>
+        {
+            [new SimulationOptionAssignmentKey(new StrategyId(1), 0, instrument)] = null!
+        };
+
+        var exception = Assert.Throws<ArgumentException>(() => new SimulationLifecycleConfig(assignmentInputs: inputs));
+
+        Assert.Equal("assignmentInputs", exception.ParamName);
+    }
+
+    [Fact]
+    public void SimulationLifecycleConfig_RejectsUnknownMissingReferencePolicy()
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new SimulationLifecycleConfig(missingReferencePricePolicy: (MissingReferencePricePolicy)99));
+
+        Assert.Equal("missingReferencePricePolicy", exception.ParamName);
+    }
+
+    [Fact]
+    public void SimulationLifecycleConfig_WithMissingReferencePricePolicy_ReturnsUpdatedPolicy()
+    {
+        var config = SimulationLifecycleConfig.Default.WithMissingReferencePricePolicy(MissingReferencePricePolicy.Throw);
+
+        Assert.Equal(MissingReferencePricePolicy.Throw, config.MissingReferencePricePolicy);
+    }
+
     [Fact]
     public void AllMarketStatuses_AreDefined()
     {

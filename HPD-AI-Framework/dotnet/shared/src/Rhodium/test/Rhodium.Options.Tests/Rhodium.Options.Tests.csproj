@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Rhodium.Options\Rhodium.Options.csproj" />
+    <ProjectReference Include="..\..\src\Rhodium.Primitives\Rhodium.Primitives.csproj" />
   </ItemGroup>
 
 </Project>

@@ -25,6 +25,8 @@
     <Project Path="src/Helium/src/Helium.Native/Helium.Native.csproj" />
     <Project Path="src/Helium/src/Helium.Algebra/Helium.Algebra.csproj" />
     <Project Path="src/Helium/src/Helium.Algorithms/Helium.Algorithms.csproj" />
+    <Project Path="src/Helium/src/Helium.Validated/Helium.Validated.csproj" />
+    <Project Path="src/Helium/src/Helium.Finance/Helium.Finance.csproj" />
   </Folder>
   <Folder Name="/Rhodium/">
     <Project Path="src/Rhodium/src/Rhodium.Primitives/Rhodium.Primitives.csproj" />
@@ -47,6 +49,12 @@
     <Project Path="src/Helium/test/Helium.Primitives.Tests/Helium.Primitives.Tests.csproj" />
     <Project Path="src/Helium/test/Helium.Algebra.Tests/Helium.Algebra.Tests.csproj" />
     <Project Path="src/Helium/test/Helium.Algorithms.Tests/Helium.Algorithms.Tests.csproj" />
+    <Project Path="src/Helium/test/Helium.Validated.Tests/Helium.Validated.Tests.csproj" />
+    <Project Path="src/Helium/test/Helium.Finance.Tests/Helium.Finance.Tests.csproj" />
+  </Folder>
+  <Folder Name="/Benchmarks/" />
+  <Folder Name="/Benchmarks/HeliumBenchmarks/">
+    <Project Path="src/Helium/benchmarks/Helium.Finance.Benchmarks/Helium.Finance.Benchmarks.csproj" />
   </Folder>
   <Folder Name="/Tests/RhodiumTests/">
     <Project Path="src/Rhodium/test/Rhodium.Primitives.Tests/Rhodium.Primitives.Tests.csproj" />

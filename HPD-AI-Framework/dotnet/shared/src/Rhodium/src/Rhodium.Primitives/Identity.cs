@@ -52,5 +52,6 @@ public enum AssetClass : byte
     Crypto = 5,
     Bond = 6,
     Index = 7,
-    Commodity = 8
+    Commodity = 8,
+    Observable = 9
 }

@@ -111,7 +111,7 @@ public sealed record BacktestMetrics
     /// List of warnings generated during backtest.
     /// Examples:
     /// - "Order at 10:32:15.123 was 25% of depth (too large)"
-    /// - "Queue position always < 0.05 (unrealistically optimistic)"
+    /// - "Queue position always less than 0.05 (unrealistically optimistic)"
     /// - "95% of fills were maker (too passive, verify queue model)"
     /// </summary>
     public required List<string> Warnings { get; init; }

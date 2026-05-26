@@ -138,10 +138,10 @@ public class BarClosedTests
     }
 }
 
-public class BookUpdatedTests
+public class BookSnapshotReceivedTests
 {
     [Fact]
-    public void BookUpdated_ShouldStoreInstrumentAndBook()
+    public void BookSnapshotReceived_ShouldStoreInstrumentAndBook()
     {
         // Arrange
         var instrument = new Instrument(new Asset("AAPL", AssetClass.Equity), Venue.NASDAQ);
@@ -162,7 +162,7 @@ public class BookUpdatedTests
         };
 
         // Act
-        var evt = new BookUpdated(instrument, book);
+        var evt = new BookSnapshotReceived(instrument, book);
 
         // Assert
         Assert.Equal(instrument, evt.Instrument);
@@ -170,14 +170,14 @@ public class BookUpdatedTests
     }
 
     [Fact]
-    public void BookUpdated_ShouldBeMarketEvent()
+    public void BookSnapshotReceived_ShouldBeMarketEvent()
     {
         // Arrange
         var instrument = new Instrument(new Asset("BTC", AssetClass.Crypto), Venue.Binance);
         var book = Book.Empty(instrument, Instant.Now);
 
         // Act
-        var evt = new BookUpdated(instrument, book);
+        var evt = new BookSnapshotReceived(instrument, book);
 
         // Assert
         Assert.IsAssignableFrom<MarketEvent>(evt);
@@ -185,21 +185,21 @@ public class BookUpdatedTests
     }
 
     [Fact]
-    public void BookUpdated_ShouldHaveStreamingChannel()
+    public void BookSnapshotReceived_ShouldHaveStreamingChannel()
     {
         // Arrange
         var instrument = new Instrument(new Asset("TSLA", AssetClass.Equity), Venue.NASDAQ);
         var book = Book.Empty(instrument, Instant.Now);
 
         // Act
-        var evt = new BookUpdated(instrument, book);
+        var evt = new BookSnapshotReceived(instrument, book);
 
         // Assert
         Assert.Equal(HPD.Events.EventChannel.Streaming, evt.Channel);
     }
 
     [Fact]
-    public void BookUpdated_WithCompleteBook()
+    public void BookSnapshotReceived_WithCompleteBook()
     {
         // Arrange
         var instrument = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NYSE);
@@ -222,7 +222,7 @@ public class BookUpdatedTests
         };
 
         // Act
-        var evt = new BookUpdated(instrument, book);
+        var evt = new BookSnapshotReceived(instrument, book);
 
         // Assert
         Assert.Equal(3, evt.Book.Bids.Length);
@@ -232,15 +232,15 @@ public class BookUpdatedTests
     }
 }
 
-public class BookDeltaReceivedTests
+public class BookLevelDeltaReceivedTests
 {
     [Fact]
-    public void BookDeltaReceived_ShouldStoreInstrumentAndDelta()
+    public void BookLevelDeltaReceived_ShouldStoreInstrumentAndDelta()
     {
         var instrument = new Instrument(new Asset("AAPL", AssetClass.Equity), Venue.NASDAQ);
-        var delta = new BookDelta(Side.Buy, new Price(150m), new Qty(100m), BookAction.Add, Sequence: 7);
+        var delta = new BookLevelDelta(Side.Buy, new Price(150m), new Qty(100m), BookAction.Add, VenueSequence: 7);
 
-        var evt = new BookDeltaReceived(instrument, delta);
+        var evt = new BookLevelDeltaReceived(instrument, delta);
 
         Assert.Equal(instrument, evt.Instrument);
         Assert.Equal(delta, evt.Delta);
@@ -248,19 +248,19 @@ public class BookDeltaReceivedTests
     }
 }
 
-public class BookDeltasReceivedTests
+public class BookLevelDeltasReceivedTests
 {
     [Fact]
-    public void BookDeltasReceived_ShouldStoreOrderedDeltas()
+    public void BookLevelDeltasReceived_ShouldStoreOrderedDeltas()
     {
         var instrument = new Instrument(new Asset("AAPL", AssetClass.Equity), Venue.NASDAQ);
         var deltas = new[]
         {
-            new BookDelta(Side.Buy, new Price(150m), new Qty(100m), BookAction.Add, Sequence: 1),
-            new BookDelta(Side.Buy, new Price(150m), new Qty(125m), BookAction.Update, Sequence: 2)
+            new BookLevelDelta(Side.Buy, new Price(150m), new Qty(100m), BookAction.Add, VenueSequence: 1),
+            new BookLevelDelta(Side.Buy, new Price(150m), new Qty(125m), BookAction.Update, VenueSequence: 2)
         };
 
-        var evt = new BookDeltasReceived(instrument, deltas);
+        var evt = new BookLevelDeltasReceived(instrument, deltas);
 
         Assert.Equal(instrument, evt.Instrument);
         Assert.Same(deltas, evt.Deltas);
@@ -283,6 +283,26 @@ public class BookDepthSnapshotReceivedTests
         Assert.Same(bids, evt.Bids);
         Assert.Same(asks, evt.Asks);
         Assert.Equal(10, evt.Depth);
+        Assert.Equal(99, evt.VenueSequence);
+        Assert.Equal(1, evt.Flags);
+        Assert.IsAssignableFrom<MarketEvent>(evt);
+    }
+}
+
+public class BookDepth10ReceivedTests
+{
+    [Fact]
+    public void BookDepth10Received_ShouldStoreFixedTopTenLevels()
+    {
+        var instrument = new Instrument(new Asset("AAPL", AssetClass.Equity), Venue.NASDAQ);
+        var bids = new[] { new Level(new Price(150m), new Qty(100m), 3) };
+        var asks = new[] { new Level(new Price(151m), new Qty(90m), 2) };
+
+        var evt = new BookDepth10Received(instrument, bids, asks, VenueSequence: 99, Flags: 1);
+
+        Assert.Equal(instrument, evt.Instrument);
+        Assert.Same(bids, evt.Bids);
+        Assert.Same(asks, evt.Asks);
         Assert.Equal(99, evt.VenueSequence);
         Assert.Equal(1, evt.Flags);
         Assert.IsAssignableFrom<MarketEvent>(evt);

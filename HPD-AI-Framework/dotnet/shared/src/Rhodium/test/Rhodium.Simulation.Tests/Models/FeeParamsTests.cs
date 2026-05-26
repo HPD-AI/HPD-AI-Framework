@@ -4,10 +4,12 @@ using Rhodium.Primitives;
 namespace Rhodium.Simulation.Tests.Models;
 
 /// <summary>
-/// Tests for FeeParams and all 5 fee models.
+/// Tests for FeeParams and all fee models.
 /// </summary>
 public class FeeParamsTests
 {
+    private static readonly InstrumentContract SpyContract = Contracts.Equity("SPY", Venue.NASDAQ, Currency.USD);
+
     [Fact]
     public void Zero_CreatesZeroFeeModel()
     {
@@ -63,14 +65,22 @@ public class FeeParamsTests
     }
 
     [Fact]
+    public void ContractTerms_CreatesContractFeeModel()
+    {
+        var fees = FeeParams.ContractTerms;
+
+        Assert.Equal(FeeModelType.ContractTerms, fees.Model);
+    }
+
+    [Fact]
     public void Calculate_DirectionalUsesOrderSide()
     {
         var fees = FeeParams.Directional(buyBps: 8m, sellBps: 12m);
         var quantity = new Qty(10m);
         var price = new Price(100m, Currency.USD);
 
-        var buyFee = fees.Calculate(quantity, price, Side.Buy, isMaker: false);
-        var sellFee = fees.Calculate(quantity, price, Side.Sell, isMaker: false);
+        var buyFee = fees.Calculate(SpyContract, quantity, price, Side.Buy, isMaker: false, thirtyDayVolume: Money.USD(0m));
+        var sellFee = fees.Calculate(SpyContract, quantity, price, Side.Sell, isMaker: false, thirtyDayVolume: Money.USD(0m));
 
         Assert.Equal(Money.USD(0.80m), buyFee);
         Assert.Equal(Money.USD(1.20m), sellFee);
@@ -83,8 +93,8 @@ public class FeeParamsTests
         var quantity = new Qty(10m);
         var price = new Price(100m, Currency.USD);
 
-        var makerRebate = fees.Calculate(quantity, price, Side.Sell, isMaker: true);
-        var takerFee = fees.Calculate(quantity, price, Side.Buy, isMaker: false);
+        var makerRebate = fees.Calculate(SpyContract, quantity, price, Side.Sell, isMaker: true, thirtyDayVolume: Money.USD(0m));
+        var takerFee = fees.Calculate(SpyContract, quantity, price, Side.Buy, isMaker: false, thirtyDayVolume: Money.USD(0m));
 
         Assert.Equal(Money.USD(-0.10m), makerRebate);
         Assert.Equal(Money.USD(0.40m), takerFee);
@@ -166,9 +176,9 @@ public class FeeParamsTests
         var quantity = new Qty(10m);
         var price = new Price(100m, Currency.USD);
 
-        var firstTaker = fees.Calculate(quantity, price, Side.Buy, isMaker: false, thirtyDayVolume: Money.USD(0m));
-        var laterTaker = fees.Calculate(quantity, price, Side.Buy, isMaker: false, thirtyDayVolume: Money.USD(1_000m));
-        var laterMaker = fees.Calculate(quantity, price, Side.Sell, isMaker: true, thirtyDayVolume: Money.USD(1_000m));
+        var firstTaker = fees.Calculate(SpyContract, quantity, price, Side.Buy, isMaker: false, thirtyDayVolume: Money.USD(0m));
+        var laterTaker = fees.Calculate(SpyContract, quantity, price, Side.Buy, isMaker: false, thirtyDayVolume: Money.USD(1_000m));
+        var laterMaker = fees.Calculate(SpyContract, quantity, price, Side.Sell, isMaker: true, thirtyDayVolume: Money.USD(1_000m));
 
         Assert.Equal(Money.USD(1m), firstTaker);
         Assert.Equal(Money.USD(0.10m), laterTaker);
@@ -176,15 +186,72 @@ public class FeeParamsTests
     }
 
     [Fact]
+    public void Calculate_PercentageUsesContractNotional()
+    {
+        var underlying = new Instrument(new Asset("ES", AssetClass.Index), Venue.CME);
+        var contract = Contracts.Future(
+            "ESZ6",
+            Venue.CME,
+            underlying,
+            Currency.USD,
+            tick: 0.25m,
+            lot: 1m,
+            multiplier: 50m,
+            expiry: Instant.FromUnixSeconds(1_796_016_000));
+        var fees = FeeParams.MakerTaker(makerBps: 0m, takerBps: 1m);
+
+        var fee = fees.Calculate(
+            contract,
+            new Qty(2m),
+            new Price(5000m, Currency.USD),
+            Side.Buy,
+            isMaker: false,
+            thirtyDayVolume: Money.USD(0m));
+
+        Assert.Equal(Money.USD(50m), fee);
+    }
+
+    [Fact]
+    public void Calculate_ContractTermsUsesInstrumentFeeTerms()
+    {
+        var contract = Contracts.CryptoSpot(
+            "BTCUSD",
+            Venue.Binance,
+            Currency.BTC,
+            Currency.USD,
+            tick: 0.01m,
+            lot: 0.0001m);
+
+        var makerFee = FeeParams.ContractTerms.Calculate(
+            contract,
+            new Qty(2m),
+            new Price(50_000m, Currency.USD),
+            Side.Sell,
+            isMaker: true,
+            thirtyDayVolume: Money.USD(0m));
+        var takerFee = FeeParams.ContractTerms.Calculate(
+            contract,
+            new Qty(2m),
+            new Price(50_000m, Currency.USD),
+            Side.Buy,
+            isMaker: false,
+            thirtyDayVolume: Money.USD(0m));
+
+        Assert.Equal(Money.USD(20m), makerFee);
+        Assert.Equal(Money.USD(40m), takerFee);
+    }
+
+    [Fact]
     public void AllFeeModelTypes_AreDefined()
     {
         var allModels = Enum.GetValues<FeeModelType>();
 
-        Assert.Equal(5, allModels.Length);
+        Assert.Equal(6, allModels.Length);
         Assert.Contains(FeeModelType.PercentageOfValue, allModels);
         Assert.Contains(FeeModelType.PerQuantity, allModels);
         Assert.Contains(FeeModelType.PerTrade, allModels);
         Assert.Contains(FeeModelType.TieredByVolume, allModels);
         Assert.Contains(FeeModelType.Directional, allModels);
+        Assert.Contains(FeeModelType.ContractTerms, allModels);
     }
 }

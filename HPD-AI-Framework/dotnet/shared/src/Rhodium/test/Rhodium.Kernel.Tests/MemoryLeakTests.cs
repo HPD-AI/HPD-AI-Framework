@@ -17,7 +17,9 @@ public class MemoryLeakTests
         {
             runtime.BatchMap.AddInstrument(new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NYSE));
             runtime.Tensors.GetScalar(Field.Close, runtime.Tensors.Grow()) = new PriceF64(100);
+            var contract = Contracts.Equity("SPY", Venue.NYSE, Currency.USD);
             runtime.WorldState.PositionAt(new StrategyId(1), 0).ApplyFill(
+                contract,
                 Side.Buy,
                 new Qty(1m),
                 new Price(100m, Currency.USD),

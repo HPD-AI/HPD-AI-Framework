@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+using Rhodium.Options;
 using Rhodium.Primitives;
 
 namespace Rhodium.Simulation;
@@ -8,7 +10,6 @@ namespace Rhodium.Simulation;
 /// </summary>
 public sealed record SimulationConfig
 {
-    public SimulationFidelity Fidelity { get; init; } = SimulationFidelity.Queue;
     public required LatencyParams Latency { get; init; }
     public required QueueParams QueueModel { get; init; }
     public required FeeParams Fees { get; init; }
@@ -33,6 +34,11 @@ public sealed record SimulationConfig
     /// Settlement behavior for cash-account proceeds.
     /// </summary>
     public SettlementParams Settlement { get; init; } = SettlementParams.Immediate();
+
+    /// <summary>
+    /// Contract lifecycle behavior for expiry, settlement reference prices, and missing reference data.
+    /// </summary>
+    public SimulationLifecycleConfig Lifecycle { get; init; } = SimulationLifecycleConfig.Default;
 
     /// <summary>
     /// Initial market status.
@@ -63,24 +69,12 @@ public sealed record SimulationConfig
 
     // ==================== PRESETS ====================
 
-    public static SimulationConfig Vector() => Instant() with
-    {
-        Fidelity = SimulationFidelity.Vector,
-        FillBehavior = FillBehavior.FillOnTouch
-    };
-
-    public static SimulationConfig Queue() => Instant() with
-    {
-        Fidelity = SimulationFidelity.Queue
-    };
-
     /// <summary>
     /// Realistic preset for liquid crypto futures (Binance/Bybit).
     /// Power quadratic queue, standard maker/taker fees, moderate latency.
     /// </summary>
     public static SimulationConfig CryptoFuturesRealistic() => new()
     {
-        Fidelity = SimulationFidelity.Queue,
         Latency = new(Duration.FromMicros(500), Duration.FromMicros(500), StdDevFraction: 0.2),
         QueueModel = QueueParams.RealisticLiquid(),
         Fees = FeeParams.BinanceFutures(),
@@ -94,7 +88,6 @@ public sealed record SimulationConfig
     /// </summary>
     public static SimulationConfig Conservative() => new()
     {
-        Fidelity = SimulationFidelity.Queue,
         Latency = new(Duration.FromMillis(10), Duration.FromMillis(10)),
         QueueModel = QueueParams.RiskAverse(),
         Fees = new()
@@ -113,7 +106,6 @@ public sealed record SimulationConfig
     /// </summary>
     public static SimulationConfig IlliquidMarket() => new()
     {
-        Fidelity = SimulationFidelity.Queue,
         Latency = new(Duration.FromMillis(1), Duration.FromMillis(1), StdDevFraction: 0.3),
         QueueModel = QueueParams.RealisticIlliquid(),
         Fees = FeeParams.MakerTaker(makerBps: 10m, takerBps: 20m),
@@ -127,7 +119,6 @@ public sealed record SimulationConfig
     /// </summary>
     public static SimulationConfig USEquities() => new()
     {
-        Fidelity = SimulationFidelity.Queue,
         Latency = new(Duration.FromMicros(100), Duration.FromMicros(100), StdDevFraction: 0.15),
         QueueModel = QueueParams.PowerQuadratic(),
         Fees = FeeParams.Fixed(new Money(0.50m, Currency.USD)),
@@ -142,13 +133,137 @@ public sealed record SimulationConfig
     /// </summary>
     public static SimulationConfig Instant() => new()
     {
-        Fidelity = SimulationFidelity.Queue,
         Latency = new(Duration.Zero, Duration.Zero),
         QueueModel = QueueParams.AlwaysFront(),
         Fees = FeeParams.Zero,
         Slippage = SlippageParams.None,
         FillBehavior = FillBehavior.NoPartialFill
     };
+}
+
+public sealed record SimulationLifecycleConfig
+{
+    public static readonly SimulationLifecycleConfig Default = new();
+
+    public SimulationLifecycleConfig(
+        IReadOnlyDictionary<Instrument, Price>? settlementReferencePrices = null,
+        IReadOnlyDictionary<SimulationOptionAssignmentKey, SimulationOptionAssignmentInput>? assignmentInputs = null,
+        MissingReferencePricePolicy missingReferencePricePolicy = MissingReferencePricePolicy.BlockLifecycle)
+    {
+        if (!Enum.IsDefined(missingReferencePricePolicy))
+            throw new ArgumentOutOfRangeException(nameof(missingReferencePricePolicy), missingReferencePricePolicy, "Unknown missing reference price policy.");
+
+        SettlementReferencePrices = Snapshot(
+            settlementReferencePrices,
+            nameof(settlementReferencePrices),
+            "Settlement reference prices cannot contain null entries.");
+        AssignmentInputs = Snapshot(
+            assignmentInputs,
+            nameof(assignmentInputs),
+            "Assignment inputs cannot contain null entries.");
+        MissingReferencePricePolicy = missingReferencePricePolicy;
+    }
+
+    public IReadOnlyDictionary<Instrument, Price> SettlementReferencePrices { get; }
+
+    public IReadOnlyDictionary<SimulationOptionAssignmentKey, SimulationOptionAssignmentInput> AssignmentInputs { get; }
+
+    public MissingReferencePricePolicy MissingReferencePricePolicy { get; }
+
+    public SimulationLifecycleConfig WithSettlementReferencePrice(Instrument instrument, Price price)
+    {
+        var prices = new Dictionary<Instrument, Price>(SettlementReferencePrices)
+        {
+            [instrument] = price
+        };
+
+        return new SimulationLifecycleConfig(prices, AssignmentInputs, MissingReferencePricePolicy);
+    }
+
+    public SimulationLifecycleConfig WithAssignmentInput(
+        StrategyId strategyId,
+        int variantId,
+        Instrument instrument,
+        SimulationOptionAssignmentInput input)
+    {
+        var inputs = new Dictionary<SimulationOptionAssignmentKey, SimulationOptionAssignmentInput>(AssignmentInputs)
+        {
+            [new SimulationOptionAssignmentKey(strategyId, variantId, instrument)] = input
+        };
+
+        return new SimulationLifecycleConfig(SettlementReferencePrices, inputs, MissingReferencePricePolicy);
+    }
+
+    public SimulationLifecycleConfig WithMissingReferencePricePolicy(MissingReferencePricePolicy policy)
+        => new(SettlementReferencePrices, AssignmentInputs, policy);
+
+    public bool TryGetAssignmentInput(
+        StrategyId strategyId,
+        int variantId,
+        Instrument instrument,
+        out SimulationOptionAssignmentInput input) =>
+        AssignmentInputs.TryGetValue(new SimulationOptionAssignmentKey(strategyId, variantId, instrument), out input!);
+
+    private static IReadOnlyDictionary<TKey, TValue> Snapshot<TKey, TValue>(
+        IReadOnlyDictionary<TKey, TValue>? values,
+        string paramName,
+        string nullValueMessage)
+        where TKey : notnull
+    {
+        if (values is null || values.Count == 0)
+            return new ReadOnlyDictionary<TKey, TValue>(new Dictionary<TKey, TValue>());
+
+        var snapshot = new Dictionary<TKey, TValue>(values.Count);
+        foreach (var (key, value) in values)
+        {
+            if (value is null)
+                throw new ArgumentException(nullValueMessage, paramName);
+
+            snapshot.Add(key, value);
+        }
+
+        return new ReadOnlyDictionary<TKey, TValue>(snapshot);
+    }
+}
+
+public readonly record struct SimulationOptionAssignmentKey(
+    StrategyId StrategyId,
+    int VariantId,
+    Instrument Instrument);
+
+public sealed record SimulationOptionAssignmentInput
+{
+    public SimulationOptionAssignmentInput(
+        bool? isSelectedForRandomAssignment = null,
+        decimal? proRataAssignmentRatio = null,
+        OptionAssignmentRule? assignmentRule = null,
+        string? reason = null)
+    {
+        if (proRataAssignmentRatio is { } ratio && (ratio <= 0m || ratio > 1m))
+            throw new ArgumentOutOfRangeException(nameof(proRataAssignmentRatio), proRataAssignmentRatio, "Pro-rata assignment ratio must be greater than zero and less than or equal to one.");
+
+        if (reason is not null && string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException("Option assignment input reason cannot be empty.", nameof(reason));
+
+        IsSelectedForRandomAssignment = isSelectedForRandomAssignment;
+        ProRataAssignmentRatio = proRataAssignmentRatio;
+        AssignmentRule = assignmentRule;
+        Reason = reason;
+    }
+
+    public bool? IsSelectedForRandomAssignment { get; }
+
+    public decimal? ProRataAssignmentRatio { get; }
+
+    public OptionAssignmentRule? AssignmentRule { get; }
+
+    public string? Reason { get; }
+}
+
+public enum MissingReferencePricePolicy : byte
+{
+    BlockLifecycle,
+    Throw
 }
 
 /// <summary>
@@ -186,7 +301,7 @@ public enum AccountType : byte
     /// Margin account: Locks margin based on leverage.
     /// Allows leveraged trading - can control larger positions with less capital.
     /// Common for derivatives (futures, options, CFDs).
-    /// Note: Margin calculation requires IMarginModel (future specification).
+    /// Margin, liquidation, short-sale, borrow, and rehypothecation behavior is driven by MarginParams.
     /// </summary>
     Margin = 2
 }
@@ -392,6 +507,37 @@ public readonly record struct SettlementParams
     public static SettlementParams Immediate() => new(Duration.Zero);
 
     public static SettlementParams CalendarDays(int calendarDays) => new(Duration.FromDays(calendarDays));
+
+    public static SettlementParams FromContract(
+        InstrumentContract contract,
+        UnsettledSalePolicy unsettledSalePolicy = UnsettledSalePolicy.Reject)
+        => FromTerms(contract.Settlement, unsettledSalePolicy);
+
+    public static SettlementParams FromTerms(
+        SettlementTerms settlement,
+        UnsettledSalePolicy unsettledSalePolicy = UnsettledSalePolicy.Reject)
+    {
+        var delay = settlement switch
+        {
+            SettlementTerms.Immediate => SettlementDelay.Immediate(),
+            SettlementTerms.Cash cash => cash.Delay,
+            SettlementTerms.Physical physical => physical.Delay,
+            SettlementTerms.Binary binary => binary.Delay,
+            _ => SettlementDelay.Immediate()
+        };
+
+        if (delay.BusinessDays == 0)
+            return Immediate().WithUnsettledSalePolicy(unsettledSalePolicy);
+
+        var calendar = delay.CalendarCode.ToUpperInvariant() switch
+        {
+            "ALWAYS" => ClearingCalendar.AlwaysOpen(),
+            "CRYPTO" => ClearingCalendar.Crypto(),
+            var code => ClearingCalendar.ForVenue(new Venue(code))
+        };
+
+        return TPlus(delay.BusinessDays, calendar).WithUnsettledSalePolicy(unsettledSalePolicy);
+    }
 
     public SettlementParams WithUnsettledSalePolicy(UnsettledSalePolicy policy)
     {

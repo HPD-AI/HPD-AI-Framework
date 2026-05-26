@@ -31,21 +31,18 @@ public readonly ref struct SetupContext
         => _strategy.AddEquityForSetup(symbol, variantOffset);
 
     public AssetId AddInstrument(Instrument instrument, int variantOffset = 0)
-    {
-        try
-        {
-            var existing = _runtime.BatchMap.GetInstrumentRange(instrument);
-            return _strategy.TrackRegisteredAssetForSetup(new AssetId(existing.Start + variantOffset));
-        }
-        catch (KeyNotFoundException)
-        {
-            var variants = Math.Max(variantOffset + 1, 10);
-            _runtime.BatchMap.AddInstrument(instrument, variants);
-            for (var i = 0; i < variants; i++)
-                _runtime.Tensors.Grow();
+        => AddInstrument(Contracts.FromIdentity(instrument, Currency.USD), variantOffset);
 
-            var created = _runtime.BatchMap.GetInstrumentRange(instrument);
-            return _strategy.TrackRegisteredAssetForSetup(new AssetId(created.Start + variantOffset));
-        }
-    }
+    public AssetId AddInstrument(InstrumentContract contract, int variantOffset = 0)
+        => _strategy.AddInstrumentForSetup(contract, variantOffset);
+
+    public void ScheduleAt(string name, Instant fireAt)
+        => _strategy.AddScheduleForSetup(StrategySchedule.At(name, fireAt));
+
+    public void ScheduleEvery(
+        string name,
+        Duration interval,
+        Instant? startAt = null,
+        Instant? stopAt = null)
+        => _strategy.AddScheduleForSetup(StrategySchedule.Every(name, interval, startAt, stopAt));
 }

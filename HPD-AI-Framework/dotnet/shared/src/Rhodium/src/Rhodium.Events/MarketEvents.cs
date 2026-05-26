@@ -38,9 +38,9 @@ public sealed record BarClosed(
 }
 
 /// <summary>
-/// Order book update.
+/// Full normalized L2 order-book snapshot received.
 /// </summary>
-public sealed record BookUpdated(
+public sealed record BookSnapshotReceived(
     Instrument Instrument,
     Book Book
 ) : MarketEvent
@@ -51,9 +51,9 @@ public sealed record BookUpdated(
 /// <summary>
 /// Single order-book level delta received.
 /// </summary>
-public sealed record BookDeltaReceived(
+public sealed record BookLevelDeltaReceived(
     Instrument Instrument,
-    BookDelta Delta
+    BookLevelDelta Delta
 ) : MarketEvent
 {
     public override Instrument Instrument { get; } = Instrument;
@@ -62,9 +62,62 @@ public sealed record BookDeltaReceived(
 /// <summary>
 /// Ordered batch of order-book level deltas received.
 /// </summary>
-public sealed record BookDeltasReceived(
+public sealed record BookLevelDeltasReceived(
     Instrument Instrument,
-    IReadOnlyList<BookDelta> Deltas
+    IReadOnlyList<BookLevelDelta> Deltas
+) : MarketEvent
+{
+    public override Instrument Instrument { get; } = Instrument;
+}
+
+/// <summary>
+/// Individual external book order added to an L3 market-by-order book.
+/// </summary>
+public sealed record BookOrderAdded(
+    Instrument Instrument,
+    BookOrder Order,
+    long VenueSequence = 0,
+    byte Flags = 0
+) : MarketEvent
+{
+    public override Instrument Instrument { get; } = Instrument;
+}
+
+/// <summary>
+/// Individual external book order modified in an L3 market-by-order book.
+/// </summary>
+public sealed record BookOrderModified(
+    Instrument Instrument,
+    BookOrder Order,
+    long VenueSequence = 0,
+    byte Flags = 0
+) : MarketEvent
+{
+    public override Instrument Instrument { get; } = Instrument;
+}
+
+/// <summary>
+/// Individual external book order deleted from an L3 market-by-order book.
+/// </summary>
+public sealed record BookOrderDeleted(
+    Instrument Instrument,
+    BookOrderId OrderId,
+    long VenueSequence = 0,
+    byte Flags = 0
+) : MarketEvent
+{
+    public override Instrument Instrument { get; } = Instrument;
+}
+
+/// <summary>
+/// Individual external book order executed in an L3 market-by-order book.
+/// </summary>
+public sealed record BookOrderExecuted(
+    Instrument Instrument,
+    BookOrderId OrderId,
+    Qty ExecutedSize,
+    long VenueSequence = 0,
+    byte Flags = 0
 ) : MarketEvent
 {
     public override Instrument Instrument { get; } = Instrument;
@@ -78,6 +131,20 @@ public sealed record BookDepthSnapshotReceived(
     IReadOnlyList<Level> Bids,
     IReadOnlyList<Level> Asks,
     int Depth,
+    long VenueSequence = 0,
+    byte Flags = 0
+) : MarketEvent
+{
+    public override Instrument Instrument { get; } = Instrument;
+}
+
+/// <summary>
+/// Fixed top-10 L2 order-book snapshot received.
+/// </summary>
+public sealed record BookDepth10Received(
+    Instrument Instrument,
+    IReadOnlyList<Level> Bids,
+    IReadOnlyList<Level> Asks,
     long VenueSequence = 0,
     byte Flags = 0
 ) : MarketEvent

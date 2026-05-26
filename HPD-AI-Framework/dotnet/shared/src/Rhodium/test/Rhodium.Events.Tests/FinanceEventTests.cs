@@ -74,6 +74,159 @@ public class FinanceEventTests
         Assert.True(evt.Timestamp >= before);
         Assert.True(evt.Timestamp <= after);
     }
+
+    [Fact]
+    public void OptionLifecycleApplied_BlockedWithResolvedReferenceSource_Throws()
+    {
+        var instrument = new Instrument(new Asset("SPX", AssetClass.Index), new Venue("CBOE"));
+
+        var exception = Assert.Throws<ArgumentException>(() => new OptionLifecycleApplied(
+            new StrategyId(1),
+            VariantId: 0,
+            instrument,
+            OptionLifecycleKind.Blocked,
+            new Qty(1m),
+            Money.Zero(Currency.USD),
+            Instant.FromUnixSeconds(1),
+            UnderlyingMark: new Price(105m, Currency.USD),
+            ReferenceSource: OptionLifecycleReferenceSource.MarketMark));
+
+        Assert.Equal("ReferenceSource", exception.ParamName);
+    }
+
+    [Fact]
+    public void OptionLifecycleApplied_ResolvedWithNoReferenceSource_Throws()
+    {
+        var instrument = new Instrument(new Asset("SPX", AssetClass.Index), new Venue("CBOE"));
+
+        var exception = Assert.Throws<ArgumentException>(() => new OptionLifecycleApplied(
+            new StrategyId(1),
+            VariantId: 0,
+            instrument,
+            OptionLifecycleKind.CashSettlement,
+            new Qty(1m),
+            Money.Zero(Currency.USD),
+            Instant.FromUnixSeconds(1)));
+
+        Assert.Equal("ReferenceSource", exception.ParamName);
+    }
+
+    [Fact]
+    public void OptionLifecycleApplied_ResolvedWithoutUnderlyingMark_Throws()
+    {
+        var instrument = new Instrument(new Asset("SPX261218C00100000", AssetClass.Option), new Venue("CBOE"));
+
+        var exception = Assert.Throws<ArgumentException>(() => new OptionLifecycleApplied(
+            new StrategyId(1),
+            VariantId: 0,
+            instrument,
+            OptionLifecycleKind.CashSettlement,
+            new Qty(1m),
+            Money.Zero(Currency.USD),
+            Instant.FromUnixSeconds(1),
+            SettlementPrice: new Price(105m, Currency.USD),
+            ReferenceSource: OptionLifecycleReferenceSource.MarketMark));
+
+        Assert.Equal("UnderlyingMark", exception.ParamName);
+    }
+
+    [Fact]
+    public void OptionLifecycleApplied_PhysicalDeliveryWithoutDeliverable_Throws()
+    {
+        var instrument = new Instrument(new Asset("SPY261218C00100000", AssetClass.Option), new Venue("CBOE"));
+
+        var exception = Assert.Throws<ArgumentException>(() => new OptionLifecycleApplied(
+            new StrategyId(1),
+            VariantId: 0,
+            instrument,
+            OptionLifecycleKind.PhysicalDelivery,
+            new Qty(1m),
+            Money.Zero(Currency.USD),
+            Instant.FromUnixSeconds(1),
+            UnderlyingMark: new Price(105m, Currency.USD),
+            ReferenceSource: OptionLifecycleReferenceSource.MarketMark));
+
+        Assert.Equal("Deliverable", exception.ParamName);
+    }
+
+    [Fact]
+    public void OptionLifecycleApplied_PhysicalDeliveryWithoutSettlementPrice_Throws()
+    {
+        var instrument = new Instrument(new Asset("SPY261218C00100000", AssetClass.Option), new Venue("CBOE"));
+        var deliverable = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NASDAQ);
+
+        var exception = Assert.Throws<ArgumentException>(() => new OptionLifecycleApplied(
+            new StrategyId(1),
+            VariantId: 0,
+            instrument,
+            OptionLifecycleKind.PhysicalDelivery,
+            new Qty(1m),
+            Money.Zero(Currency.USD),
+            Instant.FromUnixSeconds(1),
+            UnderlyingMark: new Price(105m, Currency.USD),
+            Deliverable: deliverable,
+            DeliverableQuantity: new Qty(100m),
+            ReferenceSource: OptionLifecycleReferenceSource.MarketMark));
+
+        Assert.Equal("SettlementPrice", exception.ParamName);
+    }
+
+    [Fact]
+    public void OptionLifecycleApplied_NonPhysicalDeliveryWithDeliverable_Throws()
+    {
+        var instrument = new Instrument(new Asset("SPX261218C00100000", AssetClass.Option), new Venue("CBOE"));
+        var deliverable = new Instrument(new Asset("SPX", AssetClass.Index), new Venue("CBOE"));
+
+        var exception = Assert.Throws<ArgumentException>(() => new OptionLifecycleApplied(
+            new StrategyId(1),
+            VariantId: 0,
+            instrument,
+            OptionLifecycleKind.CashSettlement,
+            new Qty(1m),
+            Money.Zero(Currency.USD),
+            Instant.FromUnixSeconds(1),
+            UnderlyingMark: new Price(105m, Currency.USD),
+            Deliverable: deliverable,
+            ReferenceSource: OptionLifecycleReferenceSource.MarketMark));
+
+        Assert.Equal("Deliverable", exception.ParamName);
+    }
+
+    [Fact]
+    public void OptionLifecycleApplied_BlockedWithCashFlow_Throws()
+    {
+        var instrument = new Instrument(new Asset("SPX261218C00100000", AssetClass.Option), new Venue("CBOE"));
+
+        var exception = Assert.Throws<ArgumentException>(() => new OptionLifecycleApplied(
+            new StrategyId(1),
+            VariantId: 0,
+            instrument,
+            OptionLifecycleKind.Blocked,
+            new Qty(1m),
+            Money.USD(1m),
+            Instant.FromUnixSeconds(1)));
+
+        Assert.Equal("CashFlow", exception.ParamName);
+    }
+
+    [Fact]
+    public void OptionLifecycleApplied_ExerciseWithCashFlow_Throws()
+    {
+        var instrument = new Instrument(new Asset("SPX261218C00100000", AssetClass.Option), new Venue("CBOE"));
+
+        var exception = Assert.Throws<ArgumentException>(() => new OptionLifecycleApplied(
+            new StrategyId(1),
+            VariantId: 0,
+            instrument,
+            OptionLifecycleKind.Exercise,
+            new Qty(1m),
+            Money.USD(1m),
+            Instant.FromUnixSeconds(1),
+            UnderlyingMark: new Price(105m, Currency.USD),
+            ReferenceSource: OptionLifecycleReferenceSource.MarketMark));
+
+        Assert.Equal("CashFlow", exception.ParamName);
+    }
 }
 
 public class MarketEventTests
@@ -566,5 +719,16 @@ public class DiagnosticEventTests
         Assert.Equal(3, evt.VariantId);
         Assert.Equal(Money.USD(900m), evt.Equity);
         Assert.Equal(Money.USD(800m), evt.MaintenanceRequirement);
+    }
+}
+
+public class OptionLifecycleEventTests
+{
+    [Fact]
+    public void OptionLifecycleKind_SeparatesWorthlessUnexercisedAndUnassignedExpiry()
+    {
+        Assert.Contains(OptionLifecycleKind.ExpireWorthless, Enum.GetValues<OptionLifecycleKind>());
+        Assert.Contains(OptionLifecycleKind.ExpireUnexercised, Enum.GetValues<OptionLifecycleKind>());
+        Assert.Contains(OptionLifecycleKind.ExpireUnassigned, Enum.GetValues<OptionLifecycleKind>());
     }
 }

@@ -14,17 +14,16 @@ namespace Rhodium.Platform;
 public abstract partial class Strategy
 {
 #if DEBUG
-    private static readonly object MarketGuardWarmupLock = new();
-    private static readonly HashSet<Type> MarketGuardWarmedTypes = [];
-    private static readonly object ExecutionGuardWarmupLock = new();
-    private static readonly HashSet<Type> ExecutionGuardWarmedTypes = [];
-    private static readonly object LifecycleGuardWarmupLock = new();
-    private static readonly HashSet<Type> LifecycleGuardWarmedTypes = [];
+    private bool _marketGuardWarmed;
+    private int _executionGuardWarmMask;
+    private bool _lifecycleGuardWarmed;
 #endif
 
     private RhodiumRuntime? _registrationRuntime;
     private readonly List<AssetId> _registeredAssetBuilder = [];
+    private readonly List<StrategySchedule> _scheduleBuilder = [];
     private AssetId[] _registeredAssets = [];
+    private StrategySchedule[] _schedules = [];
     private int _initializedVersion;
 
     public StrategyId Id { get; internal set; }
@@ -33,12 +32,15 @@ public abstract partial class Strategy
     internal void Initialize(RhodiumRuntime runtime)
     {
         _registeredAssetBuilder.Clear();
+        _scheduleBuilder.Clear();
         _registeredAssets = [];
+        _schedules = [];
         _registrationRuntime = runtime;
         var market = runtime.CreateMarketKernel();
         var setup = new SetupContext(this, runtime, in market);
         OnInitialize(in setup);
         _registeredAssets = _registeredAssetBuilder.ToArray();
+        _schedules = _scheduleBuilder.ToArray();
         __GeneratedInitialize(in market);
         _initializedVersion = runtime.BatchMap.Version;
         runtime.WorldState.EnsureSnapshotCapacity(Id, runtime.BatchMap.TotalSize);
@@ -56,6 +58,7 @@ public abstract partial class Strategy
     public virtual void OnError(Exception ex) { }
 
     protected ReadOnlySpan<AssetId> RegisteredAssets => _registeredAssets;
+    internal ReadOnlySpan<StrategySchedule> Schedules => _schedules;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal AssetId AddEquityForSetup(string symbol) => AddEquityForSetup(symbol, 0);
@@ -66,11 +69,20 @@ public abstract partial class Strategy
         var runtime = _registrationRuntime
             ?? throw new InvalidOperationException("Instruments can only be added during OnInitialize.");
 
-        var instrument = new Instrument(new Asset(symbol, AssetClass.Equity), Venue.NASDAQ);
+        var contract = Contracts.Equity(symbol, Venue.NASDAQ, Currency.USD);
+        return AddInstrumentForSetup(contract, variantOffset);
+    }
 
+    internal AssetId AddInstrumentForSetup(InstrumentContract contract, int variantOffset)
+    {
+        var runtime = _registrationRuntime
+            ?? throw new InvalidOperationException("Instruments can only be added during OnInitialize.");
+        InstrumentContractValidator.Validate(contract).ThrowIfInvalid();
+        var instrument = contract.Instrument;
         try
         {
             var existing = runtime.BatchMap.GetInstrumentRange(instrument);
+            runtime.SetContract(existing.Start + variantOffset, contract);
             return TrackRegisteredAssetForSetup(new AssetId(existing.Start + variantOffset));
         }
         catch (KeyNotFoundException)
@@ -78,7 +90,10 @@ public abstract partial class Strategy
             var variants = Math.Max(variantOffset + 1, 10);
             runtime.BatchMap.AddInstrument(instrument, variants);
             for (var i = 0; i < variants; i++)
+            {
                 runtime.Tensors.Grow();
+                runtime.SetContract(runtime.BatchMap.GetInstrumentRange(instrument).Start + i, contract);
+            }
 
             var created = runtime.BatchMap.GetInstrumentRange(instrument);
             return TrackRegisteredAssetForSetup(new AssetId(created.Start + variantOffset));
@@ -92,6 +107,9 @@ public abstract partial class Strategy
 
         return id;
     }
+
+    internal void AddScheduleForSetup(StrategySchedule schedule)
+        => _scheduleBuilder.Add(schedule);
 
     [CompilerGenerated]
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -147,44 +165,44 @@ public abstract partial class Strategy
             static (Strategy strategy, in MarketKernel market, ref PortfolioContext portfolio, in TradeDispatch dispatch) =>
                 strategy.__GeneratedRunTrade(in market, ref portfolio, dispatch.Event, dispatch.AssetRangeStart, dispatch.AssetRangeLength));
 
-    internal void RunBookGuarded(
+    internal void RunBookSnapshotGuarded(
         in MarketKernel market,
         ref PortfolioContext portfolio,
-        in BookUpdated evt,
+        in BookSnapshotReceived evt,
         int assetRangeStart,
         int assetRangeLength)
         => RunMarketGuarded(
             in market,
             ref portfolio,
-            new BookDispatch(evt, assetRangeStart, assetRangeLength),
-            static (Strategy strategy, in MarketKernel market, ref PortfolioContext portfolio, in BookDispatch dispatch) =>
-                strategy.__GeneratedRunBook(in market, ref portfolio, dispatch.Event, dispatch.AssetRangeStart, dispatch.AssetRangeLength));
+            new BookSnapshotDispatch(evt, assetRangeStart, assetRangeLength),
+            static (Strategy strategy, in MarketKernel market, ref PortfolioContext portfolio, in BookSnapshotDispatch dispatch) =>
+                strategy.__GeneratedRunBookSnapshot(in market, ref portfolio, dispatch.Event, dispatch.AssetRangeStart, dispatch.AssetRangeLength));
 
-    internal void RunBookDeltaGuarded(
+    internal void RunBookLevelDeltaGuarded(
         in MarketKernel market,
         ref PortfolioContext portfolio,
-        in BookDeltaReceived evt,
+        in BookLevelDeltaReceived evt,
         int assetRangeStart,
         int assetRangeLength)
         => RunMarketGuarded(
             in market,
             ref portfolio,
-            new BookDeltaDispatch(evt, assetRangeStart, assetRangeLength),
-            static (Strategy strategy, in MarketKernel market, ref PortfolioContext portfolio, in BookDeltaDispatch dispatch) =>
-                strategy.__GeneratedRunBookDelta(in market, ref portfolio, dispatch.Event, dispatch.AssetRangeStart, dispatch.AssetRangeLength));
+            new BookLevelDeltaDispatch(evt, assetRangeStart, assetRangeLength),
+            static (Strategy strategy, in MarketKernel market, ref PortfolioContext portfolio, in BookLevelDeltaDispatch dispatch) =>
+                strategy.__GeneratedRunBookLevelDelta(in market, ref portfolio, dispatch.Event, dispatch.AssetRangeStart, dispatch.AssetRangeLength));
 
-    internal void RunBookDeltasGuarded(
+    internal void RunBookLevelDeltasGuarded(
         in MarketKernel market,
         ref PortfolioContext portfolio,
-        in BookDeltasReceived evt,
+        in BookLevelDeltasReceived evt,
         int assetRangeStart,
         int assetRangeLength)
         => RunMarketGuarded(
             in market,
             ref portfolio,
-            new BookDeltasDispatch(evt, assetRangeStart, assetRangeLength),
-            static (Strategy strategy, in MarketKernel market, ref PortfolioContext portfolio, in BookDeltasDispatch dispatch) =>
-                strategy.__GeneratedRunBookDeltas(in market, ref portfolio, dispatch.Event, dispatch.AssetRangeStart, dispatch.AssetRangeLength));
+            new BookLevelDeltasDispatch(evt, assetRangeStart, assetRangeLength),
+            static (Strategy strategy, in MarketKernel market, ref PortfolioContext portfolio, in BookLevelDeltasDispatch dispatch) =>
+                strategy.__GeneratedRunBookLevelDeltas(in market, ref portfolio, dispatch.Event, dispatch.AssetRangeStart, dispatch.AssetRangeLength));
 
     internal void RunGroupGuarded(in MarketKernel market, ref PortfolioContext portfolio)
         => RunMarketGuarded(in market, ref portfolio, static (Strategy strategy, in MarketKernel market, ref PortfolioContext portfolio) =>
@@ -208,7 +226,7 @@ public abstract partial class Strategy
         }
 
 #if DEBUG
-        var guardWarmed = IsMarketGuardWarmed(GetType());
+        var guardWarmed = _marketGuardWarmed;
         long start = guardWarmed ? GC.GetAllocatedBytesForCurrentThread() : 0;
 #endif
 
@@ -223,7 +241,7 @@ public abstract partial class Strategy
         }
         else
         {
-            MarkMarketGuardWarmed(GetType());
+            _marketGuardWarmed = true;
         }
 #endif
     }
@@ -246,7 +264,7 @@ public abstract partial class Strategy
         }
 
 #if DEBUG
-        var guardWarmed = IsMarketGuardWarmed(GetType());
+        var guardWarmed = _marketGuardWarmed;
         long start = guardWarmed ? GC.GetAllocatedBytesForCurrentThread() : 0;
 #endif
 
@@ -261,7 +279,7 @@ public abstract partial class Strategy
         }
         else
         {
-            MarkMarketGuardWarmed(GetType());
+            _marketGuardWarmed = true;
         }
 #endif
     }
@@ -301,44 +319,44 @@ public abstract partial class Strategy
         public int AssetRangeLength { get; }
     }
 
-    private readonly struct BookDispatch
+    private readonly struct BookSnapshotDispatch
     {
-        public BookDispatch(BookUpdated @event, int assetRangeStart, int assetRangeLength)
+        public BookSnapshotDispatch(BookSnapshotReceived @event, int assetRangeStart, int assetRangeLength)
         {
             Event = @event;
             AssetRangeStart = assetRangeStart;
             AssetRangeLength = assetRangeLength;
         }
 
-        public BookUpdated Event { get; }
+        public BookSnapshotReceived Event { get; }
         public int AssetRangeStart { get; }
         public int AssetRangeLength { get; }
     }
 
-    private readonly struct BookDeltaDispatch
+    private readonly struct BookLevelDeltaDispatch
     {
-        public BookDeltaDispatch(BookDeltaReceived @event, int assetRangeStart, int assetRangeLength)
+        public BookLevelDeltaDispatch(BookLevelDeltaReceived @event, int assetRangeStart, int assetRangeLength)
         {
             Event = @event;
             AssetRangeStart = assetRangeStart;
             AssetRangeLength = assetRangeLength;
         }
 
-        public BookDeltaReceived Event { get; }
+        public BookLevelDeltaReceived Event { get; }
         public int AssetRangeStart { get; }
         public int AssetRangeLength { get; }
     }
 
-    private readonly struct BookDeltasDispatch
+    private readonly struct BookLevelDeltasDispatch
     {
-        public BookDeltasDispatch(BookDeltasReceived @event, int assetRangeStart, int assetRangeLength)
+        public BookLevelDeltasDispatch(BookLevelDeltasReceived @event, int assetRangeStart, int assetRangeLength)
         {
             Event = @event;
             AssetRangeStart = assetRangeStart;
             AssetRangeLength = assetRangeLength;
         }
 
-        public BookDeltasReceived Event { get; }
+        public BookLevelDeltasReceived Event { get; }
         public int AssetRangeStart { get; }
         public int AssetRangeLength { get; }
     }
@@ -350,7 +368,8 @@ public abstract partial class Strategy
         in StateTransitionResult transition)
     {
 #if DEBUG
-        var guardWarmed = IsExecutionGuardWarmed(GetType());
+        var guardBit = GetExecutionGuardBit(evt, transition.PositionTransition.Kind);
+        var guardWarmed = (_executionGuardWarmMask & guardBit) != 0;
         long start = guardWarmed ? GC.GetAllocatedBytesForCurrentThread() : 0;
 #endif
 
@@ -358,35 +377,35 @@ public abstract partial class Strategy
         {
             case OrderAccepted accepted:
             {
-                var order = new OrderContext(accepted.StrategyId, accepted.OrderId, OrderStatus.Open, accepted.VariantId);
+                var order = new OrderContext(accepted.StrategyId, accepted.OrderId, OrderStatus.Open, accepted.VariantId, ref portfolio, accepted.AssetId);
                 OnOrderAccepted(ref order);
                 break;
             }
 
             case OrderModified modified:
             {
-                var order = new OrderContext(modified.StrategyId, modified.OrderId, OrderStatus.Open, modified.VariantId);
+                var order = new OrderContext(modified.StrategyId, modified.OrderId, OrderStatus.Open, modified.VariantId, ref portfolio, modified.AssetId);
                 OnOrderModified(ref order);
                 break;
             }
 
             case OrderRejected rejected:
             {
-                var order = new OrderContext(rejected.StrategyId, rejected.OrderId, OrderStatus.Rejected, rejected.VariantId, rejected.Reason);
+                var order = new OrderContext(rejected.StrategyId, rejected.OrderId, OrderStatus.Rejected, rejected.VariantId, ref portfolio, rejected.AssetId, rejected.Reason);
                 OnOrderRejected(ref order);
                 break;
             }
 
             case OrderCancelled cancelled:
             {
-                var order = new OrderContext(cancelled.StrategyId, cancelled.OrderId, OrderStatus.Cancelled, cancelled.VariantId, cancelled.Reason);
+                var order = new OrderContext(cancelled.StrategyId, cancelled.OrderId, OrderStatus.Cancelled, cancelled.VariantId, ref portfolio, cancelled.AssetId, cancelled.Reason);
                 OnOrderCancelled(ref order);
                 break;
             }
 
             case OrderExpired expired:
             {
-                var order = new OrderContext(expired.StrategyId, expired.OrderId, OrderStatus.Expired, expired.VariantId);
+                var order = new OrderContext(expired.StrategyId, expired.OrderId, OrderStatus.Expired, expired.VariantId, ref portfolio, expired.AssetId);
                 OnOrderExpired(ref order);
                 break;
             }
@@ -396,12 +415,13 @@ public abstract partial class Strategy
                 var fill = new FillContext(
                     filled.StrategyId,
                     filled.OrderId,
-                    transition.PositionTransition.AssetId,
+                    filled.AssetId ?? transition.PositionTransition.AssetId,
                     filled.Side,
                     filled.FilledQty,
                     filled.FillPrice,
                     filled.Commission,
-                    transition.PositionTransition.Current);
+                    transition.PositionTransition.Current,
+                    ref portfolio);
                 OnOrderFilled(ref fill);
                 break;
             }
@@ -433,15 +453,33 @@ public abstract partial class Strategy
         }
         else
         {
-            MarkExecutionGuardWarmed(GetType());
+            _executionGuardWarmMask |= guardBit;
         }
 #endif
     }
 
+#if DEBUG
+    private static int GetExecutionGuardBit(ExecutionEvent evt, PositionTransitionKind transitionKind)
+    {
+        var eventKind = evt switch
+        {
+            OrderAccepted => 0,
+            OrderModified => 1,
+            OrderRejected => 2,
+            OrderCancelled => 3,
+            OrderExpired => 4,
+            OrderFilled => 5,
+            _ => 6
+        };
+
+        return 1 << (eventKind * 4 + (int)transitionKind);
+    }
+#endif
+
     internal void RunLifecycleGuarded(in MarketKernel market, ref PortfolioContext portfolio, LifecycleEvent evt)
     {
 #if DEBUG
-        var guardWarmed = IsLifecycleGuardWarmed(GetType());
+        var guardWarmed = _lifecycleGuardWarmed;
         long start = guardWarmed ? GC.GetAllocatedBytesForCurrentThread() : 0;
 #endif
 
@@ -458,7 +496,7 @@ public abstract partial class Strategy
             }
             else
             {
-                MarkLifecycleGuardWarmed(GetType());
+                _lifecycleGuardWarmed = true;
             }
 #endif
             return;
@@ -484,48 +522,10 @@ public abstract partial class Strategy
         }
         else
         {
-            MarkLifecycleGuardWarmed(GetType());
+            _lifecycleGuardWarmed = true;
         }
 #endif
     }
-
-#if DEBUG
-    private static bool IsMarketGuardWarmed(Type strategyType)
-    {
-        lock (MarketGuardWarmupLock)
-            return MarketGuardWarmedTypes.Contains(strategyType);
-    }
-
-    private static void MarkMarketGuardWarmed(Type strategyType)
-    {
-        lock (MarketGuardWarmupLock)
-            MarketGuardWarmedTypes.Add(strategyType);
-    }
-
-    private static bool IsExecutionGuardWarmed(Type strategyType)
-    {
-        lock (ExecutionGuardWarmupLock)
-            return ExecutionGuardWarmedTypes.Contains(strategyType);
-    }
-
-    private static void MarkExecutionGuardWarmed(Type strategyType)
-    {
-        lock (ExecutionGuardWarmupLock)
-            ExecutionGuardWarmedTypes.Add(strategyType);
-    }
-
-    private static bool IsLifecycleGuardWarmed(Type strategyType)
-    {
-        lock (LifecycleGuardWarmupLock)
-            return LifecycleGuardWarmedTypes.Contains(strategyType);
-    }
-
-    private static void MarkLifecycleGuardWarmed(Type strategyType)
-    {
-        lock (LifecycleGuardWarmupLock)
-            LifecycleGuardWarmedTypes.Add(strategyType);
-    }
-#endif
 
     [CompilerGenerated]
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -555,28 +555,28 @@ public abstract partial class Strategy
 
     [CompilerGenerated]
     [EditorBrowsable(EditorBrowsableState.Never)]
-    protected virtual void __GeneratedRunBook(
+    protected virtual void __GeneratedRunBookSnapshot(
         in MarketKernel market,
         ref PortfolioContext portfolio,
-        BookUpdated evt,
+        BookSnapshotReceived evt,
         int assetRangeStart,
         int assetRangeLength) { }
 
     [CompilerGenerated]
     [EditorBrowsable(EditorBrowsableState.Never)]
-    protected virtual void __GeneratedRunBookDelta(
+    protected virtual void __GeneratedRunBookLevelDelta(
         in MarketKernel market,
         ref PortfolioContext portfolio,
-        BookDeltaReceived evt,
+        BookLevelDeltaReceived evt,
         int assetRangeStart,
         int assetRangeLength) { }
 
     [CompilerGenerated]
     [EditorBrowsable(EditorBrowsableState.Never)]
-    protected virtual void __GeneratedRunBookDeltas(
+    protected virtual void __GeneratedRunBookLevelDeltas(
         in MarketKernel market,
         ref PortfolioContext portfolio,
-        BookDeltasReceived evt,
+        BookLevelDeltasReceived evt,
         int assetRangeStart,
         int assetRangeLength) { }
 

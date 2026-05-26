@@ -34,7 +34,8 @@ public class StrategyTests
 
         var market = runtime.CreateMarketKernel();
         Span<AllocationCommand> commands = stackalloc AllocationCommand[32];
-        var portfolio = runtime.WorldState.BuildContext(strategy.Id, null, default, CreateCounters(), commands);
+        var orderIntents = new OrderIntent[8];
+        var portfolio = runtime.WorldState.BuildContext(strategy.Id, null, default, CreateCounters(), commands, orderIntents: orderIntents);
 
         strategy.RunTickGuarded(in market, ref portfolio);
 
@@ -53,7 +54,9 @@ public class StrategyTests
 
         var market = runtime.CreateMarketKernel();
         Span<AllocationCommand> commands = stackalloc AllocationCommand[32];
-        var portfolio = runtime.WorldState.BuildContext(strategy.Id, null, default, CreateCounters(), commands);
+        var orderIntents = new OrderIntent[8];
+        var emittedIntents = new List<OrderIntent>();
+        var portfolio = runtime.WorldState.BuildContext(strategy.Id, null, default, CreateCounters(), commands, orderIntents: orderIntents);
 
         UniverseTopologyChangedException? ex = null;
         try
@@ -78,7 +81,9 @@ public class StrategyTests
 
         var market = runtime.CreateMarketKernel();
         Span<AllocationCommand> commands = stackalloc AllocationCommand[32];
-        var portfolio = runtime.WorldState.BuildContext(strategy.Id, null, default, CreateCounters(), commands);
+        var orderIntents = new OrderIntent[8];
+        var emittedIntents = new List<OrderIntent>();
+        var portfolio = runtime.WorldState.BuildContext(strategy.Id, null, default, CreateCounters(), commands, orderIntents: orderIntents);
 
 #if DEBUG
         HotPathAllocationException? ex = null;
@@ -126,6 +131,23 @@ public class StrategyTests
 #else
         strategy.RunExecutionGuarded(in market, ref portfolio, accepted, default);
 #endif
+    }
+
+    [Fact]
+    public void RunExecutionGuarded_ExposesOrderLifecycleAssetId()
+    {
+        using var runtime = new RhodiumRuntime();
+        var strategy = new CapturingOrderAssetStrategy();
+        strategy.Initialize(runtime);
+        var assetId = new AssetId(12);
+        var accepted = new OrderAccepted(new OrderId(1), strategy.Id, VariantId: 0, AssetId: assetId);
+        var market = runtime.CreateMarketKernel();
+        Span<AllocationCommand> commands = stackalloc AllocationCommand[32];
+        var portfolio = runtime.WorldState.BuildContext(strategy.Id, null, default, CreateCounters(), commands);
+
+        strategy.RunExecutionGuarded(in market, ref portfolio, accepted, default);
+
+        Assert.Equal(assetId, strategy.LastAssetId);
     }
 
     [Fact]
@@ -179,15 +201,24 @@ public class StrategyTests
 
         var market = runtime.CreateMarketKernel();
         Span<AllocationCommand> commands = stackalloc AllocationCommand[32];
-        var portfolio = runtime.WorldState.BuildContext(strategy.Id, null, default, CreateCounters(), commands);
+        var orderIntents = new OrderIntent[8];
+        var emittedIntents = new List<OrderIntent>();
+        var portfolio = runtime.WorldState.BuildContext(strategy.Id, null, default, CreateCounters(), commands, orderIntents: orderIntents);
 
         for (var i = 0; i < 20; i++)
         {
             runtime.Tensors.GetScalar(Field.Close, 0) = new PriceF64(100 - i);
             strategy.RunBarGuarded(in market, ref portfolio);
+            emittedIntents.AddRange(portfolio.DrainOrderIntents().ToArray());
         }
 
-        Assert.Equal(0.5m, portfolio.GetPositionQty(new AssetId(0)));
+        Assert.NotEmpty(emittedIntents);
+        Assert.All(emittedIntents, intent =>
+        {
+            Assert.Equal(Side.Buy, intent.Side);
+            Assert.Equal(new Qty(0.5m), intent.Quantity);
+            Assert.Equal(OrderType.Market, intent.Execution.OrderType);
+        });
     }
 
     [Fact]
@@ -411,7 +442,7 @@ public class StrategyTests
         strategy.Initialize(runtime);
 
         var instrument = new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NASDAQ);
-        var book = new BookUpdated(
+        var book = new BookSnapshotReceived(
             instrument,
             new Book
             {
@@ -426,7 +457,7 @@ public class StrategyTests
         var orderIntents = new OrderIntent[8];
         var portfolio = runtime.WorldState.BuildContext(strategy.Id, null, default, CreateCounters(), commands, orderIntents: orderIntents);
 
-        strategy.RunBookGuarded(in market, ref portfolio, in book, start, length);
+        strategy.RunBookSnapshotGuarded(in market, ref portfolio, in book, start, length);
         runtime.WorldState.CommitContext(strategy.Id, ref portfolio);
 
         AssertCommittedOrderIntent(runtime, strategy.Id, Side.Buy);
@@ -484,6 +515,16 @@ public class StrategyTests
         protected override void OnOrderAccepted(ref OrderContext order)
         {
             s_sink = new byte[1];
+        }
+    }
+
+    private sealed class CapturingOrderAssetStrategy : Strategy
+    {
+        public AssetId? LastAssetId { get; private set; }
+
+        protected override void OnOrderAccepted(ref OrderContext order)
+        {
+            LastAssetId = order.AssetId;
         }
     }
 
@@ -617,6 +658,6 @@ internal sealed partial class GeneratedBookOrderIntentStrategy : Strategy
     protected override void OnInitialize(in SetupContext setup)
         => setup.AddEquity("SPY");
 
-    partial void OnBook(ref BookContext book)
+    partial void OnBookSnapshot(ref BookSnapshotContext book)
         => book.Buy(new Qty(1m), Execution.Market());
 }

@@ -31,7 +31,14 @@ public sealed class StrategyTestBuilder<TStrategy>
 
         var market = runtime.CreateMarketKernel();
         Span<AllocationCommand> commands = stackalloc AllocationCommand[32];
-        var portfolio = runtime.WorldState.BuildContext(strategy.Id, null, default, new int[PortfolioContext.CounterCount], commands);
+        var orderIntents = new OrderIntent[32];
+        var portfolio = runtime.WorldState.BuildContext(
+            strategy.Id,
+            null,
+            default,
+            new int[PortfolioContext.CounterCount],
+            commands,
+            orderIntents: orderIntents);
 
         foreach (var close in _closeSeries)
         {
@@ -39,10 +46,25 @@ public sealed class StrategyTestBuilder<TStrategy>
                 runtime.Tensors.GetScalar(Field.Close, i) = new PriceF64(close);
 
             strategy.RunBarGuarded(in market, ref portfolio);
+            foreach (var intent in portfolio.DrainOrderIntents())
+                ApplyTestFill(runtime, strategy.Id, intent.AssetId, intent.Side, intent.Quantity, in market);
         }
 
-        var snapshot = runtime.WorldState.BuildSnapshot(strategy.Id, runtime.BatchMap.TotalSize);
+        var snapshot = runtime.WorldState.BuildSnapshot(strategy.Id, runtime.BatchMap.TotalSize, runtime.CurrentTime);
         return new StrategyTestResult(runtime, strategy.Id, snapshot);
+    }
+
+    private static void ApplyTestFill(
+        RhodiumRuntime runtime,
+        StrategyId strategyId,
+        AssetId assetId,
+        Side side,
+        Qty quantity,
+        in MarketKernel market)
+    {
+        var price = new Price((decimal)market.GetScalar(Field.Close, assetId), market.GetQuoteCurrency(assetId));
+        runtime.WorldState.PositionAt(strategyId, assetId.VirtualIndex)
+            .ApplyFill(market.GetContract(assetId), side, quantity, price, Money.Zero(price.Currency));
     }
 }
 

@@ -1,8 +1,7 @@
-import type { AgentClient, EventSubscription } from './client.js';
-import { ConversationState } from './conversation.js';
+import type { AgentClient } from './client.js';
 import { EventTypes } from './types/events.js';
 import type { RunConfig } from './types/run-config.js';
-import type { CreateSessionRequest, SearchSessionsRequest, Session } from './types/session.js';
+import type { BranchMessage, CreateSessionRequest, SearchSessionsRequest, Session } from './types/session.js';
 
 export interface OpenChatOptions {
   agentId: string;
@@ -61,14 +60,11 @@ export class ChatManager {
 /**
  * Convenience wrapper for a single agent/session/branch chat.
  *
- * ChatSession wires runtime events into ConversationState for transcript rendering,
- * while the underlying AgentClient remains the place to handle non-transcript
- * protocol events with on/onAny.
+ * ChatSession scopes common chat operations to one agent/session/branch. Transcript
+ * rendering is intentionally left to applications via AgentClient.on/onAny and
+ * getBranchMessages().
  */
 export class ChatSession {
-  readonly conversation = new ConversationState();
-  private readonly subscriptions: EventSubscription[] = [];
-
   readonly agentId: string;
   sessionId: string;
   branchId: string;
@@ -77,33 +73,16 @@ export class ChatSession {
     this.agentId = options.agentId;
     this.sessionId = options.sessionId;
     this.branchId = options.branchId ?? 'main';
-
-    this.subscriptions.push(
-      this.client.onAny((event) => {
-        this.conversation.applyEvent(event);
-      }),
-      this.client.onError((error) => {
-        this.conversation.applyEvent({
-          type: EventTypes.MESSAGE_TURN_ERROR,
-          message: error.message,
-        });
-      }),
-    );
   }
 
   dispose(): void {
-    for (const subscription of this.subscriptions) subscription.dispose();
-    this.subscriptions.length = 0;
   }
 
-  async loadHistory(): Promise<void> {
-    this.conversation.reset();
-    const messages = await this.client.getBranchMessages(this.sessionId, this.branchId);
-    this.conversation.applyBranchMessages(messages);
+  async getBranchMessages(): Promise<BranchMessage[]> {
+    return this.client.getBranchMessages(this.sessionId, this.branchId);
   }
 
   async sendText(text: string, options: SendTextOptions = {}): Promise<void> {
-    if (options.optimisticUserMessage !== false) this.conversation.addUserText(text);
     await this.client.run({
       type: EventTypes.USER_TEXT_INPUT,
       agentId: this.agentId,
@@ -121,6 +100,5 @@ export class ChatSession {
   switchSession(sessionId: string, branchId = this.branchId): void {
     this.sessionId = sessionId;
     this.branchId = branchId;
-    this.conversation.reset();
   }
 }

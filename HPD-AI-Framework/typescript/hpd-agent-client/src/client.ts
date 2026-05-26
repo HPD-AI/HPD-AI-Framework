@@ -2,6 +2,8 @@ import type {
   AgentEvent,
   AgentEventOfType,
   AgentRunInputEvent,
+  ClientToolInvokeRequestEvent,
+  KnownAgentEvent,
 } from './types/events.js';
 import { EventTypes } from './types/events.js';
 import type { AgentTransport, RuntimeScope, RunTransportOptions } from './types/transport.js';
@@ -142,7 +144,7 @@ export class AgentClient {
     await this.outputDispatchQueue;
   }
 
-  on<TType extends AgentEvent['type']>(
+  on<TType extends KnownAgentEvent['type']>(
     type: TType,
     handler: AgentEventHandler<AgentEventOfType<TType>>
   ): EventSubscription {
@@ -192,7 +194,7 @@ export class AgentClient {
     }
 
     if (event.type === EventTypes.CLIENT_TOOL_INVOKE_REQUEST) {
-      const toolResponse = await this.tools.handleInvoke(event);
+      const toolResponse = await this.tools.handleInvoke(event as ClientToolInvokeRequestEvent);
       await this.transport.run({
         type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
         requestId: toolResponse.requestId,

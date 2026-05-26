@@ -66,9 +66,7 @@ public class DispatchBenchmarks
         runtime.BatchMap.AddInstrument(new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NASDAQ));
         runtime.Tensors.Grow();
         runtime.Tensors.GetScalar(Field.Close, 0) = new PriceF64(100);
-        runtime.SetMetadata(0, SecurityMetadata.Equity(
-            new Instrument(new Asset("SPY", AssetClass.Equity), Venue.NASDAQ),
-            tickSize: 0.01m));
+        runtime.SetContract(0, Contracts.Equity("SPY", Venue.NASDAQ, Currency.USD, tick: 0.01m));
 
         var tree = new StrategyTree();
         for (var i = 0; i < strategyCount; i++)
@@ -84,15 +82,15 @@ public class DispatchBenchmarks
 
     private static StrategyContext[] CreateContexts(StrategyTree tree)
     {
-        var nodes = tree.Nodes;
-        var contexts = new StrategyContext[nodes.Count];
-        for (var i = 0; i < nodes.Count; i++)
+        var contexts = new StrategyContext[tree.NodeCount];
+        for (var i = 0; i < tree.NodeCount; i++)
         {
+            var (strategy, node) = tree.GetNode(i);
             contexts[i] = new StrategyContext
             {
-                Strategy = nodes[i].Strategy,
-                Node = nodes[i].Node,
-                ChildSnapshots = new PortfolioSnapshot[nodes[i].Node.ChildIds.Length],
+                Strategy = strategy,
+                Node = node,
+                ChildSnapshots = new PortfolioSnapshot[node.ChildIds.Length],
                 Counters = new int[PortfolioContext.CounterCount],
                 OrderIntents = new OrderIntent[32]
             };
@@ -106,7 +104,7 @@ public class DispatchBenchmarks
         protected override void __GeneratedRunTick(in MarketKernel market, ref PortfolioContext portfolio)
         {
             if (market.GetScalar(Field.Close, new AssetId(0)) > 0)
-                portfolio.Buy(new AssetId(0), new Qty(1m), in market);
+                portfolio.Buy(new AssetId(0), new Qty(1m), Execution.Market());
         }
     }
 }

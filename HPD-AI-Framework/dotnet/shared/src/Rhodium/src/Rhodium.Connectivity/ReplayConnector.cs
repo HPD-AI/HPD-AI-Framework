@@ -2,15 +2,19 @@ using HPD.Events;
 using Rhodium.Simulation;
 using Rhodium.Events;
 using Rhodium.HFT;
+using Rhodium.Options;
 using Rhodium.Primitives;
 using System.Globalization;
 
 namespace Rhodium.Connectivity;
 
 /// <summary>
-/// Connector for backtesting - replays historical data with latency/queue simulation.
-/// Implements the same IConnector interface as live connectors.
+/// Legacy first-mover replay connector.
+/// Kept as a behavioral oracle for <see cref="SimulationSession"/> parity tests and
+/// certification tooling. New simulation and backtesting work should use
+/// <see cref="SimulationSession"/> instead of connector-shaped replay.
 /// </summary>
+[Obsolete("ReplayConnector is a legacy behavioral oracle. Use Rhodium.Simulation.SimulationSession for simulation/backtesting.", error: false)]
 public sealed class ReplayConnector : IConnector
 {
     private const int MaxReplayBookLevels = 64;
@@ -21,6 +25,7 @@ public sealed class ReplayConnector : IConnector
     private readonly IFillModel _fillModel;
     private readonly IRiskGuard _riskGuard;
     private readonly Money _initialCash;
+    private readonly IInstrumentValuationModel _valuation = DefaultInstrumentValuationModel.Instance;
     private readonly Dictionary<OrderId, SimulatedOrder> _openOrders = [];
     private readonly ReplayOrderBook _restingBook = new();
     private readonly Dictionary<OrderId, StrategyId> _orderStrategyMap = [];
@@ -41,6 +46,7 @@ public sealed class ReplayConnector : IConnector
     private readonly SortedSet<InflightCommand> _inflightCommands = new(InflightCommandComparer.Instance);
     private readonly List<PendingResponseEvent> _pendingResponseEvents = [];
     private readonly List<ActiveAlgoOrder> _activeAlgoOrders = [];
+    private readonly List<FinanceEvent> _pendingModuleEvents = [];
     private readonly List<AccountTradeNotional> _feeNotionalHistory = [];
     private readonly Dictionary<(StrategyId StrategyId, int VariantId, Currency Currency), ActiveMarginCall> _activeMarginCalls = [];
     private readonly Dictionary<OrderId, Qty> _orderFilledQuantities = [];
@@ -53,12 +59,16 @@ public sealed class ReplayConnector : IConnector
     private ReplayModuleContext? _moduleContext;
     private Instant _currentReplayTime;
     private bool _isConnected;
+    private bool _drainingModuleEvents;
 
     public IReadOnlyDictionary<Venue, ReplayVenueOrderPolicy> VenueOrderPolicies { get; set; } =
         new Dictionary<Venue, ReplayVenueOrderPolicy>();
 
     public IReadOnlyDictionary<Venue, ReplayVenueSimulationPolicy> VenueSimulationPolicies { get; set; } =
         new Dictionary<Venue, ReplayVenueSimulationPolicy>();
+
+    public IReadOnlyDictionary<Instrument, InstrumentContract> InstrumentContracts { get; set; } =
+        new Dictionary<Instrument, InstrumentContract>();
 
     public IReadOnlyList<IReplaySimulationModule> Modules { get; init; } = [];
 
@@ -91,6 +101,7 @@ public sealed class ReplayConnector : IConnector
         _moduleContext = new ReplayModuleContext(this);
         _isConnected = true;
         _processedModuleTimestamps.Clear();
+        _pendingModuleEvents.Clear();
         foreach (var module in Modules)
             module.Reset();
 
@@ -177,7 +188,11 @@ public sealed class ReplayConnector : IConnector
             return;
 
         foreach (var module in Modules)
-            module.PreProcess(evt, _moduleContext);
+        {
+            var sinks = new ReplayModuleSinks(_pendingModuleEvents);
+            module.PreProcess(in evt, _moduleContext, sinks);
+            DrainPendingModuleEvents();
+        }
     }
 
     private void ProcessModules(Instant now)
@@ -191,8 +206,30 @@ public sealed class ReplayConnector : IConnector
 
         foreach (var module in Modules)
         {
-            foreach (var generated in module.Process(now, _moduleContext))
-                ProcessModuleGeneratedEvent(generated);
+            var sinks = new ReplayModuleSinks(_pendingModuleEvents);
+            module.Process(now, _moduleContext, sinks);
+            DrainPendingModuleEvents();
+        }
+    }
+
+    private void DrainPendingModuleEvents()
+    {
+        if (_pendingModuleEvents.Count == 0 || _drainingModuleEvents)
+            return;
+
+        _drainingModuleEvents = true;
+        try
+        {
+            while (_pendingModuleEvents.Count > 0)
+            {
+                var evt = _pendingModuleEvents[0];
+                _pendingModuleEvents.RemoveAt(0);
+                ProcessModuleGeneratedEvent(evt);
+            }
+        }
+        finally
+        {
+            _drainingModuleEvents = false;
         }
     }
 
@@ -252,7 +289,9 @@ public sealed class ReplayConnector : IConnector
             now,
             command.ExternalReference,
             command.DestinationStrategyId,
-            command.DestinationVariantId)
+            command.DestinationVariantId,
+            Venue: command.Instrument?.Venue,
+            CarryingPrice: command.CarryingPrice)
         {
             Time = now
         });
@@ -278,7 +317,9 @@ public sealed class ReplayConnector : IConnector
             reason,
             command.ExternalReference,
             command.DestinationStrategyId,
-            command.DestinationVariantId)
+            command.DestinationVariantId,
+            Venue: command.Instrument?.Venue,
+            CarryingPrice: command.CarryingPrice)
         {
             Time = now
         });
@@ -648,14 +689,15 @@ public sealed class ReplayConnector : IConnector
             return false;
         }
 
-        if (price.Currency != minimumNotional.Currency)
+        var contract = GetContract(command.Instrument);
+        var notional = _valuation.Notional(contract, command.Quantity, price);
+        if (notional.Currency != minimumNotional.Currency)
         {
-            reason = $"{command.Instrument.Venue} replay policy minimum notional currency {minimumNotional.Currency} does not match order reference price currency {price.Currency}.";
+            reason = $"{command.Instrument.Venue} replay policy minimum notional currency {minimumNotional.Currency} does not match order notional currency {notional.Currency}.";
             return false;
         }
 
-        var notional = price.Value * command.Quantity.Value;
-        if (notional >= minimumNotional.Amount)
+        if (notional.Amount >= minimumNotional.Amount)
             return true;
 
         reason = $"{command.Instrument.Venue} replay policy requires minimum order notional {minimumNotional}.";
@@ -1065,12 +1107,14 @@ public sealed class ReplayConnector : IConnector
             TradeOccurred trade => trade.Trade.Size.Value,
             BarClosed bar => bar.Bar.Volume.Value,
             QuoteReceived quote => quote.Quote.BidSize.Value + quote.Quote.AskSize.Value,
-            BookUpdated book => book.Book.Bids.Sum(static level => level.Size.Value)
+            BookSnapshotReceived book => book.Book.Bids.Sum(static level => level.Size.Value)
                 + book.Book.Asks.Sum(static level => level.Size.Value),
-            BookDeltaReceived delta => delta.Delta.Size.Value,
-            BookDeltasReceived deltas => deltas.Deltas.Sum(static delta => delta.Size.Value),
+            BookLevelDeltaReceived delta => delta.Delta.Size.Value,
+            BookLevelDeltasReceived deltas => deltas.Deltas.Sum(static delta => delta.Size.Value),
             BookDepthSnapshotReceived depth => depth.Bids.Sum(static level => level.Size.Value)
                 + depth.Asks.Sum(static level => level.Size.Value),
+            BookDepth10Received depth => depth.Bids.Take(10).Sum(static level => level.Size.Value)
+                + depth.Asks.Take(10).Sum(static level => level.Size.Value),
             _ => 0m
         };
 
@@ -1347,7 +1391,7 @@ public sealed class ReplayConnector : IConnector
             var availablePosition = GetAvailablePositionForSell(command);
             if (command.Quantity.Value > availablePosition)
             {
-                _events?.Emit(new OrderRejected(
+                EmitConnectorEvent(new OrderRejected(
                     command.OrderId,
                     command.StrategyId,
                     command.VariantId,
@@ -1365,7 +1409,7 @@ public sealed class ReplayConnector : IConnector
             var availableShortSaleQuantity = GetAvailableShortSaleQuantity(command);
             if (command.Quantity.Value > availableShortSaleQuantity)
             {
-                _events?.Emit(new OrderRejected(
+                EmitConnectorEvent(new OrderRejected(
                     command.OrderId,
                     command.StrategyId,
                     command.VariantId,
@@ -1377,7 +1421,7 @@ public sealed class ReplayConnector : IConnector
         var required = EstimateCapitalRequirement(command, command.Quantity);
         if (required.IsZero)
         {
-            _events?.Emit(new OrderRejected(
+            EmitConnectorEvent(new OrderRejected(
                 command.OrderId,
                 command.StrategyId,
                 command.VariantId,
@@ -1392,7 +1436,7 @@ public sealed class ReplayConnector : IConnector
                 return true;
 
             var account = _config.AccountType == AccountType.Margin ? "margin" : "cash";
-            _events?.Emit(new OrderRejected(
+            EmitConnectorEvent(new OrderRejected(
                 command.OrderId,
                 command.StrategyId,
                 command.VariantId,
@@ -1827,7 +1871,9 @@ public sealed class ReplayConnector : IConnector
             now,
             command.ExternalReference,
             command.DestinationStrategyId,
-            command.DestinationVariantId)
+            command.DestinationVariantId,
+            Venue: command.Instrument?.Venue,
+            CarryingPrice: command.CarryingPrice)
         {
             Time = now
         });
@@ -1848,7 +1894,9 @@ public sealed class ReplayConnector : IConnector
             reason,
             command.ExternalReference,
             command.DestinationStrategyId,
-            command.DestinationVariantId)
+            command.DestinationVariantId,
+            Venue: command.Instrument?.Venue,
+            CarryingPrice: command.CarryingPrice)
         {
             Time = now
         });
@@ -1874,7 +1922,9 @@ public sealed class ReplayConnector : IConnector
             reason,
             command.ExternalReference,
             command.DestinationStrategyId,
-            command.DestinationVariantId)
+            command.DestinationVariantId,
+            Venue: command.Instrument?.Venue,
+            CarryingPrice: command.CarryingPrice)
         {
             Time = now
         });
@@ -1898,25 +1948,30 @@ public sealed class ReplayConnector : IConnector
 
     private Money EstimateCapitalRequirement(SubmitOrder command, Qty quantity, Price price)
     {
-        var notional = new Money(quantity.Value * price.Value, price.Currency);
-        var commission = CalculateCommission(command.StrategyId, command.VariantId, command.Side, quantity, price, IsPassiveOrder(command));
+        var contract = GetContract(command.Instrument);
+        var signedQuantity = ToSignedQuantity(command.Side, quantity);
+        var initialMargin = GetInitialMarginRequirement(contract, signedQuantity, price, null);
+        var upfrontCash = GetUpfrontCashFlow(contract, quantity, price);
+        var commission = CalculateCommission(command.StrategyId, command.VariantId, command.Instrument, command.Side, quantity, price, IsPassiveOrder(command));
         return _config.AccountType == AccountType.Margin
-            ? notional * _config.Margin.InitialMarginFraction + commission
+            ? initialMargin + commission
             : command.Side == Side.Buy
-                ? notional + commission
+                ? upfrontCash + commission
                 : Money.Zero(price.Currency);
     }
 
     private Money CalculateCommission(
         StrategyId strategyId,
         int variantId,
+        Instrument instrument,
         Side side,
         Qty quantity,
         Price price,
         bool isMaker)
     {
-        var thirtyDayVolume = GetThirtyDayFeeVolume(strategyId, variantId, price.Currency, GetCashEventTime());
-        return _config.Fees.Calculate(quantity, price, side, isMaker, thirtyDayVolume);
+        var contract = GetContract(instrument);
+        var thirtyDayVolume = GetThirtyDayFeeVolume(strategyId, variantId, contract.Exposure.SettlementCurrency(), GetCashEventTime());
+        return _config.Fees.Calculate(contract, quantity, price, side, isMaker, thirtyDayVolume, _valuation);
     }
 
     private Price ApplyPriceImprovement(Price price, Side side, bool isMaker)
@@ -1925,13 +1980,15 @@ public sealed class ReplayConnector : IConnector
     private void TrackFeeNotional(
         StrategyId strategyId,
         int variantId,
+        Instrument instrument,
         Qty quantity,
         Price price)
     {
         if (quantity.Value <= 0m || price.Value <= 0m)
             return;
 
-        var notional = new Money(quantity.Value * price.Value, price.Currency);
+        var contract = GetContract(instrument);
+        var notional = _valuation.Notional(contract, quantity, price);
         _feeNotionalHistory.Add(new AccountTradeNotional(
             strategyId,
             variantId,
@@ -1986,18 +2043,22 @@ public sealed class ReplayConnector : IConnector
                 continue;
 
             var fillPrice = passive.Command.LimitPrice.Value;
-            var passiveNotional = new Money(fillQuantity.Value * fillPrice.Value, fillPrice.Currency);
+            var passiveContract = GetContract(passive.Command.Instrument);
+            var passiveSignedQuantity = ToSignedQuantity(passive.Command.Side, fillQuantity);
+            var passiveInitialMargin = GetInitialMarginRequirement(passiveContract, passiveSignedQuantity, fillPrice, null);
+            var passiveUpfrontCash = GetUpfrontCashFlow(passiveContract, fillQuantity, fillPrice);
             var passiveCommission = CalculateCommission(
                 passive.Command.StrategyId,
                 passive.Command.VariantId,
+                passive.Command.Instrument,
                 passive.Command.Side,
                 fillQuantity,
                 fillPrice,
                 isMaker: false);
             cost += _config.AccountType == AccountType.Margin
-                ? passiveNotional * _config.Margin.InitialMarginFraction + passiveCommission
+                ? passiveInitialMargin + passiveCommission
                 : command.Side == Side.Buy
-                    ? passiveNotional + passiveCommission
+                    ? passiveUpfrontCash + passiveCommission
                     : Money.Zero(fillPrice.Currency);
             remaining -= fillQuantity.Value;
         }
@@ -2015,8 +2076,11 @@ public sealed class ReplayConnector : IConnector
         if (levelCount == 0)
             return !cost.IsZero;
 
-        var notional = Money.Zero(Currency.USD);
+        var initialMargin = Money.Zero(Currency.USD);
+        var upfrontCash = Money.Zero(Currency.USD);
         var commission = Money.Zero(Currency.USD);
+        var contract = GetContract(command.Instrument);
+        var signedSide = command.Side;
         for (var i = 0; i < levelCount && remaining > 0m; i++)
         {
             var level = levels[i];
@@ -2025,16 +2089,17 @@ public sealed class ReplayConnector : IConnector
             fillPrice = ApplyPriceImprovement(fillPrice, command.Side, isMaker: false);
             var slippageMoney = _config.Slippage.Calculate(fillPrice, fillQuantity, command.Side);
             fillPrice = new Price(fillPrice.Value + slippageMoney.Amount, fillPrice.Currency);
-            notional += new Money(fillQuantity.Value * fillPrice.Value, fillPrice.Currency);
-            commission += CalculateCommission(command.StrategyId, command.VariantId, command.Side, fillQuantity, fillPrice, isMaker: false);
+            initialMargin += GetInitialMarginRequirement(contract, ToSignedQuantity(signedSide, fillQuantity), fillPrice, null);
+            upfrontCash += GetUpfrontCashFlow(contract, fillQuantity, fillPrice);
+            commission += CalculateCommission(command.StrategyId, command.VariantId, command.Instrument, command.Side, fillQuantity, fillPrice, isMaker: false);
             remaining -= fillQuantity.Value;
         }
 
         var depthCost = _config.AccountType == AccountType.Margin
-            ? notional * _config.Margin.InitialMarginFraction + commission
+            ? initialMargin + commission
             : command.Side == Side.Buy
-                ? notional + commission
-                : Money.Zero(notional.Currency);
+                ? upfrontCash + commission
+                : Money.Zero(upfrontCash.Currency);
         cost += depthCost;
 
         return !cost.IsZero;
@@ -2144,7 +2209,7 @@ public sealed class ReplayConnector : IConnector
             var slippageMoney = _config.Slippage.Calculate(fillPrice, fillQuantity, command.Side);
             fillPrice = new Price(fillPrice.Value + slippageMoney.Amount, fillPrice.Currency);
 
-            var commission = CalculateCommission(command.StrategyId, command.VariantId, command.Side, fillQuantity, fillPrice, isMaker: false);
+            var commission = CalculateCommission(command.StrategyId, command.VariantId, command.Instrument, command.Side, fillQuantity, fillPrice, isMaker: false);
 
             EmitConnectorEvent(new OrderFilled(
                 command.OrderId,
@@ -2162,8 +2227,8 @@ public sealed class ReplayConnector : IConnector
                 command.VariantId,
                 fillQuantity,
                 new Qty(remaining));
-            TrackFeeNotional(command.StrategyId, command.VariantId, fillQuantity, fillPrice);
-            ApplyCashFill(command.StrategyId, command.VariantId, command.Side, fillQuantity, fillPrice, commission);
+            TrackFeeNotional(command.StrategyId, command.VariantId, command.Instrument, fillQuantity, fillPrice);
+            ApplyCashFill(command.StrategyId, command.Instrument, command.VariantId, command.Side, fillQuantity, fillPrice, commission);
             ApplyFill(
                 command.StrategyId,
                 command.Instrument,
@@ -2447,7 +2512,7 @@ public sealed class ReplayConnector : IConnector
                 depth.Update(Side.Sell, quote.Quote.AskTick(depth.TickSize).Ticks, quote.Quote.AskSize.Value, quote.Quote.Time.ExchangeTime);
             }
         }
-        else if (evt is BookUpdated book)
+        else if (evt is BookSnapshotReceived book)
         {
             if (_depths.TryGetValue(book.Instrument, out var depth))
             {
@@ -2460,17 +2525,17 @@ public sealed class ReplayConnector : IConnector
                     depth.Update(Side.Sell, TickPrice.FromPrice(level.Price, depth.TickSize).Ticks, level.Size.Value, book.Book.Time);
             }
         }
-        else if (evt is BookDeltaReceived delta)
+        else if (evt is BookLevelDeltaReceived delta)
         {
             if (_depths.TryGetValue(delta.Instrument, out var depth))
-                ApplyBookDelta(depth, delta.Delta, delta.Time);
+                ApplyBookLevelDelta(depth, delta.Delta, delta.Time);
         }
-        else if (evt is BookDeltasReceived deltas)
+        else if (evt is BookLevelDeltasReceived deltas)
         {
             if (_depths.TryGetValue(deltas.Instrument, out var depth))
             {
                 foreach (var bookDelta in deltas.Deltas)
-                    ApplyBookDelta(depth, bookDelta, deltas.Time);
+                    ApplyBookLevelDelta(depth, bookDelta, deltas.Time);
             }
         }
         else if (evt is BookDepthSnapshotReceived snapshot)
@@ -2486,9 +2551,22 @@ public sealed class ReplayConnector : IConnector
                     depth.Update(Side.Sell, TickPrice.FromPrice(level.Price, depth.TickSize).Ticks, level.Size.Value, snapshot.Time);
             }
         }
+        else if (evt is BookDepth10Received depth10)
+        {
+            if (_depths.TryGetValue(depth10.Instrument, out var depth))
+            {
+                depth.Clear();
+
+                foreach (var level in depth10.Bids.Take(10))
+                    depth.Update(Side.Buy, TickPrice.FromPrice(level.Price, depth.TickSize).Ticks, level.Size.Value, depth10.Time);
+
+                foreach (var level in depth10.Asks.Take(10))
+                    depth.Update(Side.Sell, TickPrice.FromPrice(level.Price, depth.TickSize).Ticks, level.Size.Value, depth10.Time);
+            }
+        }
     }
 
-    private static void ApplyBookDelta(IHftDepth depth, BookDelta delta, Instant time)
+    private static void ApplyBookLevelDelta(IHftDepth depth, BookLevelDelta delta, Instant time)
     {
         if (delta.Action == BookAction.Clear)
         {
@@ -2755,10 +2833,11 @@ public sealed class ReplayConnector : IConnector
         {
             QuoteReceived quote => quote.Instrument == instrument,
             TradeOccurred trade => trade.Instrument == instrument,
-            BookUpdated book => book.Instrument == instrument,
-            BookDeltaReceived delta => delta.Instrument == instrument,
-            BookDeltasReceived deltas => deltas.Instrument == instrument,
+            BookSnapshotReceived book => book.Instrument == instrument,
+            BookLevelDeltaReceived delta => delta.Instrument == instrument,
+            BookLevelDeltasReceived deltas => deltas.Instrument == instrument,
             BookDepthSnapshotReceived depth => depth.Instrument == instrument,
+            BookDepth10Received depth => depth.Instrument == instrument,
             BarClosed bar => bar.Instrument == instrument,
             _ => true
         };
@@ -3205,7 +3284,7 @@ public sealed class ReplayConnector : IConnector
 
         var strategyId = _orderStrategyMap.GetValueOrDefault(orderId, order.Command.StrategyId);
         fillPrice = ApplyPriceImprovement(fillPrice, order.Command.Side, isMaker);
-        var commission = CalculateCommission(strategyId, order.Command.VariantId, order.Command.Side, fillQuantity, fillPrice, isMaker);
+        var commission = CalculateCommission(strategyId, order.Command.VariantId, order.Command.Instrument, order.Command.Side, fillQuantity, fillPrice, isMaker);
 
         EmitConnectorEvent(new OrderFilled(
             orderId,
@@ -3217,7 +3296,7 @@ public sealed class ReplayConnector : IConnector
             fillPrice,
             commission));
         order.RemainingQuantity -= fillQuantity;
-        TrackFeeNotional(strategyId, order.Command.VariantId, fillQuantity, fillPrice);
+        TrackFeeNotional(strategyId, order.Command.VariantId, order.Command.Instrument, fillQuantity, fillPrice);
         EmitOrderFillState(
             orderId,
             strategyId,
@@ -3231,10 +3310,10 @@ public sealed class ReplayConnector : IConnector
                 RefreshDisplayQuantity(order);
         }
 
-        ApplyCashFill(strategyId, order.Command.VariantId, order.Command.Side, fillQuantity, fillPrice, commission);
+        ApplyCashFill(strategyId, order.Command.Instrument, order.Command.VariantId, order.Command.Side, fillQuantity, fillPrice, commission);
         if (order.ReservedCash.Amount > 0m)
         {
-            var consumed = new Money(fillQuantity.Value * fillPrice.Value, fillPrice.Currency) + commission;
+            var consumed = GetUpfrontCashFlow(GetContract(order.Command.Instrument), fillQuantity, fillPrice) + commission;
             order.ReservedCash = consumed.Amount >= order.ReservedCash.Amount
                 ? Money.Zero(order.ReservedCash.Currency)
                 : order.ReservedCash - consumed;
@@ -3252,6 +3331,7 @@ public sealed class ReplayConnector : IConnector
 
     private void ApplyCashFill(
         StrategyId strategyId,
+        Instrument instrument,
         int variantId,
         Side side,
         Qty quantity,
@@ -3259,14 +3339,16 @@ public sealed class ReplayConnector : IConnector
         Money commission)
     {
         var cash = GetCashBalance(strategyId, variantId, price.Currency);
-        var notional = new Money(quantity.Value * price.Value, price.Currency);
+        var contract = GetContract(instrument);
+        var notional = GetUpfrontCashFlow(contract, quantity, price);
+        var realized = GetDerivativeRealizedCashFlow(strategyId, instrument, variantId, side, quantity, price);
         if (side == Side.Buy)
         {
-            SetCashBalance(strategyId, variantId, cash - notional - commission);
+            SetCashBalance(strategyId, variantId, cash - notional + realized - commission);
             return;
         }
 
-        var proceeds = notional - commission;
+        var proceeds = notional + realized - commission;
         if (_config.AccountType == AccountType.Cash && _config.Settlement.CashProceedsDelay > Duration.Zero)
         {
             var cashEventTime = GetCashEventTime();
@@ -3449,10 +3531,11 @@ public sealed class ReplayConnector : IConnector
             QuoteReceived quote => quote.Quote.Time.ExchangeTime,
             TradeOccurred trade => trade.Trade.Time.ExchangeTime,
             BarClosed bar => bar.Bar.Time,
-            BookUpdated book => book.Book.Time,
-            BookDeltaReceived delta => delta.Time,
-            BookDeltasReceived deltas => deltas.Time,
+            BookSnapshotReceived book => book.Book.Time,
+            BookLevelDeltaReceived delta => delta.Time,
+            BookLevelDeltasReceived deltas => deltas.Time,
             BookDepthSnapshotReceived depth => depth.Time,
+            BookDepth10Received depth => depth.Time,
             _ => evt.Time
         };
     }
@@ -3473,7 +3556,7 @@ public sealed class ReplayConnector : IConnector
             _positions[key] = position;
         }
 
-        position.ApplyFill(side, quantity, price, commission);
+        position.ApplyFill(GetContract(instrument), side, quantity, price, commission);
         ApplyAssetDeliveryFill(strategyId, instrument, variantId, side, quantity);
         EmitCustodyPositionSnapshot(strategyId, instrument, variantId, position, price.Currency, price);
         EmitPerformanceSnapshot(strategyId, variantId, price.Currency);
@@ -3676,12 +3759,9 @@ public sealed class ReplayConnector : IConnector
         if (mark.Currency == default)
             mark = new Price(mark.Value, currency);
 
-        var marketValue = position.IsFlat
-            ? Money.Zero(currency)
-            : new Money(position.Quantity.Value * mark.Value, mark.Currency);
-        var unrealizedPnL = position.IsFlat
-            ? Money.Zero(currency)
-            : position.UnrealizedPnL(mark);
+        var value = position.IsFlat
+            ? new PositionValuation(Money.Zero(currency), Money.Zero(currency), Money.Zero(currency), Money.Zero(currency))
+            : ValuePosition(instrument, position, mark);
 
         EmitConnectorEvent(new CustodyPositionSnapshot(
             strategyId,
@@ -3693,8 +3773,8 @@ public sealed class ReplayConnector : IConnector
             GetRehypothecatableQuantity(strategyId, instrument, variantId),
             position.AvgEntryPrice,
             mark,
-            marketValue,
-            unrealizedPnL,
+            value.MarketValue,
+            value.UnrealizedPnL,
             position.RealizedPnL.Currency == default ? Money.Zero(currency) : position.RealizedPnL,
             IsOpen: !position.IsFlat)
         {
@@ -3710,6 +3790,7 @@ public sealed class ReplayConnector : IConnector
         var cash = GetCashBalance(strategyId, variantId, currency);
         var pendingSettlement = GetPendingSettlementTotal(strategyId, variantId, currency);
         var marketValue = Money.Zero(currency);
+        var equityContribution = Money.Zero(currency);
         var realizedPnL = Money.Zero(currency);
         var unrealizedPnL = Money.Zero(currency);
         var openPositions = 0;
@@ -3725,8 +3806,14 @@ public sealed class ReplayConnector : IConnector
             var mark = TryGetMarkPrice(instrument, position.Side, currency, out var markPrice)
                 ? markPrice
                 : position.AvgEntryPrice;
-            marketValue += new Money(position.Quantity.Value * mark.Value, mark.Currency);
-            unrealizedPnL += position.UnrealizedPnL(mark);
+            var value = ValuePosition(instrument, position, mark);
+            if (value.MarketValue.Currency == currency)
+                marketValue += value.MarketValue;
+            if (value.UnrealizedPnL.Currency == currency)
+                unrealizedPnL += value.UnrealizedPnL;
+            var contribution = GetEquityContribution(instrument, value);
+            if (contribution.Currency == currency)
+                equityContribution += contribution;
         }
 
         foreach (var ((positionStrategyId, _, positionVariantId), position) in _positions)
@@ -3738,7 +3825,7 @@ public sealed class ReplayConnector : IConnector
         var openOrders = _openOrders.Values.Count(order =>
             order.Command.StrategyId == strategyId && order.Command.VariantId == variantId);
         EmitConnectorEvent(new PerformanceSnapshot(
-            Equity: cash + pendingSettlement + marketValue,
+            Equity: cash + pendingSettlement + equityContribution,
             Cash: cash,
             UnrealizedPnL: unrealizedPnL,
             RealizedPnL: realizedPnL,
@@ -3798,6 +3885,7 @@ public sealed class ReplayConnector : IConnector
         var pendingSettlement = GetPendingSettlementTotal(strategyId, variantId, currency);
         var reservedCash = GetReservedCashTotal(strategyId, variantId, currency);
         var marketValue = Money.Zero(currency);
+        var equityContribution = Money.Zero(currency);
         var realizedPnL = Money.Zero(currency);
         var unrealizedPnL = Money.Zero(currency);
         var openPositions = 0;
@@ -3825,8 +3913,14 @@ public sealed class ReplayConnector : IConnector
             if (mark.Currency != currency)
                 continue;
 
-            marketValue += new Money(position.Quantity.Value * mark.Value, mark.Currency);
-            unrealizedPnL += position.UnrealizedPnL(mark);
+            var value = ValuePosition(instrument, position, mark);
+            if (value.MarketValue.Currency == currency)
+                marketValue += value.MarketValue;
+            if (value.UnrealizedPnL.Currency == currency)
+                unrealizedPnL += value.UnrealizedPnL;
+            var contribution = GetEquityContribution(instrument, value);
+            if (contribution.Currency == currency)
+                equityContribution += contribution;
         }
 
         var openOrders = _openOrders.Values.Count(order =>
@@ -3841,7 +3935,7 @@ public sealed class ReplayConnector : IConnector
             PendingSettlement: pendingSettlement,
             ReservedCash: reservedCash,
             MarketValue: marketValue,
-            Equity: cash + pendingSettlement + marketValue,
+            Equity: cash + pendingSettlement + equityContribution,
             UnrealizedPnL: unrealizedPnL,
             RealizedPnL: realizedPnL,
             OpenPositions: openPositions,
@@ -3940,7 +4034,7 @@ public sealed class ReplayConnector : IConnector
         Currency currency)
     {
         var cash = GetCashBalance(strategyId, variantId, currency);
-        var marketValue = Money.Zero(currency);
+        var equityContribution = Money.Zero(currency);
         var maintenance = Money.Zero(currency);
 
         foreach (var ((positionStrategyId, instrument, positionVariantId), position) in _positions)
@@ -3951,13 +4045,17 @@ public sealed class ReplayConnector : IConnector
             var mark = TryGetMarkPrice(instrument, position.Side, currency, out var markPrice)
                 ? markPrice
                 : position.AvgEntryPrice;
-            marketValue += new Money(position.Quantity.Value * mark.Value, mark.Currency);
-            maintenance += new Money(
-                position.Quantity.Abs.Value * mark.Value * _config.Margin.MaintenanceMarginFraction,
-                mark.Currency);
+            var contract = GetContract(instrument);
+            var value = ValuePosition(instrument, position, mark);
+            var contribution = GetEquityContribution(instrument, value);
+            var requirement = GetMaintenanceMarginRequirement(contract, position.Quantity, mark, null);
+            if (contribution.Currency == currency)
+                equityContribution += contribution;
+            if (requirement.Currency == currency)
+                maintenance += requirement;
         }
 
-        return (cash + marketValue, maintenance);
+        return (cash + equityContribution, maintenance);
     }
 
     private void LiquidateMarginBreach(StrategyId strategyId, int variantId, Currency currency)
@@ -3991,13 +4089,13 @@ public sealed class ReplayConnector : IConnector
             var quantity = position.Quantity.Abs;
             if (_config.Margin.LiquidationPolicy == LiquidationPolicy.CancelOpenOrdersAndReduceToMaintenance)
             {
-                quantity = GetRequiredMaintenanceLiquidationQuantity(strategyId, variantId, currency, mark, quantity);
+                quantity = GetRequiredMaintenanceLiquidationQuantity(strategyId, variantId, instrument, currency, mark, quantity);
                 if (quantity.Value <= 0m)
                     break;
             }
 
             var liquidationSide = position.IsLong ? Side.Sell : Side.Buy;
-            var commission = CalculateCommission(strategyId, variantId, liquidationSide, quantity, mark, isMaker: false);
+            var commission = CalculateCommission(strategyId, variantId, instrument, liquidationSide, quantity, mark, isMaker: false);
             var orderId = OrderId.New();
 
             EmitConnectorEvent(new OrderFilled(
@@ -4010,8 +4108,8 @@ public sealed class ReplayConnector : IConnector
                 mark,
                 commission));
             EmitOrderFillState(orderId, strategyId, variantId, quantity, Qty.Zero);
-            TrackFeeNotional(strategyId, variantId, quantity, mark);
-            ApplyCashFill(strategyId, variantId, liquidationSide, quantity, mark, commission);
+            TrackFeeNotional(strategyId, variantId, instrument, quantity, mark);
+            ApplyCashFill(strategyId, instrument, variantId, liquidationSide, quantity, mark, commission);
             ApplyFill(strategyId, instrument, variantId, liquidationSide, quantity, mark, commission);
         }
     }
@@ -4024,14 +4122,17 @@ public sealed class ReplayConnector : IConnector
         var mark = TryGetMarkPrice(instrument, position.Side, currency, out var markPrice)
             ? markPrice
             : position.AvgEntryPrice;
-        return new Money(
-            position.Quantity.Abs.Value * mark.Value * _config.Margin.MaintenanceMarginFraction,
-            mark.Currency == default ? currency : mark.Currency);
+        var contract = GetContract(instrument);
+        var requirement = GetMaintenanceMarginRequirement(contract, position.Quantity, mark, null);
+        return requirement.Currency == default
+            ? new Money(requirement.Amount, currency)
+            : requirement;
     }
 
     private Qty GetRequiredMaintenanceLiquidationQuantity(
         StrategyId strategyId,
         int variantId,
+        Instrument instrument,
         Currency currency,
         Price mark,
         Qty availableQuantity)
@@ -4041,7 +4142,12 @@ public sealed class ReplayConnector : IConnector
         if (deficit <= 0m)
             return Qty.Zero;
 
-        var maintenancePerUnit = mark.Value * _config.Margin.MaintenanceMarginFraction;
+        var contract = GetContract(instrument);
+        if (availableQuantity.Value <= 0m)
+            return Qty.Zero;
+
+        var positionRequirement = GetMaintenanceMarginRequirement(contract, availableQuantity, mark, null).Amount;
+        var maintenancePerUnit = positionRequirement / availableQuantity.Value;
         if (maintenancePerUnit <= 0m)
             return availableQuantity;
 
@@ -4050,6 +4156,132 @@ public sealed class ReplayConnector : IConnector
             return Qty.Zero;
 
         return new Qty(Math.Min(availableQuantity.Value, quantity));
+    }
+
+    private InstrumentContract GetContract(Instrument instrument) =>
+        InstrumentContracts.TryGetValue(instrument, out var contract)
+            ? contract
+            : Contracts.FromIdentity(instrument, _initialCash.Currency);
+
+    private Money GetInitialMarginRequirement(
+        InstrumentContract contract,
+        Qty signedQuantity,
+        Price mark,
+        Price? underlyingMark)
+    {
+        if (contract.Payoff is PayoffTerms.Option option)
+            return DefaultOptionMarginModel.Instance.InitialMargin(
+                BuildOptionMarginRequest(contract, option.Terms, signedQuantity, mark, underlyingMark)).Requirement;
+
+        var (initial, _) = GetMarginFractions(contract);
+        return _valuation.Notional(contract, signedQuantity, mark) * initial;
+    }
+
+    private Money GetMaintenanceMarginRequirement(
+        InstrumentContract contract,
+        Qty signedQuantity,
+        Price mark,
+        Price? underlyingMark)
+    {
+        if (contract.Payoff is PayoffTerms.Option option)
+            return DefaultOptionMarginModel.Instance.MaintenanceMargin(
+                BuildOptionMarginRequest(contract, option.Terms, signedQuantity, mark, underlyingMark)).Requirement;
+
+        var (_, maintenance) = GetMarginFractions(contract);
+        return _valuation.Notional(contract, signedQuantity, mark) * maintenance;
+    }
+
+    private static OptionMarginRequest BuildOptionMarginRequest(
+        InstrumentContract contract,
+        OptionTerms terms,
+        Qty signedQuantity,
+        Price optionMark,
+        Price? underlyingMark) =>
+        new(
+            contract,
+            signedQuantity,
+            new OptionMarketState(
+                contract.Instrument,
+                Timestamp: Instant.MinValue,
+                Last: optionMark,
+                UnderlyingMark: underlyingMark ?? terms.Strike.ScaledStrike),
+            new OptionPricingScenario(RiskFreeRate: 0m));
+
+    private (decimal Initial, decimal Maintenance) GetMarginFractions(InstrumentContract contract)
+        => contract.Margin switch
+        {
+            MarginTerms.CashMargin => (1m, 1m),
+            MarginTerms.RegT => (_config.Margin.InitialMarginFraction, _config.Margin.MaintenanceMarginFraction),
+            MarginTerms.FixedFraction fixedFraction => (fixedFraction.Initial, fixedFraction.Maintenance),
+            MarginTerms.Portfolio => (_config.Margin.InitialMarginFraction, _config.Margin.MaintenanceMarginFraction),
+            _ => (_config.Margin.InitialMarginFraction, _config.Margin.MaintenanceMarginFraction)
+        };
+
+    private Money GetUpfrontCashFlow(InstrumentContract contract, Qty quantity, Price price)
+    {
+        if (contract.Payoff is PayoffTerms.Option option)
+            return option.Terms.PremiumStyle switch
+            {
+                OptionPremiumStyle.Upfront => _valuation.MarketValue(contract, quantity, price),
+                OptionPremiumStyle.FuturesStyle or OptionPremiumStyle.Deferred => Money.Zero(contract.Exposure.SettlementCurrency()),
+                _ => throw new InvalidOperationException($"Unsupported option premium style {option.Terms.PremiumStyle}.")
+            };
+
+        if (contract.Payoff is PayoffTerms.Betting)
+            return new Money(quantity.Abs.Value, contract.Exposure.SettlementCurrency());
+
+        var shouldExchangeCash = contract.Exposure is EconomicExposure.Spot
+            || contract.Payoff is PayoffTerms.Binary;
+        return shouldExchangeCash
+            ? _valuation.MarketValue(contract, quantity, price)
+            : Money.Zero(contract.Exposure.SettlementCurrency());
+    }
+
+    private static Qty ToSignedQuantity(Side side, Qty quantity) =>
+        side == Side.Sell ? -quantity.Abs : quantity.Abs;
+
+    private Money GetDerivativeRealizedCashFlow(
+        StrategyId strategyId,
+        Instrument instrument,
+        int variantId,
+        Side side,
+        Qty quantity,
+        Price price)
+    {
+        var contract = GetContract(instrument);
+        if (!GetUpfrontCashFlow(contract, quantity, price).IsZero)
+            return Money.Zero(price.Currency);
+
+        if (!_positions.TryGetValue((strategyId, instrument, variantId), out var position) || position.IsFlat)
+            return Money.Zero(contract.Exposure.SettlementCurrency());
+
+        var deltaSign = side == Side.Buy ? 1m : -1m;
+        if (Math.Sign(position.Quantity.Value) == Math.Sign(deltaSign))
+            return Money.Zero(contract.Exposure.SettlementCurrency());
+
+        var closingQty = Math.Min(quantity.Value, position.Quantity.Abs.Value);
+        return _valuation.RealizedPnL(
+            contract,
+            new Qty(closingQty * (position.Quantity.IsPositive ? 1m : -1m)),
+            position.AvgEntryPrice,
+            price);
+    }
+
+    private PositionValuation ValuePosition(Instrument instrument, Position position, Price mark)
+    {
+        var contract = GetContract(instrument);
+        return _valuation.ValuePosition(
+            contract,
+            position.ToValuationInput(),
+            mark);
+    }
+
+    private Money GetEquityContribution(Instrument instrument, PositionValuation value)
+    {
+        var contract = GetContract(instrument);
+        var contributesMarketValue = contract.Exposure is EconomicExposure.Spot
+            || contract.Payoff is PayoffTerms.Option or PayoffTerms.Binary;
+        return contributesMarketValue ? value.MarketValue : value.UnrealizedPnL;
     }
 
     private void CancelOpenOrdersForMarginBreach(StrategyId strategyId, int variantId)

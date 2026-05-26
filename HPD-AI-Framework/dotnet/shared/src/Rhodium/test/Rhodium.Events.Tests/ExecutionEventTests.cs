@@ -42,6 +42,16 @@ public class OrderAcceptedTests
         // Assert
         Assert.Equal(HPD.Events.EventChannel.Synchronous, evt.Channel);
     }
+
+    [Fact]
+    public void OrderAccepted_ShouldStoreExplicitAssetIdWhenProvided()
+    {
+        var assetId = new AssetId(17);
+
+        var evt = new OrderAccepted(OrderId.New(), new StrategyId(1), VariantId: 1, AssetId: assetId);
+
+        Assert.Equal(assetId, evt.AssetId);
+    }
 }
 
 public class OrderModifiedTests
@@ -61,6 +71,16 @@ public class OrderModifiedTests
         Assert.Equal(3, evt.VariantId);
         Assert.Equal(qty, evt.NewQuantity);
         Assert.Equal(limitPrice, evt.NewLimitPrice);
+    }
+
+    [Fact]
+    public void OrderModified_ShouldStoreExplicitAssetIdWhenProvided()
+    {
+        var assetId = new AssetId(18);
+
+        var evt = new OrderModified(OrderId.New(), new StrategyId(1), VariantId: 3, AssetId: assetId);
+
+        Assert.Equal(assetId, evt.AssetId);
     }
 
     [Fact]
@@ -92,6 +112,16 @@ public class OrderRejectedTests
         Assert.Equal(strategyId, evt.StrategyId);
         Assert.Equal(variantId, evt.VariantId);
         Assert.Equal(reason, evt.Reason);
+    }
+
+    [Fact]
+    public void OrderRejected_ShouldStoreExplicitAssetIdWhenProvided()
+    {
+        var assetId = new AssetId(19);
+
+        var evt = new OrderRejected(OrderId.New(), new StrategyId(1), VariantId: 3, "bad price", assetId);
+
+        Assert.Equal(assetId, evt.AssetId);
     }
 
     [Fact]
@@ -132,6 +162,27 @@ public class OrderFilledTests
         Assert.Equal(qty, evt.FilledQty);
         Assert.Equal(price, evt.FillPrice);
         Assert.Equal(commission, evt.Commission);
+        Assert.Null(evt.AssetId);
+    }
+
+    [Fact]
+    public void OrderFilled_ShouldStoreExplicitAssetIdWhenProvided()
+    {
+        var instrument = new Instrument(new Asset("AAPL", AssetClass.Equity), Venue.NASDAQ);
+        var assetId = new AssetId(17);
+
+        var evt = new OrderFilled(
+            OrderId.New(),
+            instrument,
+            VariantId: 5,
+            new StrategyId(4),
+            Side.Buy,
+            new Qty(100m),
+            new Price(150.50m, Currency.USD),
+            Money.USD(1.50m),
+            AssetId: assetId);
+
+        Assert.Equal(assetId, evt.AssetId);
     }
 
     [Fact]
@@ -220,6 +271,16 @@ public class OrderCancelledTests
     }
 
     [Fact]
+    public void OrderCancelled_ShouldStoreExplicitAssetIdWhenProvided()
+    {
+        var assetId = new AssetId(20);
+
+        var evt = new OrderCancelled(OrderId.New(), new StrategyId(1), VariantId: 3, new Qty(1m), "user", AssetId: assetId);
+
+        Assert.Equal(assetId, evt.AssetId);
+    }
+
+    [Fact]
     public void OrderCancelled_ShouldBeExecutionEvent()
     {
         // Arrange & Act
@@ -247,6 +308,16 @@ public class OrderExpiredTests
         Assert.Equal(orderId, evt.OrderId);
         Assert.Equal(strategyId, evt.StrategyId);
         Assert.Equal(variantId, evt.VariantId);
+    }
+
+    [Fact]
+    public void OrderExpired_ShouldStoreExplicitAssetIdWhenProvided()
+    {
+        var assetId = new AssetId(21);
+
+        var evt = new OrderExpired(OrderId.New(), new StrategyId(1), VariantId: 7, AssetId: assetId);
+
+        Assert.Equal(assetId, evt.AssetId);
     }
 
     [Fact]
