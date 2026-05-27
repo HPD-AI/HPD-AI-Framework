@@ -2,43 +2,62 @@
 
 ## Purpose
 
-The shell owns the desktop window layout around the main work surfaces. It controls the window chrome toggle, sidebar visibility, workspace pane, app pane, app-pane resizing, and persisted shell layout intent.
+The shell owns the desktop window layout around route surfaces. It controls the window chrome toggle, sidebar visibility, active shell route, and persisted shell intent. The chat route owns its workspace/app split and app-pane resizing.
 
 The shell should feel native, stable, and predictable. Resize, collapse, refresh, and restore behavior must not surprise the user.
 
 ## Files
 
-- `App.svelte` creates one shell controller and passes it to shell components.
-- `ShellLayout.svelte` renders the sidebar, workspace pane, app pane, and resize handle.
+- `App.svelte` creates one shell controller and one chat layout controller.
+- `ShellFrame.svelte` renders the sidebar and route host.
+- `ShellSidebar.svelte` renders route navigation.
+- `ShellRouteHost.svelte` chooses the active route.
+- `routes/ChatWorkspaceRoute.svelte` adapts shell routing to the chat feature.
+- `routes/AutomationsRoute.svelte` renders the automations page.
+- `routes/SettingsRoute.svelte` renders the settings page.
 - `WindowChrome.svelte` renders shell-level window controls.
-- `controller.ts` owns shell state and layout intent.
-- `layout.ts` owns split policy and width math.
-- `resize.svelte.ts` owns pointer and keyboard resize behavior.
-- `storage.ts` bridges shell layout state to desktop persistence.
+- `controller.ts` owns active route and sidebar state.
+- `shellStorage.ts` bridges shell state to desktop persistence.
+- `../chat/ChatWorkspace.svelte` renders the chat workspace/app split.
+- `../chat/controller.ts` owns chat layout state.
+- `../chat/layout.ts` owns chat split policy and width math.
+- `../chat/resize.svelte.ts` owns chat pointer and keyboard resize behavior.
+- `../chat/storage.ts` bridges chat layout state to desktop persistence.
+- `../chat/styles.css` owns chat-specific layout styling.
 - `styles.css` owns shell-specific CSS.
+- `../desktopSettingsBridge.ts` owns the shared renderer-to-desktop settings bridge.
 - `desktop/src/bun/settingsStore.ts` owns durable desktop settings storage.
 
 ## Invariants
 
-- `App.svelte` creates exactly one `ShellLayoutController`.
-- `WindowChrome` and `ShellLayout` share that same controller.
+- `App.svelte` creates exactly one `ShellController` and one `ChatLayoutController`.
+- `WindowChrome`, `ShellFrame`, `ShellSidebar`, and `ShellRouteHost` share the same shell controller.
 - Sidebar collapsed/expanded state is shell state, not component-local state.
-- Expanded and collapsed app pane widths are remembered separately.
+- Active route is shell state, not chat layout state.
+- Expanded and collapsed chat app-pane widths are remembered separately.
 - The sidebar is fixed outside the workspace/app resize calculation.
-- Resizing changes the workspace/app split only, never the sidebar width.
+- Chat resizing changes the workspace/app split only, never the sidebar width.
 - Drag geometry is frozen at pointer-down so layout changes do not fight the cursor mid-drag.
-- Widths are clamped by layout policy, not by ad hoc CSS.
+- Widths are clamped by chat layout policy, not by ad hoc CSS.
 - The shell must not paint persisted layout defaults before hydration completes.
 - Desktop persistence stores layout intent, not transient DOM layout.
-- Shell-specific storage stays in `storage.ts`; durable settings live in `desktop/src/bun/settingsStore.ts`.
+- Shell-specific storage stays in `shellStorage.ts`; chat layout storage stays in `../chat/storage.ts`; durable settings live in `desktop/src/bun/settingsStore.ts`.
 
 ## Persistence
 
-Shell layout persistence stores:
+Shell persistence stores:
 
 ```ts
-type ShellLayoutSnapshot = {
+type ShellSnapshot = {
+  activeRoute: "chat" | "automations" | "settings";
   sidebarCollapsed: boolean;
+};
+```
+
+Chat layout persistence stores:
+
+```ts
+type ChatLayoutSnapshot = {
   expandedAppPaneWidth: number | null;
   collapsedAppPaneWidth: number | null;
 };
@@ -97,11 +116,11 @@ The sidebar toggle is a real button with `aria-expanded` and `aria-controls`.
 ## Non-Goals
 
 - Do not put feature state into shell storage.
-- Do not make `storage.ts` a global settings registry.
+- Do not make shell or chat storage a global settings registry.
 - Do not make component-local layout state that duplicates controller state.
 - Do not persist transient DOM measurements.
 - Do not add compatibility layers for old shell state formats.
-- Do not add hidden layout mechanisms in CSS that fight `layout.ts`.
+- Do not add hidden layout mechanisms in CSS that fight `../chat/layout.ts`.
 
 ## Testing
 

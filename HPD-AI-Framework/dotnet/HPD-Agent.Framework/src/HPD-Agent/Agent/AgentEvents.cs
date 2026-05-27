@@ -187,8 +187,24 @@ public readonly struct OperationStatus : IEquatable<OperationStatus>
 /// Inherits from HPD.Events.Event to participate in unified cross-domain event streaming.
 /// Adapters convert these to protocol-specific formats as needed.
 /// </summary>
+[JsonConverter(typeof(AgentEventJsonConverter))]
 public abstract record AgentEvent : HPD.Events.Event
 {
+    /// <summary>
+    /// Stable ID assigned when the event is persisted into a branch history.
+    /// </summary>
+    public string? EventId { get; init; }
+
+    /// <summary>
+    /// Durable session scope when this event is persisted or replayed from a branch.
+    /// </summary>
+    public string? SessionId { get; init; }
+
+    /// <summary>
+    /// Durable branch scope when this event is persisted or replayed from a branch.
+    /// </summary>
+    public string? BranchId { get; init; }
+
     /// <summary>
     /// Context about which agent emitted this event (optional for backwards compatibility).
     /// Automatically attached by EventCoordinator.Emit() if not already set.
@@ -213,6 +229,12 @@ public abstract record AgentEvent : HPD.Events.Event
     /// Null for root-level events (MessageTurnStartedEvent).
     /// </summary>
     public string? ParentSpanId { get; init; }
+
+    /// <summary>
+    /// Whether this event type should be recorded into durable branch history.
+    /// This is event type policy, not serialized event payload.
+    /// </summary>
+    public virtual bool ShouldPersistToBranch() => false;
 }
 
 /// <summary>
@@ -261,12 +283,21 @@ public sealed record UserMessagesInputEvent(
 /// Emitted when a message turn starts (user sends message, agent begins processing)
 /// This represents the START of the entire multi-step agent execution.
 /// </summary>
-public record MessageTurnStartedEvent(
-    string MessageTurnId,
-    string ConversationId,
-    string AgentId,
-    string AgentName) : AgentEvent
+public record MessageTurnStartedEvent : AgentEvent
 {
+    [JsonConstructor]
+    public MessageTurnStartedEvent(
+        string MessageTurnId,
+        string ConversationId,
+        string AgentId,
+        string AgentName)
+    {
+        this.MessageTurnId = MessageTurnId;
+        this.ConversationId = ConversationId;
+        this.AgentId = AgentId;
+        this.AgentName = AgentName;
+    }
+
     public MessageTurnStartedEvent(
         string MessageTurnId,
         string ConversationId,
@@ -275,21 +306,41 @@ public record MessageTurnStartedEvent(
     {
     }
 
+    public string MessageTurnId { get; init; }
+    public string ConversationId { get; init; }
+    public string AgentId { get; init; }
+    public string AgentName { get; init; }
+
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override bool ShouldPersistToBranch() => true;
+
+    public int? InputMessageCount { get; init; }
+    public bool? IsResume { get; init; }
 }
 
 /// <summary>
 /// Emitted when a message turn completes successfully
 /// This represents the END of the entire agent execution for this user message.
 /// </summary>
-public record MessageTurnFinishedEvent(
-    string MessageTurnId,
-    string ConversationId,
-    string AgentId,
-    string AgentName,
-    TimeSpan Duration,
-    UsageDetails? Usage = null) : AgentEvent
+public record MessageTurnFinishedEvent : AgentEvent
 {
+    [JsonConstructor]
+    public MessageTurnFinishedEvent(
+        string MessageTurnId,
+        string ConversationId,
+        string AgentId,
+        string AgentName,
+        TimeSpan Duration,
+        UsageDetails? Usage = null)
+    {
+        this.MessageTurnId = MessageTurnId;
+        this.ConversationId = ConversationId;
+        this.AgentId = AgentId;
+        this.AgentName = AgentName;
+        this.Duration = Duration;
+        this.Usage = Usage;
+    }
+
     public MessageTurnFinishedEvent(
         string MessageTurnId,
         string ConversationId,
@@ -300,7 +351,19 @@ public record MessageTurnFinishedEvent(
     {
     }
 
+    public string MessageTurnId { get; init; }
+    public string ConversationId { get; init; }
+    public string AgentId { get; init; }
+    public string AgentName { get; init; }
+    public TimeSpan Duration { get; init; }
+    public UsageDetails? Usage { get; init; }
+
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override bool ShouldPersistToBranch() => true;
+
+    public int? Iteration { get; init; }
+    public string? TerminationReason { get; init; }
+    public int? TurnMessageCount { get; init; }
 }
 
 /// <summary>
@@ -312,6 +375,12 @@ public record MessageTurnErrorEvent(
     [property: System.Text.Json.Serialization.JsonIgnore] Exception? Exception = null) : AgentEvent, IErrorEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+
+    public string? MessageTurnId { get; init; }
+    public string? ConversationId { get; init; }
+    public string? AgentId { get; init; }
+    public string? AgentName { get; init; }
+    public string? ErrorType { get; init; }
 
     /// <inheritdoc />
     string IErrorEvent.ErrorMessage => Message;
@@ -407,6 +476,7 @@ public record StateSnapshotEvent(
 public record TextMessageStartEvent(string MessageId, string Role) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+    public override bool ShouldPersistToBranch() => true;
 }
 
 /// <summary>
@@ -415,6 +485,7 @@ public record TextMessageStartEvent(string MessageId, string Role) : AgentEvent
 public record TextDeltaEvent(string Text, string MessageId) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+    public override bool ShouldPersistToBranch() => true;
 }
 
 /// <summary>
@@ -423,6 +494,7 @@ public record TextDeltaEvent(string Text, string MessageId) : AgentEvent
 public record TextMessageEndEvent(string MessageId) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+    public override bool ShouldPersistToBranch() => true;
 }
 
 
@@ -437,14 +509,16 @@ public record TextMessageEndEvent(string MessageId) : AgentEvent
 public record ReasoningMessageStartEvent(string MessageId, string Role) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+    public override bool ShouldPersistToBranch() => true;
 }
 
 /// <summary>
 /// Emitted when the agent produces reasoning content (streaming delta).
 /// </summary>
-public record ReasoningDeltaEvent(string Text, string MessageId) : AgentEvent
+public record ReasoningDeltaEvent(string Text, string MessageId, string? ProtectedData = null) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+    public override bool ShouldPersistToBranch() => true;
 }
 
 /// <summary>
@@ -453,6 +527,7 @@ public record ReasoningDeltaEvent(string Text, string MessageId) : AgentEvent
 public record ReasoningMessageEndEvent(string MessageId) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+    public override bool ShouldPersistToBranch() => true;
 }
 
 #endregion
@@ -490,6 +565,7 @@ public record ToolCallStartEvent(
     ToolCallType? CallType = null) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override bool ShouldPersistToBranch() => true;
 }
 
 /// <summary>
@@ -498,6 +574,7 @@ public record ToolCallStartEvent(
 public record ToolCallArgsEvent(string CallId, string ArgsJson) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+    public override bool ShouldPersistToBranch() => true;
 }
 
 /// <summary>
@@ -506,6 +583,7 @@ public record ToolCallArgsEvent(string CallId, string ArgsJson) : AgentEvent
 public record ToolCallEndEvent(string CallId) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override bool ShouldPersistToBranch() => true;
 }
 
 /// <summary>
@@ -518,6 +596,9 @@ public record ToolCallResultEvent(
     ToolCallType? CallType = null) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override bool ShouldPersistToBranch() => true;
+
+    public string? MessageId { get; init; }
 }
 
 /// <summary>

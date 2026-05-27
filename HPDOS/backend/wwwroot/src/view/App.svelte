@@ -1,12 +1,14 @@
 <script lang="ts">
-  import ShellLayout from "./svelte/shell/ShellLayout.svelte";
+  import ShellFrame from "./svelte/shell/ShellFrame.svelte";
   import WindowChrome from "./svelte/shell/WindowChrome.svelte";
-  import { createShellLayoutController } from "./svelte/shell/controller";
+  import { createChatLayoutController } from "./svelte/chat/controller";
+  import { createShellController } from "./svelte/shell/controller";
 
-  const shell = createShellLayoutController();
+  const shell = createShellController();
+  const chat = createChatLayoutController();
 </script>
 
 <main class="hpd-app">
   <WindowChrome {shell} />
-  <ShellLayout {shell} />
+  <ShellFrame {shell} {chat} />
 </main>

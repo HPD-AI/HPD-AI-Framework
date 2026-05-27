@@ -253,19 +253,27 @@ describe('AgentClient — session/branch passthroughs', () => {
     });
   });
 
-  describe('getBranchMessages', () => {
-    it('calls GET /sessions/{sid}/branches/{bid}/messages and returns messages', async () => {
-      const messages = [
-        { id: 'msg-1', role: 'user', contents: [{ $type: 'text', text: 'Hi' }], timestamp: '2024-01-01T00:00:00Z' },
-        { id: 'msg-2', role: 'assistant', contents: [{ $type: 'text', text: 'Hello!' }], timestamp: '2024-01-01T00:00:01Z' },
+  describe('getBranchEvents', () => {
+    it('calls GET /sessions/{sid}/branches/{bid}/events and returns branch events', async () => {
+      const events = [
+        {
+          eventId: 'evt-1',
+          sessionId: 'sess-1',
+          branchId: 'branch-1',
+          type: 'TEXT_DELTA',
+          messageId: 'msg-1',
+          text: 'Hi',
+          sequenceNumber: 1,
+          timestamp: '2024-01-01T00:00:00Z',
+        },
       ];
-      mockFetchJson(messages);
+      mockFetchJson(events);
 
-      const result = await client.getBranchMessages('sess-1', 'branch-1');
+      const result = await client.getBranchEvents('sess-1', 'branch-1');
 
       const [url] = vi.mocked(fetch).mock.calls[0];
-      expect(String(url)).toBe(`${BASE}/sessions/sess-1/branches/branch-1/messages`);
-      expect(result).toEqual(messages);
+      expect(String(url)).toBe(`${BASE}/sessions/sess-1/branches/branch-1/events`);
+      expect(result).toEqual(events);
     });
   });
 

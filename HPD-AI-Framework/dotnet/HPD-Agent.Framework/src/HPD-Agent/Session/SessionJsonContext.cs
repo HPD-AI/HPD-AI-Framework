@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using HPD.Agent.ClientTools;
 using HPD.Agent.Planning;
+using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 
 
@@ -22,6 +23,10 @@ namespace HPD.Agent;
 // Session types
 [JsonSerializable(typeof(Session))]
 [JsonSerializable(typeof(Branch))]
+[JsonSerializable(typeof(BranchEventDocument))]
+[JsonSerializable(typeof(AgentEvent))]
+[JsonSerializable(typeof(List<AgentEvent>))]
+[JsonSerializable(typeof(ToolResultPayload))]
 [JsonSerializable(typeof(SessionSnapshot))]
 [JsonSerializable(typeof(UncommittedTurn))]
 
@@ -74,8 +79,10 @@ namespace HPD.Agent;
 // Note: Most M.E.AI types are registered via AIJsonUtilities.DefaultOptions
 [JsonSerializable(typeof(ChatMessage))]
 [JsonSerializable(typeof(List<ChatMessage>))]
+[JsonSerializable(typeof(AIContent))]
 [JsonSerializable(typeof(Dictionary<string, object>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(IReadOnlyDictionary<string, string>))]
 [JsonSerializable(typeof(JsonElement))]
 
 // HPD-Agent Typed Content Classes (Phase 1 - Typed Content)
@@ -116,8 +123,11 @@ public partial class SessionJsonContext : JsonSerializerContext
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
 
+        options.Converters.Add(new AgentEventJsonConverter());
+
         // Start with our SessionJsonContext for HPD-specific types
         options.TypeInfoResolverChain.Add(new SessionJsonContext());
+        options.TypeInfoResolverChain.Add(AgentEventJsonContext.Default);
 
         // Add M.E.AI's type resolvers for all primitives and M.E.AI types
         foreach (var resolver in AIJsonUtilities.DefaultOptions.TypeInfoResolverChain)

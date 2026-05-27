@@ -135,13 +135,6 @@ internal sealed class FakeSessionStore : ISessionStore
 
     public Task<Branch?> LoadBranchAsync(string sessionId, string branchId, CancellationToken ct = default) =>
         Task.FromResult(_branches.GetValueOrDefault((sessionId, branchId)));
-
-    public Task SaveBranchAsync(string sessionId, Branch branch, CancellationToken ct = default)
-    {
-        _branches[(sessionId, branch.Id)] = branch;
-        return Task.CompletedTask;
-    }
-
     public Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default) => Task.FromResult<Session?>(null);
     public Task SaveSessionAsync(Session session, CancellationToken ct = default) => Task.CompletedTask;
     public Task<List<string>> ListSessionIdsAsync(CancellationToken ct = default) => Task.FromResult(new List<string>());

@@ -120,7 +120,7 @@ public class SessionStoreTests : AgentTestBase
         branch.AddMessage(AssistantMessage("Hi there!"));
 
         // Act
-        await store.SaveBranchAsync("session-1", branch);
+        await store.SaveInitialBranchAsync("session-1", branch);
         var loaded = await store.LoadBranchAsync("session-1", "branch-1");
 
         // Assert
@@ -151,7 +151,7 @@ public class SessionStoreTests : AgentTestBase
         var session = new HPD.Agent.Session("session-1");
         var branch = session.CreateBranch("branch-to-delete");
         branch.AddMessage(UserMessage("Test"));
-        await store.SaveBranchAsync("session-1", branch);
+        await store.SaveInitialBranchAsync("session-1", branch);
 
         // Act
         await store.DeleteBranchAsync("session-1", "branch-to-delete");
@@ -167,9 +167,9 @@ public class SessionStoreTests : AgentTestBase
         // Arrange
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("session-1");
-        await store.SaveBranchAsync("session-1", session.CreateBranch("branch-1"));
-        await store.SaveBranchAsync("session-1", session.CreateBranch("branch-2"));
-        await store.SaveBranchAsync("session-1", session.CreateBranch("branch-3"));
+        await store.SaveInitialBranchAsync("session-1", session.CreateBranch("branch-1"));
+        await store.SaveInitialBranchAsync("session-1", session.CreateBranch("branch-2"));
+        await store.SaveInitialBranchAsync("session-1", session.CreateBranch("branch-3"));
 
         // Act
         var ids = await store.ListBranchIdsAsync("session-1");
@@ -204,7 +204,7 @@ public class SessionStoreTests : AgentTestBase
 
         var branch = session.CreateBranch("branch-1");
         branch.AddMessage(UserMessage("Hello"));
-        await store.SaveBranchAsync("session-1", branch);
+        await store.SaveInitialBranchAsync("session-1", branch);
 
         // Act
         await store.DeleteSessionAsync("session-1");

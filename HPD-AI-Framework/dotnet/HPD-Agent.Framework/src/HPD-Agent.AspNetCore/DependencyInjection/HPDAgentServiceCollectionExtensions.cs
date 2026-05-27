@@ -80,6 +80,8 @@ internal class HPDAgentApiJsonOptionsSetup : IConfigureOptions<JsonOptions>
 {
     public void Configure(JsonOptions options)
     {
+        options.SerializerOptions.Converters.Add(new HPD.Agent.Serialization.AgentEventJsonConverter());
+
         // Internal endpoint types (WriteScoreRequest, etc.)
         options.SerializerOptions.TypeInfoResolverChain.Insert(0,
             HPDAgentAspNetCoreJsonSerializerContext.Default);

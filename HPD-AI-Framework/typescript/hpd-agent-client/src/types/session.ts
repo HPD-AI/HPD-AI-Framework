@@ -6,6 +6,8 @@
  * - Branch: Conversation path with messages (multiple branches per session)
  */
 
+import type { AgentEvent } from './events.js';
+
 // ============================================
 // SESSION
 // ============================================
@@ -388,33 +390,22 @@ export type AIContent =
   | AiUnknownContent;
 
 // ============================================
-// BRANCH MESSAGE
+// BRANCH EVENT LOG
 // ============================================
 
 /**
- * Full-fidelity branch message carrying the complete AIContent list.
- * Mirrors the server-side ChatMessage / MessageDto structure.
+ * Durable branch event envelope returned by GET /sessions/{sid}/branches/{bid}/events.
+ * The type value intentionally matches the live runtime event name when the event
+ * represents transcript activity; branch-only events use branch-specific names.
  */
-export interface BranchMessage {
-  /** Stable message ID (GUID) */
-  id: string;
-
-  /** Message role ('user' | 'assistant' | 'system' | 'tool') */
-  role: string;
-
-  /**
-   * All content items in this message.
-   * Use the $type discriminator to handle each content type.
-   * UsageContent is excluded server-side (billing metadata, not conversation content).
-   */
-  contents: AIContent[];
-
-  /** Optional author name (multi-agent scenarios) */
-  authorName?: string;
-
-  /** Timestamp (ISO 8601) */
-  timestamp: string;
-}
+export type BranchEvent = AgentEvent & {
+  eventId?: string;
+  sessionId?: string;
+  branchId?: string;
+  sequenceNumber?: number;
+  timestamp?: string;
+  eventFlowId?: string;
+};
 
 /**
  * Reference to an uploaded asset (returned by POST /sessions/{sid}/assets).

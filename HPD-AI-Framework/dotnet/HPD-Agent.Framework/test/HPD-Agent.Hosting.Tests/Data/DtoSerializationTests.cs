@@ -140,29 +140,6 @@ public class DtoSerializationTests
     }
 
     [Fact]
-    public void MessageDto_SerializesAndDeserializes_Correctly()
-    {
-        // Arrange
-        var original = new MessageDto(
-            "msg-1",
-            "user",
-            new List<Microsoft.Extensions.AI.AIContent> { new Microsoft.Extensions.AI.TextContent("Hello, how can I help?") },
-            null,
-            DateTime.UtcNow.ToString("O"));
-
-        // Act
-        var json = JsonSerializer.Serialize(original, _options);
-        var deserialized = JsonSerializer.Deserialize<MessageDto>(json, _options);
-
-        // Assert
-        deserialized.Should().NotBeNull();
-        deserialized!.Id.Should().Be(original.Id);
-        deserialized.Role.Should().Be(original.Role);
-        deserialized.Contents.Should().HaveCount(1);
-        deserialized.Timestamp.Should().Be(original.Timestamp);
-    }
-
-    [Fact]
     public void AssetDto_SerializesAndDeserializes_Correctly()
     {
         // Arrange

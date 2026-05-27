@@ -1,104 +1,55 @@
 import {
-  appPaneWidthBounds,
-  clampAppPaneWidth,
-  defaultAppPaneWidth,
-  shellMode,
-  type ShellLayoutMode
-} from "./layout";
-import {
-  createDesktopShellLayoutStorage,
-  defaultShellLayoutSnapshot,
-  type ShellLayoutSnapshot,
-  type ShellLayoutStorage
-} from "./storage";
+  createDesktopShellStorage,
+  defaultShellSnapshot,
+  type ShellSnapshot,
+  type ShellStorage
+} from "./shellStorage";
 import { writable, type Readable } from "svelte/store";
 
-export type ShellPaneLayout = {
-  mode: ShellLayoutMode;
-  resizableWidth: number;
-  workspacePaneWidth: number;
-  appPaneWidth: number;
-  minAppPaneWidth: number;
-  maxAppPaneWidth: number;
-  appPaneShare: number;
-};
+export type ShellRoute = "chat" | "automations" | "settings";
 
-export type ShellLayoutControllerOptions = {
-  storage?: ShellLayoutStorage | null;
-  initialSnapshot?: Partial<ShellLayoutSnapshot>;
-};
-
-export type ShellLayoutState = ShellLayoutSnapshot & {
+export type ShellState = ShellSnapshot & {
   hydrated: boolean;
 };
 
-const keyboardStep = 24;
-const largeKeyboardStep = keyboardStep * 4;
-const minimumResizableWidth = 160;
+export type ShellControllerOptions = {
+  storage?: ShellStorage | null;
+  initialSnapshot?: Partial<ShellSnapshot>;
+};
 
-export function appPaneWidthForKeyboardResize(
-  key: string,
-  mode: ShellLayoutMode,
-  currentAppPaneWidth: number,
-  resizableWidth: number,
-  shiftKey = false
-): number | null {
-  const { min, max } = appPaneWidthBounds(mode, resizableWidth);
-  const step = shiftKey ? largeKeyboardStep : keyboardStep;
-
-  switch (key) {
-    case "ArrowLeft":
-      return currentAppPaneWidth + step;
-    case "ArrowRight":
-      return currentAppPaneWidth - step;
-    case "Home":
-      return min;
-    case "End":
-      return max;
-    case "Enter":
-      return defaultAppPaneWidth(mode, resizableWidth);
-    default:
-      return null;
-  }
-}
-
-export class ShellLayoutController {
+export class ShellController {
+  #activeRoute: ShellRoute;
   #sidebarCollapsed: boolean;
-  #resizableWidth = 0;
-  #expandedAppPaneWidth: number | null = null;
-  #collapsedAppPaneWidth: number | null = null;
   #hydrated: boolean;
-  #storage: ShellLayoutStorage | null;
+  #storage: ShellStorage | null;
   #stateStore;
 
-  public constructor(options: ShellLayoutControllerOptions = {}) {
+  public constructor(options: ShellControllerOptions = {}) {
     this.#storage = options.storage ?? null;
     const snapshot = {
-      ...defaultShellLayoutSnapshot(),
+      ...defaultShellSnapshot(),
       ...this.#storage?.load(),
       ...options.initialSnapshot
     };
 
+    this.#activeRoute = snapshot.activeRoute;
     this.#sidebarCollapsed = snapshot.sidebarCollapsed;
-    this.#expandedAppPaneWidth = snapshot.expandedAppPaneWidth;
-    this.#collapsedAppPaneWidth = snapshot.collapsedAppPaneWidth;
     this.#hydrated = this.#storage?.hydrate === undefined;
     this.#stateStore = writable(this.stateSnapshot);
   }
 
-  public get state(): Readable<ShellLayoutState> {
+  public get state(): Readable<ShellState> {
     return this.#stateStore;
   }
 
-  public get snapshot(): ShellLayoutSnapshot {
+  public get snapshot(): ShellSnapshot {
     return {
-      sidebarCollapsed: this.#sidebarCollapsed,
-      expandedAppPaneWidth: this.#expandedAppPaneWidth,
-      collapsedAppPaneWidth: this.#collapsedAppPaneWidth
+      activeRoute: this.#activeRoute,
+      sidebarCollapsed: this.#sidebarCollapsed
     };
   }
 
-  public get stateSnapshot(): ShellLayoutState {
+  public get stateSnapshot(): ShellState {
     return {
       ...this.snapshot,
       hydrated: this.#hydrated
@@ -109,91 +60,42 @@ export class ShellLayoutController {
     return this.#hydrated;
   }
 
+  public get activeRoute(): ShellRoute {
+    return this.#activeRoute;
+  }
+
   public get sidebarCollapsed(): boolean {
     return this.#sidebarCollapsed;
   }
 
-  public get mode(): ShellLayoutMode {
-    return shellMode(this.#sidebarCollapsed);
+  public setRoute(route: ShellRoute, commit = true): void {
+    if (this.#activeRoute === route) return;
+
+    this.#activeRoute = route;
+    this.#publish();
+    if (commit) this.commit();
   }
 
-  public toggleSidebar(): ShellPaneLayout | null {
-    return this.setSidebarCollapsed(!this.#sidebarCollapsed);
+  public toggleSidebar(): void {
+    this.setSidebarCollapsed(!this.#sidebarCollapsed);
   }
 
-  public setSidebarCollapsed(sidebarCollapsed: boolean, commit = true): ShellPaneLayout | null {
+  public setSidebarCollapsed(sidebarCollapsed: boolean, commit = true): void {
+    if (this.#sidebarCollapsed === sidebarCollapsed) return;
+
     this.#sidebarCollapsed = sidebarCollapsed;
     this.#publish();
     if (commit) this.commit();
-
-    return this.currentLayout();
   }
 
-  public measure(resizableWidth: number): ShellPaneLayout | null {
-    this.#resizableWidth = Math.max(1, resizableWidth);
-    return this.currentLayout();
-  }
-
-  public currentLayout(): ShellPaneLayout | null {
-    if (this.#resizableWidth < minimumResizableWidth) return null;
-
-    return this.#layoutFor(this.mode, this.#appPaneWidthForMode(this.mode), this.#resizableWidth);
-  }
-
-  public resizeAppPane(
-    appPaneWidth: number,
-    mode = this.mode,
-    resizableWidth = this.#resizableWidth,
-    commit = false
-  ): ShellPaneLayout | null {
-    if (resizableWidth < minimumResizableWidth) return null;
-
-    const layout = this.#layoutFor(mode, appPaneWidth, resizableWidth);
-    this.#setAppPaneWidthForMode(mode, layout.appPaneWidth, commit);
-    if (commit) this.commit();
-
-    return layout;
-  }
-
-  public resizeFromClientX(
-    shellRight: number,
-    clientX: number,
-    mode = this.mode,
-    resizableWidth = this.#resizableWidth,
-    commit = false
-  ): ShellPaneLayout | null {
-    return this.resizeAppPane(shellRight - clientX, mode, resizableWidth, commit);
-  }
-
-  public keyboardResize(key: string, shiftKey = false): ShellPaneLayout | null {
-    if (this.#resizableWidth < minimumResizableWidth) return null;
-
-    const mode = this.mode;
-    const currentAppPaneWidth = this.#appPaneWidthForMode(mode);
-    const nextAppPaneWidth = appPaneWidthForKeyboardResize(
-      key,
-      mode,
-      currentAppPaneWidth,
-      this.#resizableWidth,
-      shiftKey
-    );
-
-    if (nextAppPaneWidth === null) return null;
-
-    return this.resizeAppPane(nextAppPaneWidth, mode, this.#resizableWidth, true);
-  }
-
-  public restore(snapshot: ShellLayoutSnapshot, commit = false): ShellPaneLayout | null {
+  public restore(snapshot: ShellSnapshot, commit = false): void {
+    this.#activeRoute = snapshot.activeRoute;
     this.#sidebarCollapsed = snapshot.sidebarCollapsed;
-    this.#expandedAppPaneWidth = snapshot.expandedAppPaneWidth;
-    this.#collapsedAppPaneWidth = snapshot.collapsedAppPaneWidth;
     this.#publish();
     if (commit) this.commit();
-
-    return this.currentLayout();
   }
 
-  public async hydrate(): Promise<ShellPaneLayout | null> {
+  public async hydrate(): Promise<void> {
     try {
       const snapshot = await this.#storage?.hydrate?.();
       if (snapshot !== undefined && snapshot !== null) {
@@ -203,8 +105,6 @@ export class ShellLayoutController {
       this.#hydrated = true;
       this.#publish();
     }
-
-    return this.currentLayout();
   }
 
   public commit(): void {
@@ -212,48 +112,14 @@ export class ShellLayoutController {
     this.#publish();
   }
 
-  #appPaneWidthForMode(mode: ShellLayoutMode): number {
-    return (mode === "collapsed" ? this.#collapsedAppPaneWidth : this.#expandedAppPaneWidth)
-      ?? defaultAppPaneWidth(mode, this.#resizableWidth);
-  }
-
-  #setAppPaneWidthForMode(mode: ShellLayoutMode, appPaneWidth: number, publish = false): void {
-    if (mode === "collapsed") {
-      this.#collapsedAppPaneWidth = appPaneWidth;
-      if (publish) this.#publish();
-      return;
-    }
-
-    this.#expandedAppPaneWidth = appPaneWidth;
-    if (publish) this.#publish();
-  }
-
-  #layoutFor(mode: ShellLayoutMode, requestedAppPaneWidth: number, resizableWidth: number): ShellPaneLayout {
-    const appPaneWidth = clampAppPaneWidth(mode, requestedAppPaneWidth, resizableWidth);
-    const workspacePaneWidth = Math.max(0, resizableWidth - appPaneWidth);
-    const { min, max } = appPaneWidthBounds(mode, resizableWidth);
-
-    return {
-      mode,
-      resizableWidth,
-      workspacePaneWidth,
-      appPaneWidth,
-      minAppPaneWidth: min,
-      maxAppPaneWidth: max,
-      appPaneShare: appPaneWidth / resizableWidth
-    };
-  }
-
   #publish(): void {
     this.#stateStore.set(this.stateSnapshot);
   }
 }
 
-export function createShellLayoutController(
-  options: ShellLayoutControllerOptions = {}
-): ShellLayoutController {
-  const controller = new ShellLayoutController({
-    storage: createDesktopShellLayoutStorage(),
+export function createShellController(options: ShellControllerOptions = {}): ShellController {
+  const controller = new ShellController({
+    storage: createDesktopShellStorage(),
     ...options
   });
   void controller.hydrate().catch(() => undefined);

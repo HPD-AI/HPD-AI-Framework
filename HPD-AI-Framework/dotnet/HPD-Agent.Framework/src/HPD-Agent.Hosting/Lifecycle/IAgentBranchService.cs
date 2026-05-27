@@ -38,7 +38,7 @@ public interface IAgentBranchService
         bool recursive = false,
         CancellationToken cancellationToken = default);
 
-    Task<AgentServiceResult<IReadOnlyList<MessageDto>>> GetMessagesAsync(
+    Task<AgentServiceResult<IReadOnlyList<AgentEvent>>> GetEventsAsync(
         string sessionId,
         string branchId,
         CancellationToken cancellationToken = default);

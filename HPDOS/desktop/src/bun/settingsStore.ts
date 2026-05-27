@@ -2,23 +2,39 @@ import { Utils } from "electrobun/bun";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-export type ShellLayoutSnapshot = {
+export type ShellRoute = "chat" | "automations" | "settings";
+
+export type ShellSnapshot = {
+  activeRoute: ShellRoute;
   sidebarCollapsed: boolean;
+};
+
+export type ChatLayoutSnapshot = {
   expandedAppPaneWidth: number | null;
   collapsedAppPaneWidth: number | null;
 };
 
 const settingsPath = join(Utils.paths.userData, "settings.json");
-const shellLayoutKey = "shellLayout";
+const shellKey = "shell";
+const chatLayoutKey = "chatLayout";
 
-export function readShellLayout(): ShellLayoutSnapshot | null {
-  const settings = readSettings();
-  return normalizeShellLayoutSnapshot(settings[shellLayoutKey]);
+export function readShell(): ShellSnapshot | null {
+  return normalizeShellSnapshot(readSettings()[shellKey]);
 }
 
-export function writeShellLayout(snapshot: ShellLayoutSnapshot): void {
+export function writeShell(snapshot: ShellSnapshot): void {
   const settings = readSettings();
-  settings[shellLayoutKey] = normalizeShellLayoutSnapshot(snapshot);
+  settings[shellKey] = normalizeShellSnapshot(snapshot);
+  writeSettings(settings);
+}
+
+export function readChatLayout(): ChatLayoutSnapshot | null {
+  return normalizeChatLayoutSnapshot(readSettings()[chatLayoutKey]);
+}
+
+export function writeChatLayout(snapshot: ChatLayoutSnapshot): void {
+  const settings = readSettings();
+  settings[chatLayoutKey] = normalizeChatLayoutSnapshot(snapshot);
   writeSettings(settings);
 }
 
@@ -41,16 +57,36 @@ function writeSettings(settings: Record<string, unknown>): void {
   writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
 }
 
-function normalizeShellLayoutSnapshot(value: unknown): ShellLayoutSnapshot | null {
+export function normalizeShellSnapshot(value: unknown): ShellSnapshot | null {
   if (typeof value !== "object" || value === null) return null;
 
-  const record = value as Partial<ShellLayoutSnapshot>;
+  const record = value as Partial<ShellSnapshot>;
 
   return {
-    sidebarCollapsed: record.sidebarCollapsed === true,
+    activeRoute: normalizeRoute(record.activeRoute),
+    sidebarCollapsed: record.sidebarCollapsed === true
+  };
+}
+
+export function normalizeChatLayoutSnapshot(value: unknown): ChatLayoutSnapshot | null {
+  if (typeof value !== "object" || value === null) return null;
+
+  const record = value as Partial<ChatLayoutSnapshot>;
+
+  return {
     expandedAppPaneWidth: normalizePaneWidth(record.expandedAppPaneWidth),
     collapsedAppPaneWidth: normalizePaneWidth(record.collapsedAppPaneWidth)
   };
+}
+
+function normalizeRoute(value: unknown): ShellRoute {
+  switch (value) {
+    case "automations":
+    case "settings":
+      return value;
+    default:
+      return "chat";
+  }
 }
 
 function normalizePaneWidth(value: unknown): number | null {

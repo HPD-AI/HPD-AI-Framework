@@ -38,6 +38,16 @@ public static partial class AgentEventSerializer
         [typeof(UserTextInputEvent)] = EventTypes.Input.USER_TEXT_INPUT,
         [typeof(UserMessagesInputEvent)] = EventTypes.Input.USER_MESSAGES_INPUT,
 
+        // Branch Events
+        [typeof(BranchCreatedEvent)] = BranchEventTypes.BranchCreated,
+        [typeof(BranchForkedEvent)] = BranchEventTypes.BranchForked,
+        [typeof(BranchMetadataUpdatedEvent)] = BranchEventTypes.BranchMetadataUpdated,
+        [typeof(BranchTreeUpdatedEvent)] = BranchEventTypes.BranchTreeUpdated,
+        [typeof(MessageStartedEvent)] = BranchEventTypes.MessageStarted,
+        [typeof(MessageCompletedEvent)] = BranchEventTypes.MessageCompleted,
+        [typeof(ContentAddedEvent)] = BranchEventTypes.ContentAdded,
+        [typeof(BranchMiddlewareStateCommittedEvent)] = BranchEventTypes.BranchMiddlewareStateCommitted,
+
         // Message Turn Events
         [typeof(MessageTurnStartedEvent)] = EventTypes.MessageTurn.MESSAGE_TURN_STARTED,
         [typeof(MessageTurnFinishedEvent)] = EventTypes.MessageTurn.MESSAGE_TURN_FINISHED,
@@ -313,6 +323,14 @@ public static partial class AgentEventSerializer
     /// Deserializes an output/observation agent event from JSON.
     /// </summary>
     public static AgentEvent? FromEventJson(string json) => FromJson(json) as AgentEvent;
+
+    /// <summary>
+    /// Deserializes an output/observation agent event from JSON and throws when
+    /// the payload is not a known agent event.
+    /// </summary>
+    public static AgentEvent DeserializeEventJson(string json) =>
+        DeserializeEnvelope(json) as AgentEvent
+        ?? throw new JsonException("JSON payload is not a known agent event.");
 
     /// <summary>
     /// Deserializes an agent input event from JSON.

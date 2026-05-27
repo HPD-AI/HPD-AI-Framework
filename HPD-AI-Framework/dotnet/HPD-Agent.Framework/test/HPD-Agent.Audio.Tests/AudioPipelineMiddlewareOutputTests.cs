@@ -1024,10 +1024,6 @@ public class AudioPipelineMiddlewareOutputTests
 
         public Task<Branch?> LoadBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default)
             => Task.FromResult<Branch?>(null);
-
-        public Task SaveBranchAsync(string sessionId, Branch branch, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
         public Task<List<string>> ListBranchIdsAsync(string sessionId, CancellationToken cancellationToken = default)
             => Task.FromResult(new List<string>());
 
@@ -1077,7 +1073,7 @@ public class AudioPipelineMiddlewareOutputTests
     private class DelayedInterruptHandle : IEventFlowHandle
     {
         private volatile bool _interrupted;
-        public string StreamId => "delayed-interrupt-stream";
+        public string EventFlowId => "delayed-interrupt-stream";
         public bool IsInterrupted => _interrupted;
         public bool IsCompleted => _interrupted;
         public int EmittedCount => 0;

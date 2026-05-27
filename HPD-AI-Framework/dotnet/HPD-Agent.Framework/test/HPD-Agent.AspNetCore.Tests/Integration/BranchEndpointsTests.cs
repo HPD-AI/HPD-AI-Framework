@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using FluentAssertions;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
@@ -395,50 +396,53 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
     #endregion
 
-    #region GET /sessions/{sid}/branches/{bid}/messages
+    #region GET /sessions/{sid}/branches/{bid}/events
 
     [Fact]
-    public async Task GetBranchMessages_ReturnsAllMessages()
+    public async Task GetBranchEvents_ReturnsNormalizedBranchEvents()
     {
-        // Arrange
         var sessionId = await CreateTestSession();
 
-        // Act
-        var response = await _client.GetAsync($"/sessions/{sessionId}/branches/main/messages");
+        var response = await _client.GetAsync($"/sessions/{sessionId}/branches/main/events");
 
-        // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var messages = await response.Content.ReadFromJsonAsync<List<MessageDto>>();
-        messages.Should().NotBeNull();
-        messages!.Should().BeEmpty(); // No messages yet
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        document.RootElement.EnumerateArray()
+            .Should()
+            .Contain(e => e.GetProperty("type").GetString() == BranchEventTypes.BranchCreated);
     }
 
     [Fact]
-    public async Task GetBranchMessages_ReturnsEmptyArray_WhenNoMessages()
+    public async Task GetBranchEvents_Returns404_WhenBranchNotFound()
     {
-        // Arrange
         var sessionId = await CreateTestSession();
 
-        // Act
-        var response = await _client.GetAsync($"/sessions/{sessionId}/branches/main/messages");
+        var response = await _client.GetAsync($"/sessions/{sessionId}/branches/nonexistent/events");
 
-        // Assert
-        var messages = await response.Content.ReadFromJsonAsync<List<MessageDto>>();
-        messages.Should().NotBeNull();
-        messages!.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task GetBranchMessages_Returns404_WhenBranchNotFound()
-    {
-        // Arrange
-        var sessionId = await CreateTestSession();
-
-        // Act
-        var response = await _client.GetAsync($"/sessions/{sessionId}/branches/nonexistent/messages");
-
-        // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task GetBranchEvents_ReturnsForkEvent_ForForkedBranch()
+    {
+        var sessionId = await CreateTestSession();
+        var forkRequest = new ForkBranchRequest("fork-1", 0, "Fork 1", null, null);
+
+        var forkResponse = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/branches/main/fork",
+            forkRequest);
+        forkResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var response = await _client.GetAsync($"/sessions/{sessionId}/branches/fork-1/events");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var events = document.RootElement.EnumerateArray().ToList();
+        events.Should().Contain(e => e.GetProperty("type").GetString() == BranchEventTypes.BranchForked);
+
+        var forked = events.Single(e => e.GetProperty("type").GetString() == BranchEventTypes.BranchForked);
+        forked.GetProperty("sourceBranchId").GetString().Should().Be("main");
+        forked.GetProperty("fromMessageIndex").GetInt32().Should().Be(0);
     }
 
     #endregion
@@ -495,61 +499,6 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
-    }
-
-    #endregion
-
-    #region GET /sessions/{sid}/branches/{bid}/messages — Fix 1: stable IDs and timestamps
-
-    [Fact]
-    public async Task GetBranchMessages_MessageIds_AreStable_AcrossMultipleCalls()
-    {
-        // If IDs were positional (msg-0, msg-1) they would still be stable,
-        // but this test also guards against any future regression where IDs change per-request.
-        var sessionId = await CreateTestSession();
-
-        var response1 = await _client.GetAsync($"/sessions/{sessionId}/branches/main/messages");
-        var response2 = await _client.GetAsync($"/sessions/{sessionId}/branches/main/messages");
-
-        var messages1 = await response1.Content.ReadFromJsonAsync<List<MessageDto>>();
-        var messages2 = await response2.Content.ReadFromJsonAsync<List<MessageDto>>();
-
-        messages1.Should().NotBeNull();
-        messages2.Should().NotBeNull();
-        messages1!.Count.Should().Be(messages2!.Count);
-
-        for (int i = 0; i < messages1.Count; i++)
-            messages1[i].Id.Should().Be(messages2[i].Id, "message IDs must be stable across calls");
-    }
-
-    [Fact]
-    public async Task GetBranchMessages_Timestamps_AreNotCurrentTime()
-    {
-        // Arrange — add a message by streaming (requires a queued response)
-        // For a branch with no messages, there is nothing to verify.
-        // This test confirms empty-branch response is fine and timestamps are ISO 8601.
-        var sessionId = await CreateTestSession();
-
-        var before = DateTimeOffset.UtcNow.AddSeconds(-1);
-
-        var response = await _client.GetAsync($"/sessions/{sessionId}/branches/main/messages");
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var after = DateTimeOffset.UtcNow.AddSeconds(1);
-
-        var messages = await response.Content.ReadFromJsonAsync<List<MessageDto>>();
-        messages.Should().NotBeNull();
-
-        // For any messages present, their timestamp should be parseable as ISO 8601
-        // and not be in the future (i.e., not set to "now at response time")
-        foreach (var msg in messages!)
-        {
-            if (msg.Timestamp != null)
-            {
-                DateTimeOffset.TryParse(msg.Timestamp, out var ts).Should().BeTrue();
-                ts.Should().BeBefore(after, "timestamp should not be set to the response time");
-            }
-        }
     }
 
     #endregion

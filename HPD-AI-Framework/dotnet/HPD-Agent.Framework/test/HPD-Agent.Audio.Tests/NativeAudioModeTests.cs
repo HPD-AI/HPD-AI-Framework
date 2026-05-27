@@ -759,7 +759,7 @@ public class NativeAudioModeTests
         }
         private sealed class NoOpEventFlowHandle : IEventFlowHandle
         {
-            public string StreamId => "noop-stream";
+            public string EventFlowId => "noop-stream";
             public bool IsInterrupted => false;
             public bool IsCompleted => false;
             public int EmittedCount => 0;
@@ -835,10 +835,6 @@ public class NativeAudioModeTests
 
         public Task<Branch?> LoadBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default)
             => Task.FromResult<Branch?>(null);
-
-        public Task SaveBranchAsync(string sessionId, Branch branch, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
         public Task<List<string>> ListBranchIdsAsync(string sessionId, CancellationToken cancellationToken = default)
             => Task.FromResult(new List<string>());
 
@@ -881,7 +877,7 @@ public class NativeAudioModeTests
     private class DelayedInterruptHandle : IEventFlowHandle
     {
         private volatile bool _interrupted;
-        public string StreamId => "native-interrupt-stream";
+        public string EventFlowId => "native-interrupt-stream";
         public bool IsInterrupted => _interrupted;
         public bool IsCompleted => _interrupted;
         public int EmittedCount => 0;

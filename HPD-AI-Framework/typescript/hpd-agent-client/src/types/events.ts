@@ -141,6 +141,12 @@ export interface BaseEvent {
   version?: string;
   type: string;
   executionContext?: AgentExecutionContext;
+  eventId?: string;
+  sessionId?: string;
+  branchId?: string;
+  sequenceNumber?: number;
+  timestamp?: string;
+  eventFlowId?: string;
   streamId?: string;
 }
 

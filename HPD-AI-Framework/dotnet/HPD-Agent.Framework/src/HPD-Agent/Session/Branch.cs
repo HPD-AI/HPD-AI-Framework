@@ -52,14 +52,14 @@ public class Branch
     public List<ChatMessage> Messages { get; init; }
 
     /// <summary>Source branch ID if this was forked (null for original branches)</summary>
-    public string? ForkedFrom { get; init; }
+    public string? ForkedFrom { get; internal set; }
 
     /// <summary>
     /// Index of the last shared message before this branch diverges from its siblings (null for original branches).
     /// The first diverging message is at ForkedAtMessageIndex + 1.
     /// Siblings are grouped by ForkedFrom + ForkedAtMessageIndex — all branches that share the same preceding context.
     /// </summary>
-    public int? ForkedAtMessageIndex { get; init; }
+    public int? ForkedAtMessageIndex { get; internal set; }
 
     /// <summary>When this branch was created</summary>
     public DateTime CreatedAt { get; init; }
@@ -342,6 +342,42 @@ public class Branch
     internal void SetMiddlewareState(string key, string jsonValue)
     {
         MiddlewareState[key] = jsonValue;
+        LastActivity = DateTime.UtcNow;
+    }
+
+    internal void SetForkMetadata(
+        string? forkedFrom,
+        int? forkedAtMessageIndex,
+        Dictionary<string, string>? ancestors)
+    {
+        ForkedFrom = forkedFrom;
+        ForkedAtMessageIndex = forkedAtMessageIndex;
+        Ancestors = ancestors;
+        IsOriginal = forkedFrom is null;
+        OriginalBranchId = forkedFrom;
+        LastActivity = DateTime.UtcNow;
+    }
+
+    internal void SetTreeMetadata(
+        string? forkedFrom,
+        int? forkedAtMessageIndex,
+        int siblingIndex,
+        int totalSiblings,
+        bool isOriginal,
+        string? originalBranchId,
+        string? previousSiblingId,
+        string? nextSiblingId,
+        List<string> childBranches)
+    {
+        ForkedFrom = forkedFrom;
+        ForkedAtMessageIndex = forkedAtMessageIndex;
+        SiblingIndex = siblingIndex;
+        TotalSiblings = totalSiblings;
+        IsOriginal = isOriginal;
+        OriginalBranchId = originalBranchId;
+        PreviousSiblingId = previousSiblingId;
+        NextSiblingId = nextSiblingId;
+        ChildBranches = childBranches;
         LastActivity = DateTime.UtcNow;
     }
 

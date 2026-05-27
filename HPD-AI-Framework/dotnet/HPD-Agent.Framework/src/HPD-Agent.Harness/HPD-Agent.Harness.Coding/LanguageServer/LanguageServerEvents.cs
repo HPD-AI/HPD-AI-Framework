@@ -6,8 +6,7 @@ namespace HPDOS.Harneses.Middleware;
 public abstract record LanguageServerEvent : AgentEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Diagnostic;
-    public string? SessionId { get; init; }
-    public string? BranchId { get; init; }
+    public override bool ShouldPersistToBranch() => true;
     public required string Path { get; init; }
     public required string Uri { get; init; }
 }

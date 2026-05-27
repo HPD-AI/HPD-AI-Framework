@@ -627,10 +627,6 @@ public class AudioPipelineMiddlewareInputTests
 
         public Task<Branch?> LoadBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default)
             => Task.FromResult<Branch?>(null);
-
-        public Task SaveBranchAsync(string sessionId, Branch branch, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
         public Task<List<string>> ListBranchIdsAsync(string sessionId, CancellationToken cancellationToken = default)
             => Task.FromResult(new List<string>());
 
@@ -672,10 +668,6 @@ public class AudioPipelineMiddlewareInputTests
 
         public Task<Branch?> LoadBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default)
             => Task.FromResult<Branch?>(null);
-
-        public Task SaveBranchAsync(string sessionId, Branch branch, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
         public Task<List<string>> ListBranchIdsAsync(string sessionId, CancellationToken cancellationToken = default)
             => Task.FromResult(new List<string>());
 

@@ -116,7 +116,7 @@ public class AssetStorageIntegrationTests
 
             // Save session and branch ( messages live in Branch, not Session)
             await session.SaveAsync();
-            await store.SaveBranchAsync(session.Id, branch);
+            await store.SaveInitialBranchAsync(session.Id, branch);
 
             // Assert: Verify branch was saved with URI reference (not bytes)
             var branchFile = Path.Combine(tempDir, session.Id, "branches", branch.Id, "branch.json");
@@ -321,7 +321,7 @@ public class AssetStorageIntegrationTests
                 Branch = branch1
             });
             await session1.SaveAsync();
-            await store.SaveBranchAsync(session1.Id, branch1);
+            await store.SaveInitialBranchAsync(session1.Id, branch1);
 
             // Get asset ID from first branch
             var msg1 = branch1.Messages.First(m => m.Role == ChatRole.User);
@@ -430,10 +430,6 @@ public class AssetStorageIntegrationTests
 
         public Task<Branch?> LoadBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default)
             => Task.FromResult<Branch?>(null);
-
-        public Task SaveBranchAsync(string sessionId, Branch branch, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
         public Task<List<string>> ListBranchIdsAsync(string sessionId, CancellationToken cancellationToken = default)
             => Task.FromResult(new List<string>());
 

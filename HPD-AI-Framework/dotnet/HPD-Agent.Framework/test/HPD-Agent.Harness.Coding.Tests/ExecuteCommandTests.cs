@@ -1095,9 +1095,7 @@ public sealed class ExecuteCommandTests : IDisposable
         public Task SaveSessionAsync(Session session, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<List<string>> ListSessionIdsAsync(CancellationToken cancellationToken = default) => Task.FromResult(new List<string>());
         public Task DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<Branch?> LoadBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default) => Task.FromResult<Branch?>(null);
-        public Task SaveBranchAsync(string sessionId, Branch branch, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<List<string>> ListBranchIdsAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult(new List<string>());
+        public Task<Branch?> LoadBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default) => Task.FromResult<Branch?>(null);        public Task<List<string>> ListBranchIdsAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult(new List<string>());
         public Task DeleteBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<UncommittedTurn?> LoadUncommittedTurnAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<UncommittedTurn?>(null);
         public Task SaveUncommittedTurnAsync(UncommittedTurn turn, CancellationToken cancellationToken = default) => Task.CompletedTask;

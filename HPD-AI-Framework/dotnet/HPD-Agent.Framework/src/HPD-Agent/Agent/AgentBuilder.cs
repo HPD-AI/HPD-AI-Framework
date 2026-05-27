@@ -1660,15 +1660,16 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Preserves reasoning/thinking content in conversation history across turns.
-    /// When true, reasoning blocks are included when sending history back to the provider,
+    /// Includes reasoning/thinking content when projecting conversation history back to the model.
+    /// Reasoning is always recorded in branch events when observed; this controls only whether
+    /// reasoning blocks are included when sending history back to the provider,
     /// which is required for Anthropic extended thinking to work correctly across turns
     /// (ProtectedData must be round-tripped verbatim).
     /// Default: false (reasoning shown during streaming but excluded from history to save tokens).
     /// </summary>
-    public AgentBuilder WithPreserveReasoningInHistory(bool preserve = true)
+    public AgentBuilder WithReasoningInModelHistory(bool include = true)
     {
-        _config.PreserveReasoningInHistory = preserve;
+        _config.IncludeReasoningInModelHistory = include;
         return this;
     }
 

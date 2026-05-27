@@ -233,7 +233,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         using var _ = await ReceiveUntilTypeAsync(ws, "TEXT_DELTA");
 
         await SendJsonAsync(ws, AgentEventSerializer.ToJson(new InterruptionRequestEvent(
-            StreamId: null,
+            eventFlowId: null,
             Reason: "stop from client",
             Source: InterruptionSource.User)));
 

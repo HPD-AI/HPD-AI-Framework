@@ -5,7 +5,7 @@ namespace HPD.Agent;
 
 /// <summary>
 /// File-based session store using JSON files.
-/// V3 Architecture: Separate storage for Session (metadata) and Branches (conversations).
+/// V3 Architecture: Separate storage for Session metadata and branch event documents.
 /// </summary>
 /// <remarks>
 /// <para><b>Storage Structure:</b></para>
@@ -14,7 +14,7 @@ namespace HPD.Agent;
 ///   ├── session.json          ← Session metadata + session-scoped middleware state
 ///   ├── branches/              ← All conversation branches
 ///   │   ├── main/
-///   │   │   └── branch.json   ← Branch messages + branch-scoped middleware state
+///   │   │   └── branch.json   ← Branch event document projected into Branch
 ///   │   ├── formal/
 ///   │   │   └── branch.json
 ///   │   └── casual/
@@ -106,7 +106,7 @@ public class JsonSessionStore : ISessionStore
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // BRANCH PERSISTENCE ( New)
+    // BRANCH EVENT PERSISTENCE
     // ═══════════════════════════════════════════════════════════════════
 
     public Task<Branch?> LoadBranchAsync(
@@ -125,28 +125,136 @@ public class JsonSessionStore : ISessionStore
         lock (_lock)
         {
             var json = File.ReadAllText(branchPath);
-            var branch = JsonSerializer.Deserialize(json, SessionJsonContext.Combined.Branch);
+            var document = JsonSerializer.Deserialize<BranchEventDocument>(json, SessionJsonContext.Combined.Options);
+            var branch = document is null ? null : BranchProjector.Project(document);
             return Task.FromResult(branch);
         }
     }
 
-    public Task SaveBranchAsync(
+    public Task<BranchEventDocument?> LoadBranchDocumentAsync(
         string sessionId,
-        Branch branch,
+        string branchId,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentNullException.ThrowIfNull(branch);
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
 
-        var branchPath = GetBranchFilePath(sessionId, branch.Id);
-        var json = JsonSerializer.Serialize(branch, SessionJsonContext.Combined.Branch);
+        var branchPath = GetBranchFilePath(sessionId, branchId);
+
+        if (!File.Exists(branchPath))
+            return Task.FromResult<BranchEventDocument?>(null);
 
         lock (_lock)
         {
+            var json = File.ReadAllText(branchPath);
+            var document = JsonSerializer.Deserialize<BranchEventDocument>(json, SessionJsonContext.Combined.Options);
+            return Task.FromResult(document);
+        }
+    }
+
+    public Task SaveBranchDocumentAsync(
+        BranchEventDocument document,
+        long? expectedSequenceNumber = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        var branchPath = GetBranchFilePath(document.SessionId, document.BranchId);
+
+        lock (_lock)
+        {
+            if (expectedSequenceNumber is not null && File.Exists(branchPath))
+            {
+                var existingJson = File.ReadAllText(branchPath);
+                var existing = JsonSerializer.Deserialize<BranchEventDocument>(existingJson, SessionJsonContext.Combined.Options);
+                if (existing is not null && existing.NextSequenceNumber - 1 != expectedSequenceNumber.Value)
+                {
+                    throw new InvalidOperationException(
+                        $"Branch '{document.BranchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {existing.NextSequenceNumber - 1}.");
+                }
+            }
+
+            var json = JsonSerializer.Serialize(document, SessionJsonContext.Combined.Options);
             WriteAtomically(branchPath, json);
         }
 
         return Task.CompletedTask;
+    }
+
+    public Task AppendBranchEventAsync(
+        string sessionId,
+        string branchId,
+        AgentEvent evt,
+        long? expectedSequenceNumber = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentNullException.ThrowIfNull(evt);
+
+        var branchPath = GetBranchFilePath(sessionId, branchId);
+
+        lock (_lock)
+        {
+            BranchEventDocument document;
+            if (File.Exists(branchPath))
+            {
+                var json = File.ReadAllText(branchPath);
+                document = JsonSerializer.Deserialize<BranchEventDocument>(json, SessionJsonContext.Combined.Options)
+                    ?? new BranchEventDocument { SessionId = sessionId, BranchId = branchId };
+            }
+            else
+            {
+                document = new BranchEventDocument
+                {
+                    SessionId = sessionId,
+                    BranchId = branchId,
+                    CreatedAt = evt.Timestamp
+                };
+            }
+
+            if (expectedSequenceNumber is not null &&
+                document.NextSequenceNumber - 1 != expectedSequenceNumber.Value)
+            {
+                throw new InvalidOperationException(
+                    $"Branch '{branchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {document.NextSequenceNumber - 1}.");
+            }
+
+            evt = evt with
+            {
+                EventId = evt.EventId ?? Guid.NewGuid().ToString("N"),
+                SessionId = evt.SessionId ?? sessionId,
+                BranchId = evt.BranchId ?? branchId
+            };
+            evt.SequenceNumber = document.NextSequenceNumber;
+            var events = document.Events.ToList();
+            events.Add(evt);
+            document = document with
+            {
+                UpdatedAt = evt.Timestamp,
+                NextSequenceNumber = document.NextSequenceNumber + 1,
+                Events = events
+            };
+
+            var outputJson = JsonSerializer.Serialize(document, SessionJsonContext.Combined.Options);
+            WriteAtomically(branchPath, outputJson);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public async IAsyncEnumerable<AgentEvent> ReadBranchEventsAsync(
+        string sessionId,
+        string branchId,
+        HPD.Events.ReplayReadOptions options,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var document = await LoadBranchDocumentAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false);
+        if (document is null)
+            yield break;
+
+        await foreach (var evt in document.Events.FilterByReplayOptions(options, cancellationToken).ConfigureAwait(false))
+            yield return evt;
     }
 
     public Task<List<string>> ListBranchIdsAsync(

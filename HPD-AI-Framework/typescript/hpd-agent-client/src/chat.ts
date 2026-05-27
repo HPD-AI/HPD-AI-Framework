@@ -1,7 +1,7 @@
 import type { AgentClient } from './client.js';
 import { EventTypes } from './types/events.js';
 import type { RunConfig } from './types/run-config.js';
-import type { BranchMessage, CreateSessionRequest, SearchSessionsRequest, Session } from './types/session.js';
+import type { BranchEvent, CreateSessionRequest, SearchSessionsRequest, Session } from './types/session.js';
 
 export interface OpenChatOptions {
   agentId: string;
@@ -62,7 +62,7 @@ export class ChatManager {
  *
  * ChatSession scopes common chat operations to one agent/session/branch. Transcript
  * rendering is intentionally left to applications via AgentClient.on/onAny and
- * getBranchMessages().
+ * getBranchEvents().
  */
 export class ChatSession {
   readonly agentId: string;
@@ -78,8 +78,8 @@ export class ChatSession {
   dispose(): void {
   }
 
-  async getBranchMessages(): Promise<BranchMessage[]> {
-    return this.client.getBranchMessages(this.sessionId, this.branchId);
+  async getBranchEvents(): Promise<BranchEvent[]> {
+    return this.client.getBranchEvents(this.sessionId, this.branchId);
   }
 
   async sendText(text: string, options: SendTextOptions = {}): Promise<void> {

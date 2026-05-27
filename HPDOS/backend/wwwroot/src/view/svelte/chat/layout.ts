@@ -1,12 +1,12 @@
-export type ShellLayoutMode = "expanded" | "collapsed";
+export type ChatLayoutMode = "expanded" | "collapsed";
 
-export type ShellSplitPolicy = {
+export type ChatSplitPolicy = {
   defaultAppPaneShare: number;
   minAppPaneWidth: number;
   minWorkspacePaneWidth: number;
 };
 
-export const shellSplitPolicies: Record<ShellLayoutMode, ShellSplitPolicy> = {
+export const chatSplitPolicies: Record<ChatLayoutMode, ChatSplitPolicy> = {
   expanded: {
     defaultAppPaneShare: 0.45,
     minAppPaneWidth: 288,
@@ -19,19 +19,19 @@ export const shellSplitPolicies: Record<ShellLayoutMode, ShellSplitPolicy> = {
   }
 };
 
-export function shellMode(sidebarCollapsed: boolean): ShellLayoutMode {
+export function chatLayoutMode(sidebarCollapsed: boolean): ChatLayoutMode {
   return sidebarCollapsed ? "collapsed" : "expanded";
 }
 
-export function defaultAppPaneWidth(mode: ShellLayoutMode, resizableWidth: number): number {
-  return clampAppPaneWidth(mode, resizableWidth * shellSplitPolicies[mode].defaultAppPaneShare, resizableWidth);
+export function defaultAppPaneWidth(mode: ChatLayoutMode, resizableWidth: number): number {
+  return clampAppPaneWidth(mode, resizableWidth * chatSplitPolicies[mode].defaultAppPaneShare, resizableWidth);
 }
 
 export function appPaneWidthBounds(
-  mode: ShellLayoutMode,
+  mode: ChatLayoutMode,
   resizableWidth: number
 ): { min: number; max: number } {
-  const policy = shellSplitPolicies[mode];
+  const policy = chatSplitPolicies[mode];
   const minimumTotalWidth = policy.minAppPaneWidth + policy.minWorkspacePaneWidth;
 
   if (resizableWidth <= minimumTotalWidth) {
@@ -46,7 +46,7 @@ export function appPaneWidthBounds(
 }
 
 export function clampAppPaneWidth(
-  mode: ShellLayoutMode,
+  mode: ChatLayoutMode,
   appPaneWidth: number,
   resizableWidth: number
 ): number {

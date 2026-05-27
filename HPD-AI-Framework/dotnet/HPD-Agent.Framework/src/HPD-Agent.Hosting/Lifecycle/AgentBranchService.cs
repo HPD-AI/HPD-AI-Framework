@@ -68,7 +68,7 @@ public sealed class AgentBranchService : IAgentBranchService
             ?? throw new InvalidOperationException($"Branch '{branchId}' not found after creation.");
 
         ApplyBranchMetadata(branch, request.Name, request.Description, request.Tags);
-        await _sessionManager.Store.SaveBranchAsync(sessionId, branch, cancellationToken);
+        await _sessionManager.Store.AppendBranchMetadataUpdatedAsync(branch, cancellationToken);
 
         return AgentServiceResult<BranchDto>.Success(branch.ToDto(sessionId));
     }
@@ -105,7 +105,7 @@ public sealed class AgentBranchService : IAgentBranchService
                 if (request.Tags != null) branch.Tags = request.Tags;
                 branch.LastActivity = DateTime.UtcNow;
 
-                await _sessionManager.Store.SaveBranchAsync(sessionId, branch, cancellationToken);
+                await _sessionManager.Store.AppendBranchMetadataUpdatedAsync(branch, cancellationToken);
                 return AgentServiceResult<BranchDto>.Success(branch.ToDto(sessionId));
             },
             cancellationToken);
@@ -161,20 +161,17 @@ public sealed class AgentBranchService : IAgentBranchService
         }
     }
 
-    public async Task<AgentServiceResult<IReadOnlyList<MessageDto>>> GetMessagesAsync(
+    public async Task<AgentServiceResult<IReadOnlyList<AgentEvent>>> GetEventsAsync(
         string sessionId,
         string branchId,
         CancellationToken cancellationToken = default)
     {
-        var branch = await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken);
-        if (branch == null)
-            return AgentServiceResult<IReadOnlyList<MessageDto>>.NotFound;
+        var document = await _sessionManager.Store.LoadBranchDocumentAsync(sessionId, branchId, cancellationToken);
+        if (document == null)
+            return AgentServiceResult<IReadOnlyList<AgentEvent>>.NotFound;
 
-        var messages = new List<MessageDto>();
-        for (var i = 0; i < branch.MessageCount; i++)
-            messages.Add(branch.Messages[i].ToDto(i, DateTime.UtcNow));
-
-        return AgentServiceResult<IReadOnlyList<MessageDto>>.Success(messages);
+        return AgentServiceResult<IReadOnlyList<AgentEvent>>.Success(
+            document.Events.OrderBy(e => e.SequenceNumber).ToList());
     }
 
     public async Task<AgentServiceResult<IReadOnlyList<BranchDto>>> GetSiblingsAsync(
@@ -231,7 +228,7 @@ public sealed class AgentBranchService : IAgentBranchService
             ?? throw new InvalidOperationException($"Branch '{newBranchId}' not found after fork.");
 
         ApplyBranchMetadata(newBranch, request.Name, request.Description, request.Tags);
-        await _sessionManager.Store.SaveBranchAsync(sessionId, newBranch, cancellationToken);
+        await _sessionManager.Store.AppendBranchMetadataUpdatedAsync(newBranch, cancellationToken);
 
         return AgentServiceResult<BranchDto>.Success(newBranch.ToDto(sessionId));
     }
@@ -291,7 +288,7 @@ public sealed class AgentBranchService : IAgentBranchService
             {
                 parent.ChildBranches.Remove(branchId);
                 parent.LastActivity = DateTime.UtcNow;
-                await _sessionManager.Store.SaveBranchAsync(sessionId, parent, cancellationToken);
+                await _sessionManager.Store.AppendBranchTreeUpdatedAsync(parent, cancellationToken);
             }
         }
 
@@ -324,7 +321,7 @@ public sealed class AgentBranchService : IAgentBranchService
             sibling.PreviousSiblingId = i > 0 ? remainingSiblings[i - 1].Id : null;
             sibling.NextSiblingId = i < remainingSiblings.Count - 1 ? remainingSiblings[i + 1].Id : null;
             sibling.LastActivity = DateTime.UtcNow;
-            await _sessionManager.Store.SaveBranchAsync(sessionId, sibling, cancellationToken);
+            await _sessionManager.Store.AppendBranchTreeUpdatedAsync(sibling, cancellationToken);
         }
     }
 

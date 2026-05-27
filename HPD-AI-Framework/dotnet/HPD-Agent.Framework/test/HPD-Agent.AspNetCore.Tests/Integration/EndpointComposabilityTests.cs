@@ -221,7 +221,7 @@ public class EndpointComposabilityTests
         public Task<AgentServiceResult<BranchDto>> ForkBranchAsync(string agentId, string sessionId, string branchId, ForkBranchRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<BranchDto>> UpdateBranchAsync(string sessionId, string branchId, UpdateBranchRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult> DeleteBranchAsync(string sessionId, string branchId, bool recursive = false, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<IReadOnlyList<MessageDto>>> GetMessagesAsync(string sessionId, string branchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<IReadOnlyList<AgentEvent>>> GetEventsAsync(string sessionId, string branchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<IReadOnlyList<BranchDto>>> GetSiblingsAsync(string sessionId, string branchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 

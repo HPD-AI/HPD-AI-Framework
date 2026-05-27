@@ -5,14 +5,14 @@ namespace HPD.Agent;
 
 /// <summary>
 /// In-memory session store for development and testing.
-/// V3 Architecture: Separate storage for Session (metadata) and Branches (conversations).
+/// V3 Architecture: Separate storage for Session metadata and branch event documents.
 /// Data is lost on process restart.
 /// </summary>
 /// <remarks>
 /// <para><b>Storage Structure:</b></para>
 /// <code>
 /// _sessions: ConcurrentDictionary&lt;string, Session&gt;        ← Session metadata
-/// _branches: ConcurrentDictionary&lt;string, List&lt;Branch&gt;&gt; ← All branches per session
+/// _branches: ConcurrentDictionary&lt;string, BranchEventDocument&gt; ← Event documents per branch
 /// _uncommittedTurns: ConcurrentDictionary&lt;string, UncommittedTurn&gt; ← Crash recovery
 /// _assetStore: InMemoryAssetStore                        ← Shared assets
 /// </code>
@@ -20,7 +20,7 @@ namespace HPD.Agent;
 public class InMemorySessionStore : ISessionStore
 {
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, Branch>> _branches = new();
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, BranchEventDocument>> _branches = new();
     private readonly ConcurrentDictionary<string, UncommittedTurn> _uncommittedTurns = new();
     private readonly InMemoryContentStore _contentStore;
 
@@ -74,7 +74,7 @@ public class InMemorySessionStore : ISessionStore
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // BRANCH PERSISTENCE ( New)
+    // BRANCH EVENT PERSISTENCE
     // ═══════════════════════════════════════════════════════════════════
 
     public Task<Branch?> LoadBranchAsync(
@@ -83,22 +83,126 @@ public class InMemorySessionStore : ISessionStore
         CancellationToken cancellationToken = default)
     {
         if (_branches.TryGetValue(sessionId, out var sessionBranches) &&
-            sessionBranches.TryGetValue(branchId, out var branch))
+            sessionBranches.TryGetValue(branchId, out var document))
         {
+            var branch = BranchProjector.Project(document);
+            if (_sessions.TryGetValue(sessionId, out var session))
+                branch.Session = session;
             return Task.FromResult<Branch?>(branch);
         }
 
         return Task.FromResult<Branch?>(null);
     }
 
-    public Task SaveBranchAsync(
+    public Task<BranchEventDocument?> LoadBranchDocumentAsync(
         string sessionId,
-        Branch branch,
+        string branchId,
         CancellationToken cancellationToken = default)
     {
-        var sessionBranches = _branches.GetOrAdd(sessionId, _ => new ConcurrentDictionary<string, Branch>());
-        sessionBranches[branch.Id] = branch;
+        if (_branches.TryGetValue(sessionId, out var sessionBranches) &&
+            sessionBranches.TryGetValue(branchId, out var document))
+        {
+            return Task.FromResult<BranchEventDocument?>(document);
+        }
+
+        return Task.FromResult<BranchEventDocument?>(null);
+    }
+
+    public Task SaveBranchDocumentAsync(
+        BranchEventDocument document,
+        long? expectedSequenceNumber = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var sessionBranches = _branches.GetOrAdd(
+            document.SessionId,
+            _ => new ConcurrentDictionary<string, BranchEventDocument>());
+
+        if (expectedSequenceNumber is not null &&
+            sessionBranches.TryGetValue(document.BranchId, out var existing) &&
+            existing.NextSequenceNumber - 1 != expectedSequenceNumber.Value)
+        {
+            throw new InvalidOperationException(
+                $"Branch '{document.BranchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {existing.NextSequenceNumber - 1}.");
+        }
+
+        sessionBranches[document.BranchId] = document;
         return Task.CompletedTask;
+    }
+
+    public Task AppendBranchEventAsync(
+        string sessionId,
+        string branchId,
+        AgentEvent evt,
+        long? expectedSequenceNumber = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(evt);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var sessionBranches = _branches.GetOrAdd(sessionId, _ => new ConcurrentDictionary<string, BranchEventDocument>());
+        sessionBranches.AddOrUpdate(
+            branchId,
+            _ =>
+            {
+                evt = ScopeBranchEvent(sessionId, branchId, evt);
+                evt.SequenceNumber = 1;
+                return new BranchEventDocument
+                {
+                    SessionId = sessionId,
+                    BranchId = branchId,
+                    CreatedAt = evt.Timestamp,
+                    UpdatedAt = evt.Timestamp,
+                    NextSequenceNumber = 2,
+                    Events = [evt]
+                };
+            },
+            (_, existing) =>
+            {
+                if (expectedSequenceNumber is not null &&
+                    existing.NextSequenceNumber - 1 != expectedSequenceNumber.Value)
+                {
+                    throw new InvalidOperationException(
+                        $"Branch '{branchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {existing.NextSequenceNumber - 1}.");
+                }
+
+                evt = ScopeBranchEvent(sessionId, branchId, evt);
+                evt.SequenceNumber = existing.NextSequenceNumber;
+                var events = existing.Events.ToList();
+                events.Add(evt);
+                return existing with
+                {
+                    UpdatedAt = evt.Timestamp,
+                    NextSequenceNumber = existing.NextSequenceNumber + 1,
+                    Events = events
+                };
+            });
+
+        return Task.CompletedTask;
+    }
+
+    private static AgentEvent ScopeBranchEvent(string sessionId, string branchId, AgentEvent evt) =>
+        evt with
+        {
+            EventId = evt.EventId ?? Guid.NewGuid().ToString("N"),
+            SessionId = evt.SessionId ?? sessionId,
+            BranchId = evt.BranchId ?? branchId
+        };
+
+    public async IAsyncEnumerable<AgentEvent> ReadBranchEventsAsync(
+        string sessionId,
+        string branchId,
+        HPD.Events.ReplayReadOptions options,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var document = await LoadBranchDocumentAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false);
+        if (document is null)
+            yield break;
+
+        await foreach (var evt in document.Events.FilterByReplayOptions(options, cancellationToken).ConfigureAwait(false))
+            yield return evt;
     }
 
     public Task<List<string>> ListBranchIdsAsync(

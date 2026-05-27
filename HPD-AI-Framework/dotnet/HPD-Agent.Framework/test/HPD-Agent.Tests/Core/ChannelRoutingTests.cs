@@ -199,7 +199,7 @@ public class ChannelRoutingTests
 
         coordinator.Emit(new TextMessageEndEvent("msg1")
         {
-            StreamId = stream.EventFlowId,
+            EventFlowId = stream.EventFlowId,
             CanInterrupt = false
         });
 
@@ -216,12 +216,12 @@ public class ChannelRoutingTests
         var stream = coordinator.EventFlows.Create();
 
         for (var i = 0; i < 3; i++)
-            coordinator.Emit(new TextDeltaEvent($"before{i}", "msg1") { StreamId = stream.EventFlowId });
+            coordinator.Emit(new TextDeltaEvent($"before{i}", "msg1") { EventFlowId = stream.EventFlowId });
 
         stream.Interrupt();
 
         for (var i = 0; i < 2; i++)
-            coordinator.Emit(new TextDeltaEvent($"after{i}", "msg1") { StreamId = stream.EventFlowId });
+            coordinator.Emit(new TextDeltaEvent($"after{i}", "msg1") { EventFlowId = stream.EventFlowId });
 
         Assert.Equal(3, stream.EmittedCount);
         Assert.Equal(2, stream.DroppedCount);

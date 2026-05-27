@@ -49,7 +49,7 @@ public class StreamingCoalescingTests
         
         Assert.NotNull(method);
         
-        var response = (ChatResponse)method.Invoke(null, [updates, false])!;
+        var response = (ChatResponse)method.Invoke(null, [updates])!;
 
         // Assert: Should have exactly ONE TextContent with combined text
         Assert.Single(response.Messages);
@@ -154,10 +154,10 @@ public class StreamingCoalescingTests
     }
 
     /// <summary>
-    /// Tests that ConstructChatResponseFromUpdates excludes TextReasoningContent by default.
+    /// Tests that ConstructChatResponseFromUpdates preserves observed TextReasoningContent.
     /// </summary>
     [Fact]
-    public void ConstructChatResponseFromUpdates_ExcludesReasoningByDefault()
+    public void ConstructChatResponseFromUpdates_PreservesReasoningByDefault()
     {
         // Arrange: Updates with reasoning content
         var updates = new List<ChatResponseUpdate>
@@ -184,22 +184,23 @@ public class StreamingCoalescingTests
         
         Assert.NotNull(method);
         
-        var response = (ChatResponse)method.Invoke(null, [updates, false])!;
+        var response = (ChatResponse)method.Invoke(null, [updates])!;
 
-        // Assert: Should only have regular text (reasoning excluded)
+        // Assert: Should keep reasoning. Model-history projection strips it later if configured.
         Assert.Single(response.Messages);
         var message = response.Messages[0];
-        
-        Assert.Single(message.Contents);
-        var content = (TextContent)message.Contents[0];
-        Assert.Equal("Regular textMore text", content.Text);
+
+        Assert.Equal(3, message.Contents.Count);
+        Assert.Equal("Regular text", Assert.IsType<TextContent>(message.Contents[0]).Text);
+        Assert.Equal("Internal reasoning", Assert.IsType<TextReasoningContent>(message.Contents[1]).Text);
+        Assert.Equal("More text", Assert.IsType<TextContent>(message.Contents[2]).Text);
     }
 
     /// <summary>
-    /// Tests that ConstructChatResponseFromUpdates preserves reasoning when configured.
+    /// Tests that ProjectMessagesForModelHistory excludes reasoning when configured off.
     /// </summary>
     [Fact]
-    public void ConstructChatResponseFromUpdates_PreservesReasoningWhenConfigured()
+    public void ProjectMessagesForModelHistory_ExcludesReasoningWhenConfiguredOff()
     {
         // Arrange: Updates with reasoning content (multiple chunks)
         var updates = new List<ChatResponseUpdate>
@@ -226,27 +227,22 @@ public class StreamingCoalescingTests
             }
         };
 
-        // Act: Pass true to preserve reasoning
+        // Act
         var method = typeof(Agent).GetMethod(
-            "ConstructChatResponseFromUpdates",
+            "ProjectMessagesForModelHistory",
             BindingFlags.NonPublic | BindingFlags.Static);
         
         Assert.NotNull(method);
-        
-        var response = (ChatResponse)method.Invoke(null, [updates, true])!;
 
-        // Assert: Should have both regular and reasoning content preserved and coalesced
-        Assert.Single(response.Messages);
-        var message = response.Messages[0];
-        
-        // TextContent and TextReasoningContent are coalesced separately
-        Assert.Equal(2, message.Contents.Count);
-        
-        var regularText = Assert.IsType<TextContent>(message.Contents[0]);
-        Assert.Equal("Regular text", regularText.Text);
-        
-        var reasoningText = Assert.IsType<TextReasoningContent>(message.Contents[1]);
-        Assert.Equal("Internal reasoning", reasoningText.Text);
+        var response = (ChatResponse)typeof(Agent)
+            .GetMethod("ConstructChatResponseFromUpdates", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [updates])!;
+        var projected = (List<ChatMessage>)method.Invoke(null, [response.Messages, false])!;
+
+        Assert.Single(projected);
+        var message = projected[0];
+        Assert.Single(message.Contents);
+        Assert.Equal("Regular text", Assert.IsType<TextContent>(message.Contents[0]).Text);
     }
 
     /// <summary>
@@ -283,7 +279,7 @@ public class StreamingCoalescingTests
         
         Assert.NotNull(method);
         
-        var response = (ChatResponse)method.Invoke(null, [updates, false])!;
+        var response = (ChatResponse)method.Invoke(null, [updates])!;
 
         // Assert: Should extract usage but not include it in message contents
         Assert.NotNull(response.Usage);
@@ -357,7 +353,7 @@ public class StreamingCoalescingTests
         
         Assert.NotNull(method);
         
-        var response = (ChatResponse)method.Invoke(null, [updates, false])!;
+        var response = (ChatResponse)method.Invoke(null, [updates])!;
 
         // Assert: Should produce exactly ONE message with ONE TextContent
         Assert.Single(response.Messages);

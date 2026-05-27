@@ -58,7 +58,7 @@ public abstract class SessionManager : IDisposable
         }
 
         await _store.SaveSessionAsync(session, ct);
-        await _store.SaveBranchAsync(id, branch, ct);
+        await _store.SaveInitialBranchAsync(id, branch, ct);
 
         return (id, "main");
     }

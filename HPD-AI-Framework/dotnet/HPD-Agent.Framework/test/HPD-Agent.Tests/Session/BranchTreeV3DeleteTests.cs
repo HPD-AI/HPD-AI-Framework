@@ -26,14 +26,14 @@ public class BranchTreeV3DeleteTests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Create fork-1, then fork from fork-1 (so fork-1 has children)
         var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
         fork1.Session = session;
         fork1.AddMessage(AssistantMessage("Response"));
-        await store.SaveBranchAsync("test-session", fork1);
+        await store.SaveInitialBranchAsync("test-session", fork1);
 
         var fork2 = await agent.ForkBranchAsync(fork1, "fork-2", fromMessageIndex: 0);
 
@@ -55,7 +55,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Create 3 siblings
@@ -106,7 +106,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Create 3 siblings: fork-1 <-> fork-2 <-> fork-3
@@ -147,7 +147,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Create fork
@@ -177,7 +177,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         await store.SaveSessionAsync(session);
 
         var main = session.CreateBranch("main");
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
 
         // Act & Assert - Cannot delete main branch
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
@@ -197,7 +197,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Act & Assert - Fork at invalid index
@@ -224,7 +224,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         main.AddMessage(UserMessage("Message 1"));
         main.AddMessage(AssistantMessage("Response 1"));
         main.AddMessage(UserMessage("Message 2"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 1);
@@ -257,7 +257,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Act - Create 5 siblings
@@ -308,7 +308,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Create 5 siblings
@@ -356,14 +356,14 @@ public class BranchTreeV3DeleteTests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Act - Create multi-level ancestry: main -> fork1 -> fork2
         var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
         fork1.Session = session;
         fork1.AddMessage(AssistantMessage("Fork 1 response"));
-        await store.SaveBranchAsync("test-session", fork1);
+        await store.SaveInitialBranchAsync("test-session", fork1);
 
         var fork2 = await agent.ForkBranchAsync(fork1, "fork-2", fromMessageIndex: 0);
 
@@ -399,7 +399,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         await store.SaveSessionAsync(session);
 
         var main = session.CreateBranch("main");
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Act - Fork empty branch at index 0 (valid)
@@ -421,7 +421,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         await store.SaveSessionAsync(session);
 
         var main = session.CreateBranch("main");
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Act & Assert - Fork empty branch at index 1 (invalid)
@@ -442,7 +442,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
@@ -471,7 +471,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Create the one and only fork
@@ -504,7 +504,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Create two forks: main(0), fork-1(1), fork-2(2)
@@ -544,7 +544,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Give main a fork so it's a real source branch with children
@@ -572,7 +572,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Create two forks

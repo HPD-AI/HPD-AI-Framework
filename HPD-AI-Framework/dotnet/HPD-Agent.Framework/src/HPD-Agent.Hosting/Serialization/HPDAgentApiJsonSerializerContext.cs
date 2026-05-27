@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using HPD.Agent;
 using HPD.Agent.Hosting.Data;
 
 namespace HPD.Agent.Hosting.Serialization;
@@ -24,10 +25,10 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(BranchDto))]
 [JsonSerializable(typeof(BranchDto[]))]
 [JsonSerializable(typeof(List<BranchDto>))]
-// Message DTOs
-[JsonSerializable(typeof(MessageDto))]
-[JsonSerializable(typeof(MessageDto[]))]
-[JsonSerializable(typeof(List<MessageDto>))]
+// Branch event DTOs
+[JsonSerializable(typeof(AgentEvent))]
+[JsonSerializable(typeof(AgentEvent[]))]
+[JsonSerializable(typeof(List<AgentEvent>))]
 // Asset DTOs
 [JsonSerializable(typeof(AssetDto))]
 [JsonSerializable(typeof(AssetDto[]))]

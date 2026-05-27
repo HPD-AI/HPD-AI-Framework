@@ -46,10 +46,10 @@ internal static class BranchEndpoints
             .WithName("DeleteBranch")
             .WithSummary("Delete a branch");
 
-        endpoints.MapGet("/sessions/{sid}/branches/{bid}/messages", (string sid, string bid, CancellationToken ct) =>
-                GetMessages(sid, bid, branches, ct))
-            .WithName("GetBranchMessages")
-            .WithSummary("Get all messages in a branch");
+        endpoints.MapGet("/sessions/{sid}/branches/{bid}/events", (string sid, string bid, CancellationToken ct) =>
+                GetEvents(sid, bid, branches, ct))
+            .WithName("GetBranchEvents")
+            .WithSummary("Get the normalized event log for a branch");
 
         endpoints.MapGet("/sessions/{sid}/branches/{bid}/siblings", (string sid, string bid, CancellationToken ct) =>
                 GetSiblings(sid, bid, branches, ct))
@@ -180,7 +180,7 @@ internal static class BranchEndpoints
         }
     }
 
-    private static async Task<Results<Ok<List<MessageDto>>, NotFound, ValidationProblem>> GetMessages(
+    private static async Task<Results<Ok<List<AgentEvent>>, NotFound, ValidationProblem>> GetEvents(
         string sid,
         string bid,
         IAgentBranchService branches,
@@ -188,14 +188,14 @@ internal static class BranchEndpoints
     {
         try
         {
-            var result = await branches.GetMessagesAsync(sid, bid, ct);
+            var result = await branches.GetEventsAsync(sid, bid, ct);
             return result.Status == AgentServiceStatus.NotFound
                 ? TypedResults.NotFound()
                 : TypedResults.Ok(result.Value!.ToList());
         }
         catch (Exception ex)
         {
-            return Validation("GetMessagesError", ex.Message);
+            return Validation("GetEventsError", ex.Message);
         }
     }
 

@@ -152,63 +152,6 @@ public class DtoMappingExtensionsTests
 
     #endregion
 
-    #region Message Mapping
-
-    [Fact]
-    public void ToDto_MapsMessageCorrectly_WithAllRoles()
-    {
-        // Arrange
-        var userMessage = new ChatMessage(ChatRole.User, "User message");
-        var assistantMessage = new ChatMessage(ChatRole.Assistant, "Assistant message");
-        var timestamp = DateTime.UtcNow;
-
-        // Act
-        var userDto = userMessage.ToDto(0, timestamp);
-        var assistantDto = assistantMessage.ToDto(1, timestamp);
-
-        // Assert
-        userDto.Id.Should().Be("msg-0");
-        userDto.Role.Should().Be("user");
-        userDto.Contents.Should().ContainSingle();
-        userDto.Contents.OfType<Microsoft.Extensions.AI.TextContent>().Single().Text.Should().Be("User message");
-
-        assistantDto.Id.Should().Be("msg-1");
-        assistantDto.Role.Should().Be("assistant");
-        assistantDto.Contents.Should().ContainSingle();
-        assistantDto.Contents.OfType<Microsoft.Extensions.AI.TextContent>().Single().Text.Should().Be("Assistant message");
-    }
-
-    [Fact]
-    public void ToDto_IncludesMessageIndex_InDto()
-    {
-        // Arrange
-        var message = new ChatMessage(ChatRole.User, "Test");
-        var timestamp = DateTime.UtcNow;
-
-        // Act
-        var dto = message.ToDto(42, timestamp);
-
-        // Assert
-        dto.Id.Should().Be("msg-42");
-    }
-
-    [Fact]
-    public void ToDto_FormatsTimestamp_AsISO8601()
-    {
-        // Arrange
-        var message = new ChatMessage(ChatRole.User, "Test");
-        var timestamp = new DateTime(2026, 2, 15, 10, 30, 45, DateTimeKind.Utc);
-
-        // Act
-        var dto = message.ToDto(0, timestamp);
-
-        // Assert
-        dto.Timestamp.Should().Be("2026-02-15T10:30:45.0000000Z");
-        DateTime.TryParse(dto.Timestamp, out var parsed).Should().BeTrue();
-    }
-
-    #endregion
-
     #region Asset Mapping
 
     [Fact]

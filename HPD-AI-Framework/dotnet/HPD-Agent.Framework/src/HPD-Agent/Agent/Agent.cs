@@ -582,7 +582,17 @@ public sealed class Agent
             await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
         }
 
-        await store.SaveBranchAsync(branch.SessionId, branch, cancellationToken).ConfigureAwait(false);
+        foreach (var message in newMessages)
+        {
+            foreach (var evt in BranchMessageEventConverter.ToBranchEvents(branch.SessionId, branch.Id, message))
+            {
+                await store.AppendBranchEventAsync(
+                    branch.SessionId,
+                    branch.Id,
+                    evt,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
 
     private async Task ReconcileCommittedTurnHistoryAsync(
@@ -595,7 +605,7 @@ public sealed class Agent
         if (branch == null || turnHistory.Count == 0)
             return;
 
-        var changed = false;
+        var changedMessages = new List<ChatMessage>();
 
         for (var i = 0; i < turnHistory.Count; i++)
         {
@@ -617,17 +627,17 @@ public sealed class Agent
                 if (!ReferenceEquals(branch.Messages[existingIndex], message))
                 {
                     branch.Messages[existingIndex] = message;
-                    changed = true;
+                    changedMessages.Add(message);
                 }
             }
             else
             {
                 branch.Messages.Add(message);
-                changed = true;
+                changedMessages.Add(message);
             }
         }
 
-        if (!changed)
+        if (changedMessages.Count == 0)
             return;
 
         branch.LastActivity = DateTime.UtcNow;
@@ -642,13 +652,125 @@ public sealed class Agent
             await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
         }
 
-        await store.SaveBranchAsync(branch.SessionId, branch, cancellationToken).ConfigureAwait(false);
+        foreach (var message in changedMessages)
+        {
+            foreach (var evt in BranchMessageEventConverter.ToBranchEvents(branch.SessionId, branch.Id, message))
+            {
+                await store.AppendBranchEventAsync(
+                    branch.SessionId,
+                    branch.Id,
+                    evt,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
 
     private static void EnsureMessageIdentity(ChatMessage message)
     {
         message.MessageId ??= Guid.NewGuid().ToString();
         message.CreatedAt ??= DateTimeOffset.UtcNow;
+    }
+
+    private async Task AppendBranchRuntimeEventAsync(
+        Session? session,
+        Branch? branch,
+        AgentEvent evt,
+        CancellationToken cancellationToken)
+    {
+        if (session == null || branch == null)
+            return;
+
+        var store = Config?.SessionStore;
+        if (store == null)
+            return;
+
+        try
+        {
+            await store.AppendBranchEventAsync(
+                session.Id,
+                branch.Id,
+                evt,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            // Runtime-only branch events are best-effort diagnostics; transcript events are committed separately.
+        }
+    }
+
+    private Task AppendBranchFailureRuntimeEventAsync(
+        Session? session,
+        Branch? branch,
+        string? messageTurnId,
+        string? conversationId,
+        Exception exception)
+    {
+        if (branch == null)
+            return Task.CompletedTask;
+
+        return AppendBranchRuntimeEventAsync(
+            session,
+            branch,
+            BranchEventFactory.TurnFailed(
+                branch.SessionId,
+                branch.Id,
+                messageTurnId,
+                conversationId,
+                AgentId,
+                _name,
+                exception),
+            CancellationToken.None);
+    }
+
+    private Task AppendPersistableAgentBranchEventAsync(
+        Session? session,
+        Branch? branch,
+        AgentEvent evt,
+        string? messageTurnId,
+        string? conversationId,
+        int iteration,
+        int inputMessageCount,
+        bool isResume,
+        string? terminationReason,
+        int turnMessageCount,
+        CancellationToken cancellationToken)
+    {
+        if (!evt.ShouldPersistToBranch() || branch == null)
+            return Task.CompletedTask;
+
+        if (evt is TextMessageStartEvent
+            or TextDeltaEvent
+            or TextMessageEndEvent
+            or ReasoningMessageStartEvent
+            or ReasoningDeltaEvent
+            or ReasoningMessageEndEvent
+            or ToolCallStartEvent
+            or ToolCallArgsEvent
+            or ToolCallEndEvent
+            or ToolCallResultEvent)
+        {
+            return Task.CompletedTask;
+        }
+
+        var branchEvent = BranchEventFactory.FromAgentEvent(
+            branch.SessionId,
+            branch.Id,
+            evt,
+            messageTurnId,
+            conversationId,
+            iteration,
+            inputMessageCount,
+            isResume,
+            terminationReason,
+            turnMessageCount);
+
+        return branchEvent == null
+            ? Task.CompletedTask
+            : AppendBranchRuntimeEventAsync(session, branch, branchEvent, cancellationToken);
     }
 
     private async Task SaveTurnCheckpointAsync(
@@ -1404,7 +1526,9 @@ public sealed class Agent
                 }
             }
 
-            if (uncommittedTurn != null && !newInputMessages.Any())
+            var isResumingTurn = uncommittedTurn != null && !newInputMessages.Any();
+
+            if (isResumingTurn)
             {
                 // RESUME PATH: Restore from uncommitted turn (crash recovery)
                 var restoreStopwatch = Stopwatch.StartNew();
@@ -1819,8 +1943,33 @@ public sealed class Agent
                             // Emit events for middleware-provided response (matching normal LLM flow)
                             foreach (var content in beforeIterationContext.OverrideResponse.Contents)
                             {
-                                if (content is TextContent textContent && !string.IsNullOrEmpty(textContent.Text))
+                                if (content is TextReasoningContent reasoning && !string.IsNullOrEmpty(reasoning.Text))
                                 {
+	                                    if (!reasoningMessageStarted)
+	                                    {
+	                                        yield return new ReasoningMessageStartEvent(
+	                                            MessageId: assistantMessageId,
+	                                            Role: "assistant")
+                                        { TraceId = traceId };
+                                        reasoningMessageStarted = true;
+                                    }
+
+	                                    yield return new ReasoningDeltaEvent(
+	                                        Text: reasoning.Text,
+	                                        MessageId: assistantMessageId,
+	                                        ProtectedData: reasoning.ProtectedData)
+	                                    { TraceId = traceId };
+                                }
+                                else if (content is TextContent textContent && !string.IsNullOrEmpty(textContent.Text))
+                                {
+	                                    if (reasoningMessageStarted)
+	                                    {
+	                                        yield return new ReasoningMessageEndEvent(
+	                                            MessageId: assistantMessageId)
+                                        { TraceId = traceId };
+                                        reasoningMessageStarted = false;
+                                    }
+
                                     if (!messageStarted)
                                     {
                                         yield return new TextMessageStartEvent(assistantMessageId, "assistant") { TraceId = traceId };
@@ -1830,6 +1979,14 @@ public sealed class Agent
                                 }
                                 else if (content is FunctionCallContent functionCall)
                                 {
+	                                    if (reasoningMessageStarted)
+	                                    {
+	                                        yield return new ReasoningMessageEndEvent(
+	                                            MessageId: assistantMessageId)
+                                        { TraceId = traceId };
+                                        reasoningMessageStarted = false;
+                                    }
+
                                     if (!messageStarted)
                                     {
                                         yield return new TextMessageStartEvent(assistantMessageId, "assistant") { TraceId = traceId };
@@ -1856,6 +2013,14 @@ public sealed class Agent
                                     }
                                 }
                             }
+
+	                            if (reasoningMessageStarted)
+	                            {
+	                                yield return new ReasoningMessageEndEvent(
+	                                    MessageId: assistantMessageId)
+                                { TraceId = traceId };
+                                reasoningMessageStarted = false;
+                            }
                         }
                         // Tool calls come from the override response
                         if (beforeIterationContext.OverrideResponse != null)
@@ -1874,10 +2039,14 @@ public sealed class Agent
                                 "No chat model is configured for this agent run. Configure Provider/ModelName on AgentConfig or pass ProviderKey/ModelId or OverrideChatClient in AgentRunConfig.");
                         }
 
+                        var modelMessages = ProjectMessagesForModelHistory(
+                            messagesToSend,
+                            Config?.IncludeReasoningInModelHistory == true);
+
                         var modelRequest = new Middleware.ModelRequest
                         {
                             Model = model,
-                            Messages = messagesToSend.ToList(),
+                            Messages = modelMessages,
                             Options = CollapsedOptions,
                             State = agentContext.State,
                             Iteration = state.Iteration,
@@ -2017,25 +2186,26 @@ public sealed class Agent
                             {
                                 if (content is TextReasoningContent reasoning)
                                 {
-                                    if (!reasoningMessageStarted)
-                                    {
-                                        yield return new ReasoningMessageStartEvent(
-                                            MessageId: assistantMessageId,
-                                            Role: "assistant")
+	                                    if (!reasoningMessageStarted)
+	                                    {
+	                                        yield return new ReasoningMessageStartEvent(
+	                                            MessageId: assistantMessageId,
+	                                            Role: "assistant")
                                         { TraceId = traceId };
                                         reasoningMessageStarted = true;
                                     }
-                                    yield return new ReasoningDeltaEvent(
-                                        Text: reasoning.Text,
-                                        MessageId: assistantMessageId)
-                                    { TraceId = traceId };
+	                                    yield return new ReasoningDeltaEvent(
+	                                        Text: reasoning.Text,
+	                                        MessageId: assistantMessageId,
+	                                        ProtectedData: reasoning.ProtectedData)
+	                                    { TraceId = traceId };
                                 }
                                 else if (content is TextContent textContent)
                                 {
-                                    if (reasoningMessageStarted)
-                                    {
-                                        yield return new ReasoningMessageEndEvent(
-                                            MessageId: assistantMessageId)
+	                                    if (reasoningMessageStarted)
+	                                    {
+	                                        yield return new ReasoningMessageEndEvent(
+	                                            MessageId: assistantMessageId)
                                         { TraceId = traceId };
                                         reasoningMessageStarted = false;
                                     }
@@ -2048,10 +2218,10 @@ public sealed class Agent
                                 }
                                 else if (content is FunctionCallContent functionCall)
                                 {
-                                    if (reasoningMessageStarted)
-                                    {
-                                        yield return new ReasoningMessageEndEvent(
-                                            MessageId: assistantMessageId)
+	                                    if (reasoningMessageStarted)
+	                                    {
+	                                        yield return new ReasoningMessageEndEvent(
+	                                            MessageId: assistantMessageId)
                                         { TraceId = traceId };
                                         reasoningMessageStarted = false;
                                     }
@@ -2084,10 +2254,10 @@ public sealed class Agent
                                 }
                             }
 
-                            if (reasoningMessageStarted)
-                            {
-                                yield return new ReasoningMessageEndEvent(
-                                    MessageId: assistantMessageId)
+	                            if (reasoningMessageStarted)
+	                            {
+	                                yield return new ReasoningMessageEndEvent(
+	                                    MessageId: assistantMessageId)
                                 { TraceId = traceId };
                                 reasoningMessageStarted = false;
                             }
@@ -2139,27 +2309,28 @@ public sealed class Agent
                                     {
                                         if (content is TextReasoningContent reasoning && !string.IsNullOrEmpty(reasoning.Text))
                                         {
-                                            if (!reasoningMessageStarted)
-                                            {
-                                                yield return new ReasoningMessageStartEvent(
-                                                    MessageId: assistantMessageId,
-                                                    Role: "assistant")
+	                                            if (!reasoningMessageStarted)
+	                                            {
+	                                                yield return new ReasoningMessageStartEvent(
+	                                                    MessageId: assistantMessageId,
+	                                                    Role: "assistant")
                                                 { TraceId = traceId };
                                                 reasoningMessageStarted = true;
                                             }
 
-                                            yield return new ReasoningDeltaEvent(
-                                                Text: reasoning.Text,
-                                                MessageId: assistantMessageId)
-                                            { TraceId = traceId };
+	                                            yield return new ReasoningDeltaEvent(
+	                                                Text: reasoning.Text,
+	                                                MessageId: assistantMessageId,
+	                                                ProtectedData: reasoning.ProtectedData)
+	                                            { TraceId = traceId };
                                             assistantContents.Add(reasoning);
                                         }
                                         else if (content is TextContent textContent && !string.IsNullOrEmpty(textContent.Text))
                                         {
-                                            if (reasoningMessageStarted)
-                                            {
-                                                yield return new ReasoningMessageEndEvent(
-                                                    MessageId: assistantMessageId)
+	                                            if (reasoningMessageStarted)
+	                                            {
+	                                                yield return new ReasoningMessageEndEvent(
+	                                                    MessageId: assistantMessageId)
                                                 { TraceId = traceId };
                                                 reasoningMessageStarted = false;
                                             }
@@ -2210,10 +2381,10 @@ public sealed class Agent
                                 // Check for stream completion
                                 if (update.FinishReason != null)
                                 {
-                                    if (reasoningMessageStarted)
-                                    {
-                                        yield return new ReasoningMessageEndEvent(
-                                            MessageId: assistantMessageId)
+	                                    if (reasoningMessageStarted)
+	                                    {
+	                                        yield return new ReasoningMessageEndEvent(
+	                                            MessageId: assistantMessageId)
                                         { TraceId = traceId };
                                         reasoningMessageStarted = false;
                                     }
@@ -2287,11 +2458,9 @@ public sealed class Agent
                             state = state.EnableHistoryTracking(messageCountToSend, lastConvId);
                         }
 
-                        // Create assistant message for history
-                        // By default, exclude reasoning content to save tokens (configurable via PreserveReasoningInHistory)
-                        var historyContents = Config?.PreserveReasoningInHistory == true
-                            ? coalescedContents.ToList()
-                            : coalescedContents.Where(c => c is not TextReasoningContent).ToList();
+                        // Commit the full observed assistant message. Model-history filtering happens
+                        // only when projecting branch/shared messages into ModelRequest.Messages.
+                        var historyContents = coalescedContents.ToList();
 
                         // Add to history if there's ANY content (text OR tool calls)
                         if (historyContents.Count > 0)
@@ -2482,7 +2651,7 @@ public sealed class Agent
                         // V2: Sync state after middleware
                         state = agentContext.State;
 
-                        var finalResponse = ConstructChatResponseFromUpdates(responseUpdates, Config?.PreserveReasoningInHistory ?? false);
+                        var finalResponse = ConstructChatResponseFromUpdates(responseUpdates);
                         lastResponse = finalResponse;
 
                         // Accumulate token usage across iterations
@@ -2573,7 +2742,7 @@ public sealed class Agent
 
             if (responseUpdates.Any())
             {
-                var finalResponse = ConstructChatResponseFromUpdates(responseUpdates, Config?.PreserveReasoningInHistory ?? false);
+                var finalResponse = ConstructChatResponseFromUpdates(responseUpdates);
 
                 // Accumulate usage from this final response
                 state = state.WithAccumulatedUsage(finalResponse.Usage);
@@ -2718,6 +2887,19 @@ public sealed class Agent
                 {
                     // Save branch-scoped state (plan progress, history cache) to Branch
                     state.MiddlewareState.SaveToBranch(branch, _stateFactories);
+
+                    var branchEventStore = Config?.SessionStore;
+                    if (branchEventStore != null && branch.MiddlewareState.Count > 0)
+                    {
+                        await branchEventStore.AppendBranchEventAsync(
+                            branch.SessionId,
+                            branch.Id,
+                            BranchEventFactory.BranchMiddlewareStateCommitted(
+                                branch.SessionId,
+                                branch.Id,
+                                branch.MiddlewareState),
+                            cancellationToken: effectiveCancellationToken).ConfigureAwait(false);
+                    }
                 }
                 catch (Exception)
                 {
@@ -2780,74 +2962,46 @@ public sealed class Agent
     /// </summary>
     private static List<AIContent> CoalesceTextContents(List<AIContent> contents)
     {
-        if (contents.Count <= 1)
-            return contents;
+        return BranchMessageEventConverter.CoalesceTextContents(contents);
+    }
 
-        var result = new List<AIContent>();
-        var textBuilder = new System.Text.StringBuilder();
-        var reasoningBuilder = new System.Text.StringBuilder();
-        string? reasoningProtectedData = null;
+    private static List<ChatMessage> ProjectMessagesForModelHistory(
+        IEnumerable<ChatMessage> messages,
+        bool includeReasoningInModelHistory)
+    {
+        var source = messages.ToList();
+        if (includeReasoningInModelHistory)
+            return source;
 
-        void FlushReasoning()
+        var projected = new List<ChatMessage>(source.Count);
+        foreach (var message in source)
         {
-            if (reasoningBuilder.Length > 0 || reasoningProtectedData != null)
+            if (!message.Contents.Any(c => c is TextReasoningContent))
             {
-                result.Add(new TextReasoningContent(reasoningBuilder.ToString())
-                {
-                    ProtectedData = reasoningProtectedData
-                });
-                reasoningBuilder.Clear();
-                reasoningProtectedData = null;
+                projected.Add(message);
+                continue;
             }
+
+            var contents = message.Contents
+                .Where(c => c is not TextReasoningContent)
+                .ToList();
+
+            if (contents.Count == 0)
+                continue;
+
+            var coalesced = CoalesceTextContents(contents);
+            var clone = new ChatMessage(message.Role, coalesced)
+            {
+                AuthorName = message.AuthorName,
+                MessageId = message.MessageId,
+                CreatedAt = message.CreatedAt,
+                AdditionalProperties = message.AdditionalProperties,
+                RawRepresentation = message.RawRepresentation
+            };
+            projected.Add(clone);
         }
 
-        void FlushText()
-        {
-            if (textBuilder.Length > 0)
-            {
-                result.Add(new TextContent(textBuilder.ToString()));
-                textBuilder.Clear();
-            }
-        }
-
-        foreach (var content in contents)
-        {
-            if (content is TextReasoningContent reasoningContent)
-            {
-                FlushText();
-
-                if (reasoningProtectedData != null)
-                {
-                    // Current run already has ProtectedData — flush and start a new run.
-                    FlushReasoning();
-                }
-
-                reasoningBuilder.Append(reasoningContent.Text);
-
-                if (!string.IsNullOrEmpty(reasoningContent.ProtectedData))
-                {
-                    // Absorb the encrypted blob and flush — next chunk starts a new run.
-                    reasoningProtectedData = reasoningContent.ProtectedData;
-                    FlushReasoning();
-                }
-            }
-            else if (content is TextContent textContent)
-            {
-                FlushReasoning();
-                textBuilder.Append(textContent.Text);
-            }
-            else
-            {
-                FlushText();
-                FlushReasoning();
-                result.Add(content);
-            }
-        }
-
-        FlushText();
-        FlushReasoning();
-
-        return result;
+        return projected;
     }
 
     /// <summary>
@@ -2856,47 +3010,10 @@ public sealed class Agent
     /// That method handles message grouping (by MessageId/Role), content coalescing
     /// (TextContent, TextReasoningContent with ProtectedData preservation, DataContent, etc.),
     /// and UsageContent → <see cref="ChatResponse.Usage"/> extraction.
-    /// <para>
-    /// When <paramref name="preserveReasoning"/> is false (the default), any
-    /// <see cref="TextReasoningContent"/> items are stripped from the resulting messages
-    /// to save tokens in conversation history.
-    /// </para>
     /// </summary>
-    private static ChatResponse ConstructChatResponseFromUpdates(List<ChatResponseUpdate> updates, bool preserveReasoning = false)
+    private static ChatResponse ConstructChatResponseFromUpdates(List<ChatResponseUpdate> updates)
     {
-        var response = updates.ToChatResponse();
-
-        if (!preserveReasoning)
-        {
-            foreach (var message in response.Messages)
-            {
-                for (int i = message.Contents.Count - 1; i >= 0; i--)
-                {
-                    if (message.Contents[i] is TextReasoningContent)
-                    {
-                        message.Contents.RemoveAt(i);
-                    }
-                }
-
-                // Re-coalesce: stripping reasoning may leave adjacent TextContent items
-                // that were previously separated by reasoning chunks.
-                var coalesced = CoalesceTextContents(message.Contents.ToList());
-                message.Contents.Clear();
-                foreach (var c in coalesced)
-                    message.Contents.Add(c);
-            }
-
-            // Remove messages that became empty after stripping reasoning
-            for (int i = response.Messages.Count - 1; i >= 0; i--)
-            {
-                if (response.Messages[i].Contents.Count == 0)
-                {
-                    response.Messages.RemoveAt(i);
-                }
-            }
-        }
-
-        return response;
+        return updates.ToChatResponse();
     }
 
     /// <inheritdoc />
@@ -3314,12 +3431,86 @@ public sealed class Agent
             eventCoordinator: eventCoordinator,
             cancellationToken: cancellationToken);
 
-        await foreach (var evt in internalStream.WithCancellation(cancellationToken))
+        await using var enumerator = internalStream.GetAsyncEnumerator(cancellationToken);
+        string? messageTurnId = null;
+        string? conversationId = session?.Id;
+        var currentIteration = 0;
+        var isResume = inputMessages.Count == 0 && branch?.ExecutionState != null;
+        var turnFinished = false;
+
+        while (true)
         {
+            AgentEvent evt;
+            try
+            {
+                if (!await enumerator.MoveNextAsync().ConfigureAwait(false))
+                    break;
+
+                evt = enumerator.Current;
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                if (!turnFinished)
+                {
+                    await AppendBranchFailureRuntimeEventAsync(
+                        session,
+                        branch,
+                        messageTurnId,
+                        conversationId,
+                        ex).ConfigureAwait(false);
+                }
+
+                throw;
+            }
+
+            if (evt is MessageTurnStartedEvent started)
+            {
+                messageTurnId = started.MessageTurnId;
+                conversationId = started.ConversationId;
+            }
+            else if (evt is AgentTurnStartedEvent agentTurnStarted)
+            {
+                currentIteration = agentTurnStarted.Iteration;
+            }
+            else if (evt is AgentTurnFinishedEvent agentTurnFinished)
+            {
+                currentIteration = agentTurnFinished.Iteration;
+            }
+            else if (evt is MessageTurnFinishedEvent)
+            {
+                turnFinished = true;
+            }
+
+            await AppendPersistableAgentBranchEventAsync(
+                session,
+                branch,
+                evt,
+                messageTurnId,
+                conversationId,
+                currentIteration,
+                inputMessages.Count,
+                isResume,
+                null,
+                turnHistory.Count,
+                cancellationToken).ConfigureAwait(false);
+
             // Custom streaming callback if provided
             if (options?.CustomStreamCallback != null)
             {
-                await options.CustomStreamCallback(evt).ConfigureAwait(false);
+                try
+                {
+                    await options.CustomStreamCallback(evt).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!turnFinished && !cancellationToken.IsCancellationRequested)
+                {
+                    await AppendBranchFailureRuntimeEventAsync(
+                        session,
+                        branch,
+                        messageTurnId,
+                        conversationId,
+                        ex).ConfigureAwait(false);
+                    throw;
+                }
             }
 
             PublishOutputEvent(evt);
@@ -4686,7 +4877,7 @@ public sealed class Agent
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
         await store.SaveSessionAsync(session, cancellationToken);
-        await store.SaveBranchAsync(session.Id, branch, cancellationToken);
+        await store.SaveInitialBranchAsync(session.Id, branch, cancellationToken);
     }
 
     /// <summary>
@@ -4725,7 +4916,7 @@ public sealed class Agent
         }
 
         await store.SaveSessionAsync(session, cancellationToken);
-        await store.SaveBranchAsync(id, branch, cancellationToken);
+        await store.SaveInitialBranchAsync(id, branch, cancellationToken);
 
         return id;
     }
@@ -4754,24 +4945,6 @@ public sealed class Agent
             return null;
 
         return await store.LoadBranchAsync(sessionId, branchId, cancellationToken);
-    }
-
-    /// <summary>
-    /// Save branch to session store. SessionId is derived from branch.SessionId.
-    /// </summary>
-    /// <param name="branch">Branch to save</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    internal async Task SaveBranchAsync(
-        Branch branch,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(branch);
-
-        var store = Config?.SessionStore;
-        if (store != null)
-        {
-            await store.SaveBranchAsync(branch.SessionId, branch, cancellationToken);
-        }
     }
 
     /// <summary>
@@ -4871,9 +5044,11 @@ public sealed class Agent
             fromMessageIndex, // ForkedAtMessageIndex = last shared message index
             cancellationToken);
 
-        // Sort existing fork siblings chronologically
+        // Sort by the persisted sibling position. Branches are projected from events, so
+        // CreatedAt is not a safe ordering source for forked branches during replay.
         var sortedForkSiblings = existingForkSiblings
-            .OrderBy(b => b.CreatedAt)
+            .OrderBy(b => b.SiblingIndex)
+            .ThenBy(b => b.Id, StringComparer.Ordinal)
             .ToList();
 
         //  The source branch is ALWAYS sibling #0 ("original branch = 0" per design intent).
@@ -4947,7 +5122,6 @@ public sealed class Agent
             {
                 // sourceBranch already belongs to its parent's sibling group — preserve its fields.
                 sibling.LastActivity = now;
-                await store.SaveBranchAsync(sourceBranch.SessionId, sibling, cancellationToken);
                 continue;
             }
             sibling.SiblingIndex = i;
@@ -4955,7 +5129,7 @@ public sealed class Agent
             sibling.PreviousSiblingId = i > 0 ? sortedSiblings[i - 1].Id : null;
             sibling.NextSiblingId = i < sortedSiblings.Count - 1 ? sortedSiblings[i + 1].Id : newBranch.Id;
             sibling.LastActivity = now;
-            await store.SaveBranchAsync(sourceBranch.SessionId, sibling, cancellationToken);
+            await store.AppendBranchTreeUpdatedAsync(sibling, cancellationToken);
         }
 
         // Wire newBranch's PreviousSiblingId to the last existing sibling.
@@ -4966,7 +5140,7 @@ public sealed class Agent
         {
             sourceBranch.ChildBranches.Add(newBranch.Id);
             sourceBranch.LastActivity = now;
-            await store.SaveBranchAsync(sourceBranch.SessionId, sourceBranch, cancellationToken);
+            await store.AppendBranchTreeUpdatedAsync(sourceBranch, cancellationToken);
         }
 
         //  Update session's LastActivity
@@ -4976,8 +5150,7 @@ public sealed class Agent
             await store.SaveSessionAsync(sourceBranch.Session, cancellationToken);
         }
 
-        // Save the new branch
-        await store.SaveBranchAsync(sourceBranch.SessionId, newBranch, cancellationToken);
+        await store.SaveInitialBranchAsync(sourceBranch.SessionId, newBranch, cancellationToken);
 
         return newBranch;
     }
@@ -5106,7 +5279,7 @@ public sealed class Agent
             {
                 parent.ChildBranches.Remove(branchId);
                 parent.LastActivity = DateTime.UtcNow;
-                await store.SaveBranchAsync(sessionId, parent, cancellationToken);
+                await store.AppendBranchTreeUpdatedAsync(parent, cancellationToken);
             }
         }
 
@@ -5160,7 +5333,7 @@ public sealed class Agent
                 ? remainingSiblings[i + 1].Id
                 : null;
 
-            await store.SaveBranchAsync(sessionId, sibling, cancellationToken);
+            await store.AppendBranchTreeUpdatedAsync(sibling, cancellationToken);
         }
 
         // Delete the branch (after all updates complete)

@@ -1978,7 +1978,7 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         await agent.StartAsync(TestCancellationToken);
         await agent.RunAsync(new InterruptionRequestEvent(
-            StreamId: "runtime-stream",
+            eventFlowId: "runtime-stream",
             Reason: "runtime scoped",
             Source: InterruptionSource.User), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
@@ -2280,7 +2280,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         await blockingClient.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
 
         await agent.RunAsync(new InterruptionRequestEvent(
-            StreamId: null,
+            eventFlowId: null,
             Reason: "stop",
             Source: InterruptionSource.User), TestCancellationToken);
 
@@ -2632,7 +2632,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             middlewares: [middleware]);
 
         await agent.RunAsync(new InterruptionRequestEvent(
-            StreamId: null,
+            eventFlowId: null,
             Reason: "stop",
             Source: InterruptionSource.User), TestCancellationToken);
 
@@ -2835,7 +2835,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         });
 
         await agent.RunAsync(new InterruptionRequestEvent(
-            StreamId: "stream-1",
+            eventFlowId: "stream-1",
             Reason: "targeted stop",
             Source: InterruptionSource.User), TestCancellationToken);
         await WaitForAsync(() =>

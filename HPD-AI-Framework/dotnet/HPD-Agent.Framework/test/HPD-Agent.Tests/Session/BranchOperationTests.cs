@@ -28,7 +28,7 @@ public class BranchOperationTests : AgentTestBase
         branch.AddMessage(AssistantMessage("Hi there!"));
 
         // Act
-        await store.SaveBranchAsync("test-session", branch);
+        await store.SaveInitialBranchAsync("test-session", branch);
         var loaded = await store.LoadBranchAsync("test-session", "main");
 
         // Assert
@@ -61,7 +61,7 @@ public class BranchOperationTests : AgentTestBase
 
         var branch = session.CreateBranch("to-delete");
         branch.AddMessage(UserMessage("Hello"));
-        await store.SaveBranchAsync("test-session", branch);
+        await store.SaveInitialBranchAsync("test-session", branch);
 
         // Act
         await store.DeleteBranchAsync("test-session", "to-delete");
@@ -79,9 +79,9 @@ public class BranchOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        await store.SaveBranchAsync("test-session", session.CreateBranch("main"));
-        await store.SaveBranchAsync("test-session", session.CreateBranch("formal"));
-        await store.SaveBranchAsync("test-session", session.CreateBranch("casual"));
+        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
+        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("formal"));
+        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("casual"));
 
         // Act
         var ids = await store.ListBranchIdsAsync("test-session");
@@ -100,8 +100,8 @@ public class BranchOperationTests : AgentTestBase
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
-        await store.SaveBranchAsync("test-session", session.CreateBranch("main"));
-        await store.SaveBranchAsync("test-session", session.CreateBranch("formal"));
+        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
+        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("formal"));
 
         // Act
         await store.DeleteSessionAsync("test-session");
@@ -130,8 +130,8 @@ public class BranchOperationTests : AgentTestBase
         branch2.AddMessage(UserMessage("Branch 2 message"));
         branch2.AddMessage(AssistantMessage("Branch 2 response"));
 
-        await store.SaveBranchAsync("test-session", branch1);
-        await store.SaveBranchAsync("test-session", branch2);
+        await store.SaveInitialBranchAsync("test-session", branch1);
+        await store.SaveInitialBranchAsync("test-session", branch2);
 
         // Act
         var loaded1 = await store.LoadBranchAsync("test-session", "branch-1");
@@ -150,8 +150,8 @@ public class BranchOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        await store.SaveBranchAsync("test-session", session.CreateBranch("keep"));
-        await store.SaveBranchAsync("test-session", session.CreateBranch("remove"));
+        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("keep"));
+        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("remove"));
 
         // Act
         await store.DeleteBranchAsync("test-session", "remove");
@@ -171,7 +171,7 @@ public class BranchOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         session.AddMetadata("project", "test");
         await store.SaveSessionAsync(session);
-        await store.SaveBranchAsync("test-session", session.CreateBranch("main"));
+        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
 
         // Act
         await store.DeleteBranchAsync("test-session", "main");
@@ -202,7 +202,7 @@ public class BranchOperationTests : AgentTestBase
             branch.AddMessage(AssistantMessage("Hi there!"));
 
             // Act
-            await store.SaveBranchAsync("test-session", branch);
+            await store.SaveInitialBranchAsync("test-session", branch);
             var loaded = await store.LoadBranchAsync("test-session", "main");
 
             // Assert
@@ -229,8 +229,8 @@ public class BranchOperationTests : AgentTestBase
             var session = new HPD.Agent.Session("test-session");
             await store.SaveSessionAsync(session);
 
-            await store.SaveBranchAsync("test-session", session.CreateBranch("main"));
-            await store.SaveBranchAsync("test-session", session.CreateBranch("formal"));
+            await store.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
+            await store.SaveInitialBranchAsync("test-session", session.CreateBranch("formal"));
 
             // Act
             var ids = await store.ListBranchIdsAsync("test-session");
@@ -258,7 +258,7 @@ public class BranchOperationTests : AgentTestBase
             var session = new HPD.Agent.Session("test-session");
             await store.SaveSessionAsync(session);
 
-            await store.SaveBranchAsync("test-session", session.CreateBranch("to-delete"));
+            await store.SaveInitialBranchAsync("test-session", session.CreateBranch("to-delete"));
 
             // Act
             await store.DeleteBranchAsync("test-session", "to-delete");
@@ -290,7 +290,7 @@ public class BranchOperationTests : AgentTestBase
         branch.Description = "Formal tone approach";
 
         // Act
-        await store.SaveBranchAsync("test-session", branch);
+        await store.SaveInitialBranchAsync("test-session", branch);
         var loaded = await store.LoadBranchAsync("test-session", "formal");
 
         // Assert
@@ -309,7 +309,7 @@ public class BranchOperationTests : AgentTestBase
         branch.Tags = ["v1", "draft", "formal-tone"];
 
         // Act
-        await store.SaveBranchAsync("test-session", branch);
+        await store.SaveInitialBranchAsync("test-session", branch);
         var loaded = await store.LoadBranchAsync("test-session", "experiment");
 
         // Assert
@@ -374,7 +374,7 @@ public class BranchOperationTests : AgentTestBase
         source.AddMessage(UserMessage("Message 2"));
         source.AddMessage(AssistantMessage("Response 2"));
         source.AddMessage(UserMessage("Message 3"));
-        await store.SaveBranchAsync("test-session", source);
+        await store.SaveInitialBranchAsync("test-session", source);
 
         // Act - fork at message index 3 (after "Response 2")
         var forked = await ForkBranchViaStore(store, session, "main", "formal", fromMessageIndex: 3);
@@ -400,7 +400,7 @@ public class BranchOperationTests : AgentTestBase
         source.AddMessage(UserMessage("First"));
         source.AddMessage(AssistantMessage("Second"));
         source.AddMessage(UserMessage("Third"));
-        await store.SaveBranchAsync("test-session", source);
+        await store.SaveInitialBranchAsync("test-session", source);
 
         // Act - fork at message 1 (after "Second")
         var forked = await ForkBranchViaStore(store, session, "main", "alt", fromMessageIndex: 1);
@@ -421,7 +421,7 @@ public class BranchOperationTests : AgentTestBase
         source.MiddlewareState["PlanModePersistentState"] = "{\"step\":3}";
         source.MiddlewareState["HistoryReductionState"] = "{\"cached\":true}";
         source.AddMessage(UserMessage("Hello"));
-        await store.SaveBranchAsync("test-session", source);
+        await store.SaveInitialBranchAsync("test-session", source);
 
         // Act
         var forked = await ForkBranchViaStore(store, session, "main", "alt", fromMessageIndex: 0);
@@ -442,13 +442,13 @@ public class BranchOperationTests : AgentTestBase
         var source = session.CreateBranch("main");
         source.MiddlewareState["PlanModePersistentState"] = "{\"step\":1}";
         source.AddMessage(UserMessage("Hello"));
-        await store.SaveBranchAsync("test-session", source);
+        await store.SaveInitialBranchAsync("test-session", source);
 
         var forked = await ForkBranchViaStore(store, session, "main", "alt", fromMessageIndex: 0);
 
         // Act - modify forked branch state
         forked.MiddlewareState["PlanModePersistentState"] = "{\"step\":5}";
-        await store.SaveBranchAsync("test-session", forked);
+        await store.SaveInitialBranchAsync("test-session", forked);
 
         // Assert - source unchanged
         var reloadedSource = await store.LoadBranchAsync("test-session", "main");
@@ -471,8 +471,8 @@ public class BranchOperationTests : AgentTestBase
         session.MiddlewareState["PermissionPersistentState"] = "{\"Bash\":\"AlwaysAllow\"}";
         await store.SaveSessionAsync(session);
 
-        await store.SaveBranchAsync("test-session", session.CreateBranch("branch-1"));
-        await store.SaveBranchAsync("test-session", session.CreateBranch("branch-2"));
+        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("branch-1"));
+        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("branch-2"));
 
         // Act - load session (session state is shared, not per-branch)
         var loadedSession = await store.LoadSessionAsync("test-session");
@@ -495,8 +495,8 @@ public class BranchOperationTests : AgentTestBase
         var branch2 = session.CreateBranch("branch-2");
         branch2.MiddlewareState["PlanModePersistentState"] = "{\"plan\":\"B\"}";
 
-        await store.SaveBranchAsync("test-session", branch1);
-        await store.SaveBranchAsync("test-session", branch2);
+        await store.SaveInitialBranchAsync("test-session", branch1);
+        await store.SaveInitialBranchAsync("test-session", branch2);
 
         // Act
         var loaded1 = await store.LoadBranchAsync("test-session", "branch-1");
@@ -612,7 +612,7 @@ public class BranchOperationTests : AgentTestBase
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
-        await store.SaveBranchAsync("test-session", session.CreateBranch("main"));
+        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
 
         var agent = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
             .WithSessionStore(store)
@@ -631,8 +631,8 @@ public class BranchOperationTests : AgentTestBase
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
-        await store.SaveBranchAsync("test-session", session.CreateBranch("main"));
-        await store.SaveBranchAsync("test-session", session.CreateBranch("formal"));
+        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
+        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("formal"));
 
         var agent = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
             .WithSessionStore(store)
@@ -654,8 +654,8 @@ public class BranchOperationTests : AgentTestBase
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
-        await store.SaveBranchAsync("test-session", session.CreateBranch("main"));
-        await store.SaveBranchAsync("test-session", session.CreateBranch("formal"));
+        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
+        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("formal"));
 
         var agent = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
             .WithSessionStore(store)
@@ -738,7 +738,7 @@ public class BranchOperationTests : AgentTestBase
             newBranch.MiddlewareState[kvp.Key] = kvp.Value;
         }
 
-        await store.SaveBranchAsync(session.Id, newBranch);
+        await store.SaveInitialBranchAsync(session.Id, newBranch);
         return newBranch;
     }
 }

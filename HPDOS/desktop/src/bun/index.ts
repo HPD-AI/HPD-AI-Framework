@@ -2,7 +2,16 @@ import Electrobun, { BrowserWindow, PATHS } from "electrobun/bun";
 import { existsSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readShellLayout, writeShellLayout, type ShellLayoutSnapshot } from "./settingsStore";
+import {
+  normalizeChatLayoutSnapshot,
+  normalizeShellSnapshot,
+  readChatLayout,
+  readShell,
+  writeChatLayout,
+  writeShell,
+  type ChatLayoutSnapshot,
+  type ShellSnapshot
+} from "./settingsStore";
 
 const backendUrl = process.env.HPDOS_BACKEND_URL ?? "http://127.0.0.1:4317";
 const appDir = dirname(fileURLToPath(import.meta.url));
@@ -16,21 +25,23 @@ let backendProcess: Bun.Subprocess | null = null;
 let backendProcessMode: "run" | "published" | null = null;
 let mainWindow: BrowserWindow | null = null;
 let chromeModeInterval: Timer | null = null;
-const pendingShellLayoutResponses: ShellLayoutHostResponse[] = [];
+const pendingDesktopSettingsResponses: DesktopSettingsHostResponse[] = [];
 
-type ShellLayoutHostRequest =
-  | { source: "hpdos.shell.layout"; type: "request"; id: number; method: "read"; params: {} }
+type DesktopSettingsHostRequest =
+  | { source: "hpdos.shell"; type: "request"; id: number; method: "read"; params: {} }
+  | { source: "hpdos.shell"; type: "request"; id: number; method: "write"; params: ShellSnapshot }
+  | { source: "hpdos.chat.layout"; type: "request"; id: number; method: "read"; params: {} }
   | {
-      source: "hpdos.shell.layout";
+      source: "hpdos.chat.layout";
       type: "request";
       id: number;
       method: "write";
-      params: ShellLayoutSnapshot;
+      params: ChatLayoutSnapshot;
     };
 
-type ShellLayoutHostResponse =
-  | { source: "hpdos.shell.layout"; type: "response"; id: number; success: true; payload: unknown }
-  | { source: "hpdos.shell.layout"; type: "response"; id: number; success: false; error?: string };
+type DesktopSettingsHostResponse =
+  | { source: DesktopSettingsHostRequest["source"]; type: "response"; id: number; success: true; payload: unknown }
+  | { source: DesktopSettingsHostRequest["source"]; type: "response"; id: number; success: false; error?: string };
 
 function syncWindowChromeMode(): void {
   if (!mainWindow) return;
@@ -40,32 +51,37 @@ function syncWindowChromeMode(): void {
   );
 }
 
-function handleShellLayoutHostMessage(message: unknown): void {
-  if (!isShellLayoutRequest(message)) return;
+function handleDesktopSettingsHostMessage(message: unknown): void {
+  if (!isDesktopSettingsRequest(message)) return;
 
   try {
     if (message.method === "read") {
-      sendShellLayoutResponse({
-        source: "hpdos.shell.layout",
+      sendDesktopSettingsResponse({
+        source: message.source,
         type: "response",
         id: message.id,
         success: true,
-        payload: readShellLayout()
+        payload: message.source === "hpdos.shell" ? readShell() : readChatLayout()
       });
       return;
     }
 
-    writeShellLayout(message.params);
-    sendShellLayoutResponse({
-      source: "hpdos.shell.layout",
+    if (message.source === "hpdos.shell") {
+      writeShell(message.params as ShellSnapshot);
+    } else {
+      writeChatLayout(message.params as ChatLayoutSnapshot);
+    }
+
+    sendDesktopSettingsResponse({
+      source: message.source,
       type: "response",
       id: message.id,
       success: true,
       payload: { success: true }
     });
   } catch (error) {
-    sendShellLayoutResponse({
-      source: "hpdos.shell.layout",
+    sendDesktopSettingsResponse({
+      source: message.source,
       type: "response",
       id: message.id,
       success: false,
@@ -74,57 +90,46 @@ function handleShellLayoutHostMessage(message: unknown): void {
   }
 }
 
-function isShellLayoutRequest(message: unknown): message is ShellLayoutHostRequest {
+function isDesktopSettingsRequest(message: unknown): message is DesktopSettingsHostRequest {
   if (typeof message !== "object" || message === null) return false;
 
-  const request = message as Partial<ShellLayoutHostRequest>;
+  const request = message as Partial<DesktopSettingsHostRequest>;
   if (
-    request.source !== "hpdos.shell.layout"
-    || request.type !== "request"
-    || typeof request.id !== "number"
+    request.source !== "hpdos.shell"
+    && request.source !== "hpdos.chat.layout"
   ) {
+    return false;
+  }
+
+  if (request.type !== "request" || typeof request.id !== "number") {
     return false;
   }
 
   if (request.method === "read") return true;
 
-  return request.method === "write" && normalizeShellLayoutSnapshot(request.params) !== null;
+  if (request.method !== "write") return false;
+
+  return request.source === "hpdos.shell"
+    ? normalizeShellSnapshot(request.params) !== null
+    : normalizeChatLayoutSnapshot(request.params) !== null;
 }
 
-function sendShellLayoutResponse(response: ShellLayoutHostResponse): void {
+function sendDesktopSettingsResponse(response: DesktopSettingsHostResponse): void {
   if (!mainWindow) {
-    pendingShellLayoutResponses.push(response);
+    pendingDesktopSettingsResponses.push(response);
     return;
   }
 
   mainWindow.webview.executeJavascript(
-    `window.dispatchEvent(new CustomEvent("hpdos-shell-layout-response", { detail: ${JSON.stringify(response)} }));`
+    `window.dispatchEvent(new CustomEvent("hpdos-desktop-settings-response", { detail: ${JSON.stringify(response)} }));`
   );
 }
 
-function flushShellLayoutResponses(): void {
-  while (pendingShellLayoutResponses.length > 0) {
-    const response = pendingShellLayoutResponses.shift();
-    if (response) sendShellLayoutResponse(response);
+function flushDesktopSettingsResponses(): void {
+  while (pendingDesktopSettingsResponses.length > 0) {
+    const response = pendingDesktopSettingsResponses.shift();
+    if (response) sendDesktopSettingsResponse(response);
   }
-}
-
-function normalizeShellLayoutSnapshot(value: unknown): ShellLayoutSnapshot | null {
-  if (typeof value !== "object" || value === null) return null;
-
-  const record = value as Partial<ShellLayoutSnapshot>;
-
-  return {
-    sidebarCollapsed: record.sidebarCollapsed === true,
-    expandedAppPaneWidth: normalizePaneWidth(record.expandedAppPaneWidth),
-    collapsedAppPaneWidth: normalizePaneWidth(record.collapsedAppPaneWidth)
-  };
-}
-
-function normalizePaneWidth(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
-
-  return value;
 }
 
 async function isBackendReady(): Promise<boolean> {
@@ -255,7 +260,7 @@ function findDotnetExecutable(): string | null {
 }
 
 Electrobun.events.on("host-message", (event) => {
-  handleShellLayoutHostMessage((event as { data?: { detail?: unknown } }).data?.detail);
+  handleDesktopSettingsHostMessage((event as { data?: { detail?: unknown } }).data?.detail);
 });
 
 await startBackendIfNeeded();
@@ -277,7 +282,7 @@ const hpdosWindow = new BrowserWindow({
   }
 });
 mainWindow = hpdosWindow;
-flushShellLayoutResponses();
+flushDesktopSettingsResponses();
 
 hpdosWindow.on("resize", () => {
   syncWindowChromeMode();

@@ -178,7 +178,7 @@ public class SubAgentSessionModeTests : AgentTestBase
         // Seed the parent branch directly so sub-agent can "see" it
         var parentBranch = await store.LoadBranchAsync(parentSessionId, "main");
         parentBranch!.AddMessage(new ChatMessage(ChatRole.User, "The magic word is xylophone"));
-        await store.SaveBranchAsync(parentSessionId, parentBranch);
+        await store.SaveInitialBranchAsync(parentSessionId, parentBranch);
 
         // Sub-agent shares the same store
         var subAgent = BuildAgent(store, subAgentFake);
@@ -209,7 +209,7 @@ public class SubAgentSessionModeTests : AgentTestBase
         var branch = await store.LoadBranchAsync(sessionId, "main");
         branch!.AddMessage(new ChatMessage(ChatRole.User, "My name is Alice"));
         branch.AddMessage(new ChatMessage(ChatRole.Assistant, "Hello Alice!"));
-        await store.SaveBranchAsync(sessionId, branch);
+        await store.SaveInitialBranchAsync(sessionId, branch);
 
         subAgentFake.EnqueueTextResponse("Your name is Alice");
         await DrainAsync(subAgent.RunAsync("What is my name?", sessionId, "main"));

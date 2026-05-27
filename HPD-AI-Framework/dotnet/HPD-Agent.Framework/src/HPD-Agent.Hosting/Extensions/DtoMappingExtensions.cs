@@ -1,6 +1,5 @@
 using HPD.Agent;
 using HPD.Agent.Hosting.Data;
-using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Hosting.Extensions;
 
@@ -50,25 +49,6 @@ public static class DtoMappingExtensions
             branch.PreviousSiblingId,
             branch.NextSiblingId,
             branch.TotalForks);
-    }
-
-    /// <summary>
-    /// Convert a ChatMessage to a MessageDto.
-    /// </summary>
-    public static MessageDto ToDto(this ChatMessage message, int index, DateTime timestamp)
-    {
-        ArgumentNullException.ThrowIfNull(message);
-
-        var contents = message.Contents
-            .Where(c => c is not UsageContent)
-            .ToList();
-
-        return new MessageDto(
-            message.MessageId ?? $"msg-{index}",
-            message.Role.Value,
-            contents,
-            message.AuthorName,
-            (message.CreatedAt?.UtcDateTime ?? timestamp).ToString("O"));
     }
 
     /// <summary>

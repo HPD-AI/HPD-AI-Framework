@@ -20,7 +20,7 @@ import type {
 import type {
   AssetReference,
   Branch,
-  BranchMessage,
+  BranchEvent,
   CreateBranchRequest,
   CreateSessionRequest,
   ForkBranchRequest,
@@ -188,12 +188,12 @@ export class AgentHttpApi {
     }
   }
 
-  async getBranchMessages(sessionId: string, branchId: string): Promise<BranchMessage[]> {
-    const response = await this.fetch(this.url(`/sessions/${sessionId}/branches/${branchId}/messages`).toString(), {
+  async getBranchEvents(sessionId: string, branchId: string): Promise<BranchEvent[]> {
+    const response = await this.fetch(this.url(`/sessions/${sessionId}/branches/${branchId}/events`).toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
-    return this.readJson(response, 'Failed to get branch messages');
+    return this.readJson(response, 'Failed to get branch events');
   }
 
   async getBranchSiblings(sessionId: string, branchId: string): Promise<SiblingBranch[]> {

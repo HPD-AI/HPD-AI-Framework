@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { ShellLayoutController } from "./controller";
+  import type { ShellController } from "./controller";
 
   type Props = {
-    shell: ShellLayoutController;
+    shell: ShellController;
   };
 
   let { shell }: Props = $props();

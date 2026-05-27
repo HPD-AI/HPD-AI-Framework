@@ -274,7 +274,7 @@ public sealed class AudioPipelineMiddlewareRuntimeInputTests : AgentTestBase
         await vadStart.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
-        Assert.Null(interrupt.StreamId);
+        Assert.Null(interrupt.EventFlowId);
         Assert.Equal("vad_start_of_speech", interrupt.Reason);
         Assert.Equal(InterruptionSource.User, interrupt.Source);
     }

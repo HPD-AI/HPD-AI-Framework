@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using HPD.Agent;
+using HPD.Agent.Serialization;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
 
@@ -308,13 +309,14 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         // Act
         await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
 
-        // Verify messages were saved
-        var messagesResponse = await _client.GetAsync($"/sessions/{sessionId}/branches/main/messages");
-        var messages = await messagesResponse.Content.ReadFromJsonAsync<List<MessageDto>>();
+        // Verify branch events were saved
+        var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/branches/main/events");
+        using var events = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
 
         // Assert
-        messages.Should().NotBeNull();
-        messages!.Should().NotBeEmpty();
+        events.RootElement.EnumerateArray()
+            .Should()
+            .Contain(e => e.GetProperty("type").GetString() == EventTypes.Content.TEXT_DELTA);
     }
 
     [Fact]

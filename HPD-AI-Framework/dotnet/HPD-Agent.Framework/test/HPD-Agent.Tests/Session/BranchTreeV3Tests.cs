@@ -354,7 +354,7 @@ public class BranchTreeV3Tests : AgentTestBase
         main.AddMessage(UserMessage("Message 1"));
         main.AddMessage(AssistantMessage("Response 1"));
         main.AddMessage(UserMessage("Message 2"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
 
         // Act - Fork main branch
         main.Session = session;
@@ -392,7 +392,7 @@ public class BranchTreeV3Tests : AgentTestBase
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
         main.AddMessage(AssistantMessage("Response 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Act - Fork main THREE TIMES at the SAME index
@@ -450,7 +450,7 @@ public class BranchTreeV3Tests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Act
@@ -480,7 +480,7 @@ public class BranchTreeV3Tests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Act
@@ -510,7 +510,7 @@ public class BranchTreeV3Tests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Act - create one fork
@@ -544,7 +544,7 @@ public class BranchTreeV3Tests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Act - fork twice at the same index
@@ -585,7 +585,7 @@ public class BranchTreeV3Tests : AgentTestBase
         main.AddMessage(UserMessage("Message 0"));
         main.AddMessage(AssistantMessage("Response 0"));
         main.AddMessage(UserMessage("Message 2"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Act - fork at index 0 and at index 2 (independent sibling groups)
@@ -621,7 +621,7 @@ public class BranchTreeV3Tests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Act - create 3 forks; verify existing forks keep stable indices
@@ -659,7 +659,7 @@ public class BranchTreeV3Tests : AgentTestBase
 
         var main = session.CreateBranch("main");
         main.AddMessage(UserMessage("Message 1"));
-        await store.SaveBranchAsync("test-session", main);
+        await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
         // Act - two forks from main

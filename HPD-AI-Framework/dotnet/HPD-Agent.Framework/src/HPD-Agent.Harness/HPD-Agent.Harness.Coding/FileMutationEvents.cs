@@ -6,6 +6,7 @@ namespace HPDOS.Harneses.Middleware;
 public abstract record FileMutationAppliedEvent : AgentEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Diagnostic;
+    public override bool ShouldPersistToBranch() => true;
     public required string ToolCallId { get; init; }
     public required string FunctionName { get; init; }
     public required string Path { get; init; }

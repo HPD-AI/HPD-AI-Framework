@@ -1,18 +1,21 @@
 import type { Attachment } from "svelte/attachments";
 import { on } from "svelte/events";
-import { ShellLayoutController, type ShellPaneLayout } from "./controller";
-import type { ShellLayoutMode } from "./layout";
+import { ChatLayoutController, type ChatPaneLayout } from "./controller";
+import type { ChatLayoutMode } from "./layout";
 
 type DragGeometry = {
-  mode: ShellLayoutMode;
-  shellRight: number;
+  mode: ChatLayoutMode;
+  routeRight: number;
   resizableWidth: number;
 };
 
-export function attachShellResize(controller: ShellLayoutController): Attachment<HTMLElement> {
+export function attachChatResize(
+  controller: ChatLayoutController,
+  mode: () => ChatLayoutMode
+): Attachment<HTMLElement> {
   return (resizeHandle) => {
-    const shellElement = resizeHandle.closest(".hpd-shell");
-    if (!(shellElement instanceof HTMLElement)) return;
+    const routeElement = resizeHandle.closest(".hpd-chat-route");
+    if (!(routeElement instanceof HTMLElement)) return;
 
     let stopDragListeners: (() => void) | null = null;
     let dragGeometry: DragGeometry | null = null;
@@ -22,7 +25,7 @@ export function attachShellResize(controller: ShellLayoutController): Attachment
     let lastWorkspacePaneWidth = -1;
     let lastAppPaneWidth = -1;
 
-    const applyLayout = (layout: ShellPaneLayout | null, updateSemantics = true): boolean => {
+    const applyLayout = (layout: ChatPaneLayout | null, updateSemantics = true): boolean => {
       if (layout === null) return false;
 
       const roundedWorkspacePaneWidth = Math.round(layout.workspacePaneWidth);
@@ -38,17 +41,15 @@ export function attachShellResize(controller: ShellLayoutController): Attachment
 
       lastWorkspacePaneWidth = roundedWorkspacePaneWidth;
       lastAppPaneWidth = roundedAppPaneWidth;
-      shellElement.style.setProperty("--hpd-workspace-pane-width", `${roundedWorkspacePaneWidth}px`);
-      shellElement.style.setProperty("--hpd-app-pane-width", `${roundedAppPaneWidth}px`);
+      routeElement.style.setProperty("--hpd-workspace-pane-width", `${roundedWorkspacePaneWidth}px`);
+      routeElement.style.setProperty("--hpd-app-pane-width", `${roundedAppPaneWidth}px`);
 
-      if (updateSemantics) {
-        updateResizeSemantics(layout);
-      }
+      if (updateSemantics) updateResizeSemantics(layout);
 
       return true;
     };
 
-    const updateResizeSemantics = (layout: ShellPaneLayout): void => {
+    const updateResizeSemantics = (layout: ChatPaneLayout): void => {
       const roundedAppPaneWidth = Math.round(layout.appPaneWidth);
       const appPaneShare = Math.round(layout.appPaneShare * 100);
 
@@ -59,44 +60,40 @@ export function attachShellResize(controller: ShellLayoutController): Attachment
     };
 
     const applyCurrentLayout = (): boolean => {
-      return applyLayout(controller.measure(readResizableWidth()));
+      return applyLayout(controller.measure(readResizableWidth(), mode()));
     };
 
     const scheduleLayout = (): void => {
-      if (layoutFrame !== 0) return;
-
-      layoutFrame = requestAnimationFrame(() => {
+      if (layoutFrame !== 0) {
+        cancelAnimationFrame(layoutFrame);
         layoutFrame = 0;
-        applyCurrentLayout();
-      });
+      }
+
+      applyCurrentLayout();
     };
 
     const readResizableWidth = (): number => {
-      const shellRect = shellElement.getBoundingClientRect();
-      const sidebarWidth = controller.sidebarCollapsed
-        ? 0
-        : shellElement.querySelector(".hpd-edge-pane-left")?.getBoundingClientRect().width ?? 0;
-      const shellStyles = getComputedStyle(shellElement);
-      const gap = Number.parseFloat(shellStyles.columnGap) || 0;
-      const activeGaps = controller.sidebarCollapsed ? 1 : 2;
+      const routeRect = routeElement.getBoundingClientRect();
+      const routeStyles = getComputedStyle(routeElement);
+      const gap = Number.parseFloat(routeStyles.columnGap) || 0;
 
-      return Math.max(1, shellRect.width - sidebarWidth - gap * activeGaps);
+      return Math.max(1, routeRect.width - gap);
     };
 
     const readDragGeometry = (): DragGeometry => {
-      const shellRect = shellElement.getBoundingClientRect();
+      const routeRect = routeElement.getBoundingClientRect();
 
       return {
-        mode: controller.mode,
-        shellRight: shellRect.right,
-        resizableWidth: readResizableWidth(),
+        mode: mode(),
+        routeRight: routeRect.right,
+        resizableWidth: readResizableWidth()
       };
     };
 
     const updateAppPaneWidth = (geometry: DragGeometry, clientX: number): void => {
       applyLayout(
         controller.resizeFromClientX(
-          geometry.shellRight,
+          geometry.routeRight,
           clientX,
           geometry.mode,
           geometry.resizableWidth
@@ -171,8 +168,8 @@ export function attachShellResize(controller: ShellLayoutController): Attachment
     };
 
     const handleKeydown = (event: KeyboardEvent): void => {
-      controller.measure(readResizableWidth());
-      const layout = controller.keyboardResize(event.key, event.shiftKey);
+      controller.measure(readResizableWidth(), mode());
+      const layout = controller.keyboardResize(event.key, mode(), event.shiftKey);
       if (layout === null) return;
 
       event.preventDefault();
@@ -183,7 +180,7 @@ export function attachShellResize(controller: ShellLayoutController): Attachment
     const stopPointerDown = on(resizeHandle, "pointerdown", startDrag, { capture: true });
     const stopKeydown = on(resizeHandle, "keydown", handleKeydown);
     const resizeObserver = new ResizeObserver(scheduleLayout);
-    resizeObserver.observe(shellElement);
+    resizeObserver.observe(routeElement);
     const stopStateSubscription = controller.state.subscribe(scheduleLayout);
 
     return () => {

@@ -31,7 +31,7 @@ public interface ISessionStore
     /// </summary>
     /// <remarks>
     /// <para><b>V3 Change:</b> Returns Session (metadata) instead of the former monolithic session type.</para>
-    /// <para>Messages are now in Branch objects - use LoadBranchAsync to get conversation data.</para>
+    /// <para>Messages are stored as branch events and projected into Branch objects by LoadBranchAsync.</para>
     /// </remarks>
     Task<Session?> LoadSessionAsync(
         string sessionId,
@@ -43,7 +43,7 @@ public interface ISessionStore
     /// </summary>
     /// <remarks>
     /// <para><b>V3 Change:</b> Saves Session (metadata) instead of the former monolithic session type.</para>
-    /// <para>Messages are in Branch objects - use SaveBranchAsync to persist conversation data.</para>
+    /// <para>Messages are persisted as branch events and projected into Branch objects on load.</para>
     /// </remarks>
     Task SaveSessionAsync(
         Session session,
@@ -83,16 +83,98 @@ public interface ISessionStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Save a branch to persistent storage.
-    /// This persists messages and branch-scoped middleware state.
+    /// Load the event-sourced branch document from persistent storage.
+    /// Returns null if the branch does not exist.
     /// </summary>
-    /// <remarks>
-    /// <para><b>V3 Addition:</b> Each branch is saved independently.</para>
-    /// </remarks>
-    Task SaveBranchAsync(
+    Task<BranchEventDocument?> LoadBranchDocumentAsync(
         string sessionId,
-        Branch branch,
-        CancellationToken cancellationToken = default);
+        string branchId,
+        CancellationToken cancellationToken = default)
+    {
+        return LoadBranchAsync(sessionId, branchId, cancellationToken)
+            .ContinueWith(
+                task => task.Result is null
+                    ? null
+                    : BranchEventDocumentBuilder.FromBranchSnapshot(sessionId, task.Result),
+                cancellationToken,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// Save the event-sourced branch document to persistent storage.
+    /// Implementations may use <paramref name="expectedSequenceNumber"/> for optimistic concurrency.
+    /// </summary>
+    Task SaveBranchDocumentAsync(
+        BranchEventDocument document,
+        long? expectedSequenceNumber = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        throw new NotSupportedException(
+            $"{GetType().Name} must implement event-sourced branch document persistence.");
+    }
+
+    /// <summary>
+    /// Append a branch event to the branch's durable event stream.
+    /// Implementations assign the event sequence number before persisting.
+    /// </summary>
+    Task AppendBranchEventAsync(
+        string sessionId,
+        string branchId,
+        AgentEvent evt,
+        long? expectedSequenceNumber = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(evt);
+
+        return AppendAsync();
+
+        async Task AppendAsync()
+        {
+            var document = await LoadBranchDocumentAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false)
+                ?? new BranchEventDocument { SessionId = sessionId, BranchId = branchId };
+
+            evt = evt with
+            {
+                EventId = evt.EventId ?? Guid.NewGuid().ToString("N"),
+                SessionId = evt.SessionId ?? sessionId,
+                BranchId = evt.BranchId ?? branchId
+            };
+            evt.SequenceNumber = document.NextSequenceNumber;
+            document = document with
+            {
+                UpdatedAt = evt.Timestamp,
+                NextSequenceNumber = document.NextSequenceNumber + 1,
+                Events = [.. document.Events, evt]
+            };
+
+            await SaveBranchDocumentAsync(document, expectedSequenceNumber, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Read branch events for deterministic replay.
+    /// </summary>
+    IAsyncEnumerable<AgentEvent> ReadBranchEventsAsync(
+        string sessionId,
+        string branchId,
+        HPD.Events.ReplayReadOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        return ReadAsync(cancellationToken);
+
+        async IAsyncEnumerable<AgentEvent> ReadAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+        {
+            var document = await LoadBranchDocumentAsync(sessionId, branchId, ct).ConfigureAwait(false);
+            if (document is null)
+                yield break;
+
+            await foreach (var evt in document.Events.FilterByReplayOptions(options, ct).ConfigureAwait(false))
+                yield return evt;
+        }
+    }
 
     /// <summary>
     /// List all branch IDs for a session.

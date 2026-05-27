@@ -11,7 +11,7 @@ import type {
   Session,
   Branch,
   SiblingBranch,
-  BranchMessage,
+  BranchEvent,
   AssetReference,
   CreateSessionRequest,
   SearchSessionsRequest,
@@ -278,8 +278,8 @@ export class AgentClient {
     return this.api.deleteBranch(sessionId, branchId, options);
   }
 
-  getBranchMessages(sessionId: string, branchId: string): Promise<BranchMessage[]> {
-    return this.api.getBranchMessages(sessionId, branchId);
+  getBranchEvents(sessionId: string, branchId: string): Promise<BranchEvent[]> {
+    return this.api.getBranchEvents(sessionId, branchId);
   }
 
   // ============================================

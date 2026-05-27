@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
   appPaneWidthBounds,
+  chatLayoutMode,
   clampAppPaneWidth,
-  defaultAppPaneWidth,
-  shellMode
+  defaultAppPaneWidth
 } from "./layout";
 
-describe("shell layout policy", () => {
-  test("maps collapsed state to layout mode", () => {
-    expect(shellMode(false)).toBe("expanded");
-    expect(shellMode(true)).toBe("collapsed");
+describe("chat layout policy", () => {
+  test("maps sidebar collapsed state to chat layout mode", () => {
+    expect(chatLayoutMode(false)).toBe("expanded");
+    expect(chatLayoutMode(true)).toBe("collapsed");
   });
 
   test("uses expanded and collapsed default app shares", () => {
@@ -29,7 +29,7 @@ describe("shell layout policy", () => {
     expect(clampAppPaneWidth("collapsed", 520, 1000)).toBe(520);
   });
 
-  test("degrades proportionally when the shell is narrower than both minimums", () => {
+  test("degrades proportionally when the chat route is narrower than both minimums", () => {
     const expandedBounds = appPaneWidthBounds("expanded", 500);
     const collapsedBounds = appPaneWidthBounds("collapsed", 500);
 

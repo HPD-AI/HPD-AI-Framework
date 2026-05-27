@@ -461,13 +461,13 @@ public class AudioEventsTests
             false)
         {
             Channel = EventChannel.Streaming,
-            StreamId = "stream-456",
+            EventFlowId = "stream-456",
             CanInterrupt = true
         };
 
         // Assert
         Assert.Equal(EventChannel.Streaming, evt.Channel);
-        Assert.Equal("stream-456", evt.StreamId);
+        Assert.Equal("stream-456", evt.EventFlowId);
         Assert.True(evt.CanInterrupt);
     }
 

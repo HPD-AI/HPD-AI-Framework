@@ -52,6 +52,24 @@ public sealed class FakeChatClient : IChatClient
     }
 
     /// <summary>
+    /// Enqueues a response that streams reasoning before final text.
+    /// </summary>
+    public void EnqueueReasoningThenTextResponse(
+        string reasoning,
+        string text,
+        string? protectedData = null)
+    {
+        _queuedResponses.Enqueue(new QueuedResponse
+        {
+            Type = ResponseType.ReasoningThenText,
+            Reasoning = reasoning,
+            ReasoningProtectedData = protectedData,
+            Text = text,
+            FinishReason = "stop"
+        });
+    }
+
+    /// <summary>
     /// Enqueues a tool call response.
     /// </summary>
     public void EnqueueToolCall(
@@ -142,6 +160,7 @@ public sealed class FakeChatClient : IChatClient
             ResponseType.MultiToolCalls => CreateMultiToolCallCompletion(response),
             ResponseType.TextWithToolCall => CreateTextWithToolCallCompletion(response),
             ResponseType.StreamingText => CreateTextCompletion(response with { Text = string.Join("", response.TextChunks) }),
+            ResponseType.ReasoningThenText => CreateReasoningThenTextCompletion(response),
             _ => throw new InvalidOperationException($"Unknown response type: {response.Type}")
         };
     }
@@ -236,6 +255,21 @@ public sealed class FakeChatClient : IChatClient
                     FinishReason = ChatFinishReason.ToolCalls
                 };
                 break;
+
+            case ResponseType.ReasoningThenText:
+                await Task.Delay(5, cancellationToken);
+                yield return new ChatResponseUpdate
+                {
+                    Contents = [CreateReasoningContent(response.Reasoning!, response.ReasoningProtectedData)]
+                };
+
+                await Task.Delay(5, cancellationToken);
+                yield return new ChatResponseUpdate
+                {
+                    Contents = [new TextContent(response.Text!)],
+                    FinishReason = ChatFinishReason.Stop
+                };
+                break;
         }
     }
 
@@ -284,6 +318,26 @@ public sealed class FakeChatClient : IChatClient
             [new ChatMessage(ChatRole.Assistant, contents)]);
     }
 
+    private static ChatResponse CreateReasoningThenTextCompletion(QueuedResponse response)
+    {
+        var contents = new List<AIContent>
+        {
+            CreateReasoningContent(response.Reasoning!, response.ReasoningProtectedData),
+            new TextContent(response.Text!)
+        };
+
+        return new ChatResponse(
+            [new ChatMessage(ChatRole.Assistant, contents)]);
+    }
+
+    private static TextReasoningContent CreateReasoningContent(string text, string? protectedData)
+    {
+        return new TextReasoningContent(text)
+        {
+            ProtectedData = protectedData
+        };
+    }
+
     public object? GetService(Type serviceType, object? serviceKey = null)
     {
         return null;
@@ -300,7 +354,8 @@ public sealed class FakeChatClient : IChatClient
         StreamingText,
         ToolCall,
         MultiToolCalls,
-        TextWithToolCall
+        TextWithToolCall,
+        ReasoningThenText
     }
 
     private sealed record QueuedToolCall(
@@ -312,6 +367,8 @@ public sealed class FakeChatClient : IChatClient
     {
         public required ResponseType Type { get; init; }
         public string? Text { get; init; }
+        public string? Reasoning { get; init; }
+        public string? ReasoningProtectedData { get; init; }
         public List<string>? TextChunks { get; init; }
         public string? FunctionName { get; init; }
         public string? CallId { get; init; }

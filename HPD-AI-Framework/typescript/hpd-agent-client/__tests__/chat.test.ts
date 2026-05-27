@@ -19,7 +19,7 @@ describe('ChatSession', () => {
   beforeEach(() => vi.resetAllMocks());
   afterEach(() => vi.restoreAllMocks());
 
-  it('opens an existing session from search metadata and reads branch messages', async () => {
+  it('opens an existing session from search metadata and reads branch events', async () => {
     const client = new AgentClient('http://localhost:5135');
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
@@ -30,10 +30,14 @@ describe('ChatSession', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => [{
-          id: 'm1',
-          role: 'assistant',
+          eventId: 'evt-1',
+          sessionId: 's1',
+          branchId: 'main',
+          type: EventTypes.TEXT_DELTA,
+          messageId: 'm1',
+          text: 'history',
+          sequenceNumber: 1,
           timestamp: '2026-01-01T00:00:00Z',
-          contents: [{ $type: 'text', text: 'history' }],
         }],
         text: async () => '',
       } as Response);
@@ -42,11 +46,38 @@ describe('ChatSession', () => {
       agentId: 'a1',
       session: { search: { metadata: { project: 'p1' } } },
     });
-    const messages = await chat.getBranchMessages();
+    const events = await chat.getBranchEvents();
 
     expect(chat.sessionId).toBe('s1');
-    expect(messages).toEqual([
-      expect.objectContaining({ id: 'm1', role: 'assistant' }),
+    expect(events).toEqual([
+      expect.objectContaining({ eventId: 'evt-1', type: EventTypes.TEXT_DELTA }),
+    ]);
+    chat.dispose();
+  });
+
+  it('reads branch events through the scoped chat session', async () => {
+    const client = new AgentClient('http://localhost:5135');
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{
+          eventId: 'evt-1',
+          sessionId: 's1',
+          branchId: 'main',
+          type: EventTypes.TEXT_DELTA,
+          messageId: 'm1',
+          text: 'history',
+          sequenceNumber: 1,
+          timestamp: '2026-01-01T00:00:00Z',
+        }],
+        text: async () => '',
+      } as Response);
+
+    const chat = client.chat.session({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
+    const events = await chat.getBranchEvents();
+
+    expect(events).toEqual([
+      expect.objectContaining({ eventId: 'evt-1', type: EventTypes.TEXT_DELTA }),
     ]);
     chat.dispose();
   });

@@ -176,15 +176,15 @@ public class AgentConfig
     public AudioConfig? Audio { get; set; }
 
     /// <summary>
-    /// Whether to preserve reasoning tokens (from models like o1, DeepSeek-R1) in conversation history.
-    /// Default: false (reasoning is shown during streaming but excluded from history to save tokens).
-    /// When true, reasoning content is included in history and available in future context.
+    /// Whether reasoning content should be included when projecting branch history back into model input.
+    /// Default: false (reasoning is recorded in branch events and shown during streaming, but excluded
+    /// from model history to save tokens).
     /// </summary>
     /// <remarks>
     /// <para>
     /// <b>Trade-offs:</b>
-    /// - false (default): Lower cost, smaller context - reasoning shown in UI but not in future prompts
-    /// - true: Higher cost, larger context - full reasoning preserved for complex multi-turn scenarios
+    /// - false (default): Lower cost, smaller context - reasoning remains in branch events but not future prompts
+    /// - true: Higher cost, larger context - reasoning is sent back to the model in future prompts
     /// </para>
     /// <para>
     /// <b>When to enable:</b>
@@ -198,7 +198,7 @@ public class AgentConfig
     /// Including this in history means paying for those tokens on every subsequent request.
     /// </para>
     /// </remarks>
-    public bool PreserveReasoningInHistory { get; set; } = false;
+    public bool IncludeReasoningInModelHistory { get; set; } = false;
 
     /// <summary>
     /// Default reasoning options applied to every LLM call made by this agent.
@@ -211,7 +211,8 @@ public class AgentConfig
     /// </para>
     /// <para>
     /// <b>Output:</b> None, Summary, Full — whether reasoning content is returned in the response
-    /// and therefore visible during streaming and (if <see cref="PreserveReasoningInHistory"/> is true) persisted.
+    /// and therefore visible during streaming, recorded in branch events, and optionally included in
+    /// model history when <see cref="IncludeReasoningInModelHistory"/> is true.
     /// </para>
     /// <para>
     /// <b>Provider support:</b> Anthropic (extended thinking via ThinkingBudgetTokens),
