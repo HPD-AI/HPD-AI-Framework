@@ -40,7 +40,7 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         Name = name,
         SystemInstructions = "You are a test agent.",
         MaxAgenticIterations = 3,
-        Provider = new ProviderConfig { ProviderKey = "test", ModelName = "test-model" },
+        Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } },
         AgenticLoop = new AgenticLoopConfig { MaxTurnDuration = TimeSpan.FromSeconds(10) },
     };
 

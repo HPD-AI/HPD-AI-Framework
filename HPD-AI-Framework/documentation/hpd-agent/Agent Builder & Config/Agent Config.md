@@ -115,7 +115,7 @@ Each section is an optional nullable config class. All default to `null` (framew
 | Property | Type | Purpose |
 |----------|------|---------|
 | `ErrorHandling` | `ErrorHandlingConfig?` | Retries, timeouts, error formatting |
-| `HistoryReduction` | `HistoryReductionConfig?` | Conversation history summarization/trimming |
+| `Compaction` | `CompactionConfig?` | Conversation history summarization/trimming |
 | `AgenticLoop` | `AgenticLoopConfig?` | Turn duration limits and parallel function caps |
 | `Caching` | `CachingConfig?` | LLM response caching |
 | `Collapsing` | `CollapsingConfig` | Harness hierarchical collapse/expand (default: `new CollapsingConfig { Enabled = true }`) |
@@ -214,7 +214,7 @@ var agent = await new AgentBuilder("agent-config.json")
 - [Agent Builder](Agent%20Builder.md) — fluent builder API reference
 - [Run Config](Run%20Config.md) — per-invocation overrides
 - [Error Handling](Error%20Handling.md) — `ErrorHandlingConfig`
-- [History Reduction](History%20Reduction.md) — `HistoryReductionConfig`
+- [Compaction](Compaction.md) — `CompactionConfig`
 - [Caching](Caching.md) — `CachingConfig`
 - [Collapsing](Collapsing.md) — `CollapsingConfig`
 - [Observability](Observability.md) — `ObservabilityConfig`

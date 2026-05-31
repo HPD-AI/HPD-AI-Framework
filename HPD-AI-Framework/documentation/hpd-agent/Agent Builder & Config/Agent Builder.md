@@ -243,27 +243,35 @@ agent.OnAny(e => { /* forward to diagnostics or a websocket */ return ValueTask.
 
 ---
 
-## History Reduction
+## History Compaction
 
 ```csharp
-// Enable with full config
-.WithHistoryReduction(cfg =>
+// Enable with typed config
+.WithCompaction(cfg =>
 {
     cfg.Enabled = true;
-    cfg.Strategy = HistoryReductionStrategy.MessageCounting;
-    cfg.TargetCount = 20;
-})
-
-// Shorthand: message-count based
-.WithMessageCountingReduction(targetMessageCount: 20, threshold: 5)
-
-// Shorthand: summarizing
-.WithSummarizingReduction(targetMessageCount: 20, threshold: 5, customPrompt: null)
-
-// Configure a separate summarizer provider
-.WithSummarizerProvider("openai", "gpt-4o-mini", apiKey: "...")
-.WithSummarizerProvider(cfg => { cfg.ProviderKey = "openai"; cfg.ModelName = "gpt-4o-mini"; })
+    cfg.Strategy = new SummarizingCompactionOptions
+    {
+        TargetRecentMessageCount = 20,
+        SummarizerProvider = new ProviderConfig
+        {
+            ProviderKey = "openai",
+            ModelName = "gpt-4o-mini"
+        }
+    };
+    cfg.Trigger = new CountCompactionTriggerOptions
+    {
+        CountingUnit = HistoryCountingUnit.MessageTurns,
+        TargetCount = 20,
+        Threshold = 5
+    };
+    cfg.Retention = new PreserveBranchHistoryOptions();
+});
 ```
+
+Set `cfg.CompactOnFork = true` when new branches should be born compacted. For
+SubAgents, `ParentSessionForkedBranch(...)` can opt a specific SubAgent in or out of
+fork compaction without changing global fork behavior.
 
 ---
 
@@ -383,7 +391,7 @@ var agent = await builder.BuildAsync(cancellationToken);
 - [Run Config](Run%20Config.md) — per-invocation overrides
 - [Providers](Providers/00%20Providers%20Overview.md)
 - [Error Handling](Error%20Handling.md)
-- [History Reduction](History%20Reduction.md)
+- [Compaction](Compaction.md)
 - [Caching](Caching.md)
 - [Collapsing](Collapsing.md)
 - [Observability](Observability.md)

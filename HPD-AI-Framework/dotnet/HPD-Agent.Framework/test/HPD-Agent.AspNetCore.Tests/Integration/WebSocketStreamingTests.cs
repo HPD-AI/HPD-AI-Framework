@@ -87,7 +87,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         {
             Name = name,
             MaxAgenticIterations = 10,
-            Provider = new ProviderConfig { ProviderKey = "test", ModelName = "test-model" }
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } }
         });
 
         var response = await client.PostAsJsonAsync("/agents", request);
@@ -269,7 +269,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task StreamWs_Returns409_WhenAlreadyStreaming()
+    public async Task StreamWs_AllowsMultipleObserversOnSameBranch()
     {
         // Arrange
         var sessionId = await CreateTestSession();
@@ -281,23 +281,19 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
             new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
             CancellationToken.None);
 
-        // Act - Try to connect second WebSocket to same branch
-        // This should fail with 409 or connection refused
-        var exception = await Record.ExceptionAsync(async () =>
-        {
-            var ws2 = await wsClient2.ConnectAsync(
-                new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
-                CancellationToken.None);
-        });
+        var ws2 = await wsClient2.ConnectAsync(
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
+            CancellationToken.None);
 
-        // Assert
-        exception.Should().NotBeNull();
+        ws1.State.Should().Be(WebSocketState.Open);
+        ws2.State.Should().Be(WebSocketState.Open);
 
+        await ws2.CloseAsync(WebSocketCloseStatus.NormalClosure, "Test complete", CancellationToken.None);
         await ws1.CloseAsync(WebSocketCloseStatus.NormalClosure, "Test complete", CancellationToken.None);
     }
 
     [Fact]
-    public async Task StreamWs_CancelsOnWebSocketClose()
+    public async Task StreamWs_DisconnectsObserverOnWebSocketClose()
     {
         // Arrange
         var sessionId = await CreateTestSession();
@@ -314,7 +310,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact(Skip = "TestServer limitation: WebSocket ConnectAsync completes synchronously in-process, making client-side cancellation untestable. ASP.NET Core's own TestHost tests do not test this scenario.")]
-    public async Task StreamWs_CancelsOnRequestAborted()
+    public async Task StreamWs_ConnectCanBeCancelledBeforeObserverStarts()
     {
         // Arrange
         var sessionId = await CreateTestSession();
@@ -335,12 +331,8 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task StreamWs_UsesLinkedCancellationToken()
+    public async Task StreamWs_ClosesObserverWithoutStoppingRuntime()
     {
-        // This test verifies that the endpoint creates a linked token
-        // combining HttpContext.RequestAborted and WebSocket close
-        // Implicit in the close and abort tests above
-
         var sessionId = await CreateTestSession();
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
@@ -355,7 +347,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task StreamWs_ReleasesStreamLock_OnClose()
+    public async Task StreamWs_AllowsReconnectAfterObserverClose()
     {
         // Arrange
         var sessionId = await CreateTestSession();
@@ -367,7 +359,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         await ws1.CloseAsync(WebSocketCloseStatus.NormalClosure, "Done", CancellationToken.None);
 
-        // Act - Try to connect again (should succeed if lock released)
+        // Act - Try to connect again.
         var wsClient2 = _factory.Server.CreateWebSocketClient();
         var ws2 = await wsClient2.ConnectAsync(
             new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),

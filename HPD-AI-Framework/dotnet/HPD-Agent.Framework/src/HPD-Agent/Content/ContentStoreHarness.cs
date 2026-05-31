@@ -77,22 +77,25 @@ public class ContentStoreHarness
         if (results.Count == 0)
         {
             // Try direct ID lookup as fallback
-            var byId = await _store.GetAsync(scope, name, cancellationToken);
+            var byId = await _store.StatAsync(scope, name, cancellationToken);
             if (byId == null)
                 return $"Error: '{path}' not found. Use content_list('/{folderName}') to see available files.";
-            return ExtractText(byId.Data, byId.ContentType, byId.Info.Name, offset, limit);
+            await using var byIdStream = await _store.OpenReadAsync(scope, byId.Id, cancellationToken);
+            if (byIdStream == null)
+                return $"Error: Failed to read '{path}'.";
+            return await ExtractTextAsync(byIdStream, byId, offset, limit, cancellationToken);
         }
 
-        var content = await _store.GetAsync(scope, results[0].Id, cancellationToken);
+        await using var content = await _store.OpenReadAsync(scope, results[0].Id, cancellationToken);
         if (content == null)
             return $"Error: Failed to read '{path}'.";
 
-        return ExtractText(content.Data, content.ContentType, content.Info.Name, offset, limit);
+        return await ExtractTextAsync(content, results[0], offset, limit, cancellationToken);
     }
 
     /// <summary>Write content to a writable folder path.</summary>
     [AIFunction(Name = "content_write")]
-    [Description("Write or update content at a path. Only works in writable folders (/memory, /artifacts). Example: content_write('/memory/preferences.md', 'User prefers email notifications')")]
+    [Description("Write or update content at a path. Only works in writable artifact folders. Canonical /memory is read-only; use memory_note or memory_propose when available.")]
     public async Task<string> WriteAsync(
         [Description("Destination path, e.g. '/memory/preferences.md'")] string path,
         [Description("Content to write")] string content,
@@ -102,21 +105,41 @@ public class ContentStoreHarness
         if (name == null)
             return $"Error: Path must include a filename. Example: '{path.TrimEnd('/')}/document.md'";
 
+        if (folderName.Equals("memory", StringComparison.OrdinalIgnoreCase))
+            return "Error: Canonical /memory is read-only. Use memory_note or memory_propose so shared memory can be consolidated safely.";
+
         // Permission check
         var options = ContentStoreExtensions.GetFolderOptions(_store, folderName);
         if (options != null && !options.Permissions.HasFlag(ContentPermissions.Write))
             return $"Error: Folder '/{folderName}' is read-only. Cannot write to this location.";
 
         var data = Encoding.UTF8.GetBytes(content);
-        var id = await _store.PutAsync(scope, data, "text/plain",
-            new ContentMetadata
-            {
-                Name = name,
-                Origin = ContentSource.Agent,
-                Tags = new Dictionary<string, string> { ["folder"] = $"/{folderName}" }
-            }, cancellationToken);
+        var metadata = new ContentMetadata
+        {
+            ContentType = "text/plain",
+            Name = name,
+            Origin = ContentSource.Agent,
+            Tags = new Dictionary<string, string> { ["folder"] = $"/{folderName}" }
+        };
 
-        return $"Written: /{folderName}/{name} (id: {id}, {data.Length} bytes)";
+        var existing = await _store.QueryAsync(scope, new ContentQuery
+        {
+            Name = name,
+            Tags = new Dictionary<string, string> { ["folder"] = $"/{folderName}" }
+        }, cancellationToken);
+
+        var writeOptions = existing.Count == 0
+            ? new ContentWriteOptions { Mode = ContentWriteMode.Create, FailIfNameExists = true }
+            : new ContentWriteOptions
+            {
+                Mode = ContentWriteMode.ReplaceById,
+                ContentId = existing[0].Id,
+                IfMatchVersion = existing[0].Version
+            };
+
+        var info = await _store.WriteBytesAsync(scope, data, metadata, writeOptions, cancellationToken);
+
+        return $"Written: /{folderName}/{name} (id: {info.Id}, version: {info.Version}, {data.Length} bytes)";
     }
 
     /// <summary>Find content by glob pattern.</summary>
@@ -250,7 +273,11 @@ public class ContentStoreHarness
         if (results.Count == 0)
             return $"Error: '{path}' not found.";
 
-        await _store.DeleteAsync(scope, results[0].Id, cancellationToken);
+        await _store.DeleteAsync(
+            scope,
+            results[0].Id,
+            new ContentDeleteOptions { IfMatchVersion = results[0].Version },
+            cancellationToken);
         return $"Deleted: {path}";
     }
 
@@ -320,6 +347,7 @@ public class ContentStoreHarness
         var sb = new StringBuilder();
         sb.AppendLine($"File: {path}");
         sb.AppendLine($"  ID:           {info.Id}");
+        sb.AppendLine($"  Version:      {info.Version}");
         sb.AppendLine($"  Size:         {FormatSize(info.SizeBytes)}");
         sb.AppendLine($"  Content-Type: {info.ContentType}");
         sb.AppendLine($"  Created:      {info.CreatedAt:yyyy-MM-dd HH:mm:ss} UTC");
@@ -365,12 +393,18 @@ public class ContentStoreHarness
     // Helpers
     // ═══════════════════════════════════════════════════════════════════
 
-    private static string ExtractText(byte[] data, string contentType, string name, int? offset, int? limit)
+    private static async Task<string> ExtractTextAsync(
+        Stream data,
+        ContentInfo info,
+        int? offset,
+        int? limit,
+        CancellationToken cancellationToken)
     {
         // For text-based content types, return as string
-        if (contentType.StartsWith("text/") || contentType == "application/json" || contentType == "application/xml")
+        if (info.ContentType.StartsWith("text/") || info.ContentType == "application/json" || info.ContentType == "application/xml")
         {
-            var text = Encoding.UTF8.GetString(data);
+            using var reader = new StreamReader(data, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
+            var text = await reader.ReadToEndAsync(cancellationToken);
             if (offset == null && limit == null)
                 return text;
 
@@ -382,8 +416,8 @@ public class ContentStoreHarness
         }
 
         // For binary content, return info
-        return $"[Binary content: {name}, {data.Length} bytes, type={contentType}. " +
-               $"Use the asset:// URI to access the raw data.]";
+        return $"[Binary content: {info.Name}, {info.SizeBytes} bytes, type={info.ContentType}. " +
+               "Use the content reference URI to access the raw data.]";
     }
 
     private static string FormatSize(long bytes)

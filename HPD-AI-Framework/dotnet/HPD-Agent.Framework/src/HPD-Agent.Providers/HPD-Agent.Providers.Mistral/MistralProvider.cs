@@ -32,13 +32,13 @@ namespace HPD.Agent.Providers.Mistral;
 /// - API Key authentication (required)
 /// </para>
 /// </remarks>
-internal class MistralProvider : IProviderFeatures
+internal class MistralProvider : IChatClientProvider
 {
     public string ProviderKey => "mistral";
     public string DisplayName => "Mistral";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null)
+    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
     {
         // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
@@ -67,11 +67,6 @@ internal class MistralProvider : IProviderFeatures
         IChatClient chatClient = client.Completions;
 
         // Apply client factory middleware if provided
-        if (config.ClientFactory is { } clientFactory)
-        {
-            chatClient = clientFactory(chatClient);
-        }
-
         return chatClient;
     }
 
@@ -86,15 +81,25 @@ internal class MistralProvider : IProviderFeatures
         {
             ProviderKey = ProviderKey,
             DisplayName = DisplayName,
-            SupportsStreaming = true,
-            SupportsFunctionCalling = true,
-            SupportsVision = false,
-            DocumentationUrl = "https://docs.mistral.ai/"
+            DocumentationUri = new Uri("https://docs.mistral.ai/"),
+            Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            {
+                [ProviderClientFamily.Chat] = new()
+                {
+                    Family = ProviderClientFamily.Chat,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsStreaming"] = true,
+                        ["SupportsFunctionCalling"] = true,
+                        ["SupportsVision"] = false
+                    }
+                }
+            }
         };
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public ProviderValidationResult ValidateConfiguration(ProviderConfig config)
+    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
 

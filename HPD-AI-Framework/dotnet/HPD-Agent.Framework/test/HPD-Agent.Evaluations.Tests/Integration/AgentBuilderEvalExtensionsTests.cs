@@ -32,7 +32,7 @@ public sealed class AgentBuilderEvalExtensionsTests
         {
             Name = "TestAgent",
             SystemInstructions = "Test",
-            Provider = new ProviderConfig { ProviderKey = "test", ModelName = "test-model" },
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } },
         },
         new StubProviderRegistry());
 

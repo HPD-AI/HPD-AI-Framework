@@ -59,7 +59,7 @@ public class LocalFileContentStoreTests : IDisposable
         var store = CreateStore();
         var data = new byte[] { 1, 2, 3 };
 
-        var id = await store.PutAsync("scope-a", data, "image/jpeg");
+        var id = await store.WriteBytesAsync("scope-a", data, "image/jpeg");
 
         // File should exist somewhere under _tempDir/scope-a/
         var scopeDir = Path.Combine(_tempDir, "scope-a");
@@ -85,7 +85,7 @@ public class LocalFileContentStoreTests : IDisposable
             Origin = ContentSource.User
         };
 
-        var id = await store.PutAsync("scope-a", new byte[] { 1, 2, 3 }, "image/jpeg", meta);
+        var id = await store.WriteBytesAsync("scope-a", new byte[] { 1, 2, 3 }, "image/jpeg", meta);
 
         var scopeDir = Path.Combine(_tempDir, "scope-a");
         var metaPath = Path.Combine(scopeDir, $"{id}.meta");
@@ -108,19 +108,19 @@ public class LocalFileContentStoreTests : IDisposable
     {
         var data = Encoding.UTF8.GetBytes("persisted content");
 
-        string id;
+        ContentInfo id;
         {
             var store1 = CreateStore();
-            id = await store1.PutAsync("scope-a", data, "text/plain",
+            id = await store1.WriteBytesAsync("scope-a", data, "text/plain",
                 new ContentMetadata { Name = "saved.txt" });
         }
 
         // New store instance over same directory
         var store2 = CreateStore();
-        var result = await store2.GetAsync("scope-a", id);
+        var result = await store2.ReadBytesAsync("scope-a", id);
 
         Assert.NotNull(result);
-        Assert.Equal(data, result.Data);
+        Assert.Equal(data, result);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -131,7 +131,7 @@ public class LocalFileContentStoreTests : IDisposable
     public async Task Delete_RemovesFile_AndMetaFile()
     {
         var store = CreateStore();
-        var id = await store.PutAsync("scope-a", new byte[] { 1, 2, 3 }, "image/png",
+        var id = await store.WriteBytesAsync("scope-a", new byte[] { 1, 2, 3 }, "image/png",
             new ContentMetadata { Name = "img.png" });
 
         var scopeDir = Path.Combine(_tempDir, "scope-a");
@@ -152,8 +152,8 @@ public class LocalFileContentStoreTests : IDisposable
     {
         var store = CreateStore();
 
-        var idA = await store.PutAsync("agent-alice", new byte[] { 1 }, "text/plain");
-        var idB = await store.PutAsync("agent-bob", new byte[] { 2 }, "text/plain");
+        var idA = await store.WriteBytesAsync("agent-alice", new byte[] { 1 }, "text/plain");
+        var idB = await store.WriteBytesAsync("agent-bob", new byte[] { 2 }, "text/plain");
 
         var aliceDir = Path.Combine(_tempDir, "agent-alice");
         var bobDir = Path.Combine(_tempDir, "agent-bob");
@@ -168,25 +168,36 @@ public class LocalFileContentStoreTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // LF-6: Named upsert overwrites file content but keeps the same ID
+    // LF-6: Explicit versioned replace overwrites file content but keeps the same ID
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task NamedUpsert_OverwritesFile_SameId()
+    public async Task ReplaceById_OverwritesFile_SameId()
     {
         var store = CreateStore();
         var v1 = Encoding.UTF8.GetBytes("version 1");
         var v2 = Encoding.UTF8.GetBytes("version 2 — longer content");
         var meta = new ContentMetadata { Name = "doc.txt" };
 
-        var id1 = await store.PutAsync("scope-a", v1, "text/plain", meta);
-        var id2 = await store.PutAsync("scope-a", v2, "text/plain", meta);
+        var id1 = await store.WriteBytesAsync("scope-a", v1, "text/plain", meta);
+        var id2 = await store.WriteBytesAsync(
+            "scope-a",
+            v2,
+            "text/plain",
+            meta,
+            new ContentWriteOptions
+            {
+                Mode = ContentWriteMode.ReplaceById,
+                ContentId = id1.Id,
+                IfMatchVersion = id1.Version
+            });
 
-        Assert.Equal(id1, id2);
+        Assert.Equal(id1.Id, id2.Id);
+        Assert.NotEqual(id1.Version, id2.Version);
 
-        var result = await store.GetAsync("scope-a", id1);
+        var result = await store.ReadBytesAsync("scope-a", id1);
         Assert.NotNull(result);
-        Assert.Equal(v2, result.Data);
+        Assert.Equal(v2, result);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -200,12 +211,12 @@ public class LocalFileContentStoreTests : IDisposable
         var data = new byte[2 * 1024 * 1024]; // 2 MB
         Random.Shared.NextBytes(data);
 
-        var id = await store.PutAsync("scope-a", data, "application/octet-stream");
-        var result = await store.GetAsync("scope-a", id);
+        var id = await store.WriteBytesAsync("scope-a", data, "application/octet-stream");
+        var result = await store.ReadBytesAsync("scope-a", id);
 
         Assert.NotNull(result);
-        Assert.Equal(data.Length, result.Data.Length);
-        Assert.Equal(data, result.Data);
+        Assert.Equal(data.Length, result.Length);
+        Assert.Equal(data, result);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -223,7 +234,7 @@ public class LocalFileContentStoreTests : IDisposable
     public async Task MimeType_MapsToCorrectExtension(string mimeType, string expectedExt)
     {
         var store = CreateStore();
-        var id = await store.PutAsync("scope-a", new byte[] { 1 }, mimeType);
+        var id = await store.WriteBytesAsync("scope-a", new byte[] { 1 }, mimeType);
 
         var scopeDir = Path.Combine(_tempDir, "scope-a");
         var files = Directory.GetFiles(scopeDir, $"{id}.*")
@@ -249,7 +260,7 @@ public class LocalFileContentStoreTests : IDisposable
 
         {
             var store1 = CreateStore();
-            await store1.PutAsync("agent-x", Encoding.UTF8.GetBytes("some notes"), "text/markdown", meta);
+            await store1.WriteBytesAsync("agent-x", Encoding.UTF8.GetBytes("some notes"), "text/markdown", meta);
         }
 
         var store2 = CreateStore();
@@ -272,7 +283,7 @@ public class LocalFileContentStoreTests : IDisposable
         var store = CreateStore();
         var data = Encoding.UTF8.GetBytes("Hello, file store!");
 
-        await store.PutAsync("scope-a", data, "text/plain");
+        await store.WriteBytesAsync("scope-a", data, "text/plain");
         var results = await store.QueryAsync("scope-a");
 
         Assert.Single(results);

@@ -21,7 +21,7 @@ public interface ISpeechOutputSession : IAsyncDisposable
     ValueTask PushTextAsync(string text, CancellationToken cancellationToken = default);
 
     /// <summary>Queues audio for speech output.</summary>
-    ValueTask PushAudioAsync(AudioChunkFrame frame, CancellationToken cancellationToken = default);
+    ValueTask PushAudioAsync(AudioOutputFrame frame, CancellationToken cancellationToken = default);
 
     /// <summary>Marks playback as started by the output sink.</summary>
     ValueTask MarkPlaybackStartedAsync(CancellationToken cancellationToken = default);

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
+using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Serialization;
@@ -47,6 +48,7 @@ public static partial class AgentEventSerializer
         [typeof(MessageCompletedEvent)] = BranchEventTypes.MessageCompleted,
         [typeof(ContentAddedEvent)] = BranchEventTypes.ContentAdded,
         [typeof(BranchMiddlewareStateCommittedEvent)] = BranchEventTypes.BranchMiddlewareStateCommitted,
+        [typeof(BranchHistoryCompactedEvent)] = BranchEventTypes.BranchHistoryCompacted,
 
         // Message Turn Events
         [typeof(MessageTurnStartedEvent)] = EventTypes.MessageTurn.MESSAGE_TURN_STARTED,
@@ -57,6 +59,8 @@ public static partial class AgentEventSerializer
         [typeof(AgentTurnStartedEvent)] = EventTypes.AgentTurn.AGENT_TURN_STARTED,
         [typeof(AgentTurnFinishedEvent)] = EventTypes.AgentTurn.AGENT_TURN_FINISHED,
         [typeof(StateSnapshotEvent)] = EventTypes.AgentTurn.STATE_SNAPSHOT,
+        [typeof(BranchRunStartedEvent)] = EventTypes.AgentTurn.BRANCH_RUN_STARTED,
+        [typeof(BranchRunCompletedEvent)] = EventTypes.AgentTurn.BRANCH_RUN_COMPLETED,
 
         // Content Events
         [typeof(TextMessageStartEvent)] = EventTypes.Content.TEXT_MESSAGE_START,
@@ -92,7 +96,7 @@ public static partial class AgentEventSerializer
 
         // Middleware Events
         [typeof(MiddlewareErrorEvent)] = EventTypes.Middleware.MIDDLEWARE_ERROR,
-        [typeof(HistoryReductionEvent)] = EventTypes.Middleware.HISTORY_REDUCTION,
+        [typeof(CompactionEvent)] = EventTypes.Middleware.COMPACTION,
         [typeof(MaxConsecutiveErrorsExceededEvent)] = EventTypes.Middleware.MAX_CONSECUTIVE_ERRORS_EXCEEDED,
         [typeof(TotalErrorThresholdExceededEvent)] = EventTypes.Middleware.TOTAL_ERROR_THRESHOLD_EXCEEDED,
         [typeof(PIIDetectedEvent)] = EventTypes.Middleware.PII_DETECTED,
@@ -105,7 +109,7 @@ public static partial class AgentEventSerializer
         [typeof(PermissionCheckEvent)] = EventTypes.Observability.PERMISSION_CHECK,
         [typeof(IterationStartEvent)] = EventTypes.Observability.ITERATION_START,
         [typeof(CircuitBreakerTriggeredEvent)] = EventTypes.Observability.CIRCUIT_BREAKER_TRIGGERED,
-        [typeof(HistoryReductionCacheEvent)] = EventTypes.Observability.HISTORY_REDUCTION_CACHE,
+        [typeof(CompactionCacheEvent)] = EventTypes.Observability.COMPACTION_CACHE,
         [typeof(CheckpointEvent)] = EventTypes.Observability.CHECKPOINT,
         [typeof(InternalParallelToolExecutionEvent)] = EventTypes.Observability.INTERNAL_PARALLEL_TOOL_EXECUTION,
         [typeof(InternalRetryEvent)] = EventTypes.Observability.INTERNAL_RETRY,
@@ -132,8 +136,12 @@ public static partial class AgentEventSerializer
         [typeof(StructuredOutputStartEvent)] = EventTypes.Observability.STRUCTURED_OUTPUT_START,
         [typeof(StructuredOutputPartialEvent)] = EventTypes.Observability.STRUCTURED_OUTPUT_PARTIAL,
         [typeof(StructuredOutputCompleteEvent)] = EventTypes.Observability.STRUCTURED_OUTPUT_COMPLETE,
-        [typeof(AssetUploadedEvent)] = EventTypes.Observability.ASSET_UPLOADED,
-        [typeof(AssetUploadFailedEvent)] = EventTypes.Observability.ASSET_UPLOAD_FAILED,
+        [typeof(ContentUploadedEvent)] = EventTypes.Observability.CONTENT_UPLOADED,
+        [typeof(ContentUploadFailedEvent)] = EventTypes.Observability.CONTENT_UPLOAD_FAILED,
+        [typeof(HostedFileUploadedEvent)] = EventTypes.Observability.HOSTED_FILE_UPLOADED,
+        [typeof(HostedFileUploadFailedEvent)] = EventTypes.Observability.HOSTED_FILE_UPLOAD_FAILED,
+        [typeof(ContentReferenceResolvedEvent)] = EventTypes.Observability.CONTENT_REFERENCE_RESOLVED,
+        [typeof(ContentReferenceResolutionFailedEvent)] = EventTypes.Observability.CONTENT_REFERENCE_RESOLUTION_FAILED,
 
         // Priority Streaming Events
         [typeof(InterruptionRequestEvent)] = EventTypes.Streaming.INTERRUPTION_REQUEST,

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -32,13 +33,14 @@ public class CoalesceDeltasTests : AgentTestBase
         };
 
         // Act: Collect all events
-        var events = new List<AgentEvent>();
+        var events = new ConcurrentQueue<AgentEvent>();
         using var subscription = agent.SubscribeAny(evt =>
         {
-            events.Add(evt);
+            events.Enqueue(evt);
             return ValueTask.CompletedTask;
         });
         await agent.RunAsync("test", runConfig: options, cancellationToken: TestCancellationToken);
+        await WaitForAsync(() => events.Any(e => e is TextMessageEndEvent));
 
         // Assert: Should have multiple TextDeltaEvent
         var textDeltas = events.OfType<TextDeltaEvent>().ToList();
@@ -68,13 +70,14 @@ public class CoalesceDeltasTests : AgentTestBase
         };
 
         // Act: Collect all events
-        var events = new List<AgentEvent>();
+        var events = new ConcurrentQueue<AgentEvent>();
         using var subscription = agent.SubscribeAny(evt =>
         {
-            events.Add(evt);
+            events.Enqueue(evt);
             return ValueTask.CompletedTask;
         });
         await agent.RunAsync("test", runConfig: options, cancellationToken: TestCancellationToken);
+        await WaitForAsync(() => events.OfType<TextDeltaEvent>().Any());
 
         // Assert: Should have exactly ONE TextDeltaEvent with complete text
         var textDeltas = events.OfType<TextDeltaEvent>().ToList();
@@ -96,13 +99,17 @@ public class CoalesceDeltasTests : AgentTestBase
         var options = new AgentRunConfig { CoalesceDeltas = true };
 
         // Act
-        var events = new List<AgentEvent>();
+        var events = new ConcurrentQueue<AgentEvent>();
         using var subscription = agent.SubscribeAny(evt =>
         {
-            events.Add(evt);
+            events.Enqueue(evt);
             return ValueTask.CompletedTask;
         });
         await agent.RunAsync("test", runConfig: options, cancellationToken: TestCancellationToken);
+        await WaitForAsync(() =>
+            events.Any(e => e is TextMessageStartEvent) &&
+            events.Any(e => e is TextMessageEndEvent) &&
+            events.OfType<TextDeltaEvent>().Any());
 
         // Assert: Should still have start and end events
         Assert.Contains(events, e => e is TextMessageStartEvent);
@@ -130,13 +137,14 @@ public class CoalesceDeltasTests : AgentTestBase
         var agent = CreateAgent(config: config, client: fakeClient);
 
         // Act: No run options specified, should use config default
-        var events = new List<AgentEvent>();
+        var events = new ConcurrentQueue<AgentEvent>();
         using var subscription = agent.SubscribeAny(evt =>
         {
-            events.Add(evt);
+            events.Enqueue(evt);
             return ValueTask.CompletedTask;
         });
         await agent.RunAsync("test", cancellationToken: TestCancellationToken);
+        await WaitForAsync(() => events.OfType<TextDeltaEvent>().Any());
 
         // Assert: Should coalesce because config has it enabled
         var textDeltas = events.OfType<TextDeltaEvent>().ToList();
@@ -164,13 +172,14 @@ public class CoalesceDeltasTests : AgentTestBase
         };
 
         // Act
-        var events = new List<AgentEvent>();
+        var events = new ConcurrentQueue<AgentEvent>();
         using var subscription = agent.SubscribeAny(evt =>
         {
-            events.Add(evt);
+            events.Enqueue(evt);
             return ValueTask.CompletedTask;
         });
         await agent.RunAsync("test", runConfig: options, cancellationToken: TestCancellationToken);
+        await WaitForAsync(() => events.Any(e => e is TextMessageEndEvent));
 
         // Assert: Should NOT coalesce because run options explicitly disabled it
         var textDeltas = events.OfType<TextDeltaEvent>().ToList();
@@ -178,5 +187,19 @@ public class CoalesceDeltasTests : AgentTestBase
         Assert.Contains(textDeltas, e => e.Text == "Override");
         Assert.Contains(textDeltas, e => e.Text == " ");
         Assert.Contains(textDeltas, e => e.Text == "test");
+    }
+
+    private static async Task WaitForAsync(Func<bool> predicate)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(2);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (predicate())
+                return;
+
+            await Task.Delay(10);
+        }
+
+        Assert.True(predicate());
     }
 }

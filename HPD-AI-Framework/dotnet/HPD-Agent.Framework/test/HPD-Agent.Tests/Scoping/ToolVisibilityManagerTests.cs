@@ -1527,7 +1527,7 @@ public class ToolVisibilityManagerTests
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["IsSubAgent"] = true,
-                    ["SessionMode"] = "Stateless"
+                    ["ExecutionModel"] = "BranchNative"
                     // No ParentHarness!
                 }
             });
@@ -1658,7 +1658,7 @@ public class ToolVisibilityManagerTests
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["IsSubAgent"] = true,
-                    ["SessionMode"] = "Stateless",
+                    ["ExecutionModel"] = "BranchNative",
                     ["ParentHarness"] = parentHarness  //  Correct key (not HarnessName)
                 }
             });

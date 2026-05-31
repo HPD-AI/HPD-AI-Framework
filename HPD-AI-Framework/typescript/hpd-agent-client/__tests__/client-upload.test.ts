@@ -1,8 +1,8 @@
 /**
- * Unit tests for AgentClient.uploadAsset() and runConfig threading.
+ * Unit tests for AgentClient.uploadContent() and runConfig threading.
  *
  * What these tests cover:
- *   1. uploadAsset() — AgentHttpApi via AgentClient: correct URL, method, multipart body, return value,
+ *   1. uploadContent() — AgentHttpApi via AgentClient: correct URL, method, multipart body, return value,
  *      error handling.
  *   2. runConfig threading: USER_TEXT_INPUT.runConfig is forwarded in the event envelope.
  *   3. SseTransport: runConfig included/omitted from POST body based on input events.
@@ -21,8 +21,9 @@ import { EventTypes } from '../src/types/events.js';
 
 const BASE = 'http://localhost:5135';
 
-const ASSET_REFERENCE = {
-  assetId: 'asset-abc-123',
+const CONTENT_REFERENCE = {
+  contentId: 'content-abc-123',
+  version: 'rev:test',
   contentType: 'image/png',
   name: 'screenshot.png',
   sizeBytes: 4096,
@@ -49,7 +50,7 @@ function makeBlob(type = 'application/octet-stream'): Blob {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('AgentClient.uploadAsset() — AgentHttpApi', () => {
+describe('AgentClient.uploadContent() — AgentHttpApi', () => {
   let client: AgentClient;
 
   beforeEach(() => {
@@ -61,19 +62,19 @@ describe('AgentClient.uploadAsset() — AgentHttpApi', () => {
     vi.restoreAllMocks();
   });
 
-  it('calls POST /sessions/{sid}/assets', async () => {
-    const spy = mockFetchJson(ASSET_REFERENCE, 200);
-    await client.uploadAsset('sess-1', makeFile());
+  it('calls POST /sessions/{sid}/content', async () => {
+    const spy = mockFetchJson(CONTENT_REFERENCE, 200);
+    await client.uploadContent('sess-1', makeFile());
 
     expect(vi.mocked(fetch)).toHaveBeenCalledOnce();
     const [url, init] = vi.mocked(fetch).mock.calls[0];
-    expect(String(url)).toBe(`${BASE}/sessions/sess-1/assets`);
+    expect(String(url)).toBe(`${BASE}/sessions/sess-1/content`);
     expect(init?.method).toBe('POST');
   });
 
   it('sends a FormData body (no Content-Type header — browser sets boundary)', async () => {
-    mockFetchJson(ASSET_REFERENCE);
-    await client.uploadAsset('sess-1', makeFile());
+    mockFetchJson(CONTENT_REFERENCE);
+    await client.uploadContent('sess-1', makeFile());
 
     const [, init] = vi.mocked(fetch).mock.calls[0];
     expect(init?.body).toBeInstanceOf(FormData);
@@ -82,17 +83,17 @@ describe('AgentClient.uploadAsset() — AgentHttpApi', () => {
     expect(headers?.['Content-Type']).toBeUndefined();
   });
 
-  it('returns the parsed AssetReference from the response', async () => {
-    mockFetchJson(ASSET_REFERENCE);
-    const result = await client.uploadAsset('sess-1', makeFile());
+  it('returns the parsed ContentReference from the response', async () => {
+    mockFetchJson(CONTENT_REFERENCE);
+    const result = await client.uploadContent('sess-1', makeFile());
 
-    expect(result).toEqual(ASSET_REFERENCE);
+    expect(result).toEqual(CONTENT_REFERENCE);
   });
 
   it('uses the File name as the form field filename by default', async () => {
-    mockFetchJson(ASSET_REFERENCE);
+    mockFetchJson(CONTENT_REFERENCE);
     const file = makeFile('my-screenshot.png');
-    await client.uploadAsset('sess-1', file);
+    await client.uploadContent('sess-1', file);
 
     const [, init] = vi.mocked(fetch).mock.calls[0];
     const form = init?.body as FormData;
@@ -101,8 +102,8 @@ describe('AgentClient.uploadAsset() — AgentHttpApi', () => {
   });
 
   it('uses "upload" as filename for a plain Blob', async () => {
-    mockFetchJson(ASSET_REFERENCE);
-    await client.uploadAsset('sess-1', makeBlob());
+    mockFetchJson(CONTENT_REFERENCE);
+    await client.uploadContent('sess-1', makeBlob());
 
     const [, init] = vi.mocked(fetch).mock.calls[0];
     const form = init?.body as FormData;
@@ -111,8 +112,8 @@ describe('AgentClient.uploadAsset() — AgentHttpApi', () => {
   });
 
   it('uses the name param to override the filename', async () => {
-    mockFetchJson(ASSET_REFERENCE);
-    await client.uploadAsset('sess-1', makeFile('original.png'), 'override.png');
+    mockFetchJson(CONTENT_REFERENCE);
+    await client.uploadContent('sess-1', makeFile('original.png'), 'override.png');
 
     const [, init] = vi.mocked(fetch).mock.calls[0];
     const form = init?.body as FormData;
@@ -128,11 +129,11 @@ describe('AgentClient.uploadAsset() — AgentHttpApi', () => {
       text: async () => 'Payload Too Large',
     } as Response);
 
-    await expect(client.uploadAsset('sess-1', makeFile())).rejects.toThrow('413');
+    await expect(client.uploadContent('sess-1', makeFile())).rejects.toThrow('413');
   });
 });
 
-describe('AgentClient.run() — runConfig threading', () => {
+describe('AgentClient.submitInput() — runConfig threading', () => {
   let client: AgentClient;
 
   beforeEach(() => {
@@ -158,7 +159,7 @@ describe('AgentClient.run() — runConfig threading', () => {
     const runConfig = { providerKey: 'anthropic', modelId: 'claude-sonnet-4-6', chat: { temperature: 0.7 } };
     const signal = new AbortController().signal;
 
-    await client.run({
+    await client.submitInput({
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'sess-1',
       agentId: 'agent-1',
@@ -183,7 +184,7 @@ describe('AgentClient.run() — runConfig threading', () => {
     } as unknown as Response);
 
     const signal = new AbortController().signal;
-    await client.run({
+    await client.submitInput({
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'sess-1',
       agentId: 'agent-1',
@@ -200,7 +201,7 @@ describe('AgentClient.run() — runConfig threading', () => {
 
 // ---------------------------------------------------------------------------
 
-describe('SseTransport — runConfig in POST body', () => {
+describe('SseTransport — submitInput runConfig in POST body', () => {
   beforeEach(() => vi.resetAllMocks());
   afterEach(() => vi.restoreAllMocks());
 
@@ -221,7 +222,7 @@ describe('SseTransport — runConfig in POST body', () => {
     transport.onClose(() => {});
 
     const runConfig = { modelId: 'claude-opus-4-6' };
-    await transport.run({
+    await transport.submitInput({
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'sess-1',
       agentId: 'agent-1',
@@ -251,7 +252,7 @@ describe('SseTransport — runConfig in POST body', () => {
     transport.onError(() => {});
     transport.onClose(() => {});
 
-    await transport.run({
+    await transport.submitInput({
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'sess-1',
       agentId: 'agent-1',

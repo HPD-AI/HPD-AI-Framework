@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 using System.Runtime.CompilerServices;
-using HPD.Agent.Audio.Vad;
+using HPD.Agent.Providers;
 
 namespace HPD.Agent.AudioProviders.Silero;
 
@@ -16,7 +16,11 @@ public static class SileroVadProviderModule
 #pragma warning restore CA2255
     internal static void Initialize()
     {
-        VadProviderDiscovery.RegisterFactory("silero-vad", () => new SileroVadProviderFactory());
-        VadProviderDiscovery.RegisterConfigType<SileroVadConfig>("silero-vad");
+        ProviderDiscovery.RegisterProviderFactory(() => new SileroVadProvider());
+        ProviderDiscovery.RegisterProviderConfigType<SileroVadConfig>(
+            "silero-vad",
+            ProviderClientFamily.VoiceActivityDetection,
+            json => System.Text.Json.JsonSerializer.Deserialize<SileroVadConfig>(json),
+            config => System.Text.Json.JsonSerializer.Serialize(config));
     }
 }

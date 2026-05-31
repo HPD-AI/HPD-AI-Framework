@@ -37,7 +37,7 @@ public class AgentRunConfigAudioExtensionsTests
         var result = options.WithAudio(config =>
         {
             config.Language = "es";
-            config.ProcessingMode = AudioProcessingMode.Native;
+            config.ProcessingMode = AudioProcessingMode.Realtime;
         });
 
         // Assert
@@ -45,7 +45,7 @@ public class AgentRunConfigAudioExtensionsTests
         var audioOptions = options.GetAudioRunConfig();
         audioOptions.Should().NotBeNull();
         audioOptions!.Language.Should().Be("es");
-        audioOptions.ProcessingMode.Should().Be(AudioProcessingMode.Native);
+        audioOptions.ProcessingMode.Should().Be(AudioProcessingMode.Realtime);
     }
 
     [Fact]
@@ -129,19 +129,19 @@ public class AgentRunConfigAudioExtensionsTests
     }
 
     [Fact]
-    public void WithNativeAudio_SetsNativeProcessingModeAndCorrectIOMode()
+    public void WithRealtimeAudio_SetsRealtimeProcessingModeAndCorrectIOMode()
     {
         // Arrange
         var options = new AgentRunConfig();
 
         // Act
-        var result = options.WithNativeAudio();
+        var result = options.WithRealtimeAudio();
 
         // Assert
         result.Should().BeSameAs(options);
         var audioOptions = options.GetAudioRunConfig();
         audioOptions.Should().NotBeNull();
-        audioOptions!.ProcessingMode.Should().Be(AudioProcessingMode.Native);
+        audioOptions!.ProcessingMode.Should().Be(AudioProcessingMode.Realtime);
         audioOptions.IOMode.Should().Be(AudioIOMode.AudioToAudioAndText);
     }
 

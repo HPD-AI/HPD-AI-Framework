@@ -88,11 +88,27 @@ export interface AgentClientInput {
   /** Client-owned state for the run */
   state?: unknown;
 
+  /** Execution context visible to client-side tools and UI state. */
+  executionContext?: AgentExecutionContext;
+
   /** Host metadata for diagnostics or routing */
   metadata?: unknown;
 
   /** Reset backend client-tool state before applying this input */
   resetClientState?: boolean;
+}
+
+/**
+ * Client-visible execution context associated with a message or tool call.
+ */
+export interface AgentExecutionContext {
+  sessionId?: string;
+  branchId?: string;
+  agentId?: string;
+  runId?: string;
+  messageId?: string;
+  metadata?: Record<string, unknown>;
+  state?: unknown;
 }
 
 // ============================================

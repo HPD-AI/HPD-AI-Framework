@@ -91,7 +91,7 @@ public class Phase3GenerationValidationTests
         // SubAgents MUST have:
         // - IsContainer = false (SubAgents are wrappers, NOT containers)
         // - IsSubAgent = true
-        // - SessionMode (Stateless, SharedSession, or PerSession)
+        // - ExecutionModel = BranchNative
         // - HarnessName (parent Harness name)
 
         // Event bubbling and execution context setup happens in the

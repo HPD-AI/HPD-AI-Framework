@@ -30,12 +30,12 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         main.Session = session;
 
         // Create fork-1, then fork from fork-1 (so fork-1 has children)
-        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
         fork1.Session = session;
         fork1.AddMessage(AssistantMessage("Response"));
         await store.SaveInitialBranchAsync("test-session", fork1);
 
-        var fork2 = await agent.ForkBranchAsync(fork1, "fork-2", fromMessageIndex: 0);
+        var fork2 = await agent.ForkBranchAsync(fork1, "fork-2", fromMessageId: fork1.Messages[0].MessageId!);
 
         // Act & Assert - Cannot delete fork-1 because it has children
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
@@ -59,13 +59,13 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         main.Session = session;
 
         // Create 3 siblings
-        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
         main = (await store.LoadBranchAsync("test-session", "main"))!;
         main.Session = session;
-        var fork2 = await agent.ForkBranchAsync(main, "fork-2", fromMessageIndex: 0);
+        var fork2 = await agent.ForkBranchAsync(main, "fork-2", fromMessageId: main.Messages[0].MessageId!);
         main = (await store.LoadBranchAsync("test-session", "main"))!;
         main.Session = session;
-        var fork3 = await agent.ForkBranchAsync(main, "fork-3", fromMessageIndex: 0);
+        var fork3 = await agent.ForkBranchAsync(main, "fork-3", fromMessageId: main.Messages[0].MessageId!);
 
         // Initial state: main(0), fork-1(1), fork-2(2), fork-3(3) — TotalSiblings=4
         var beforeMain = await store.LoadBranchAsync("test-session", "main");
@@ -110,13 +110,13 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         main.Session = session;
 
         // Create 3 siblings: fork-1 <-> fork-2 <-> fork-3
-        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
         main = (await store.LoadBranchAsync("test-session", "main"))!;
         main.Session = session;
-        var fork2 = await agent.ForkBranchAsync(main, "fork-2", fromMessageIndex: 0);
+        var fork2 = await agent.ForkBranchAsync(main, "fork-2", fromMessageId: main.Messages[0].MessageId!);
         main = (await store.LoadBranchAsync("test-session", "main"))!;
         main.Session = session;
-        var fork3 = await agent.ForkBranchAsync(main, "fork-3", fromMessageIndex: 0);
+        var fork3 = await agent.ForkBranchAsync(main, "fork-3", fromMessageId: main.Messages[0].MessageId!);
 
         // Act - Delete middle sibling (fork-2, which is at index 2 in: main(0), fork-1(1), fork-2(2), fork-3(3))
         await agent.DeleteBranchAsync("test-session", "fork-2");
@@ -151,7 +151,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         main.Session = session;
 
         // Create fork
-        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
 
         // Verify parent has child
         var beforeMain = await store.LoadBranchAsync("test-session", "main");
@@ -187,7 +187,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
     }
 
     [Fact]
-    public async Task Test43_ForkWithInvalidMessageIndex_FailsGracefully()
+    public async Task Test43_ForkWithMissingMessageId_FailsGracefully()
     {
         // Arrange
         var store = new InMemorySessionStore();
@@ -200,11 +200,13 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
-        // Act & Assert - Fork at invalid index
-        var ex = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-            async () => await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 999));
+        // Act & Assert - Fork at missing message id
+        var ex = await Assert.ThrowsAsync<MessageNotPresentOnBranchException>(
+            async () => await agent.ForkBranchAsync(main, "fork-1", fromMessageId: "missing-message"));
 
-        Assert.Contains("index", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("test-session", ex.SessionId);
+        Assert.Equal("main", ex.BranchId);
+        Assert.Equal("missing-message", ex.MessageId);
     }
 
     //──────────────────────────────────────────────────────────────────
@@ -227,7 +229,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
-        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 1);
+        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[1].MessageId!);
 
         // Assert - Tree structure
         var reloadedMain = await store.LoadBranchAsync("test-session", "main");
@@ -264,7 +266,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         var forks = new List<Branch>();
         for (int i = 0; i < 5; i++)
         {
-            var fork = await agent.ForkBranchAsync(main, $"fork-{i}", fromMessageIndex: 0);
+            var fork = await agent.ForkBranchAsync(main, $"fork-{i}", fromMessageId: main.Messages[0].MessageId!);
             forks.Add(fork);
             main = (await store.LoadBranchAsync("test-session", "main"))!;
             main.Session = session;
@@ -314,7 +316,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         // Create 5 siblings
         for (int i = 0; i < 5; i++)
         {
-            await agent.ForkBranchAsync(main, $"fork-{i}", fromMessageIndex: 0);
+            await agent.ForkBranchAsync(main, $"fork-{i}", fromMessageId: main.Messages[0].MessageId!);
             main = (await store.LoadBranchAsync("test-session", "main"))!;
             main.Session = session;
         }
@@ -360,12 +362,12 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         main.Session = session;
 
         // Act - Create multi-level ancestry: main -> fork1 -> fork2
-        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
         fork1.Session = session;
         fork1.AddMessage(AssistantMessage("Fork 1 response"));
         await store.SaveInitialBranchAsync("test-session", fork1);
 
-        var fork2 = await agent.ForkBranchAsync(fork1, "fork-2", fromMessageIndex: 0);
+        var fork2 = await agent.ForkBranchAsync(fork1, "fork-2", fromMessageId: fork1.Messages[0].MessageId!);
 
         // Assert - Verify ancestry chain
         Assert.Equal("main", fork1.ForkedFrom);
@@ -390,7 +392,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
     //──────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task TestEdge_ForkEmptyBranch_AtIndexZero()
+    public async Task TestEdge_ForkEmptyBranch_WithMissingMessageId_Throws()
     {
         // Arrange
         var store = new InMemorySessionStore();
@@ -402,17 +404,17 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
-        // Act - Fork empty branch at index 0 (valid)
-        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        // Act & Assert - empty branches have no valid fork message id
+        var ex = await Assert.ThrowsAsync<MessageNotPresentOnBranchException>(
+            async () => await agent.ForkBranchAsync(main, "fork-1", fromMessageId: "missing-message"));
 
-        // Assert
-        Assert.Empty(fork1.Messages);
-        Assert.Equal("main", fork1.ForkedFrom);
-        Assert.Equal(0, fork1.ForkedAtMessageIndex);
+        Assert.Equal("test-session", ex.SessionId);
+        Assert.Equal("main", ex.BranchId);
+        Assert.Equal("missing-message", ex.MessageId);
     }
 
     [Fact]
-    public async Task TestEdge_ForkEmptyBranch_AtNonZeroIndex_Throws()
+    public async Task TestEdge_ForkEmptyBranch_WithDifferentMissingMessageId_Throws()
     {
         // Arrange
         var store = new InMemorySessionStore();
@@ -424,11 +426,11 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
-        // Act & Assert - Fork empty branch at index 1 (invalid)
-        var ex = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-            async () => await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 1));
+        // Act & Assert - no arbitrary message id can be resolved on an empty branch
+        var ex = await Assert.ThrowsAsync<MessageNotPresentOnBranchException>(
+            async () => await agent.ForkBranchAsync(main, "fork-1", fromMessageId: "another-missing-message"));
 
-        Assert.Contains("must be 0", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("another-missing-message", ex.MessageId);
     }
 
     [Fact]
@@ -445,7 +447,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         await store.SaveInitialBranchAsync("test-session", main);
         main.Session = session;
 
-        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
 
         // Act - Delete the only fork
         await agent.DeleteBranchAsync("test-session", "fork-1");
@@ -475,7 +477,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         main.Session = session;
 
         // Create the one and only fork
-        await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
 
         // Verify fork exists and main is in a group of 2
         var beforeMain = await store.LoadBranchAsync("test-session", "main");
@@ -508,11 +510,11 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         main.Session = session;
 
         // Create two forks: main(0), fork-1(1), fork-2(2)
-        await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
         await Task.Delay(10);
         main = (await store.LoadBranchAsync("test-session", "main"))!;
         main.Session = session;
-        await agent.ForkBranchAsync(main, "fork-2", fromMessageIndex: 0);
+        await agent.ForkBranchAsync(main, "fork-2", fromMessageId: main.Messages[0].MessageId!);
 
         // Act - delete fork-1 (which is at slot 1)
         await agent.DeleteBranchAsync("test-session", "fork-1");
@@ -548,7 +550,7 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         main.Session = session;
 
         // Give main a fork so it's a real source branch with children
-        await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
 
         // Act & Assert - cannot delete main while it has forks
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
@@ -576,11 +578,11 @@ public class BranchTreeV3DeleteTests : AgentTestBase
         main.Session = session;
 
         // Create two forks
-        await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
         await Task.Delay(10);
         main = (await store.LoadBranchAsync("test-session", "main"))!;
         main.Session = session;
-        await agent.ForkBranchAsync(main, "fork-2", fromMessageIndex: 0);
+        await agent.ForkBranchAsync(main, "fork-2", fromMessageId: main.Messages[0].MessageId!);
 
         // Act - delete both forks sequentially
         await agent.DeleteBranchAsync("test-session", "fork-1");

@@ -19,7 +19,7 @@
 	const internalState = new FileAttachmentState({
 		uploadFn: boxWith(() => {
 			if (!client) throw new Error('FileAttachment: provide either state or client');
-			return (sid: string, file: File) => client.uploadAsset(sid, file);
+			return (sid: string, file: File) => client.uploadContent(sid, file);
 		}),
 		sessionId: boxWith(() => sessionId ?? null),
 		disabled: boxWith(() => disabled),

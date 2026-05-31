@@ -113,9 +113,9 @@ public class CharacterizationTests : AgentTestBase
 
         var config = DefaultConfig();
         // Ensure provider is configured
-        config.Provider ??= new ProviderConfig();
-        config.Provider.ProviderKey = "test";
-        config.Provider.ModelName = "test-model";
+        config.EnsureChatClientConfig();
+        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().ModelName = "test-model";
 
         var agent = CreateAgent(
             config: config,
@@ -193,9 +193,9 @@ public class CharacterizationTests : AgentTestBase
         var config = DefaultConfig();
         config.MaxAgenticIterations = 5; // Set low limit
         // Ensure provider is configured
-        config.Provider ??= new ProviderConfig();
-        config.Provider.ProviderKey = "test";
-        config.Provider.ModelName = "test-model";
+        config.EnsureChatClientConfig();
+        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().ModelName = "test-model";
 
         var agent = CreateAgentWithMiddlewares(
             config: config,
@@ -323,9 +323,9 @@ public class CharacterizationTests : AgentTestBase
         config.ErrorHandling ??= new ErrorHandlingConfig();
         config.ErrorHandling.MaxRetries = 3;
         // Ensure provider is configured
-        config.Provider ??= new ProviderConfig();
-        config.Provider.ProviderKey = "test";
-        config.Provider.ModelName = "test-model";
+        config.EnsureChatClientConfig();
+        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().ModelName = "test-model";
 
         var agent = CreateAgent(
             config: config,

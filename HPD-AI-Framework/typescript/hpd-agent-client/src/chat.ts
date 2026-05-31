@@ -2,6 +2,7 @@ import type { AgentClient } from './client.js';
 import { EventTypes } from './types/events.js';
 import type { RunConfig } from './types/run-config.js';
 import type { BranchEvent, CreateSessionRequest, SearchSessionsRequest, Session } from './types/session.js';
+import type { BranchRun } from './types/branch-run.js';
 
 export interface OpenChatOptions {
   agentId: string;
@@ -24,6 +25,12 @@ export interface SendTextOptions {
   runConfig?: RunConfig;
   signal?: AbortSignal;
   optimisticUserMessage?: boolean;
+}
+
+export interface CancelActiveTurnOptions {
+  reason?: string;
+  eventFlowId?: string | null;
+  signal?: AbortSignal;
 }
 
 export class ChatManager {
@@ -82,14 +89,55 @@ export class ChatSession {
     return this.client.getBranchEvents(this.sessionId, this.branchId);
   }
 
-  async sendText(text: string, options: SendTextOptions = {}): Promise<void> {
-    await this.client.run({
+  async getRuns(): Promise<BranchRun[]> {
+    return this.client.getBranchRuns(this.agentId, this.sessionId, this.branchId);
+  }
+
+  async getActiveRun(): Promise<BranchRun | null> {
+    return this.client.getActiveBranchRun(this.agentId, this.sessionId, this.branchId);
+  }
+
+  async getRun(runtimeRunId: string): Promise<BranchRun | null> {
+    return this.client.getBranchRun(this.agentId, this.sessionId, this.branchId, runtimeRunId);
+  }
+
+  async subscribeLive(options: { signal?: AbortSignal } = {}): Promise<void> {
+    await this.client.start({
+      agentId: this.agentId,
+      sessionId: this.sessionId,
+      branchId: this.branchId,
+      signal: options.signal,
+    });
+  }
+
+  async disconnectLive(): Promise<void> {
+    await this.client.stop();
+  }
+
+  async submitText(text: string, options: SendTextOptions = {}): Promise<void> {
+    await this.client.submitInput({
       type: EventTypes.USER_TEXT_INPUT,
       agentId: this.agentId,
       sessionId: this.sessionId,
       branchId: this.branchId,
       text,
       runConfig: options.runConfig,
+    }, { signal: options.signal });
+  }
+
+  async sendText(text: string, options: SendTextOptions = {}): Promise<void> {
+    await this.submitText(text, options);
+  }
+
+  async cancelActiveTurn(options: CancelActiveTurnOptions = {}): Promise<void> {
+    await this.client.submitInput({
+      type: EventTypes.INTERRUPTION_REQUEST,
+      agentId: this.agentId,
+      sessionId: this.sessionId,
+      branchId: this.branchId,
+      eventFlowId: options.eventFlowId ?? undefined,
+      reason: options.reason ?? 'Interrupted by client.',
+      source: 'User',
     }, { signal: options.signal });
   }
 

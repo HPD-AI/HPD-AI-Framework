@@ -115,11 +115,10 @@ internal class TestWebApplicationAgentFactory : IAgentFactory
         {
             Name = sessionId,
             MaxAgenticIterations = 50,
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "test",
                 ModelName = "test-model"
-            }
+            } }
         };
 
         var providerRegistry = new TestProviderRegistry(_fakeChatClient);

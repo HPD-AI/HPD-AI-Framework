@@ -51,6 +51,9 @@ bun run check:ui
 bun run build:ui
 ```
 
+`bun run build:ui` writes the generated browser bundle to `wwwroot/assets`.
+That directory is ignored by git, so rebuild it locally before running or publishing the backend from a fresh checkout.
+
 ## Configuration
 
 Configure stores and the default project directory with `appsettings.json` or environment variables:

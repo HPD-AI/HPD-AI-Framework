@@ -366,8 +366,7 @@ public class PIIMiddleware : IAgentMiddleware
                 AgentName: context.AgentName,
                 PIIType: piiType,
                 Strategy: strategy,
-                OccurrenceCount: count,
-                Timestamp: DateTimeOffset.UtcNow));
+                OccurrenceCount: count));
         }
         catch (InvalidOperationException)
         {
@@ -448,8 +447,7 @@ public record PIIDetectedEvent(
     string AgentName,
     string PIIType,
     PIIStrategy Strategy,
-    int OccurrenceCount,
-    DateTimeOffset Timestamp) : AgentEvent, IObservabilityEvent;
+    int OccurrenceCount) : AgentEvent, IObservabilityEvent;
 
 /// <summary>
 /// Exception thrown when PII is blocked.

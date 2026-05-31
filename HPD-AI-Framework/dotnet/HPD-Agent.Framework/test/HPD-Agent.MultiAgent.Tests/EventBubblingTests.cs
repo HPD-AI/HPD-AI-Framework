@@ -97,13 +97,13 @@ public class EventBubblingTests
 
     #endregion
 
-    #region ExecutionContext Propagation Tests
+    #region AgentMetadata Propagation Tests
 
     [Fact]
-    public void AgentExecutionContext_Creation_SetsAllProperties()
+    public void AgentMetadata_Creation_SetsAllProperties()
     {
         // Arrange & Act
-        var context = new AgentExecutionContext
+        var context = new AgentMetadata
         {
             AgentName = "TestAgent",
             AgentId = "test-agent-123",
@@ -122,10 +122,10 @@ public class EventBubblingTests
     }
 
     [Fact]
-    public void AgentExecutionContext_RootAgent_IsSubAgentIsFalse()
+    public void AgentMetadata_RootAgent_IsSubAgentIsFalse()
     {
         // Arrange & Act
-        var context = new AgentExecutionContext
+        var context = new AgentMetadata
         {
             AgentName = "RootAgent",
             AgentId = "root-123",
@@ -139,10 +139,10 @@ public class EventBubblingTests
     }
 
     [Fact]
-    public void AgentEvent_WithExecutionContext_PreservesContext()
+    public void AgentEvent_WithAgentMetadata_PreservesContext()
     {
         // Arrange
-        var context = new AgentExecutionContext
+        var context = new AgentMetadata
         {
             AgentName = "SubAgent",
             AgentId = "sub-123",
@@ -152,12 +152,12 @@ public class EventBubblingTests
         };
 
         // Act
-        var evt = new TextDeltaEvent("Test", "msg_123") { ExecutionContext = context };
+        var evt = new TextDeltaEvent("Test", "msg_123") { Metadata = context };
 
         // Assert
-        evt.ExecutionContext.Should().Be(context);
-        evt.ExecutionContext!.AgentName.Should().Be("SubAgent");
-        evt.ExecutionContext.IsSubAgent.Should().BeTrue();
+        evt.Metadata.Should().Be(context);
+        evt.Metadata!.AgentName.Should().Be("SubAgent");
+        evt.Metadata.IsSubAgent.Should().BeTrue();
     }
 
     #endregion
@@ -165,10 +165,10 @@ public class EventBubblingTests
     #region Workflow Event Context Tests
 
     [Fact]
-    public void WorkflowStartedEvent_HasExecutionContext()
+    public void WorkflowStartedEvent_HasAgentMetadata()
     {
         // Arrange
-        var context = new AgentExecutionContext
+        var context = new AgentMetadata
         {
             AgentName = "MathWorkflow",
             AgentId = "workflow-123",
@@ -181,19 +181,19 @@ public class EventBubblingTests
         {
             WorkflowName = "MathWorkflow",
             NodeCount = 3,
-            ExecutionContext = context
+            Metadata = context
         };
 
         // Assert
-        evt.ExecutionContext.Should().Be(context);
+        evt.Metadata.Should().Be(context);
         evt.WorkflowName.Should().Be("MathWorkflow");
     }
 
     [Fact]
-    public void WorkflowNodeCompletedEvent_HasExecutionContext()
+    public void WorkflowNodeCompletedEvent_HasAgentMetadata()
     {
         // Arrange
-        var context = new AgentExecutionContext
+        var context = new AgentMetadata
         {
             AgentName = "MathWorkflow",
             AgentId = "workflow-123",
@@ -208,11 +208,11 @@ public class EventBubblingTests
             NodeId = "solver",
             Success = true,
             Duration = TimeSpan.FromSeconds(1.5),
-            ExecutionContext = context
+            Metadata = context
         };
 
         // Assert
-        evt.ExecutionContext.Should().Be(context);
+        evt.Metadata.Should().Be(context);
         evt.NodeId.Should().Be("solver");
     }
 
@@ -221,10 +221,10 @@ public class EventBubblingTests
     #region Nested Workflow Context Tests
 
     [Fact]
-    public void NestedWorkflow_ExecutionContext_HasCorrectDepth()
+    public void NestedWorkflow_AgentMetadata_HasCorrectDepth()
     {
         // Arrange - Root workflow
-        var rootContext = new AgentExecutionContext
+        var rootContext = new AgentMetadata
         {
             AgentName = "RootWorkflow",
             AgentId = "root-123",
@@ -234,7 +234,7 @@ public class EventBubblingTests
         };
 
         // Arrange - Nested workflow (child of root)
-        var nestedContext = new AgentExecutionContext
+        var nestedContext = new AgentMetadata
         {
             AgentName = "NestedWorkflow",
             AgentId = "root-123-nested-456",
@@ -244,7 +244,7 @@ public class EventBubblingTests
         };
 
         // Arrange - Agent inside nested workflow
-        var agentContext = new AgentExecutionContext
+        var agentContext = new AgentMetadata
         {
             AgentName = "SolverAgent",
             AgentId = "root-123-nested-456-solver-789",

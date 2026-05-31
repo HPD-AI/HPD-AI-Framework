@@ -17,7 +17,6 @@ public static class AgentBuilderExtensions
     /// <param name="model">The model name (e.g., "llama3:8b", "mistral", "qwen3:4b")</param>
     /// <param name="endpoint">Optional Ollama endpoint URL. Defaults to http://localhost:11434</param>
     /// <param name="configure">Optional action to configure additional Ollama-specific options</param>
-    /// <param name="clientFactory">Optional factory to wrap the chat client with middleware (logging, caching, etc.)</param>
     /// <returns>The builder for method chaining</returns>
     /// <remarks>
     /// <para>
@@ -28,7 +27,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates an <see cref="OllamaProviderConfig"/> that is:
-    /// - Stored in <c>ProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
     /// - Applied during <c>OllamaProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -115,22 +114,13 @@ public static class AgentBuilderExtensions
     ///             opts.NumThread = 8;
     ///         })
     ///     .Build();
-    ///
-    /// // Option 8: With middleware via ClientFactory
-    /// var agent = new AgentBuilder()
-    ///     .WithOllama(
-    ///         model: "llama3:8b",
-    ///         configure: opts => opts.Temperature = 0.7f,
-    ///         clientFactory: client => new LoggingChatClient(client, logger))
-    ///     .Build();
     /// </code>
     /// </example>
     public static AgentBuilder WithOllama(
         this AgentBuilder builder,
         string model,
         string? endpoint = null,
-        Action<OllamaProviderConfig>? configure = null,
-        Func<IChatClient, IChatClient>? clientFactory = null)
+        Action<OllamaProviderConfig>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -150,16 +140,17 @@ public static class AgentBuilderExtensions
         ValidateProviderConfig(providerConfig, configure);
 
         // Build provider config
-        builder.Config.Provider = new ProviderConfig
+        var chatConfig = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             Endpoint = resolvedEndpoint,
             ModelName = model
         };
 
+        builder.Config.SetChatClientConfig(chatConfig);
+
         // Store the typed config
-        builder.Config.Provider.SetProviderConfig(providerConfig);
-        builder.Config.Provider.ClientFactory = clientFactory;
+        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
     }

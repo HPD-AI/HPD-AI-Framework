@@ -7,7 +7,8 @@ namespace HPD.Agent;
 /// <summary>
 /// Auto-discovers and loads HPD-Agent extension libraries and provider assemblies.
 /// This ModuleInitializer runs automatically in both JIT and AOT scenarios.
-/// Loads: HPD-Agent.Audio, HPD-Agent.MCP, HPD-Agent.Harness.*, and LLM providers (HPD-Agent.Providers.*).
+/// Loads: HPD-Agent.Audio, HPD-Agent.MCP, HPD-Agent.Harness.*, and provider packages
+/// (HPD-Agent.Providers.* and HPD-Agent.AudioProviders.*).
 /// </summary>
 internal static class AutoDiscovery
 {
@@ -57,7 +58,7 @@ internal static class AutoDiscovery
         TryInitializeByTypeName("HPD.Agent.MCP.MCPAutoDiscovery, HPD-Agent.MCP");
         TryInitializeByTypeName("HPD.Agent.OpenApi.OpenApiAutoDiscovery, HPD-Agent.OpenApi");
 
-        // 2. Initialize LLM providers
+        // 2. Initialize provider packages
         TryInitializeByTypeName("HPD.Agent.Providers.OpenAI.OpenAIProviderModule, HPD-Agent.Providers.OpenAI");
         TryInitializeByTypeName("HPD.Agent.Providers.Anthropic.AnthropicProviderModule, HPD-Agent.Providers.Anthropic");
         TryInitializeByTypeName("HPD.Agent.Providers.GoogleAI.GoogleAIProviderModule, HPD-Agent.Providers.GoogleAI");
@@ -68,6 +69,9 @@ internal static class AutoDiscovery
         TryInitializeByTypeName("HPD.Agent.Providers.HuggingFace.HuggingFaceProviderModule, HPD-Agent.Providers.HuggingFace");
         TryInitializeByTypeName("HPD.Agent.Providers.OnnxRuntime.OnnxRuntimeProviderModule, HPD-Agent.Providers.OnnxRuntime");
         TryInitializeByTypeName("HPD.Agent.Providers.OpenRouter.OpenRouterProviderModule, HPD-Agent.Providers.OpenRouter");
+        TryInitializeByTypeName("HPD.Agent.AudioProviders.OpenAI.OpenAIAudioProviderModule, HPD-Agent.AudioProviders.OpenAI");
+        TryInitializeByTypeName("HPD.Agent.AudioProviders.ElevenLabs.ElevenLabsProviderModule, HPD-Agent.AudioProviders.ElevenLabs");
+        TryInitializeByTypeName("HPD.Agent.AudioProviders.Silero.SileroVadProviderModule, HPD-Agent.AudioProviders.Silero");
     }
 
     /// <summary>
@@ -86,6 +90,9 @@ internal static class AutoDiscovery
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.HuggingFace.HuggingFaceProviderModule", "HPD-Agent.Providers.HuggingFace")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.OnnxRuntime.OnnxRuntimeProviderModule", "HPD-Agent.Providers.OnnxRuntime")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.OpenRouter.OpenRouterProviderModule", "HPD-Agent.Providers.OpenRouter")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.AudioProviders.OpenAI.OpenAIAudioProviderModule", "HPD-Agent.AudioProviders.OpenAI")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.AudioProviders.ElevenLabs.ElevenLabsProviderModule", "HPD-Agent.AudioProviders.ElevenLabs")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.AudioProviders.Silero.SileroVadProviderModule", "HPD-Agent.AudioProviders.Silero")]
     private static void TryInitializeByTypeName(string assemblyQualifiedTypeName)
     {
         try
@@ -129,19 +136,22 @@ internal static class AutoDiscovery
                 TryLoadAssemblyAndRunModuleInitializer(harnessFile);
             }
 
-            // 3. Scan for LLM provider assemblies
-            var providerPattern = "HPD-Agent.Providers.*.dll";
-            var providerFiles = Directory.GetFiles(directory, providerPattern);
-
-            foreach (var providerFile in providerFiles)
-            {
-                TryLoadAssemblyAndRunModuleInitializer(providerFile);
-            }
+            // 3. Scan for provider assemblies.
+            TryLoadProviderAssemblies(directory, "HPD-Agent.Providers.*.dll");
+            TryLoadProviderAssemblies(directory, "HPD-Agent.AudioProviders.*.dll");
         }
         catch
         {
             // Silently ignore - extension/provider discovery is a best-effort feature
             // Extensions and providers can still be loaded manually if needed
+        }
+    }
+
+    private static void TryLoadProviderAssemblies(string directory, string pattern)
+    {
+        foreach (var providerFile in Directory.GetFiles(directory, pattern))
+        {
+            TryLoadAssemblyAndRunModuleInitializer(providerFile);
         }
     }
 

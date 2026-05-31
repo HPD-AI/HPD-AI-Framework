@@ -4,6 +4,7 @@
 using HPD.Agent.Audio.Stt;
 using HPD.Agent.Audio.Tts;
 using HPD.Agent.Audio.Vad;
+using HPD.Agent.Audio.Realtime;
 
 namespace HPD.Agent.Audio;
 
@@ -73,6 +74,12 @@ public class AudioRunConfig
     /// </summary>
     public VadConfig? Vad { get; set; }
 
+    /// <summary>
+    /// Realtime session configuration override.
+    /// Null = use middleware defaults.
+    /// </summary>
+    public RealtimeAudioConfig? Realtime { get; set; }
+
     //
     // I/O CONTROL (common for multi-modal switching)
     //
@@ -80,7 +87,7 @@ public class AudioRunConfig
     /// <summary>
     /// Audio processing mode override.
     /// - Pipeline: STT → LLM → TTS (default)
-    /// - Native: Single model (GPT-4o Realtime, Gemini Live)
+    /// - Realtime: bidirectional MEAI realtime session
     /// Null = use middleware defaults.
     /// </summary>
     public AudioProcessingMode? ProcessingMode { get; set; }
@@ -146,22 +153,24 @@ public class AudioRunConfig
     /// <returns>AudioConfig with runtime overrides applied</returns>
     internal AudioConfig ToFullConfig()
     {
-        // Fail fast — catch Native+Stt/Tts/Vad and shortcut conflicts before building the config.
+        // Fail fast — catch Realtime+Stt/Tts/Vad and shortcut conflicts before building the config.
         Validate();
+
+        var effectiveProcessingMode = ProcessingMode
+            ?? (Realtime != null ? AudioProcessingMode.Realtime : AudioProcessingMode.Pipeline);
 
         var config = new AudioConfig
         {
             Tts = Tts,
             Stt = Stt,
             Vad = Vad,
+            Realtime = Realtime,
+            ProcessingMode = effectiveProcessingMode,
             Language = Language,
             Disabled = Disabled
         };
 
         // Apply processing/IO mode if specified
-        if (ProcessingMode.HasValue)
-            config.ProcessingMode = ProcessingMode.Value;
-
         if (IOMode.HasValue)
             config.IOMode = IOMode.Value;
 
@@ -183,37 +192,47 @@ public class AudioRunConfig
     /// </summary>
     public void Validate()
     {
-        // Native mode: STT/TTS/VAD are owned by the model — setting them is a configuration error.
-        if (ProcessingMode == AudioProcessingMode.Native)
+        var effectiveProcessingMode = ProcessingMode
+            ?? (Realtime != null ? AudioProcessingMode.Realtime : AudioProcessingMode.Pipeline);
+
+        // Realtime mode is hosted by IRealtimeClientSession; pipeline STT/TTS/VAD are not used.
+        if (effectiveProcessingMode == AudioProcessingMode.Realtime)
         {
             if (Stt != null)
                 throw new InvalidOperationException(
-                    "AudioRunConfig.Stt cannot be set when ProcessingMode is Native. " +
-                    "In Native mode the model handles speech-to-text directly; " +
+                    "AudioRunConfig.Stt cannot be set when ProcessingMode is Realtime. " +
+                    "In Realtime mode audio input is sent to the realtime session; " +
                     "remove the Stt configuration or switch to ProcessingMode.Pipeline.");
 
             if (Tts != null)
                 throw new InvalidOperationException(
-                    "AudioRunConfig.Tts cannot be set when ProcessingMode is Native. " +
-                    "In Native mode the model produces audio output directly; " +
+                    "AudioRunConfig.Tts cannot be set when ProcessingMode is Realtime. " +
+                    "In Realtime mode audio output is received from the realtime session; " +
                     "remove the Tts configuration or switch to ProcessingMode.Pipeline.");
 
             if (Vad != null)
                 throw new InvalidOperationException(
-                    "AudioRunConfig.Vad cannot be set when ProcessingMode is Native. " +
-                    "In Native mode EOT detection is handled by the model itself; " +
+                    "AudioRunConfig.Vad cannot be set when ProcessingMode is Realtime. " +
+                    "In Realtime mode turn handling is configured on the realtime session; " +
                     "remove the Vad configuration or switch to ProcessingMode.Pipeline.");
 
             if (Voice != null || TtsModel != null || TtsSpeed != null)
                 throw new InvalidOperationException(
                     "AudioRunConfig convenience shortcuts (Voice, TtsModel, TtsSpeed) cannot be used " +
-                    "when ProcessingMode is Native. In Native mode the model controls its own voice; " +
+                    "when ProcessingMode is Realtime. Use AudioRunConfig.Realtime for realtime voice/session options; " +
                     "remove these overrides or switch to ProcessingMode.Pipeline.");
         }
 
+        if (ProcessingMode == AudioProcessingMode.Pipeline && Realtime != null)
+        {
+            throw new InvalidOperationException(
+                "AudioRunConfig.Realtime cannot be set when ProcessingMode is Pipeline. " +
+                "Remove the Realtime configuration or switch to ProcessingMode.Realtime.");
+        }
+
         // Validate role configs
-        Tts?.Validate();
-        Stt?.Validate();
+        Tts?.Validate(requireProvider: Tts.OverrideClient == null);
+        Stt?.Validate(requireProvider: Stt.OverrideClient == null);
         Vad?.Validate();
 
         // Validate TTS speed

@@ -35,7 +35,7 @@ public static class AgentConfigValidator
         ValidateProvider(config, errors);
         ValidateMcp(config, errors);
         ValidateErrorHandling(config, errors);
-        ValidateHistoryReduction(config, errors);
+        ValidateCompaction(config, errors);
         ValidateCaching(config, errors);
         ValidateCrossConfiguration(config, errors);
 
@@ -64,24 +64,25 @@ public static class AgentConfigValidator
 
     private static void ValidateProvider(AgentConfig config, List<string> errors)
     {
-        if (config.Provider == null)
+        var chatConfig = config.ResolveClientConfig(Providers.ProviderClientFamily.Chat);
+        if (chatConfig == null)
         {
             return;
         }
 
         // Provider/model are optional at setup time. If one is partially configured,
         // runtime can complete it via AgentRunConfig.
-        if (string.IsNullOrEmpty(config.Provider.ProviderKey) && string.IsNullOrEmpty(config.Provider.ModelName))
+        if (string.IsNullOrEmpty(chatConfig.ProviderKey) && string.IsNullOrEmpty(chatConfig.ModelName))
         {
             return;
         }
 
         // Provider-specific validation
-        var providerKey = config.Provider.ProviderKey?.ToLowerInvariant();
+        var providerKey = chatConfig.ProviderKey?.ToLowerInvariant();
 
-        if (providerKey == "azureopenai" && !string.IsNullOrEmpty(config.Provider.Endpoint))
+        if (providerKey == "azureopenai" && !string.IsNullOrEmpty(chatConfig.Endpoint))
         {
-            if (!IsValidUri(config.Provider.Endpoint))
+            if (!IsValidUri(chatConfig.Endpoint))
             {
                 errors.Add("Azure OpenAI endpoint must be a valid URI.");
             }
@@ -89,20 +90,20 @@ public static class AgentConfigValidator
 
         if (providerKey == "ollama")
         {
-            if (!string.IsNullOrEmpty(config.Provider.ModelName) && config.Provider.ModelName.Contains('/'))
+            if (!string.IsNullOrEmpty(chatConfig.ModelName) && chatConfig.ModelName.Contains('/'))
             {
                 errors.Add("Ollama model name should not contain '/' characters.");
             }
         }
 
         // Generic endpoint validation
-        if (!string.IsNullOrEmpty(config.Provider.Endpoint) && !IsValidUri(config.Provider.Endpoint))
+        if (!string.IsNullOrEmpty(chatConfig.Endpoint) && !IsValidUri(chatConfig.Endpoint))
         {
             errors.Add("Provider endpoint must be a valid URI.");
         }
 
         // Model combination validation
-        if (!string.IsNullOrEmpty(config.Provider.ModelName) && !IsValidProviderModelCombination(config))
+        if (!string.IsNullOrEmpty(chatConfig.ModelName) && !IsValidProviderModelCombination(chatConfig))
         {
             errors.Add("The specified model is not supported by the selected provider.");
         }
@@ -130,58 +131,124 @@ public static class AgentConfigValidator
         }
     }
 
-    private static void ValidateHistoryReduction(AgentConfig config, List<string> errors)
+    private static void ValidateCompaction(AgentConfig config, List<string> errors)
     {
-        if (config.HistoryReduction?.Enabled != true)
+        if (config.Compaction?.Enabled != true)
             return;
 
-        var hr = config.HistoryReduction;
+        var hr = config.Compaction;
 
-        // Percentage-based validation
-        if (hr.TokenBudgetTriggerPercentage.HasValue)
+        ValidateCompactionStrategy(hr.Strategy, errors);
+        ValidateCompactionTrigger(hr.Trigger, errors);
+        ValidateHistoryRetention(hr.Retention, errors);
+    }
+
+    private static void ValidateCompactionStrategy(CompactionStrategyOptions strategy, List<string> errors)
+    {
+        switch (strategy)
         {
-            if (hr.ContextWindowSize == null)
-            {
-                errors.Add("ContextWindowSize must be set when using TokenBudgetTriggerPercentage.");
-            }
+            case MessageCountingCompactionOptions messageCounting:
+                if (messageCounting.TargetMessageCount <= 1 || messageCounting.TargetMessageCount > 1000)
+                    errors.Add("MessageCountingCompactionOptions.TargetMessageCount must be between 2 and 1,000.");
+                break;
 
-            if (hr.TokenBudgetTriggerPercentage.Value <= 0 || hr.TokenBudgetTriggerPercentage.Value >= 1)
-            {
-                errors.Add("TokenBudgetTriggerPercentage must be between 0 and 1 (e.g., 0.7 for 70%).");
-            }
+            case SummarizingCompactionOptions summarizing:
+                if (summarizing.TargetRecentMessageCount <= 1 || summarizing.TargetRecentMessageCount > 1000)
+                    errors.Add("SummarizingCompactionOptions.TargetRecentMessageCount must be between 2 and 1,000.");
 
-            if (hr.TokenBudgetPreservePercentage <= 0 || hr.TokenBudgetPreservePercentage >= 1)
-            {
-                errors.Add("TokenBudgetPreservePercentage must be between 0 and 1 (e.g., 0.3 for 30%).");
-            }
+                if (summarizing.ResummarizeAfterNewMessages < 0 || summarizing.ResummarizeAfterNewMessages > 100)
+                    errors.Add("SummarizingCompactionOptions.ResummarizeAfterNewMessages must be between 0 and 100.");
 
-            if (hr.ContextWindowSize.HasValue)
-            {
-                if (hr.ContextWindowSize.Value <= 1000 || hr.ContextWindowSize.Value > 2000000)
-                {
-                    errors.Add("ContextWindowSize must be between 1,000 and 2,000,000 tokens.");
-                }
-            }
+                if (summarizing.Memory.RecentUserMessageTokenBudget < 0)
+                    errors.Add("SummaryMemoryOptions.RecentUserMessageTokenBudget must be zero or greater.");
+                break;
 
-            // Ensure trigger percentage is larger than preserve percentage
-            if (hr.TokenBudgetTriggerPercentage <= hr.TokenBudgetPreservePercentage)
-            {
-                errors.Add("TokenBudgetTriggerPercentage must be larger than TokenBudgetPreservePercentage.");
-            }
+            default:
+                errors.Add($"Unknown compaction strategy option type: {strategy.GetType().Name}.");
+                break;
         }
+    }
 
-        // Count validation
-        if (hr.TargetCount <= 1 || hr.TargetCount > 1000)
+    private static void ValidateCompactionTrigger(CompactionTriggerOptions trigger, List<string> errors)
+    {
+        switch (trigger)
         {
-            errors.Add("TargetCount must be between 2 and 1,000.");
+            case CountCompactionTriggerOptions count:
+                if (count.TargetCount <= 1 || count.TargetCount > 1000)
+                    errors.Add("CountCompactionTriggerOptions.TargetCount must be between 2 and 1,000.");
+
+                if (count.Threshold < 0 || count.Threshold > 100)
+                    errors.Add("CountCompactionTriggerOptions.Threshold must be between 0 and 100.");
+                break;
+
+            case TokenBudgetCompactionTriggerOptions tokenBudget:
+                if (tokenBudget.TargetTokenBudget <= 0)
+                    errors.Add("TokenBudgetCompactionTriggerOptions.TargetTokenBudget must be greater than zero.");
+
+                if (tokenBudget.TokenBudgetThreshold < 0)
+                    errors.Add("TokenBudgetCompactionTriggerOptions.TokenBudgetThreshold must be zero or greater.");
+                break;
+
+            case ContextWindowCompactionTriggerOptions contextWindow:
+                if (contextWindow.ContextWindowSize <= 1000 || contextWindow.ContextWindowSize > 2000000)
+                    errors.Add("ContextWindowCompactionTriggerOptions.ContextWindowSize must be between 1,000 and 2,000,000 tokens.");
+
+                if (contextWindow.TriggerPercentage <= 0 || contextWindow.TriggerPercentage >= 1)
+                    errors.Add("ContextWindowCompactionTriggerOptions.TriggerPercentage must be between 0 and 1.");
+
+                if (contextWindow.PreservePercentage <= 0 || contextWindow.PreservePercentage >= 1)
+                    errors.Add("ContextWindowCompactionTriggerOptions.PreservePercentage must be between 0 and 1.");
+
+                if (contextWindow.TriggerPercentage <= contextWindow.PreservePercentage)
+                    errors.Add("ContextWindowCompactionTriggerOptions.TriggerPercentage must be larger than PreservePercentage.");
+                break;
+
+            case CompositeCompactionTriggerOptions composite:
+                if (composite.AnyOf.Count == 0)
+                    errors.Add("CompositeCompactionTriggerOptions.AnyOf must include at least one trigger.");
+
+                foreach (var child in composite.AnyOf)
+                    ValidateCompactionTrigger(child, errors);
+                break;
+
+            default:
+                errors.Add($"Unknown compaction trigger option type: {trigger.GetType().Name}.");
+                break;
         }
+    }
 
-        if (hr.SummarizationThreshold.HasValue)
+    private static void ValidateHistoryRetention(CompactionRetentionOptions retention, List<string> errors)
+    {
+        switch (retention)
         {
-            if (hr.SummarizationThreshold.Value < 0 || hr.SummarizationThreshold.Value > 100)
-            {
-                errors.Add("SummarizationThreshold must be between 0 and 100.");
-            }
+            case PreserveBranchHistoryOptions:
+                break;
+            case CompactBranchHistoryOptions compact:
+                ValidateCompactionBoundary(compact.Boundary, errors);
+                break;
+            case DeleteCompactedMessagesOptions delete:
+                ValidateCompactionBoundary(delete.Boundary, errors);
+                break;
+            default:
+                errors.Add($"Unknown history retention option type: {retention.GetType().Name}.");
+                break;
+        }
+    }
+
+    private static void ValidateCompactionBoundary(CompactionBoundaryOptions boundary, List<string> errors)
+    {
+        switch (boundary)
+        {
+            case IncludePreviousMessagesBoundaryOptions previous when previous.Count < 0:
+                errors.Add("IncludePreviousMessagesBoundaryOptions.Count must be zero or greater.");
+                break;
+            case CompositeCompactionBoundaryOptions composite:
+                if (composite.Policies.Count == 0)
+                    errors.Add("CompositeCompactionBoundaryOptions.Policies must include at least one boundary policy.");
+
+                foreach (var child in composite.Policies)
+                    ValidateCompactionBoundary(child, errors);
+                break;
         }
     }
 
@@ -235,16 +302,14 @@ public static class AgentConfigValidator
         }
     }
 
-    private static bool IsValidProviderModelCombination(AgentConfig config)
+    private static bool IsValidProviderModelCombination(ClientProviderConfig config)
     {
-        if (config.Provider == null) return true;
-
-        return config.Provider.ProviderKey?.ToLowerInvariant() switch
+        return config.ProviderKey?.ToLowerInvariant() switch
         {
-            "openai" => IsValidOpenAIModel(config.Provider.ModelName),
-            "openrouter" => IsValidOpenRouterModel(config.Provider.ModelName),
-            "azureopenai" => IsValidAzureModel(config.Provider.ModelName),
-            "ollama" => IsValidOllamaModel(config.Provider.ModelName),
+            "openai" => IsValidOpenAIModel(config.ModelName),
+            "openrouter" => IsValidOpenRouterModel(config.ModelName),
+            "azureopenai" => IsValidAzureModel(config.ModelName),
+            "ollama" => IsValidOllamaModel(config.ModelName),
             _ => true // Unknown providers are allowed
         };
     }
@@ -278,7 +343,12 @@ public static class AgentConfigValidator
     {
         // Check if the combination of settings might cause issues
         var maxFunctionCalls = config.MaxAgenticIterations;
-        var maxHistory = config.HistoryReduction?.TargetCount ?? 20;
+        var maxHistory = config.Compaction?.Strategy switch
+        {
+            MessageCountingCompactionOptions messageCounting => messageCounting.TargetMessageCount,
+            SummarizingCompactionOptions summarizing => summarizing.TargetRecentMessageCount,
+            _ => 20
+        };
 
         // Warn if total potential token usage is very high
         var estimatedMaxTokens = (maxHistory * 500) + (maxFunctionCalls * 200);

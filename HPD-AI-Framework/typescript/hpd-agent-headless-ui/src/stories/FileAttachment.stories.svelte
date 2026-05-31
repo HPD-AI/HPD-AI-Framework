@@ -28,12 +28,12 @@
 The **FileAttachment** headless component manages file upload state for a chat session.
 
 A \`FileAttachmentState\` instance holds the list of pending attachments, tracks their upload
-lifecycle (\`uploading\` → \`done\` | \`error\`), and exposes a list of \`resolvedAssets\` ready to
+lifecycle (\`uploading\` → \`done\` | \`error\`), and exposes a list of \`resolvedContent\` ready to
 include in \`workspace.send()\`.
 
 ## Key design points
 - **Pre-constructed state pattern**: create \`new FileAttachmentState({ uploadFn, sessionId, disabled })\`
-  outside the component so that \`state.resolvedAssets\` is readable without entering the snippet.
+  outside the component so that \`state.resolvedContent\` is readable without entering the snippet.
 - **Immediate upload**: calling \`add(files)\` kicks off uploads in parallel right away.
 - **canSubmit**: \`false\` while any upload is in-progress or any entry has an error status.
 - **retry / remove / clear**: full lifecycle control from snippet props.
@@ -44,7 +44,7 @@ include in \`workspace.send()\`.
   import { FileAttachment, FileAttachmentState } from '@hpd/hpd-agent-headless-ui';
 
   const state = new FileAttachmentState({
-    uploadFn: { get current() { return (sid, file) => client.uploadAsset(sid, file); } },
+    uploadFn: { get current() { return (sid, file) => client.uploadContent(sid, file); } },
     sessionId: { get current() { return activeSessionId; } },
     disabled:  { get current() { return isStreaming; } },
   });
@@ -60,8 +60,8 @@ include in \`workspace.send()\`.
   {/snippet}
 </FileAttachment.Root>
 
-<!-- Resolved assets are available outside the snippet: -->
-<button onclick={() => workspace.send({ assets: state.resolvedAssets })}>Send</button>
+<!-- Resolved contents are available outside the snippet: -->
+<button onclick={() => workspace.send({ attachments: state.resolvedContent })}>Send</button>
 \`\`\`
 `,
 				},

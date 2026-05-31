@@ -36,7 +36,6 @@ public static class SileroAgentBuilderExtensions
         float minSilenceDuration = 0.55f,
         float prefixPaddingDuration = 0.5f)
     {
-        var factory = new SileroVadProviderFactory();
         var config = new VadConfig
         {
             Provider = "silero-vad",
@@ -46,7 +45,6 @@ public static class SileroAgentBuilderExtensions
             PrefixPaddingDuration = prefixPaddingDuration
         };
 
-        var detector = factory.CreateDetector(config);
-        return builder.UseAudioPipeline(configure: m => m.Vad = detector);
+        return builder.WithAudio(audio => audio.Vad = config);
     }
 }

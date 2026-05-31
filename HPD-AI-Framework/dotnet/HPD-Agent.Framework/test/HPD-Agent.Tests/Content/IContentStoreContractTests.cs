@@ -14,55 +14,103 @@ public abstract class IContentStoreContractTests
     protected abstract IContentStore CreateStore();
 
     // ═══════════════════════════════════════════════════════════════════
-    // C-1: Put returns a non-empty ID
+    // C-1: Write returns a non-empty ID and version
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task Put_ReturnsNonEmptyId()
+    public async Task Write_ReturnsNonEmptyIdAndVersion()
     {
         var store = CreateStore();
-        var id = await store.PutAsync("scope-a", new byte[] { 1, 2, 3 }, "image/jpeg");
+        var id = await store.WriteBytesAsync("scope-a", new byte[] { 1, 2, 3 }, "image/jpeg");
         Assert.NotNull(id);
-        Assert.NotEmpty(id);
+        Assert.NotEmpty(id.Id);
+        Assert.NotEmpty(id.Version);
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // C-2: Named upsert — same name + same content → same ID
+    // C-2: Create mode always creates a new item, even with the same name
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task Put_SameScopeAndName_ReturnsStableId()
+    public async Task Create_SameScopeAndName_CreatesNewId()
     {
         var store = CreateStore();
         var data = Encoding.UTF8.GetBytes("hello");
         var meta = new ContentMetadata { Name = "doc.txt" };
 
-        var id1 = await store.PutAsync("scope-a", data, "text/plain", meta);
-        var id2 = await store.PutAsync("scope-a", data, "text/plain", meta);
+        var id1 = await store.WriteBytesAsync("scope-a", data, "text/plain", meta);
+        var id2 = await store.WriteBytesAsync("scope-a", data, "text/plain", meta);
 
-        Assert.Equal(id1, id2);
+        Assert.NotEqual(id1.Id, id2.Id);
+        Assert.Equal(2, (await store.QueryAsync("scope-a")).Count);
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // C-3: Named upsert — same name + different content → ID stable, bytes updated
+    // C-3: ReplaceById with matching version keeps ID and updates bytes/version
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task Put_SameScopeAndName_ChangedContent_IdStable_ContentUpdated()
+    public async Task ReplaceById_WithMatchingVersion_IdStable_ContentUpdated()
     {
         var store = CreateStore();
         var original = Encoding.UTF8.GetBytes("version 1");
         var updated = Encoding.UTF8.GetBytes("version 2");
         var meta = new ContentMetadata { Name = "doc.txt" };
 
-        var id1 = await store.PutAsync("scope-a", original, "text/plain", meta);
-        var id2 = await store.PutAsync("scope-a", updated, "text/plain", meta);
+        var id1 = await store.WriteBytesAsync("scope-a", original, "text/plain", meta);
+        var id2 = await store.WriteBytesAsync(
+            "scope-a",
+            updated,
+            "text/plain",
+            meta,
+            new ContentWriteOptions
+            {
+                Mode = ContentWriteMode.ReplaceById,
+                ContentId = id1.Id,
+                IfMatchVersion = id1.Version
+            });
 
-        Assert.Equal(id1, id2);
+        Assert.Equal(id1.Id, id2.Id);
+        Assert.NotEqual(id1.Version, id2.Version);
 
-        var result = await store.GetAsync("scope-a", id1);
+        var result = await store.ReadBytesAsync("scope-a", id1);
         Assert.NotNull(result);
-        Assert.Equal(updated, result.Data);
+        Assert.Equal(updated, result);
+    }
+
+    [Fact]
+    public async Task ReplaceById_WithStaleVersion_ThrowsConflict()
+    {
+        var store = CreateStore();
+        var original = await store.WriteBytesAsync(
+            "scope-a",
+            Encoding.UTF8.GetBytes("version 1"),
+            "text/plain",
+            new ContentMetadata { Name = "doc.txt" });
+
+        var updated = await store.WriteBytesAsync(
+            "scope-a",
+            Encoding.UTF8.GetBytes("version 2"),
+            "text/plain",
+            new ContentMetadata { Name = "doc.txt" },
+            new ContentWriteOptions
+            {
+                Mode = ContentWriteMode.ReplaceById,
+                ContentId = original.Id,
+                IfMatchVersion = original.Version
+            });
+
+        await Assert.ThrowsAsync<ContentConflictException>(() => store.WriteBytesAsync(
+            "scope-a",
+            Encoding.UTF8.GetBytes("version 3"),
+            "text/plain",
+            new ContentMetadata { Name = "doc.txt" },
+            new ContentWriteOptions
+            {
+                Mode = ContentWriteMode.ReplaceById,
+                ContentId = updated.Id,
+                IfMatchVersion = original.Version
+            }));
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -75,18 +123,18 @@ public abstract class IContentStoreContractTests
         var store = CreateStore();
         var meta = new ContentMetadata { Name = "shared.txt" };
 
-        var idA = await store.PutAsync("scope-a", Encoding.UTF8.GetBytes("data-a"), "text/plain", meta);
-        var idB = await store.PutAsync("scope-b", Encoding.UTF8.GetBytes("data-b"), "text/plain", meta);
+        var idA = await store.WriteBytesAsync("scope-a", Encoding.UTF8.GetBytes("data-a"), "text/plain", meta);
+        var idB = await store.WriteBytesAsync("scope-b", Encoding.UTF8.GetBytes("data-b"), "text/plain", meta);
 
         Assert.NotEqual(idA, idB);
 
-        var fromA = await store.GetAsync("scope-a", idA);
-        var fromB = await store.GetAsync("scope-b", idB);
+        var fromA = await store.ReadBytesAsync("scope-a", idA);
+        var fromB = await store.ReadBytesAsync("scope-b", idB);
 
         Assert.NotNull(fromA);
         Assert.NotNull(fromB);
-        Assert.Equal("data-a", Encoding.UTF8.GetString(fromA.Data));
-        Assert.Equal("data-b", Encoding.UTF8.GetString(fromB.Data));
+        Assert.Equal("data-a", Encoding.UTF8.GetString(fromA));
+        Assert.Equal("data-b", Encoding.UTF8.GetString(fromB));
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -107,19 +155,21 @@ public abstract class IContentStoreContractTests
             OriginalSource = "/tmp/photo.jpg"
         };
 
-        var id = await store.PutAsync("sess-1", data, "image/jpeg", meta);
-        var result = await store.GetAsync("sess-1", id);
+        var id = await store.WriteBytesAsync("sess-1", data, "image/jpeg", meta);
+        var result = await store.ReadBytesAsync("sess-1", id);
+        var info = await store.StatAsync("sess-1", id.Id);
 
         Assert.NotNull(result);
-        Assert.Equal(id, result.Id);
-        Assert.Equal("image/jpeg", result.ContentType);
-        Assert.Equal(data, result.Data);
-        Assert.Equal("photo.jpg", result.Info.Name);
-        Assert.Equal("A test photo", result.Info.Description);
-        Assert.Equal(ContentSource.User, result.Info.Origin);
-        Assert.Equal("/tmp/photo.jpg", result.Info.OriginalSource);
-        Assert.NotNull(result.Info.Tags);
-        Assert.Equal("/uploads", result.Info.Tags["folder"]);
+        Assert.NotNull(info);
+        Assert.Equal(id.Id, info.Id);
+        Assert.Equal("image/jpeg", info.ContentType);
+        Assert.Equal(data, result);
+        Assert.Equal("photo.jpg", info.Name);
+        Assert.Equal("A test photo", info.Description);
+        Assert.Equal(ContentSource.User, info.Origin);
+        Assert.Equal("/tmp/photo.jpg", info.OriginalSource);
+        Assert.NotNull(info.Tags);
+        Assert.Equal("/uploads", info.Tags["folder"]);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -130,7 +180,7 @@ public abstract class IContentStoreContractTests
     public async Task Get_UnknownId_ReturnsNull()
     {
         var store = CreateStore();
-        var result = await store.GetAsync("scope-a", "does-not-exist-12345");
+        var result = await store.ReadBytesAsync("scope-a", "does-not-exist-12345");
         Assert.Null(result);
     }
 
@@ -142,8 +192,8 @@ public abstract class IContentStoreContractTests
     public async Task Get_WrongScope_ReturnsNull()
     {
         var store = CreateStore();
-        var id = await store.PutAsync("scope-a", new byte[] { 1 }, "text/plain");
-        var result = await store.GetAsync("scope-b", id);
+        var id = await store.WriteBytesAsync("scope-a", new byte[] { 1 }, "text/plain");
+        var result = await store.ReadBytesAsync("scope-b", id);
         Assert.Null(result);
     }
 
@@ -155,12 +205,12 @@ public abstract class IContentStoreContractTests
     public async Task Delete_RemovesContent()
     {
         var store = CreateStore();
-        var id = await store.PutAsync("scope-a", new byte[] { 1, 2, 3 }, "image/png");
-        Assert.NotNull(await store.GetAsync("scope-a", id));
+        var id = await store.WriteBytesAsync("scope-a", new byte[] { 1, 2, 3 }, "image/png");
+        Assert.NotNull(await store.ReadBytesAsync("scope-a", id));
 
         await store.DeleteAsync("scope-a", id);
 
-        Assert.Null(await store.GetAsync("scope-a", id));
+        Assert.Null(await store.ReadBytesAsync("scope-a", id));
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -171,7 +221,7 @@ public abstract class IContentStoreContractTests
     public async Task Delete_IsIdempotent()
     {
         var store = CreateStore();
-        var id = await store.PutAsync("scope-a", new byte[] { 1 }, "text/plain");
+        var id = await store.WriteBytesAsync("scope-a", new byte[] { 1 }, "text/plain");
         await store.DeleteAsync("scope-a", id);
 
         // Second delete should not throw
@@ -187,13 +237,13 @@ public abstract class IContentStoreContractTests
     public async Task Delete_OtherContentInScope_Unaffected()
     {
         var store = CreateStore();
-        var id1 = await store.PutAsync("scope-a", new byte[] { 1 }, "text/plain");
-        var id2 = await store.PutAsync("scope-a", new byte[] { 2 }, "text/plain");
+        var id1 = await store.WriteBytesAsync("scope-a", new byte[] { 1 }, "text/plain");
+        var id2 = await store.WriteBytesAsync("scope-a", new byte[] { 2 }, "text/plain");
 
         await store.DeleteAsync("scope-a", id1);
 
-        Assert.Null(await store.GetAsync("scope-a", id1));
-        Assert.NotNull(await store.GetAsync("scope-a", id2));
+        Assert.Null(await store.ReadBytesAsync("scope-a", id1));
+        Assert.NotNull(await store.ReadBytesAsync("scope-a", id2));
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -204,12 +254,12 @@ public abstract class IContentStoreContractTests
     public async Task Query_NullQuery_ReturnsAllInScope()
     {
         var store = CreateStore();
-        await store.PutAsync("scope-a", new byte[] { 1 }, "text/plain");
-        await store.PutAsync("scope-a", new byte[] { 2 }, "image/jpeg");
-        await store.PutAsync("scope-a", new byte[] { 3 }, "audio/mpeg");
+        await store.WriteBytesAsync("scope-a", new byte[] { 1 }, "text/plain");
+        await store.WriteBytesAsync("scope-a", new byte[] { 2 }, "image/jpeg");
+        await store.WriteBytesAsync("scope-a", new byte[] { 3 }, "audio/mpeg");
 
         // Content in different scope should not appear
-        await store.PutAsync("scope-b", new byte[] { 99 }, "text/plain");
+        await store.WriteBytesAsync("scope-b", new byte[] { 99 }, "text/plain");
 
         var results = await store.QueryAsync("scope-a");
 
@@ -224,8 +274,8 @@ public abstract class IContentStoreContractTests
     public async Task Query_NullScope_ReturnsAcrossAllScopes()
     {
         var store = CreateStore();
-        await store.PutAsync("scope-a", new byte[] { 1 }, "text/plain");
-        await store.PutAsync("scope-b", new byte[] { 2 }, "text/plain");
+        await store.WriteBytesAsync("scope-a", new byte[] { 1 }, "text/plain");
+        await store.WriteBytesAsync("scope-b", new byte[] { 2 }, "text/plain");
 
         var results = await store.QueryAsync(null);
 
@@ -240,9 +290,9 @@ public abstract class IContentStoreContractTests
     public async Task Query_ContentType_ExactMatch()
     {
         var store = CreateStore();
-        await store.PutAsync("scope-a", new byte[] { 1 }, "image/jpeg");
-        await store.PutAsync("scope-a", new byte[] { 2 }, "image/jpeg");
-        await store.PutAsync("scope-a", new byte[] { 3 }, "audio/mpeg");
+        await store.WriteBytesAsync("scope-a", new byte[] { 1 }, "image/jpeg");
+        await store.WriteBytesAsync("scope-a", new byte[] { 2 }, "image/jpeg");
+        await store.WriteBytesAsync("scope-a", new byte[] { 3 }, "audio/mpeg");
 
         var results = await store.QueryAsync("scope-a", new ContentQuery { ContentType = "image/jpeg" });
 
@@ -258,7 +308,7 @@ public abstract class IContentStoreContractTests
     public async Task Query_ContentType_NoMatch_ReturnsEmpty()
     {
         var store = CreateStore();
-        await store.PutAsync("scope-a", new byte[] { 1 }, "image/jpeg");
+        await store.WriteBytesAsync("scope-a", new byte[] { 1 }, "image/jpeg");
 
         var results = await store.QueryAsync("scope-a", new ContentQuery { ContentType = "video/mp4" });
 
@@ -275,10 +325,10 @@ public abstract class IContentStoreContractTests
         var store = CreateStore();
         var cutoff = DateTime.UtcNow.AddMilliseconds(50);
 
-        await store.PutAsync("scope-a", new byte[] { 1 }, "text/plain");
+        await store.WriteBytesAsync("scope-a", new byte[] { 1 }, "text/plain");
         await Task.Delay(100);
 
-        await store.PutAsync("scope-a", new byte[] { 2 }, "text/plain");
+        await store.WriteBytesAsync("scope-a", new byte[] { 2 }, "text/plain");
 
         var results = await store.QueryAsync("scope-a", new ContentQuery { CreatedAfter = cutoff });
 
@@ -293,7 +343,7 @@ public abstract class IContentStoreContractTests
     public async Task Query_CreatedAfter_FutureTimestamp_ReturnsEmpty()
     {
         var store = CreateStore();
-        await store.PutAsync("scope-a", new byte[] { 1 }, "text/plain");
+        await store.WriteBytesAsync("scope-a", new byte[] { 1 }, "text/plain");
 
         var results = await store.QueryAsync("scope-a",
             new ContentQuery { CreatedAfter = DateTime.UtcNow.AddDays(1) });
@@ -310,7 +360,7 @@ public abstract class IContentStoreContractTests
     {
         var store = CreateStore();
         for (int i = 0; i < 5; i++)
-            await store.PutAsync("scope-a", new byte[] { (byte)i }, "text/plain");
+            await store.WriteBytesAsync("scope-a", new byte[] { (byte)i }, "text/plain");
 
         var results = await store.QueryAsync("scope-a", new ContentQuery { Limit = 3 });
 
@@ -325,11 +375,11 @@ public abstract class IContentStoreContractTests
     public async Task Query_ByTag_ReturnsOnlyTaggedContent()
     {
         var store = CreateStore();
-        await store.PutAsync("scope-a", new byte[] { 1 }, "text/plain",
+        await store.WriteBytesAsync("scope-a", new byte[] { 1 }, "text/plain",
             new ContentMetadata { Tags = new Dictionary<string, string> { ["folder"] = "/knowledge" } });
-        await store.PutAsync("scope-a", new byte[] { 2 }, "text/plain",
+        await store.WriteBytesAsync("scope-a", new byte[] { 2 }, "text/plain",
             new ContentMetadata { Tags = new Dictionary<string, string> { ["folder"] = "/memory" } });
-        await store.PutAsync("scope-a", new byte[] { 3 }, "text/plain"); // no tag
+        await store.WriteBytesAsync("scope-a", new byte[] { 3 }, "text/plain"); // no tag
 
         var results = await store.QueryAsync("scope-a",
             new ContentQuery { Tags = new Dictionary<string, string> { ["folder"] = "/knowledge" } });
@@ -346,9 +396,9 @@ public abstract class IContentStoreContractTests
     public async Task Query_ByName_ReturnsMatchingItem()
     {
         var store = CreateStore();
-        await store.PutAsync("scope-a", Encoding.UTF8.GetBytes("doc a"), "text/plain",
+        await store.WriteBytesAsync("scope-a", Encoding.UTF8.GetBytes("doc a"), "text/plain",
             new ContentMetadata { Name = "api-guide.md" });
-        await store.PutAsync("scope-a", Encoding.UTF8.GetBytes("doc b"), "text/plain",
+        await store.WriteBytesAsync("scope-a", Encoding.UTF8.GetBytes("doc b"), "text/plain",
             new ContentMetadata { Name = "readme.md" });
 
         var results = await store.QueryAsync("scope-a",
@@ -367,13 +417,13 @@ public abstract class IContentStoreContractTests
     {
         var store = CreateStore();
         // Only this one matches both ContentType=image/jpeg AND has folder=/uploads tag
-        await store.PutAsync("scope-a", new byte[] { 1 }, "image/jpeg",
+        await store.WriteBytesAsync("scope-a", new byte[] { 1 }, "image/jpeg",
             new ContentMetadata { Tags = new Dictionary<string, string> { ["folder"] = "/uploads" } });
         // Wrong content type
-        await store.PutAsync("scope-a", new byte[] { 2 }, "text/plain",
+        await store.WriteBytesAsync("scope-a", new byte[] { 2 }, "text/plain",
             new ContentMetadata { Tags = new Dictionary<string, string> { ["folder"] = "/uploads" } });
         // Wrong tag
-        await store.PutAsync("scope-a", new byte[] { 3 }, "image/jpeg",
+        await store.WriteBytesAsync("scope-a", new byte[] { 3 }, "image/jpeg",
             new ContentMetadata { Tags = new Dictionary<string, string> { ["folder"] = "/memory" } });
 
         var results = await store.QueryAsync("scope-a", new ContentQuery
@@ -395,11 +445,11 @@ public abstract class IContentStoreContractTests
     public async Task Query_ReturnsMetadataOnly_NotBytes()
     {
         var store = CreateStore();
-        await store.PutAsync("scope-a", new byte[] { 1, 2, 3 }, "image/jpeg");
+        await store.WriteBytesAsync("scope-a", new byte[] { 1, 2, 3 }, "image/jpeg");
 
         var results = await store.QueryAsync("scope-a");
 
-        // Result is ContentInfo, not ContentData — no Data field
+        // Result is ContentInfo metadata only; bytes are opened explicitly.
         Assert.Single(results);
         Assert.IsAssignableFrom<ContentInfo>(results[0]);
     }
@@ -421,7 +471,7 @@ public abstract class IContentStoreContractTests
             OriginalSource = "https://example.com/doc"
         };
 
-        var id = await store.PutAsync("agent-x", Encoding.UTF8.GetBytes("content"), "text/markdown", meta);
+        var id = await store.WriteBytesAsync("agent-x", Encoding.UTF8.GetBytes("content"), "text/markdown", meta);
         var results = await store.QueryAsync("agent-x");
 
         Assert.Single(results);
@@ -441,7 +491,7 @@ public abstract class IContentStoreContractTests
     public async Task ContentInfo_Origin_DefaultsWhenNotSpecified()
     {
         var store = CreateStore();
-        await store.PutAsync("scope-a", new byte[] { 1 }, "text/plain"); // no metadata
+        await store.WriteBytesAsync("scope-a", new byte[] { 1 }, "text/plain"); // no metadata
 
         var results = await store.QueryAsync("scope-a");
 
@@ -460,7 +510,7 @@ public abstract class IContentStoreContractTests
         var store = CreateStore();
         var data = Encoding.UTF8.GetBytes("Hello, world!");
 
-        await store.PutAsync("scope-a", data, "text/plain");
+        await store.WriteBytesAsync("scope-a", data, "text/plain");
         var results = await store.QueryAsync("scope-a");
 
         Assert.Single(results);
@@ -476,7 +526,7 @@ public abstract class IContentStoreContractTests
     {
         var before = DateTime.UtcNow.AddSeconds(-1);
         var store = CreateStore();
-        await store.PutAsync("scope-a", new byte[] { 1 }, "text/plain");
+        await store.WriteBytesAsync("scope-a", new byte[] { 1 }, "text/plain");
         var after = DateTime.UtcNow.AddSeconds(1);
 
         var results = await store.QueryAsync("scope-a");

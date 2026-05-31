@@ -32,12 +32,12 @@ namespace HPD.Agent.Providers.AzureAIInference;
 /// </para>
 /// </remarks>
 [Obsolete("This provider uses Azure.AI.Inference which is being superseded by Azure.AI.Projects. Use Azure OpenAI provider for Azure AI Foundry endpoints. This will be deprecated in a future version.")]
-internal class AzureAIInferenceProvider : IProviderFeatures
+internal class AzureAIInferenceProvider : IChatClientProvider
 {
     public string ProviderKey => "azure-ai-inference";
     public string DisplayName => "Azure AI Inference";
 
-    public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null)
+    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
     {
         // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
@@ -64,12 +64,6 @@ internal class AzureAIInferenceProvider : IProviderFeatures
         // The AzureAIInferenceProviderConfig is stored and can be accessed to build ChatOptions
         // for advanced features like ResponseFormat, Seed, FrequencyPenalty, etc.
 
-        // Apply client factory middleware if provided
-        if (config.ClientFactory is { } clientFactory)
-        {
-            chatClient = clientFactory(chatClient);
-        }
-
         return chatClient;
     }
 
@@ -84,14 +78,24 @@ internal class AzureAIInferenceProvider : IProviderFeatures
         {
             ProviderKey = ProviderKey,
             DisplayName = DisplayName,
-            SupportsStreaming = true,
-            SupportsFunctionCalling = true,
-            SupportsVision = false,
-            DocumentationUrl = "https://learn.microsoft.com/en-us/azure/ai-studio/how-to/deploy-models-inference"
+            DocumentationUri = new Uri("https://learn.microsoft.com/en-us/azure/ai-studio/how-to/deploy-models-inference"),
+            Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            {
+                [ProviderClientFamily.Chat] = new()
+                {
+                    Family = ProviderClientFamily.Chat,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsStreaming"] = true,
+                        ["SupportsFunctionCalling"] = true,
+                        ["SupportsVision"] = false
+                    }
+                }
+            }
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ProviderConfig config)
+    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
         if (string.IsNullOrEmpty(config.ModelName))

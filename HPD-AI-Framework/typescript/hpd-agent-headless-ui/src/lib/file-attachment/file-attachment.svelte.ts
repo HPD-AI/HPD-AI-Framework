@@ -1,8 +1,8 @@
 import { type ReadableBox } from 'svelte-toolbelt';
 import { boolToEmptyStrOrUndef } from '$lib/internal/attrs.js';
 import { createId } from '$lib/internal/create-id.js';
-import type { AssetReference } from '@hpd/hpd-agent-client';
-export type { AssetReference };
+import type { ContentReference } from '@hpd/hpd-agent-client';
+export type { ContentReference };
 import type {
 	FileAttachmentHTMLProps,
 	FileAttachmentSnippetProps,
@@ -17,7 +17,7 @@ export type { PendingAttachment, AttachmentStatus };
 // ============================================
 
 interface FileAttachmentStateOpts {
-	uploadFn: ReadableBox<(sessionId: string, file: File) => Promise<AssetReference>>;
+	uploadFn: ReadableBox<(sessionId: string, file: File) => Promise<ContentReference>>;
 	sessionId: ReadableBox<string | null>;
 	disabled: ReadableBox<boolean>;
 }
@@ -36,10 +36,10 @@ export class FileAttachmentState {
 	get isUploading() {
 		return this.#attachments.some((a) => a.status === 'uploading');
 	}
-	get resolvedAssets(): AssetReference[] {
+	get resolvedContent(): ContentReference[] {
 		return this.#attachments
 			.filter((a) => a.status === 'done')
-			.map((a) => a.asset!);
+			.map((a) => a.content!);
 	}
 	get canSubmit() {
 		return (
@@ -63,8 +63,8 @@ export class FileAttachmentState {
 		await Promise.all(
 			entries.map(async (entry) => {
 				try {
-					const asset = await upload(sessionId, entry.file);
-					this.#patch(entry.localId, { status: 'done', asset });
+					const content = await upload(sessionId, entry.file);
+					this.#patch(entry.localId, { status: 'done', content });
 				} catch (err) {
 					this.#patch(entry.localId, {
 						status: 'error',
@@ -82,12 +82,12 @@ export class FileAttachmentState {
 	async retry(localId: string) {
 		const entry = this.#attachments.find((a) => a.localId === localId);
 		if (!entry || entry.status !== 'error') return;
-		this.#patch(localId, { status: 'uploading', error: undefined, asset: undefined });
+		this.#patch(localId, { status: 'uploading', error: undefined, content: undefined });
 		const sessionId = this.#opts.sessionId.current;
 		if (!sessionId) return;
 		try {
-			const asset = await this.#opts.uploadFn.current(sessionId, entry.file);
-			this.#patch(localId, { status: 'done', asset });
+			const content = await this.#opts.uploadFn.current(sessionId, entry.file);
+			this.#patch(localId, { status: 'done', content });
 		} catch (err) {
 			this.#patch(localId, {
 				status: 'error',

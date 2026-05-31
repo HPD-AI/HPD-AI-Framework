@@ -17,13 +17,12 @@ public class SubAgentIntegrationTests
     private static AIFunction CreateSubAgentFunction(
         string name,
         string description,
-        string SessionMode = "Stateless",
         string? parentHarness = null)
     {
         var additionalProps = new Dictionary<string, object>
         {
             ["IsSubAgent"] = true,
-            ["SessionMode"] = SessionMode
+            ["ExecutionModel"] = "BranchNative"
         };
 
         // Add ParentHarness if specified (not HarnessName - that was the bug!)
@@ -73,9 +72,9 @@ public class SubAgentIntegrationTests
         // Arrange - Simulate what source generator would create
         var functions = new List<AIFunction>
         {
-            CreateSubAgentFunction("WeatherExpert", "Weather forecast agent", "Stateless"),
-            CreateSubAgentFunction("MathExpert", "Math calculation agent", "SharedSession"),
-            CreateSubAgentFunction("CodeReviewer", "Code review agent", "Stateless")
+            CreateSubAgentFunction("WeatherExpert", "Weather forecast agent"),
+            CreateSubAgentFunction("MathExpert", "Math calculation agent"),
+            CreateSubAgentFunction("CodeReviewer", "Code review agent")
         };
 
         // Act
@@ -95,8 +94,7 @@ public class SubAgentIntegrationTests
         // Arrange
         var weatherExpert = CreateSubAgentFunction(
             "WeatherExpert",
-            "Specialized agent for weather forecasts",
-            "Stateless");
+            "Specialized agent for weather forecasts");
 
         // Assert
         Assert.NotNull(weatherExpert);
@@ -115,8 +113,7 @@ public class SubAgentIntegrationTests
         // Arrange
         var subAgentFunction = CreateSubAgentFunction(
             "TestSubAgent",
-            "Test sub-agent",
-            "Stateless");
+            "Test sub-agent");
 
         // Assert
         Assert.NotNull(subAgentFunction);
@@ -125,33 +122,31 @@ public class SubAgentIntegrationTests
         Assert.True((bool)subAgentFunction.AdditionalProperties!["IsSubAgent"]);
     }
 
-    // ===== P0: Session mode Metadata =====
+    // ===== P0: Execution model Metadata =====
 
     [Fact]
-    public void SubAgent_AIFunction_HasSessionModeMetadata()
+    public void SubAgent_AIFunction_HasExecutionModelMetadata()
     {
         // Arrange
         var weatherExpert = CreateSubAgentFunction(
             "WeatherExpert",
-            "Weather agent",
-            "Stateless");
+            "Weather agent");
 
         var mathExpert = CreateSubAgentFunction(
             "MathExpert",
-            "Math agent",
-            "SharedSession");
+            "Math agent");
 
         // Assert
         Assert.NotNull(weatherExpert);
         Assert.NotNull(mathExpert);
 
-        // WeatherExpert should be Stateless
-        Assert.True(weatherExpert.AdditionalProperties?.ContainsKey("SessionMode"));
-        Assert.Equal("Stateless", weatherExpert.AdditionalProperties!["SessionMode"] as string);
+        Assert.True(weatherExpert.AdditionalProperties?.ContainsKey("ExecutionModel"));
+        Assert.Equal("BranchNative", weatherExpert.AdditionalProperties!["ExecutionModel"] as string);
+        Assert.False(weatherExpert.AdditionalProperties?.ContainsKey("SessionMode"));
 
-        // MathExpert should be SharedSession
-        Assert.True(mathExpert.AdditionalProperties?.ContainsKey("SessionMode"));
-        Assert.Equal("SharedSession", mathExpert.AdditionalProperties!["SessionMode"] as string);
+        Assert.True(mathExpert.AdditionalProperties?.ContainsKey("ExecutionModel"));
+        Assert.Equal("BranchNative", mathExpert.AdditionalProperties!["ExecutionModel"] as string);
+        Assert.False(mathExpert.AdditionalProperties?.ContainsKey("SessionMode"));
     }
 
     // ===== P0: Function Signature =====
@@ -162,8 +157,7 @@ public class SubAgentIntegrationTests
         // Arrange
         var weatherExpert = CreateSubAgentFunction(
             "WeatherExpert",
-            "Weather agent",
-            "Stateless");
+            "Weather agent");
 
         // Assert
         Assert.NotNull(weatherExpert);

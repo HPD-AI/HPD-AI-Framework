@@ -446,8 +446,8 @@ internal static class CapabilityAnalyzer
         var methodName = method.Identifier.ValueText;
         var isStatic = method.Modifiers.Any(SyntaxKind.StaticKeyword);
 
-        // Extract metadata from SubAgentFactory calls in method body
-        var (name, description, SessionMode) = ExtractSubAgentMetadata(method, semanticModel);
+        // Extract metadata from SubAgent.FromConfig/FromAgentId calls in method body
+        var (name, description) = ExtractSubAgentMetadata(method, semanticModel);
 
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -467,14 +467,13 @@ internal static class CapabilityAnalyzer
 
         var subAgentCapability = new SubAgentCapability
         {
-            Name = name,  // Actual sub-agent name from SubAgentFactory.Create()
+            Name = name,
             MethodName = methodName,
-            SubAgentName = name,  // Actual sub-agent name
+            SubAgentName = name,
             Description = description ?? GetDescription(attrs) ?? $"Sub-agent: {name}",
             ParentHarnessName = className,
             ParentNamespace = namespaceName,
             IsStatic = isStatic,
-            SessionMode = SessionMode,  // Extracted from factory method (Create vs CreateStateful vs CreatePerSession)
             RequiresPermission = requiresPermission,
 
             // Context and conditionals (feature parity with Functions and Skills!)
@@ -486,38 +485,31 @@ internal static class CapabilityAnalyzer
     }
 
     /// <summary>
-    /// Extracts sub-agent name, description, and Session mode from method body.
-    /// Looks for SubAgentFactory.Create(), CreateStateful(), or CreatePerSession() calls.
+    /// Extracts sub-agent name and description from method body.
+    /// Looks for SubAgent.FromConfig() or FromAgentId() calls.
     /// </summary>
-    private static (string? name, string? description, string SessionMode) ExtractSubAgentMetadata(
+    private static (string? name, string? description) ExtractSubAgentMetadata(
         MethodDeclarationSyntax method,
         SemanticModel semanticModel)
     {
         string? name = null;
         string? description = null;
-        string SessionMode = "Stateless";
 
         // Find all invocation expressions in the method body
         var invocations = method.DescendantNodes().OfType<InvocationExpressionSyntax>();
 
         foreach (var invocation in invocations)
         {
-            // Check if this is a SubAgentFactory.Create() call
+            // Check if this is a SubAgent factory call.
             if (invocation.Expression is MemberAccessExpressionSyntax memberAccess)
             {
                 var methodSymbol = semanticModel.GetSymbolInfo(memberAccess).Symbol as IMethodSymbol;
 
-                if (methodSymbol?.ContainingType?.Name == "SubAgentFactory")
+                if (methodSymbol?.ContainingType?.Name == "SubAgent")
                 {
                     var methodNameStr = methodSymbol.Name;
-
-                    // Determine Session mode from factory method name
-                    if (methodNameStr == "CreateStateful")
-                        SessionMode = "SharedSession";
-                    else if (methodNameStr == "CreatePerSession")
-                        SessionMode = "PerSession";
-                    else
-                        SessionMode = "Stateless";
+                    if (methodNameStr != "FromConfig" && methodNameStr != "FromAgentId")
+                        continue;
 
                     // Extract arguments (name and description)
                     if (invocation.ArgumentList?.Arguments.Count >= 2)
@@ -543,7 +535,7 @@ internal static class CapabilityAnalyzer
             }
         }
 
-        return (name, description, SessionMode);
+        return (name, description);
     }
 
     // ========== MultiAgent Analysis ==========

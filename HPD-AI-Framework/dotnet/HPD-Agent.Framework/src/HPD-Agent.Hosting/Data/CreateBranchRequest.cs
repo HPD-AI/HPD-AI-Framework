@@ -7,8 +7,10 @@ namespace HPD.Agent.Hosting.Data;
 /// <param name="Name">Optional display name</param>
 /// <param name="Description">Optional description</param>
 /// <param name="Tags">Optional tags</param>
+/// <param name="Metadata">Optional branch-level metadata</param>
 public record CreateBranchRequest(
     string BranchId,
     string? Name,
     string? Description,
-    List<string>? Tags);
+    List<string>? Tags,
+    Dictionary<string, object>? Metadata = null);

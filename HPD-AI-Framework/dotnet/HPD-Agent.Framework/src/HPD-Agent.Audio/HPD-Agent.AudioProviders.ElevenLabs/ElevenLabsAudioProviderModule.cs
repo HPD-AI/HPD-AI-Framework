@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 using System.Runtime.CompilerServices;
-using HPD.Agent.Audio.Tts;
+using HPD.Agent.Providers;
 using HPD.Agent.AudioProviders.ElevenLabs.Tts;
 
 namespace HPD.Agent.AudioProviders.ElevenLabs;
@@ -18,10 +18,11 @@ public static class ElevenLabsProviderModule
 #pragma warning restore CA2255 // The 'ModuleInitializer' attribute should not be used in libraries
     internal static void Initialize()
     {
-        // Register TTS factory only (ElevenLabs is TTS-only)
-        TtsProviderDiscovery.RegisterFactory("elevenlabs", () => new ElevenLabsTtsProviderFactory());
-        TtsProviderDiscovery.RegisterConfigType<ElevenLabsTtsConfig>("elevenlabs");
-
-        // No STT or VAD registration (not supported)
+        ProviderDiscovery.RegisterProviderFactory(() => new ElevenLabsProvider());
+        ProviderDiscovery.RegisterProviderConfigType<ElevenLabsTtsConfig>(
+            "elevenlabs",
+            ProviderClientFamily.TextToSpeech,
+            json => System.Text.Json.JsonSerializer.Deserialize(json, ElevenLabsTtsJsonContext.Default.ElevenLabsTtsConfig),
+            config => System.Text.Json.JsonSerializer.Serialize(config, ElevenLabsTtsJsonContext.Default.ElevenLabsTtsConfig));
     }
 }

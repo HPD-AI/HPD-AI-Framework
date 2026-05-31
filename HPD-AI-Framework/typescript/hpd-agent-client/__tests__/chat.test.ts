@@ -82,22 +82,71 @@ describe('ChatSession', () => {
     chat.dispose();
   });
 
-  it('sends text through the client and leaves streamed output to event handlers', async () => {
+  it('submits text through the client and leaves live output to subscriptions', async () => {
     const client = new AgentClient('http://localhost:5135');
     const events: unknown[] = [];
     client.onAny((event) => {
       events.push(event);
     });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okStream(
-      { type: EventTypes.TEXT_DELTA, messageId: 'm1', text: 'response' },
-    ));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      body: null,
+      text: async () => '',
+    } as Response);
 
     const chat = client.chat.session({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
-    await chat.sendText('hello');
+    await chat.submitText('hello');
 
-    expect(events).toEqual([
-      expect.objectContaining({ type: EventTypes.TEXT_DELTA, messageId: 'm1', text: 'response' }),
-    ]);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:5135/agents/a1/sessions/s1/branches/main/inputs',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(events).toEqual([]);
+    chat.dispose();
+  });
+
+  it('reads the active branch run through the scoped chat session', async () => {
+    const client = new AgentClient('http://localhost:5135');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        runtimeRunId: 'run-1',
+        agentId: 'a1',
+        sessionId: 's1',
+        branchId: 'main',
+        status: 'active',
+        startedAt: '2026-05-28T00:00:00Z',
+        backgroundTasks: [],
+      }),
+      text: async () => '',
+    } as Response);
+
+    const chat = client.chat.session({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
+    const activeRun = await chat.getActiveRun();
+
+    expect(activeRun?.runtimeRunId).toBe('run-1');
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'http://localhost:5135/agents/a1/sessions/s1/branches/main/runs/active',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    chat.dispose();
+  });
+
+  it('treats an empty active branch run response as no active run', async () => {
+    const client = new AgentClient('/api/hpd-agent');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      text: async () => 'null',
+    } as Response);
+
+    const chat = client.chat.session({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
+    const activeRun = await chat.getActiveRun();
+
+    expect(activeRun).toBeNull();
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/hpd-agent/agents/a1/sessions/s1/branches/main/runs/active',
+      expect.objectContaining({ method: 'GET' }),
+    );
     chat.dispose();
   });
 });

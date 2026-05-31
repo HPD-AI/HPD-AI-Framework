@@ -34,7 +34,7 @@ public sealed record BotStreamingRequest<TContext>(
 /// </summary>
 public sealed class BotStreamingCallbacks<TContext>
 {
-    /// <summary>Runs after the stream lock is acquired and before the agent starts.</summary>
+    /// <summary>Runs after the branch operation lock is acquired and before the agent starts.</summary>
     public Func<TContext, CancellationToken, Task>? InitializeAsync { get; init; }
 
     /// <summary>Applies a debounced text update to the platform message.</summary>
@@ -59,8 +59,8 @@ public sealed class BotStreamingRunner(
     AgentManager agentManager)
 {
     /// <summary>
-    /// Runs the agent stream and returns <c>false</c> when another stream already
-    /// holds the same session/branch lock.
+    /// Runs the agent stream and returns <c>false</c> when another exclusive branch
+    /// operation already holds the same session/branch lock.
     /// </summary>
     public async Task<bool> RunAsync<TContext>(
         BotStreamingRequest<TContext> request,
@@ -70,7 +70,7 @@ public sealed class BotStreamingRunner(
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(callbacks);
 
-        if (!sessionManager.TryAcquireStreamLock(request.SessionId, request.BranchId))
+        if (!sessionManager.TryAcquireBranchOperationLock(request.SessionId, request.BranchId))
             return false;
 
         try
@@ -126,7 +126,7 @@ public sealed class BotStreamingRunner(
         }
         finally
         {
-            sessionManager.ReleaseStreamLock(request.SessionId, request.BranchId);
+            sessionManager.ReleaseBranchOperationLock(request.SessionId, request.BranchId);
         }
     }
 

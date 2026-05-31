@@ -37,13 +37,13 @@ namespace HPD.Agent.Providers.HuggingFace;
 /// - Get your token from: https://huggingface.co/settings/tokens
 /// </para>
 /// </remarks>
-internal class HuggingFaceProvider : IProviderFeatures
+internal class HuggingFaceProvider : IChatClientProvider
 {
     public string ProviderKey => "huggingface";
     public string DisplayName => "Hugging Face";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null)
+    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
     {
         // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
@@ -85,15 +85,25 @@ internal class HuggingFaceProvider : IProviderFeatures
         {
             ProviderKey = ProviderKey,
             DisplayName = DisplayName,
-            SupportsStreaming = true,
-            SupportsFunctionCalling = false, // Not supported by HF Serverless Inference API
-            SupportsVision = false, // Not supported in current implementation
-            DocumentationUrl = "https://huggingface.co/docs/api-inference/index"
+            DocumentationUri = new Uri("https://huggingface.co/docs/api-inference/index"),
+            Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            {
+                [ProviderClientFamily.Chat] = new()
+                {
+                    Family = ProviderClientFamily.Chat,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsStreaming"] = true,
+                        ["SupportsFunctionCalling"] = false,
+                        ["SupportsVision"] = false
+                    }
+                }
+            }
         };
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public ProviderValidationResult ValidateConfiguration(ProviderConfig config)
+    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
 

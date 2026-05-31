@@ -11,12 +11,12 @@ namespace HPD.Agent.Hosting.Lifecycle;
 /// Responsibilities:
 /// <list type="bullet">
 ///   <item>Agent definition CRUD (delegated to <see cref="IAgentStore"/>)</item>
-///   <item><see cref="Agent"/> instance build, cache, and idle eviction (keyed by agentId)</item>
+///   <item><see cref="Agent"/> instance build, cache, and idle eviction (keyed by runtime owner)</item>
 /// </list>
 ///
-/// Agent instances are cached by <c>agentId</c>, not by session — all sessions that share
-/// an agent definition share one <see cref="Agent"/> instance. Eviction is purely
-/// last-access based; <c>IsStreaming</c> is no longer tracked here.
+/// Unscoped agent instances are cached by <c>agentId</c>. Hosted runtime instances are cached
+/// by <c>agentId/sessionId/branchId</c>, giving every branch its own runtime queue.
+/// Eviction is purely last-access based; <c>IsStreaming</c> is no longer tracked here.
 /// </remarks>
 public abstract class AgentManager : IDisposable
 {
@@ -128,30 +128,55 @@ public abstract class AgentManager : IDisposable
     /// Uses async-safe per-agent locking to prevent duplicate builds.
     /// </summary>
     public virtual async Task<Agent> GetOrBuildAgentAsync(string agentId, CancellationToken ct = default)
+        => await GetOrBuildAgentCoreAsync(agentId, agentId, ct).ConfigureAwait(false);
+
+    /// <summary>
+    /// Get or build a branch-owned runtime instance for the given agent definition.
+    /// </summary>
+    public virtual async Task<Agent> GetOrBuildAgentRuntimeAsync(
+        string agentId,
+        string sessionId,
+        string branchId,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+
+        return await GetOrBuildAgentCoreAsync(
+            agentId,
+            RuntimeCacheKey(agentId, sessionId, branchId),
+            ct).ConfigureAwait(false);
+    }
+
+    private async Task<Agent> GetOrBuildAgentCoreAsync(
+        string agentId,
+        string cacheKey,
+        CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(cacheKey);
 
         // Fast path
-        if (_agents.TryGetValue(agentId, out var entry))
+        if (_agents.TryGetValue(cacheKey, out var entry))
         {
             entry.LastAccessed = DateTime.UtcNow;
             return entry.Agent;
         }
 
         // Slow path: build with per-agent lock
-        var buildLock = _buildLocks.GetOrAdd(agentId, _ => new SemaphoreSlim(1, 1));
+        var buildLock = _buildLocks.GetOrAdd(cacheKey, _ => new SemaphoreSlim(1, 1));
         await buildLock.WaitAsync(ct);
         try
         {
             // Double-check after acquiring lock
-            if (_agents.TryGetValue(agentId, out entry))
+            if (_agents.TryGetValue(cacheKey, out entry))
             {
                 entry.LastAccessed = DateTime.UtcNow;
                 return entry.Agent;
             }
 
             var agent = await BuildAgentAsync(agentId, ct);
-            _agents[agentId] = new AgentEntry(agent);
+            _agents[cacheKey] = new AgentEntry(agent);
             return agent;
         }
         finally
@@ -159,6 +184,9 @@ public abstract class AgentManager : IDisposable
             buildLock.Release();
         }
     }
+
+    private static string RuntimeCacheKey(string agentId, string sessionId, string branchId) =>
+        $"{agentId}::{sessionId}::{branchId}";
 
     /// <summary>
     /// Return the cached <see cref="Agent"/> instance for an agent ID without building.
@@ -202,6 +230,13 @@ public abstract class AgentManager : IDisposable
         _agents.TryRemove(agentId, out _);
         if (_buildLocks.TryRemove(agentId, out var sem))
             sem.Dispose();
+
+        var runtimePrefix = $"{agentId}::";
+        foreach (var key in _agents.Keys.Where(k => k.StartsWith(runtimePrefix, StringComparison.Ordinal)).ToList())
+            _agents.TryRemove(key, out _);
+        foreach (var key in _buildLocks.Keys.Where(k => k.StartsWith(runtimePrefix, StringComparison.Ordinal)).ToList())
+            if (_buildLocks.TryRemove(key, out var runtimeSem))
+                runtimeSem.Dispose();
     }
 
     private void EvictIdleAgents(object? state)

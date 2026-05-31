@@ -27,15 +27,18 @@ namespace HPD.Agent;
 /// Dependencies needed for agent construction
 /// </summary>
 internal record AgentBuildDependencies(
-    IChatClient? ClientToUse,
+    AgentClientSet ClientSet,
     ChatOptions? MergedOptions,
     ErrorHandling.IProviderErrorHandler ErrorHandler,
-    IChatClient? SummarizerClient = null,
     /// <summary>
     /// HttpClients created by AgentBuilder for OpenAPI sources that did not provide their own.
     /// Transferred to Agent and disposed when Agent.Dispose() is called.
     /// </summary>
-    IReadOnlyList<HttpClient>? OwnedHttpClients = null);
+    IReadOnlyList<HttpClient>? OwnedHttpClients = null)
+{
+    public IChatClient? ClientToUse => ClientSet.Chat;
+    public IChatClient? SummarizerClient => ClientSet.Summarizer;
+}
 
 internal record AgentToolBuildResult(
     ChatOptions? MergedOptions,
@@ -1021,7 +1024,7 @@ public class AgentBuilder
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  Unified Content Store
+    //  Unified Content Store & Provider Registry
     // ═══════════════════════════════════════════════════════════════════
 
     /// <summary>
@@ -1032,6 +1035,18 @@ public class AgentBuilder
     public AgentBuilder WithContentStore(IContentStore store)
     {
         _contentStore = store ?? throw new ArgumentNullException(nameof(store));
+        return this;
+    }
+
+    /// <summary>
+    /// Configure the provider registry for intelligent content upload routing.
+    /// When set, ContentUploadMiddleware can automatically detect provider capabilities
+    /// and route DataContent uploads to HostedFileClient (provider-native) or IContentStore.
+    /// </summary>
+    public AgentBuilder WithProviderRegistry(IProviderRegistry registry)
+    {
+        // _providerRegistry is readonly, so this is a noop setter for now
+        // In future, we may make it settable or use dependency injection
         return this;
     }
 
@@ -1701,8 +1716,83 @@ public class AgentBuilder
     public AgentBuilder UseChatClientMiddleware(Func<IChatClient, IServiceProvider?, IChatClient> middleware)
     {
         ArgumentNullException.ThrowIfNull(middleware);
-        _config.ChatClientMiddleware ??= new();
-        _config.ChatClientMiddleware.Add(middleware);
+        _config.ClientMiddleware ??= new();
+        _config.ClientMiddleware.Chat ??= new();
+        _config.ClientMiddleware.Chat.Add(middleware);
+        return this;
+    }
+
+    public AgentBuilder UseTextToSpeechClientMiddleware(Func<ITextToSpeechClient, IServiceProvider?, ITextToSpeechClient> middleware)
+    {
+        ArgumentNullException.ThrowIfNull(middleware);
+        _config.ClientMiddleware ??= new();
+        _config.ClientMiddleware.TextToSpeech ??= new();
+        _config.ClientMiddleware.TextToSpeech.Add(middleware);
+        return this;
+    }
+
+    public AgentBuilder UseSpeechToTextClientMiddleware(Func<ISpeechToTextClient, IServiceProvider?, ISpeechToTextClient> middleware)
+    {
+        ArgumentNullException.ThrowIfNull(middleware);
+        _config.ClientMiddleware ??= new();
+        _config.ClientMiddleware.SpeechToText ??= new();
+        _config.ClientMiddleware.SpeechToText.Add(middleware);
+        return this;
+    }
+
+    public AgentBuilder UseRealtimeClientMiddleware(Func<IRealtimeClient, IServiceProvider?, IRealtimeClient> middleware)
+    {
+        ArgumentNullException.ThrowIfNull(middleware);
+        _config.ClientMiddleware ??= new();
+        _config.ClientMiddleware.Realtime ??= new();
+        _config.ClientMiddleware.Realtime.Add(middleware);
+        return this;
+    }
+
+    public AgentBuilder UseImageGeneratorMiddleware(Func<IImageGenerator, IServiceProvider?, IImageGenerator> middleware)
+    {
+        ArgumentNullException.ThrowIfNull(middleware);
+        _config.ClientMiddleware ??= new();
+        _config.ClientMiddleware.ImageGeneration ??= new();
+        _config.ClientMiddleware.ImageGeneration.Add(middleware);
+        return this;
+    }
+
+    public AgentBuilder UseEmbeddingGeneratorMiddleware(Func<IEmbeddingGenerator, IServiceProvider?, IEmbeddingGenerator> middleware)
+    {
+        ArgumentNullException.ThrowIfNull(middleware);
+        _config.ClientMiddleware ??= new();
+        _config.ClientMiddleware.Embeddings ??= new();
+        _config.ClientMiddleware.Embeddings.Add(middleware);
+        return this;
+    }
+
+    public AgentBuilder UseHostedFileClientMiddleware(Func<IHostedFileClient, IServiceProvider?, IHostedFileClient> middleware)
+    {
+        ArgumentNullException.ThrowIfNull(middleware);
+        _config.ClientMiddleware ??= new();
+        _config.ClientMiddleware.HostedFiles ??= new();
+        _config.ClientMiddleware.HostedFiles.Add(middleware);
+        return this;
+    }
+
+    public AgentBuilder UseVoiceActivityDetectorMiddleware(
+        Func<IVoiceActivityDetector, ProviderComponentLifetimeContext, IServiceProvider?, IVoiceActivityDetector> middleware)
+    {
+        ArgumentNullException.ThrowIfNull(middleware);
+        _config.ClientMiddleware ??= new();
+        _config.ClientMiddleware.VoiceActivityDetection ??= new();
+        _config.ClientMiddleware.VoiceActivityDetection.Add(middleware);
+        return this;
+    }
+
+    public AgentBuilder UseEndOfTurnDetectorMiddleware(
+        Func<IEotDetector, ProviderComponentLifetimeContext, IServiceProvider?, IEotDetector> middleware)
+    {
+        ArgumentNullException.ThrowIfNull(middleware);
+        _config.ClientMiddleware ??= new();
+        _config.ClientMiddleware.EndOfTurnDetection ??= new();
+        _config.ClientMiddleware.EndOfTurnDetection.Add(middleware);
         return this;
     }
 
@@ -1753,9 +1843,7 @@ public class AgentBuilder
     /// </summary>
     public AgentBuilder WithDefaultOptions(ChatOptions options)
     {
-        if (_config.Provider == null)
-            _config.Provider = new ProviderConfig();
-        _config.Provider.DefaultChatOptions = options;
+        EnsureChatClientConfig().DefaultChatOptions = options;
         return this;
     }
 
@@ -1814,6 +1902,16 @@ public class AgentBuilder
                 "Use .WithSessionStore() for persistence.");
         }
         _config.SessionStoreOptions ??= new SessionStoreOptions();
+
+        // Default content store: InMemoryContentStore for zero-config out-of-the-box experience (V3)
+        // Users can override with WithContentStore() for persistent storage (LocalFileContentStore, etc.)
+        if (_contentStore == null)
+        {
+            _contentStore = new InMemoryContentStore();
+            _logger?.CreateLogger<AgentBuilder>().LogInformation(
+                "Using default InMemoryContentStore (in-memory, ephemeral). " +
+                "Use .WithContentStore() for persistence (e.g., LocalFileContentStore).");
+        }
 
         // Resolve config middlewares before auto-middleware registration
         // This enables Config = Base, Builder = Override/Extend pattern
@@ -1933,7 +2031,7 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Registers all auto-middleware (error handling, history reduction, tool Collapsing, etc).
+    /// Registers all auto-middleware (error handling, compaction, tool Collapsing, etc).
     /// Called by both sync and async build paths to eliminate code duplication.
     /// </summary>
     private void RegisterAutoMiddleware(AgentBuildDependencies buildData)
@@ -1950,23 +2048,29 @@ public class AgentBuilder
         //   agentBuilder.WithMiddleware(new ContinuationPermissionMiddleware(maxIterations: 15))
         // This gives users full control over whether to ask for permission at iteration limits.
 
-        // Register HistoryReductionMiddleware if enabled
+        // Register CompactionMiddleware if enabled
         // This reduces conversation history to manage context window size
-        if (_config.HistoryReduction?.Enabled == true)
+        if (_config.Compaction?.Enabled == true)
         {
-            var chatReducer = CreateChatReducer(buildData.ClientToUse, _config, buildData.SummarizerClient);
-            _middlewares.Add(new HistoryReductionMiddleware
+            var compactionStrategy = CreateCompactionStrategy(buildData.ClientToUse, _config, buildData.SummarizerClient);
+            _middlewares.Add(new CompactionMiddleware
             {
-                ChatReducer = chatReducer,
-                Config = _config.HistoryReduction,
+                Strategy = compactionStrategy,
+                Config = _config.Compaction,
                 SystemInstructions = _config.SystemInstructions
             });
         }
 
-        // Register AssetUploadMiddleware with the agent-level content store (if configured).
-        // Transforms DataContent → UriContent for efficient storage.
-        // Zero-cost when _contentStore is null (no-op middleware).
-        _middlewares.Add(new Middleware.AssetUploadMiddleware(_contentStore));
+        // Register ContentUploadMiddleware for intelligent file upload routing.
+        // Routes DataContent to HostedFileClient (provider-native) or IContentStore based on
+        // provider capabilities and RunConfig.UploadStrategy (Auto/Hosted/Local).
+        // _contentStore is guaranteed to be non-null due to auto-initialization in Build().
+        _middlewares.Add(new Middleware.ContentUploadMiddleware(_providerRegistry, _contentStore));
+
+        // Register ContentReferenceResolverMiddleware immediately after ContentUploadMiddleware.
+        // Converts hpd-content:// URIs to provider-facing UriContent, HostedFileContent, or DataContent.
+        // This ensures efficient message storage (URI refs) with transparent resolution.
+        _middlewares.Add(new Middleware.ContentReferenceResolverMiddleware(_contentStore));
 
         // Register ImageMiddleware ALWAYS with default PassThrough strategy
         // Allows images to flow to vision models without processing
@@ -2056,8 +2160,10 @@ public class AgentBuilder
             _serviceProvider,
             _eventSubscriptionFactories,
             _providerRegistry,
+            _contentStore,
             _stateFactories,
-            buildData.OwnedHttpClients);
+            buildData.OwnedHttpClients,
+            buildData.ClientSet);
     }
 
     /// <summary>
@@ -2255,29 +2361,212 @@ public class AgentBuilder
         }
 
         return new AgentToolBuildResult(
-            MergeToolFunctions(_config.Provider?.DefaultChatOptions, toolFunctions),
+            MergeToolFunctions(_config.ResolveClientConfig(ProviderClientFamily.Chat)?.DefaultChatOptions, toolFunctions),
             openApiResult?.OwnedHttpClients.Count > 0 ? openApiResult.OwnedHttpClients : null);
     }
 
     private IChatClient? CreateSummarizerClient()
     {
-        if (_config.HistoryReduction?.SummarizerProvider == null)
+        if (_config.Compaction?.Strategy is not SummarizingCompactionOptions summarizingOptions ||
+            summarizingOptions.SummarizerProvider == null)
             return null;
 
-        var summarizerProviderKey = _config.HistoryReduction.SummarizerProvider.ProviderKey;
-        var summarizerProviderFeatures = _providerRegistry.GetProvider(summarizerProviderKey);
-
-        if (summarizerProviderFeatures == null)
-        {
-            var availableProviders = string.Join(", ", _providerRegistry.GetRegisteredProviders());
-            throw new InvalidOperationException(
-                $"Unknown provider for summarization: '{summarizerProviderKey}'. " +
-                $"Available providers: [{availableProviders}]");
-        }
+        var summarizerProviderKey = summarizingOptions.SummarizerProvider.ProviderKey;
+        var summarizerProviderFeatures = _providerRegistry.GetRequiredProvider<IChatClientProvider>(summarizerProviderKey);
 
         return summarizerProviderFeatures.CreateChatClient(
-            _config.HistoryReduction.SummarizerProvider,
+            summarizingOptions.SummarizerProvider,
             _serviceProvider);
+    }
+
+    private AgentClientSet CreateAgentClientSet(
+        IChatClient? chat,
+        IChatClient? summarizer,
+        ClientProviderConfig? chatConfig)
+    {
+        var resolvedConfigs = new Dictionary<ProviderClientFamily, ClientProviderConfig>();
+        if (chatConfig != null)
+            resolvedConfigs[ProviderClientFamily.Chat] = ClientProviderConfigResolver.Clone(chatConfig);
+
+        var textToSpeech = ResolveClientFamily<ITextToSpeechClientProvider, ITextToSpeechClient>(
+            ProviderClientFamily.TextToSpeech,
+            static (provider, config, services) => provider.CreateTextToSpeechClient(config, services),
+            resolvedConfigs);
+
+        var speechToText = ResolveClientFamily<ISpeechToTextClientProvider, ISpeechToTextClient>(
+            ProviderClientFamily.SpeechToText,
+            static (provider, config, services) => provider.CreateSpeechToTextClient(config, services),
+            resolvedConfigs);
+
+        var realtime = ResolveClientFamily<IRealtimeClientProvider, IRealtimeClient>(
+            ProviderClientFamily.Realtime,
+            static (provider, config, services) => provider.CreateRealtimeClient(config, services),
+            resolvedConfigs);
+
+        var imageGenerator = ResolveClientFamily<IImageGeneratorProvider, IImageGenerator>(
+            ProviderClientFamily.ImageGeneration,
+            static (provider, config, services) => provider.CreateImageGenerator(config, services),
+            resolvedConfigs);
+
+        var embeddingGenerator = ResolveClientFamily<IEmbeddingGeneratorProvider, IEmbeddingGenerator>(
+            ProviderClientFamily.Embeddings,
+            static (provider, config, services) => provider.CreateEmbeddingGenerator(config, services),
+            resolvedConfigs);
+
+        var hostedFiles = ResolveClientFamily<IHostedFileClientProvider, IHostedFileClient>(
+            ProviderClientFamily.HostedFiles,
+            static (provider, config, services) => provider.CreateHostedFileClient(config, services),
+            resolvedConfigs);
+
+        var vadFactory = ResolveComponentFactory<IVoiceActivityDetectorProvider, IVoiceActivityDetector>(
+            ProviderClientFamily.VoiceActivityDetection,
+            ProviderFamilyLifetime.StatefulPerAudioSession,
+            static (provider, config, context, services) =>
+                provider.CreateVoiceActivityDetector(config, context, services),
+            resolvedConfigs);
+
+        var eotFactory = ResolveComponentFactory<IEndOfTurnDetectorProvider, IEotDetector>(
+            ProviderClientFamily.EndOfTurnDetection,
+            ProviderFamilyLifetime.StatefulPerAudioSession,
+            static (provider, config, context, services) =>
+                provider.CreateEndOfTurnDetector(config, context, services),
+            resolvedConfigs);
+
+        return new AgentClientSet
+        {
+            Chat = chat,
+            Summarizer = summarizer,
+            TextToSpeech = textToSpeech,
+            SpeechToText = speechToText,
+            Realtime = realtime,
+            ImageGenerator = imageGenerator,
+            EmbeddingGenerator = embeddingGenerator,
+            HostedFiles = hostedFiles,
+            VoiceActivityDetectorFactory = vadFactory,
+            EndOfTurnDetectorFactory = eotFactory,
+            ResolvedConfigs = resolvedConfigs
+        };
+    }
+
+    private TClient? ResolveClientFamily<TProvider, TClient>(
+        ProviderClientFamily family,
+        Func<TProvider, ClientProviderConfig, IServiceProvider?, TClient> createClient,
+        Dictionary<ProviderClientFamily, ClientProviderConfig> resolvedConfigs)
+        where TProvider : class, IProvider
+    {
+        var config = _config.ResolveClientConfig(family);
+        if (config == null || string.IsNullOrWhiteSpace(config.ProviderKey))
+            return default;
+
+        var provider = _providerRegistry.GetRequiredProvider<TProvider>(config.ProviderKey);
+        resolvedConfigs[family] = ClientProviderConfigResolver.Clone(config);
+        return ApplyClientMiddleware(family, createClient(provider, config, _serviceProvider));
+    }
+
+    private Func<ProviderComponentLifetimeContext, TComponent>? ResolveComponentFactory<TProvider, TComponent>(
+        ProviderClientFamily family,
+        ProviderFamilyLifetime defaultLifetime,
+        Func<TProvider, ClientProviderConfig, ProviderComponentLifetimeContext, IServiceProvider?, TComponent> createComponent,
+        Dictionary<ProviderClientFamily, ClientProviderConfig> resolvedConfigs)
+        where TProvider : class, IProvider
+    {
+        var config = _config.ResolveClientConfig(family);
+        if (config == null || string.IsNullOrWhiteSpace(config.ProviderKey))
+            return null;
+
+        var provider = _providerRegistry.GetRequiredProvider<TProvider>(config.ProviderKey);
+        var capturedConfig = ClientProviderConfigResolver.Clone(config);
+        resolvedConfigs[family] = capturedConfig;
+
+        var lifetime = provider.GetMetadata().Families.TryGetValue(family, out var descriptor)
+            ? descriptor.Lifetime
+            : defaultLifetime;
+
+        return context =>
+        {
+            var scopedContext = context.Lifetime == ProviderFamilyLifetime.ReusableClient
+                ? context with { Lifetime = lifetime }
+                : context;
+
+            return ApplyComponentMiddleware(
+                family,
+                createComponent(provider, capturedConfig, scopedContext, _serviceProvider),
+                scopedContext);
+        };
+    }
+
+    private TClient ApplyClientMiddleware<TClient>(ProviderClientFamily family, TClient client)
+    {
+        return family switch
+        {
+            ProviderClientFamily.Chat when client is IChatClient chat =>
+                (TClient)(object)ApplyMiddleware(chat, _config.ClientMiddleware?.Chat, "chat client"),
+            ProviderClientFamily.TextToSpeech when client is ITextToSpeechClient tts =>
+                (TClient)(object)ApplyMiddleware(tts, _config.ClientMiddleware?.TextToSpeech, "text-to-speech client"),
+            ProviderClientFamily.SpeechToText when client is ISpeechToTextClient stt =>
+                (TClient)(object)ApplyMiddleware(stt, _config.ClientMiddleware?.SpeechToText, "speech-to-text client"),
+            ProviderClientFamily.Realtime when client is IRealtimeClient realtime =>
+                (TClient)(object)ApplyMiddleware(realtime, _config.ClientMiddleware?.Realtime, "realtime client"),
+            ProviderClientFamily.ImageGeneration when client is IImageGenerator imageGenerator =>
+                (TClient)(object)ApplyMiddleware(imageGenerator, _config.ClientMiddleware?.ImageGeneration, "image generator"),
+            ProviderClientFamily.Embeddings when client is IEmbeddingGenerator embeddingGenerator =>
+                (TClient)(object)ApplyMiddleware(embeddingGenerator, _config.ClientMiddleware?.Embeddings, "embedding generator"),
+            ProviderClientFamily.HostedFiles when client is IHostedFileClient hostedFiles =>
+                (TClient)(object)ApplyMiddleware(hostedFiles, _config.ClientMiddleware?.HostedFiles, "hosted file client"),
+            _ => client
+        };
+    }
+
+    private TComponent ApplyComponentMiddleware<TComponent>(
+        ProviderClientFamily family,
+        TComponent component,
+        ProviderComponentLifetimeContext context)
+    {
+        return family switch
+        {
+            ProviderClientFamily.VoiceActivityDetection when component is IVoiceActivityDetector vad =>
+                (TComponent)(object)ApplyMiddleware(vad, _config.ClientMiddleware?.VoiceActivityDetection, context, "voice activity detector"),
+            ProviderClientFamily.EndOfTurnDetection when component is IEotDetector eot =>
+                (TComponent)(object)ApplyMiddleware(eot, _config.ClientMiddleware?.EndOfTurnDetection, context, "end-of-turn detector"),
+            _ => component
+        };
+    }
+
+    private TClient ApplyMiddleware<TClient>(
+        TClient client,
+        IReadOnlyList<Func<TClient, IServiceProvider?, TClient>>? middleware,
+        string clientDescription)
+    {
+        if (middleware == null || middleware.Count == 0)
+            return client;
+
+        var effective = client;
+        for (var i = middleware.Count - 1; i >= 0; i--)
+        {
+            effective = middleware[i](effective, _serviceProvider)
+                ?? throw new InvalidOperationException($"{clientDescription} middleware returned null.");
+        }
+
+        return effective;
+    }
+
+    private TComponent ApplyMiddleware<TComponent>(
+        TComponent component,
+        IReadOnlyList<Func<TComponent, ProviderComponentLifetimeContext, IServiceProvider?, TComponent>>? middleware,
+        ProviderComponentLifetimeContext context,
+        string componentDescription)
+    {
+        if (middleware == null || middleware.Count == 0)
+            return component;
+
+        var effective = component;
+        for (var i = middleware.Count - 1; i >= 0; i--)
+        {
+            effective = middleware[i](effective, context, _serviceProvider)
+                ?? throw new InvalidOperationException($"{componentDescription} middleware returned null.");
+        }
+
+        return effective;
     }
 
     /// <summary>
@@ -2311,28 +2600,27 @@ public class AgentBuilder
             var injectedSummarizerClient = CreateSummarizerClient();
 
             return new AgentBuildDependencies(
-                _baseClient,
+                CreateAgentClientSet(_baseClient, injectedSummarizerClient, chatConfig: null),
                 toolBuild.MergedOptions,
                 testErrorHandler,
-                injectedSummarizerClient,
                 OwnedHttpClients: toolBuild.OwnedHttpClients);
         }
 
         // === START: VALIDATION LOGIC ===
         AgentConfigValidator.ValidateAndThrow(_config);
+        var chatProviderConfig = _config.ResolveClientConfig(ProviderClientFamily.Chat);
 
         // === RUNTIME PROVIDER: Skip provider client creation when a chat client
         // will be selected at invocation time via AgentRunConfig.
-        if (_deferredProvider || _config.Provider == null)
+        if (_deferredProvider || chatProviderConfig == null)
         {
             var runtimeErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
             var toolBuild = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
             var runtimeSummarizerClient = CreateSummarizerClient();
             return new AgentBuildDependencies(
-                null,
+                CreateAgentClientSet(null, runtimeSummarizerClient, chatConfig: null),
                 toolBuild.MergedOptions,
                 runtimeErrorHandler,
-                runtimeSummarizerClient,
                 OwnedHttpClients: toolBuild.OwnedHttpClients);
         }
 
@@ -2361,9 +2649,9 @@ public class AgentBuilder
         }
 
         // ✨ PRIORITY 1: Try to resolve from Providers section (recommended pattern)
-        if (_configuration != null && !string.IsNullOrEmpty(_config.Provider.ProviderKey))
+        if (_configuration != null && !string.IsNullOrEmpty(chatProviderConfig.ProviderKey))
         {
-            var providerName = _config.Provider.ProviderKey;
+            var providerName = chatProviderConfig.ProviderKey;
             var providerSection = _configuration.GetSection($"Providers:{providerName}")
                                ?? _configuration.GetSection($"Providers:{Capitalize(providerName)}");
 
@@ -2371,20 +2659,20 @@ public class AgentBuilder
             {
                 // Apply provider section values (only if not already set in code)
                 var sectionProviderKey = providerSection["ProviderKey"];
-                if (!string.IsNullOrEmpty(sectionProviderKey) && string.IsNullOrEmpty(_config.Provider.ProviderKey))
-                    _config.Provider.ProviderKey = sectionProviderKey;
+                if (!string.IsNullOrEmpty(sectionProviderKey) && string.IsNullOrEmpty(chatProviderConfig.ProviderKey))
+                    chatProviderConfig.ProviderKey = sectionProviderKey;
 
                 var sectionApiKey = providerSection["ApiKey"];
-                if (!string.IsNullOrEmpty(sectionApiKey) && string.IsNullOrEmpty(_config.Provider.ApiKey))
-                    _config.Provider.ApiKey = sectionApiKey;
+                if (!string.IsNullOrEmpty(sectionApiKey) && string.IsNullOrEmpty(chatProviderConfig.ApiKey))
+                    chatProviderConfig.ApiKey = sectionApiKey;
 
                 var sectionModelName = providerSection["ModelName"];
-                if (!string.IsNullOrEmpty(sectionModelName) && string.IsNullOrEmpty(_config.Provider.ModelName))
-                    _config.Provider.ModelName = sectionModelName;
+                if (!string.IsNullOrEmpty(sectionModelName) && string.IsNullOrEmpty(chatProviderConfig.ModelName))
+                    chatProviderConfig.ModelName = sectionModelName;
 
                 var sectionEndpoint = providerSection["Endpoint"];
-                if (!string.IsNullOrEmpty(sectionEndpoint) && string.IsNullOrEmpty(_config.Provider.Endpoint))
-                    _config.Provider.Endpoint = sectionEndpoint;
+                if (!string.IsNullOrEmpty(sectionEndpoint) && string.IsNullOrEmpty(chatProviderConfig.Endpoint))
+                    chatProviderConfig.Endpoint = sectionEndpoint;
             }
         }
 
@@ -2399,77 +2687,67 @@ public class AgentBuilder
             if (!string.IsNullOrEmpty(connectionString) && ProviderConnectionInfo.TryParse(connectionString, out var connInfo))
             {
                 // Apply connection string values (only if not already set in code)
-                if (!string.IsNullOrEmpty(connInfo.Provider) && string.IsNullOrEmpty(_config.Provider.ProviderKey))
-                    _config.Provider.ProviderKey = connInfo.Provider;
+                if (!string.IsNullOrEmpty(connInfo.Provider) && string.IsNullOrEmpty(chatProviderConfig.ProviderKey))
+                    chatProviderConfig.ProviderKey = connInfo.Provider;
 
-                if (!string.IsNullOrEmpty(connInfo.AccessKey) && string.IsNullOrEmpty(_config.Provider.ApiKey))
-                    _config.Provider.ApiKey = connInfo.AccessKey;
+                if (!string.IsNullOrEmpty(connInfo.AccessKey) && string.IsNullOrEmpty(chatProviderConfig.ApiKey))
+                    chatProviderConfig.ApiKey = connInfo.AccessKey;
 
-                if (!string.IsNullOrEmpty(connInfo.Model) && string.IsNullOrEmpty(_config.Provider.ModelName))
-                    _config.Provider.ModelName = connInfo.Model;
+                if (!string.IsNullOrEmpty(connInfo.Model) && string.IsNullOrEmpty(chatProviderConfig.ModelName))
+                    chatProviderConfig.ModelName = connInfo.Model;
 
-                if (connInfo.Endpoint != null && string.IsNullOrEmpty(_config.Provider.Endpoint))
-                    _config.Provider.Endpoint = connInfo.Endpoint.ToString();
+                if (connInfo.Endpoint != null && string.IsNullOrEmpty(chatProviderConfig.Endpoint))
+                    chatProviderConfig.Endpoint = connInfo.Endpoint.ToString();
             }
         }
 
         // ✨ PRIORITY 3: Resolve from individual configuration keys (backward compatibility)
-        if (string.IsNullOrEmpty(_config.Provider.ApiKey))
+        if (string.IsNullOrEmpty(chatProviderConfig.ApiKey))
         {
-            var providerKeyForConfig = _config.Provider.ProviderKey;
+            var providerKeyForConfig = chatProviderConfig.ProviderKey;
             if (string.IsNullOrEmpty(providerKeyForConfig))
                 providerKeyForConfig = "openai"; // fallback default
 
             var apiKey = await _secretResolver!.ResolveOrDefaultAsync(
                 $"{providerKeyForConfig}:ApiKey",
-                _config.Provider.ApiKey,
+                chatProviderConfig.ApiKey,
                 cancellationToken);
 
             if (!string.IsNullOrEmpty(apiKey))
-                _config.Provider.ApiKey = apiKey;
+                chatProviderConfig.ApiKey = apiKey;
         }
 
         // Also try to resolve endpoint if not set
-        if (string.IsNullOrEmpty(_config.Provider.Endpoint))
+        if (string.IsNullOrEmpty(chatProviderConfig.Endpoint))
         {
-            var providerKeyForConfig = _config.Provider.ProviderKey;
+            var providerKeyForConfig = chatProviderConfig.ProviderKey;
             if (string.IsNullOrEmpty(providerKeyForConfig))
                 providerKeyForConfig = "openai"; // fallback default
 
             var endpoint = await _secretResolver!.ResolveOrDefaultAsync(
                 $"{providerKeyForConfig}:Endpoint",
-                _config.Provider.Endpoint,
+                chatProviderConfig.Endpoint,
                 cancellationToken);
 
             if (!string.IsNullOrEmpty(endpoint))
-                _config.Provider.Endpoint = endpoint;
+                chatProviderConfig.Endpoint = endpoint;
         }
 
         // Resolve provider from registry
-        var providerKey = _config.Provider.ProviderKey;
-        if (string.IsNullOrEmpty(providerKey) || string.IsNullOrEmpty(_config.Provider.ModelName))
+        var providerKey = chatProviderConfig.ProviderKey;
+        if (string.IsNullOrEmpty(providerKey) || string.IsNullOrEmpty(chatProviderConfig.ModelName))
         {
             var runtimeErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
             var toolBuild = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
             var fallbackSummarizerClient = CreateSummarizerClient();
             return new AgentBuildDependencies(
-                null,
+                CreateAgentClientSet(null, fallbackSummarizerClient, chatConfig: null),
                 toolBuild.MergedOptions,
                 runtimeErrorHandler,
-                fallbackSummarizerClient,
                 OwnedHttpClients: toolBuild.OwnedHttpClients);
         }
 
-        var providerFeatures = _providerRegistry.GetProvider(providerKey);
-
-        if (providerFeatures == null)
-        {
-            var availableProviders = string.Join(", ", _providerRegistry.GetRegisteredProviders());
-            throw new InvalidOperationException(
-                $"Provider '{providerKey}' not registered. " +
-                $"Available providers: [{availableProviders}]. " +
-                $"Did you forget to reference the HPD-Agent.Providers.{Capitalize(providerKey)} package?");
-        }
+        var providerFeatures = _providerRegistry.GetRequiredProvider<IChatClientProvider>(providerKey);
 
         // Validate provider-specific configuration
         ProviderValidationResult validation;
@@ -2480,7 +2758,10 @@ public class AgentBuilder
         // Try async validation first if enabled and supported
         if (enableAsyncValidation)
         {
-            var asyncValidationTask = providerFeatures.ValidateConfigurationAsync(_config.Provider, cancellationToken);
+            var asyncValidationTask = providerFeatures.ValidateConfigurationAsync(
+                chatProviderConfig,
+                ProviderClientFamily.Chat,
+                cancellationToken);
 
             // If provider supports async validation (returns non-null Task)
             if (asyncValidationTask != null)
@@ -2497,19 +2778,19 @@ public class AgentBuilder
                 else
                 {
                     // Async task completed but returned null, use sync
-                    validation = providerFeatures.ValidateConfiguration(_config.Provider);
+                    validation = providerFeatures.ValidateConfiguration(chatProviderConfig, ProviderClientFamily.Chat);
                 }
             }
             else
             {
                 // Provider doesn't support async validation (returns null Task), use sync
-                validation = providerFeatures.ValidateConfiguration(_config.Provider);
+                validation = providerFeatures.ValidateConfiguration(chatProviderConfig, ProviderClientFamily.Chat);
             }
         }
         else
         {
             // Async validation disabled, use sync only
-            validation = providerFeatures.ValidateConfiguration(_config.Provider);
+            validation = providerFeatures.ValidateConfiguration(chatProviderConfig, ProviderClientFamily.Chat);
         }
 
         if (!validation.IsValid)
@@ -2545,7 +2826,7 @@ public class AgentBuilder
                     $" USER SECRETS (development only):\n" +
                     $"   dotnet user-secrets set \"Providers:{providerCapitalized}:ApiKey\" \"your-api-key\"\n\n" +
                     $" CODE (for testing only, not recommended):\n" +
-                    $"   Provider = new ProviderConfig {{ ApiKey = \"your-api-key\", ... }}";
+                    $"   Clients = new AgentClientConfig {{ Chat = new ClientProviderConfig {{ ApiKey = \"your-api-key\", ... }} }}";
             }            throw new InvalidOperationException(errorMessage);
         }
 
@@ -2553,7 +2834,7 @@ public class AgentBuilder
         // Skip client creation if WithChatClient() was used (e.g., SubAgent inheriting parent's client)
         if (_baseClient == null)
         {
-            _baseClient = providerFeatures.CreateChatClient(_config.Provider, _serviceProvider);
+            _baseClient = providerFeatures.CreateChatClient(chatProviderConfig, _serviceProvider);
 
             if (_baseClient == null)
                 throw new InvalidOperationException($"The factory for provider '{providerKey}' returned a null chat client.");
@@ -2580,10 +2861,9 @@ public class AgentBuilder
 
         // Return dependencies instead of creating agent
         return new AgentBuildDependencies(
-            clientToUse,
+            CreateAgentClientSet(clientToUse, summarizerClient, chatProviderConfig),
             builtTools.MergedOptions,
             errorHandler,
-            summarizerClient,
             builtTools.OwnedHttpClients);
     }
 
@@ -2593,8 +2873,10 @@ public class AgentBuilder
 
     private static string Capitalize(string s) => string.IsNullOrEmpty(s) ? s : char.ToUpperInvariant(s[0]) + s[1..];
 
-
-
+    private ClientProviderConfig EnsureChatClientConfig()
+    {
+        return _config.EnsureChatClientConfig();
+    }
 
     /// <summary>
     /// Merges Harness functions into chat options.
@@ -2771,50 +3053,49 @@ public class AgentBuilder
     public AgentBuilder WithNativeFunction(AIFunction function)
     {
         // Get or create default chat options
-        if (_config.Provider == null)
-            _config.Provider = new ProviderConfig();
-            
-        if (_config.Provider.DefaultChatOptions == null)
-            _config.Provider.DefaultChatOptions = new ChatOptions();
+        var chatConfig = EnsureChatClientConfig();
+        if (chatConfig.DefaultChatOptions == null)
+            chatConfig.DefaultChatOptions = new ChatOptions();
             
         // Add to tools list
-        var tools = _config.Provider.DefaultChatOptions.Tools?.ToList() ?? new List<AITool>();
+        var tools = chatConfig.DefaultChatOptions.Tools?.ToList() ?? new List<AITool>();
         tools.Add(function);
-        _config.Provider.DefaultChatOptions.Tools = tools;
+        chatConfig.DefaultChatOptions.Tools = tools;
 
         // Enable auto tool mode if not already set
-        if (_config.Provider.DefaultChatOptions.ToolMode == null)
-            _config.Provider.DefaultChatOptions.ToolMode = ChatToolMode.Auto;
+        if (chatConfig.DefaultChatOptions.ToolMode == null)
+            chatConfig.DefaultChatOptions.ToolMode = ChatToolMode.Auto;
             
         return this;
     }
 
     /// <summary>
-    /// Creates a chat reducer based on the HistoryReductionConfig strategy.
-    /// Returns null if history reduction is not enabled.
+    /// Creates a normalized HPD compaction strategy based on the configured strategy options.
     /// </summary>
-    private static IChatReducer? CreateChatReducer(
+    private static ICompactionStrategy? CreateCompactionStrategy(
         IChatClient? baseClient,
         AgentConfig config,
         IChatClient? summarizerClient)
     {
-        var historyConfig = config.HistoryReduction;
+        var historyConfig = config.Compaction;
 
         if (historyConfig == null || !historyConfig.Enabled)
         {
             return null;
         }
 
-        return historyConfig.Strategy switch
+        IChatReducer reducer = historyConfig.Strategy switch
         {
-            HistoryReductionStrategy.MessageCounting =>
-                new MessageCountingChatReducer(historyConfig.TargetCount),
+            MessageCountingCompactionOptions messageCounting =>
+                new MessageCountingChatReducer(messageCounting.TargetMessageCount),
 
-            HistoryReductionStrategy.Summarizing =>
-                CreateSummarizingReducer(baseClient, historyConfig, summarizerClient),
+            SummarizingCompactionOptions summarizing =>
+                CreateSummarizingReducer(baseClient, summarizing, summarizerClient),
 
-            _ => throw new ArgumentException($"Unknown history reduction strategy: {historyConfig.Strategy}")
+            _ => throw new ArgumentException($"Unknown compaction strategy: {historyConfig.Strategy.GetType().Name}")
         };
+
+        return new ChatReducerCompactionStrategy(reducer, historyConfig.Strategy);
     }
 
     /// <summary>
@@ -2823,7 +3104,7 @@ public class AgentBuilder
     /// </summary>
     private static SummarizingChatReducer CreateSummarizingReducer(
         IChatClient? baseClient,
-        HistoryReductionConfig historyConfig,
+        SummarizingCompactionOptions options,
         IChatClient? summarizerClient)
     {
         // Determine which chat client to use for summarization
@@ -2833,20 +3114,45 @@ public class AgentBuilder
         if (clientForSummarization == null)
         {
             throw new InvalidOperationException(
-                "History reduction with summarization requires a configured provider or summarizer provider.");
+                "History compaction with summarization requires a configured provider or summarizer provider.");
         }
 
         var reducer = new SummarizingChatReducer(
             clientForSummarization,
-            historyConfig.TargetCount,
-            historyConfig.SummarizationThreshold);
+            options.TargetRecentMessageCount,
+            options.ResummarizeAfterNewMessages);
 
-        if (!string.IsNullOrEmpty(historyConfig.CustomSummarizationPrompt))
+        if (!string.IsNullOrEmpty(options.CustomPrompt))
         {
-            reducer.SummarizationPrompt = historyConfig.CustomSummarizationPrompt;
+            reducer.SummarizationPrompt = options.CustomPrompt;
+        }
+        else if (options.SummaryStyle == SummaryStyle.Handoff)
+        {
+            reducer.SummarizationPrompt = CreateHandoffSummarizationPrompt(options.UseSingleSummary);
         }
 
         return reducer;
+    }
+
+    private static string CreateHandoffSummarizationPrompt(bool useSingleSummary)
+    {
+        var summaryContinuityInstruction = useSingleSummary
+            ? "Incorporate any previous summary as authoritative context and emit one consolidated handoff."
+            : "Preserve any previous summary as a distinct prior-memory layer when it materially affects the handoff.";
+
+        return $$"""
+        Generate a compact handoff summary for another AI agent that will continue this conversation.
+
+        Preserve the information needed to resume work without rereading the compacted messages:
+        - the user's current goal and any important corrections or preferences;
+        - decisions already made and rejected paths;
+        - relevant files, symbols, commands, tools, errors, and test results;
+        - current progress and remaining work;
+        - durable facts, constraints, examples, and references that affect the next response.
+
+        {{summaryContinuityInstruction}} Do not invent facts, critique the conversation, or omit concrete
+        details that would be expensive or impossible to recover later.
+        """;
     }
 }
 
@@ -3680,131 +3986,27 @@ public static class AgentBuilderMemoryExtensions
     
 
     /// <summary>
-    /// <summary>
-    /// Configures conversation history reduction to manage context window size.
-    /// Supports message-based reduction (keeps last N messages) or summarization (uses LLM to compress old messages).
+    /// Configures compaction to manage model context and optional durable branch history.
     /// </summary>
     /// <param name="builder">The agent builder instance</param>
-    /// <param name="configure">Configuration action for history reduction settings</param>
+    /// <param name="configure">Configuration action for compaction settings</param>
     /// <returns>The builder for method chaining</returns>
     /// <example>
     /// <code>
-    /// builder.WithHistoryReduction(config => {
+    /// builder.WithCompaction(config => {
     ///     config.Enabled = true;
-    ///     config.Strategy = HistoryReductionStrategy.Summarizing;
-    ///     config.TargetCount = 30;
-    ///     config.SummarizationThreshold = 10;
+    ///     config.Strategy = new SummarizingCompactionOptions { TargetRecentMessageCount = 30 };
+    ///     config.Trigger = new CountCompactionTriggerOptions { Threshold = 10 };
+    ///     config.Retention = new PreserveBranchHistoryOptions();
     /// });
     /// </code>
     /// </example>
-    public static AgentBuilder WithHistoryReduction(this AgentBuilder builder, Action<HistoryReductionConfig>? configure = null)
+    public static AgentBuilder WithCompaction(this AgentBuilder builder, Action<CompactionConfig>? configure = null)
     {
-        var config = builder.Config.HistoryReduction ?? new HistoryReductionConfig();
+        var config = builder.Config.Compaction ?? new CompactionConfig();
         configure?.Invoke(config);
 
-        builder.Config.HistoryReduction = config;
-        return builder;
-    }
-
-    /// <summary>
-    /// Enables simple message counting reduction (keeps last N messages).
-    /// Quick setup method for basic history management.
-    /// </summary>
-    /// <param name="builder">The agent builder instance</param>
-    /// <param name="targetMessageCount">Number of messages to keep (default: 20)</param>
-    /// <param name="threshold">Extra messages allowed before reduction triggers (default: 5)</param>
-    /// <returns>The builder for method chaining</returns>
-    public static AgentBuilder WithMessageCountingReduction(this AgentBuilder builder, int targetMessageCount = 20, int threshold = 5)
-    {
-        return builder.WithHistoryReduction(config =>
-        {
-            config.Enabled = true;
-            config.Strategy = HistoryReductionStrategy.MessageCounting;
-            config.TargetCount = targetMessageCount;
-            config.SummarizationThreshold = threshold;
-        });
-    }
-
-    /// <summary>
-    /// Enables summarizing reduction (uses LLM to compress old messages).
-    /// Provides better context retention than message counting but requires additional LLM calls.
-    /// </summary>
-    /// <param name="builder">The agent builder instance</param>
-    /// <param name="targetMessageCount">Number of messages to keep (default: 20)</param>
-    /// <param name="threshold">Extra messages before summarization triggers (default: 5)</param>
-    /// <param name="customPrompt">Optional custom summarization prompt</param>
-    /// <returns>The builder for method chaining</returns>
-    public static AgentBuilder WithSummarizingReduction(this AgentBuilder builder, int targetMessageCount = 20, int threshold = 5, string? customPrompt = null)
-    {
-        return builder.WithHistoryReduction(config =>
-        {
-            config.Enabled = true;
-            config.Strategy = HistoryReductionStrategy.Summarizing;
-            config.TargetCount = targetMessageCount;
-            config.SummarizationThreshold = threshold;
-            config.CustomSummarizationPrompt = customPrompt;
-        });
-    }
-
-    /// <summary>
-    /// Configures a separate LLM provider for summarization to optimize costs.
-    /// Use a cheaper/faster model for summaries while keeping your main model for responses.
-    /// </summary>
-    /// <param name="builder">The agent builder instance</param>
-    /// <param name="providerKey">The provider key to use for summarization (e.g., "openai", "anthropic")</param>
-    /// <param name="modelName">The model name (e.g., "gpt-4o-mini", "claude-3-haiku-20240307")</param>
-    /// <param name="apiKey">Optional API key (uses main provider's key if not specified)</param>
-    /// <returns>The builder for method chaining</returns>
-    /// <example>
-    /// <code>
-    /// builder
-    ///     .WithOpenAI(apiKey, "gpt-4") // Main agent uses GPT-4
-    ///     .WithSummarizingReduction()
-    ///     .WithSummarizerProvider("openai", "gpt-4o-mini"); // Summaries use mini
-    /// </code>
-    /// </example>
-    public static AgentBuilder WithSummarizerProvider(this AgentBuilder builder, string providerKey, string modelName, string? apiKey = null)
-    {
-        var config = builder.Config.HistoryReduction ?? new HistoryReductionConfig { Enabled = true };
-
-        config.SummarizerProvider = new ProviderConfig
-        {
-            ProviderKey = providerKey,
-            ModelName = modelName,
-            ApiKey = apiKey ?? builder.Config.Provider?.ApiKey
-        };
-
-        builder.Config.HistoryReduction = config;
-        return builder;
-    }
-
-    /// <summary>
-    /// Configures a separate LLM provider for summarization with full provider configuration.
-    /// Use this for advanced scenarios requiring custom endpoints or options.
-    /// </summary>
-    /// <param name="builder">The agent builder instance</param>
-    /// <param name="configureSummarizer">Action to configure the summarizer provider</param>
-    /// <returns>The builder for method chaining</returns>
-    /// <example>
-    /// <code>
-    /// builder
-    ///     .WithSummarizingReduction()
-    ///     .WithSummarizerProvider(config => {
-    ///         config.ProviderKey = "ollama";
-    ///         config.ModelName = "llama3.2";
-    ///         config.Endpoint = "http://localhost:11434";
-    ///     });
-    /// </code>
-    /// </example>
-    public static AgentBuilder WithSummarizerProvider(this AgentBuilder builder, Action<ProviderConfig> configureSummarizer)
-    {
-        var historyConfig = builder.Config.HistoryReduction ?? new HistoryReductionConfig { Enabled = true };
-        var summarizerConfig = new ProviderConfig();
-
-        configureSummarizer(summarizerConfig);
-        historyConfig.SummarizerProvider = summarizerConfig;
-
-        builder.Config.HistoryReduction = historyConfig;
+        builder.Config.Compaction = config;
         return builder;
     }
 }
@@ -4137,12 +4339,12 @@ public static class AgentBuilderProviderExtensions
 {
     public static AgentBuilder WithProvider(this AgentBuilder builder, string providerKey, string modelName, string? apiKey = null)
     {
-        builder.Config.Provider = new ProviderConfig
+        builder.Config.SetChatClientConfig(new ClientProviderConfig
         {
             ProviderKey = providerKey,
             ModelName = modelName,
             ApiKey = apiKey
-        };
+        });
         return builder;
     }
 }
@@ -4263,3 +4465,8 @@ public class ProviderConnectionInfo
 }
 
 #endregion
+
+internal static class AgentBuilderDefaults
+{
+    internal static IAgentStore AgentStore { get; } = new InMemoryAgentStore();
+}

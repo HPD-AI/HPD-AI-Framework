@@ -40,9 +40,43 @@ export class SseTransport implements AgentTransport {
     this.sessionId = scope?.sessionId;
     this.branchId = scope?.branchId || 'main';
     this.agentId = scope?.agentId;
+
+    if (!this.sessionId) {
+      throw new Error('SSE connect() requires sessionId');
+    }
+
+    if (!this.agentId) {
+      throw new Error('SSE connect() requires agentId');
+    }
+
+    this.abortController = new AbortController();
+    const signal = scope?.signal
+      ? this.combineSignals(scope.signal, this.abortController.signal)
+      : this.abortController.signal;
+
+    const response = await this.fetch(
+      `${this.baseUrl}/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/events/live`,
+      {
+        method: 'GET',
+        headers: { Accept: 'text/event-stream' },
+        signal,
+      },
+    );
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => 'Unknown error');
+      throw new Error(`HTTP ${response.status}: ${text}`);
+    }
+
+    if (!response.body) {
+      throw new Error('No response body');
+    }
+
+    this._connected = true;
+    void this.processStream(response.body);
   }
 
-  async run(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<void> {
+  async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<void> {
     const sessionId = 'sessionId' in input ? input.sessionId : undefined;
     const branchId = 'branchId' in input ? input.branchId : undefined;
     const agentId = 'agentId' in input ? input.agentId : undefined;
@@ -56,38 +90,27 @@ export class SseTransport implements AgentTransport {
       return;
     }
 
-    if (this._connected) {
-      throw new Error('Already connected. Call disconnect() first.');
-    }
-
     if (!this.sessionId) {
-      throw new Error('Input event must include sessionId for SSE run()');
+      throw new Error('Input event must include sessionId for SSE submitInput()');
     }
 
     if (!this.agentId) {
-      throw new Error('Input event must include agentId for SSE run()');
+      throw new Error('Input event must include agentId for SSE submitInput()');
     }
 
-    this.abortController = new AbortController();
-    const signal = options?.signal
-      ? this.combineSignals(options.signal, this.abortController.signal)
-      : this.abortController.signal;
-
-    const isTextInput = input.type === EventTypes.USER_TEXT_INPUT;
-    const endpoint = isTextInput
-      ? `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/stream`
-      : `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/events/stream`;
+    const endpoint = input.type === EventTypes.INTERRUPTION_REQUEST
+      ? `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/interrupt`
+      : `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/inputs`;
 
     const response = await this.fetch(`${this.baseUrl}${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
       },
-      body: JSON.stringify(isTextInput
+      body: JSON.stringify(input.type === EventTypes.USER_TEXT_INPUT
         ? { text: input.text, runConfig: input.runConfig }
         : input),
-      signal,
+      signal: options?.signal,
     });
 
     if (!response.ok) {
@@ -95,12 +118,7 @@ export class SseTransport implements AgentTransport {
       throw new Error(`HTTP ${response.status}: ${text}`);
     }
 
-    if (!response.body) {
-      throw new Error('No response body');
-    }
-
-    this._connected = true;
-    await this.processStream(response.body);
+    await response.body?.cancel().catch(() => undefined);
   }
 
   onEvent(handler: (event: AgentEvent) => void): void {

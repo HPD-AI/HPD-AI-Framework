@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { boxWith } from 'svelte-toolbelt';
 	import { FileAttachment, FileAttachmentState } from '$lib/index.js';
-	import type { AssetReference } from '$lib/index.js';
+	import type { ContentReference } from '$lib/index.js';
 
 	type UploadMode = 'success' | 'error' | 'slow';
 
@@ -20,7 +20,7 @@
 
 	// Simulated upload functions
 	function makeUploadFn(mode: UploadMode) {
-		return async (sid: string, file: File): Promise<AssetReference> => {
+		return async (sid: string, file: File): Promise<ContentReference> => {
 			if (mode === 'slow') {
 				await new Promise((r) => setTimeout(r, 2000));
 			}
@@ -30,7 +30,8 @@
 			}
 			await new Promise((r) => setTimeout(r, 400));
 			return {
-				assetId: `asset-${Date.now()}`,
+				contentId: `content-${Date.now()}`,
+				version: 'rev:demo',
 				contentType: file.type || 'application/octet-stream',
 				name: file.name,
 				sizeBytes: file.size,
@@ -38,7 +39,7 @@
 		};
 	}
 
-	// Pre-constructed state — makes resolvedAssets readable outside the snippet
+	// Pre-constructed state — makes resolvedContent readable outside the snippet
 	const attachments = new FileAttachmentState({
 		uploadFn: boxWith(() => makeUploadFn(uploadMode)),
 		sessionId: boxWith(() => sessionId),
@@ -116,8 +117,8 @@
 
 	<!-- Live state output -->
 	<div class="output-panel">
-		<h4 class="output-title">resolvedAssets</h4>
-		<pre class="output-code">{JSON.stringify(attachments.resolvedAssets, null, 2)}</pre>
+		<h4 class="output-title">resolvedContent</h4>
+		<pre class="output-code">{JSON.stringify(attachments.resolvedContent, null, 2)}</pre>
 		<div class="output-pills">
 			<span class="pill" class:active={attachments.hasAttachments}>hasAttachments</span>
 			<span class="pill" class:active={attachments.isUploading}>isUploading</span>

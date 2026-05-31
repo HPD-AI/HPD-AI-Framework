@@ -29,10 +29,11 @@ public class BedrockProviderTests
         metadata.Should().NotBeNull();
         metadata.ProviderKey.Should().Be("bedrock");
         metadata.DisplayName.Should().Be("AWS Bedrock");
-        metadata.SupportsStreaming.Should().BeTrue();
-        metadata.SupportsFunctionCalling.Should().BeTrue();
-        metadata.SupportsVision.Should().BeTrue();
-        metadata.DocumentationUrl.Should().Be("https://aws.amazon.com/bedrock/");
+        metadata.DocumentationUri.Should().Be(new Uri("https://aws.amazon.com/bedrock/"));
+        var chat = metadata.Families[ProviderClientFamily.Chat];
+        chat.Capabilities!["SupportsStreaming"].Should().Be(true);
+        chat.Capabilities["SupportsFunctionCalling"].Should().Be(true);
+        chat.Capabilities["SupportsVision"].Should().Be(true);
     }
 
     #endregion
@@ -46,14 +47,14 @@ public class BedrockProviderTests
         Environment.SetEnvironmentVariable("AWS_REGION", "us-east-1");
         try
         {
-            var config = new ProviderConfig
+            var config = new ClientProviderConfig
             {
                 ProviderKey = "bedrock",
                 ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
             };
 
             // Act
-            var result = _provider.ValidateConfiguration(config);
+            var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
             // Assert
             result.IsValid.Should().BeTrue();
@@ -69,7 +70,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithValidConfigInTypedConfig_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -82,7 +83,7 @@ public class BedrockProviderTests
         config.SetProviderConfig(bedrockConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -93,7 +94,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithMissingModelName_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock"
         };
@@ -105,7 +106,7 @@ public class BedrockProviderTests
         config.SetProviderConfig(bedrockConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -116,14 +117,14 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithMissingRegion_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -134,7 +135,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithInvalidTemperature_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -148,7 +149,7 @@ public class BedrockProviderTests
         config.SetProviderConfig(bedrockConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -159,7 +160,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithNegativeTemperature_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -173,7 +174,7 @@ public class BedrockProviderTests
         config.SetProviderConfig(bedrockConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -184,7 +185,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithValidTemperatureRange_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -198,7 +199,7 @@ public class BedrockProviderTests
         config.SetProviderConfig(bedrockConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -209,7 +210,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithInvalidTopP_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -223,7 +224,7 @@ public class BedrockProviderTests
         config.SetProviderConfig(bedrockConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -234,7 +235,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithInvalidMaxTokens_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -248,7 +249,7 @@ public class BedrockProviderTests
         config.SetProviderConfig(bedrockConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -259,7 +260,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithTooManyStopSequences_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -273,7 +274,7 @@ public class BedrockProviderTests
         config.SetProviderConfig(bedrockConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -284,7 +285,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithInvalidToolChoice_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -298,7 +299,7 @@ public class BedrockProviderTests
         config.SetProviderConfig(bedrockConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -309,7 +310,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithToolChoiceToolButMissingName_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -324,7 +325,7 @@ public class BedrockProviderTests
         config.SetProviderConfig(bedrockConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -335,7 +336,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithGuardrailButMissingVersion_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -350,7 +351,7 @@ public class BedrockProviderTests
         config.SetProviderConfig(bedrockConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -361,7 +362,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithInvalidGuardrailTrace_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -375,7 +376,7 @@ public class BedrockProviderTests
         config.SetProviderConfig(bedrockConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -386,7 +387,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithAccessKeyButMissingSecret_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -401,7 +402,7 @@ public class BedrockProviderTests
         config.SetProviderConfig(bedrockConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -412,7 +413,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithSecretButMissingAccessKey_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -427,7 +428,7 @@ public class BedrockProviderTests
         config.SetProviderConfig(bedrockConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -438,7 +439,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithAllValidOptions_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -461,7 +462,7 @@ public class BedrockProviderTests
         config.SetProviderConfig(bedrockConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -637,11 +638,10 @@ public class BedrockProviderTests
         var config = new AgentConfig
         {
             Name = "Test Agent",
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "bedrock",
                 ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
-            }
+            } }
         };
 
         var bedrockOpts = new BedrockProviderConfig
@@ -651,7 +651,7 @@ public class BedrockProviderTests
             Temperature = 0.7f,
             TopP = 0.9f
         };
-        config.Provider.SetProviderConfig(bedrockOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(bedrockOpts);
 
         // Act
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
@@ -678,11 +678,13 @@ public class BedrockProviderTests
         var json = """
         {
             "name": "Test Agent",
-            "provider": {
+            "clients": {
+                "chat": {
                 "providerKey": "bedrock",
                 "modelName": "anthropic.claude-3-5-sonnet-20241022-v2:0",
                 "providerOptionsJson": "{\"region\":\"us-east-1\",\"maxTokens\":4096,\"temperature\":0.7,\"topP\":0.9}"
             }
+        }
         }
         """;
 
@@ -692,13 +694,13 @@ public class BedrockProviderTests
         // Assert
         config.Should().NotBeNull();
         config!.Name.Should().Be("Test Agent");
-        config.Provider.Should().NotBeNull();
-        config.Provider!.ProviderKey.Should().Be("bedrock");
-        config.Provider.ModelName.Should().Be("anthropic.claude-3-5-sonnet-20241022-v2:0");
-        config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().Should().NotBeNull();
+        config.EnsureChatClientConfig()!.ProviderKey.Should().Be("bedrock");
+        config.EnsureChatClientConfig().ModelName.Should().Be("anthropic.claude-3-5-sonnet-20241022-v2:0");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
 
         // Verify typed config can be retrieved
-        var bedrockConfig = config.Provider.GetProviderConfig<BedrockProviderConfig>();
+        var bedrockConfig = config.EnsureChatClientConfig().GetProviderConfig<BedrockProviderConfig>();
         bedrockConfig.Should().NotBeNull();
         bedrockConfig!.Region.Should().Be("us-east-1");
         bedrockConfig.MaxTokens.Should().Be(4096);
@@ -715,11 +717,10 @@ public class BedrockProviderTests
             Name = "Round Trip Test",
             MaxAgenticIterations = 20,
             SystemInstructions = "You are a test assistant.",
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "bedrock",
                 ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
-            }
+            } }
         };
 
         var originalBedrockOpts = new BedrockProviderConfig
@@ -736,7 +737,7 @@ public class BedrockProviderTests
             AccessKeyId = "AKIAIOSFODNN7EXAMPLE",
             SecretAccessKey = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
         };
-        originalConfig.Provider.SetProviderConfig(originalBedrockOpts);
+        originalConfig.EnsureChatClientConfig().SetProviderConfig(originalBedrockOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(originalConfig, HPDJsonContext.Default.AgentConfig);
@@ -749,12 +750,12 @@ public class BedrockProviderTests
         deserializedConfig.SystemInstructions.Should().Be("You are a test assistant.");
 
         // Assert - Provider properties
-        deserializedConfig.Provider.Should().NotBeNull();
-        deserializedConfig.Provider!.ProviderKey.Should().Be("bedrock");
-        deserializedConfig.Provider.ModelName.Should().Be("anthropic.claude-3-5-sonnet-20241022-v2:0");
+        deserializedConfig.EnsureChatClientConfig().Should().NotBeNull();
+        deserializedConfig.EnsureChatClientConfig()!.ProviderKey.Should().Be("bedrock");
+        deserializedConfig.EnsureChatClientConfig().ModelName.Should().Be("anthropic.claude-3-5-sonnet-20241022-v2:0");
 
         // Assert - Bedrock-specific config
-        var deserializedBedrockOpts = deserializedConfig.Provider.GetProviderConfig<BedrockProviderConfig>();
+        var deserializedBedrockOpts = deserializedConfig.EnsureChatClientConfig().GetProviderConfig<BedrockProviderConfig>();
         deserializedBedrockOpts.Should().NotBeNull();
         deserializedBedrockOpts!.Region.Should().Be("us-west-2");
         deserializedBedrockOpts.MaxTokens.Should().Be(8192);
@@ -777,11 +778,10 @@ public class BedrockProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "bedrock",
                 ModelName = "anthropic.claude-3-5-sonnet-20241022-v2:0"
-            }
+            } }
         };
 
         // Act - Set typed config
@@ -791,19 +791,19 @@ public class BedrockProviderTests
             MaxTokens = 4096,
             Temperature = 0.5f
         };
-        config.Provider.SetProviderConfig(bedrockOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(bedrockOpts);
 
         // Assert - ProviderOptionsJson should be populated
-        config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
-        config.Provider.ProviderOptionsJson.Should().Contain("region");
-        config.Provider.ProviderOptionsJson.Should().Contain("us-east-1");
-        config.Provider.ProviderOptionsJson.Should().Contain("maxTokens");
-        config.Provider.ProviderOptionsJson.Should().Contain("4096");
-        config.Provider.ProviderOptionsJson.Should().Contain("temperature");
-        config.Provider.ProviderOptionsJson.Should().Contain("0.5");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("region");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("us-east-1");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("maxTokens");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("4096");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("temperature");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("0.5");
 
         // Verify we can retrieve it back
-        var retrieved = config.Provider.GetProviderConfig<BedrockProviderConfig>();
+        var retrieved = config.EnsureChatClientConfig().GetProviderConfig<BedrockProviderConfig>();
         retrieved.Should().NotBeNull();
         retrieved!.Region.Should().Be("us-east-1");
         retrieved.MaxTokens.Should().Be(4096);
@@ -831,11 +831,11 @@ public class BedrockProviderTests
             });
 
         // Assert
-        builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.ProviderKey.Should().Be("bedrock");
-        builder.Config.Provider.ModelName.Should().Be("anthropic.claude-3-5-sonnet-20241022-v2:0");
+        builder.Config.EnsureChatClientConfig().Should().NotBeNull();
+        builder.Config.EnsureChatClientConfig()!.ProviderKey.Should().Be("bedrock");
+        builder.Config.EnsureChatClientConfig().ModelName.Should().Be("anthropic.claude-3-5-sonnet-20241022-v2:0");
 
-        var bedrockConfig = builder.Config.Provider.GetProviderConfig<BedrockProviderConfig>();
+        var bedrockConfig = builder.Config.EnsureChatClientConfig().GetProviderConfig<BedrockProviderConfig>();
         bedrockConfig.Should().NotBeNull();
         bedrockConfig!.Region.Should().Be("us-east-1");
         bedrockConfig.MaxTokens.Should().Be(4096);
@@ -860,7 +860,7 @@ public class BedrockProviderTests
             });
 
         // Assert
-        var bedrockConfig = builder.Config.Provider!.GetProviderConfig<BedrockProviderConfig>();
+        var bedrockConfig = builder.Config.EnsureChatClientConfig()!.GetProviderConfig<BedrockProviderConfig>();
         bedrockConfig.Should().NotBeNull();
         bedrockConfig!.AccessKeyId.Should().Be("AKIAIOSFODNN7EXAMPLE");
         bedrockConfig.SecretAccessKey.Should().Be("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
@@ -931,7 +931,7 @@ public class BedrockProviderTests
             });
 
         // Assert
-        var bedrockConfig = builder.Config.Provider!.GetProviderConfig<BedrockProviderConfig>();
+        var bedrockConfig = builder.Config.EnsureChatClientConfig()!.GetProviderConfig<BedrockProviderConfig>();
         bedrockConfig.Should().NotBeNull();
         bedrockConfig!.GuardrailIdentifier.Should().Be("my-guardrail");
         bedrockConfig.GuardrailVersion.Should().Be("1");

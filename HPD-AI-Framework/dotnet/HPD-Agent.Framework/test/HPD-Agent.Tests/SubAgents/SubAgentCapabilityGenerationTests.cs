@@ -1,15 +1,9 @@
-using Xunit;
 using FluentAssertions;
 using HPD.Agent.SourceGenerator.Capabilities;
+using Xunit;
 
 namespace HPD.Agent.Tests.SubAgents;
 
-/// <summary>
-/// T16–T19: Unit tests that assert on the string output of SubAgentCapability.GenerateRegistrationCode().
-/// These tests verify that the generated code contains the correct patterns for each Session mode.
-///
-/// Access requires [assembly: InternalsVisibleTo("HPD-Agent.Tests")] in the source generator project.
-/// </summary>
 public class SubAgentCapabilityGenerationTests
 {
     private static HarnessInfo MakeHarness(string name = "MyHarness") => new()
@@ -18,111 +12,72 @@ public class SubAgentCapabilityGenerationTests
         Namespace = "Test.Namespace"
     };
 
-    private static SubAgentCapability MakeCapability(string SessionMode, string name = "ResearchAgent") => new()
+    private static SubAgentCapability MakeCapability(string name = "ResearchAgent") => new()
     {
         Name = name,
         SubAgentName = name,
         MethodName = $"Create{name}",
         Description = "A test sub-agent",
         ParentHarnessName = "MyHarness",
-        SessionMode = SessionMode,
         IsStatic = true,
         RequiresPermission = true
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // T16 — SharedSession generated code contains LoadSessionAsync guard
-    // ─────────────────────────────────────────────────────────────────────────
-
     [Fact]
-    public void T16_SharedSession_GeneratedCode_ContainsLoadSessionAsyncGuard()
+    public void GeneratedCode_ResolvesBranchNativeRoute()
     {
-        var capability = MakeCapability("SharedSession");
-        var harness = MakeHarness();
+        var code = MakeCapability().GenerateRegistrationCode(MakeHarness());
 
-        var code = capability.GenerateRegistrationCode(harness);
-
-        // The guard must load the existing session before deciding to create
-        code.Should().Contain("LoadSessionAsync");
-        // And only create when it doesn't already exist
-        code.Should().Contain("existingSession == null");
+        code.Should().Contain("SubAgentRuntime.ResolveRouteAsync");
+        code.Should().Contain("SessionId = route.SessionId");
+        code.Should().Contain("BranchId = route.BranchId");
+        code.Should().Contain("SubAgentRuntime.MarkCompleted");
+        code.Should().Contain("SubAgentRuntime.MarkFailed");
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // T17 — PerSession generated code attaches parent store BEFORE BuildAsync
-    // ─────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public void GeneratedCode_BuildsFromInlineConfigOrStoredAgentId()
+    {
+        var code = MakeCapability().GenerateRegistrationCode(MakeHarness());
+
+        code.Should().Contain("subAgentDef.SourceKind == SubAgentSourceKind.StoredAgent");
+        code.Should().Contain("new AgentBuilder().WithAgentId(subAgentDef.AgentId)");
+        code.Should().Contain("functionContext?.GetParentAgentStore()");
+        code.Should().Contain("subAgentDef.SourceKind == SubAgentSourceKind.InlineConfig");
+        code.Should().Contain("new AgentBuilder(subAgentDef.AgentConfig)");
+    }
 
     [Fact]
-    public void T17_PerSession_GeneratedCode_AttachesParentStoreBeforeBuildAsync()
+    public void GeneratedCode_AttachesParentSessionStoreBeforeBuildAsync()
     {
-        var capability = MakeCapability("PerSession");
-        var harness = MakeHarness();
+        var code = MakeCapability().GenerateRegistrationCode(MakeHarness());
 
-        var code = capability.GenerateRegistrationCode(harness);
-
-        // Store attachment must appear before BuildAsync in the generated output
         var storeAttachIndex = code.IndexOf("WithSessionStore(parentStore)", StringComparison.Ordinal);
         var buildAsyncIndex = code.IndexOf("BuildAsync()", StringComparison.Ordinal);
 
-        storeAttachIndex.Should().BeGreaterThan(-1, "WithSessionStore(parentStore) must appear in PerSession code");
-        buildAsyncIndex.Should().BeGreaterThan(-1, "BuildAsync() must appear in the code");
-        storeAttachIndex.Should().BeLessThan(buildAsyncIndex,
-            "parent store must be attached before BuildAsync() is called");
+        storeAttachIndex.Should().BeGreaterThan(-1);
+        buildAsyncIndex.Should().BeGreaterThan(-1);
+        storeAttachIndex.Should().BeLessThan(buildAsyncIndex);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // T18 — PerSession generated code does NOT call CreateSessionAsync
-    //        for the happy path (parent session already exists)
-    // ─────────────────────────────────────────────────────────────────────────
-
     [Fact]
-    public void T18_PerSession_GeneratedCode_DoesNotCallCreateSessionAsync_InPerSessionCase()
+    public void GeneratedCode_DoesNotContainOldSessionModeRouting()
     {
-        var capability = MakeCapability("PerSession");
-        var harness = MakeHarness();
+        var code = MakeCapability().GenerateRegistrationCode(MakeHarness());
 
-        var code = capability.GenerateRegistrationCode(harness);
-
-        // Locate the PerSession case block
-        var perSessionCaseIndex = code.IndexOf("case SubAgentSessionMode.PerSession:", StringComparison.Ordinal);
-        var statelessCaseIndex = code.IndexOf("case SubAgentSessionMode.Stateless:", StringComparison.Ordinal);
-
-        perSessionCaseIndex.Should().BeGreaterThan(-1);
-
-        // Extract just the PerSession case body (up to the Stateless case)
-        var perSessionBlock = statelessCaseIndex > perSessionCaseIndex
-            ? code[perSessionCaseIndex..statelessCaseIndex]
-            : code[perSessionCaseIndex..];
-
-        // The PerSession block itself must NOT directly call CreateSessionAsync
-        // (it uses goto for the fallback path, which is in the Stateless block)
-        perSessionBlock.Should().NotContain("await agent.CreateSessionAsync",
-            "PerSession inherits an existing session — it must NOT create a new one in the PerSession case block");
+        code.Should().NotContain("SubAgentSessionMode");
+        code.Should().NotContain("SessionMode");
+        code.Should().NotContain("case ");
+        code.Should().NotContain("CreateSessionAsync(sessionId");
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // T19 — Stateless generated code always calls CreateSessionAsync with new GUID
-    // ─────────────────────────────────────────────────────────────────────────
-
     [Fact]
-    public void T19_Stateless_GeneratedCode_AlwaysCallsCreateSessionAsyncWithNewGuid()
+    public void AdditionalProperties_AdvertiseBranchNativeExecution()
     {
-        var capability = MakeCapability("Stateless");
-        var harness = MakeHarness();
+        var props = MakeCapability().GetAdditionalProperties();
 
-        var code = capability.GenerateRegistrationCode(harness);
-
-        // Locate the Stateless case block
-        var statelessCaseIndex = code.IndexOf("case SubAgentSessionMode.Stateless:", StringComparison.Ordinal);
-        statelessCaseIndex.Should().BeGreaterThan(-1);
-
-        var statelessBlock = code[statelessCaseIndex..];
-
-        // Must create a brand-new session ID via Guid.NewGuid()
-        statelessBlock.Should().Contain("Guid.NewGuid()");
-        // Must call CreateSessionAsync unconditionally (no if-guard)
-        statelessBlock.Should().Contain("await agent.CreateSessionAsync(sessionId");
-        // Must NOT have the existingSession guard (that's only for SharedSession)
-        statelessBlock.Should().NotContain("LoadSessionAsync");
+        props["IsSubAgent"].Should().Be(true);
+        props["ExecutionModel"].Should().Be("BranchNative");
+        props.Should().NotContainKey("SessionMode");
     }
 }

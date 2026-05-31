@@ -149,8 +149,8 @@ public class AudioEventsTests
     public void SpeechOutputAudioQueuedEvent_CanBeCreated()
     {
         var context = CreateOutputContext();
-        var frame = new AudioChunkFrame(
-            SynthesisId: "synth-1",
+        var frame = new AudioOutputFrame(
+            OutputId: "synth-1",
             Audio: new byte[] { 1, 2, 3 },
             MimeType: "audio/mpeg",
             ChunkIndex: 0,
@@ -493,7 +493,7 @@ public class AudioEventsTests
             BranchId: "main",
             SpeechId: "speech-1",
             StreamId: "stream-1",
-            SynthesisId: "synth-1",
+            OutputId: "synth-1",
             Provider: "test",
             Model: "test-model",
             Voice: "voice-1",

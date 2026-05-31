@@ -16,7 +16,7 @@ public class SessionPersistenceTests
 {
     // Create test factories for persistent states
     // PermissionPersistentStateData is session-scoped (shared across branches)
-    // HistoryReductionStateData is branch-scoped (per-conversation path, the default)
+    // CompactionStateData is branch-scoped (per-conversation path, the default)
     private static readonly IReadOnlyDictionary<string, MiddlewareStateFactory> TestFactories =
         new Dictionary<string, MiddlewareStateFactory>
         {
@@ -30,15 +30,15 @@ public class SessionPersistenceTests
                 Deserialize: json => JsonSerializer.Deserialize<PermissionPersistentStateData>(json, AIJsonUtilities.DefaultOptions),
                 Serialize: state => JsonSerializer.Serialize((PermissionPersistentStateData)state, AIJsonUtilities.DefaultOptions)
             ),
-            ["HPD.Agent.HistoryReductionStateData"] = new MiddlewareStateFactory(
-                FullyQualifiedName: "HPD.Agent.HistoryReductionStateData",
-                StateType: typeof(HistoryReductionStateData),
-                PropertyName: "HistoryReduction",
+            ["HPD.Agent.CompactionStateData"] = new MiddlewareStateFactory(
+                FullyQualifiedName: "HPD.Agent.CompactionStateData",
+                StateType: typeof(CompactionStateData),
+                PropertyName: "Compaction",
                 Version: 1,
                 Persistent: true,
                 Scope: StateScope.Branch,
-                Deserialize: json => JsonSerializer.Deserialize<HistoryReductionStateData>(json, AIJsonUtilities.DefaultOptions),
-                Serialize: state => JsonSerializer.Serialize((HistoryReductionStateData)state, AIJsonUtilities.DefaultOptions)
+                Deserialize: json => JsonSerializer.Deserialize<CompactionStateData>(json, AIJsonUtilities.DefaultOptions),
+                Serialize: state => JsonSerializer.Serialize((CompactionStateData)state, AIJsonUtilities.DefaultOptions)
             )
         }.ToImmutableDictionary();
 
@@ -51,7 +51,7 @@ public class SessionPersistenceTests
         // Assert
         state.Should().NotBeNull();
         state.PermissionPersistent().Should().BeNull("no session data to load from");
-        state.HistoryReduction().Should().BeNull("no session data to load from");
+        state.Compaction().Should().BeNull("no session data to load from");
     }
 
     [Fact]
@@ -82,9 +82,9 @@ public class SessionPersistenceTests
     }
 
     [Fact]
-    public void LoadFromBranch_RestoresHistoryReduction()
+    public void LoadFromBranch_RestoresCompaction()
     {
-        // Arrange: Create branch with history reduction state (branch-scoped)
+        // Arrange: Create branch with compaction state (branch-scoped)
         var branch = new global::HPD.Agent.Branch("test-session");
         // Create enough messages for the test
         var messages = new List<Microsoft.Extensions.AI.ChatMessage>();
@@ -93,29 +93,30 @@ public class SessionPersistenceTests
             messages.Add(new(Microsoft.Extensions.AI.ChatRole.User, $"message {i}"));
         }
 
-        var reduction = CachedReduction.Create(
-            messages: messages,
-            summaryContent: "Test summary",
-            summarizedUpToIndex: 90,
-            targetCount: 100,
-            reductionThreshold: 5,
-            countAtReduction: messages.Count,
-            countingUnit: HistoryCountingUnit.Messages);
+        var compaction = new CompactionSnapshot
+        {
+            OriginalMessageIds = messages.Select((_, i) => $"message-{i}").ToList(),
+            ModelVisibleMessageIds = ["summary-message"],
+            ModelCompactedMessageIds = messages.Take(90).Select((_, i) => $"message-{i}").ToList(),
+            RetainedMessageIds = messages.Skip(90).Select((_, i) => $"message-{i + 90}").ToList(),
+            ReplacementMessageIds = ["summary-message"],
+            SummaryContent = "Test summary"
+        };
 
-        var hrState = new HistoryReductionStateData().WithReduction(reduction);
-        var middlewareState = new MiddlewareState().WithHistoryReduction(hrState);
+        var hrState = new CompactionStateData().WithCompaction(compaction);
+        var middlewareState = new MiddlewareState().WithCompaction(hrState);
 
         middlewareState.SaveToBranch(branch, TestFactories);
 
         // Act: Load from branch
         var restored = MiddlewareState.LoadFromBranch(branch, TestFactories);
 
-        // Assert: History reduction is restored
-        restored.HistoryReduction().Should().NotBeNull();
-        restored.HistoryReduction()!.LastReduction.Should().NotBeNull();
-        restored.HistoryReduction().LastReduction!.SummarizedUpToIndex.Should().Be(90);
-        restored.HistoryReduction().LastReduction.CountAtReduction.Should().Be(100);
-        restored.HistoryReduction().LastReduction.SummaryContent.Should().Be("Test summary");
+        // Assert: History compaction is restored
+        restored.Compaction().Should().NotBeNull();
+        restored.Compaction()!.LastCompaction.Should().NotBeNull();
+        restored.Compaction().LastCompaction!.ModelCompactedMessageIds.Should().HaveCount(90);
+        restored.Compaction().LastCompaction.OriginalMessageIds.Should().HaveCount(100);
+        restored.Compaction().LastCompaction.SummaryContent.Should().Be("Test summary");
     }
 
     [Fact]
@@ -133,19 +134,19 @@ public class SessionPersistenceTests
             new(Microsoft.Extensions.AI.ChatRole.User, "msg"),
         };
 
-        var reduction = CachedReduction.Create(
-            messages: messages,
-            summaryContent: "Summary",
-            summarizedUpToIndex: 50,
-            targetCount: 60,
-            reductionThreshold: 10,
-            countAtReduction: messages.Count,
-            countingUnit: HistoryCountingUnit.Messages);
-        var hrState = new HistoryReductionStateData().WithReduction(reduction);
+        var compaction = new CompactionSnapshot
+        {
+            OriginalMessageIds = ["msg"],
+            ModelVisibleMessageIds = ["summary"],
+            ModelCompactedMessageIds = ["msg"],
+            ReplacementMessageIds = ["summary"],
+            SummaryContent = "Summary"
+        };
+        var hrState = new CompactionStateData().WithCompaction(compaction);
 
         var middlewareState = new MiddlewareState()
             .WithPermissionPersistent(permState)
-            .WithHistoryReduction(hrState);
+            .WithCompaction(hrState);
 
         // Act: Save session-scoped to session, branch-scoped to branch
         middlewareState.SaveToSession(session, TestFactories);
@@ -160,9 +161,9 @@ public class SessionPersistenceTests
         restoredFromSession.PermissionPersistent()!.GetPermission("Bash")
             .Should().Be(PermissionChoice.AlwaysAllow);
 
-        // Assert: History reduction restored from branch (branch-scoped)
-        restoredFromBranch.HistoryReduction().Should().NotBeNull();
-        restoredFromBranch.HistoryReduction()!.LastReduction!.SummarizedUpToIndex.Should().Be(50);
+        // Assert: History compaction restored from branch (branch-scoped)
+        restoredFromBranch.Compaction().Should().NotBeNull();
+        restoredFromBranch.Compaction()!.LastCompaction!.ModelCompactedMessageIds.Should().ContainSingle("msg");
     }
 
     [Fact]
@@ -202,7 +203,7 @@ public class SessionPersistenceTests
 
         // Assert: Nothing restored (nothing was saved)
         restored.PermissionPersistent().Should().BeNull();
-        restored.HistoryReduction().Should().BeNull();
+        restored.Compaction().Should().BeNull();
     }
 
     [Fact]

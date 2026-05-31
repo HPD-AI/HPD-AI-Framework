@@ -1,8 +1,8 @@
 /**
  * FileAttachment headless component
  *
- * Handles file selection, immediate upload to POST /sessions/{sid}/assets,
- * and accumulates AssetReference[] for passing to workspace.send().
+ * Handles file selection, immediate upload to POST /sessions/{sid}/content,
+ * and accumulates ContentReference[] for passing to workspace.send().
  *
  * @example
  * ```svelte

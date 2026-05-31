@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using HPD.Agent.Audio.Eot;
 using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio.Preemptive;
+using HPD.Agent.Audio.Realtime;
 using HPD.Agent.Audio.Recognition;
 using HPD.Agent.Audio.Turn;
 
@@ -44,7 +45,7 @@ namespace HPD.Agent.Audio.Serialization;
 // Speech Output Events
 [JsonSerializable(typeof(SpeechOutputContext))]
 [JsonSerializable(typeof(SpeechOutputState))]
-[JsonSerializable(typeof(AudioChunkFrame))]
+[JsonSerializable(typeof(AudioOutputFrame))]
 [JsonSerializable(typeof(SpeechOutputStartedEvent))]
 [JsonSerializable(typeof(SpeechOutputTextQueuedEvent))]
 [JsonSerializable(typeof(SpeechOutputAudioQueuedEvent))]
@@ -100,7 +101,9 @@ namespace HPD.Agent.Audio.Serialization;
 
 // Audio Configuration
 [JsonSerializable(typeof(AudioConfig))]
+[JsonSerializable(typeof(AudioRunConfig))]
 [JsonSerializable(typeof(AudioDiagnosticsConfig))]
+[JsonSerializable(typeof(RealtimeAudioConfig))]
 [JsonSerializable(typeof(EotConfig))]
 [JsonSerializable(typeof(SpeechRecognitionCapabilities))]
 [JsonSerializable(typeof(SpeechRecognitionOptions))]

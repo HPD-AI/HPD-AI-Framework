@@ -319,22 +319,21 @@ public sealed class ExecuteCommandTests : IDisposable
     public async Task ExecuteCommand_ForegroundRun_CommitsArtifactsWhenSessionContentStoreExists()
     {
         var store = new InMemorySessionStore();
+        var contentStore = new InMemoryContentStore();
         var runner = new FakeProcessProvider
         {
             Result = CreateResult(stdout: "artifact stdout\n", stderr: "artifact stderr\n", exitCode: 0)
         };
 
         var result = await new CodingHarness().ExecuteCommand(
-            context: CreateContext(runner, store),
+            context: CreateContext(runner, store, contentStore: contentStore),
             command: "dotnet test");
 
         var xml = result.ToString();
         xml.Should().Contain("artifact_path=\"/artifacts/commands/");
         xml.Should().Contain("content_id=");
 
-        var contentStore = store.GetContentStore("session-1");
-        contentStore.Should().NotBeNull();
-        var artifacts = await contentStore!.QueryAsync("session-1", new ContentQuery
+        var artifacts = await contentStore.QueryAsync("session-1", new ContentQuery
         {
             Tags = new Dictionary<string, string> { ["folder"] = "/artifacts" }
         });
@@ -361,7 +360,7 @@ public sealed class ExecuteCommandTests : IDisposable
         };
 
         var result = await new CodingHarness().ExecuteCommand(
-            context: CreateContext(runner, new ThrowingSessionStore()),
+            context: CreateContext(runner, contentStore: new ThrowingContentStore()),
             command: "dotnet test");
 
         var xml = result.ToString();
@@ -762,6 +761,7 @@ public sealed class ExecuteCommandTests : IDisposable
             context: context,
             command: "npm run dev");
 
+        await WaitForAsync(() => progress.Count > 0);
         progress.Should().ContainSingle();
         completion.SetResult(CreateResult(stdout: "done\n", exitCode: 0));
         await registry.WhenIdleAsync();
@@ -791,7 +791,8 @@ public sealed class ExecuteCommandTests : IDisposable
         ISessionStore? sessionStore = null,
         IAgentBackgroundTaskRegistry? backgroundTasks = null,
         string sessionId = "session-1",
-        AgentRunConfig? runConfig = null)
+        AgentRunConfig? runConfig = null,
+        IContentStore? contentStore = null)
     {
         var function = AIFunctionFactory.Create(
             () => "ok",
@@ -812,7 +813,8 @@ public sealed class ExecuteCommandTests : IDisposable
             eventCoordinator,
             session,
             branch,
-            CancellationToken.None);
+            CancellationToken.None,
+            contentStore: contentStore);
         if (runner is not null)
             agentContext.RuntimeCapabilities.Set<IProcessProvider>(runner);
 
@@ -1088,9 +1090,6 @@ public sealed class ExecuteCommandTests : IDisposable
 
     private sealed class ThrowingSessionStore : ISessionStore
     {
-        private readonly IContentStore _contentStore = new ThrowingContentStore();
-
-        public IContentStore? GetContentStore(string sessionId) => _contentStore;
         public Task<Session?> LoadSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<Session?>(null);
         public Task SaveSessionAsync(Session session, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<List<string>> ListSessionIdsAsync(CancellationToken cancellationToken = default) => Task.FromResult(new List<string>());
@@ -1105,23 +1104,37 @@ public sealed class ExecuteCommandTests : IDisposable
 
     private sealed class ThrowingContentStore : IContentStore
     {
-        public Task<string> PutAsync(
+        public Task<ContentInfo> WriteAsync(
             string? scope,
-            byte[] data,
-            string contentType,
-            ContentMetadata? metadata = null,
+            Stream data,
+            ContentMetadata metadata,
+            ContentWriteOptions options,
             CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("commit blocked");
 
-        public Task<ContentData?> GetAsync(
+        public Task<Stream?> OpenReadAsync(
             string? scope,
             string contentId,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<ContentData?>(null);
+            => Task.FromResult<Stream?>(null);
+
+        public Task<Uri?> CreateReadUriAsync(
+            string? scope,
+            string contentId,
+            TimeSpan expiresIn,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<Uri?>(null);
+
+        public Task<ContentInfo?> StatAsync(
+            string? scope,
+            string contentId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<ContentInfo?>(null);
 
         public Task DeleteAsync(
             string? scope,
             string contentId,
+            ContentDeleteOptions? options = null,
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 

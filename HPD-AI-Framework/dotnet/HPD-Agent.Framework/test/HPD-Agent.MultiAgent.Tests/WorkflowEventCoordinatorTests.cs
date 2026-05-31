@@ -37,11 +37,13 @@ public class WorkflowEventCoordinatorTests
         {
             WorkflowName = "W",
             NodeCount = 1,
-            ExecutionContext = new AgentExecutionContext { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
+            Metadata = new AgentMetadata { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
         };
 
         coordinator.Emit(evt);
-        await Task.Delay(50);
+        await Task.WhenAll(
+            obs1.WaitForCountAsync(1),
+            obs2.WaitForCountAsync(1));
 
         obs1.Received.Should().ContainSingle().Which.Should().Be(evt);
         obs2.Received.Should().ContainSingle().Which.Should().Be(evt);
@@ -58,7 +60,7 @@ public class WorkflowEventCoordinatorTests
             {
                 WorkflowName = "W",
                 NodeCount = 1,
-                ExecutionContext = new AgentExecutionContext { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
+                Metadata = new AgentMetadata { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
             });
 
         act.Should().NotThrow();
@@ -78,7 +80,7 @@ public class WorkflowEventCoordinatorTests
         {
             WorkflowName = "W",
             NodeCount = 1,
-            ExecutionContext = new AgentExecutionContext { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
+            Metadata = new AgentMetadata { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
         });
         await Task.Delay(50);
 
@@ -98,11 +100,11 @@ public class WorkflowEventCoordinatorTests
             NodeId = "node1",
             Success = true,
             Duration = TimeSpan.FromSeconds(1),
-            ExecutionContext = new AgentExecutionContext { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
+            Metadata = new AgentMetadata { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
         };
 
         coordinator.Emit(nodeCompletedEvt);
-        await Task.Delay(50);
+        await typedObserver.WaitForCountAsync(1);
 
         typedObserver.Received.Should().ContainSingle().Which.Should().Be(nodeCompletedEvt);
     }
@@ -118,7 +120,7 @@ public class WorkflowEventCoordinatorTests
         {
             WorkflowName = "W",
             NodeCount = 1,
-            ExecutionContext = new AgentExecutionContext { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
+            Metadata = new AgentMetadata { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
         });
         await Task.Delay(50);
 
@@ -138,7 +140,7 @@ public class WorkflowEventCoordinatorTests
         {
             WorkflowName = "W",
             NodeCount = 1,
-            ExecutionContext = new AgentExecutionContext { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
+            Metadata = new AgentMetadata { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
         };
 
         // The throwing observer must not kill the dispatch
@@ -189,14 +191,26 @@ public class WorkflowEventCoordinatorTests
     }
 
     [Fact]
-    public void Deny_Default_Reason_String()
+    public async Task Deny_Default_Reason_String()
     {
-        // Call via the coordinator — verify it doesn't throw and the default message is set
         var coordinator = new WorkflowEventCoordinator();
+        var request = new NodeApprovalRequestEvent
+        {
+            RequestId = "some-req",
+            SourceName = "test",
+            NodeId = "node-1",
+            Message = "Approve?"
+        };
 
-        // Deny with no reason arg must not throw
-        var act = () => coordinator.Deny("some-req");
-        act.Should().NotThrow();
+        var responseTask = coordinator.Inner.RequestAsync<NodeApprovalRequestEvent, NodeApprovalResponseEvent>(
+            request,
+            TimeSpan.FromSeconds(5));
+
+        coordinator.Deny("some-req");
+        var response = await responseTask;
+
+        response.Approved.Should().BeFalse();
+        response.Reason.Should().Be("Denied by user");
     }
 
     // ── Dispose ───────────────────────────────────────────────────────────────
@@ -215,12 +229,40 @@ public class WorkflowEventCoordinatorTests
     /// <summary>Records every event dispatched to it.</summary>
     private sealed class RecordingObserver
     {
-        public List<HPD.Events.Event> Received { get; } = new();
+        private readonly object _gate = new();
+        private readonly List<HPD.Events.Event> _received = [];
+        private readonly TaskCompletionSource _receivedSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public IReadOnlyList<HPD.Events.Event> Received
+        {
+            get
+            {
+                lock (_gate)
+                    return _received.ToArray();
+            }
+        }
 
         public ValueTask HandleAsync(HPD.Events.Event evt)
         {
-            Received.Add(evt);
+            lock (_gate)
+                _received.Add(evt);
+
+            _receivedSignal.TrySetResult();
             return ValueTask.CompletedTask;
+        }
+
+        public async Task WaitForCountAsync(int count)
+        {
+            while (true)
+            {
+                lock (_gate)
+                {
+                    if (_received.Count >= count)
+                        return;
+                }
+
+                await _receivedSignal.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            }
         }
     }
 
@@ -228,12 +270,40 @@ public class WorkflowEventCoordinatorTests
     private sealed class TypedRecordingObserver<TEvent>
         where TEvent : HPD.Events.Event
     {
-        public List<TEvent> Received { get; } = new();
+        private readonly object _gate = new();
+        private readonly List<TEvent> _received = [];
+        private readonly TaskCompletionSource _receivedSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public IReadOnlyList<TEvent> Received
+        {
+            get
+            {
+                lock (_gate)
+                    return _received.ToArray();
+            }
+        }
 
         public ValueTask HandleAsync(TEvent evt)
         {
-            Received.Add(evt);
+            lock (_gate)
+                _received.Add(evt);
+
+            _receivedSignal.TrySetResult();
             return ValueTask.CompletedTask;
+        }
+
+        public async Task WaitForCountAsync(int count)
+        {
+            while (true)
+            {
+                lock (_gate)
+                {
+                    if (_received.Count >= count)
+                        return;
+                }
+
+                await _receivedSignal.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            }
         }
     }
 

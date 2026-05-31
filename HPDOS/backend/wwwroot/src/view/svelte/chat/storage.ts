@@ -1,6 +1,13 @@
-import { requestDesktopSettings } from "../desktopSettingsBridge";
+import { requestDesktopSettings } from "../desktopHostBridge";
+import {
+  defaultProviderModelUiState,
+  normalizeProviderModelUiState,
+  providerModelSettingsSource,
+  type ProviderModelStorage
+} from "./runtime/providerModel";
 
 export type ChatLayoutSnapshot = {
+  chatSectionCollapsed: boolean;
   expandedAppPaneWidth: number | null;
   collapsedAppPaneWidth: number | null;
 };
@@ -15,6 +22,7 @@ const chatLayoutSettingsSource = "hpdos.chat.layout";
 
 export function defaultChatLayoutSnapshot(): ChatLayoutSnapshot {
   return {
+    chatSectionCollapsed: false,
     expandedAppPaneWidth: null,
     collapsedAppPaneWidth: null
   };
@@ -26,6 +34,7 @@ export function normalizeChatLayoutSnapshot(value: unknown): ChatLayoutSnapshot 
   const record = value as Partial<ChatLayoutSnapshot>;
 
   return {
+    chatSectionCollapsed: record.chatSectionCollapsed === true,
     expandedAppPaneWidth: normalizePaneWidth(record.expandedAppPaneWidth),
     collapsedAppPaneWidth: normalizePaneWidth(record.collapsedAppPaneWidth)
   };
@@ -40,6 +49,20 @@ export function createDesktopChatLayoutStorage(): ChatLayoutStorage {
     },
     save(snapshot) {
       void requestDesktopSettings(chatLayoutSettingsSource, "write", snapshot).catch(() => undefined);
+    }
+  };
+}
+
+export function createDesktopProviderModelStorage(): ProviderModelStorage {
+  return {
+    load: defaultProviderModelUiState,
+    async hydrate() {
+      const snapshot = await requestDesktopSettings(providerModelSettingsSource, "read", {});
+      return normalizeProviderModelUiState(snapshot);
+    },
+    save(state) {
+      const snapshot = normalizeProviderModelUiState(state);
+      void requestDesktopSettings(providerModelSettingsSource, "write", snapshot).catch(() => undefined);
     }
   };
 }

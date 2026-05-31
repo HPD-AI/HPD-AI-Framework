@@ -28,11 +28,11 @@
       "CodingHarness"
     ],
     "middlewares": [],
-    "preserveReasoningInHistory": false,
+    "includeReasoningInModelHistory": false,
     "coalesceDeltas": false
   },
   "createdAt": "2026-05-09T00:00:00Z",
-  "updatedAt": "2026-05-26T05:11:28.51639Z",
+  "updatedAt": "2026-05-30T16:52:44.854324Z",
   "metadata": {
     "source": "dev-seed",
     "description": "Default local HPD-OS workspace agent for quick development."

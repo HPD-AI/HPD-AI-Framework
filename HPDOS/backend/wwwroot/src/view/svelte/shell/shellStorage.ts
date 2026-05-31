@@ -1,4 +1,4 @@
-import { requestDesktopSettings } from "../desktopSettingsBridge";
+import { requestDesktopSettings } from "../desktopHostBridge";
 import type { ShellRoute } from "./controller";
 
 export type ShellSnapshot = {

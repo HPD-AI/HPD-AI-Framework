@@ -1,7 +1,14 @@
 namespace HPD.TUI.Core;
 
-public readonly record struct Color(byte R, byte G, byte B)
+public readonly record struct Color(byte R, byte G, byte B, bool IsDefault = false)
 {
+    /// <summary>
+    /// Represents the terminal's default color. When used as a background,
+    /// no background ANSI code is emitted, allowing the terminal's theme
+    /// (light or dark) to show through naturally.
+    /// </summary>
+    public static Color Default { get; } = new(0, 0, 0, IsDefault: true);
+
     public static Color Black { get; } = new(0, 0, 0);
 
     public static Color White { get; } = new(255, 255, 255);

@@ -39,12 +39,12 @@ namespace HPD.Agent.Providers.AzureAI;
 /// 2. API Key - For endpoints that support key-based authentication
 /// </para>
 /// </remarks>
-internal class AzureAIProvider : IProviderFeatures
+internal class AzureAIProvider : IChatClientProvider
 {
     public string ProviderKey => "azure-ai";
     public string DisplayName => "Azure AI (Projects)";
 
-    public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null)
+    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
     {
         // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
@@ -112,12 +112,6 @@ internal class AzureAIProvider : IProviderFeatures
             }
         }
 
-        // Apply client factory middleware if provided
-        if (config.ClientFactory is { } clientFactory)
-        {
-            chatClient = clientFactory(chatClient);
-        }
-
         return chatClient;
     }
 
@@ -173,14 +167,24 @@ internal class AzureAIProvider : IProviderFeatures
         {
             ProviderKey = ProviderKey,
             DisplayName = DisplayName,
-            SupportsStreaming = true,
-            SupportsFunctionCalling = true,
-            SupportsVision = true,
-            DocumentationUrl = "https://learn.microsoft.com/en-us/azure/ai-studio/"
+            DocumentationUri = new Uri("https://learn.microsoft.com/en-us/azure/ai-studio/"),
+            Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            {
+                [ProviderClientFamily.Chat] = new()
+                {
+                    Family = ProviderClientFamily.Chat,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsStreaming"] = true,
+                        ["SupportsFunctionCalling"] = true,
+                        ["SupportsVision"] = true
+                    }
+                }
+            }
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ProviderConfig config)
+    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
 

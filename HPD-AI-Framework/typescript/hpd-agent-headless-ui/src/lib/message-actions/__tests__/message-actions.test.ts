@@ -103,7 +103,7 @@ function makeWorkspace(messages: Message[] = []): Workspace {
 			createAgent: vi.fn(),
 			updateAgent: vi.fn(),
 			deleteAgent: vi.fn(),
-			uploadAsset: vi.fn(),
+			uploadContent: vi.fn(),
 		} as any,		selectSession: vi.fn(),
 		createSession: vi.fn(),
 		deleteSession: vi.fn(),

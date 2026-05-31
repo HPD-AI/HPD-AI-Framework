@@ -29,10 +29,11 @@ public class HuggingFaceProviderTests
         metadata.Should().NotBeNull();
         metadata.ProviderKey.Should().Be("huggingface");
         metadata.DisplayName.Should().Be("Hugging Face");
-        metadata.SupportsStreaming.Should().BeTrue();
-        metadata.SupportsFunctionCalling.Should().BeFalse(); // HF Inference API doesn't support function calling
-        metadata.SupportsVision.Should().BeFalse();
-        metadata.DocumentationUrl.Should().Be("https://huggingface.co/docs/api-inference/index");
+        metadata.DocumentationUri.Should().Be(new Uri("https://huggingface.co/docs/api-inference/index"));
+        var chat = metadata.Families[ProviderClientFamily.Chat];
+        chat.Capabilities!["SupportsStreaming"].Should().Be(true);
+        chat.Capabilities["SupportsFunctionCalling"].Should().Be(false);
+        chat.Capabilities["SupportsVision"].Should().Be(false);
     }
 
     #endregion
@@ -43,7 +44,7 @@ public class HuggingFaceProviderTests
     public void ValidateConfiguration_WithValidConfig_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "huggingface",
             ModelName = "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -51,7 +52,7 @@ public class HuggingFaceProviderTests
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -62,14 +63,14 @@ public class HuggingFaceProviderTests
     public void ValidateConfiguration_WithMissingApiKey_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "huggingface",
             ModelName = "meta-llama/Meta-Llama-3-8B-Instruct"
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -80,14 +81,14 @@ public class HuggingFaceProviderTests
     public void ValidateConfiguration_WithMissingModelName_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "huggingface",
             ApiKey = "hf_test_key"
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -98,7 +99,7 @@ public class HuggingFaceProviderTests
     public void ValidateConfiguration_WithInvalidTemperature_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "huggingface",
             ModelName = "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -112,7 +113,7 @@ public class HuggingFaceProviderTests
         config.SetProviderConfig(hfConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -123,7 +124,7 @@ public class HuggingFaceProviderTests
     public void ValidateConfiguration_WithNegativeTemperature_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "huggingface",
             ModelName = "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -137,7 +138,7 @@ public class HuggingFaceProviderTests
         config.SetProviderConfig(hfConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -148,7 +149,7 @@ public class HuggingFaceProviderTests
     public void ValidateConfiguration_WithValidTemperatureRange_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "huggingface",
             ModelName = "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -162,7 +163,7 @@ public class HuggingFaceProviderTests
         config.SetProviderConfig(hfConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -173,7 +174,7 @@ public class HuggingFaceProviderTests
     public void ValidateConfiguration_WithInvalidTopP_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "huggingface",
             ModelName = "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -187,7 +188,7 @@ public class HuggingFaceProviderTests
         config.SetProviderConfig(hfConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -198,7 +199,7 @@ public class HuggingFaceProviderTests
     public void ValidateConfiguration_WithTopPGreaterThanOne_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "huggingface",
             ModelName = "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -212,7 +213,7 @@ public class HuggingFaceProviderTests
         config.SetProviderConfig(hfConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -223,7 +224,7 @@ public class HuggingFaceProviderTests
     public void ValidateConfiguration_WithNegativeTopK_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "huggingface",
             ModelName = "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -237,7 +238,7 @@ public class HuggingFaceProviderTests
         config.SetProviderConfig(hfConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -248,7 +249,7 @@ public class HuggingFaceProviderTests
     public void ValidateConfiguration_WithNegativeRepetitionPenalty_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "huggingface",
             ModelName = "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -262,7 +263,7 @@ public class HuggingFaceProviderTests
         config.SetProviderConfig(hfConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -273,7 +274,7 @@ public class HuggingFaceProviderTests
     public void ValidateConfiguration_WithInvalidMaxNewTokens_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "huggingface",
             ModelName = "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -287,7 +288,7 @@ public class HuggingFaceProviderTests
         config.SetProviderConfig(hfConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -298,7 +299,7 @@ public class HuggingFaceProviderTests
     public void ValidateConfiguration_WithInvalidNumReturnSequences_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "huggingface",
             ModelName = "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -312,7 +313,7 @@ public class HuggingFaceProviderTests
         config.SetProviderConfig(hfConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -323,7 +324,7 @@ public class HuggingFaceProviderTests
     public void ValidateConfiguration_WithInvalidMaxTime_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "huggingface",
             ModelName = "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -337,7 +338,7 @@ public class HuggingFaceProviderTests
         config.SetProviderConfig(hfConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -348,7 +349,7 @@ public class HuggingFaceProviderTests
     public void ValidateConfiguration_WithValidHuggingFaceConfig_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "huggingface",
             ModelName = "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -372,7 +373,7 @@ public class HuggingFaceProviderTests
         config.SetProviderConfig(hfConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -572,12 +573,11 @@ public class HuggingFaceProviderTests
         var config = new AgentConfig
         {
             Name = "Test Agent",
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "huggingface",
                 ModelName = "meta-llama/Meta-Llama-3-8B-Instruct",
                 ApiKey = "hf_test_key"
-            }
+            } }
         };
 
         var hfOpts = new HuggingFaceProviderConfig
@@ -587,7 +587,7 @@ public class HuggingFaceProviderTests
             TopP = 0.9,
             TopK = 50
         };
-        config.Provider.SetProviderConfig(hfOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(hfOpts);
 
         // Act
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
@@ -616,12 +616,14 @@ public class HuggingFaceProviderTests
         var json = """
         {
             "name": "Test Agent",
-            "provider": {
+            "clients": {
+                "chat": {
                 "providerKey": "huggingface",
                 "modelName": "meta-llama/Meta-Llama-3-8B-Instruct",
                 "apiKey": "hf_test_key",
                 "providerOptionsJson": "{\"maxNewTokens\":250,\"temperature\":0.7,\"topP\":0.9,\"topK\":50}"
             }
+        }
         }
         """;
 
@@ -631,14 +633,14 @@ public class HuggingFaceProviderTests
         // Assert
         config.Should().NotBeNull();
         config!.Name.Should().Be("Test Agent");
-        config.Provider.Should().NotBeNull();
-        config.Provider!.ProviderKey.Should().Be("huggingface");
-        config.Provider.ModelName.Should().Be("meta-llama/Meta-Llama-3-8B-Instruct");
-        config.Provider.ApiKey.Should().Be("hf_test_key");
-        config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().Should().NotBeNull();
+        config.EnsureChatClientConfig()!.ProviderKey.Should().Be("huggingface");
+        config.EnsureChatClientConfig().ModelName.Should().Be("meta-llama/Meta-Llama-3-8B-Instruct");
+        config.EnsureChatClientConfig().ApiKey.Should().Be("hf_test_key");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
 
         // Verify typed config can be retrieved
-        var hfConfig = config.Provider.GetProviderConfig<HuggingFaceProviderConfig>();
+        var hfConfig = config.EnsureChatClientConfig().GetProviderConfig<HuggingFaceProviderConfig>();
         hfConfig.Should().NotBeNull();
         hfConfig!.MaxNewTokens.Should().Be(250);
         hfConfig.Temperature.Should().Be(0.7);
@@ -655,12 +657,11 @@ public class HuggingFaceProviderTests
             Name = "Round Trip Test",
             MaxAgenticIterations = 20,
             SystemInstructions = "You are a test assistant.",
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "huggingface",
                 ModelName = "mistralai/Mistral-7B-Instruct-v0.2",
                 ApiKey = "hf_test_key"
-            }
+            } }
         };
 
         var originalHfOpts = new HuggingFaceProviderConfig
@@ -677,7 +678,7 @@ public class HuggingFaceProviderTests
             UseCache = false,
             WaitForModel = true
         };
-        originalConfig.Provider.SetProviderConfig(originalHfOpts);
+        originalConfig.EnsureChatClientConfig().SetProviderConfig(originalHfOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(originalConfig, HPDJsonContext.Default.AgentConfig);
@@ -690,13 +691,13 @@ public class HuggingFaceProviderTests
         deserializedConfig.SystemInstructions.Should().Be("You are a test assistant.");
 
         // Assert - Provider properties
-        deserializedConfig.Provider.Should().NotBeNull();
-        deserializedConfig.Provider!.ProviderKey.Should().Be("huggingface");
-        deserializedConfig.Provider.ModelName.Should().Be("mistralai/Mistral-7B-Instruct-v0.2");
-        deserializedConfig.Provider.ApiKey.Should().Be("hf_test_key");
+        deserializedConfig.EnsureChatClientConfig().Should().NotBeNull();
+        deserializedConfig.EnsureChatClientConfig()!.ProviderKey.Should().Be("huggingface");
+        deserializedConfig.EnsureChatClientConfig().ModelName.Should().Be("mistralai/Mistral-7B-Instruct-v0.2");
+        deserializedConfig.EnsureChatClientConfig().ApiKey.Should().Be("hf_test_key");
 
         // Assert - HuggingFace-specific config
-        var deserializedHfOpts = deserializedConfig.Provider.GetProviderConfig<HuggingFaceProviderConfig>();
+        var deserializedHfOpts = deserializedConfig.EnsureChatClientConfig().GetProviderConfig<HuggingFaceProviderConfig>();
         deserializedHfOpts.Should().NotBeNull();
         deserializedHfOpts!.MaxNewTokens.Should().Be(500);
         deserializedHfOpts.Temperature.Should().Be(0.8);
@@ -717,11 +718,10 @@ public class HuggingFaceProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "huggingface",
                 ModelName = "meta-llama/Meta-Llama-3-8B-Instruct"
-            }
+            } }
         };
 
         // Act - Set typed config
@@ -730,17 +730,17 @@ public class HuggingFaceProviderTests
             MaxNewTokens = 250,
             Temperature = 0.5
         };
-        config.Provider.SetProviderConfig(hfOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(hfOpts);
 
         // Assert - ProviderOptionsJson should be populated
-        config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
-        config.Provider.ProviderOptionsJson.Should().Contain("maxNewTokens");
-        config.Provider.ProviderOptionsJson.Should().Contain("250");
-        config.Provider.ProviderOptionsJson.Should().Contain("temperature");
-        config.Provider.ProviderOptionsJson.Should().Contain("0.5");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("maxNewTokens");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("250");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("temperature");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("0.5");
 
         // Verify we can retrieve it back
-        var retrieved = config.Provider.GetProviderConfig<HuggingFaceProviderConfig>();
+        var retrieved = config.EnsureChatClientConfig().GetProviderConfig<HuggingFaceProviderConfig>();
         retrieved.Should().NotBeNull();
         retrieved!.MaxNewTokens.Should().Be(250);
         retrieved.Temperature.Should().Be(0.5);
@@ -752,11 +752,10 @@ public class HuggingFaceProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "huggingface",
                 ModelName = "meta-llama/Meta-Llama-3-8B-Instruct"
-            }
+            } }
         };
 
         var hfOpts = new HuggingFaceProviderConfig
@@ -764,11 +763,11 @@ public class HuggingFaceProviderTests
             MaxNewTokens = 250,
             Temperature = 0.7
         };
-        config.Provider.SetProviderConfig(hfOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(hfOpts);
 
         // Act - Call GetProviderConfig multiple times
-        var first = config.Provider.GetProviderConfig<HuggingFaceProviderConfig>();
-        var second = config.Provider.GetProviderConfig<HuggingFaceProviderConfig>();
+        var first = config.EnsureChatClientConfig().GetProviderConfig<HuggingFaceProviderConfig>();
+        var second = config.EnsureChatClientConfig().GetProviderConfig<HuggingFaceProviderConfig>();
 
         // Assert - Should return the same cached instance
         first.Should().BeSameAs(second);
@@ -782,11 +781,10 @@ public class HuggingFaceProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "huggingface",
                 ModelName = "meta-llama/Meta-Llama-3-8B-Instruct"
-            }
+            } }
         };
 
         var hfOpts = new HuggingFaceProviderConfig
@@ -794,14 +792,14 @@ public class HuggingFaceProviderTests
             MaxNewTokens = 250
             // Leave Temperature, TopP, etc. as null
         };
-        config.Provider.SetProviderConfig(hfOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(hfOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
         var deserialized = System.Text.Json.JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentConfig);
 
         // Assert
-        var deserializedOpts = deserialized!.Provider.GetProviderConfig<HuggingFaceProviderConfig>();
+        var deserializedOpts = deserialized!.EnsureChatClientConfig().GetProviderConfig<HuggingFaceProviderConfig>();
         deserializedOpts.Should().NotBeNull();
         deserializedOpts!.MaxNewTokens.Should().Be(250);
         deserializedOpts.Temperature.Should().BeNull();
@@ -832,12 +830,12 @@ public class HuggingFaceProviderTests
             });
 
         // Assert
-        builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.ProviderKey.Should().Be("huggingface");
-        builder.Config.Provider.ModelName.Should().Be("meta-llama/Meta-Llama-3-8B-Instruct");
-        builder.Config.Provider.ApiKey.Should().Be("hf_test_key");
+        builder.Config.EnsureChatClientConfig().Should().NotBeNull();
+        builder.Config.EnsureChatClientConfig()!.ProviderKey.Should().Be("huggingface");
+        builder.Config.EnsureChatClientConfig().ModelName.Should().Be("meta-llama/Meta-Llama-3-8B-Instruct");
+        builder.Config.EnsureChatClientConfig().ApiKey.Should().Be("hf_test_key");
 
-        var hfConfig = builder.Config.Provider.GetProviderConfig<HuggingFaceProviderConfig>();
+        var hfConfig = builder.Config.EnsureChatClientConfig().GetProviderConfig<HuggingFaceProviderConfig>();
         hfConfig.Should().NotBeNull();
         hfConfig!.MaxNewTokens.Should().Be(500);
         hfConfig.Temperature.Should().Be(0.7);
@@ -855,9 +853,9 @@ public class HuggingFaceProviderTests
             model: "meta-llama/Meta-Llama-3-8B-Instruct");
 
         // Assert
-        builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.ProviderKey.Should().Be("huggingface");
-        builder.Config.Provider.ModelName.Should().Be("meta-llama/Meta-Llama-3-8B-Instruct");
+        builder.Config.EnsureChatClientConfig().Should().NotBeNull();
+        builder.Config.EnsureChatClientConfig()!.ProviderKey.Should().Be("huggingface");
+        builder.Config.EnsureChatClientConfig().ModelName.Should().Be("meta-llama/Meta-Llama-3-8B-Instruct");
         // ApiKey will be null here but would be resolved from env at runtime
     }
 
@@ -887,7 +885,7 @@ public class HuggingFaceProviderTests
             });
 
         // Assert
-        var hfConfig = builder.Config.Provider!.GetProviderConfig<HuggingFaceProviderConfig>();
+        var hfConfig = builder.Config.EnsureChatClientConfig()!.GetProviderConfig<HuggingFaceProviderConfig>();
         hfConfig.Should().NotBeNull();
         hfConfig!.MaxNewTokens.Should().Be(1000);
         hfConfig.Temperature.Should().Be(0.8);

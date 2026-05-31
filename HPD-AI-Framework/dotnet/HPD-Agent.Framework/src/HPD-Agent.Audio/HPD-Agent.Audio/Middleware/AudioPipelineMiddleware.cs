@@ -14,9 +14,11 @@ using HPD.Agent.Audio.Tts;
 using HPD.Agent.Audio.Vad;
 using HPD.Agent.Audio.Eot;
 using HPD.Agent.Middleware;
+using HPD.Agent.Providers;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using HPD.Events;
+using HPD.Events.Struct;
 
 namespace HPD.Agent.Audio;
 
@@ -41,6 +43,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     /// </summary>
     public AudioPipelineMiddleware()
     {
+        ProviderRegistry = new AgentBuilder().ProviderRegistry;
     }
 
     /// <summary>
@@ -48,6 +51,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     /// </summary>
     public AudioPipelineMiddleware(AudioConfig config)
     {
+        ProviderRegistry = new AgentBuilder().ProviderRegistry;
         Configure(config);
     }
 
@@ -108,6 +112,9 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
     /// <summary>End-of-turn detector.</summary>
     public IEotDetector? EotDetector { get; set; }
+
+    /// <summary>Unified provider registry used to resolve configured audio client families.</summary>
+    public IProviderRegistry? ProviderRegistry { get; set; }
 
     //
     // QUICK ANSWER (delegates to AudioPipelineConfig)
@@ -393,6 +400,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         defaults.Language = overrides.Language ?? defaults.Language;
         defaults.Provider = string.IsNullOrWhiteSpace(overrides.Provider) ? defaults.Provider : overrides.Provider;
         defaults.ProviderOptionsJson = overrides.ProviderOptionsJson ?? defaults.ProviderOptionsJson;
+        defaults.OverrideClient = overrides.OverrideClient ?? defaults.OverrideClient;
         defaults.AdditionalProperties = MergeAdditionalProperties(defaults.AdditionalProperties, overrides.AdditionalProperties);
         return defaults;
     }
@@ -411,6 +419,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         defaults.ResponseFormat = overrides.ResponseFormat ?? defaults.ResponseFormat;
         defaults.Provider = string.IsNullOrWhiteSpace(overrides.Provider) ? defaults.Provider : overrides.Provider;
         defaults.ProviderOptionsJson = overrides.ProviderOptionsJson ?? defaults.ProviderOptionsJson;
+        defaults.OverrideClient = overrides.OverrideClient ?? defaults.OverrideClient;
         defaults.AdditionalProperties = MergeAdditionalProperties(defaults.AdditionalProperties, overrides.AdditionalProperties);
         return defaults;
     }
@@ -494,76 +503,320 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             effectiveConfig.Tts.Language ??= effectiveConfig.Language;
     }
 
-    private void EnsureRuntimeProviders(AudioConfig effectiveConfig, IServiceProvider? services)
+    private static void ApplyClientFamilyConfigs(
+        AudioConfig effectiveConfig,
+        AgentConfig? agentConfig,
+        AgentRunConfig? runConfig)
+    {
+        if (agentConfig == null)
+            return;
+
+        ApplyClientFamilyDefaults(effectiveConfig, agentConfig);
+        ApplyRunClientFamilyOverrides(effectiveConfig, agentConfig, runConfig);
+    }
+
+    private static void ApplyClientFamilyDefaults(AudioConfig effectiveConfig, AgentConfig agentConfig)
+    {
+        ApplyTtsClientConfig(
+            effectiveConfig,
+            agentConfig.ResolveClientConfig(ProviderClientFamily.TextToSpeech),
+            overwrite: false);
+        ApplySttClientConfig(
+            effectiveConfig,
+            agentConfig.ResolveClientConfig(ProviderClientFamily.SpeechToText),
+            overwrite: false);
+        ApplyVadClientConfig(
+            effectiveConfig,
+            agentConfig.ResolveClientConfig(ProviderClientFamily.VoiceActivityDetection),
+            overwrite: false);
+        ApplyEotClientConfig(
+            effectiveConfig,
+            agentConfig.ResolveClientConfig(ProviderClientFamily.EndOfTurnDetection),
+            overwrite: false);
+    }
+
+    private static void ApplyRunClientFamilyOverrides(
+        AudioConfig effectiveConfig,
+        AgentConfig agentConfig,
+        AgentRunConfig? runConfig)
+    {
+        if (runConfig?.Clients == null)
+            return;
+
+        ApplyRunOverride(
+            effectiveConfig,
+            agentConfig,
+            runConfig,
+            ProviderClientFamily.TextToSpeech,
+            ApplyTtsClientConfig);
+        ApplyRunOverride(
+            effectiveConfig,
+            agentConfig,
+            runConfig,
+            ProviderClientFamily.SpeechToText,
+            ApplySttClientConfig);
+        ApplyRunOverride(
+            effectiveConfig,
+            agentConfig,
+            runConfig,
+            ProviderClientFamily.VoiceActivityDetection,
+            ApplyVadClientConfig);
+        ApplyRunOverride(
+            effectiveConfig,
+            agentConfig,
+            runConfig,
+            ProviderClientFamily.EndOfTurnDetection,
+            ApplyEotClientConfig);
+    }
+
+    private static void ApplyRunOverride(
+        AudioConfig effectiveConfig,
+        AgentConfig agentConfig,
+        AgentRunConfig runConfig,
+        ProviderClientFamily family,
+        Action<AudioConfig, ClientProviderConfig?, bool> apply)
+    {
+        if (runConfig.Clients?.GetFamilyConfig(family) == null)
+            return;
+
+        apply(effectiveConfig, agentConfig.ResolveClientConfig(family, runConfig.Clients), true);
+    }
+
+    private static void ApplyTtsClientConfig(AudioConfig config, ClientProviderConfig? clientConfig, bool overwrite)
+    {
+        if (clientConfig == null)
+            return;
+
+        config.Tts ??= new TtsConfig();
+        ApplyProviderConfig(config.Tts, clientConfig, overwrite);
+    }
+
+    private static void ApplySttClientConfig(AudioConfig config, ClientProviderConfig? clientConfig, bool overwrite)
+    {
+        if (clientConfig == null)
+            return;
+
+        config.Stt ??= new SttConfig();
+        ApplyProviderConfig(config.Stt, clientConfig, overwrite);
+    }
+
+    private static void ApplyVadClientConfig(AudioConfig config, ClientProviderConfig? clientConfig, bool overwrite)
+    {
+        if (clientConfig == null)
+            return;
+
+        config.Vad ??= new VadConfig();
+        ApplyProviderConfig(config.Vad, clientConfig, overwrite, applyModel: false);
+    }
+
+    private static void ApplyEotClientConfig(AudioConfig config, ClientProviderConfig? clientConfig, bool overwrite)
+    {
+        if (clientConfig == null)
+            return;
+
+        config.Eot ??= new EotConfig();
+        ApplyProviderConfig(config.Eot, clientConfig, overwrite, applyModel: false);
+    }
+
+    private static void ApplyProviderConfig(TtsConfig config, ClientProviderConfig clientConfig, bool overwrite)
+    {
+        if (overwrite || string.IsNullOrWhiteSpace(config.Provider))
+            config.Provider = clientConfig.ProviderKey ?? config.Provider;
+        if (overwrite || string.IsNullOrWhiteSpace(config.ModelId))
+            config.ModelId = clientConfig.ModelName ?? config.ModelId;
+        if (overwrite || string.IsNullOrWhiteSpace(config.ProviderOptionsJson))
+            config.ProviderOptionsJson = clientConfig.ProviderOptionsJson ?? config.ProviderOptionsJson;
+        config.AdditionalProperties = MergeAdditionalProperties(config.AdditionalProperties, clientConfig.AdditionalProperties);
+    }
+
+    private static void ApplyProviderConfig(SttConfig config, ClientProviderConfig clientConfig, bool overwrite)
+    {
+        if (overwrite || string.IsNullOrWhiteSpace(config.Provider))
+            config.Provider = clientConfig.ProviderKey ?? config.Provider;
+        if (overwrite || string.IsNullOrWhiteSpace(config.ModelId))
+            config.ModelId = clientConfig.ModelName ?? config.ModelId;
+        if (overwrite || string.IsNullOrWhiteSpace(config.ProviderOptionsJson))
+            config.ProviderOptionsJson = clientConfig.ProviderOptionsJson ?? config.ProviderOptionsJson;
+        config.AdditionalProperties = MergeAdditionalProperties(config.AdditionalProperties, clientConfig.AdditionalProperties);
+    }
+
+    private static void ApplyProviderConfig(VadConfig config, ClientProviderConfig clientConfig, bool overwrite, bool applyModel)
+    {
+        if (overwrite || string.IsNullOrWhiteSpace(config.Provider))
+            config.Provider = clientConfig.ProviderKey ?? config.Provider;
+        if (overwrite || string.IsNullOrWhiteSpace(config.ProviderOptionsJson))
+            config.ProviderOptionsJson = clientConfig.ProviderOptionsJson ?? config.ProviderOptionsJson;
+    }
+
+    private static void ApplyProviderConfig(EotConfig config, ClientProviderConfig clientConfig, bool overwrite, bool applyModel)
+    {
+        if (overwrite || string.IsNullOrWhiteSpace(config.Provider))
+            config.Provider = clientConfig.ProviderKey ?? config.Provider;
+        if (overwrite || string.IsNullOrWhiteSpace(config.ProviderOptionsJson))
+            config.ProviderOptionsJson = clientConfig.ProviderOptionsJson ?? config.ProviderOptionsJson;
+    }
+
+    private void EnsureRuntimeProviders(
+        AudioConfig effectiveConfig,
+        IServiceProvider? services,
+        AgentClientSet? clientSet,
+        AgentRunConfig? runConfig)
     {
         var hasAudioInput = HasAudioInputMode(effectiveConfig.IOMode);
         var hasAudioOutput = HasAudioOutputMode(effectiveConfig.IOMode);
 
+        var configuredSttClient = effectiveConfig.Stt?.OverrideClient ?? clientSet?.SpeechToText;
         if (SpeechRecognizer == null &&
-            effectiveConfig.Stt != null &&
-            !string.IsNullOrWhiteSpace(effectiveConfig.Stt.Provider) &&
+            (configuredSttClient != null || effectiveConfig.Stt != null) &&
             hasAudioInput)
         {
-            try
+            var sttClient = configuredSttClient;
+            var disposeClient = false;
+            if (sttClient == null)
             {
-                var sttFactory = Stt.SttProviderDiscovery.GetFactory(effectiveConfig.Stt.Provider);
-                SpeechRecognizer = sttFactory.CreateRecognizer(effectiveConfig.Stt, services);
+                if (effectiveConfig.Stt == null || string.IsNullOrWhiteSpace(effectiveConfig.Stt.Provider))
+                    throw new InvalidOperationException("Speech-to-text requires either an explicit client override or a configured provider.");
+
+                var provider = GetRequiredProvider<ISpeechToTextClientProvider>(effectiveConfig.Stt.Provider);
+                sttClient = provider.CreateSpeechToTextClient(ToClientProviderConfig(effectiveConfig.Stt), services);
+                disposeClient = true;
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Failed to create speech recognizer: {ex.Message}");
-            }
+
+            SpeechRecognizer = MeaiSpeechRecognizerFactory.Create(
+                sttClient,
+                new SpeechRecognitionCapabilities
+                {
+                    StreamingInput = false,
+                    InterimResults = false,
+                    PreflightResults = false,
+                    FinalResults = true,
+                    OfflineRecognize = true
+                },
+                effectiveConfig.Stt?.UseStreamingRecognition == true,
+                effectiveConfig.Stt?.Provider,
+                effectiveConfig.Stt?.ModelId,
+                disposeClient);
         }
 
+        var configuredTtsClient = effectiveConfig.Tts?.OverrideClient ?? clientSet?.TextToSpeech;
         if (TextToSpeechClient == null &&
-            effectiveConfig.Tts != null &&
-            !string.IsNullOrWhiteSpace(effectiveConfig.Tts.Provider) &&
+            (configuredTtsClient != null || effectiveConfig.Tts != null) &&
             hasAudioOutput)
         {
-            try
+            var ttsClient = configuredTtsClient;
+            if (ttsClient == null)
             {
-                var ttsFactory = Tts.TtsProviderDiscovery.GetFactory(effectiveConfig.Tts.Provider);
-                TextToSpeechClient = WrapTextToSpeechClient(
-                    ttsFactory.CreateClient(effectiveConfig.Tts, services),
-                    effectiveConfig,
+                if (effectiveConfig.Tts == null || string.IsNullOrWhiteSpace(effectiveConfig.Tts.Provider))
+                    throw new InvalidOperationException("Text-to-speech requires either an explicit client override or a configured provider.");
+
+                var provider = GetRequiredProvider<ITextToSpeechClientProvider>(effectiveConfig.Tts.Provider);
+                ttsClient = provider.CreateTextToSpeechClient(ToClientProviderConfig(effectiveConfig.Tts), services);
+            }
+
+            TextToSpeechClient = WrapTextToSpeechClient(
+                ttsClient,
+                effectiveConfig,
+                services);
+        }
+
+        var configuredVadFactory = runConfig?.OverrideVoiceActivityDetectorFactory ?? clientSet?.VoiceActivityDetectorFactory;
+        if (Vad == null && (configuredVadFactory != null || effectiveConfig.Vad != null) && hasAudioInput)
+        {
+            var lifetimeContext = new ProviderComponentLifetimeContext(Lifetime: ProviderFamilyLifetime.StatefulPerAudioSession);
+            Vad = configuredVadFactory?.Invoke(lifetimeContext);
+            if (Vad == null)
+            {
+                if (effectiveConfig.Vad == null || string.IsNullOrWhiteSpace(effectiveConfig.Vad.Provider))
+                    throw new InvalidOperationException("Voice activity detection requires either an explicit detector factory override or a configured provider.");
+
+                var provider = GetRequiredProvider<IVoiceActivityDetectorProvider>(effectiveConfig.Vad.Provider);
+                Vad = provider.CreateVoiceActivityDetector(
+                    ToClientProviderConfig(effectiveConfig.Vad),
+                    lifetimeContext,
                     services);
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Failed to create TTS client: {ex.Message}");
-            }
         }
 
-        if (Vad == null && effectiveConfig.Vad != null && hasAudioInput)
+        var configuredEotFactory = runConfig?.OverrideEndOfTurnDetectorFactory ?? clientSet?.EndOfTurnDetectorFactory;
+        if (EotDetector == null && (configuredEotFactory != null || effectiveConfig.Eot != null) && hasAudioInput)
         {
-            try
+            var lifetimeContext = new ProviderComponentLifetimeContext(Lifetime: ProviderFamilyLifetime.StatefulPerAudioSession);
+            EotDetector = configuredEotFactory?.Invoke(lifetimeContext);
+            if (EotDetector == null)
             {
-                var vadFactory = Audio.Vad.VadProviderDiscovery.GetFactory(effectiveConfig.Vad.Provider);
-                Vad = vadFactory.CreateDetector(effectiveConfig.Vad, services);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Failed to create VAD: {ex.Message}");
-            }
-        }
+                if (effectiveConfig.Eot == null || string.IsNullOrWhiteSpace(effectiveConfig.Eot.Provider))
+                    throw new InvalidOperationException("End-of-turn detection requires either an explicit detector factory override or a configured provider.");
 
-        if (EotDetector == null && effectiveConfig.Eot != null && hasAudioInput)
-        {
-            try
-            {
-                var eotFactory = EotProviderDiscovery.GetFactory(effectiveConfig.Eot.Provider);
-                EotDetector = eotFactory.CreateDetector(effectiveConfig.Eot, services);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Failed to create EOT detector: {ex.Message}");
+                var provider = GetRequiredProvider<IEndOfTurnDetectorProvider>(effectiveConfig.Eot.Provider);
+                EotDetector = provider.CreateEndOfTurnDetector(
+                    ToClientProviderConfig(effectiveConfig.Eot),
+                    lifetimeContext,
+                    services);
             }
         }
     }
 
+    private TProvider GetRequiredProvider<TProvider>(string providerKey)
+        where TProvider : class, IProvider
+    {
+        if (ProviderRegistry == null)
+            throw new InvalidOperationException($"Audio provider '{providerKey}' requires a unified provider registry.");
+
+        return ProviderRegistry.GetRequiredProvider<TProvider>(providerKey);
+    }
+
+    private static ClientProviderConfig ToClientProviderConfig(TtsConfig config)
+    {
+        var additionalProperties = config.AdditionalProperties is null
+            ? new Dictionary<string, object>()
+            : new Dictionary<string, object>(config.AdditionalProperties);
+
+        if (!string.IsNullOrWhiteSpace(config.Voice))
+            additionalProperties["voice"] = config.Voice;
+        if (!string.IsNullOrWhiteSpace(config.OutputFormat))
+            additionalProperties["outputFormat"] = config.OutputFormat;
+        if (config.Speed.HasValue)
+            additionalProperties["speed"] = config.Speed.Value;
+
+        return new ClientProviderConfig
+        {
+            ProviderKey = config.Provider,
+            ModelName = config.ModelId ?? string.Empty,
+            ProviderOptionsJson = config.ProviderOptionsJson,
+            AdditionalProperties = additionalProperties
+        };
+    }
+
+    private static ClientProviderConfig ToClientProviderConfig(SttConfig config) => new()
+    {
+        ProviderKey = config.Provider,
+        ModelName = config.ModelId ?? string.Empty,
+        ProviderOptionsJson = config.ProviderOptionsJson,
+        AdditionalProperties = config.AdditionalProperties
+    };
+
+    private static ClientProviderConfig ToClientProviderConfig(VadConfig config) => new()
+    {
+        ProviderKey = config.Provider,
+        ProviderOptionsJson = config.ProviderOptionsJson,
+        AdditionalProperties = new Dictionary<string, object>
+        {
+            ["activationThreshold"] = config.ActivationThreshold,
+            ["minSpeechDuration"] = config.MinSpeechDuration,
+            ["minSilenceDuration"] = config.MinSilenceDuration,
+            ["prefixPaddingDuration"] = config.PrefixPaddingDuration
+        }
+    };
+
+    private static ClientProviderConfig ToClientProviderConfig(EotConfig config) => new()
+    {
+        ProviderKey = config.Provider,
+        ProviderOptionsJson = config.ProviderOptionsJson
+    };
+
     private async Task RunAudioInputLoopAsync(
         RuntimeHookContext context,
-        LocalStructSubscription<AudioInputFrame> frames,
+        StructEventSubscription<AudioInputFrame> frames,
         AudioConfig effectiveConfig,
         CancellationToken cancellationToken)
     {
@@ -855,21 +1108,22 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     /// </summary>
     public Task BeforeStartAsync(BeforeStartContext context, CancellationToken cancellationToken)
     {
-        var effectiveConfig = GetEffectiveConfig((object?)null);
+        var effectiveConfig = GetEffectiveConfig(context.RunConfig?.Audio);
+        ApplyClientFamilyConfigs(effectiveConfig, context.Config, context.RunConfig);
         effectiveConfig.Validate();
 
         ApplyGlobalLanguage(effectiveConfig);
 
         if (effectiveConfig.Disabled == true ||
-            effectiveConfig.ProcessingMode == AudioProcessingMode.Native ||
+            effectiveConfig.ProcessingMode == AudioProcessingMode.Realtime ||
             !HasAudioInputMode(effectiveConfig.IOMode))
         {
             return Task.CompletedTask;
         }
 
-        EnsureRuntimeProviders(effectiveConfig, context.Services);
+        EnsureRuntimeProviders(effectiveConfig, context.Services, context.ClientSet, context.RunConfig);
 
-        var subscription = context.EventCoordinator.LocalStructs.Route<AudioInputFrame>().Subscribe();
+        var subscription = context.StructEvents.Route<AudioInputFrame>().Subscribe();
         context.RegisterDisposable(subscription);
         context.RegisterBackgroundTask(runtimeToken =>
             RunAudioInputLoopAsync(context, subscription, effectiveConfig, runtimeToken));
@@ -891,187 +1145,14 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     }
 
     /// <summary>
-    /// Processes audio input before LLM call (STT conversion).
-    /// Converts audio DataContent in messages to text transcriptions.
-    /// Uses role-based discovery to create audio clients dynamically.
+    /// Does not process chat-message audio attachments.
     /// </summary>
-    public async Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken cancellationToken)
-    {
-        var effectiveConfig = GetEffectiveConfig(context.RunConfig?.Audio);
-
-        // Validate merged configuration
-        effectiveConfig.Validate();
-
-        ApplyGlobalLanguage(effectiveConfig);
-
-        // Check if audio processing is disabled
-        if (effectiveConfig.Disabled == true)
-            return;
-
-        // Native mode: the model handles audio I/O directly — skip STT entirely.
-        // Audio content is left in the messages for the model to process natively.
-        if (effectiveConfig.ProcessingMode == AudioProcessingMode.Native)
-            return;
-
-        var hasAudioInput = HasAudioInputMode(effectiveConfig.IOMode);
-        var hasAudioOutput = HasAudioOutputMode(effectiveConfig.IOMode);
-        EnsureRuntimeProviders(effectiveConfig, context.Services);
-
-        // Check if audio input processing is needed
-        if (!hasAudioInput || SpeechRecognizer == null)
-            return;
-
-        if (context.Messages == null || context.Messages.Count == 0)
-            return;
-
-        var turnStartTime = DateTime.UtcNow;
-        _turnMetrics = new TurnMetrics { TurnStartTime = turnStartTime };
-
-        // Process the last user message for audio content
-        var lastMessage = context.Messages[^1];
-        if (lastMessage.Role != ChatRole.User)
-            return;
-
-        // Resolve content store for asset:// URI resolution
-        var contentStore = context.Session?.Store?.GetContentStore(context.Session.Id);
-
-        // Collect audio items: AudioContent (typed), DataContent with audio MIME, or UriContent with audio MIME
-        var audioItems = new List<(AIContent Original, DataContent? Resolved)>();
-        foreach (var content in lastMessage.Contents ?? [])
-        {
-            if (content is AudioContent ac)
-            {
-                // Typed AudioContent — may still have bytes or be a data URI
-                audioItems.Add((content, ac));
-            }
-            else if (content is DataContent dc &&
-                     dc.MediaType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true)
-            {
-                audioItems.Add((content, dc));
-            }
-            else if (content is UriContent uc &&
-                     uc.MediaType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true &&
-                     uc.Uri?.Scheme == "asset" &&
-                     contentStore != null)
-            {
-                // asset:// URI — resolve bytes from content store
-                var assetId = uc.Uri.Host;
-                var stored = await contentStore.GetAsync(context.Session!.Id, assetId, cancellationToken);
-                if (stored != null)
-                {
-                    var resolved = new DataContent(stored.Data, stored.ContentType);
-                    audioItems.Add((content, resolved));
-                }
-            }
-        }
-
-        if (audioItems.Count == 0)
-            return;
-
-        var transcriptionId = Guid.NewGuid().ToString("N")[..8];
-        var sttStartTime = DateTime.UtcNow;
-
-        context.TryEmit(new TranscriptionDeltaEvent(transcriptionId, "", false, null)
-        {
-            Channel = EventChannel.Streaming
-        });
-
-        // Transcribe each audio item
-        var transcriptions = new List<string>();
-        foreach (var (_, resolved) in audioItems)
-        {
-            if (resolved == null) continue;
-            try
-            {
-                var transcription = await TranscribeAudioAsync(resolved, effectiveConfig.Stt, cancellationToken);
-                if (!string.IsNullOrWhiteSpace(transcription))
-                {
-                    transcriptions.Add(transcription);
-
-                    context.TryEmit(new TranscriptionDeltaEvent(transcriptionId, transcription, false, null)
-                    {
-                        Channel = EventChannel.Streaming
-                    });
-                }
-            }
-            catch (Exception ex)
-            {
-                // Log but continue - don't fail the entire request for STT errors
-                context.TryEmit(new AudioPipelineMetricsEvent("error", "stt_error", 1, "count")
-                {
-                    Channel = EventChannel.Streaming
-                });
-
-                System.Diagnostics.Debug.WriteLine($"STT error: {ex.Message}");
-            }
-        }
-
-        var sttDuration = DateTime.UtcNow - sttStartTime;
-        _turnMetrics.SttDuration = sttDuration;
-
-        if (transcriptions.Count > 0)
-        {
-            var fullTranscription = string.Join(" ", transcriptions);
-
-            // Emit completion event
-            context.TryEmit(new TranscriptionCompletedEvent(transcriptionId, fullTranscription, sttDuration)
-            {
-                Channel = EventChannel.Synchronous
-            });
-
-            // Update speed estimate based on transcription
-            var wordCount = fullTranscription.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
-            if (sttDuration.TotalMinutes > 0 && wordCount > 0)
-            {
-                var wpm = (float)(wordCount / sttDuration.TotalMinutes);
-                UpdateSpeedEstimate(wpm, wordCount);
-                _turnMetrics.UserWpm = CurrentWpm;
-            }
-
-            // Replace audio content with transcription text in the message
-            var audioOriginals = audioItems.Select(a => a.Original).ToHashSet(ReferenceEqualityComparer.Instance);
-            var newContents = lastMessage.Contents!
-                .Where(c => !audioOriginals.Contains(c))
-                .ToList();
-
-            // Add transcription as text content at the front
-            newContents.Insert(0, new TextContent(fullTranscription));
-
-            // Create new message with updated contents
-            var newMessage = new ChatMessage(lastMessage.Role, newContents)
-            {
-                AuthorName = lastMessage.AuthorName,
-                RawRepresentation = lastMessage.RawRepresentation
-            };
-
-            // Replace the message in the list
-            context.Messages[^1] = newMessage;
-        }
-    }
-
-    private async Task<string?> TranscribeAudioAsync(
-        DataContent audioContent,
-        SttConfig? sttConfig,
-        CancellationToken cancellationToken)
-    {
-        await foreach (var recognitionEvent in RecognizeAudioAsync(
-                audioContent,
-                sttConfig,
-                runtimeId: null,
-                sessionId: null,
-                branchId: null,
-                cancellationToken)
-            .ConfigureAwait(false))
-        {
-            if (recognitionEvent is SpeechRecognitionFinalEvent final &&
-                !string.IsNullOrWhiteSpace(final.Transcript.Text))
-            {
-                return final.Transcript.Text;
-            }
-        }
-
-        return null;
-    }
+    /// <remarks>
+    /// Live audio is handled by the runtime <see cref="AudioInputFrame"/> loop.
+    /// Attachment transcription is owned by <see cref="AudioAttachmentTranscriptionMiddleware"/>.
+    /// </remarks>
+    public Task BeforeIterationAsync(BeforeIterationContext context, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 
     private async IAsyncEnumerable<SpeechRecognitionEvent> RecognizeAudioAsync(
         DataContent audioContent,
@@ -1210,6 +1291,8 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         var effectiveConfig = GetEffectiveConfig(request.RunConfig?.Audio);
         effectiveConfig.Validate();
 
+        var effectiveTtsClient = effectiveConfig.Tts?.OverrideClient ?? TextToSpeechClient;
+
         if (!string.IsNullOrWhiteSpace(effectiveConfig.Language) && effectiveConfig.Tts != null)
             effectiveConfig.Tts.Language ??= effectiveConfig.Language;
 
@@ -1217,23 +1300,18 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         if (effectiveConfig.Disabled == true)
             return null;
 
-        // Native mode: model outputs audio directly — scan the response stream for
-        // DataContent with audio/* MIME and emit AudioChunkEvents; skip TTS entirely.
-        if (effectiveConfig.ProcessingMode == AudioProcessingMode.Native &&
-            HasAudioOutputMode(effectiveConfig.IOMode))
-        {
-            return StreamNativeAudioAsync(request, handler, effectiveConfig, ct);
-        }
+        if (effectiveConfig.ProcessingMode == AudioProcessingMode.Realtime)
+            return null;
 
         // Pipeline mode: synthesize audio from text via TTS
-        if (TextToSpeechClient == null || !HasAudioOutputMode(effectiveConfig.IOMode))
+        if (effectiveTtsClient == null || !HasAudioOutputMode(effectiveConfig.IOMode))
         {
             // Return null to pass through without interception
             return null;
         }
 
         // Delegate to implementation method
-        return StreamWithTtsAsync(request, handler, effectiveConfig, ct);
+        return StreamWithTtsAsync(request, handler, effectiveTtsClient, effectiveConfig, ct);
     }
 
     /// <summary>
@@ -1242,6 +1320,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     private async IAsyncEnumerable<ChatResponseUpdate> StreamWithTtsAsync(
         ModelRequest request,
         Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> handler,
+        ITextToSpeechClient ttsClient,
         AudioConfig effectiveConfig,
         [EnumeratorCancellation] CancellationToken ct)
     {
@@ -1278,7 +1357,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
         // Start filler monitoring task
         _fillerCts = new CancellationTokenSource();
-        _fillerTask = MonitorForFillerAsync(request.EventCoordinator, stream, synthesisId, _fillerCts.Token);
+        _fillerTask = MonitorForFillerAsync(request.EventCoordinator, request.StructEvents, stream, synthesisId, _fillerCts.Token);
         Task? ttsPacingTask = null;
 
         try
@@ -1294,8 +1373,10 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                 pacer,
                 outputSession,
                 request.EventCoordinator,
+                request.StructEvents,
                 stream,
                 synthesisId,
+                ttsClient,
                 ttsOptions,
                 synthesisState,
                 effectiveConfig,
@@ -1365,30 +1446,30 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             if (synthesisState.AssembledAudio.Count > 0)
             {
                 var sessionId = request.Session?.Id;
-                var contentStore = request.Session?.Store?.GetContentStore(sessionId ?? "");
+                var contentStore = request.ContentStore;
                 if (contentStore != null && !string.IsNullOrEmpty(sessionId))
                 {
                     try
                     {
                         var audioBytes = synthesisState.AssembledAudio.ToArray();
-                        await contentStore.PutAsync(
+                        await contentStore.WriteBytesAsync(
                             scope: sessionId,
                             data: audioBytes,
-                            contentType: outputFormat,
                             metadata: new ContentMetadata
                             {
+                                ContentType = outputFormat,
                                 Origin = ContentSource.Agent,
                                 Tags = new Dictionary<string, string>
                                 {
                                     ["folder"]       = "/artifacts",
-                                    ["session"]      = sessionId,
                                     ["audio-role"]   = "tts",
                                     ["synthesis-id"] = synthesisId,
                                     ["voice"]        = voice ?? "",
                                     ["model"]        = model ?? "",
                                     ["interrupted"]  = wasInterrupted ? "true" : "false"
                                 }
-                            });
+                            },
+                            options: new ContentWriteOptions { Mode = ContentWriteMode.Create });
                     }
                     catch (Exception ex)
                     {
@@ -1408,130 +1489,6 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             {
                 _turnMetrics.TimeToFirstAudio = firstAudioTime.Value - _turnMetrics.TurnStartTime;
             }
-
-            EmitTurnMetrics(request.EventCoordinator);
-        }
-    }
-
-    /// <summary>
-    /// Native mode: passes the LLM stream through unchanged, but extracts any
-    /// DataContent items with an audio/* MIME type and emits them as AudioChunkEvents.
-    /// No TTS is involved — the model produces audio directly.
-    /// </summary>
-    private async IAsyncEnumerable<ChatResponseUpdate> StreamNativeAudioAsync(
-        ModelRequest request,
-        Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> handler,
-        AudioConfig effectiveConfig,
-        [EnumeratorCancellation] CancellationToken ct)
-    {
-        var stream = request.EventFlows?.Create();
-        var synthesisId = Guid.NewGuid().ToString("N")[..8];
-        var synthesisState = new SynthesisState();
-        var outputFormat = effectiveConfig.Tts?.OutputFormat ?? "audio/pcm";
-        var audioFrameEmitter = CreateAudioChunkFrameEmitter(request.EventCoordinator);
-
-        _turnMetrics ??= new TurnMetrics { TurnStartTime = DateTime.UtcNow };
-        DateTime? firstAudioTime = null;
-
-        try
-        {
-            request.EventCoordinator?.Emit(new SynthesisStartedEvent(synthesisId, null, null)
-            {
-                Channel = EventChannel.Synchronous,
-                EventFlowId = stream?.EventFlowId
-            });
-
-            await foreach (var update in handler(request).WithCancellation(ct))
-            {
-                // Scan each content item for native audio chunks
-                if (update.Contents != null)
-                {
-                    foreach (var content in update.Contents)
-                    {
-                        if (content is DataContent dc &&
-                            dc.MediaType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true)
-                        {
-                            if (stream?.IsInterrupted == true) break;
-
-                            var audioBytes = dc.Data.ToArray();
-                            synthesisState.AssembledAudio.AddRange(audioBytes);
-
-                            var audioChunk = new AudioChunkEvent(
-                                synthesisId,
-                                Convert.ToBase64String(audioBytes),
-                                dc.MediaType,
-                                synthesisState.ChunkIndex++,
-                                TimeSpan.Zero,
-                                false)
-                            {
-                                Channel = EventChannel.Streaming,
-                                EventFlowId = stream?.EventFlowId,
-                                CanInterrupt = true
-                            };
-
-                            firstAudioTime ??= DateTime.UtcNow;
-                            EmitAudioChunkFrame(audioFrameEmitter, audioChunk, audioBytes);
-                            request.EventCoordinator?.Emit(audioChunk);
-                        }
-                    }
-                }
-
-                yield return update;
-            }
-        }
-        finally
-        {
-            var wasInterrupted = stream?.IsInterrupted ?? false;
-
-            request.EventCoordinator?.Emit(new SynthesisCompletedEvent(synthesisId, wasInterrupted, synthesisState.ChunkIndex, synthesisState.ChunkIndex)
-            {
-                Channel = EventChannel.Control,
-                EventFlowId = stream?.EventFlowId,
-                CanInterrupt = false
-            });
-            stream?.Complete();
-
-            // Upload assembled native audio to /artifacts (same contract as Pipeline mode)
-            if (synthesisState.AssembledAudio.Count > 0)
-            {
-                var sessionId = request.Session?.Id;
-                var contentStore = request.Session?.Store?.GetContentStore(sessionId ?? "");
-                if (contentStore != null && !string.IsNullOrEmpty(sessionId))
-                {
-                    try
-                    {
-                        await contentStore.PutAsync(
-                            scope: sessionId,
-                            data: synthesisState.AssembledAudio.ToArray(),
-                            contentType: outputFormat,
-                            metadata: new ContentMetadata
-                            {
-                                Origin = ContentSource.Agent,
-                                Tags = new Dictionary<string, string>
-                                {
-                                    ["folder"]       = "/artifacts",
-                                    ["session"]      = sessionId,
-                                    ["audio-role"]   = "native",
-                                    ["synthesis-id"] = synthesisId,
-                                    ["interrupted"]  = wasInterrupted ? "true" : "false"
-                                }
-                            });
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Native audio artifact upload failed: {ex.Message}");
-                    }
-                }
-            }
-
-            var ttsEndTime = DateTime.UtcNow;
-            _turnMetrics.TtsDuration = ttsEndTime - _turnMetrics.TurnStartTime;
-            _turnMetrics.WasInterrupted = wasInterrupted;
-            _turnMetrics.TotalChunks = synthesisState.ChunkIndex;
-            _turnMetrics.DeliveredChunks = synthesisState.ChunkIndex;
-
-            if (firstAudioTime.HasValue)
-                _turnMetrics.TimeToFirstAudio = firstAudioTime.Value - _turnMetrics.TurnStartTime;
 
             EmitTurnMetrics(request.EventCoordinator);
         }
@@ -1938,7 +1895,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                 BranchId: null,
                 SpeechId: stream.EventFlowId,
                 StreamId: stream.EventFlowId,
-                SynthesisId: stream.EventFlowId,
+                OutputId: stream.EventFlowId,
                 Provider: null,
                 Model: null,
                 Voice: null,
@@ -2147,6 +2104,7 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
     /// </summary>
     private async Task MonitorForFillerAsync(
         IEventCoordinator? eventCoordinator,
+        IStructEventHub? structEvents,
         IEventFlowHandle? stream,
         string synthesisId,
         CancellationToken ct)
@@ -2177,8 +2135,8 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                 };
 
                 eventCoordinator?.Emit(fillerChunk);
-                EmitAudioChunkFrame(
-                    eventCoordinator,
+                EmitAudioOutputFrame(
+                    structEvents,
                     fillerChunk,
                     filler.AudioData);
 
@@ -2213,18 +2171,20 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
 
     private async IAsyncEnumerable<AudioChunkEvent> SynthesizeAndEmitAsync(
         IEventCoordinator? eventCoordinator,
+        IStructEventHub? structEvents,
         ISpeechOutputSession outputSession,
         string text,
         IEventFlowHandle? stream,
         string synthesisId,
+        ITextToSpeechClient ttsClient,
         TextToSpeechOptions options,
         SynthesisState state,
         [EnumeratorCancellation] CancellationToken ct)
     {
         if (stream?.IsInterrupted == true) yield break;
-        var audioFrameEmitter = CreateAudioChunkFrameEmitter(eventCoordinator);
+        var audioFrameEmitter = CreateAudioOutputFrameEmitter(structEvents);
 
-        await foreach (var chunk in TextToSpeechClient!.GetStreamingAudioAsync(text, options, ct))
+        await foreach (var chunk in ttsClient.GetStreamingAudioAsync(text, options, ct))
         {
             if (stream?.IsInterrupted == true) break;
 
@@ -2249,10 +2209,10 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
                 CanInterrupt = true
             };
 
-            var frame = CreateAudioChunkFrame(audioChunk, audioBytes);
+            var frame = CreateAudioOutputFrame(audioChunk, audioBytes);
             await outputSession.PushAudioAsync(frame, ct).ConfigureAwait(false);
             eventCoordinator?.Emit(audioChunk);
-            EmitAudioChunkFrame(audioFrameEmitter, frame);
+            EmitAudioOutputFrame(audioFrameEmitter, frame);
             if (!outputSession.State.IsPaused)
             {
                 var playedDuration = outputSession.State.PlayedDuration + frame.Duration;
@@ -2270,8 +2230,10 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         ITtsPacer pacer,
         ISpeechOutputSession outputSession,
         IEventCoordinator? eventCoordinator,
+        IStructEventHub? structEvents,
         IEventFlowHandle? stream,
         string synthesisId,
+        ITextToSpeechClient ttsClient,
         TextToSpeechOptions ttsOptions,
         SynthesisState synthesisState,
         AudioConfig effectiveConfig,
@@ -2291,10 +2253,12 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
             await outputSession.PushTextAsync(segment.Text, cancellationToken).ConfigureAwait(false);
             await foreach (var _ in SynthesizeAndEmitAsync(
                 eventCoordinator,
+                structEvents,
                 outputSession,
                 segment.Text,
                 stream,
                 synthesisId,
+                ttsClient,
                 ttsOptions,
                 synthesisState,
                 cancellationToken).ConfigureAwait(false))
@@ -2330,12 +2294,12 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         }
     }
 
-    private static LocalSequencedStructEmitter<AudioChunkFrame>? CreateAudioChunkFrameEmitter(IEventCoordinator? eventCoordinator) =>
-        eventCoordinator?.LocalStructs.Route<AudioChunkFrame>().CreateSequencedEmitter();
+    private static SequencedStructEventEmitter<AudioOutputFrame>? CreateAudioOutputFrameEmitter(IStructEventHub? structEvents) =>
+        structEvents?.Route<AudioOutputFrame>().CreateSequencedEmitter();
 
-    private static void EmitAudioChunkFrame(
-        LocalSequencedStructEmitter<AudioChunkFrame>? emitter,
-        AudioChunkFrame frame)
+    private static void EmitAudioOutputFrame(
+        SequencedStructEventEmitter<AudioOutputFrame>? emitter,
+        AudioOutputFrame frame)
     {
         if (emitter is not { } audioFrames)
             return;
@@ -2343,22 +2307,22 @@ public partial class AudioPipelineMiddleware : IAgentMiddleware
         audioFrames.Emit(frame);
     }
 
-    private static void EmitAudioChunkFrame(
-        LocalSequencedStructEmitter<AudioChunkFrame>? emitter,
+    private static void EmitAudioOutputFrame(
+        SequencedStructEventEmitter<AudioOutputFrame>? emitter,
         AudioChunkEvent audioChunk,
         ReadOnlyMemory<byte> audioBytes) =>
-        EmitAudioChunkFrame(emitter, CreateAudioChunkFrame(audioChunk, audioBytes));
+        EmitAudioOutputFrame(emitter, CreateAudioOutputFrame(audioChunk, audioBytes));
 
-    private static void EmitAudioChunkFrame(
-        IEventCoordinator? eventCoordinator,
+    private static void EmitAudioOutputFrame(
+        IStructEventHub? structEvents,
         AudioChunkEvent audioChunk,
         ReadOnlyMemory<byte> audioBytes)
     {
-        var emitter = CreateAudioChunkFrameEmitter(eventCoordinator);
-        EmitAudioChunkFrame(emitter, CreateAudioChunkFrame(audioChunk, audioBytes));
+        var emitter = CreateAudioOutputFrameEmitter(structEvents);
+        EmitAudioOutputFrame(emitter, CreateAudioOutputFrame(audioChunk, audioBytes));
     }
 
-    private static AudioChunkFrame CreateAudioChunkFrame(
+    private static AudioOutputFrame CreateAudioOutputFrame(
         AudioChunkEvent audioChunk,
         ReadOnlyMemory<byte> audioBytes) =>
         new(

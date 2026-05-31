@@ -4,22 +4,27 @@ using System.Collections.Generic;
 namespace HPD.Agent.Providers;
 
 /// <summary>
-/// Registry for provider features. Instance-based for testability.
+/// Registry for client-family providers. Instance-based for testability.
 /// </summary>
 public interface IProviderRegistry
 {
     /// <summary>
-    /// Register a provider's features.
+    /// Register a provider.
     /// </summary>
-    /// <param name="features">Provider features implementation</param>
-    void Register(IProviderFeatures features);
+    /// <param name="provider">Provider implementation.</param>
+    void Register(IProvider provider);
 
     /// <summary>
-    /// Get provider features by key (case-insensitive).
+    /// Get provider by key (case-insensitive).
     /// </summary>
     /// <param name="providerKey">Provider identifier (e.g., "openai")</param>
-    /// <returns>Provider features, or null if not registered</returns>
-    IProviderFeatures? GetProvider(string providerKey);
+    /// <returns>Provider, or null if not registered.</returns>
+    IProvider? GetProvider(string providerKey);
+
+    /// <summary>
+    /// Get a provider by key and required family contract.
+    /// </summary>
+    TProvider? GetProvider<TProvider>(string providerKey) where TProvider : class, IProvider;
 
     /// <summary>
     /// Check if a provider is registered.

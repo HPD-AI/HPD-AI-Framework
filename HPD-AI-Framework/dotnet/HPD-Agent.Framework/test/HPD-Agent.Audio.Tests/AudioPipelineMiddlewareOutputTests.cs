@@ -49,7 +49,6 @@ public class AudioPipelineMiddlewareOutputTests
         var artifact = artifacts[0];
         Assert.Equal("/artifacts", artifact.Tags?["folder"]);
         Assert.Equal("tts", artifact.Tags?["audio-role"]);
-        Assert.Equal(sessionId, artifact.Tags?["session"]);
         Assert.Equal(ContentSource.Agent, artifact.Origin);
     }
 
@@ -197,7 +196,7 @@ public class AudioPipelineMiddlewareOutputTests
     }
 
     // -------------------------------------------------------------------------
-    // 22. Zero chunks from TTS → PutAsync not called
+    // 22. Zero chunks from TTS → WriteAsync not called
     // -------------------------------------------------------------------------
 
     [Fact]
@@ -219,7 +218,7 @@ public class AudioPipelineMiddlewareOutputTests
         // Act
         await DrainStreamAsync(middleware.WrapModelCallStreamingAsync(request, r => r.Model.GetStreamingResponseAsync(r.Messages, r.Options), CancellationToken.None)!);
 
-        // Assert — PutAsync never called
+        // Assert — WriteAsync never called
         Assert.Equal(0, contentStore.PutCallCount);
     }
 
@@ -573,6 +572,7 @@ public class AudioPipelineMiddlewareOutputTests
             State = state,
             Iteration = 0,
             Session = session,
+            ContentStore = contentStore,
             EventFlows = registry
         };
 
@@ -628,7 +628,7 @@ public class AudioPipelineMiddlewareOutputTests
     [Fact]
     public async Task SynthesisState_AssembledAudio_StartsEmpty_NoUploadWhenNoChunks()
     {
-        // Arrange — TTS produces no chunks → assembled audio stays empty → PutAsync not called
+        // Arrange — TTS produces no chunks → assembled audio stays empty → WriteAsync not called
         var contentStore = new SpyContentStore();
         var session = CreateSession("session-empty", contentStore);
 
@@ -752,11 +752,11 @@ public class AudioPipelineMiddlewareOutputTests
     }
 
     // -------------------------------------------------------------------------
-    // 38. session tag matches the session ID
+    // 38. session scope is not duplicated as a tag
     // -------------------------------------------------------------------------
 
     [Fact]
-    public async Task TtsArtifact_SessionTag_MatchesSessionId()
+    public async Task TtsArtifact_DoesNotDuplicateSessionScopeInTags()
     {
         var contentStore = new SpyContentStore();
         const string sessionId = "session-tag-id-check";
@@ -770,7 +770,7 @@ public class AudioPipelineMiddlewareOutputTests
             r => r.Model.GetStreamingResponseAsync(r.Messages, r.Options),
             CancellationToken.None)!);
 
-        Assert.Equal(sessionId, contentStore.LastTags?["session"]);
+        Assert.False(contentStore.LastTags?.ContainsKey("session"));
     }
 
     // =========================================================================
@@ -799,6 +799,7 @@ public class AudioPipelineMiddlewareOutputTests
             State = state,
             Iteration = 0,
             Session = session,
+            ContentStore = (session?.Store as FixedContentSessionStore)?.ContentStore,
             EventCoordinator = eventCoordinator,
             EventFlows = eventCoordinator?.EventFlows
         };
@@ -955,25 +956,43 @@ public class AudioPipelineMiddlewareOutputTests
         public Dictionary<string, string>? LastTags { get; private set; }
         public ContentSource? LastOrigin { get; private set; }
 
-        public Task<string> PutAsync(
+        public async Task<ContentInfo> WriteAsync(
             string? scope,
-            byte[] data,
-            string contentType,
-            ContentMetadata? metadata = null,
+            Stream data,
+            ContentMetadata metadata,
+            ContentWriteOptions options,
             CancellationToken cancellationToken = default)
         {
             PutCallCount++;
-            LastUploadedBytes = data;
-            LastContentType = contentType;
-            LastTags = metadata?.Tags != null ? new Dictionary<string, string>(metadata.Tags) : null;
-            LastOrigin = metadata?.Origin;
-            return Task.FromResult(Guid.NewGuid().ToString("N"));
+            using var buffer = new MemoryStream();
+            await data.CopyToAsync(buffer, cancellationToken);
+            LastUploadedBytes = buffer.ToArray();
+            LastContentType = metadata.ContentType;
+            LastTags = metadata.Tags != null ? new Dictionary<string, string>(metadata.Tags) : null;
+            LastOrigin = metadata.Origin;
+            return new ContentInfo
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Version = "rev:test",
+                Name = metadata.Name ?? "content",
+                ContentType = metadata.ContentType,
+                SizeBytes = LastUploadedBytes.Length,
+                CreatedAt = DateTime.UtcNow,
+                Origin = metadata.Origin ?? ContentSource.System,
+                Tags = metadata.Tags
+            };
         }
 
-        public Task<ContentData?> GetAsync(string? scope, string contentId, CancellationToken cancellationToken = default)
-            => Task.FromResult<ContentData?>(null);
+        public Task<Stream?> OpenReadAsync(string? scope, string contentId, CancellationToken cancellationToken = default)
+            => Task.FromResult<Stream?>(null);
 
-        public Task DeleteAsync(string? scope, string contentId, CancellationToken cancellationToken = default)
+        public Task<Uri?> CreateReadUriAsync(string? scope, string contentId, TimeSpan expiresIn, CancellationToken cancellationToken = default)
+            => Task.FromResult<Uri?>(null);
+
+        public Task<ContentInfo?> StatAsync(string? scope, string contentId, CancellationToken cancellationToken = default)
+            => Task.FromResult<ContentInfo?>(null);
+
+        public Task DeleteAsync(string? scope, string contentId, ContentDeleteOptions? options = null, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
         public Task<IReadOnlyList<ContentInfo>> QueryAsync(string? scope = null, ContentQuery? query = null, CancellationToken cancellationToken = default)
@@ -986,13 +1005,19 @@ public class AudioPipelineMiddlewareOutputTests
 
     private class ThrowingContentStore : IContentStore
     {
-        public Task<string> PutAsync(string? scope, byte[] data, string contentType, ContentMetadata? metadata = null, CancellationToken cancellationToken = default)
+        public Task<ContentInfo> WriteAsync(string? scope, Stream data, ContentMetadata metadata, ContentWriteOptions options, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("Simulated store failure");
 
-        public Task<ContentData?> GetAsync(string? scope, string contentId, CancellationToken cancellationToken = default)
-            => Task.FromResult<ContentData?>(null);
+        public Task<Stream?> OpenReadAsync(string? scope, string contentId, CancellationToken cancellationToken = default)
+            => Task.FromResult<Stream?>(null);
 
-        public Task DeleteAsync(string? scope, string contentId, CancellationToken cancellationToken = default)
+        public Task<Uri?> CreateReadUriAsync(string? scope, string contentId, TimeSpan expiresIn, CancellationToken cancellationToken = default)
+            => Task.FromResult<Uri?>(null);
+
+        public Task<ContentInfo?> StatAsync(string? scope, string contentId, CancellationToken cancellationToken = default)
+            => Task.FromResult<ContentInfo?>(null);
+
+        public Task DeleteAsync(string? scope, string contentId, ContentDeleteOptions? options = null, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
         public Task<IReadOnlyList<ContentInfo>> QueryAsync(string? scope = null, ContentQuery? query = null, CancellationToken cancellationToken = default)
@@ -1005,10 +1030,9 @@ public class AudioPipelineMiddlewareOutputTests
 
     private class FixedContentSessionStore : ISessionStore
     {
-        private readonly IContentStore _contentStore;
-        public FixedContentSessionStore(IContentStore store) => _contentStore = store;
+        public FixedContentSessionStore(IContentStore store) => ContentStore = store;
 
-        public IContentStore? GetContentStore(string sessionId) => _contentStore;
+        public IContentStore ContentStore { get; }
 
         public Task<SessionModel?> LoadSessionAsync(string sessionId, CancellationToken cancellationToken = default)
             => Task.FromResult<SessionModel?>(new SessionModel(sessionId));

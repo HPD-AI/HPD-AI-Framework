@@ -17,7 +17,6 @@ public static class AgentBuilderExtensions
     /// <param name="model">The model name (e.g., "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo")</param>
     /// <param name="apiKey">OpenAI API key. If not provided, will use OPENAI_API_KEY environment variable</param>
     /// <param name="configure">Optional action to configure additional OpenAI-specific options</param>
-    /// <param name="clientFactory">Optional factory to wrap the chat client with middleware (logging, caching, etc.)</param>
     /// <returns>The builder for method chaining</returns>
     /// <remarks>
     /// <para>
@@ -28,7 +27,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates an <see cref="OpenAIProviderConfig"/> that is:
-    /// - Stored in <c>ProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
     /// - Applied during <c>OpenAIProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -117,22 +116,13 @@ public static class AgentBuilderExtensions
     ///     .WithOpenAI(model: "gpt-4o")
     ///     .Build();
     ///
-    /// // Option 7: With client middleware
-    /// var agent = new AgentBuilder()
-    ///     .WithOpenAI(
-    ///         model: "gpt-4o",
-    ///         apiKey: "sk-...",
-    ///         configure: opts => opts.MaxOutputTokenCount = 4096,
-    ///         clientFactory: client => new LoggingChatClient(client, logger))
-    ///     .Build();
     /// </code>
     /// </example>
     public static AgentBuilder WithOpenAI(
         this AgentBuilder builder,
         string model,
         string? apiKey = null,
-        Action<OpenAIProviderConfig>? configure = null,
-        Func<IChatClient, IChatClient>? clientFactory = null)
+        Action<OpenAIProviderConfig>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -152,16 +142,17 @@ public static class AgentBuilderExtensions
         ValidateProviderConfig(providerConfig, configure);
 
         // Build provider config
-        builder.Config.Provider = new ProviderConfig
+        var chatConfig = new ClientProviderConfig
         {
             ProviderKey = "openai",
             ApiKey = apiKey, // Store explicit override; ISecretResolver will handle resolution
             ModelName = model
         };
 
+        builder.Config.SetChatClientConfig(chatConfig);
+
         // Store the typed config
-        builder.Config.Provider.SetProviderConfig(providerConfig);
-        builder.Config.Provider.ClientFactory = clientFactory;
+        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
     }
@@ -176,7 +167,6 @@ public static class AgentBuilderExtensions
     /// <param name="model">The deployment name</param>
     /// <param name="apiKey">Azure OpenAI API key. If not provided, will use AZURE_OPENAI_API_KEY environment variable</param>
     /// <param name="configure">Optional action to configure additional options</param>
-    /// <param name="clientFactory">Optional factory to wrap the chat client with middleware</param>
     /// <returns>The builder for method chaining</returns>
     /// <example>
     /// <code>
@@ -198,8 +188,7 @@ public static class AgentBuilderExtensions
         string endpoint,
         string model,
         string? apiKey = null,
-        Action<OpenAIProviderConfig>? configure = null,
-        Func<IChatClient, IChatClient>? clientFactory = null)
+        Action<OpenAIProviderConfig>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -222,7 +211,7 @@ public static class AgentBuilderExtensions
         ValidateProviderConfig(providerConfig, configure);
 
         // Build provider config
-        builder.Config.Provider = new ProviderConfig
+        var chatConfig = new ClientProviderConfig
         {
             ProviderKey = "azure-openai",
             Endpoint = endpoint,
@@ -230,9 +219,10 @@ public static class AgentBuilderExtensions
             ModelName = model
         };
 
+        builder.Config.SetChatClientConfig(chatConfig);
+
         // Store the typed config
-        builder.Config.Provider.SetProviderConfig(providerConfig);
-        builder.Config.Provider.ClientFactory = clientFactory;
+        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
     }

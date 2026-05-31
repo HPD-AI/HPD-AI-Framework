@@ -27,13 +27,13 @@ namespace HPD.Agent.Providers.Ollama;
 /// OllamaProviderConfig.
 /// </para>
 /// </remarks>
-internal class OllamaProvider : IProviderFeatures
+internal class OllamaProvider : IChatClientProvider
 {
     public string ProviderKey => "ollama";
     public string DisplayName => "Ollama";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null)
+    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
     {
         // Resolve endpoint - defaults to localhost if not provided
         var endpoint = string.IsNullOrEmpty(config.Endpoint)
@@ -50,11 +50,6 @@ internal class OllamaProvider : IProviderFeatures
 
         // Apply client factory middleware if provided
         IChatClient chatClient = client;
-        if (config.ClientFactory is { } clientFactory)
-        {
-            chatClient = clientFactory(chatClient);
-        }
-
         return chatClient;
     }
 
@@ -69,15 +64,25 @@ internal class OllamaProvider : IProviderFeatures
         {
             ProviderKey = ProviderKey,
             DisplayName = DisplayName,
-            SupportsStreaming = true,
-            SupportsFunctionCalling = true, // Ollama supports function calling for compatible models
-            SupportsVision = true, // Ollama supports vision models
-            DocumentationUrl = "https://ollama.com/"
+            DocumentationUri = new Uri("https://ollama.com/"),
+            Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            {
+                [ProviderClientFamily.Chat] = new()
+                {
+                    Family = ProviderClientFamily.Chat,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsStreaming"] = true,
+                        ["SupportsFunctionCalling"] = true,
+                        ["SupportsVision"] = true
+                    }
+                }
+            }
         };
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public ProviderValidationResult ValidateConfiguration(ProviderConfig config)
+    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
 

@@ -12,6 +12,7 @@ public static class BranchEventTypes
     public const string MessageCompleted = "MESSAGE_COMPLETED";
     public const string ContentAdded = "CONTENT_ADDED";
     public const string BranchMiddlewareStateCommitted = "BRANCH_MIDDLEWARE_STATE_COMMITTED";
+    public const string BranchHistoryCompacted = "BRANCH_HISTORY_COMPACTED";
 }
 
 public sealed record BranchEventDocument
@@ -30,20 +31,24 @@ public sealed record BranchCreatedEvent(
     string? Name,
     string? Description,
     List<string>? Tags,
+    Dictionary<string, object>? BranchMetadata,
     DateTime CreatedAt) : AgentEvent;
 
 public sealed record BranchForkedEvent(
     string SourceBranchId,
-    int FromMessageIndex,
+    string FromMessageId,
+    int ResolvedMessageIndex,
     Dictionary<string, string>? Ancestors) : AgentEvent;
 
 public sealed record BranchMetadataUpdatedEvent(
     string? Name,
     string? Description,
-    List<string>? Tags) : AgentEvent;
+    List<string>? Tags,
+    Dictionary<string, object>? BranchMetadata) : AgentEvent;
 
 public sealed record BranchTreeUpdatedEvent(
     string? ForkedFrom,
+    string? ForkedAtMessageId,
     int? ForkedAtMessageIndex,
     int SiblingIndex,
     int TotalSiblings,
@@ -68,6 +73,17 @@ public sealed record ContentAddedEvent(
 public sealed record BranchMiddlewareStateCommittedEvent(
     IReadOnlyDictionary<string, string> State) : AgentEvent;
 
+public sealed record BranchHistoryCompactedEvent(
+    string CompactionId,
+    IReadOnlyList<string> ModelCompactedMessageIds,
+    IReadOnlyList<string> DurableCompactedMessageIds,
+    IReadOnlyList<ChatMessage> ReplacementMessages,
+    string StrategyKind,
+    string RetentionKind,
+    string BoundaryKind,
+    string? SummaryContent,
+    DateTimeOffset CompactedAt) : AgentEvent;
+
 public static class BranchEventFactory
 {
     public static AgentEvent BranchCreated(Branch branch) =>
@@ -75,6 +91,7 @@ public static class BranchEventFactory
             branch.Name,
             branch.Description,
             branch.Tags,
+            branch.Metadata.Count > 0 ? branch.Metadata : null,
             branch.CreatedAt));
 
     public static AgentEvent BranchForked(Branch branch) =>
@@ -82,6 +99,7 @@ public static class BranchEventFactory
             ? BranchCreated(branch)
             : Scope(branch.SessionId, branch.Id, new BranchForkedEvent(
                 branch.ForkedFrom,
+                branch.ForkedAtMessageId ?? string.Empty,
                 branch.ForkedAtMessageIndex ?? 0,
                 branch.Ancestors));
 
@@ -89,11 +107,13 @@ public static class BranchEventFactory
         Scope(branch.SessionId, branch.Id, new BranchMetadataUpdatedEvent(
             branch.Name,
             branch.Description,
-            branch.Tags));
+            branch.Tags,
+            branch.Metadata.Count > 0 ? branch.Metadata : null));
 
     public static AgentEvent BranchTreeUpdated(Branch branch) =>
         Scope(branch.SessionId, branch.Id, new BranchTreeUpdatedEvent(
             branch.ForkedFrom,
+            branch.ForkedAtMessageId,
             branch.ForkedAtMessageIndex,
             branch.SiblingIndex,
             branch.TotalSiblings,
@@ -156,6 +176,12 @@ public static class BranchEventFactory
         string branchId,
         IReadOnlyDictionary<string, string> state) =>
         Scope(sessionId, branchId, new BranchMiddlewareStateCommittedEvent(state));
+
+    public static AgentEvent BranchHistoryCompacted(
+        string sessionId,
+        string branchId,
+        BranchHistoryCompactedEvent evt) =>
+        Scope(sessionId, branchId, evt);
 
     public static AgentEvent TurnStarted(
         string sessionId,

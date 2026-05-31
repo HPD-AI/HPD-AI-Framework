@@ -1,5 +1,5 @@
 import type { AgentEvent, AgentRunInputEvent } from '../types/events.js';
-import type { AgentTransport, RuntimeScope } from '../types/transport.js';
+import type { AgentTransport, RunTransportOptions, RuntimeScope } from '../types/transport.js';
 
 /**
  * Runtime-only WebSocket transport.
@@ -14,10 +14,7 @@ export class WebSocketTransport implements AgentTransport {
   private closeHandler?: () => void;
 
   constructor(baseUrl: string) {
-    this.baseUrl = baseUrl
-      .replace(/^http:/, 'ws:')
-      .replace(/^https:/, 'wss:')
-      .replace(/\/$/, '');
+    this.baseUrl = toWebSocketBaseUrl(baseUrl);
   }
 
   get connected(): boolean {
@@ -42,12 +39,22 @@ export class WebSocketTransport implements AgentTransport {
 
       this.scope = scope;
       const branchId = scope.branchId || 'main';
-      const url = `${this.baseUrl}/agents/${scope.agentId}/sessions/${scope.sessionId}/branches/${branchId}/ws`;
+      const url = [
+        this.baseUrl,
+        'agents',
+        encodeURIComponent(scope.agentId),
+        'sessions',
+        encodeURIComponent(scope.sessionId),
+        'branches',
+        encodeURIComponent(branchId),
+        'ws',
+      ].join('/');
 
       try {
         this.ws = new WebSocket(url);
       } catch (error) {
-        reject(new Error(`Failed to create WebSocket: ${error}`));
+        const message = error instanceof Error ? error.message : String(error);
+        reject(new Error(`Failed to create WebSocket for ${url}: ${message}`));
         return;
       }
 
@@ -95,7 +102,7 @@ export class WebSocketTransport implements AgentTransport {
     });
   }
 
-  async run(input: AgentRunInputEvent): Promise<void> {
+  async submitInput(input: AgentRunInputEvent, _options?: RunTransportOptions): Promise<void> {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
@@ -123,4 +130,27 @@ export class WebSocketTransport implements AgentTransport {
   disconnect(): void {
     this.ws?.close();
   }
+}
+
+function toWebSocketBaseUrl(baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/$/, '');
+
+  if (/^wss?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed
+      .replace(/^http:/i, 'ws:')
+      .replace(/^https:/i, 'wss:');
+  }
+
+  const location = globalThis.location;
+  if (location?.origin) {
+    const url = new URL(trimmed.startsWith('/') ? trimmed : `/${trimmed}`, location.origin);
+    url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return url.toString().replace(/\/$/, '');
+  }
+
+  return trimmed;
 }

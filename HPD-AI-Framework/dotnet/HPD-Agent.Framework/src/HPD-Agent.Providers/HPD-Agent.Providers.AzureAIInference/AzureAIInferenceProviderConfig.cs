@@ -166,7 +166,7 @@ public class AzureAIInferenceProviderConfig
 
     /// <summary>
     /// Specific model ID to use when multiple models are deployed to the same endpoint.
-    /// If not specified, uses the model from ProviderConfig.ModelName.
+    /// If not specified, uses the model from ClientProviderConfig.ModelName.
     /// Maps to ChatCompletionsOptions.Model.
     /// </summary>
     [JsonPropertyName("model")]

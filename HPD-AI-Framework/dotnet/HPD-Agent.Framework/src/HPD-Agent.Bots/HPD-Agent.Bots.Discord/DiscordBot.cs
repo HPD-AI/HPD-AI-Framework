@@ -145,7 +145,7 @@ public partial class DiscordBot(
                 threadId,
                 payload.Token,
                 sourceMessageId: null,
-                ctx.RequestAborted);
+                CancellationToken.None);
         }
 
         return JsonResponse(new DiscordInteractionResponse(Type: 5));
@@ -224,7 +224,7 @@ public partial class DiscordBot(
                 threadId,
                 interactionToken: null,
                 sourceMessageId,
-                ctx.RequestAborted);
+                CancellationToken.None);
         }
 
         return Results.Ok(new { ok = true });

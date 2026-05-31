@@ -498,10 +498,8 @@ public class TestEventCoordinator : IEventCoordinator
     private readonly List<Event> _emittedEvents = new();
     private readonly Dictionary<string, TaskCompletionSource<Event>> _waiters = new();
     private readonly object _lock = new();
-    private readonly LocalStructEventBus _localStructs = new();
 
     public IReadOnlyList<Event> EmittedEvents => _emittedEvents;
-    public ILocalStructEventBus LocalStructs => _localStructs;
 
     public void Emit(Event evt)
     {

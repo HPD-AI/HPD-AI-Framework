@@ -8,7 +8,7 @@ public sealed class HPDAgentEndpointOptions
 
     public bool MapSessions { get; set; } = true;
     public bool MapBranches { get; set; } = true;
-    public bool MapAssets { get; set; } = true;
+    public bool MapContent { get; set; } = true;
     public bool MapStreaming { get; set; } = true;
     public bool MapMiddlewareResponses { get; set; } = true;
     public bool MapAgents { get; set; } = true;

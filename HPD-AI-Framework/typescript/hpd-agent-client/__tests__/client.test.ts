@@ -53,13 +53,8 @@ describe('AgentClient', () => {
       }
     ));
 
-    await client.run({
-      type: EventTypes.USER_TEXT_INPUT,
-      text: 'Hi',
-      sessionId: 'session-123',
-      agentId: 'agent-1',
-      branchId: 'main',
-    });
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(order).toEqual([
       'typed:Hello',
@@ -82,13 +77,8 @@ describe('AgentClient', () => {
       durationMilliseconds: 321,
     }));
 
-    await client.run({
-      type: EventTypes.USER_TEXT_INPUT,
-      text: 'Hi',
-      sessionId: 'session-123',
-      agentId: 'agent-1',
-      branchId: 'main',
-    });
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(events).toEqual([{
       version: '1.0',
@@ -114,24 +104,23 @@ describe('AgentClient', () => {
       { version: '1.0', type: EventTypes.TEXT_DELTA, text: 'Hello', messageId: 'msg-1' }
     ));
 
-    await client.run({
-      type: EventTypes.USER_TEXT_INPUT,
-      text: 'Hi',
-      sessionId: 'session-123',
-      agentId: 'agent-1',
-      branchId: 'main',
-    });
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(typed).not.toHaveBeenCalled();
     expect(any).not.toHaveBeenCalled();
   });
 
-  it('posts USER_TEXT_INPUT events to the scoped SSE stream endpoint', async () => {
+  it('posts USER_TEXT_INPUT events to the scoped inputs endpoint', async () => {
     const client = new AgentClient('http://localhost:5135');
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okStream());
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      body: null,
+      text: async () => '',
+    } as Response);
 
     const runConfig = { providerKey: 'anthropic', modelId: 'claude-sonnet-4-6' };
-    await client.run({
+    await client.submitInput({
       type: EventTypes.USER_TEXT_INPUT,
       text: 'Hello',
       sessionId: 'session-123',
@@ -141,7 +130,7 @@ describe('AgentClient', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/stream',
+      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/inputs',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
@@ -158,9 +147,13 @@ describe('AgentClient', () => {
       headers: { Authorization: 'Bearer test-token' },
       credentials: 'include',
     });
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okStream());
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      body: null,
+      text: async () => '',
+    } as Response);
 
-    await client.run({
+    await client.submitInput({
       type: EventTypes.USER_TEXT_INPUT,
       text: 'Hello',
       sessionId: 'session-123',
@@ -169,27 +162,50 @@ describe('AgentClient', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/stream',
+      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/inputs',
       expect.objectContaining({
         credentials: 'include',
         headers: expect.objectContaining({
           Authorization: 'Bearer test-token',
           'Content-Type': 'application/json',
-          Accept: 'text/event-stream',
         }),
       })
     );
   });
 
-  it('routes permission response inputs through run()', async () => {
-    const client = new AgentClient('http://localhost:5135');
+  it('keeps relative API base URLs relative for desktop shells', async () => {
+    const client = new AgentClient('/api/hpd-agent');
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
+      body: null,
       text: async () => '',
     } as Response);
 
+    await client.submitInput({
+      type: EventTypes.USER_TEXT_INPUT,
+      text: 'Hello',
+      sessionId: 'session-123',
+      agentId: 'agent-1',
+      branchId: 'main',
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/hpd-agent/agents/agent-1/sessions/session-123/branches/main/inputs',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('routes permission response inputs through submitInput()', async () => {
+    const client = new AgentClient('http://localhost:5135');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okStream())
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => '',
+      } as Response);
+
     await client.start({ agentId: 'agent-1', sessionId: 'session-123', branchId: 'main' });
-    await client.run({
+    await client.submitInput({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'perm-1',
       sourceName: 'PermissionMiddleware',
@@ -218,13 +234,8 @@ describe('AgentClient', () => {
       text: async () => '',
     } as Response);
 
-    await client.run({
-      type: EventTypes.USER_TEXT_INPUT,
-      text: 'Hi',
-      sessionId: 'session-123',
-      agentId: 'agent-1',
-      branchId: 'main',
-    });
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(errors).toEqual(['stream broke']);
   });
@@ -246,13 +257,8 @@ describe('AgentClient', () => {
         text: async () => '',
       } as Response);
 
-    await client.run({
-      type: EventTypes.USER_TEXT_INPUT,
-      text: 'invoke',
-      sessionId: 'session-123',
-      agentId: 'agent-1',
-      branchId: 'main',
-    });
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(fetchSpy).toHaveBeenLastCalledWith(
       'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/client-tools/respond',
@@ -277,13 +283,57 @@ describe('AgentClient', () => {
     expect((client as any).transport.constructor.name).toBe('WebSocketTransport');
   });
 
+  it('resolves relative API base URLs for WebSocket transport', async () => {
+    const urls: string[] = [];
+    class MockWebSocket {
+      static OPEN = 1;
+      static CONNECTING = 0;
+      readyState = MockWebSocket.CONNECTING;
+      onopen?: () => void;
+      onmessage?: (event: { data: string }) => void;
+      onerror?: () => void;
+      onclose?: () => void;
+
+      constructor(url: string) {
+        urls.push(url);
+        queueMicrotask(() => {
+          this.readyState = MockWebSocket.OPEN;
+          this.onopen?.();
+        });
+      }
+
+      send(): void {
+      }
+
+      close(): void {
+        this.onclose?.();
+      }
+    }
+
+    vi.stubGlobal('location', { origin: 'https://hpd.local', protocol: 'https:' });
+    vi.stubGlobal('WebSocket', MockWebSocket);
+
+    const client = new AgentClient({
+      baseUrl: '/api/hpd-agent',
+      transport: 'websocket',
+    });
+
+    await client.start({ agentId: 'agent-1', sessionId: 'session-123', branchId: 'main' });
+
+    expect(urls).toEqual([
+      'wss://hpd.local/api/hpd-agent/agents/agent-1/sessions/session-123/branches/main/ws',
+    ]);
+
+    client.disconnectLive();
+  });
+
   it('uses SSE transport by default', () => {
     const client = new AgentClient('http://localhost:5135');
 
     expect((client as any).transport.constructor.name).toBe('SseTransport');
   });
 
-  it('aborts an active run', async () => {
+  it('aborts an active live subscription', async () => {
     const client = new AgentClient('http://localhost:5135');
 
     let streamController: ReadableStreamDefaultController<Uint8Array>;
@@ -304,24 +354,19 @@ describe('AgentClient', () => {
       } as Response;
     });
 
-    const runPromise = client.run({
-      type: EventTypes.USER_TEXT_INPUT,
-      text: 'Hi',
-      sessionId: 'session-123',
-      agentId: 'agent-1',
-      branchId: 'main',
-    });
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
 
     await new Promise((resolve) => setTimeout(resolve, 10));
-    client.abort();
+    client.disconnectLive();
 
-    await expect(runPromise).resolves.toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(client.connected).toBe(false);
   });
 
   it('reports streaming state from transport connection state', async () => {
     const client = new AgentClient('http://localhost:5135');
 
-    expect(client.streaming).toBe(false);
+    expect(client.connected).toBe(false);
 
     const mockStream = new ReadableStream({
       start(controller) {
@@ -335,18 +380,12 @@ describe('AgentClient', () => {
       text: async () => '',
     } as Response);
 
-    const runPromise = client.run({
-      type: EventTypes.USER_TEXT_INPUT,
-      text: 'Hi',
-      sessionId: 'session-123',
-      agentId: 'agent-1',
-      branchId: 'main',
-    });
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
 
     await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(client.streaming).toBe(true);
+    expect(client.connected).toBe(true);
 
-    await runPromise;
-    expect(client.streaming).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(client.connected).toBe(false);
   });
 });

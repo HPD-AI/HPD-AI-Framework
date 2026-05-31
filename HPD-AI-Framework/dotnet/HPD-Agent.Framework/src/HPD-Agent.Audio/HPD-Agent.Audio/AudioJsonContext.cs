@@ -3,6 +3,7 @@
 
 using System.Text.Json.Serialization;
 using HPD.Agent.Audio.Eot;
+using HPD.Agent.Audio.Realtime;
 using HPD.Agent.Audio.Stt;
 using HPD.Agent.Audio.Tts;
 using HPD.Agent.Audio.Vad;
@@ -21,6 +22,7 @@ namespace HPD.Agent.Audio;
 [JsonSerializable(typeof(AudioConfig))]
 [JsonSerializable(typeof(AudioRunConfig))]
 [JsonSerializable(typeof(AudioDiagnosticsConfig))]
+[JsonSerializable(typeof(RealtimeAudioConfig))]
 [JsonSerializable(typeof(EotConfig))]
 [JsonSerializable(typeof(TtsConfig))]
 [JsonSerializable(typeof(SttConfig))]

@@ -29,10 +29,11 @@ public class GoogleAIProviderTests
         metadata.Should().NotBeNull();
         metadata.ProviderKey.Should().Be("google-ai");
         metadata.DisplayName.Should().Be("Google AI (Gemini)");
-        metadata.SupportsStreaming.Should().BeTrue();
-        metadata.SupportsFunctionCalling.Should().BeTrue();
-        metadata.SupportsVision.Should().BeTrue();
-        metadata.DocumentationUrl.Should().Be("https://ai.google.dev/docs");
+        metadata.DocumentationUri.Should().Be(new Uri("https://ai.google.dev/docs"));
+        var chat = metadata.Families[ProviderClientFamily.Chat];
+        chat.Capabilities!["SupportsStreaming"].Should().Be(true);
+        chat.Capabilities["SupportsFunctionCalling"].Should().Be(true);
+        chat.Capabilities["SupportsVision"].Should().Be(true);
     }
 
     #endregion
@@ -43,7 +44,7 @@ public class GoogleAIProviderTests
     public void ValidateConfiguration_WithValidConfig_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "google-ai",
             ModelName = "gemini-2.0-flash",
@@ -51,7 +52,7 @@ public class GoogleAIProviderTests
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -62,14 +63,14 @@ public class GoogleAIProviderTests
     public void ValidateConfiguration_WithMissingApiKey_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "google-ai",
             ModelName = "gemini-2.0-flash"
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -80,14 +81,14 @@ public class GoogleAIProviderTests
     public void ValidateConfiguration_WithMissingModelName_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "google-ai",
             ApiKey = "test-api-key"
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -102,7 +103,7 @@ public class GoogleAIProviderTests
     public void ValidateConfiguration_WithInvalidTemperature_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "google-ai",
             ModelName = "gemini-2.0-flash",
@@ -116,7 +117,7 @@ public class GoogleAIProviderTests
         config.SetProviderConfig(googleConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -127,7 +128,7 @@ public class GoogleAIProviderTests
     public void ValidateConfiguration_WithNegativeTemperature_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "google-ai",
             ModelName = "gemini-2.0-flash",
@@ -141,7 +142,7 @@ public class GoogleAIProviderTests
         config.SetProviderConfig(googleConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -152,7 +153,7 @@ public class GoogleAIProviderTests
     public void ValidateConfiguration_WithValidTemperatureRange_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "google-ai",
             ModelName = "gemini-2.0-flash",
@@ -166,7 +167,7 @@ public class GoogleAIProviderTests
         config.SetProviderConfig(googleConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -177,7 +178,7 @@ public class GoogleAIProviderTests
     public void ValidateConfiguration_WithInvalidTopP_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "google-ai",
             ModelName = "gemini-2.0-flash",
@@ -191,7 +192,7 @@ public class GoogleAIProviderTests
         config.SetProviderConfig(googleConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -202,7 +203,7 @@ public class GoogleAIProviderTests
     public void ValidateConfiguration_WithNegativeTopP_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "google-ai",
             ModelName = "gemini-2.0-flash",
@@ -216,7 +217,7 @@ public class GoogleAIProviderTests
         config.SetProviderConfig(googleConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -227,7 +228,7 @@ public class GoogleAIProviderTests
     public void ValidateConfiguration_WithNegativeTopK_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "google-ai",
             ModelName = "gemini-2.0-flash",
@@ -241,7 +242,7 @@ public class GoogleAIProviderTests
         config.SetProviderConfig(googleConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -252,7 +253,7 @@ public class GoogleAIProviderTests
     public void ValidateConfiguration_WithInvalidCandidateCount_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "google-ai",
             ModelName = "gemini-2.0-flash",
@@ -266,7 +267,7 @@ public class GoogleAIProviderTests
         config.SetProviderConfig(googleConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -281,7 +282,7 @@ public class GoogleAIProviderTests
     public void ValidateConfiguration_WithResponseSchemaButWrongMimeType_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "google-ai",
             ModelName = "gemini-2.0-flash",
@@ -296,7 +297,7 @@ public class GoogleAIProviderTests
         config.SetProviderConfig(googleConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -307,7 +308,7 @@ public class GoogleAIProviderTests
     public void ValidateConfiguration_WithBothResponseSchemaAndResponseJsonSchema_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "google-ai",
             ModelName = "gemini-2.0-flash",
@@ -322,7 +323,7 @@ public class GoogleAIProviderTests
         config.SetProviderConfig(googleConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -333,7 +334,7 @@ public class GoogleAIProviderTests
     public void ValidateConfiguration_WithValidResponseSchema_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "google-ai",
             ModelName = "gemini-2.0-flash",
@@ -348,7 +349,7 @@ public class GoogleAIProviderTests
         config.SetProviderConfig(googleConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -376,12 +377,12 @@ public class GoogleAIProviderTests
             });
 
         // Assert
-        builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.ProviderKey.Should().Be("google-ai");
-        builder.Config.Provider.ApiKey.Should().Be("test-api-key");
-        builder.Config.Provider.ModelName.Should().Be("gemini-2.0-flash");
+        builder.Config.EnsureChatClientConfig().Should().NotBeNull();
+        builder.Config.EnsureChatClientConfig()!.ProviderKey.Should().Be("google-ai");
+        builder.Config.EnsureChatClientConfig().ApiKey.Should().Be("test-api-key");
+        builder.Config.EnsureChatClientConfig().ModelName.Should().Be("gemini-2.0-flash");
 
-        var googleConfig = builder.Config.Provider.GetProviderConfig<GoogleAIProviderConfig>();
+        var googleConfig = builder.Config.EnsureChatClientConfig().GetProviderConfig<GoogleAIProviderConfig>();
         googleConfig.Should().NotBeNull();
         googleConfig!.Temperature.Should().Be(0.7);
         googleConfig.MaxOutputTokens.Should().Be(8192);
@@ -644,7 +645,7 @@ public class GoogleAIProviderTests
             });
 
         // Assert
-        var googleConfig = builder.Config.Provider!.GetProviderConfig<GoogleAIProviderConfig>();
+        var googleConfig = builder.Config.EnsureChatClientConfig()!.GetProviderConfig<GoogleAIProviderConfig>();
         googleConfig.Should().NotBeNull();
         googleConfig!.SafetySettings.Should().HaveCount(2);
         googleConfig.SafetySettings![0].Category.Should().Be("HARM_CATEGORY_HARASSMENT");
@@ -669,7 +670,7 @@ public class GoogleAIProviderTests
             });
 
         // Assert
-        var googleConfig = builder.Config.Provider!.GetProviderConfig<GoogleAIProviderConfig>();
+        var googleConfig = builder.Config.EnsureChatClientConfig()!.GetProviderConfig<GoogleAIProviderConfig>();
         googleConfig.Should().NotBeNull();
         googleConfig!.IncludeThoughts.Should().BeTrue();
         googleConfig.ThinkingBudget.Should().Be(5000);

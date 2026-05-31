@@ -1,6 +1,6 @@
 import type { Snippet } from 'svelte';
-import type { AssetReference } from '@hpd/hpd-agent-client';
-export type { AssetReference };
+import type { ContentReference } from '@hpd/hpd-agent-client';
+export type { ContentReference };
 import type { FileAttachmentState } from './file-attachment.svelte.js';
 
 // ============================================
@@ -13,7 +13,7 @@ export interface PendingAttachment {
 	localId: string;
 	file: File;
 	status: AttachmentStatus;
-	asset?: AssetReference;
+	content?: ContentReference;
 	error?: string;
 }
 
@@ -41,10 +41,10 @@ export interface FileAttachmentSnippetProps {
 }
 
 export interface FileAttachmentProps {
-	/** Pre-constructed state (preferred when resolvedAssets is needed outside snippet) */
+	/** Pre-constructed state (preferred when resolvedContent is needed outside snippet) */
 	state?: FileAttachmentState;
 	/** AgentClient — used when state is not provided */
-	client?: { uploadAsset(sessionId: string, file: File | Blob, name?: string): Promise<AssetReference> };
+	client?: { uploadContent(sessionId: string, file: File | Blob, name?: string): Promise<ContentReference> };
 	/** Active session ID — used when state is not provided */
 	sessionId?: string | null;
 	disabled?: boolean;

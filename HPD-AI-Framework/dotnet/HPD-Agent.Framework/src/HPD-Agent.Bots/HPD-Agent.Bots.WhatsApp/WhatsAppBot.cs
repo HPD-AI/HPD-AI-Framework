@@ -179,7 +179,7 @@ public partial class WhatsAppBot
         if (_sessionMapper is not null && _sessionManager is not null && _agentManager is not null)
         {
             var (sessionId, branchId) = await _sessionMapper.ResolveAsync(threadId, ctx.RequestAborted);
-            _ = StreamToWhatsAppAsync(sessionId, branchId, parsed, ctx.RequestAborted);
+            _ = StreamToWhatsAppAsync(sessionId, branchId, parsed, CancellationToken.None);
         }
     }
 

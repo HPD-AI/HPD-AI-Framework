@@ -25,13 +25,13 @@ namespace HPD.Agent.Providers.GoogleAI;
 /// Authentication: API Key (required)
 /// </para>
 /// </remarks>
-internal class GoogleAIProvider : IProviderFeatures
+internal class GoogleAIProvider : IChatClientProvider
 {
     public string ProviderKey => "google-ai";
     public string DisplayName => "Google AI (Gemini)";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null)
+    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -79,12 +79,7 @@ internal class GoogleAIProvider : IProviderFeatures
         // our provider model. This is a limitation of the SDK.
         var chatClient = new GenerativeAIChatClient(apiKey, modelName);
 
-        // Apply client factory middleware if provided
         IChatClient finalClient = chatClient;
-        if (config.ClientFactory is { } clientFactory)
-        {
-            finalClient = clientFactory(chatClient);
-        }
 
         return finalClient;
     }
@@ -100,15 +95,25 @@ internal class GoogleAIProvider : IProviderFeatures
         {
             ProviderKey = ProviderKey,
             DisplayName = DisplayName,
-            SupportsStreaming = true,
-            SupportsFunctionCalling = true,
-            SupportsVision = true,
-            DocumentationUrl = "https://ai.google.dev/docs"
+            DocumentationUri = new Uri("https://ai.google.dev/docs"),
+            Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            {
+                [ProviderClientFamily.Chat] = new()
+                {
+                    Family = ProviderClientFamily.Chat,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsStreaming"] = true,
+                        ["SupportsFunctionCalling"] = true,
+                        ["SupportsVision"] = true
+                    }
+                }
+            }
         };
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public ProviderValidationResult ValidateConfiguration(ProviderConfig config)
+    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
 

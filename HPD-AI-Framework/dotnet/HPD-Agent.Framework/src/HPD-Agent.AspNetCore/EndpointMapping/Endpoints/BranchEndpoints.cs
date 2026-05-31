@@ -34,7 +34,7 @@ internal static class BranchEndpoints
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/fork", (string agentId, string sid, string bid, ForkBranchRequest request, CancellationToken ct) =>
                 ForkBranch(agentId, sid, bid, request, branches, ct))
             .WithName("ForkBranch")
-            .WithSummary("Fork an existing branch at a specific message index");
+            .WithSummary("Fork an existing branch at a specific message id");
 
         endpoints.MapPatch("/sessions/{sid}/branches/{bid}", (string sid, string bid, UpdateBranchRequest request, CancellationToken ct) =>
                 UpdateBranch(sid, bid, request, branches, ct))

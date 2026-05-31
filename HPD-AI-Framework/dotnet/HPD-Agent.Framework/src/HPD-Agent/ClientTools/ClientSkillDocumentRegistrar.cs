@@ -54,7 +54,7 @@ public class ClientSkillDocumentRegistrar
 
     /// <summary>
     /// Registers all documents from all skills in a harness.
-    /// Uses named upsert semantics — idempotent, safe to call on reconnect.
+    /// Uses versioned write semantics — idempotent, safe to call on reconnect.
     /// </summary>
     public async Task<int> RegisterHarnessDocumentsAsync(
         clientHarnessDefinition harness,
@@ -123,7 +123,11 @@ public class ClientSkillDocumentRegistrar
                     var existing = await _contentStore.QueryAsync(null, new ContentQuery { Name = storeId }, ct);
                     if (existing.Count > 0)
                     {
-                        await _contentStore.DeleteAsync(null, existing[0].Id, ct);
+                        await _contentStore.DeleteAsync(
+                            null,
+                            existing[0].Id,
+                            new ContentDeleteOptions { IfMatchVersion = existing[0].Version },
+                            ct);
                         unregisteredCount++;
                     }
                 }

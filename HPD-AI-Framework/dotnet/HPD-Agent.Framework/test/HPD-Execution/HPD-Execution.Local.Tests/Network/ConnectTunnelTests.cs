@@ -168,6 +168,7 @@ public sealed class ConnectTunnelTests
         {
             var client = new TcpClient();
             await client.ConnectAsync(IPAddress.Loopback, Port, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             return client.GetStream();
         }
 

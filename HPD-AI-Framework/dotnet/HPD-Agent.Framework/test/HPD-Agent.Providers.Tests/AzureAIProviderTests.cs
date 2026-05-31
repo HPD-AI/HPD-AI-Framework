@@ -29,10 +29,11 @@ public class AzureAIProviderTests
         metadata.Should().NotBeNull();
         metadata.ProviderKey.Should().Be("azure-ai");
         metadata.DisplayName.Should().Be("Azure AI (Projects)");
-        metadata.SupportsStreaming.Should().BeTrue();
-        metadata.SupportsFunctionCalling.Should().BeTrue();
-        metadata.SupportsVision.Should().BeTrue();
-        metadata.DocumentationUrl.Should().Be("https://learn.microsoft.com/en-us/azure/ai-studio/");
+        metadata.DocumentationUri.Should().Be(new Uri("https://learn.microsoft.com/en-us/azure/ai-studio/"));
+        var chat = metadata.Families[ProviderClientFamily.Chat];
+        chat.Capabilities!["SupportsStreaming"].Should().Be(true);
+        chat.Capabilities["SupportsFunctionCalling"].Should().Be(true);
+        chat.Capabilities["SupportsVision"].Should().Be(true);
     }
 
     #endregion
@@ -43,7 +44,7 @@ public class AzureAIProviderTests
     public void ValidateConfiguration_WithValidAzureAIFoundryConfig_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4",
@@ -57,7 +58,7 @@ public class AzureAIProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -68,7 +69,7 @@ public class AzureAIProviderTests
     public void ValidateConfiguration_WithValidTraditionalAzureOpenAIConfig_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4",
@@ -77,7 +78,7 @@ public class AzureAIProviderTests
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -88,7 +89,7 @@ public class AzureAIProviderTests
     public void ValidateConfiguration_WithMissingModelName_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             Endpoint = "https://test.openai.azure.com",
@@ -96,7 +97,7 @@ public class AzureAIProviderTests
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -107,14 +108,14 @@ public class AzureAIProviderTests
     public void ValidateConfiguration_WithMissingEndpoint_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4"
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -125,7 +126,7 @@ public class AzureAIProviderTests
     public void ValidateConfiguration_WithInvalidTemperature_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4",
@@ -140,7 +141,7 @@ public class AzureAIProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -151,7 +152,7 @@ public class AzureAIProviderTests
     public void ValidateConfiguration_WithNegativeTemperature_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4",
@@ -166,7 +167,7 @@ public class AzureAIProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -177,7 +178,7 @@ public class AzureAIProviderTests
     public void ValidateConfiguration_WithValidTemperatureRange_ShouldSucceed()
     {
         // Arrange - Test that values 0-2 are valid (different from old provider's 0-1 range)
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4",
@@ -192,7 +193,7 @@ public class AzureAIProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -203,7 +204,7 @@ public class AzureAIProviderTests
     public void ValidateConfiguration_WithInvalidTopP_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4",
@@ -218,7 +219,7 @@ public class AzureAIProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -229,7 +230,7 @@ public class AzureAIProviderTests
     public void ValidateConfiguration_WithInvalidFrequencyPenalty_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4",
@@ -244,7 +245,7 @@ public class AzureAIProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -255,7 +256,7 @@ public class AzureAIProviderTests
     public void ValidateConfiguration_WithInvalidPresencePenalty_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4",
@@ -270,7 +271,7 @@ public class AzureAIProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -281,7 +282,7 @@ public class AzureAIProviderTests
     public void ValidateConfiguration_WithInvalidResponseFormat_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4",
@@ -296,7 +297,7 @@ public class AzureAIProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -307,7 +308,7 @@ public class AzureAIProviderTests
     public void ValidateConfiguration_WithJsonSchemaButMissingName_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4",
@@ -324,7 +325,7 @@ public class AzureAIProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -335,7 +336,7 @@ public class AzureAIProviderTests
     public void ValidateConfiguration_WithJsonSchemaButMissingSchema_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4",
@@ -352,7 +353,7 @@ public class AzureAIProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -363,7 +364,7 @@ public class AzureAIProviderTests
     public void ValidateConfiguration_WithInvalidToolChoice_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4",
@@ -378,7 +379,7 @@ public class AzureAIProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -389,7 +390,7 @@ public class AzureAIProviderTests
     public void ValidateConfiguration_WithValidAzureConfig_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4",
@@ -411,7 +412,7 @@ public class AzureAIProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -611,13 +612,12 @@ public class AzureAIProviderTests
         var config = new AgentConfig
         {
             Name = "Test Agent",
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "azure-ai",
                 ModelName = "gpt-4",
                 Endpoint = "https://test.openai.azure.com",
                 ApiKey = "test-key"
-            }
+            } }
         };
 
         var azureOpts = new AzureAIProviderConfig
@@ -627,7 +627,7 @@ public class AzureAIProviderTests
             TopP = 0.9f,
             Seed = 12345
         };
-        config.Provider.SetProviderConfig(azureOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(azureOpts);
 
         // Act
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
@@ -656,13 +656,14 @@ public class AzureAIProviderTests
         var json = """
         {
             "name": "Test Agent",
-            "provider": {
+            "clients": {
+                "chat": {
                 "providerKey": "azure-ai",
                 "modelName": "gpt-4",
                 "endpoint": "https://test.openai.azure.com",
                 "apiKey": "test-key",
                 "providerOptionsJson": "{\"maxTokens\":4096,\"temperature\":0.7,\"topP\":0.9,\"seed\":12345}"
-            }
+            } }
         }
         """;
 
@@ -672,15 +673,15 @@ public class AzureAIProviderTests
         // Assert
         config.Should().NotBeNull();
         config!.Name.Should().Be("Test Agent");
-        config.Provider.Should().NotBeNull();
-        config.Provider!.ProviderKey.Should().Be("azure-ai");
-        config.Provider.ModelName.Should().Be("gpt-4");
-        config.Provider.Endpoint.Should().Be("https://test.openai.azure.com");
-        config.Provider.ApiKey.Should().Be("test-key");
-        config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().Should().NotBeNull();
+        config.EnsureChatClientConfig()!.ProviderKey.Should().Be("azure-ai");
+        config.EnsureChatClientConfig().ModelName.Should().Be("gpt-4");
+        config.EnsureChatClientConfig().Endpoint.Should().Be("https://test.openai.azure.com");
+        config.EnsureChatClientConfig().ApiKey.Should().Be("test-key");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
 
         // Verify typed config can be retrieved
-        var azureConfig = config.Provider.GetProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = config.EnsureChatClientConfig().GetProviderConfig<AzureAIProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.MaxTokens.Should().Be(4096);
         azureConfig.Temperature.Should().Be(0.7f);
@@ -697,12 +698,11 @@ public class AzureAIProviderTests
             Name = "Round Trip Test",
             MaxAgenticIterations = 20,
             SystemInstructions = "You are a test assistant.",
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "azure-ai",
                 ModelName = "gpt-4",
                 Endpoint = "https://test.services.ai.azure.com/api/projects/test-project"
-            }
+            } }
         };
 
         var originalAzureOpts = new AzureAIProviderConfig
@@ -718,7 +718,7 @@ public class AzureAIProviderTests
             StopSequences = new List<string> { "STOP", "END" },
             UseDefaultAzureCredential = true
         };
-        originalConfig.Provider.SetProviderConfig(originalAzureOpts);
+        originalConfig.EnsureChatClientConfig().SetProviderConfig(originalAzureOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(originalConfig, HPDJsonContext.Default.AgentConfig);
@@ -731,13 +731,13 @@ public class AzureAIProviderTests
         deserializedConfig.SystemInstructions.Should().Be("You are a test assistant.");
 
         // Assert - Provider properties
-        deserializedConfig.Provider.Should().NotBeNull();
-        deserializedConfig.Provider!.ProviderKey.Should().Be("azure-ai");
-        deserializedConfig.Provider.ModelName.Should().Be("gpt-4");
-        deserializedConfig.Provider.Endpoint.Should().Be("https://test.services.ai.azure.com/api/projects/test-project");
+        deserializedConfig.EnsureChatClientConfig().Should().NotBeNull();
+        deserializedConfig.EnsureChatClientConfig()!.ProviderKey.Should().Be("azure-ai");
+        deserializedConfig.EnsureChatClientConfig().ModelName.Should().Be("gpt-4");
+        deserializedConfig.EnsureChatClientConfig().Endpoint.Should().Be("https://test.services.ai.azure.com/api/projects/test-project");
 
         // Assert - Azure-specific config
-        var deserializedAzureOpts = deserializedConfig.Provider.GetProviderConfig<AzureAIProviderConfig>();
+        var deserializedAzureOpts = deserializedConfig.EnsureChatClientConfig().GetProviderConfig<AzureAIProviderConfig>();
         deserializedAzureOpts.Should().NotBeNull();
         deserializedAzureOpts!.MaxTokens.Should().Be(4096);
         deserializedAzureOpts.Temperature.Should().Be(1.5f);
@@ -759,11 +759,10 @@ public class AzureAIProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "azure-ai",
                 ModelName = "gpt-4"
-            }
+            } }
         };
 
         // Act - Set typed config
@@ -772,17 +771,17 @@ public class AzureAIProviderTests
             MaxTokens = 4096,
             Temperature = 0.5f
         };
-        config.Provider.SetProviderConfig(azureOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(azureOpts);
 
         // Assert - ProviderOptionsJson should be populated
-        config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
-        config.Provider.ProviderOptionsJson.Should().Contain("maxTokens");
-        config.Provider.ProviderOptionsJson.Should().Contain("4096");
-        config.Provider.ProviderOptionsJson.Should().Contain("temperature");
-        config.Provider.ProviderOptionsJson.Should().Contain("0.5");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("maxTokens");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("4096");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("temperature");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("0.5");
 
         // Verify we can retrieve it back
-        var retrieved = config.Provider.GetProviderConfig<AzureAIProviderConfig>();
+        var retrieved = config.EnsureChatClientConfig().GetProviderConfig<AzureAIProviderConfig>();
         retrieved.Should().NotBeNull();
         retrieved!.MaxTokens.Should().Be(4096);
         retrieved.Temperature.Should().Be(0.5f);
@@ -794,11 +793,10 @@ public class AzureAIProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "azure-ai",
                 ModelName = "gpt-4"
-            }
+            } }
         };
 
         var azureOpts = new AzureAIProviderConfig
@@ -806,11 +804,11 @@ public class AzureAIProviderTests
             MaxTokens = 4096,
             Temperature = 0.7f
         };
-        config.Provider.SetProviderConfig(azureOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(azureOpts);
 
         // Act - Call GetProviderConfig multiple times
-        var first = config.Provider.GetProviderConfig<AzureAIProviderConfig>();
-        var second = config.Provider.GetProviderConfig<AzureAIProviderConfig>();
+        var first = config.EnsureChatClientConfig().GetProviderConfig<AzureAIProviderConfig>();
+        var second = config.EnsureChatClientConfig().GetProviderConfig<AzureAIProviderConfig>();
 
         // Assert - Should return the same cached instance
         first.Should().BeSameAs(second);
@@ -824,11 +822,10 @@ public class AzureAIProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "azure-ai",
                 ModelName = "gpt-4"
-            }
+            } }
         };
 
         var azureOpts = new AzureAIProviderConfig
@@ -836,14 +833,14 @@ public class AzureAIProviderTests
             MaxTokens = 4096
             // Leave Temperature, TopP, etc. as null
         };
-        config.Provider.SetProviderConfig(azureOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(azureOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
         var deserialized = System.Text.Json.JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentConfig);
 
         // Assert
-        var deserializedOpts = deserialized!.Provider.GetProviderConfig<AzureAIProviderConfig>();
+        var deserializedOpts = deserialized!.EnsureChatClientConfig().GetProviderConfig<AzureAIProviderConfig>();
         deserializedOpts.Should().NotBeNull();
         deserializedOpts!.MaxTokens.Should().Be(4096);
         deserializedOpts.Temperature.Should().BeNull();
@@ -876,13 +873,13 @@ public class AzureAIProviderTests
             });
 
         // Assert
-        builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.ProviderKey.Should().Be("azure-ai");
-        builder.Config.Provider.ModelName.Should().Be("gpt-4");
-        builder.Config.Provider.Endpoint.Should().Be("https://test.openai.azure.com");
-        builder.Config.Provider.ApiKey.Should().Be("test-api-key");
+        builder.Config.EnsureChatClientConfig().Should().NotBeNull();
+        builder.Config.EnsureChatClientConfig()!.ProviderKey.Should().Be("azure-ai");
+        builder.Config.EnsureChatClientConfig().ModelName.Should().Be("gpt-4");
+        builder.Config.EnsureChatClientConfig().Endpoint.Should().Be("https://test.openai.azure.com");
+        builder.Config.EnsureChatClientConfig().ApiKey.Should().Be("test-api-key");
 
-        var azureConfig = builder.Config.Provider.GetProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = builder.Config.EnsureChatClientConfig().GetProviderConfig<AzureAIProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.MaxTokens.Should().Be(4096);
         azureConfig.Temperature.Should().Be(0.7f);
@@ -902,14 +899,14 @@ public class AzureAIProviderTests
             configure: opts => opts.UseDefaultAzureCredential = true);
 
         // Assert
-        builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.ProviderKey.Should().Be("azure-ai");
-        builder.Config.Provider.ModelName.Should().Be("gpt-4");
-        builder.Config.Provider.Endpoint.Should().Be("https://test.services.ai.azure.com/api/projects/test-project");
+        builder.Config.EnsureChatClientConfig().Should().NotBeNull();
+        builder.Config.EnsureChatClientConfig()!.ProviderKey.Should().Be("azure-ai");
+        builder.Config.EnsureChatClientConfig().ModelName.Should().Be("gpt-4");
+        builder.Config.EnsureChatClientConfig().Endpoint.Should().Be("https://test.services.ai.azure.com/api/projects/test-project");
         // ApiKey should be null (will use OAuth via DefaultAzureCredential)
-        builder.Config.Provider.ApiKey.Should().BeNull();
+        builder.Config.EnsureChatClientConfig().ApiKey.Should().BeNull();
 
-        var azureConfig = builder.Config.Provider.GetProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = builder.Config.EnsureChatClientConfig().GetProviderConfig<AzureAIProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.UseDefaultAzureCredential.Should().BeTrue();
     }
@@ -934,36 +931,12 @@ public class AzureAIProviderTests
             });
 
         // Assert
-        var azureConfig = builder.Config.Provider!.GetProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = builder.Config.EnsureChatClientConfig()!.GetProviderConfig<AzureAIProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.ResponseFormat.Should().Be("json_schema");
         azureConfig.JsonSchemaName.Should().Be("UserInfo");
         azureConfig.JsonSchema.Should().NotBeNullOrEmpty();
         azureConfig.JsonSchemaIsStrict.Should().BeTrue();
-    }
-
-    [Fact]
-    public void WithAzureAI_WithClientFactory_ShouldStoreClientFactory()
-    {
-        // Arrange
-        var builder = new AgentBuilder();
-        var factoryCalled = false;
-        Func<IChatClient, IChatClient> clientFactory = client =>
-        {
-            factoryCalled = true;
-            return client;
-        };
-
-        // Act
-        builder.WithAzureAI(
-            endpoint: "https://test.openai.azure.com",
-            model: "gpt-4",
-            apiKey: "test-key",
-            clientFactory: clientFactory);
-
-        // Assert
-        builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.ClientFactory.Should().BeSameAs(clientFactory);
     }
 
     [Fact]
@@ -1093,7 +1066,7 @@ public class AzureAIProviderTests
             configure: opts => opts.Temperature = 1.5f);
 
         // Assert
-        var azureConfig = builder.Config.Provider!.GetProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = builder.Config.EnsureChatClientConfig()!.GetProviderConfig<AzureAIProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.Temperature.Should().Be(1.5f);
     }
@@ -1252,7 +1225,7 @@ public class AzureAIProviderTests
             });
 
         // Assert
-        var azureConfig = builder.Config.Provider!.GetProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = builder.Config.EnsureChatClientConfig()!.GetProviderConfig<AzureAIProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.MaxTokens.Should().Be(4096);
         azureConfig.Temperature.Should().Be(0.7f);

@@ -376,13 +376,14 @@ public class BranchOperationTests : AgentTestBase
         source.AddMessage(UserMessage("Message 3"));
         await store.SaveInitialBranchAsync("test-session", source);
 
-        // Act - fork at message index 3 (after "Response 2")
-        var forked = await ForkBranchViaStore(store, session, "main", "formal", fromMessageIndex: 3);
+        // Act - fork at message 3 (after "Response 2")
+        var forked = await ForkBranchViaStore(store, session, "main", "formal", source.Messages[3].MessageId!);
 
         // Assert
         Assert.Equal("formal", forked.Id);
         Assert.Equal("test-session", forked.SessionId);
         Assert.Equal("main", forked.ForkedFrom);
+        Assert.Equal(source.Messages[3].MessageId, forked.ForkedAtMessageId);
         Assert.Equal(3, forked.ForkedAtMessageIndex);
         // Messages 0-3 should be copied (4 messages)
         Assert.Equal(4, forked.Messages.Count);
@@ -403,7 +404,7 @@ public class BranchOperationTests : AgentTestBase
         await store.SaveInitialBranchAsync("test-session", source);
 
         // Act - fork at message 1 (after "Second")
-        var forked = await ForkBranchViaStore(store, session, "main", "alt", fromMessageIndex: 1);
+        var forked = await ForkBranchViaStore(store, session, "main", "alt", source.Messages[1].MessageId!);
 
         // Assert - should have messages 0 and 1
         Assert.Equal(2, forked.Messages.Count);
@@ -419,16 +420,16 @@ public class BranchOperationTests : AgentTestBase
 
         var source = session.CreateBranch("main");
         source.MiddlewareState["PlanModePersistentState"] = "{\"step\":3}";
-        source.MiddlewareState["HistoryReductionState"] = "{\"cached\":true}";
+        source.MiddlewareState["CompactionState"] = "{\"cached\":true}";
         source.AddMessage(UserMessage("Hello"));
         await store.SaveInitialBranchAsync("test-session", source);
 
         // Act
-        var forked = await ForkBranchViaStore(store, session, "main", "alt", fromMessageIndex: 0);
+        var forked = await ForkBranchViaStore(store, session, "main", "alt", source.Messages[0].MessageId!);
 
         // Assert - branch-scoped state copied
         Assert.Equal("{\"step\":3}", forked.MiddlewareState["PlanModePersistentState"]);
-        Assert.Equal("{\"cached\":true}", forked.MiddlewareState["HistoryReductionState"]);
+        Assert.Equal("{\"cached\":true}", forked.MiddlewareState["CompactionState"]);
     }
 
     [Fact]
@@ -444,7 +445,7 @@ public class BranchOperationTests : AgentTestBase
         source.AddMessage(UserMessage("Hello"));
         await store.SaveInitialBranchAsync("test-session", source);
 
-        var forked = await ForkBranchViaStore(store, session, "main", "alt", fromMessageIndex: 0);
+        var forked = await ForkBranchViaStore(store, session, "main", "alt", source.Messages[0].MessageId!);
 
         // Act - modify forked branch state
         forked.MiddlewareState["PlanModePersistentState"] = "{\"step\":5}";
@@ -717,15 +718,20 @@ public class BranchOperationTests : AgentTestBase
         HPD.Agent.Session session,
         string sourceBranchId,
         string newBranchId,
-        int fromMessageIndex)
+        string fromMessageId)
     {
         var source = await store.LoadBranchAsync(session.Id, sourceBranchId);
         Assert.NotNull(source);
+
+        var fromMessageIndex = source.Messages.FindIndex(message =>
+            string.Equals(message.MessageId, fromMessageId, StringComparison.Ordinal));
+        Assert.True(fromMessageIndex >= 0);
 
         // Using internal constructor with init properties to set fork metadata
         var newBranch = new Branch(session.Id, newBranchId)
         {
             ForkedFrom = sourceBranchId,
+            ForkedAtMessageId = fromMessageId,
             ForkedAtMessageIndex = fromMessageIndex
         };
 

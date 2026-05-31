@@ -7,16 +7,16 @@ using Microsoft.Extensions.Options;
 namespace HPD.Agent.AspNetCore.Tests.Unit;
 
 /// <summary>
-/// Unit tests for AgentSessionManager stream-lock and session-lock behaviour.
-/// Covers Fix 3 (RemoveBranchStreamLock + RemoveSession cleanup)
+/// Unit tests for AgentSessionManager branch-operation-lock and session-lock behaviour.
+/// Covers Fix 3 (RemoveBranchOperationLock + RemoveSession cleanup)
 /// and MAUI Fix B (non-generic WithSessionLockAsync overload).
 /// </summary>
-public class AgentSessionManagerStreamLockTests : IDisposable
+public class AgentSessionManagerBranchOperationLockTests : IDisposable
 {
     private readonly InMemorySessionStore _store;
     private readonly AspNetCoreSessionManagerTestable _manager;
 
-    public AgentSessionManagerStreamLockTests()
+    public AgentSessionManagerBranchOperationLockTests()
     {
         _store = new InMemorySessionStore();
         var optionsMonitor = new OptionsMonitorWrapper();
@@ -26,78 +26,78 @@ public class AgentSessionManagerStreamLockTests : IDisposable
     public void Dispose() => _manager.Dispose();
 
     // ──────────────────────────────────────────────────────────────────
-    // Fix 3 — RemoveBranchStreamLock
+    // Fix 3 — RemoveBranchOperationLock
     // ──────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void TryAcquireStreamLock_ReturnsFalse_WhenAlreadyAcquired()
+    public void TryAcquireBranchOperationLock_ReturnsFalse_WhenAlreadyAcquired()
     {
-        var acquired = _manager.TryAcquireStreamLock("session-1", "branch-a");
+        var acquired = _manager.TryAcquireBranchOperationLock("session-1", "branch-a");
         acquired.Should().BeTrue();
 
-        var second = _manager.TryAcquireStreamLock("session-1", "branch-a");
+        var second = _manager.TryAcquireBranchOperationLock("session-1", "branch-a");
         second.Should().BeFalse();
     }
 
     [Fact]
-    public void RemoveBranchStreamLock_AllowsReacquisition_AfterRelease()
+    public void RemoveBranchOperationLock_AllowsReacquisition_AfterRelease()
     {
         // Acquire, release, then remove the semaphore
-        _manager.TryAcquireStreamLock("session-1", "branch-a");
-        _manager.ReleaseStreamLock("session-1", "branch-a");
-        _manager.RemoveBranchStreamLock("session-1", "branch-a");
+        _manager.TryAcquireBranchOperationLock("session-1", "branch-a");
+        _manager.ReleaseBranchOperationLock("session-1", "branch-a");
+        _manager.RemoveBranchOperationLock("session-1", "branch-a");
 
         // A fresh acquisition should succeed (new semaphore created lazily)
-        var acquired = _manager.TryAcquireStreamLock("session-1", "branch-a");
+        var acquired = _manager.TryAcquireBranchOperationLock("session-1", "branch-a");
         acquired.Should().BeTrue();
     }
 
     [Fact]
-    public void RemoveBranchStreamLock_IsIdempotent_WhenKeyNotPresent()
+    public void RemoveBranchOperationLock_IsIdempotent_WhenKeyNotPresent()
     {
         // Should not throw on a key that was never acquired
-        var act = () => _manager.RemoveBranchStreamLock("session-x", "branch-x");
+        var act = () => _manager.RemoveBranchOperationLock("session-x", "branch-x");
         act.Should().NotThrow();
     }
 
     [Fact]
-    public void RemoveAgent_CleansUpAllStreamLocks_ForSession()
+    public void RemoveAgent_CleansUpAllBranchOperationLocks_ForSession()
     {
         // Acquire locks for 3 branches on session-A and 1 on session-B
-        _manager.TryAcquireStreamLock("session-a", "branch-1");
-        _manager.TryAcquireStreamLock("session-a", "branch-2");
-        _manager.TryAcquireStreamLock("session-a", "branch-3");
-        _manager.TryAcquireStreamLock("session-b", "branch-1");
+        _manager.TryAcquireBranchOperationLock("session-a", "branch-1");
+        _manager.TryAcquireBranchOperationLock("session-a", "branch-2");
+        _manager.TryAcquireBranchOperationLock("session-a", "branch-3");
+        _manager.TryAcquireBranchOperationLock("session-b", "branch-1");
 
         // Release before removing (must release before dispose)
-        _manager.ReleaseStreamLock("session-a", "branch-1");
-        _manager.ReleaseStreamLock("session-a", "branch-2");
-        _manager.ReleaseStreamLock("session-a", "branch-3");
-        _manager.ReleaseStreamLock("session-b", "branch-1");
+        _manager.ReleaseBranchOperationLock("session-a", "branch-1");
+        _manager.ReleaseBranchOperationLock("session-a", "branch-2");
+        _manager.ReleaseBranchOperationLock("session-a", "branch-3");
+        _manager.ReleaseBranchOperationLock("session-b", "branch-1");
 
         _manager.RemoveSession("session-a");
 
         // Session-A locks are gone — acquiring returns a fresh semaphore (true)
-        _manager.TryAcquireStreamLock("session-a", "branch-1").Should().BeTrue();
-        _manager.TryAcquireStreamLock("session-a", "branch-2").Should().BeTrue();
-        _manager.TryAcquireStreamLock("session-a", "branch-3").Should().BeTrue();
+        _manager.TryAcquireBranchOperationLock("session-a", "branch-1").Should().BeTrue();
+        _manager.TryAcquireBranchOperationLock("session-a", "branch-2").Should().BeTrue();
+        _manager.TryAcquireBranchOperationLock("session-a", "branch-3").Should().BeTrue();
 
         // Session-B lock was not cleaned up — it was already released above so reacquire is fine,
         // but confirm it still exists as a fresh (uncontested) semaphore
-        _manager.TryAcquireStreamLock("session-b", "branch-1").Should().BeTrue();
+        _manager.TryAcquireBranchOperationLock("session-b", "branch-1").Should().BeTrue();
     }
 
     [Fact]
-    public void RemoveAgent_DoesNotCleanupOtherSessions_StreamLocks()
+    public void RemoveAgent_DoesNotCleanupOtherSessions_BranchOperationLocks()
     {
         // Acquire and hold a lock for session-b
-        _manager.TryAcquireStreamLock("session-b", "branch-z");
+        _manager.TryAcquireBranchOperationLock("session-b", "branch-z");
 
         // Remove a different session
         _manager.RemoveSession("session-a");
 
         // Session-B lock should still be held — reacquisition fails
-        _manager.TryAcquireStreamLock("session-b", "branch-z").Should().BeFalse();
+        _manager.TryAcquireBranchOperationLock("session-b", "branch-z").Should().BeFalse();
     }
 
     // ──────────────────────────────────────────────────────────────────

@@ -30,6 +30,7 @@ public sealed class RunEvalsTests
         {
             ProviderKey = "openai",
             ModelId = "gpt-test",
+            ProviderOptionsJson = """{"reasoningEffort":"high"}""",
             DisableEvaluators = false,
             ContextOverrides = new() { ["tenant"] = "alpha" },
         };
@@ -45,6 +46,7 @@ public sealed class RunEvalsTests
         agent.Configs[0].Should().NotBeSameAs(baseConfig);
         agent.Configs[0].ProviderKey.Should().Be("openai");
         agent.Configs[0].ModelId.Should().Be("gpt-test");
+        agent.Configs[0].ProviderOptionsJson.Should().Be("""{"reasoningEffort":"high"}""");
         agent.Configs[0].DisableEvaluators.Should().BeTrue();
         agent.Configs[0].ContextOverrides.Should().ContainKey("tenant");
 
@@ -835,12 +837,11 @@ public sealed class RunEvalsTests
                 new AgentConfig
                 {
                     Name = nameof(CapturingAgent),
-                    Provider = new ProviderConfig
-                    {
+                    Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                         ProviderKey = "openai",
                         ModelName = "gpt-test",
                         DefaultChatOptions = options,
-                    },
+                    } },
                 },
                 _chatClient,
                 options,
@@ -934,29 +935,43 @@ public sealed class RunEvalsTests
 
         private sealed class CapturingProviderRegistry(IChatClient client) : IProviderRegistry
         {
-            public IProviderFeatures? GetProvider(string providerKey) =>
-                new CapturingProviderFeatures(providerKey, client);
+            public IProvider? GetProvider(string providerKey) =>
+                new CapturingChatClientProvider(providerKey, client);
+
+            public TProvider? GetProvider<TProvider>(string providerKey)
+                where TProvider : class, IProvider
+                => GetProvider(providerKey) as TProvider;
 
             public IReadOnlyCollection<string> GetRegisteredProviders() => ["openai", "test"];
-            public void Register(IProviderFeatures provider) { }
+            public void Register(IProvider provider) { }
             public bool IsRegistered(string providerKey) => true;
             public void Clear() { }
         }
 
-        private sealed class CapturingProviderFeatures(string providerKey, IChatClient client) : IProviderFeatures
+        private sealed class CapturingChatClientProvider(string providerKey, IChatClient client) : IChatClientProvider
         {
             public string ProviderKey => providerKey;
             public string DisplayName => providerKey;
-            public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null) => client;
+            public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null) => client;
             public HPD.Agent.ErrorHandling.IProviderErrorHandler CreateErrorHandler() => new StubErrorHandler();
             public ProviderMetadata GetMetadata() => new()
             {
                 ProviderKey = providerKey,
                 DisplayName = providerKey,
-                SupportsStreaming = true,
-                SupportsFunctionCalling = true,
+                Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+                {
+                    [ProviderClientFamily.Chat] = new()
+                    {
+                        Family = ProviderClientFamily.Chat,
+                        Capabilities = new Dictionary<string, object?>
+                        {
+                            ["SupportsStreaming"] = true,
+                            ["SupportsFunctionCalling"] = true
+                        }
+                    }
+                },
             };
-            public ProviderValidationResult ValidateConfiguration(ProviderConfig config)
+            public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
                 => ProviderValidationResult.Success();
         }
     }

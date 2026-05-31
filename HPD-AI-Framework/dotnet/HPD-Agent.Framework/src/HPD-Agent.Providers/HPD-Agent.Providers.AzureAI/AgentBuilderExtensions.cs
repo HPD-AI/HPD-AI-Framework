@@ -23,7 +23,6 @@ public static class AgentBuilderExtensions
     /// <param name="model">The model deployment name (e.g., "gpt-4", "gpt-4o")</param>
     /// <param name="apiKey">Optional API key. If not provided, will use DefaultAzureCredential (OAuth/Entra ID)</param>
     /// <param name="configure">Optional action to configure additional Azure AI-specific options</param>
-    /// <param name="clientFactory">Optional factory to wrap the chat client with middleware (logging, caching, etc.)</param>
     /// <returns>The builder for method chaining</returns>
     /// <remarks>
     /// <para>
@@ -46,7 +45,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates an <see cref="AzureAIProviderConfig"/> that is:
-    /// - Stored in <c>ProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
     /// - Applied during <c>AzureAIProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -125,16 +124,6 @@ public static class AgentBuilderExtensions
     ///             opts.JsonSchemaIsStrict = true;
     ///         })
     ///     .Build();
-    ///
-    /// // Option 5: With middleware via ClientFactory
-    /// var agent = new AgentBuilder()
-    ///     .WithAzureAI(
-    ///         endpoint: "https://my-resource.openai.azure.com",
-    ///         model: "gpt-4",
-    ///         configure: opts => opts.MaxTokens = 4096,
-    ///         clientFactory: client => new LoggingChatClient(client, logger))
-    ///     .Build();
-    ///
     /// // Option 6: Auto-resolve from environment variables
     /// // Set AZURE_AI_ENDPOINT and optionally AZURE_AI_API_KEY
     /// var agent = new AgentBuilder()
@@ -149,8 +138,7 @@ public static class AgentBuilderExtensions
         string endpoint,
         string model,
         string? apiKey = null,
-        Action<AzureAIProviderConfig>? configure = null,
-        Func<IChatClient, IChatClient>? clientFactory = null)
+        Action<AzureAIProviderConfig>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -173,7 +161,7 @@ public static class AgentBuilderExtensions
         ValidateProviderConfig(providerConfig, configure);
 
         // Build provider config
-        builder.Config.Provider = new ProviderConfig
+        var chatConfig = new ClientProviderConfig
         {
             ProviderKey = "azure-ai",
             Endpoint = endpoint,
@@ -181,9 +169,10 @@ public static class AgentBuilderExtensions
             ModelName = model
         };
 
+        builder.Config.SetChatClientConfig(chatConfig);
+
         // Store the typed config
-        builder.Config.Provider.SetProviderConfig(providerConfig);
-        builder.Config.Provider.ClientFactory = clientFactory;
+        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
     }

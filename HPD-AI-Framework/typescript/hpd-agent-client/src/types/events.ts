@@ -9,6 +9,17 @@ export const EventTypes = {
   USER_TEXT_INPUT: 'USER_TEXT_INPUT',
   USER_MESSAGES_INPUT: 'USER_MESSAGES_INPUT',
 
+  // Durable Branch Events
+  BRANCH_CREATED: 'BRANCH_CREATED',
+  BRANCH_FORKED: 'BRANCH_FORKED',
+  BRANCH_METADATA_UPDATED: 'BRANCH_METADATA_UPDATED',
+  BRANCH_TREE_UPDATED: 'BRANCH_TREE_UPDATED',
+  MESSAGE_STARTED: 'MESSAGE_STARTED',
+  MESSAGE_COMPLETED: 'MESSAGE_COMPLETED',
+  CONTENT_ADDED: 'CONTENT_ADDED',
+  BRANCH_MIDDLEWARE_STATE_COMMITTED: 'BRANCH_MIDDLEWARE_STATE_COMMITTED',
+  BRANCH_HISTORY_COMPACTED: 'BRANCH_HISTORY_COMPACTED',
+
   // Message Turn Lifecycle
   MESSAGE_TURN_STARTED: 'MESSAGE_TURN_STARTED',
   MESSAGE_TURN_FINISHED: 'MESSAGE_TURN_FINISHED',
@@ -18,6 +29,8 @@ export const EventTypes = {
   AGENT_TURN_STARTED: 'AGENT_TURN_STARTED',
   AGENT_TURN_FINISHED: 'AGENT_TURN_FINISHED',
   STATE_SNAPSHOT: 'STATE_SNAPSHOT',
+  BRANCH_RUN_STARTED: 'BRANCH_RUN_STARTED',
+  BRANCH_RUN_COMPLETED: 'BRANCH_RUN_COMPLETED',
 
   // Content Streaming
   TEXT_MESSAGE_START: 'TEXT_MESSAGE_START',
@@ -121,10 +134,10 @@ export const EventTypes = {
 export type EventType = (typeof EventTypes)[keyof typeof EventTypes];
 
 // ============================================
-// Execution Context
+// Agent Metadata
 // ============================================
 
-export interface AgentExecutionContext {
+export interface AgentMetadata {
   agentName: string;
   agentId: string;
   parentAgentId?: string;
@@ -140,7 +153,7 @@ export interface AgentExecutionContext {
 export interface BaseEvent {
   version?: string;
   type: string;
-  executionContext?: AgentExecutionContext;
+  metadata?: AgentMetadata;
   eventId?: string;
   sessionId?: string;
   branchId?: string;
@@ -178,6 +191,85 @@ export interface UserTextInputEvent extends AgentInputEvent {
 export interface UserMessagesInputEvent extends AgentInputEvent {
   type: typeof EventTypes.USER_MESSAGES_INPUT;
   messages: Array<{ content: string; role?: string }>;
+}
+
+// ============================================
+// Durable Branch Events
+// ============================================
+
+export interface BranchCreatedEvent extends BaseEvent {
+  type: typeof EventTypes.BRANCH_CREATED;
+  name?: string | null;
+  description?: string | null;
+  tags?: string[] | null;
+  branchMetadata?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface BranchForkedEvent extends BaseEvent {
+  type: typeof EventTypes.BRANCH_FORKED;
+  sourceBranchId: string;
+  fromMessageId: string;
+  resolvedMessageIndex: number;
+  ancestors?: Record<string, string> | null;
+}
+
+export interface BranchMetadataUpdatedEvent extends BaseEvent {
+  type: typeof EventTypes.BRANCH_METADATA_UPDATED;
+  name?: string | null;
+  description?: string | null;
+  tags?: string[] | null;
+  branchMetadata?: Record<string, unknown> | null;
+}
+
+export interface BranchTreeUpdatedEvent extends BaseEvent {
+  type: typeof EventTypes.BRANCH_TREE_UPDATED;
+  forkedFrom?: string | null;
+  forkedAtMessageIndex?: number | null;
+  siblingIndex: number;
+  totalSiblings: number;
+  isOriginal: boolean;
+  originalBranchId?: string | null;
+  previousSiblingId?: string | null;
+  nextSiblingId?: string | null;
+  childBranches: string[];
+}
+
+export interface MessageStartedEvent extends BaseEvent {
+  type: typeof EventTypes.MESSAGE_STARTED;
+  messageId: string;
+  role: string;
+  authorName?: string | null;
+  createdAt?: string | null;
+}
+
+export interface MessageCompletedEvent extends BaseEvent {
+  type: typeof EventTypes.MESSAGE_COMPLETED;
+  messageId: string;
+}
+
+export interface ContentAddedEvent extends BaseEvent {
+  type: typeof EventTypes.CONTENT_ADDED;
+  messageId: string;
+  content: unknown;
+}
+
+export interface BranchMiddlewareStateCommittedEvent extends BaseEvent {
+  type: typeof EventTypes.BRANCH_MIDDLEWARE_STATE_COMMITTED;
+  state: Record<string, string>;
+}
+
+export interface BranchHistoryCompactedEvent extends BaseEvent {
+  type: typeof EventTypes.BRANCH_HISTORY_COMPACTED;
+  compactionId: string;
+  modelReducedMessageIds: string[];
+  durableRemovedMessageIds: string[];
+  replacementMessages: unknown[];
+  strategyKind: string;
+  retentionKind: string;
+  boundaryKind: string;
+  summaryContent?: string | null;
+  compactedAt: string;
 }
 
 // ============================================
@@ -230,6 +322,22 @@ export interface StateSnapshotEvent extends BaseEvent {
   completedFunctions: string[];
   agentName: string;
   timestamp: string;
+}
+
+export interface BranchRunStartedEvent extends BaseEvent {
+  type: typeof EventTypes.BRANCH_RUN_STARTED;
+  runtimeRunId: string;
+  agentId: string;
+  startedAt: string;
+}
+
+export interface BranchRunCompletedEvent extends BaseEvent {
+  type: typeof EventTypes.BRANCH_RUN_COMPLETED;
+  runtimeRunId: string;
+  agentId: string;
+  cancelled: boolean;
+  errorType?: string | null;
+  errorMessage?: string | null;
 }
 
 export interface ContextMessageSnapshot {
@@ -529,7 +637,7 @@ export interface ClientToolInvokeResponseEvent extends BaseEvent {
 
 export type InterruptionSource = 'User' | 'System' | 'Parent' | 'Middleware';
 
-export interface InterruptionRequestEvent extends BaseEvent {
+export interface InterruptionRequestEvent extends AgentInputEvent {
   type: typeof EventTypes.INTERRUPTION_REQUEST;
   reason: string;
   source: InterruptionSource;
@@ -698,6 +806,16 @@ export type KnownAgentEvent =
   // Input Events
   | UserTextInputEvent
   | UserMessagesInputEvent
+  // Durable Branch Events
+  | BranchCreatedEvent
+  | BranchForkedEvent
+  | BranchMetadataUpdatedEvent
+  | BranchTreeUpdatedEvent
+  | MessageStartedEvent
+  | MessageCompletedEvent
+  | ContentAddedEvent
+  | BranchMiddlewareStateCommittedEvent
+  | BranchHistoryCompactedEvent
   // Message Turn Events
   | MessageTurnStartedEvent
   | MessageTurnFinishedEvent
@@ -706,6 +824,8 @@ export type KnownAgentEvent =
   | AgentTurnStartedEvent
   | AgentTurnFinishedEvent
   | StateSnapshotEvent
+  | BranchRunStartedEvent
+  | BranchRunCompletedEvent
   | IterationContextSnapshotEvent
   | MiddlewareStateSnapshotEvent
   | MiddlewareStateChangedEvent

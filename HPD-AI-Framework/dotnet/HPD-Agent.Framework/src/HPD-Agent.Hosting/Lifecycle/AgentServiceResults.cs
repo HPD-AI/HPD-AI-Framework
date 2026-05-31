@@ -18,6 +18,9 @@ public sealed record AgentServiceResult(
     public static AgentServiceResult NotFound { get; } = new(AgentServiceStatus.NotFound);
     public static AgentServiceResult Conflict { get; } = new(AgentServiceStatus.Conflict);
 
+    public static AgentServiceResult ConflictWith(string errorCode, string errorMessage) =>
+        new(AgentServiceStatus.Conflict, errorCode, errorMessage);
+
     public static AgentServiceResult Validation(string errorCode, string errorMessage) =>
         new(AgentServiceStatus.ValidationError, errorCode, errorMessage);
 
@@ -40,6 +43,9 @@ public sealed record AgentServiceResult<T>(
 
     public static AgentServiceResult<T> Conflict { get; } =
         new(AgentServiceStatus.Conflict, default);
+
+    public static AgentServiceResult<T> ConflictWith(string errorCode, string errorMessage) =>
+        new(AgentServiceStatus.Conflict, default, errorCode, errorMessage);
 
     public static AgentServiceResult<T> Validation(string errorCode, string errorMessage) =>
         new(AgentServiceStatus.ValidationError, default, errorCode, errorMessage);

@@ -327,6 +327,23 @@ public interface IAgentMiddleware
         => Task.CompletedTask;
 
     //
+    // BRANCH LIFECYCLE
+    //
+
+    /// <summary>
+    /// Called after a target branch has been materialized in memory for a fork,
+    /// but before that target branch is persisted.
+    /// Use for: compacting copied history, stamping branch-local metadata, or
+    /// rewriting target branch middleware state before the branch becomes durable.
+    /// </summary>
+    /// <param name="context">Typed context with source branch, target branch, fork index, and fork message id.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    Task BeforeBranchForkCommitAsync(
+        BeforeBranchForkCommitContext context,
+        CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    //
     // ERROR HANDLING (NEW IN V2)
     //
 

@@ -11,7 +11,6 @@ public sealed class EventCoordinator :
     IDisposable
 {
     private readonly EventChannelRouter _events;
-    private readonly LocalStructEventBus _localStructs = new();
 
     /// <summary>
     /// Creates a new event coordinator with fan-out event-bus routing.
@@ -24,9 +23,6 @@ public sealed class EventCoordinator :
     }
 
     internal IEventCoordinator? ParentCoordinatorForCycleDetection => _events.ParentCoordinator;
-
-    /// <summary>Process-local high-throughput struct event lanes.</summary>
-    public ILocalStructEventBus LocalStructs => _localStructs;
 
     internal void RegisterChildRouter(EventChannelRouter child) => _events.RegisterChild(child);
 
@@ -143,11 +139,10 @@ public sealed class EventCoordinator :
     EventBusStats IEventBus.GetStats() => _events.GetBusStats();
 
     /// <summary>
-    /// Dispose coordinator and complete all class-event channels and local struct routes.
+    /// Dispose coordinator and complete all class-event channels.
     /// </summary>
     public void Dispose()
     {
         _events.Dispose();
-        _localStructs.Dispose();
     }
 }

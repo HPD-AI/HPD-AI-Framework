@@ -1,6 +1,9 @@
 using System.Net;
 using System.Text.Json;
+using HPD.Agent.Middleware;
 using HPD.Agent.OpenApi;
+using HPD.Events;
+using HPD.Events.Core;
 using HPD.OpenApi.Core;
 using HPD.OpenApi.Core.Model;
 using Microsoft.Extensions.AI;
@@ -43,6 +46,49 @@ public class OpenApiFunctionFactoryTests
 
     private static object? ReadProp(IReadOnlyDictionary<string, object?> props, string key) =>
         props.TryGetValue(key, out var v) ? v : null;
+
+    private static async ValueTask<object?> InvokeFunctionAsync(
+        AIFunction function,
+        AIFunctionArguments arguments,
+        CancellationToken cancellationToken = default)
+    {
+        var hpdFunction = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(function);
+        return await hpdFunction.InvokeAsync(arguments, CreateContext(function), cancellationToken);
+    }
+
+    private static FunctionExecutionContext CreateContext(AIFunction function, string callId = "call-1")
+    {
+        var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "OpenApiTestAgent");
+        var session = new Session("session-1");
+        var branch = new Branch("session-1") { Id = "main" };
+        var agentContext = new AgentContext(
+            "OpenApiTestAgent",
+            "conversation-1",
+            state,
+            new EventCoordinator(),
+            session,
+            branch,
+            CancellationToken.None);
+        var beforeContext = agentContext.AsBeforeFunction(
+            function,
+            callId,
+            new Dictionary<string, object?>(),
+            new AgentRunConfig(),
+            harnessName: null,
+            skillName: null);
+
+        return new FunctionExecutionContext(
+            beforeContext,
+            new FunctionRequest
+            {
+                Function = function,
+                CallId = callId,
+                Arguments = new Dictionary<string, object?>(),
+                State = state,
+                ResultMetadata = new ToolResultMetadata(),
+                EventCoordinator = agentContext.EventCoordinator
+            });
+    }
 
     private sealed class FakeHttpHandler(HttpStatusCode status, string body) : HttpMessageHandler
     {
@@ -252,7 +298,7 @@ public class OpenApiFunctionFactoryTests
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, new OpenApiConfig(), runner);
 
         var args = new AIFunctionArguments();
-        var act = async () => await functions[0].InvokeAsync(args);
+        var act = async () => await InvokeFunctionAsync(functions[0], args);
 
         await act.Should().ThrowAsync<OpenApiRequestException>();
     }
@@ -269,7 +315,7 @@ public class OpenApiFunctionFactoryTests
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, new OpenApiConfig(), runner);
 
         var args = new AIFunctionArguments();
-        var result = await functions[0].InvokeAsync(args);
+        var result = await InvokeFunctionAsync(functions[0], args);
 
         result.Should().BeOfType<string>();
         var envelope = JsonDocument.Parse((string)result!).RootElement;
@@ -285,7 +331,7 @@ public class OpenApiFunctionFactoryTests
         var runner = MakeRunner(HttpStatusCode.OK, """[{"id":1}]""");
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, new OpenApiConfig(), runner);
 
-        var result = await functions[0].InvokeAsync(new AIFunctionArguments());
+        var result = await InvokeFunctionAsync(functions[0], new AIFunctionArguments());
 
         result.Should().BeOfType<string>();
         var envelope = JsonDocument.Parse((string)result!).RootElement;

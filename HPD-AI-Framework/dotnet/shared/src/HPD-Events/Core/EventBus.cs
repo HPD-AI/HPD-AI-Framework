@@ -2,7 +2,7 @@ namespace HPD.Events.Core;
 
 /// <summary>
 /// Public event bus facade with explicit publishing, observer, inbox, request/response,
-/// hierarchy, and struct-event surfaces.
+/// and hierarchy surfaces.
 /// </summary>
 public sealed class EventBus :
     IEventBus,
@@ -23,9 +23,6 @@ public sealed class EventBus :
     }
 
     internal EventCoordinator Coordinator => _coordinator;
-
-    /// <summary>Process-local high-throughput struct event lanes.</summary>
-    public ILocalStructEventBus LocalStructs => _coordinator.LocalStructs;
 
     /// <inheritdoc />
     public IEventFlowRegistry EventFlows => _coordinator.EventFlows;

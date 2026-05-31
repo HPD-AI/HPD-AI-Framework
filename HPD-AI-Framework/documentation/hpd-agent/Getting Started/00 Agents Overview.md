@@ -162,12 +162,12 @@ Tools are functions your agent can call. Add them to give your agent capabilitie
 → Learn more: [03 Tool Calling.md](03%20Tool%20Calling.md)
 
 ### Configuration
-Agents can be customized extensively - error handling, history reduction, validation, observability, and much more.
+Agents can be customized extensively - error handling, compaction, validation, observability, and much more.
 
 → Learn more: [01 Customizing an Agent.md](01%20Customizing%20an%20Agent.md)
 
 ### Middleware
-Middleware intercepts and processes events throughout the agent execution pipeline. Use middleware for cross-cutting concerns like history reduction, error handling, logging, and more.
+Middleware intercepts and processes events throughout the agent execution pipeline. Use middleware for cross-cutting concerns like compaction, error handling, logging, and more.
 
 → Learn more: [04 Middleware.md](04%20Middleware.md)
 
@@ -230,7 +230,7 @@ Use this for: Web apps, long-running services, conversation resumption.
 
 ## Next Steps
 
-1. **Customize behavior** - Configure error handling, history reduction, etc.
+1. **Customize behavior** - Configure error handling, compaction, etc.
     - See: [01 Customizing an Agent.md](01%20Customizing%20an%20Agent.md)
 
 2. **Persist conversations** - Save and resume sessions
@@ -239,7 +239,7 @@ Use this for: Web apps, long-running services, conversation resumption.
 3. **Add tools** - Give your agent capabilities
     - See: [03 Tool Calling.md](03%20Tool%20Calling.md)
 
-4. **Extend with middleware** - Add cross-cutting concerns like history reduction, logging, and error handling
+4. **Extend with middleware** - Add cross-cutting concerns like compaction, logging, and error handling
     - See: [04 Middleware.md](04%20Middleware.md)
 
 5. **Handle events** - Respond to agent activity and streaming output

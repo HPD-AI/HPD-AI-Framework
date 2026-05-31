@@ -1,5 +1,6 @@
 import type {
 	AgentEvent,
+	KnownAgentEvent,
 	AgentRunInputEvent,
 	EventSubscription,
 	PermissionChoice,
@@ -16,7 +17,7 @@ import type {
 	Branch,
 	SiblingBranch,
 	BranchMessage,
-	AssetReference,
+	ContentReference,
 	RunConfig,
 	ChatRunConfig,
 	ClientToolHandler,
@@ -32,9 +33,9 @@ import type { AgentState } from '../agent/agent.svelte.ts';
 export interface AgentClientLike {
 	// Event-native runtime
 	run(input: AgentRunInputEvent): Promise<void>;
-	on<TType extends AgentEvent['type']>(
+	on<TType extends KnownAgentEvent['type']>(
 		type: TType,
-		handler: (event: Extract<AgentEvent, { type: TType }>) => void | Promise<void>
+		handler: (event: Extract<KnownAgentEvent, { type: TType }>) => void | Promise<void>
 	): EventSubscription;
 	onAny(handler: (event: AgentEvent) => void | Promise<void>): EventSubscription;
 	onError(handler: (error: Error) => void | Promise<void>): EventSubscription;
@@ -68,8 +69,8 @@ export interface AgentClientLike {
 	updateAgent(agentId: string, request: UpdateAgentRequest): Promise<StoredAgentDto>;
 	deleteAgent(agentId: string): Promise<void>;
 
-	// Asset upload
-	uploadAsset(sessionId: string, file: File | Blob, name?: string): Promise<AssetReference>;
+	// Content upload
+	uploadContent(sessionId: string, file: File | Blob, name?: string): Promise<ContentReference>;
 }
 
 export interface CreateWorkspaceOptions {
@@ -118,8 +119,8 @@ export interface CreateWorkspaceOptions {
 export interface SendOptions {
 	/** Per-send run configuration (model, temperature, etc.) */
 	runConfig?: RunConfig;
-	/** Resolved asset references to attach to the message as UriContent */
-	attachments?: AssetReference[];
+	/** Resolved content references to attach to the message as UriContent */
+	attachments?: ContentReference[];
 }
 
 export interface Workspace {
@@ -217,7 +218,7 @@ export interface Workspace {
 	/** Refresh the agent list from the server */
 	listAgents(): Promise<AgentSummaryDto[]>;
 
-	/** The underlying AgentClient — use to call uploadAsset() or other low-level ops */
+	/** The underlying AgentClient — use to call uploadContent() or other low-level ops */
 	readonly client: AgentClientLike;
 
 	/** Send a message. Accepts optional SendOptions for per-send runConfig and file attachments. */

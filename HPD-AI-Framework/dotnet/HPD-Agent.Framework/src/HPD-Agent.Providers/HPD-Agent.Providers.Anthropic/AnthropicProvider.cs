@@ -13,13 +13,13 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.Anthropic;
 
-internal class AnthropicProvider : IProviderFeatures
+internal class AnthropicProvider : IChatClientProvider
 {
     public string ProviderKey => "anthropic";
     public string DisplayName => "Anthropic (Claude)";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in AnthropicProviderModule")]
-    public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null)
+    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
     {
         // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
@@ -60,12 +60,6 @@ internal class AnthropicProvider : IProviderFeatures
         // The AnthropicProviderConfig is stored and can be accessed to build ChatOptions
         // with RawRepresentationFactory for advanced features.
 
-        // Apply client factory middleware if provided
-        if (config.ClientFactory is { } clientFactory)
-        {
-            chatClient = clientFactory(chatClient);
-        }
-
         return chatClient;
     }
 
@@ -80,16 +74,26 @@ internal class AnthropicProvider : IProviderFeatures
         {
             ProviderKey = ProviderKey,
             DisplayName = DisplayName,
-            SupportsStreaming = true,
-            SupportsFunctionCalling = true,
-            SupportsVision = true,
-            DefaulTMetadataWindow = 200000, // Claude 3.5 Sonnet
-            DocumentationUrl = "https://docs.anthropic.com/"
+            DocumentationUri = new Uri("https://docs.anthropic.com/"),
+            Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            {
+                [ProviderClientFamily.Chat] = new()
+                {
+                    Family = ProviderClientFamily.Chat,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsStreaming"] = true,
+                        ["SupportsFunctionCalling"] = true,
+                        ["SupportsVision"] = true,
+                        ["DefaultMetadataWindow"] = 200000
+                    }
+                }
+            }
         };
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in AnthropicProviderModule")]
-    public ProviderValidationResult ValidateConfiguration(ProviderConfig config)
+    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
     {
         // Note: API key validation is now deferred to CreateChatClient where ISecretResolver is available
         // This method only validates config structure, not secret resolution

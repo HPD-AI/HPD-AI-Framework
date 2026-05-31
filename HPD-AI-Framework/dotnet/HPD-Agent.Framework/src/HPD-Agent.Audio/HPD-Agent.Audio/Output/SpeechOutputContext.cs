@@ -12,7 +12,7 @@ public sealed record SpeechOutputContext(
     string? BranchId,
     string SpeechId,
     string StreamId,
-    string? SynthesisId,
+    string? OutputId,
     string? Provider,
     string? Model,
     string? Voice,

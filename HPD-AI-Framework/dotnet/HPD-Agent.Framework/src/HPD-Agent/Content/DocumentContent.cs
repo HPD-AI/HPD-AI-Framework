@@ -27,7 +27,7 @@ namespace HPD.Agent;
 /// <para>
 /// <b>Middleware Behavior:</b>
 /// <list type="bullet">
-/// <item>AssetUploadMiddleware: Uploads to IContentStore with /uploads folder tag</item>
+/// <item>ContentUploadMiddleware: Uploads to IContentStore with /uploads folder tag</item>
 /// <item>DocumentHandlingMiddleware: Extracts text, replaces with TextContent</item>
 /// </list>
 /// </para>

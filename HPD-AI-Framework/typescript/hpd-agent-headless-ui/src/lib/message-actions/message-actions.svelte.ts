@@ -112,21 +112,27 @@ export class MessageActionsRootState {
 	// Sibling group at this message row — computed purely from workspace.branches.
 	//
 	// A sibling group exists at messageIndex when there are forks that share the
-	// same preceding context: forkedAtMessageIndex === messageIndex - 1.
+	// same preceding context message id.
 	// We find any such fork, look up its source (the original branch in the group),
-	// then collect all forks at that same (source, forkAtIndex) point.
+	// then collect all forks at that same (source, forkAtMessageId) point.
 	//
 	// This is entirely independent of which branch is currently active — so the
 	// switcher stays visible even when you navigate to a branch whose fork point
-	// is at a different message index.
+	// is at a different message row.
 	readonly #siblingsAtThisRow = $derived.by(() => {
-		const forkAtIndices = new Set([this.messageIndex - 1, this.messageIndex]);
+		const messages = this.workspace.state?.messages ?? [];
+		const forkAtMessageIds = new Set(
+			[this.messageIndex - 1, this.messageIndex]
+				.map(index => messages[index]?.id)
+				.filter((id): id is string => !!id)
+		);
 		const all = this.workspace.branches;
 		const branchProp = this.#branch;
 
 		if (all.size === 0 && branchProp && !branchProp.isOriginal) {
-			const legacyForkedHere = branchProp.forkedAtMessageIndex === this.messageIndex;
-			if (!legacyForkedHere || branchProp.totalSiblings <= 1) return [];
+			const forkedHere = !!branchProp.forkedAtMessageId &&
+				forkAtMessageIds.has(branchProp.forkedAtMessageId);
+			if (!forkedHere || branchProp.totalSiblings <= 1) return [];
 
 			return Array.from({ length: branchProp.totalSiblings }, (_, index) => {
 				if (index === branchProp.siblingIndex) return branchProp;
@@ -152,14 +158,14 @@ export class MessageActionsRootState {
 
 		// Find any fork at this row to identify the source branch.
 		const anyFork = Array.from(all.values()).find(
-			b => !b.isOriginal && forkAtIndices.has(b.forkedAtMessageIndex ?? -1)
+			b => !b.isOriginal && !!b.forkedAtMessageId && forkAtMessageIds.has(b.forkedAtMessageId)
 		);
 		if (!anyFork) return [];
 
 		const sourceId = anyFork.forkedFrom!;
 		const source = all.get(sourceId) ?? (branchProp?.id === sourceId ? branchProp : undefined);
 		const forks = Array.from(all.values()).filter(
-			b => b.forkedFrom === sourceId && forkAtIndices.has(b.forkedAtMessageIndex ?? -1)
+			b => b.forkedFrom === sourceId && !!b.forkedAtMessageId && forkAtMessageIds.has(b.forkedAtMessageId)
 		);
 		const group = source ? [source, ...forks] : forks;
 		return group.sort((a, b) => a.siblingIndex - b.siblingIndex);

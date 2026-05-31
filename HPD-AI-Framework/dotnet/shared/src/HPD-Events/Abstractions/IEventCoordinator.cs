@@ -20,11 +20,6 @@ namespace HPD.Events;
 public interface IEventCoordinator
 {
     /// <summary>
-    /// Process-local high-throughput struct event lanes.
-    /// </summary>
-    ILocalStructEventBus LocalStructs { get; }
-
-    /// <summary>
     /// Publish an event downstream without waiting for subscriber mailbox capacity.
     /// The event is assigned a sequence number and routed to matching subscriber mailboxes.
     /// If a parent coordinator is set, event bubbles up automatically.

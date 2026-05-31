@@ -63,7 +63,7 @@ function makeWorkspace(editImpl?: (index: number, content: string) => Promise<vo
 			createAgent: vi.fn(),
 			updateAgent: vi.fn(),
 			deleteAgent: vi.fn(),
-			uploadAsset: vi.fn(),
+			uploadContent: vi.fn(),
 		} as any,
 		selectSession: vi.fn(),
 		createSession: vi.fn(),

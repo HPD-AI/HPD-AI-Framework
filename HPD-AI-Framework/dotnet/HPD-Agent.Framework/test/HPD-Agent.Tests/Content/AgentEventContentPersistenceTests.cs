@@ -1,0 +1,98 @@
+using System.Text.Json.Serialization;
+using HPD.Agent;
+using HPD.Agent.Serialization;
+
+namespace HPD.Agent.Tests.Content;
+
+public class AgentEventContentPersistenceTests
+{
+    static AgentEventContentPersistenceTests()
+    {
+        AgentEventSerializer.RegisterEventType(
+            typeof(PersistableContentTestEvent),
+            "PERSISTABLE_CONTENT_TEST",
+            AgentEventContentPersistenceTestJsonContext.Default.PersistableContentTestEvent);
+    }
+
+    [Fact]
+    public async Task PersistAsync_WhenEventRequestsContentPersistence_WritesSerializedEvent()
+    {
+        var store = new InMemoryContentStore();
+        var evt = new PersistableContentTestEvent("hello")
+        {
+            EventId = "event-1",
+            SessionId = "session-1",
+            BranchId = "branch-1",
+            TraceId = "trace-1",
+            SpanId = "span-1",
+            Metadata = new AgentMetadata
+            {
+                AgentName = "TestAgent",
+                AgentId = "agent-1"
+            }
+        };
+
+        var info = await AgentEventContentPersistence.PersistAsync(
+            store,
+            evt,
+            "default-scope");
+
+        Assert.NotNull(info);
+        Assert.Equal("event-1.json", info.Name);
+        Assert.Equal("application/json", info.ContentType);
+        Assert.Equal(ContentSource.Agent, info.Origin);
+        Assert.Equal("/memory/events", info.Tags?["folder"]);
+        Assert.Equal("PERSISTABLE_CONTENT_TEST", info.Tags?["event.type"]);
+        Assert.Equal("event-1", info.Tags?["event.id"]);
+        Assert.Equal("session-1", info.Tags?["session"]);
+        Assert.Equal("branch-1", info.Tags?["branch"]);
+        Assert.Equal("trace-1", info.Tags?["trace"]);
+        Assert.Equal("span-1", info.Tags?["span"]);
+        Assert.Equal("TestAgent", info.Tags?["agent.name"]);
+        Assert.Equal("agent-1", info.Tags?["agent.id"]);
+        Assert.Equal("test", info.Tags?["kind"]);
+
+        await using var stream = await store.OpenReadAsync("default-scope", info.Id);
+        Assert.NotNull(stream);
+        using var reader = new StreamReader(stream);
+        var json = await reader.ReadToEndAsync();
+
+        Assert.Contains("\"type\":\"PERSISTABLE_CONTENT_TEST\"", json);
+        Assert.Contains("\"value\":\"hello\"", json);
+    }
+
+    [Fact]
+    public async Task PersistAsync_WhenEventDoesNotRequestContentPersistence_DoesNothing()
+    {
+        var store = new InMemoryContentStore();
+
+        var info = await AgentEventContentPersistence.PersistAsync(
+            store,
+            new TextDeltaEvent("hello", "message-1"),
+            "default-scope");
+
+        Assert.Null(info);
+        Assert.Empty(await store.QueryAsync("default-scope"));
+    }
+}
+
+internal sealed record PersistableContentTestEvent(string Value) : AgentEvent
+{
+    public override ContentPersistenceRequest? GetContentPersistenceRequest() => new()
+    {
+        Folder = "memory/events",
+        Name = "event-1.json",
+        Description = "Persisted test event",
+        Origin = ContentSource.Agent,
+        Tags = new Dictionary<string, string>
+        {
+            ["kind"] = "test"
+        }
+    };
+}
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(PersistableContentTestEvent))]
+internal partial class AgentEventContentPersistenceTestJsonContext : JsonSerializerContext;

@@ -141,7 +141,7 @@ public class ErrorTrackingMiddleware : IAgentMiddleware
 
             context.Emit(snapshot);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Emit failed - event coordinator may not be configured
             // This is non-fatal for termination logic
@@ -164,8 +164,7 @@ public class ErrorTrackingMiddleware : IAgentMiddleware
                 AgentName: context.AgentName,
                 ConsecutiveErrors: errorCount,
                 MaxConsecutiveErrors: MaxConsecutiveErrors,
-                Iteration: context.Iteration,
-                Timestamp: DateTimeOffset.UtcNow));
+                Iteration: context.Iteration));
         }
         catch (InvalidOperationException)
         {
@@ -182,8 +181,7 @@ public record MaxConsecutiveErrorsExceededEvent(
     string AgentName,
     int ConsecutiveErrors,
     int MaxConsecutiveErrors,
-    int Iteration,
-    DateTimeOffset Timestamp) : AgentEvent, IObservabilityEvent, IErrorEvent
+    int Iteration) : AgentEvent, IObservabilityEvent, IErrorEvent
 {
     /// <inheritdoc />
     public string ErrorMessage => $"Maximum consecutive errors ({ConsecutiveErrors}/{MaxConsecutiveErrors}) exceeded";

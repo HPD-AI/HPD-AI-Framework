@@ -14,15 +14,12 @@ using Microsoft.Extensions.DependencyInjection;
 using HPD.Agent;
 namespace HPD.Agent.Providers.OpenRouter;
 
-internal class OpenRouterProvider : IProviderExtendedFeatures
+internal class OpenRouterProvider : IChatClientProvider
 {
     public string ProviderKey => "openrouter";
     public string DisplayName => "OpenRouter";
-    public bool SupportsCreditManagement => true;
-    public bool SupportsAttribution => true;
-    public bool SupportsModelRouting => true;
 
-    public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null)
+    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
     {
         // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
@@ -62,24 +59,31 @@ internal class OpenRouterProvider : IProviderExtendedFeatures
         {
             ProviderKey = ProviderKey,
             DisplayName = DisplayName,
-            SupportsStreaming = true,
-            SupportsFunctionCalling = true,
-            SupportsVision = true, // OpenRouter supports vision, audio, video, and PDF processing
-            DocumentationUrl = "https://openrouter.ai/docs",
-            CustomProperties = new Dictionary<string, object>
+            DocumentationUri = new Uri("https://openrouter.ai/docs"),
+            Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
             {
-                ["SupportsAttribution"] = true,
-                ["SupportsModelRouting"] = true,
-                ["SupportsFallbackModels"] = true,
-                ["SupportsProviderRouting"] = true,
-                ["SupportsPriceFiltering"] = true,
-                ["SupportsZeroDataRetention"] = true,
-                ["AttributionRequirements"] = "Set ProviderConfig.HttpReferer and ProviderConfig.AppName for app rankings"
+                [ProviderClientFamily.Chat] = new()
+                {
+                    Family = ProviderClientFamily.Chat,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsStreaming"] = true,
+                        ["SupportsFunctionCalling"] = true,
+                        ["SupportsVision"] = true,
+                        ["SupportsAttribution"] = true,
+                        ["SupportsModelRouting"] = true,
+                        ["SupportsFallbackModels"] = true,
+                        ["SupportsProviderRouting"] = true,
+                        ["SupportsPriceFiltering"] = true,
+                        ["SupportsZeroDataRetention"] = true,
+                        ["AttributionRequirements"] = "Set ClientProviderConfig.HttpReferer and ClientProviderConfig.AppName for app rankings"
+                    }
+                }
             }
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ProviderConfig config)
+    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
     {
         // Note: API key validation is now deferred to CreateChatClient where ISecretResolver is available
         // This method only validates config structure, not secret resolution
@@ -96,16 +100,16 @@ internal class OpenRouterProvider : IProviderExtendedFeatures
     }
 
     /// <summary>
-    /// Creates a properly configured ProviderConfig with attribution headers for OpenRouter app ranking.
+    /// Creates a properly configured ClientProviderConfig with attribution headers for OpenRouter app ranking.
     /// </summary>
     /// <param name="apiKey">Your OpenRouter API key.</param>
     /// <param name="modelName">The model to use.</param>
     /// <param name="appUrl">Your app's URL (for HTTP-Referer header).</param>
     /// <param name="appName">Your app's display name (for X-Title header).</param>
-    /// <returns>A configured ProviderConfig with attribution.</returns>
-    public static ProviderConfig CreateConfigWithAttribution(string apiKey, string modelName, string appUrl, string appName)
+    /// <returns>A configured ClientProviderConfig with attribution.</returns>
+    public static ClientProviderConfig CreateConfigWithAttribution(string apiKey, string modelName, string appUrl, string appName)
     {
-        return new ProviderConfig
+        return new ClientProviderConfig
         {
             ProviderKey = "openrouter",
             ApiKey = apiKey,
@@ -116,13 +120,13 @@ internal class OpenRouterProvider : IProviderExtendedFeatures
     }
 
     /// <summary>
-    /// Adds attribution headers to an existing ProviderConfig.
+    /// Adds attribution headers to an existing ClientProviderConfig.
     /// </summary>
     /// <param name="config">The existing configuration.</param>
     /// <param name="appUrl">Your app's URL (for HTTP-Referer header).</param>
     /// <param name="appName">Your app's display name (for X-Title header).</param>
     /// <returns>The updated configuration.</returns>
-    public static ProviderConfig WithAttribution(ProviderConfig config, string appUrl, string appName)
+    public static ClientProviderConfig WithAttribution(ClientProviderConfig config, string appUrl, string appName)
     {
         config.HttpReferer = appUrl;
         config.AppName = appName;
@@ -138,9 +142,9 @@ internal class OpenRouterProvider : IProviderExtendedFeatures
     /// <param name="config">The provider configuration containing the API key.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>A validation result indicating if the key is valid.</returns>
-    public async Task<ProviderValidationResult> ValidateConfigurationAsync(ProviderConfig config, CancellationToken cancellationToken = default)
+    public async Task<ProviderValidationResult> ValidateConfigurationAsync(ClientProviderConfig config, ProviderClientFamily family, CancellationToken cancellationToken = default)
     {
-        var basicValidation = ValidateConfiguration(config);
+        var basicValidation = ValidateConfiguration(config, family);
         if (!basicValidation.IsValid)
             return basicValidation;
 
@@ -199,7 +203,7 @@ internal class OpenRouterProvider : IProviderExtendedFeatures
     /// </summary>
     /// <param name="config">The provider configuration.</param>
     /// <returns>Attribution information with referer and title.</returns>
-    private static AttributionInfo ExtractAttributionInfo(ProviderConfig config)
+    private static AttributionInfo ExtractAttributionInfo(ClientProviderConfig config)
     {
         var attribution = new AttributionInfo();
 

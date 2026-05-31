@@ -152,7 +152,6 @@ public class AgentContextEmitTests
     {
         private readonly EventCoordinator _inner = new();
         public List<Event> Captured { get; } = new();
-        public ILocalStructEventBus LocalStructs => _inner.LocalStructs;
 
         public void Emit(Event evt)
         {

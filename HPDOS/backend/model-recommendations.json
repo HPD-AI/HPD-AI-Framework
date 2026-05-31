@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "providerKey": "openai",
+      "modelId": "gpt-5.5"
+    },
+    {
+      "providerKey": "openai",
+      "modelId": "gpt-5.5-pro"
+    },
+    {
+      "providerKey": "openai",
+      "modelId": "gpt-5.3-codex"
+    },
+    {
+      "providerKey": "openai",
+      "modelId": "gpt-5.4-mini"
+    },
+    {
+      "providerKey": "anthropic",
+      "modelId": "claude-opus-4-7"
+    },
+    {
+      "providerKey": "anthropic",
+      "modelId": "claude-sonnet-4-6"
+    },
+    {
+      "providerKey": "anthropic",
+      "modelId": "claude-haiku-4-5"
+    },
+    {
+      "providerKey": "google-ai",
+      "modelId": "gemini-3.5-flash"
+    },
+    {
+      "providerKey": "google-ai",
+      "modelId": "gemini-3.1-pro-preview"
+    },
+    {
+      "providerKey": "google-ai",
+      "modelId": "gemini-3.1-flash-lite"
+    },
+    {
+      "providerKey": "mistral",
+      "modelId": "mistral-medium-latest"
+    },
+    {
+      "providerKey": "mistral",
+      "modelId": "mistral-large-2512"
+    },
+    {
+      "providerKey": "mistral",
+      "modelId": "devstral-2512"
+    },
+    {
+      "providerKey": "mistral",
+      "modelId": "magistral-medium-latest"
+    },
+    {
+      "providerKey": "openrouter",
+      "modelId": "openrouter/auto"
+    },
+    {
+      "providerKey": "openrouter",
+      "modelId": "~openai/gpt-latest"
+    },
+    {
+      "providerKey": "openrouter",
+      "modelId": "~openai/gpt-mini-latest"
+    },
+    {
+      "providerKey": "openrouter",
+      "modelId": "~anthropic/claude-sonnet-latest"
+    },
+    {
+      "providerKey": "openrouter",
+      "modelId": "~google/gemini-pro-latest"
+    },
+    {
+      "providerKey": "openrouter",
+      "modelId": "anthropic/claude-opus-4.7-fast"
+    },
+    {
+      "providerKey": "openrouter",
+      "modelId": "google/gemini-3.5-flash"
+    },
+    {
+      "providerKey": "openrouter",
+      "modelId": "mistralai/mistral-medium-3-5"
+    },
+    {
+      "providerKey": "openrouter",
+      "modelId": "qwen/qwen3.7-max"
+    }
+  ]
+}

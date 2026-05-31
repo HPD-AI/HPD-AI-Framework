@@ -231,14 +231,14 @@ static bool TryConfigureProvider(
         return false;
     }
 
-    builder.Config.Provider = new ProviderConfig
+    builder.Config.SetChatClientConfig(new ClientProviderConfig
     {
         ProviderKey = "openrouter",
         ModelName = options.Model
             ?? Environment.GetEnvironmentVariable("OPENROUTER_MODEL")
             ?? "deepseek/deepseek-v4-pro",
         ApiKey = apiKey
-    };
+    });
 
     error = null;
     return true;

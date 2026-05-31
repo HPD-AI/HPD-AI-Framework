@@ -23,7 +23,7 @@ public static class EndpointingReason
     /// <summary>Final transcript arrived while speech was not active.</summary>
     public const string FinalTranscriptNoSpeech = "final_transcript_no_speech";
 
-    /// <summary>Native realtime model committed the turn.</summary>
+    /// <summary>Realtime model committed the turn.</summary>
     public const string RealtimeModelCommit = "realtime_model_commit";
 
     /// <summary>User manually committed the turn.</summary>

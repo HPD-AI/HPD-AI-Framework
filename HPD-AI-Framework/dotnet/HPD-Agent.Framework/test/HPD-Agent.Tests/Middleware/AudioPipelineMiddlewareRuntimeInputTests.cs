@@ -59,7 +59,7 @@ public sealed class AudioPipelineMiddlewareRuntimeInputTests : AgentTestBase
             return ValueTask.CompletedTask;
         });
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync(new AudioInputFrame(
             SessionId: null,
             BranchId: "main",
@@ -126,7 +126,7 @@ public sealed class AudioPipelineMiddlewareRuntimeInputTests : AgentTestBase
             return ValueTask.CompletedTask;
         });
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync(new AudioInputFrame(
             SessionId: null,
             BranchId: "main",
@@ -199,7 +199,7 @@ public sealed class AudioPipelineMiddlewareRuntimeInputTests : AgentTestBase
             return ValueTask.CompletedTask;
         });
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync(new AudioInputFrame(null, "main", new byte[] { 1 }, "audio/pcm", 0, IsFinal: false), TestCancellationToken);
         await agent.RunAsync(new AudioInputFrame(null, "main", new byte[] { 2 }, "audio/pcm", 1_000_000, IsFinal: false), TestCancellationToken);
         await agent.RunAsync(new AudioInputFrame(null, "main", new byte[] { 3 }, "audio/pcm", 2_000_000, IsFinal: false), TestCancellationToken);
@@ -256,7 +256,7 @@ public sealed class AudioPipelineMiddlewareRuntimeInputTests : AgentTestBase
             return ValueTask.CompletedTask;
         }));
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync("block", cancellationToken: TestCancellationToken);
         await chatClient.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
 
@@ -277,6 +277,69 @@ public sealed class AudioPipelineMiddlewareRuntimeInputTests : AgentTestBase
         Assert.Null(interrupt.EventFlowId);
         Assert.Equal("vad_start_of_speech", interrupt.Reason);
         Assert.Equal(InterruptionSource.User, interrupt.Source);
+    }
+
+    [Fact]
+    public async Task StartedAgent_AudioRunConfigSttOverrideClient_TranscribesRuntimeAudioInput()
+    {
+        var chatClient = new FakeChatClient();
+        chatClient.EnqueueTextResponse("agent response");
+
+        var stt = new FakeSpeechToTextClient("hello from override client");
+        var middleware = new AudioPipelineMiddleware
+        {
+            IOMode = AudioIOMode.AudioToText
+        };
+        var agent = CreateAgentWithMiddlewares(
+            client: chatClient,
+            middlewares: [middleware]);
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transcriptionCompleted = new TaskCompletionSource<TranscriptionCompletedEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        agent.Subscribe<MessageTurnFinishedEvent>(_ => finished.TrySetResult());
+        agent.Subscribe<TranscriptionCompletedEvent>(evt =>
+        {
+            transcriptionCompleted.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        await agent.StartAsync(
+            new AgentRunConfig
+            {
+                Audio = new AudioRunConfig
+                {
+                    Stt = new HPD.Agent.Audio.Stt.SttConfig
+                    {
+                        OverrideClient = stt
+                    }
+                }
+            },
+            cancellationToken: TestCancellationToken);
+        await agent.RunAsync(new AudioInputFrame(
+            SessionId: null,
+            BranchId: "main",
+            Audio: new byte[] { 5, 6 },
+            MimeType: "audio/pcm",
+            TimestampNs: 0,
+            IsFinal: false), TestCancellationToken);
+        await agent.RunAsync(new AudioInputFrame(
+            SessionId: null,
+            BranchId: "main",
+            Audio: new byte[] { 7, 8 },
+            MimeType: "audio/pcm",
+            TimestampNs: 1_000_000,
+            IsFinal: true), TestCancellationToken);
+
+        await finished.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        var completed = await transcriptionCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        await agent.StopAsync(TestCancellationToken);
+
+        Assert.Equal("hello from override client", completed.FinalText);
+        Assert.Equal(1, stt.CallCount);
+        Assert.Equal([5, 6, 7, 8], stt.LastReceivedBytes);
+        Assert.Single(chatClient.CapturedRequests);
+        Assert.Contains(chatClient.CapturedRequests[0], message => message.Text == "hello from override client");
     }
 
     private sealed class FakeSpeechToTextClient(string result) : ISpeechToTextClient

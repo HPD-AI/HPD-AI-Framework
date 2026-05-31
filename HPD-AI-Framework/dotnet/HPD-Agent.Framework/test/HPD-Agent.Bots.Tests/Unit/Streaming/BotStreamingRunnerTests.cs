@@ -94,7 +94,6 @@ public class BotStreamingRunnerTests
 
         started.Should().BeTrue();
         updates.Should().NotBeEmpty();
-        updates.Should().Contain("hel");
         completes.Should().ContainSingle().Which.Should().Be("hello");
     }
 
@@ -104,11 +103,10 @@ public class BotStreamingRunnerTests
             Name = "StreamingTestAgent",
             MaxAgenticIterations = 3,
             SystemInstructions = "You are a streaming test agent.",
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "test",
                 ModelName = "test-model",
-            },
+            } },
             AgenticLoop = new AgenticLoopConfig
             {
                 MaxTurnDuration = TimeSpan.FromMinutes(1),

@@ -25,7 +25,7 @@ namespace HPD.Agent;
 /// <para><b>Branch-Scoped State (Per-Conversation Path):</b></para>
 /// <list type="bullet">
 /// <item><b>PlanModePersistentState:</b> Different branches explore different plans</item>
-/// <item><b>HistoryReductionState:</b> Each branch has different messages → different summarization cache</item>
+/// <item><b>CompactionState:</b> Each branch has different messages → different summarization cache</item>
 /// <item><b>Conversation Context:</b> Any state derived from the specific message sequence</item>
 /// </list>
 ///

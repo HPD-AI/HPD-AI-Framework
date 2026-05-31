@@ -11,15 +11,18 @@ To use the Bedrock provider, configure it in your `AgentConfig`. You can do this
 ```csharp
 var config = new AgentConfig
 {
-    Provider = new ProviderConfig
+    Clients = new AgentClientConfig
     {
-        ProviderKey = "bedrock",
-        ModelName = "anthropic.claude-3-sonnet-20240229-v1:0", // Or any other Bedrock model
-        AdditionalProperties = new()
+        Chat = new ClientProviderConfig
         {
-            ["Region"] = "us-east-1",
-            ["AccessKeyId"] = "YOUR_AWS_ACCESS_KEY_ID", // Optional: uses environment variables if omitted
-            ["SecretAccessKey"] = "YOUR_AWS_SECRET_ACCESS_KEY" // Optional: uses environment variables if omitted
+            ProviderKey = "bedrock",
+            ModelName = "anthropic.claude-3-sonnet-20240229-v1:0", // Or any other Bedrock model
+            AdditionalProperties = new()
+            {
+                ["Region"] = "us-east-1",
+                ["AccessKeyId"] = "YOUR_AWS_ACCESS_KEY_ID", // Optional: uses environment variables if omitted
+                ["SecretAccessKey"] = "YOUR_AWS_SECRET_ACCESS_KEY" // Optional: uses environment variables if omitted
+            }
         }
     }
 };
@@ -30,13 +33,15 @@ var config = new AgentConfig
 ```json
 {
   "Agent": {
-    "Provider": {
-      "ProviderKey": "bedrock",
-      "ModelName": "anthropic.claude-3-sonnet-20240229-v1:0",
-      "AdditionalProperties": {
-        "Region": "us-east-1",
-        "AccessKeyId": "YOUR_AWS_ACCESS_KEY_ID",
-        "SecretAccessKey": "YOUR_AWS_SECRET_ACCESS_KEY"
+    "Clients": {
+      "Chat": {
+        "ProviderKey": "bedrock",
+        "ModelName": "anthropic.claude-3-sonnet-20240229-v1:0",
+        "AdditionalProperties": {
+          "Region": "us-east-1",
+          "AccessKeyId": "YOUR_AWS_ACCESS_KEY_ID",
+          "SecretAccessKey": "YOUR_AWS_SECRET_ACCESS_KEY"
+        }
       }
     }
   }

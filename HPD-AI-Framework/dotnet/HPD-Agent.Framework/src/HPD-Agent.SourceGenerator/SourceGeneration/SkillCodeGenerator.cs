@@ -529,7 +529,7 @@ internal static class SkillCodeGenerator
     /// Generates the InitializeDocumentsAsync(IContentStore) method for the registration class.
     /// Called by AgentBuilder.Build() to upload skill documents to the V3 content store at startup.
     /// Only generated when the harness has skills with document uploads or references.
-    /// Named upsert semantics: same document ID + same content = no-op (startup-safe).
+    /// Versioned write semantics: same document ID + same content = no-op (startup-safe).
     /// </summary>
     public static string GenerateInitializeDocumentsAsync(HarnessInfo Harness)
     {

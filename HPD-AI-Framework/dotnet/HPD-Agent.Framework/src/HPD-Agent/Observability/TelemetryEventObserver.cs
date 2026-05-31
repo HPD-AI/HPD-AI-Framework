@@ -18,8 +18,8 @@ public class TelemetryEventObserver : IDisposable
     private readonly Counter<int> _permissionChecks;
     private readonly Counter<int> _containerExpansions;
     private readonly Counter<int> _retryAttempts;
-    private readonly Counter<int> _reductionCacheHits;
-    private readonly Counter<int> _reductionCacheMisses;
+    private readonly Counter<int> _compactionCacheHits;
+    private readonly Counter<int> _compactionCacheMisses;
     private readonly Counter<int> _documentProcessing;
     private readonly Counter<int> _nestedAgentCalls;
     private readonly Counter<int> _completions;
@@ -44,7 +44,7 @@ public class TelemetryEventObserver : IDisposable
     private readonly Histogram<double> _permissionCheckDuration;
     private readonly Histogram<int> _containerMemberCountHistogram;
     private readonly Histogram<double> _retryDelayHistogram;
-    private readonly Histogram<int> _reductionTokenSavingsHistogram;
+    private readonly Histogram<int> _compactionTokenSavingsHistogram;
     private readonly Histogram<int> _nestingDepthHistogram;
     private readonly Histogram<int> _checkpointSizeHistogram;
 
@@ -77,13 +77,13 @@ public class TelemetryEventObserver : IDisposable
             "agent.retry_attempts",
             description: "Number of function retry attempts");
 
-        _reductionCacheHits = _meter.CreateCounter<int>(
-            "agent.reduction_cache.hits",
-            description: "Number of history reduction cache hits");
+        _compactionCacheHits = _meter.CreateCounter<int>(
+            "agent.compaction_cache.hits",
+            description: "Number of compaction cache hits");
 
-        _reductionCacheMisses = _meter.CreateCounter<int>(
-            "agent.reduction_cache.misses",
-            description: "Number of history reduction cache misses");
+        _compactionCacheMisses = _meter.CreateCounter<int>(
+            "agent.compaction_cache.misses",
+            description: "Number of compaction cache misses");
 
         _documentProcessing = _meter.CreateCounter<int>(
             "agent.document_processing",
@@ -183,9 +183,9 @@ public class TelemetryEventObserver : IDisposable
             unit: "ms",
             description: "Retry delay durations");
 
-        _reductionTokenSavingsHistogram = _meter.CreateHistogram<int>(
-            "agent.reduction.token_savings",
-            description: "Distribution of token savings from reduction");
+        _compactionTokenSavingsHistogram = _meter.CreateHistogram<int>(
+            "agent.compaction.token_savings",
+            description: "Distribution of token savings from compaction");
 
         _nestingDepthHistogram = _meter.CreateHistogram<int>(
             "agent.nesting.depth",
@@ -311,21 +311,21 @@ public class TelemetryEventObserver : IDisposable
                 break;
 
             // Cache tracking
-            case HistoryReductionCacheEvent e:
+            case CompactionCacheEvent e:
                 if (e.IsHit)
                 {
-                    _reductionCacheHits.Add(1,
+                    _compactionCacheHits.Add(1,
                         new KeyValuePair<string, object?>("agent.name", e.AgentName));
                 }
                 else
                 {
-                    _reductionCacheMisses.Add(1,
+                    _compactionCacheMisses.Add(1,
                         new KeyValuePair<string, object?>("agent.name", e.AgentName));
                 }
 
                 if (e.TokenSavings.HasValue)
                 {
-                    _reductionTokenSavingsHistogram.Record(e.TokenSavings.Value,
+                    _compactionTokenSavingsHistogram.Record(e.TokenSavings.Value,
                         new KeyValuePair<string, object?>("agent.name", e.AgentName),
                         new KeyValuePair<string, object?>("is.hit", e.IsHit));
                 }

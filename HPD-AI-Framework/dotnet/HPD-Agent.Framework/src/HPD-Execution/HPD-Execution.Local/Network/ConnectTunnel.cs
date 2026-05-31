@@ -83,7 +83,7 @@ internal static class ConnectTunnel
         {
             while (length < MaxHeaderBytes)
             {
-                var read = await stream.ReadAsync(rented.AsMemory(length, 1), cancellationToken);
+                var read = await stream.ReadAsync(rented.AsMemory(length, MaxHeaderBytes - length), cancellationToken);
                 if (read == 0)
                     throw new IOException("Parent proxy closed the connection before CONNECT response headers completed.");
 

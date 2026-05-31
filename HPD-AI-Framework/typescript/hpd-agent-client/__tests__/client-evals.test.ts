@@ -96,7 +96,7 @@ describe('AgentClient — eval query methods', () => {
 
     const result = await client.getScores('TurnRiskEvaluator');
 
-    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const [url, init] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0] as [string, RequestInit];
     expect(url).toBe(`${BASE}/evals/scores?evaluatorName=TurnRiskEvaluator`);
     expect(init.method).toBe('GET');
     expect(result).toEqual([SCORE_RECORD]);
@@ -107,7 +107,7 @@ describe('AgentClient — eval query methods', () => {
 
     await client.getScores('TurnRiskEvaluator', '2026-02-01T00:00:00Z', '2026-02-28T00:00:00Z');
 
-    const [url] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0] as [string, RequestInit];
     expect(url).toContain('from=2026-02-01T00%3A00%3A00Z');
     expect(url).toContain('to=2026-02-28T00%3A00%3A00Z');
   });
@@ -117,9 +117,25 @@ describe('AgentClient — eval query methods', () => {
 
     await client.getScores('TurnRiskEvaluator');
 
-    const [url] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0] as [string, RequestInit];
     expect(url).not.toContain('from=');
     expect(url).not.toContain('to=');
+  });
+
+  it('getScores: keeps relative API base URLs relative when adding query params', async () => {
+    const relativeClient = new AgentClient('/api/hpd-agent');
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => [],
+      text: async () => '[]',
+    } as Response);
+
+    await relativeClient.getScores('TurnRiskEvaluator', '2026-02-01T00:00:00Z', '2026-02-28T00:00:00Z');
+
+    expect(spy).toHaveBeenCalledWith(
+      '/api/hpd-agent/evals/scores?evaluatorName=TurnRiskEvaluator&from=2026-02-01T00%3A00%3A00Z&to=2026-02-28T00%3A00%3A00Z',
+      expect.objectContaining({ method: 'GET' }),
+    );
   });
 
   // ── getScoresByBranch ──────────────────────────────────────────────────────
@@ -129,7 +145,7 @@ describe('AgentClient — eval query methods', () => {
 
     const result = await client.getScoresByBranch('session-1');
 
-    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const [url, init] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0] as [string, RequestInit];
     expect(url).toBe(`${BASE}/evals/scores/by-branch?sessionId=session-1`);
     expect(init.method).toBe('GET');
     expect(result).toEqual([SCORE_RECORD]);
@@ -140,7 +156,7 @@ describe('AgentClient — eval query methods', () => {
 
     await client.getScoresByBranch('session-1', 'main');
 
-    const [url] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0] as [string, RequestInit];
     expect(url).toContain('branchId=main');
   });
 
@@ -149,7 +165,7 @@ describe('AgentClient — eval query methods', () => {
 
     await client.getScoresByBranch('session-1');
 
-    const [url] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0] as [string, RequestInit];
     expect(url).not.toContain('branchId=');
   });
 
@@ -161,7 +177,7 @@ describe('AgentClient — eval query methods', () => {
     const { id: _id, ...recordWithoutId } = SCORE_RECORD;
     const result = await client.writeScore(recordWithoutId);
 
-    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const [url, init] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0] as [string, RequestInit];
     expect(url).toBe(`${BASE}/evals/scores`);
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body as string)).toEqual(recordWithoutId);
@@ -175,7 +191,7 @@ describe('AgentClient — eval query methods', () => {
 
     const result = await client.getEvaluatorSummary();
 
-    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const [url, init] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0] as [string, RequestInit];
     expect(url).toBe(`${BASE}/evals/evaluators`);
     expect(init.method).toBe('GET');
     expect(result).toEqual([EVALUATOR_SUMMARY]);
@@ -186,7 +202,7 @@ describe('AgentClient — eval query methods', () => {
 
     await client.getEvaluatorSummary('2026-02-01T00:00:00Z', '2026-02-28T00:00:00Z');
 
-    const [url] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0] as [string, RequestInit];
     expect(url).toContain('from=');
     expect(url).toContain('to=');
   });
@@ -198,7 +214,7 @@ describe('AgentClient — eval query methods', () => {
 
     const result = await client.getRiskAutonomyDistribution();
 
-    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const [url, init] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0] as [string, RequestInit];
     expect(url).toBe(`${BASE}/evals/risk-autonomy`);
     expect(init.method).toBe('GET');
     expect(result).toEqual([RISK_AUTONOMY_POINT]);
@@ -209,7 +225,7 @@ describe('AgentClient — eval query methods', () => {
 
     await client.getRiskAutonomyDistribution('2026-02-01T00:00:00Z', '2026-02-28T00:00:00Z');
 
-    const [url] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0] as [string, RequestInit];
     expect(url).toContain('from=');
     expect(url).toContain('to=');
   });

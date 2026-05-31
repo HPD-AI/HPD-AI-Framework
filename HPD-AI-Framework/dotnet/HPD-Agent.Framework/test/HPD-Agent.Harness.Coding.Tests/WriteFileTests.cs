@@ -146,8 +146,8 @@ public sealed class WriteFileTests : IDisposable
         var harness = new CodingHarness();
         await ReadFileTextAsync(agentContext, harness, "A.cs");
         CreateBeforeFunctionContext(agentContext)
-            .UpdateMiddlewareState<HistoryReductionStateData>(state =>
-                state.WithReductionApplied(DateTimeOffset.UtcNow.AddSeconds(1)));
+            .UpdateMiddlewareState<CompactionStateData>(state =>
+                state.WithCompactionApplied(DateTimeOffset.UtcNow.AddSeconds(1)));
 
         var result = await WriteFileTextAsync(agentContext, harness, "A.cs", "after\n");
 

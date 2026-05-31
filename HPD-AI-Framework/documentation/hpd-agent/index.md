@@ -25,7 +25,7 @@ features:
   - icon:
       src: /icons/git-branch.svg
     title: Multi-Agent Workflows
-    details: Orchestrate teams of agents. Conditional routing. Sub-agent hierarchies. Event bubbling.
+    details: Orchestrate teams of agents with branch-native SubAgents, conditional routing, and event bubbling.
 
   - icon:
       src: /icons/mic.svg

@@ -4,7 +4,7 @@
  * Tests for WorkspaceImpl.send() and the workspace.client getter introduced
  * in proposal 014:
  *   - send() threads runConfig through to USER_TEXT_INPUT events
- *   - send() injects asset:// URIs into message content when attachments provided
+ *   - send() injects hpd-content:// URIs into message content when attachments provided
  *   - workspace.client exposes the injected AgentClientLike
  *
  * Strategy: inject a FakeAgentClient via the _client option. After init,
@@ -31,7 +31,7 @@ import type {
 	StoredAgentDto,
 	CreateAgentRequest,
 	UpdateAgentRequest,
-	AssetReference,
+	ContentReference,
 	AgentRunInputEvent,
 	EventSubscription,
 } from '@hpd/hpd-agent-client';
@@ -73,8 +73,8 @@ function makeBranch(id: string, sessionId: string, overrides: Partial<Branch> = 
 	};
 }
 
-const ASSET: AssetReference = { assetId: 'asset-abc', contentType: 'image/png', name: 'shot.png' };
-const ASSET2: AssetReference = { assetId: 'asset-xyz', contentType: 'text/plain', name: 'doc.txt' };
+const CONTENT: ContentReference = { contentId: 'content-abc', version: 'rev:1', contentType: 'image/png', name: 'shot.png' };
+const CONTENT2: ContentReference = { contentId: 'content-xyz', version: 'rev:1', contentType: 'text/plain', name: 'doc.txt' };
 
 function makeFakeClient(
 	sessions: Session[],
@@ -129,8 +129,8 @@ function makeFakeClient(
 		}),
 		deleteAgent: vi.fn(async () => {}),
 
-		// Asset upload
-		uploadAsset: vi.fn(async (): Promise<AssetReference> => ASSET),
+		// Content upload
+		uploadContent: vi.fn(async (): Promise<ContentReference> => CONTENT),
 	};
 }
 
@@ -222,29 +222,29 @@ describe('workspace.send() — attachment injection', () => {
 		expect(input.text).toBe('hello there');
 	});
 
-	it('injects asset:// URI for a single attachment', async () => {
+	it('injects hpd-content:// URI for a single attachment', async () => {
 		const sessions = [makeSession('s1')];
 		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
 		const client = makeFakeClient(sessions, branches);
 		const ws = await buildWorkspace(client);
 
-		await ws.send('look at this', { attachments: [ASSET] });
+		await ws.send('look at this', { attachments: [CONTENT] });
 
 		const input = capturedTextInput(client);
-		expect(input.text).toContain('asset://asset-abc');
+		expect(input.text).toContain('hpd-content://content-abc');
 	});
 
-	it('injects asset:// URIs for multiple attachments', async () => {
+	it('injects hpd-content:// URIs for multiple attachments', async () => {
 		const sessions = [makeSession('s1')];
 		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
 		const client = makeFakeClient(sessions, branches);
 		const ws = await buildWorkspace(client);
 
-		await ws.send('see both', { attachments: [ASSET, ASSET2] });
+		await ws.send('see both', { attachments: [CONTENT, CONTENT2] });
 
 		const input = capturedTextInput(client);
-		expect(input.text).toContain('asset://asset-abc');
-		expect(input.text).toContain('asset://asset-xyz');
+		expect(input.text).toContain('hpd-content://content-abc');
+		expect(input.text).toContain('hpd-content://content-xyz');
 	});
 
 	it('message content starts with the original text', async () => {
@@ -253,7 +253,7 @@ describe('workspace.send() — attachment injection', () => {
 		const client = makeFakeClient(sessions, branches);
 		const ws = await buildWorkspace(client);
 
-		await ws.send('my message', { attachments: [ASSET] });
+		await ws.send('my message', { attachments: [CONTENT] });
 
 		const input = capturedTextInput(client);
 		expect(input.text).toMatch(/^my message/);

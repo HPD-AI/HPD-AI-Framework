@@ -28,10 +28,11 @@ public class OnnxRuntimeProviderTests
         metadata.Should().NotBeNull();
         metadata.ProviderKey.Should().Be("onnx-runtime");
         metadata.DisplayName.Should().Be("ONNX Runtime GenAI");
-        metadata.SupportsStreaming.Should().BeTrue();
-        metadata.SupportsFunctionCalling.Should().BeFalse(); // ONNX Runtime GenAI doesn't have built-in function calling yet
-        metadata.SupportsVision.Should().BeTrue(); // Phi Vision and other multi-modal models are supported
-        metadata.DocumentationUrl.Should().Be("https://onnxruntime.ai/docs/genai/");
+        metadata.DocumentationUri.Should().Be(new Uri("https://onnxruntime.ai/docs/genai/"));
+        var chat = metadata.Families[ProviderClientFamily.Chat];
+        chat.Capabilities!["SupportsStreaming"].Should().Be(true);
+        chat.Capabilities["SupportsFunctionCalling"].Should().Be(false);
+        chat.Capabilities["SupportsVision"].Should().Be(true);
     }
 
     #endregion
@@ -42,13 +43,13 @@ public class OnnxRuntimeProviderTests
     public void ValidateConfiguration_WithMissingModelPath_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "onnx-runtime"
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -60,7 +61,7 @@ public class OnnxRuntimeProviderTests
     public void ValidateConfiguration_WithNonExistentModelPath_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -72,7 +73,7 @@ public class OnnxRuntimeProviderTests
         config.SetProviderConfig(onnxConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -86,7 +87,7 @@ public class OnnxRuntimeProviderTests
     public void ValidateConfiguration_WithInvalidMaxLength_ShouldFail(int maxLength)
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -99,7 +100,7 @@ public class OnnxRuntimeProviderTests
         config.SetProviderConfig(onnxConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -110,7 +111,7 @@ public class OnnxRuntimeProviderTests
     public void ValidateConfiguration_WithInvalidMinLength_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -123,7 +124,7 @@ public class OnnxRuntimeProviderTests
         config.SetProviderConfig(onnxConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -134,7 +135,7 @@ public class OnnxRuntimeProviderTests
     public void ValidateConfiguration_WithMinLengthGreaterThanMaxLength_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -148,7 +149,7 @@ public class OnnxRuntimeProviderTests
         config.SetProviderConfig(onnxConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -161,7 +162,7 @@ public class OnnxRuntimeProviderTests
     public void ValidateConfiguration_WithInvalidTemperature_ShouldFail(float temperature)
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -174,7 +175,7 @@ public class OnnxRuntimeProviderTests
         config.SetProviderConfig(onnxConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -187,7 +188,7 @@ public class OnnxRuntimeProviderTests
     public void ValidateConfiguration_WithInvalidTopP_ShouldFail(float topP)
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -200,7 +201,7 @@ public class OnnxRuntimeProviderTests
         config.SetProviderConfig(onnxConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -213,7 +214,7 @@ public class OnnxRuntimeProviderTests
     public void ValidateConfiguration_WithInvalidTopK_ShouldFail(int topK)
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -226,7 +227,7 @@ public class OnnxRuntimeProviderTests
         config.SetProviderConfig(onnxConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -239,7 +240,7 @@ public class OnnxRuntimeProviderTests
     public void ValidateConfiguration_WithInvalidRepetitionPenalty_ShouldFail(float penalty)
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -252,7 +253,7 @@ public class OnnxRuntimeProviderTests
         config.SetProviderConfig(onnxConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -265,7 +266,7 @@ public class OnnxRuntimeProviderTests
     public void ValidateConfiguration_WithInvalidNumBeams_ShouldFail(int numBeams)
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -278,7 +279,7 @@ public class OnnxRuntimeProviderTests
         config.SetProviderConfig(onnxConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -291,7 +292,7 @@ public class OnnxRuntimeProviderTests
     public void ValidateConfiguration_WithInvalidNumReturnSequences_ShouldFail(int numReturnSequences)
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -304,7 +305,7 @@ public class OnnxRuntimeProviderTests
         config.SetProviderConfig(onnxConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -315,7 +316,7 @@ public class OnnxRuntimeProviderTests
     public void ValidateConfiguration_WithNumReturnSequencesGreaterThanNumBeams_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -329,7 +330,7 @@ public class OnnxRuntimeProviderTests
         config.SetProviderConfig(onnxConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -340,7 +341,7 @@ public class OnnxRuntimeProviderTests
     public void ValidateConfiguration_WithNonExistentAdapterPath_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -353,7 +354,7 @@ public class OnnxRuntimeProviderTests
         config.SetProviderConfig(onnxConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -364,7 +365,7 @@ public class OnnxRuntimeProviderTests
     public void ValidateConfiguration_WithValidConfig_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -385,7 +386,7 @@ public class OnnxRuntimeProviderTests
         config.SetProviderConfig(onnxConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -454,10 +455,10 @@ public class OnnxRuntimeProviderTests
         });
 
         // Assert
-        builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.ProviderKey.Should().Be("onnx-runtime");
+        builder.Config.EnsureChatClientConfig().Should().NotBeNull();
+        builder.Config.EnsureChatClientConfig()!.ProviderKey.Should().Be("onnx-runtime");
 
-        var config = builder.Config.Provider.GetProviderConfig<OnnxRuntimeProviderConfig>();
+        var config = builder.Config.EnsureChatClientConfig().GetProviderConfig<OnnxRuntimeProviderConfig>();
         config.Should().NotBeNull();
         config!.ModelPath.Should().Be(".");
         config.MaxLength.Should().Be(2048);

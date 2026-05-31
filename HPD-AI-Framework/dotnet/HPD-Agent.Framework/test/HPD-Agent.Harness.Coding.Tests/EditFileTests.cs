@@ -129,8 +129,8 @@ public sealed class EditFileTests : IDisposable
         var harness = new CodingHarness();
         await ReadFileTextAsync(agentContext, harness, "A.cs");
         CreateBeforeFunctionContext(agentContext)
-            .UpdateMiddlewareState<HistoryReductionStateData>(state =>
-                state.WithReductionApplied(DateTimeOffset.UtcNow.AddSeconds(1)));
+            .UpdateMiddlewareState<CompactionStateData>(state =>
+                state.WithCompactionApplied(DateTimeOffset.UtcNow.AddSeconds(1)));
 
         var result = await EditFileTextAsync(agentContext, harness, "A.cs", "before", "after");
 
@@ -661,8 +661,6 @@ public sealed class EditFileTests : IDisposable
 
         public EventInbox<Event> CreateChannelInbox(EventChannel channel, EventInboxOptions? options = null)
             => _inner.CreateChannelInbox(channel, options);
-
-        public ILocalStructEventBus LocalStructs => _inner.LocalStructs;
 
         public void SetParent(IEventCoordinator parent) => _inner.SetParent(parent);
 

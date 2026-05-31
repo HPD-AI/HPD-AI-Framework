@@ -167,7 +167,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
         var stored = await manager.CreateDefinitionAsync(new AgentConfig
         {
             Name = "Coding",
-            Provider = new ProviderConfig { ProviderKey = "test", ModelName = "test-model" },
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } },
             Harneses = [nameof(CodingHarness)]
         }, "Coding");
 
@@ -195,7 +195,6 @@ public class AspNetCoreAgentManagerTests : IDisposable
         var stored = await manager.CreateDefinitionAsync(new AgentConfig
         {
             Name = "Coding",
-            Provider = null,
             Harneses = [nameof(CodingHarness)]
         }, "Coding");
 
@@ -224,15 +223,15 @@ public class AspNetCoreAgentManagerTests : IDisposable
         var stored = await manager.CreateDefinitionAsync(new AgentConfig
         {
             Name = "Runtime Summarizing",
-            Provider = null,
-            HistoryReduction = new HistoryReductionConfig
+            Compaction = new CompactionConfig
             {
                 Enabled = true,
-                Strategy = HistoryReductionStrategy.Summarizing,
-                SummarizerProvider = new ProviderConfig
+                Strategy = new SummarizingCompactionOptions
                 {
-                    ProviderKey = "test",
-                    ModelName = "summarizer-model"
+                    SummarizerProvider = new ClientProviderConfig {
+                        ProviderKey = "test",
+                        ModelName = "summarizer-model"
+                    }
                 }
             }
         }, "Runtime Summarizing");
@@ -273,23 +272,23 @@ public class AspNetCoreAgentManagerTests : IDisposable
         return await manager.CreateDefinitionAsync(new AgentConfig
         {
             Name = "Default",
-            Provider = new ProviderConfig { ProviderKey = "test", ModelName = "test-model" }
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } }
         }, "Default");
     }
 
     private static AgentConfig MakeConfig(string name) => new AgentConfig
     {
         Name = name,
-        Provider = new ProviderConfig { ProviderKey = "test", ModelName = "test-model" }
+        Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } }
     };
 
     private static void InjectTestProvider(AgentBuilder builder)
     {
-        builder.Config.Provider = new ProviderConfig
+        builder.Config.SetChatClientConfig(new ClientProviderConfig
         {
             ProviderKey = "test",
             ModelName = "test-model"
-        };
+        });
 
         var chatClient = new FakeChatClient();
         var registry = new TestProviderRegistry(chatClient);
@@ -337,7 +336,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
         private static AgentConfig MakeConfig(string name) => new AgentConfig
         {
             Name = name,
-            Provider = new ProviderConfig { ProviderKey = "test", ModelName = "test-model" }
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } }
         };
     }
 

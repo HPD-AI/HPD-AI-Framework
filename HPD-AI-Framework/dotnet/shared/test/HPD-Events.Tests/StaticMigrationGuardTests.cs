@@ -21,6 +21,8 @@ public class StaticMigrationGuardTests
         Assert.DoesNotContain("ReadAllAsync", source);
         Assert.DoesNotContain("SubscribeStream", source);
         Assert.DoesNotContain("SubscribeChannel", source);
+        Assert.DoesNotContain("StructEvents", source);
+        Assert.DoesNotContain("LocalStructs", source);
     }
 
     [Fact]
@@ -48,6 +50,9 @@ public class StaticMigrationGuardTests
             .Concat(FindSourceRegex(sourceRoot, @"\bStructInboxOptions\b"))
             .Concat(FindSourceRegex(sourceRoot, @"\bStructSubscription\b"))
             .Concat(FindSourceRegex(sourceRoot, @"\bStructSubscriptionOptions\b"))
+            .Concat(FindSourceRegex(sourceRoot, @"\bLocalStruct"))
+            .Concat(FindSourceRegex(sourceRoot, @"\bILocalStruct"))
+            .Concat(FindSourceRegex(sourceRoot, @"\bLocalSequenced"))
             .Concat(FindSourceRegex(sourceRoot, @"\bTryEmitStruct\b"))
             .Concat(FindSourceRegex(sourceRoot, @"\bEmitStructAsync\b"))
             .Concat(FindSourceRegex(sourceRoot, @"\bSubscribeStruct\b"))

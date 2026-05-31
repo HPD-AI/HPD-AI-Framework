@@ -8,7 +8,7 @@ namespace HPD.Agent;
 
 /// <summary>
 /// Interface for persisting and loading session and branch state.
-/// V3 Architecture: Supports session metadata, branches, crash recovery, and asset storage.
+/// V3 Architecture: Supports session metadata, branches, and crash recovery.
 /// </summary>
 /// <remarks>
 /// <para><b>V3 Changes:</b></para>
@@ -16,7 +16,6 @@ namespace HPD.Agent;
 /// <item>Session methods now work with Session (metadata only, no messages)</item>
 /// <item>New branch methods for managing conversation branches</item>
 /// <item>UncommittedTurn remains session-scoped (contains BranchId internally)</item>
-/// <item>Assets remain session-scoped (shared across all branches)</item>
 /// </list>
 /// </remarks>
 public interface ISessionStore
@@ -57,10 +56,10 @@ public interface ISessionStore
 
     /// <summary>
     /// Delete a session and all its data from persistent storage.
-    /// This deletes the session metadata, all branches, uncommitted turn, and assets.
+    /// This deletes the session metadata, all branches, and uncommitted turn.
     /// </summary>
     /// <remarks>
-    /// <para><b>V3 Behavior:</b> Deletes session + all branches + assets (full cleanup).</para>
+    /// <para><b>V3 Behavior:</b> Deletes session + all branches. Content cleanup is handled by IContentStore policy.</para>
     /// </remarks>
     Task DeleteSessionAsync(
         string sessionId,
@@ -225,17 +224,6 @@ public interface ISessionStore
     Task DeleteUncommittedTurnAsync(
         string sessionId,
         CancellationToken cancellationToken = default);
-
-    // ═══════════════════════════════════════════════════════════════════
-    // CONTENT STORAGE (Session-Scoped)
-    // ═══════════════════════════════════════════════════════════════════
-
-    /// <summary>
-    /// Get the content store for session-scoped binary content (uploads, artifacts).
-    /// Returns null if this store doesn't support content storage.
-    /// In V3, content is stored using IContentStore with scope=sessionId and folder tags.
-    /// </summary>
-    IContentStore? GetContentStore(string sessionId);
 
     // ═══════════════════════════════════════════════════════════════════
     // CLEANUP

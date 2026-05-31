@@ -12,9 +12,9 @@ namespace HPD.Agent;
 /// Folder metadata (description, permissions) is stored in a per-store registry
 /// using ConditionalWeakTable so it doesn't modify IContentStore itself.
 ///
-/// <para><b>Named Upsert Semantics:</b></para>
-/// All upload helpers use named puts (stable caller-defined keys). Calling the same
-/// upload at every startup is safe — same content = no-op, changed content = overwrite.
+/// <para><b>Write Semantics:</b></para>
+/// Helpers use explicit write modes. Stable named documents are created first and then
+/// replaced conditionally by ID/version when updated.
 /// </remarks>
 public static class ContentStoreExtensions
 {
@@ -112,9 +112,6 @@ public static class ContentStoreExtensions
 
     /// <summary>
     /// Upload a skill instruction document.
-    /// Named upsert: same documentId + same content = no-op (startup-safe).
-    /// Same documentId + changed content = overwrite.
-    ///
     /// Pass scope=null for global skills visible to all agents.
     /// Pass scope=agentName for agent-specific skills.
     /// </summary>
@@ -124,8 +121,8 @@ public static class ContentStoreExtensions
     /// <param name="description">Global default description shown to agents.</param>
     /// <param name="scope">null = global (all agents), agentName = agent-specific.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The content ID (stable across no-op upserts).</returns>
-    public static Task<string> UploadSkillDocumentAsync(
+    /// <returns>Metadata for the uploaded content.</returns>
+    public static Task<ContentInfo> UploadSkillDocumentAsync(
         this IContentStore store,
         string documentId,
         string content,
@@ -133,15 +130,15 @@ public static class ContentStoreExtensions
         string? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var data = Encoding.UTF8.GetBytes(content);
         var metadata = new ContentMetadata
         {
+            ContentType = "text/plain",
             Name = documentId,
             Description = description,
             Origin = ContentSource.System,
             Tags = new Dictionary<string, string> { ["folder"] = "/skills" }
         };
-        return store.PutAsync(scope, data, "text/plain", metadata, cancellationToken);
+        return store.WriteNamedTextAsync(scope, content, metadata, cancellationToken);
     }
 
     /// <summary>
@@ -176,7 +173,7 @@ public static class ContentStoreExtensions
 
         // Re-upload with the additional skill-specific description tag
         var doc = existing[0];
-        var contentData = await store.GetAsync(scope, doc.Id, cancellationToken);
+        var contentData = await store.ReadBytesAsync(scope, doc.Id, cancellationToken);
         if (contentData == null) return;
 
         // Merge skill-link tag into existing tags
@@ -185,15 +182,21 @@ public static class ContentStoreExtensions
             [$"description:{skillName}"] = descriptionOverride
         };
 
-        // Overwrite using same Name key (named upsert will update in-place)
-        await store.PutAsync(scope, contentData.Data, contentData.ContentType,
+        await store.WriteBytesAsync(scope, contentData,
             new ContentMetadata
             {
+                ContentType = doc.ContentType,
                 Name = documentId,
                 Description = doc.Description,
                 Origin = doc.Origin,
                 Tags = newTags,
                 OriginalSource = doc.OriginalSource
+            },
+            new ContentWriteOptions
+            {
+                Mode = ContentWriteMode.ReplaceById,
+                ContentId = doc.Id,
+                IfMatchVersion = doc.Version
             },
             cancellationToken);
     }
@@ -204,7 +207,6 @@ public static class ContentStoreExtensions
 
     /// <summary>
     /// Upload a knowledge document for a specific agent.
-    /// Named upsert: same agentName + documentName + same content = no-op.
     /// Knowledge is ALWAYS agent-scoped.
     /// </summary>
     /// <param name="store">The content store.</param>
@@ -215,8 +217,8 @@ public static class ContentStoreExtensions
     /// <param name="description">Optional description shown to agent.</param>
     /// <param name="extraTags">Optional additional tags for categorization.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The content ID.</returns>
-    public static Task<string> UploadKnowledgeDocumentAsync(
+    /// <returns>Metadata for the uploaded content.</returns>
+    public static Task<ContentInfo> UploadKnowledgeDocumentAsync(
         this IContentStore store,
         string agentName,
         string documentName,
@@ -232,12 +234,13 @@ public static class ContentStoreExtensions
 
         var metadata = new ContentMetadata
         {
+            ContentType = contentType,
             Name = documentName,
             Description = description,
             Origin = ContentSource.System,
             Tags = tags
         };
-        return store.PutAsync(agentName, data, contentType, metadata, cancellationToken);
+        return store.WriteNamedBytesAsync(agentName, data, metadata, cancellationToken);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -246,30 +249,107 @@ public static class ContentStoreExtensions
 
     /// <summary>
     /// Write a memory entry for a specific agent.
-    /// Named upsert: same agentName + title = overwrite (memories are mutable by design).
-    /// Memories are ALWAYS agent-scoped.
+    /// Create an append-only memory event for a specific agent.
+    /// Canonical /memory writes are reserved for the memory consolidator.
     /// </summary>
     /// <param name="store">The content store.</param>
     /// <param name="agentName">Agent that owns this memory.</param>
     /// <param name="title">Stable key within agent scope (acts as the memory's filename).</param>
     /// <param name="content">Memory content text.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The content ID.</returns>
-    public static Task<string> WriteMemoryAsync(
+    /// <returns>Metadata for the written content.</returns>
+    public static Task<ContentInfo> WriteMemoryAsync(
         this IContentStore store,
         string agentName,
         string title,
         string content,
         CancellationToken cancellationToken = default)
     {
-        var data = Encoding.UTF8.GetBytes(content);
         var metadata = new ContentMetadata
         {
+            ContentType = "text/plain",
             Name = title,
             Origin = ContentSource.Agent,
-            Tags = new Dictionary<string, string> { ["folder"] = "/memory" }
+            Tags = new Dictionary<string, string>
+            {
+                ["folder"] = "/memory/events",
+                ["memory.kind"] = "agent_note"
+            }
         };
-        return store.PutAsync(agentName, data, "text/plain", metadata, cancellationToken);
+        return store.WriteTextAsync(
+            agentName,
+            content,
+            metadata,
+            new ContentWriteOptions
+            {
+                Mode = ContentWriteMode.Create,
+                FailIfNameExists = true
+            },
+            cancellationToken);
+    }
+
+    private static async Task<ContentInfo> WriteNamedTextAsync(
+        this IContentStore store,
+        string? scope,
+        string content,
+        ContentMetadata metadata,
+        CancellationToken cancellationToken)
+    {
+        var data = Encoding.UTF8.GetBytes(content);
+        return await store.WriteNamedBytesAsync(scope, data, metadata, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<ContentInfo> WriteNamedBytesAsync(
+        this IContentStore store,
+        string? scope,
+        byte[] data,
+        ContentMetadata metadata,
+        CancellationToken cancellationToken)
+    {
+        if (metadata.Name is null)
+        {
+            return await store.WriteBytesAsync(
+                scope,
+                data,
+                metadata,
+                new ContentWriteOptions { Mode = ContentWriteMode.Create },
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        var existing = await store.QueryAsync(
+            scope,
+            new ContentQuery
+            {
+                Name = metadata.Name,
+                Tags = metadata.Tags
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (existing.Count == 0)
+        {
+            return await store.WriteBytesAsync(
+                scope,
+                data,
+                metadata,
+                new ContentWriteOptions
+                {
+                    Mode = ContentWriteMode.Create,
+                    FailIfNameExists = true
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return await store.WriteBytesAsync(
+            scope,
+            data,
+            metadata,
+            new ContentWriteOptions
+            {
+                Mode = ContentWriteMode.ReplaceById,
+                ContentId = existing[0].Id,
+                IfMatchVersion = existing[0].Version
+            },
+            cancellationToken).ConfigureAwait(false);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -321,26 +401,37 @@ internal sealed class ContentFolder : IContentFolder
         Options = options;
     }
 
-    public Task<string> PutAsync(string? scope, byte[] data, string contentType,
-        ContentMetadata? metadata = null, CancellationToken cancellationToken = default)
+    public Task<ContentInfo> WriteAsync(string? scope, Stream data,
+        ContentMetadata metadata, ContentWriteOptions options, CancellationToken cancellationToken = default)
     {
         // Inject folder tag
-        var tags = new Dictionary<string, string>(metadata?.Tags ?? new Dictionary<string, string>())
+        var tags = new Dictionary<string, string>(metadata.Tags ?? new Dictionary<string, string>())
         {
             ["folder"] = Path
         };
         if (Options.Tags != null)
             foreach (var kv in Options.Tags) tags.TryAdd(kv.Key, kv.Value);
 
-        var merged = (metadata ?? new ContentMetadata()) with { Tags = tags };
-        return _store.PutAsync(scope, data, contentType, merged, cancellationToken);
+        var merged = metadata with { Tags = tags };
+        return _store.WriteAsync(scope, data, merged, options, cancellationToken);
     }
 
-    public async Task<ContentData?> GetAsync(string scope, string nameOrId, CancellationToken cancellationToken = default)
+    public async Task<Stream?> OpenReadAsync(string scope, string nameOrId, CancellationToken cancellationToken = default)
+    {
+        var info = await StatAsync(scope, nameOrId, cancellationToken);
+        return info == null
+            ? null
+            : await _store.OpenReadAsync(scope, info.Id, cancellationToken);
+    }
+
+    public async Task<ContentInfo?> StatAsync(string scope, string nameOrId, CancellationToken cancellationToken = default)
     {
         // First try direct ID lookup
-        var byId = await _store.GetAsync(scope, nameOrId, cancellationToken);
-        if (byId != null) return byId;
+        var byId = await _store.StatAsync(scope, nameOrId, cancellationToken);
+        if (byId != null && byId.Tags != null &&
+            byId.Tags.TryGetValue("folder", out var folder) &&
+            folder.Equals(Path, StringComparison.OrdinalIgnoreCase))
+            return byId;
 
         // Fall back to name lookup within this folder
         var results = await _store.QueryAsync(scope, new ContentQuery
@@ -350,15 +441,19 @@ internal sealed class ContentFolder : IContentFolder
         }, cancellationToken);
 
         if (results.Count == 0) return null;
-        return await _store.GetAsync(scope, results[0].Id, cancellationToken);
+        return results[0];
     }
 
-    public async Task DeleteAsync(string scope, string nameOrId, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(
+        string scope,
+        string nameOrId,
+        ContentDeleteOptions? options = null,
+        CancellationToken cancellationToken = default)
     {
         // Try as direct ID first, else resolve via name
-        var contentData = await GetAsync(scope, nameOrId, cancellationToken);
-        if (contentData != null)
-            await _store.DeleteAsync(scope, contentData.Id, cancellationToken);
+        var info = await StatAsync(scope, nameOrId, cancellationToken);
+        if (info != null)
+            await _store.DeleteAsync(scope, info.Id, options, cancellationToken);
     }
 
     public Task<IReadOnlyList<ContentInfo>> ListAsync(string scope, CancellationToken cancellationToken = default)

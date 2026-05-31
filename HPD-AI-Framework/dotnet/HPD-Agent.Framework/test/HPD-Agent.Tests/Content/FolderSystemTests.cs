@@ -7,7 +7,7 @@ namespace HPD.Agent.Tests.Content;
 /// <summary>
 /// Tests for the folder registration and management system:
 /// ContentStoreExtensions (CreateFolder, GetFolder, helpers),
-/// IContentFolder (PutAsync, GetAsync, DeleteAsync, ListAsync),
+/// IContentFolder (WriteAsync, GetAsync, DeleteAsync, ListAsync),
 /// and the convenience upload helpers (UploadSkillDocumentAsync, etc.).
 /// </summary>
 public class FolderSystemTests
@@ -48,7 +48,7 @@ public class FolderSystemTests
         var store = new InMemoryContentStore();
         var folder = store.CreateFolder("knowledge", new FolderOptions { Description = "Docs" });
 
-        await folder.PutAsync("agent-x", Encoding.UTF8.GetBytes("content"), "text/plain",
+        await folder.WriteBytesAsync("agent-x", Encoding.UTF8.GetBytes("content"), "text/plain",
             new ContentMetadata { Name = "api.md" });
 
         var results = await store.QueryAsync("agent-x");
@@ -68,7 +68,7 @@ public class FolderSystemTests
         var folder = store.CreateFolder("knowledge", new FolderOptions { Description = "Docs" });
 
         // Caller tries to set a different folder tag
-        await folder.PutAsync("agent-x", Encoding.UTF8.GetBytes("content"), "text/plain",
+        await folder.WriteBytesAsync("agent-x", Encoding.UTF8.GetBytes("content"), "text/plain",
             new ContentMetadata
             {
                 Name = "api.md",
@@ -111,9 +111,9 @@ public class FolderSystemTests
         var knowledge = store.CreateFolder("knowledge", new FolderOptions { Description = "Docs" });
         var memory = store.CreateFolder("memory", new FolderOptions { Description = "Notes" });
 
-        await knowledge.PutAsync("agent-x", Encoding.UTF8.GetBytes("doc"), "text/plain",
+        await knowledge.WriteBytesAsync("agent-x", Encoding.UTF8.GetBytes("doc"), "text/plain",
             new ContentMetadata { Name = "api.md" });
-        await memory.PutAsync("agent-x", Encoding.UTF8.GetBytes("note"), "text/plain",
+        await memory.WriteBytesAsync("agent-x", Encoding.UTF8.GetBytes("note"), "text/plain",
             new ContentMetadata { Name = "note.md" });
 
         var knowledgeItems = await knowledge.ListAsync("agent-x");
@@ -136,13 +136,14 @@ public class FolderSystemTests
         var folder = store.CreateFolder("knowledge", new FolderOptions { Description = "Docs" });
         var data = Encoding.UTF8.GetBytes("API reference");
 
-        await folder.PutAsync("agent-x", data, "text/plain", new ContentMetadata { Name = "api-ref.md" });
+        await folder.WriteBytesAsync("agent-x", data, "text/plain", new ContentMetadata { Name = "api-ref.md" });
 
-        var result = await folder.GetAsync("agent-x", "api-ref.md");
+        var result = await folder.ReadBytesAsync("agent-x", "api-ref.md");
+        var info = await folder.StatAsync("agent-x", "api-ref.md");
 
         Assert.NotNull(result);
-        Assert.Equal(data, result.Data);
-        Assert.Equal("api-ref.md", result.Info.Name);
+        Assert.Equal(data, result);
+        Assert.Equal("api-ref.md", info!.Name);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -155,14 +156,14 @@ public class FolderSystemTests
         var store = new InMemoryContentStore();
         var folder = store.CreateFolder("memory", new FolderOptions { Description = "Notes" });
 
-        await folder.PutAsync("agent-x", Encoding.UTF8.GetBytes("stale note"), "text/plain",
+        await folder.WriteBytesAsync("agent-x", Encoding.UTF8.GetBytes("stale note"), "text/plain",
             new ContentMetadata { Name = "old.md" });
 
-        Assert.NotNull(await folder.GetAsync("agent-x", "old.md"));
+        Assert.NotNull(await folder.ReadBytesAsync("agent-x", "old.md"));
 
         await folder.DeleteAsync("agent-x", "old.md");
 
-        Assert.Null(await folder.GetAsync("agent-x", "old.md"));
+        Assert.Null(await folder.ReadBytesAsync("agent-x", "old.md"));
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -203,11 +204,11 @@ public class FolderSystemTests
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // F-11: UploadSkillDocumentAsync is idempotent — same content → same ID
+    // F-11: UploadSkillDocumentAsync replaces by name without duplicating entries
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task UploadSkillDocumentAsync_Idempotent_SameId()
+    public async Task UploadSkillDocumentAsync_SameContent_ReplacesWithoutDuplicate()
     {
         var store = new InMemoryContentStore();
         var content = "# OAuth Guide\nHow to authenticate.";
@@ -215,7 +216,7 @@ public class FolderSystemTests
         var id1 = await store.UploadSkillDocumentAsync("oauth-guide", content, "OAuth description");
         var id2 = await store.UploadSkillDocumentAsync("oauth-guide", content, "OAuth description");
 
-        Assert.Equal(id1, id2);
+        Assert.Equal(id1.Id, id2.Id);
 
         var all = await store.QueryAsync(null, new ContentQuery
         {
@@ -225,7 +226,7 @@ public class FolderSystemTests
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // F-12: UploadSkillDocumentAsync with changed content — ID stable, bytes updated
+    // F-12: UploadSkillDocumentAsync with changed content — ID stable, bytes/version updated
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
@@ -236,11 +237,12 @@ public class FolderSystemTests
         var id1 = await store.UploadSkillDocumentAsync("oauth-guide", "# v1", "description");
         var id2 = await store.UploadSkillDocumentAsync("oauth-guide", "# v2 — updated", "description");
 
-        Assert.Equal(id1, id2);
+        Assert.Equal(id1.Id, id2.Id);
+        Assert.NotEqual(id1.Version, id2.Version);
 
-        var result = await store.GetAsync(null, id1);
+        var result = await store.ReadBytesAsync(null, id1);
         Assert.NotNull(result);
-        Assert.Contains("v2", Encoding.UTF8.GetString(result.Data));
+        Assert.Contains("v2", Encoding.UTF8.GetString(result));
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -344,37 +346,38 @@ public class FolderSystemTests
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // F-18: WriteMemoryAsync tags with /memory folder
+    // F-18: WriteMemoryAsync creates append-only memory events
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task WriteMemoryAsync_TagsWithMemoryFolder()
+    public async Task WriteMemoryAsync_TagsWithMemoryEventsFolder()
     {
         var store = new InMemoryContentStore();
         await store.WriteMemoryAsync("agent-x", "user-prefs", "prefers dark mode");
 
         var results = await store.QueryAsync("agent-x");
         Assert.Single(results);
-        Assert.Equal("/memory", results[0].Tags!["folder"]);
+        Assert.Equal("/memory/events", results[0].Tags!["folder"]);
+        Assert.Equal("agent_note", results[0].Tags!["memory.kind"]);
         Assert.Equal("user-prefs", results[0].Name);
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // F-19: WriteMemoryAsync with same title overwrites content
+    // F-19: WriteMemoryAsync with same title is guarded as append-only/create-only
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task WriteMemoryAsync_SameTitle_OverwritesContent()
+    public async Task WriteMemoryAsync_SameTitle_FailsCreateOnly()
     {
         var store = new InMemoryContentStore();
         var id1 = await store.WriteMemoryAsync("agent-x", "preferences", "prefers email");
-        var id2 = await store.WriteMemoryAsync("agent-x", "preferences", "prefers SMS");
 
-        Assert.Equal(id1, id2);
+        await Assert.ThrowsAsync<ContentConflictException>(() =>
+            store.WriteMemoryAsync("agent-x", "preferences", "prefers SMS"));
 
-        var result = await store.GetAsync("agent-x", id1);
+        var result = await store.ReadBytesAsync("agent-x", id1);
         Assert.NotNull(result);
-        Assert.Contains("SMS", Encoding.UTF8.GetString(result.Data));
+        Assert.Contains("email", Encoding.UTF8.GetString(result));
     }
 
     // ═══════════════════════════════════════════════════════════════════

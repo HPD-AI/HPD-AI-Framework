@@ -61,14 +61,19 @@ public sealed class AgentBranchService : IAgentBranchService
         if (await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken) != null)
             return AgentServiceResult<BranchDto>.Conflict;
 
-        var agent = await _agentManager.GetOrBuildAgentAsync(agentId, cancellationToken);
-        await agent.ForkBranchAsync(sessionId, "main", branchId, 0, cancellationToken);
+        var session = await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken)
+            ?? throw new InvalidOperationException($"Session '{sessionId}' not found after existence check.");
+        session.Store = _sessionManager.Store;
 
-        var branch = await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken)
+        var branch = session.CreateBranch(branchId);
+        branch.Name = request.Name ?? branchId;
+        branch.Description = request.Description;
+        branch.Tags = request.Tags;
+        MergeBranchMetadata(branch.Metadata, request.Metadata);
+        await _sessionManager.Store.SaveInitialBranchAsync(sessionId, branch, cancellationToken);
+
+        branch = await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken)
             ?? throw new InvalidOperationException($"Branch '{branchId}' not found after creation.");
-
-        ApplyBranchMetadata(branch, request.Name, request.Description, request.Tags);
-        await _sessionManager.Store.AppendBranchMetadataUpdatedAsync(branch, cancellationToken);
 
         return AgentServiceResult<BranchDto>.Success(branch.ToDto(sessionId));
     }
@@ -103,6 +108,7 @@ public sealed class AgentBranchService : IAgentBranchService
                 if (request.Name != null) branch.Name = request.Name;
                 if (request.Description != null) branch.Description = request.Description;
                 if (request.Tags != null) branch.Tags = request.Tags;
+                MergeBranchMetadata(branch.Metadata, request.Metadata);
                 branch.LastActivity = DateTime.UtcNow;
 
                 await _sessionManager.Store.AppendBranchMetadataUpdatedAsync(branch, cancellationToken);
@@ -144,7 +150,7 @@ public sealed class AgentBranchService : IAgentBranchService
             }
         }
 
-        if (!_sessionManager.TryAcquireStreamLock(sessionId, branchId))
+        if (!_sessionManager.TryAcquireBranchOperationLock(sessionId, branchId))
             return AgentServiceResult.Conflict;
 
         try
@@ -156,8 +162,8 @@ public sealed class AgentBranchService : IAgentBranchService
         }
         finally
         {
-            _sessionManager.ReleaseStreamLock(sessionId, branchId);
-            _sessionManager.RemoveBranchStreamLock(sessionId, branchId);
+            _sessionManager.ReleaseBranchOperationLock(sessionId, branchId);
+            _sessionManager.RemoveBranchOperationLock(sessionId, branchId);
         }
     }
 
@@ -167,11 +173,11 @@ public sealed class AgentBranchService : IAgentBranchService
         CancellationToken cancellationToken = default)
     {
         var document = await _sessionManager.Store.LoadBranchDocumentAsync(sessionId, branchId, cancellationToken);
-        if (document == null)
+        if (document == null && await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken) == null)
             return AgentServiceResult<IReadOnlyList<AgentEvent>>.NotFound;
 
         return AgentServiceResult<IReadOnlyList<AgentEvent>>.Success(
-            document.Events.OrderBy(e => e.SequenceNumber).ToList());
+            document?.Events.OrderBy(e => e.SequenceNumber).ToList() ?? []);
     }
 
     public async Task<AgentServiceResult<IReadOnlyList<BranchDto>>> GetSiblingsAsync(
@@ -193,7 +199,7 @@ public sealed class AgentBranchService : IAgentBranchService
                 continue;
 
             var isSameGroup = branch.ForkedFrom == targetBranch.ForkedFrom &&
-                branch.ForkedAtMessageIndex == targetBranch.ForkedAtMessageIndex;
+                branch.ForkedAtMessageId == targetBranch.ForkedAtMessageId;
             var isSource = targetBranch.ForkedFrom != null && id == targetBranch.ForkedFrom;
 
             if (isSameGroup || isSource)
@@ -222,12 +228,27 @@ public sealed class AgentBranchService : IAgentBranchService
             : request.NewBranchId;
 
         var agent = await _agentManager.GetOrBuildAgentAsync(agentId, cancellationToken);
-        await agent.ForkBranchAsync(sessionId, branchId, newBranchId, request.FromMessageIndex, cancellationToken);
+        try
+        {
+            await agent.ForkBranchAsync(
+                sessionId,
+                branchId,
+                newBranchId,
+                request.FromMessageId,
+                request.Metadata,
+                cancellationToken);
+        }
+        catch (MessageNotPresentOnBranchException ex)
+        {
+            return AgentServiceResult<BranchDto>.Validation(
+                "ForkMessageNotPresent",
+                ex.Message);
+        }
 
         var newBranch = await _sessionManager.Store.LoadBranchAsync(sessionId, newBranchId, cancellationToken)
             ?? throw new InvalidOperationException($"Branch '{newBranchId}' not found after fork.");
 
-        ApplyBranchMetadata(newBranch, request.Name, request.Description, request.Tags);
+        ApplyBranchMetadata(newBranch, request.Name, request.Description, request.Tags, metadata: null);
         await _sessionManager.Store.AppendBranchMetadataUpdatedAsync(newBranch, cancellationToken);
 
         return AgentServiceResult<BranchDto>.Success(newBranch.ToDto(sessionId));
@@ -305,7 +326,7 @@ public sealed class AgentBranchService : IAgentBranchService
                 continue;
 
             var isSameGroup = sibling.ForkedFrom == branch.ForkedFrom &&
-                sibling.ForkedAtMessageIndex == branch.ForkedAtMessageIndex;
+                sibling.ForkedAtMessageId == branch.ForkedAtMessageId;
             var isSource = branch.ForkedFrom != null && id == branch.ForkedFrom;
 
             if (isSameGroup || isSource)
@@ -329,7 +350,8 @@ public sealed class AgentBranchService : IAgentBranchService
         Branch branch,
         string? name,
         string? description,
-        List<string>? tags)
+        List<string>? tags,
+        Dictionary<string, object>? metadata)
     {
         if (!string.IsNullOrEmpty(name))
             branch.Name = name;
@@ -337,5 +359,27 @@ public sealed class AgentBranchService : IAgentBranchService
             branch.Description = description;
         if (tags != null && tags.Count > 0)
             branch.Tags = tags;
+        if (metadata != null)
+        {
+            branch.Metadata.Clear();
+            foreach (var (key, value) in metadata)
+                branch.Metadata[key] = value;
+        }
+    }
+
+    private static void MergeBranchMetadata(
+        Dictionary<string, object> target,
+        Dictionary<string, object?>? patch)
+    {
+        if (patch == null)
+            return;
+
+        foreach (var (key, value) in patch)
+        {
+            if (value == null)
+                target.Remove(key);
+            else
+                target[key] = value;
+        }
     }
 }

@@ -30,7 +30,7 @@ namespace HPD.Agent.Serialization;
 )]
 // Base types
 [JsonSerializable(typeof(AgentEvent))]
-[JsonSerializable(typeof(AgentExecutionContext))]
+[JsonSerializable(typeof(AgentMetadata))]
 [JsonSerializable(typeof(AgentInputEvent))]
 [JsonSerializable(typeof(UserTextInputEvent))]
 [JsonSerializable(typeof(UserMessagesInputEvent))]
@@ -42,6 +42,7 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(MessageCompletedEvent))]
 [JsonSerializable(typeof(ContentAddedEvent))]
 [JsonSerializable(typeof(BranchMiddlewareStateCommittedEvent))]
+[JsonSerializable(typeof(BranchHistoryCompactedEvent))]
 [JsonSerializable(typeof(AgentRunConfig))]
 [JsonSerializable(typeof(ChatRunConfig))]
 [JsonSerializable(typeof(ReasoningOptions))]
@@ -80,6 +81,8 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(AgentTurnStartedEvent))]
 [JsonSerializable(typeof(AgentTurnFinishedEvent))]
 [JsonSerializable(typeof(StateSnapshotEvent))]
+[JsonSerializable(typeof(BranchRunStartedEvent))]
+[JsonSerializable(typeof(BranchRunCompletedEvent))]
 
 // Content Events
 [JsonSerializable(typeof(TextMessageStartEvent))]
@@ -121,9 +124,9 @@ namespace HPD.Agent.Serialization;
 
 // Middleware Events
 [JsonSerializable(typeof(MiddlewareErrorEvent))]
-[JsonSerializable(typeof(HistoryReductionEvent))]
-[JsonSerializable(typeof(HistoryReductionStatus))]
-[JsonSerializable(typeof(HistoryReductionStrategy))]
+[JsonSerializable(typeof(CompactionEvent))]
+[JsonSerializable(typeof(CompactionStatus))]
+[JsonSerializable(typeof(CompactionStrategy))]
 [JsonSerializable(typeof(MaxConsecutiveErrorsExceededEvent))]
 [JsonSerializable(typeof(TotalErrorThresholdExceededEvent))]
 [JsonSerializable(typeof(PIIDetectedEvent))]
@@ -142,9 +145,14 @@ namespace HPD.Agent.Serialization;
 // Branch events removed - branching is now an application-level concern
 // Applications should define their own branch event types if needed
 
-// Asset Events
-[JsonSerializable(typeof(AssetUploadedEvent))]
-[JsonSerializable(typeof(AssetUploadFailedEvent))]
+// Content Events
+[JsonSerializable(typeof(ContentUploadedEvent))]
+[JsonSerializable(typeof(ContentUploadFailedEvent))]
+[JsonSerializable(typeof(HostedFileUploadedEvent))]
+[JsonSerializable(typeof(HostedFileUploadFailedEvent))]
+[JsonSerializable(typeof(ContentReferenceResolvedEvent))]
+[JsonSerializable(typeof(ContentReferenceResolutionFailedEvent))]
+[JsonSerializable(typeof(ContentReferenceResolutionKind))]
 
 // Observability Events
 [JsonSerializable(typeof(CollapsedToolsVisibleEvent))]
@@ -153,7 +161,7 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(PermissionCheckEvent))]
 [JsonSerializable(typeof(IterationStartEvent))]
 [JsonSerializable(typeof(CircuitBreakerTriggeredEvent))]
-[JsonSerializable(typeof(HistoryReductionCacheEvent))]
+[JsonSerializable(typeof(CompactionCacheEvent))]
 [JsonSerializable(typeof(CheckpointEvent))]
 [JsonSerializable(typeof(CheckpointOperation))]
 [JsonSerializable(typeof(InternalParallelToolExecutionEvent))]

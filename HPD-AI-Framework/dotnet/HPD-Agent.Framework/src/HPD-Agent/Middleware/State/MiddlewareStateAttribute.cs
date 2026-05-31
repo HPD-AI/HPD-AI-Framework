@@ -97,7 +97,7 @@ public sealed class MiddlewareStateAttribute : Attribute
     /// Use Persistent = true for state that should survive across runs:
     /// </para>
     /// <list type="bullet">
-    /// <item>Expensive caches (e.g., HistoryReductionStateData - avoid re-summarization)</item>
+    /// <item>Expensive caches (e.g., CompactionStateData - avoid re-summarization)</item>
     /// <item>User preferences (e.g., PermissionStateData - remember permission choices)</item>
     /// </list>
     ///

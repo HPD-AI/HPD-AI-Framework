@@ -23,7 +23,6 @@ public class ChatClientInheritanceTests
         {
             Name = "TestAgent",
             SystemInstructions = "You are a test agent",
-            Provider = null // No provider configured
         };
         var factory = CreateConfigAgentFactory(config);
 
@@ -43,7 +42,6 @@ public class ChatClientInheritanceTests
         {
             Name = "TestAgent",
             SystemInstructions = "You are a test agent",
-            Provider = null
         };
         var factory = CreateConfigAgentFactory(config);
 
@@ -118,7 +116,6 @@ public class ChatClientInheritanceTests
         {
             Name = "DeferredAgent",
             SystemInstructions = "Test",
-            Provider = null
         };
 
         // Act - should not throw even without provider
@@ -136,7 +133,6 @@ public class ChatClientInheritanceTests
         {
             Name = "DeferredAgent",
             SystemInstructions = "Test",
-            Provider = null
         };
 
         var builder = new AgentBuilder(config).WithDeferredProvider();
@@ -157,7 +153,6 @@ public class ChatClientInheritanceTests
         {
             Name = "RuntimeConfiguredAgent",
             SystemInstructions = "Test",
-            Provider = null
         };
 
         var agent = await new AgentBuilder(config).BuildAsync(CancellationToken.None);
@@ -204,14 +199,12 @@ public class ChatClientInheritanceTests
         {
             Name = "Solver",
             SystemInstructions = "Solve problems",
-            Provider = null
         };
 
         var verifierConfig = new AgentConfig
         {
             Name = "Verifier",
             SystemInstructions = "Verify solutions",
-            Provider = null
         };
 
         // Build workflow with configs (deferred building)
@@ -300,7 +293,7 @@ internal sealed class TestConfigAgentFactory : AgentFactory
     {
         var builder = new AgentBuilder(_config);
 
-        if (_config.Provider == null && fallbackChatClient != null)
+        if (_config.ResolveClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat) == null && fallbackChatClient != null)
         {
             builder.WithChatClient(fallbackChatClient);
         }

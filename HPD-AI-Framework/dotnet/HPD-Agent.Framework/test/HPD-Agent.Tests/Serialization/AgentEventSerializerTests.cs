@@ -220,13 +220,13 @@ public class AgentEventSerializerTests
 
     #endregion
 
-    #region ExecutionContext Tests
+    #region Agent Metadata Tests
 
     [Fact]
-    public void ToJson_ExecutionContext_SerializesCorrectly()
+    public void ToJson_Metadata_SerializesCorrectly()
     {
         // Arrange
-        var context = new AgentExecutionContext
+        var context = new AgentMetadata
         {
             AgentName = "SubAgent A",
             AgentId = "parent-abc-subagent-def",
@@ -235,20 +235,20 @@ public class AgentEventSerializerTests
         };
         var evt = new TextDeltaEvent("hello", "msg-123")
         {
-            ExecutionContext = context
+            Metadata = context
         };
 
         // Act
         var json = AgentEventSerializer.ToJson(evt);
 
         // Assert
-        Assert.Contains("\"executionContext\"", json);
+        Assert.Contains("\"metadata\"", json);
         Assert.Contains("\"agentName\":\"SubAgent A\"", json);
         Assert.Contains("\"depth\":2", json);
     }
 
     [Fact]
-    public void ToJson_NullExecutionContext_IsOmitted()
+    public void ToJson_NullMetadata_IsOmitted()
     {
         // Arrange
         var evt = new TextDeltaEvent("hello", "msg-123");
@@ -257,7 +257,7 @@ public class AgentEventSerializerTests
         var json = AgentEventSerializer.ToJson(evt);
 
         // Assert
-        Assert.DoesNotContain("executionContext", json);
+        Assert.DoesNotContain("metadata", json);
     }
 
     #endregion

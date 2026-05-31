@@ -23,6 +23,8 @@ export interface RunConfig {
   providerKey?: string;
   /** Model ID (e.g. "claude-sonnet-4-6") */
   modelId?: string;
+  /** Provider-specific JSON options interpreted by the selected backend provider */
+  providerOptionsJson?: string;
   /** Additional system instructions appended to the agent's system prompt */
   additionalSystemInstructions?: string;
   /** Chat-level sampling parameters */

@@ -160,11 +160,10 @@ public class ServiceRegistrationTests
             var config = new AgentConfig
             {
                 Name = "TestAgent",
-                Provider = new ProviderConfig
-                {
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                     ProviderKey = "test",
                     ModelName = "test-model"
-                }
+                } }
             };
 
             var chatClient = new HPD.Agent.AspNetCore.Tests.TestInfrastructure.FakeChatClient();

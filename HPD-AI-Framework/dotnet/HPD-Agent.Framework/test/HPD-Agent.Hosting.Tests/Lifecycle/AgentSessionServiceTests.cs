@@ -79,13 +79,13 @@ public class AgentSessionServiceTests : IDisposable
     public async Task DeleteSessionAsync_DeletesStoreData_AndCleansLocks()
     {
         var created = await _service.CreateSessionAsync(new CreateSessionRequest("delete-me", null));
-        _manager.TryAcquireStreamLock(created.Id, "main").Should().BeTrue();
-        _manager.ReleaseStreamLock(created.Id, "main");
+        _manager.TryAcquireBranchOperationLock(created.Id, "main").Should().BeTrue();
+        _manager.ReleaseBranchOperationLock(created.Id, "main");
 
         (await _service.DeleteSessionAsync(created.Id)).Should().BeTrue();
 
         (await _store.LoadSessionAsync(created.Id)).Should().BeNull();
-        _manager.TryAcquireStreamLock(created.Id, "main").Should().BeTrue();
+        _manager.TryAcquireBranchOperationLock(created.Id, "main").Should().BeTrue();
     }
 
     private sealed class TestSessionManager : SessionManager

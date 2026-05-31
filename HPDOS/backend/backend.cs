@@ -36,6 +36,8 @@ var sessionStorePath = ResolveStorePath(
     builder.Configuration["HPDOS:SessionStorePath"],
     Path.Combine(dataRoot, "sessions"),
     backendDirectory);
+var providerCredentialStore = new HpdosProviderCredentialStore(dataRoot);
+var customModelStore = new HpdosCustomModelStore(dataRoot);
 
 Directory.CreateDirectory(agentStorePath);
 Directory.CreateDirectory(sessionStorePath);
@@ -52,13 +54,17 @@ builder.Services.AddHPDAgent("hpdos", options =>
     options.ConfigureAgent = agent =>
     {
         agent.WithAPIConfiguration(builder.Configuration)
+            .AddSecretResolver(providerCredentialStore)
             .WithLocalExecution();
     };
 });
 TraceStartup("agent services configured");
 
 builder.Services.AddSingleton(projectContext);
-builder.Services.AddSingleton(new HpdosWorkspaceStoreService(dataRoot, projectContext));
+builder.Services.AddSingleton(providerCredentialStore);
+builder.Services.AddSingleton(customModelStore);
+builder.Services.AddSingleton(new HpdosModelCatalogService(backendDirectory, customModelStore));
+builder.Services.AddSingleton(new HpdosWorkspaceStoreService(dataRoot));
 builder.Services.AddSingleton<HpdosWorkspaceFileService>();
 builder.Services.AddSingleton<HpdosTerminalService>();
 TraceStartup("hpdos services configured");
@@ -87,6 +93,8 @@ app.MapGet("/api/hpdos/runtime", () => Results.Ok(new
     agentApi = "/api/hpd-agent",
     project = projectContext
 }));
+
+app.MapHpdosProviderCatalogEndpoints();
 
 app.MapGet("/api/hpdos/workspaces", async (HpdosWorkspaceStoreService workspaces, CancellationToken ct) =>
     Results.Ok(await workspaces.GetAsync(ct)));

@@ -28,6 +28,51 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
         return session!.Id;
     }
 
+    private async Task<string> EnsureForkMessageAsync(string sessionId, string branchId = "main")
+    {
+        var existing = await TryGetFirstUserMessageIdAsync(sessionId, branchId);
+        if (!string.IsNullOrWhiteSpace(existing))
+            return existing!;
+
+        var inputResponse = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/branches/{branchId}/inputs",
+            new StreamTextRequest("Seed fork message"));
+        inputResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        for (var i = 0; i < 50; i++)
+        {
+            var messageId = await TryGetFirstUserMessageIdAsync(sessionId, branchId);
+            if (!string.IsNullOrWhiteSpace(messageId))
+                return messageId!;
+
+            await Task.Delay(50);
+        }
+
+        throw new TimeoutException("Timed out waiting for a persisted fork message.");
+    }
+
+    private async Task<string?> TryGetFirstUserMessageIdAsync(string sessionId, string branchId)
+    {
+        var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/branches/{branchId}/events");
+        eventsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var document = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
+        foreach (var evt in document.RootElement.EnumerateArray())
+        {
+            if (evt.GetProperty("type").GetString() != BranchEventTypes.MessageStarted)
+                continue;
+
+            if (evt.TryGetProperty("role", out var role) &&
+                string.Equals(role.GetString(), "user", StringComparison.OrdinalIgnoreCase) &&
+                evt.TryGetProperty("messageId", out var messageId))
+            {
+                return messageId.GetString();
+            }
+        }
+
+        return null;
+    }
+
     #region GET /sessions/{sid}/branches
 
     [Fact]
@@ -243,9 +288,10 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
+        var forkMessageId = await EnsureForkMessageAsync(sessionId);
         var request = new ForkBranchRequest(
             "forked",
-            0,
+            forkMessageId,
             "Forked Branch",
             "Forked from main",
             null);
@@ -261,16 +307,16 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
         branch.Should().NotBeNull();
         branch!.Id.Should().Be("forked");
         branch.ForkedFrom.Should().Be("main");
+        branch.ForkedAtMessageId.Should().Be(forkMessageId);
         branch.ForkedAtMessageIndex.Should().Be(0);
     }
 
     [Fact]
-    public async Task ForkBranch_CopiesMessagesUpToIndex()
+    public async Task ForkBranch_CopiesMessagesThroughMessageId()
     {
-        // This test would require sending messages first
-        // Simplified test just verifies the fork operation succeeds
         var sessionId = await CreateTestSession();
-        var request = new ForkBranchRequest("fork1", 0, "Fork", null, null);
+        var forkMessageId = await EnsureForkMessageAsync(sessionId);
+        var request = new ForkBranchRequest("fork1", forkMessageId, "Fork", null, null);
 
         // Act
         var response = await _client.PostAsJsonAsync(
@@ -286,7 +332,8 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var request = new ForkBranchRequest("fork2", 0, null, null, null);
+        var forkMessageId = await EnsureForkMessageAsync(sessionId);
+        var request = new ForkBranchRequest("fork2", forkMessageId, null, null, null);
 
         // Act
         var response = await _client.PostAsJsonAsync(
@@ -296,6 +343,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
         // Assert
         var branch = await response.Content.ReadFromJsonAsync<BranchDto>();
         branch!.ForkedFrom.Should().Be("main");
+        branch.ForkedAtMessageId.Should().Be(forkMessageId);
         branch.ForkedAtMessageIndex.Should().Be(0);
     }
 
@@ -304,7 +352,8 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var request = new ForkBranchRequest("fork3", 0, null, null, null);
+        var forkMessageId = await EnsureForkMessageAsync(sessionId);
+        var request = new ForkBranchRequest("fork3", forkMessageId, null, null, null);
 
         // Act
         var response = await _client.PostAsJsonAsync(
@@ -322,7 +371,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var request = new ForkBranchRequest("fork", 0, null, null, null);
+        var request = new ForkBranchRequest("fork", "missing-message", null, null, null);
 
         // Act
         var response = await _client.PostAsJsonAsync(
@@ -334,11 +383,11 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task ForkBranch_Returns400_WhenIndexOutOfBounds()
+    public async Task ForkBranch_Returns400_WhenMessageIsNotPresent()
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var request = new ForkBranchRequest("fork", 999, null, null, null); // Index too high
+        var request = new ForkBranchRequest("fork", "missing-message", null, null, null);
 
         // Act
         var response = await _client.PostAsJsonAsync(
@@ -426,7 +475,8 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
     public async Task GetBranchEvents_ReturnsForkEvent_ForForkedBranch()
     {
         var sessionId = await CreateTestSession();
-        var forkRequest = new ForkBranchRequest("fork-1", 0, "Fork 1", null, null);
+        var forkMessageId = await EnsureForkMessageAsync(sessionId);
+        var forkRequest = new ForkBranchRequest("fork-1", forkMessageId, "Fork 1", null, null);
 
         var forkResponse = await _client.PostAsJsonAsync(
             $"/agents/test-agent/sessions/{sessionId}/branches/main/fork",
@@ -442,7 +492,8 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
         var forked = events.Single(e => e.GetProperty("type").GetString() == BranchEventTypes.BranchForked);
         forked.GetProperty("sourceBranchId").GetString().Should().Be("main");
-        forked.GetProperty("fromMessageIndex").GetInt32().Should().Be(0);
+        forked.GetProperty("fromMessageId").GetString().Should().Be(forkMessageId);
+        forked.GetProperty("resolvedMessageIndex").GetInt32().Should().Be(0);
     }
 
     #endregion
@@ -454,12 +505,13 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
     {
         // Arrange
         var sessionId = await CreateTestSession();
+        var forkMessageId = await EnsureForkMessageAsync(sessionId);
 
         // Create sibling branches
         await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/fork",
-            new ForkBranchRequest("sibling1", 0, null, null, null));
+            new ForkBranchRequest("sibling1", forkMessageId, null, null, null));
         await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/fork",
-            new ForkBranchRequest("sibling2", 0, null, null, null));
+            new ForkBranchRequest("sibling2", forkMessageId, null, null, null));
 
         // Act
         var response = await _client.GetAsync($"/sessions/{sessionId}/branches/sibling1/siblings");
@@ -570,6 +622,36 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
         var branch = await getResp.Content.ReadFromJsonAsync<BranchDto>();
         branch!.Tags.Should().NotBeNull();
         branch.Tags!.Should().BeEquivalentTo(["alpha", "beta"]);
+    }
+
+    [Fact]
+    public async Task UpdateBranch_MergesAndRemovesMetadata()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/branches",
+            new CreateBranchRequest("metadata-test", "T", null, null, new Dictionary<string, object>
+            {
+                ["purpose"] = "draft",
+                ["pinned"] = true
+            }));
+
+        // Act
+        var patchReq = new UpdateBranchRequest(null, null, null, new Dictionary<string, object?>
+        {
+            ["purpose"] = "final",
+            ["pinned"] = null,
+            ["variant"] = "concise"
+        });
+        var response = await _client.PatchAsJsonAsync($"/sessions/{sessionId}/branches/metadata-test", patchReq);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var branch = await response.Content.ReadFromJsonAsync<BranchDto>();
+        branch!.Metadata.Should().NotBeNull();
+        branch.Metadata!.Keys.Should().BeEquivalentTo(["purpose", "variant"]);
+        branch.Metadata["purpose"].ToString().Should().Be("final");
+        branch.Metadata["variant"].ToString().Should().Be("concise");
     }
 
     [Fact]

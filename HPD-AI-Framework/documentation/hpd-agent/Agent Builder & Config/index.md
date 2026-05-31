@@ -21,7 +21,7 @@ These are nested config classes on `AgentConfig`. Each has its own reference pag
 | Document | Config Class | Description |
 |----------|-------------|-------------|
 | [Error Handling](Error%20Handling.md) | `ErrorHandlingConfig` | Retries, backoff, timeouts, error formatting |
-| [History Reduction](History%20Reduction.md) | `HistoryReductionConfig` | Trim or summarize conversation history |
+| [Compaction](Compaction.md) | `CompactionConfig` | Trim or summarize conversation history |
 | [Caching](Caching.md) | `CachingConfig` | Distributed LLM response caching |
 | [Collapsing](Collapsing.md) | `CollapsingConfig` | Hierarchical harness organization |
 | [Observability](Observability.md) | `ObservabilityConfig` | Event sampling and observer circuit breaker |

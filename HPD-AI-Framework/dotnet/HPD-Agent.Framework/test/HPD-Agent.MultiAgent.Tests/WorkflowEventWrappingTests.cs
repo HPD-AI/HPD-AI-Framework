@@ -13,7 +13,7 @@ namespace HPD.MultiAgent.Tests;
 /// </summary>
 public class WorkflowEventWrappingTests
 {
-    private readonly AgentExecutionContext _testContext = new()
+    private readonly AgentMetadata _testContext = new()
     {
         AgentName = "TestWorkflow",
         AgentId = "test-workflow-123",
@@ -22,7 +22,7 @@ public class WorkflowEventWrappingTests
     };
 
     // Helper to access the private WrapGraphEvent method via reflection for testing
-    private Event? WrapGraphEvent(Event evt, AgentExecutionContext context)
+    private Event? WrapGraphEvent(Event evt, AgentMetadata context)
     {
         // Since WrapGraphEvent is private, we test it indirectly through the public API
         // or we could use a test-specific internal accessor
@@ -31,7 +31,7 @@ public class WorkflowEventWrappingTests
     }
 
     // Mirror of the WrapGraphEvent logic for testing
-    private static Event? MapGraphEventToWorkflowEvent(Event evt, AgentExecutionContext context, string workflowName)
+    private static Event? MapGraphEventToWorkflowEvent(Event evt, AgentMetadata context, string workflowName)
     {
         return evt switch
         {
@@ -40,7 +40,7 @@ public class WorkflowEventWrappingTests
                 WorkflowName = workflowName,
                 NodeCount = g.NodeCount,
                 LayerCount = g.LayerCount,
-                ExecutionContext = context
+                Metadata = context
             },
 
             GraphExecutionCompletedEvent g => new WorkflowCompletedEvent
@@ -50,7 +50,7 @@ public class WorkflowEventWrappingTests
                 SuccessfulNodes = g.SuccessfulNodes,
                 FailedNodes = g.FailedNodes,
                 SkippedNodes = g.SkippedNodes,
-                ExecutionContext = context
+                Metadata = context
             },
 
             NodeExecutionStartedEvent n => new WorkflowNodeStartedEvent
@@ -59,7 +59,7 @@ public class WorkflowEventWrappingTests
                 NodeId = n.NodeId,
                 AgentName = n.HandlerName,
                 LayerIndex = n.LayerIndex,
-                ExecutionContext = context
+                Metadata = context
             },
 
             NodeExecutionCompletedEvent n => new WorkflowNodeCompletedEvent
@@ -72,7 +72,7 @@ public class WorkflowEventWrappingTests
                 Progress = n.Progress,
                 Outputs = n.Outputs,
                 ErrorMessage = n.Result is NodeExecutionResult.Failure f ? f.Exception.Message : null,
-                ExecutionContext = context
+                Metadata = context
             },
 
             NodeSkippedEvent n => new WorkflowNodeSkippedEvent
@@ -80,7 +80,7 @@ public class WorkflowEventWrappingTests
                 WorkflowName = workflowName,
                 NodeId = n.NodeId,
                 Reason = n.Reason,
-                ExecutionContext = context
+                Metadata = context
             },
 
             LayerExecutionStartedEvent l => new WorkflowLayerStartedEvent
@@ -88,7 +88,7 @@ public class WorkflowEventWrappingTests
                 WorkflowName = workflowName,
                 LayerIndex = l.LayerIndex,
                 NodeCount = l.NodeCount,
-                ExecutionContext = context
+                Metadata = context
             },
 
             LayerExecutionCompletedEvent l => new WorkflowLayerCompletedEvent
@@ -97,7 +97,7 @@ public class WorkflowEventWrappingTests
                 LayerIndex = l.LayerIndex,
                 Duration = l.Duration,
                 SuccessfulNodes = l.SuccessfulNodes,
-                ExecutionContext = context
+                Metadata = context
             },
 
             EdgeTraversedEvent e => new WorkflowEdgeTraversedEvent
@@ -107,7 +107,7 @@ public class WorkflowEventWrappingTests
                 ToNodeId = e.ToNodeId,
                 HasCondition = e.HasCondition,
                 ConditionDescription = e.ConditionDescription,
-                ExecutionContext = context
+                Metadata = context
             },
 
             GraphDiagnosticEvent d => new WorkflowDiagnosticEvent
@@ -117,7 +117,7 @@ public class WorkflowEventWrappingTests
                 Source = d.Source,
                 Message = d.Message,
                 NodeId = d.NodeId,
-                ExecutionContext = context
+                Metadata = context
             },
 
             AgentEvent ae => ae,
@@ -144,7 +144,7 @@ public class WorkflowEventWrappingTests
         workflowEvent.WorkflowName.Should().Be("TestWorkflow");
         workflowEvent.NodeCount.Should().Be(5);
         workflowEvent.LayerCount.Should().Be(2);
-        workflowEvent.ExecutionContext.Should().Be(_testContext);
+        workflowEvent.Metadata.Should().Be(_testContext);
     }
 
     [Fact]
@@ -473,10 +473,10 @@ public class WorkflowEventWrappingTests
 
     #endregion
 
-    #region ExecutionContext Propagation Tests
+    #region AgentMetadata Propagation Tests
 
     [Fact]
-    public void WrapGraphEvent_AllWrappedEvents_HaveExecutionContext()
+    public void WrapGraphEvent_AllWrappedEvents_HaveAgentMetadata()
     {
         var events = new Event[]
         {
@@ -505,8 +505,8 @@ public class WorkflowEventWrappingTests
 
             if (wrapped is AgentEvent agentEvent)
             {
-                agentEvent.ExecutionContext.Should().Be(_testContext,
-                    $"Event {wrapped.GetType().Name} should have ExecutionContext set");
+                agentEvent.Metadata.Should().Be(_testContext,
+                    $"Event {wrapped.GetType().Name} should have AgentMetadata set");
             }
         }
     }

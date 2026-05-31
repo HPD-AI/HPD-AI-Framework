@@ -35,7 +35,7 @@ import type {
 	StoredAgentDto,
 	CreateAgentRequest,
 	UpdateAgentRequest,
-	AssetReference,
+	ContentReference,
 } from '@hpd/hpd-agent-client';
 
 // ---------------------------------------------------------------------------
@@ -107,9 +107,9 @@ function makeFakeClient(
 	}
 
 	/** Re-index all siblings at a given fork point, updating navigation pointers. */
-	function reindexSiblings(sourceId: string, forkAtIndex: number) {
+	function reindexSiblings(sourceId: string, forkAtMessageId: string) {
 		const forks = Array.from(byId.values())
-			.filter(b => b.forkedFrom === sourceId && b.forkedAtMessageIndex === forkAtIndex)
+			.filter(b => b.forkedFrom === sourceId && b.forkedAtMessageId === forkAtMessageId)
 			.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
 		const source = byId.get(sourceId)!;
@@ -149,15 +149,18 @@ function makeFakeClient(
 
 		forkBranch: vi.fn(async (_sid, sourceBranchId: string, opts: ForkBranchRequest) => {
 			const source = byId.get(sourceBranchId)!;
-			const forkAtIndex = opts.fromMessageIndex;
+			const srcMsgs = messages.get(sourceBranchId) ?? [];
+			const forkAtIndex = srcMsgs.findIndex(message => message.id === opts.fromMessageId);
+			if (forkAtIndex < 0) throw new Error(`Missing fork message ${opts.fromMessageId}`);
 
 			const existingForks = Array.from(byId.values()).filter(
-				b => b.forkedFrom === sourceBranchId && b.forkedAtMessageIndex === forkAtIndex
+				b => b.forkedFrom === sourceBranchId && b.forkedAtMessageId === opts.fromMessageId
 			);
 
 			const newBranch = makeBranch(opts.newBranchId ?? `fork-${byId.size}`, sessionId, {
 				isOriginal: false,
 				forkedFrom: sourceBranchId,
+				forkedAtMessageId: opts.fromMessageId,
 				forkedAtMessageIndex: forkAtIndex,
 				siblingIndex: existingForks.length + 1,
 				totalSiblings: existingForks.length + 2,
@@ -168,10 +171,9 @@ function makeFakeClient(
 			byId.set(newBranch.id, newBranch);
 
 			// Copy messages up to and including forkAtIndex
-			const srcMsgs = messages.get(sourceBranchId) ?? [];
 			messages.set(newBranch.id, srcMsgs.slice(0, forkAtIndex + 1));
 
-			reindexSiblings(sourceBranchId, forkAtIndex);
+			reindexSiblings(sourceBranchId, opts.fromMessageId);
 
 			return newBranch;
 		}),
@@ -188,7 +190,7 @@ function makeFakeClient(
 		createAgent: vi.fn(async (_req: CreateAgentRequest): Promise<StoredAgentDto> => { throw new Error('not implemented'); }),
 		updateAgent: vi.fn(async (_id: string, _req: UpdateAgentRequest): Promise<StoredAgentDto> => { throw new Error('not implemented'); }),
 		deleteAgent: vi.fn(async () => {}),
-		uploadAsset: vi.fn(async (): Promise<AssetReference> => ({ assetId: 'a', contentType: 'image/png', name: 'x.png' })),
+		uploadContent: vi.fn(async (): Promise<ContentReference> => ({ contentId: 'a', version: 'rev:1', contentType: 'image/png', name: 'x.png' })),
 	};
 
 	return { client, byId, messages };
@@ -238,7 +240,7 @@ describe('editMessage() — source branch selection', () => {
 		const forkCalls = capturedForkCalls(client);
 		expect(forkCalls).toHaveLength(1);
 		expect(forkCalls[0][1]).toBe('main');                // sourceBranchId
-		expect(forkCalls[0][2].fromMessageIndex).toBe(3);   // forkAtIndex = messageIndex - 1
+		expect(forkCalls[0][2].fromMessageId).toBe('msg-a-3'); // forkAtIndex = messageIndex - 1
 	});
 
 	it('second edit from a fork at the same forkAtIndex forks from the ORIGINAL branch, not the current fork', async () => {
@@ -258,7 +260,7 @@ describe('editMessage() — source branch selection', () => {
 		// Second fork must come from 'main', not fork1
 		expect(forkCalls[1][1]).toBe('main');
 		expect(forkCalls[1][1]).not.toBe(fork1Id);
-		expect(forkCalls[1][2].fromMessageIndex).toBe(3);
+		expect(forkCalls[1][2].fromMessageId).toBe('msg-a-3');
 	});
 
 	it('third and fourth edits still fork from the original branch (flat siblings)', async () => {
@@ -302,13 +304,13 @@ describe('editMessage() — source branch selection', () => {
 		const fork1Id = capturedForkCalls(client)[0][2].newBranchId!;
 
 		// On fork1, edit an EARLIER message at messageIndex=2 (forkAtIndex=1)
-		// fork1.forkedAtMessageIndex=3 !== 1, so should fork from fork1
+		// fork1.forkedAtMessageId=msg-a-3 !== msg-a-1, so should fork from fork1
 		await ws.editMessage(2, 'edit msg 2');
 
 		const forkCalls = capturedForkCalls(client);
 		expect(forkCalls).toHaveLength(2);
 		expect(forkCalls[1][1]).toBe(fork1Id);             // forks from current fork
-		expect(forkCalls[1][2].fromMessageIndex).toBe(1);  // forkAtIndex = 2 - 1
+		expect(forkCalls[1][2].fromMessageId).toBe('msg-a-1'); // forkAtIndex = 2 - 1
 	});
 
 	it('retry (re-edit with same content) creates a flat sibling, not a fork-of-fork', async () => {

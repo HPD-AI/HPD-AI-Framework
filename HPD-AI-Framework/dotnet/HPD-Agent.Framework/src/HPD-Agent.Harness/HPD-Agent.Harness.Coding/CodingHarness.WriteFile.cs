@@ -113,7 +113,7 @@ public partial class CodingHarness
             return new WriteFileValidationResult(FileWriteMode.FillEmpty, RequiresFullRead: false, null, null, null);
 
         var readFileStateKey = typeof(ReadFileState).FullName!;
-        var historyReductionStateKey = typeof(HistoryReductionStateData).FullName!;
+        var compactionStateKey = typeof(CompactionStateData).FullName!;
         var priorRead = context
             .Analyze(state => state.MiddlewareState.GetState<ReadFileState>(readFileStateKey))
             ?.FilesByPath.GetValueOrDefault(fullPath);
@@ -128,9 +128,9 @@ public partial class CodingHarness
                 "Existing file has not been fully read. Read it before rewriting it.");
         }
 
-        var historyReductionState = context
-            .Analyze(state => state.MiddlewareState.GetState<HistoryReductionStateData>(historyReductionStateKey));
-        if (historyReductionState?.LastAppliedAt > priorRead.ReadAt)
+        var compactionState = context
+            .Analyze(state => state.MiddlewareState.GetState<CompactionStateData>(compactionStateKey));
+        if (compactionState?.LastAppliedAt > priorRead.ReadAt)
         {
             return new WriteFileValidationResult(
                 FileWriteMode.Rewrite,

@@ -36,7 +36,7 @@ import {
 	type PermissionChoice,
 	type Branch,
 	type BranchMessage,
-	type AssetReference,
+	type ContentReference,
 	type CreateBranchRequest,
 	type CreateSessionRequest,
 	type Session,
@@ -184,7 +184,7 @@ class WorkspaceImpl implements Workspace {
 			.filter(
 				(b) =>
 					b.forkedFrom === branch.forkedFrom &&
-					b.forkedAtMessageIndex === branch.forkedAtMessageIndex
+					b.forkedAtMessageId === branch.forkedAtMessageId
 			)
 			.sort((a, b) => a.siblingIndex - b.siblingIndex);
 	});
@@ -676,24 +676,26 @@ class WorkspaceImpl implements Workspace {
 
 		// Fork at the last assistant turn before the edited message so the fork contains
 		// everything up to (but not including) the user message being replaced.
-		// For messageIndex=0 (no preceding turn), fork at 0 — the fork will contain
-		// the original first message as context, which is acceptable for sibling wiring.
 		const forkAtIndex = Math.max(0, messageIndex - 1);
+		const fromMessageId = messages[forkAtIndex]?.id;
+		if (!fromMessageId) {
+			throw new Error('Cannot fork because the fork point message has no id');
+		}
 
 		// Always fork from the branch that OWNS the shared context at forkAtIndex.
-		// If the current branch is itself a fork at this same index (forkedAtMessageIndex === forkAtIndex),
+		// If the current branch is itself a fork at this same message (forkedAtMessageId === fromMessageId),
 		// then its parent already owns the shared context — fork from the parent instead.
 		// This ensures all edits of the same message become flat siblings of the original branch
 		// rather than a linear chain of forks-of-forks.
 		const activeBranch = this.#branches.get(branchId)!;
 		const sourceBranchId =
-			!activeBranch.isOriginal && activeBranch.forkedAtMessageIndex === forkAtIndex
+			!activeBranch.isOriginal && activeBranch.forkedAtMessageId === fromMessageId
 				? activeBranch.forkedFrom!
 				: branchId;
 
 		const fork = await this.#client.forkBranch(sessionId, sourceBranchId, {
 			newBranchId: crypto.randomUUID(),
-			fromMessageIndex: forkAtIndex,
+			fromMessageId,
 			name: `Edit: ${newContent.slice(0, 30)}${newContent.length > 30 ? '...' : ''}`,
 			agentId: this.#activeAgentId ?? undefined
 		});
@@ -714,7 +716,7 @@ class WorkspaceImpl implements Workspace {
 		const allBranches = Array.from(this.#branches.values());
 		const siblingsToRefresh = allBranches.filter(
 			b => b.id !== fork.id && b.id !== sourceBranchId &&
-				b.forkedFrom === sourceBranchId && b.forkedAtMessageIndex === forkAtIndex
+				b.forkedFrom === sourceBranchId && b.forkedAtMessageId === fromMessageId
 		);
 		if (siblingsToRefresh.length > 0) {
 			const refreshed = new Map(this.#branches);
@@ -744,7 +746,7 @@ class WorkspaceImpl implements Workspace {
 					(b) =>
 						b.id !== branchId &&
 						b.forkedFrom === branchToDelete.forkedFrom &&
-						b.forkedAtMessageIndex === branchToDelete.forkedAtMessageIndex
+						b.forkedAtMessageId === branchToDelete.forkedAtMessageId
 				)
 			: [];
 
@@ -888,16 +890,16 @@ class WorkspaceImpl implements Workspace {
 		return input;
 	}
 
-	#buildMessages(content: string, attachments?: AssetReference[]): Array<{ content: string; role?: string }> {
+	#buildMessages(content: string, attachments?: ContentReference[]): Array<{ content: string; role?: string }> {
 		// The transport wire format uses { content: string } messages.
-		// Attachments are injected as asset:// URIs appended to the text content.
+		// Attachments are injected as hpd-content:// URIs appended to the text content.
 		if (!attachments || attachments.length === 0) {
 			return [{ content }];
 		}
-		const assetRefs = attachments
-			.map((a) => `asset://${a.assetId}`)
+		const contentRefs = attachments
+			.map((a) => `hpd-content://${a.contentId}`)
 			.join(' ');
-		return [{ content: `${content}\n${assetRefs}`.trimStart() }];
+		return [{ content: `${content}\n${contentRefs}`.trimStart() }];
 	}
 
 	abort(): void {

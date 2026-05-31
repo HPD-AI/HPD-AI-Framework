@@ -10,16 +10,19 @@ import type { AgentTransport, RuntimeScope, RunTransportOptions } from './types/
 import type {
   Session,
   Branch,
+  BranchMessage,
   SiblingBranch,
   BranchEvent,
-  AssetReference,
+  ContentReference,
   CreateSessionRequest,
   SearchSessionsRequest,
   UpdateSessionRequest,
   ListSessionsOptions,
   CreateBranchRequest,
   ForkBranchRequest,
+  UpdateBranchRequest,
 } from './types/session.js';
+import type { BranchRun } from './types/branch-run.js';
 import type {
   AgentSummaryDto,
   StoredAgentDto,
@@ -139,9 +142,17 @@ export class AgentClient {
     this.transport.disconnect();
   }
 
-  async run(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<void> {
-    await this.transport.run(input, options);
+  async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<void> {
+    await this.transport.submitInput(input, options);
     await this.outputDispatchQueue;
+  }
+
+  async run(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<void> {
+    await this.submitInput(input, options);
+  }
+
+  abort(): void {
+    this.transport.disconnect();
   }
 
   on<TType extends KnownAgentEvent['type']>(
@@ -195,7 +206,7 @@ export class AgentClient {
 
     if (event.type === EventTypes.CLIENT_TOOL_INVOKE_REQUEST) {
       const toolResponse = await this.tools.handleInvoke(event as ClientToolInvokeRequestEvent);
-      await this.transport.run({
+      await this.transport.submitInput({
         type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
         requestId: toolResponse.requestId,
         content: toolResponse.content,
@@ -213,16 +224,16 @@ export class AgentClient {
   }
 
   /**
-   * Abort the current stream.
+   * Disconnect the active transport observer.
    */
-  abort(): void {
+  disconnectLive(): void {
     this.transport.disconnect();
   }
 
   /**
-   * Check if currently streaming.
+   * Check if the live observer transport is connected.
    */
-  get streaming(): boolean {
+  get connected(): boolean {
     return this.transport.connected;
   }
 
@@ -274,12 +285,32 @@ export class AgentClient {
     return this.api.forkBranch(sessionId, branchId, options);
   }
 
+  updateBranch(sessionId: string, branchId: string, request: UpdateBranchRequest): Promise<Branch> {
+    return this.api.updateBranch(sessionId, branchId, request);
+  }
+
   deleteBranch(sessionId: string, branchId: string, options?: { recursive?: boolean }): Promise<void> {
     return this.api.deleteBranch(sessionId, branchId, options);
   }
 
   getBranchEvents(sessionId: string, branchId: string): Promise<BranchEvent[]> {
     return this.api.getBranchEvents(sessionId, branchId);
+  }
+
+  getBranchMessages(sessionId: string, branchId: string): Promise<BranchMessage[]> {
+    return this.api.getBranchMessages(sessionId, branchId);
+  }
+
+  getBranchRuns(agentId: string, sessionId: string, branchId: string): Promise<BranchRun[]> {
+    return this.api.getBranchRuns(agentId, sessionId, branchId);
+  }
+
+  getActiveBranchRun(agentId: string, sessionId: string, branchId: string): Promise<BranchRun | null> {
+    return this.api.getActiveBranchRun(agentId, sessionId, branchId);
+  }
+
+  getBranchRun(agentId: string, sessionId: string, branchId: string, runtimeRunId: string): Promise<BranchRun | null> {
+    return this.api.getBranchRun(agentId, sessionId, branchId, runtimeRunId);
   }
 
   // ============================================
@@ -378,7 +409,7 @@ export class AgentClient {
     return this.api.getScoresByVersion(evaluatorName, version);
   }
 
-  uploadAsset(sessionId: string, file: File | Blob, name?: string): Promise<AssetReference> {
-    return this.api.uploadAsset(sessionId, file, name);
+  uploadContent(sessionId: string, file: File | Blob, name?: string): Promise<ContentReference> {
+    return this.api.uploadContent(sessionId, file, name);
   }
 }

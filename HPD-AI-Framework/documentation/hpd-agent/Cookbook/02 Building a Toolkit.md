@@ -111,7 +111,7 @@ When the agent activates the `Solve Equation` skill, the referenced functions be
 
 ## Step 3 — SubAgent: autonomous reasoning
 
-A **SubAgent** is a child agent delegated a task it figures out autonomously. Unlike a Skill, you don't enumerate the steps — the SubAgent reasons through the problem on its own, with its own isolated context and tool set.
+A **SubAgent** is a child agent delegated a task it figures out autonomously. Unlike a Skill, you don't enumerate the steps — the SubAgent reasons through the problem on its own, with its own child branch and tool set.
 
 Use a SubAgent when the path isn't predictable upfront — or when you want to keep the intermediate work out of the parent's context window.
 
@@ -137,7 +137,7 @@ public partial class MathHarness
                 5. Return: VALID (with brief explanation) or INVALID (with the specific step that fails and why)"
         };
 
-        return SubAgentFactory.Create(
+        return SubAgent.FromConfig(
             name: "Check Proof",
             description: "Verifies a mathematical proof step by step",
             agentConfig: config,
@@ -147,7 +147,7 @@ public partial class MathHarness
 }
 ```
 
-The SubAgent has its own isolated reasoning loop. It uses the `MathHarness` functions to check individual arithmetic steps, but its overall reasoning path — which steps to examine, what questions to ask — is fully autonomous. All that intermediate work is discarded when it's done; the parent only receives the final verdict.
+The SubAgent has its own reasoning loop and writes its intermediate work to a child branch. It uses the `MathHarness` functions to check individual arithmetic steps, but its overall reasoning path — which steps to examine, what questions to ask — is fully autonomous. The parent branch receives the final verdict as the tool result, while the child branch remains available for inspection.
 
 ---
 

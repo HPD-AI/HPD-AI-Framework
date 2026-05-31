@@ -4,15 +4,13 @@ using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using HPD.Agent;
-using HPD.Agent.Serialization;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
 
 namespace HPD.Agent.AspNetCore.Tests.Integration;
 
 /// <summary>
-/// Integration tests for SSE (Server-Sent Events) streaming endpoint.
-/// Tests: POST /agents/{agentId}/sessions/{sid}/branches/{bid}/stream
+/// Integration tests for runtime-owned input submission and observer-only SSE.
 /// </summary>
 public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
 {
@@ -32,249 +30,36 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         return session!.Id;
     }
 
-    private static string CreateInputJson(string text, AgentRunConfig? runConfig = null)
-    {
-        return JsonSerializer.Serialize(new StreamTextRequest(text, runConfig));
-    }
+    private static string CreateInputJson(string text, AgentRunConfig? runConfig = null) =>
+        JsonSerializer.Serialize(new StreamTextRequest(text, runConfig));
 
     private Task<HttpResponseMessage> PostInputAsync(
-        string url,
+        string sessionId,
+        string branchId,
         string json,
-        CancellationToken cancellationToken = default)
-    {
-        return _client.PostAsync(
-            url,
+        CancellationToken cancellationToken = default) =>
+        _client.PostAsync(
+            $"/agents/test-agent/sessions/{sessionId}/branches/{branchId}/inputs",
             new StringContent(json, Encoding.UTF8, "application/json"),
             cancellationToken);
-    }
-
-    #region POST /agents/{agentId}/sessions/{sid}/branches/{bid}/stream
 
     [Fact]
-    public async Task StreamSse_ReturnsSSE_WithCorrectContentType()
+    public async Task SubmitInput_ReturnsAccepted()
     {
-        // Arrange
         var sessionId = await CreateTestSession();
-        var request = CreateInputJson("Test message");
 
-        // Act
-        var response = await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
+        var response = await PostInputAsync(sessionId, "main", CreateInputJson("Hello"));
 
-        // Assert
-        response.Content.Headers.ContentType!.MediaType.Should().Be("text/event-stream");
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
     }
 
     [Fact]
-    public async Task StreamSse_SendsTextDeltaEvents()
+    public async Task SubmitInput_UsesRunConfig_WhenProvided()
     {
-        // Arrange
-        var sessionId = await CreateTestSession();
-        var request = CreateInputJson("Hello");
-
-        // Act
-        var response = await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        // Full SSE parsing would require reading the stream
-        // For now, verify the response is successful
-    }
-
-    [Fact]
-    public async Task StreamSse_StreamsSerializedEventEnvelopeDataLines()
-    {
-        // Arrange
-        var sessionId = await CreateTestSession();
-        var request = CreateInputJson("Hello");
-
-        // Act
-        var response = await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
-        var body = await response.Content.ReadAsStringAsync();
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        body.Should().Contain("data:");
-        body.Should().Contain("\"type\":\"TEXT_DELTA\"");
-        body.Should().Contain("\"type\":\"MESSAGE_TURN_FINISHED\"");
-    }
-
-    [Fact]
-    public async Task StreamSse_InvalidEventEnvelope_Returns400()
-    {
-        // Arrange
-        var sessionId = await CreateTestSession();
-        const string request = "{\"type\":\"NOT_AN_AGENT_INPUT\",\"text\":\"Hello\"}";
-
-        // Act
-        var response = await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/events/stream", request);
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-    }
-
-    [Fact]
-    public async Task StreamSse_SendsToolCallEvents()
-    {
-        // This would require an agent with tools configured
-        // Simplified test verifies endpoint accepts request
-        var sessionId = await CreateTestSession();
-        var request = CreateInputJson("Use a tool");
-
-        // Act
-        var response = await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-    }
-
-    [Fact]
-    public async Task StreamSse_SendsMessageFinishedEvent()
-    {
-        // Arrange
-        var sessionId = await CreateTestSession();
-        var request = CreateInputJson("Test");
-
-        // Act
-        var response = await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-    }
-
-    [Fact]
-    public async Task StreamSse_SendsAllEventTypes()
-    {
-        // Comprehensive test for all event types
-        var sessionId = await CreateTestSession();
-        var request = CreateInputJson("Complete interaction");
-
-        // Act
-        var response = await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        response.Content.Headers.ContentType!.MediaType.Should().Be("text/event-stream");
-    }
-
-    [Fact]
-    public async Task StreamSse_Returns409_WhenAlreadyStreaming()
-    {
-        // Arrange
-        var sessionId = await CreateTestSession();
-        var request = CreateInputJson("Test");
-
-        // Start first stream (don't await completion)
-        var firstStreamTask = PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
-
-        // Give it time to start
-        await Task.Delay(100);
-
-        // Act - Try to start second stream on same branch
-        var secondResponse = await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
-
-        // Assert
-        secondResponse.StatusCode.Should().Be(HttpStatusCode.Conflict);
-
-        // Clean up
-        try { await firstStreamTask; } catch { }
-    }
-
-    [Fact]
-    public async Task StreamSse_CancelsGracefully_OnClientDisconnect()
-    {
-        // Arrange
-        var sessionId = await CreateTestSession();
-        var request = CreateInputJson("Long running task");
-
-        using var cts = new CancellationTokenSource();
-
-        // Act - Start stream and cancel it
-        var streamTask = PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request, cts.Token);
-
-        await Task.Delay(50);
-        cts.Cancel();
-
-        // Assert - Should cancel gracefully
-        await Assert.ThrowsAsync<TaskCanceledException>(async () => await streamTask);
-    }
-
-    [Fact]
-    public async Task StreamSse_PassesHttpContextRequestAborted_AsCancellationToken()
-    {
-        // This test verifies the endpoint uses HttpContext.RequestAborted
-        // Implicit in the cancellation test above
-        var sessionId = await CreateTestSession();
-        var request = CreateInputJson("Test");
-
-        // Act
-        var response = await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-    }
-
-    [Fact]
-    public async Task StreamSse_ReleasesStreamLock_OnCompletion()
-    {
-        // Arrange
-        var sessionId = await CreateTestSession();
-        var request = CreateInputJson("Quick message");
-
-        // Act - Complete first stream
-        var firstResponse = await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
-        firstResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        // Act - Start second stream (should succeed if lock was released)
-        var secondResponse = await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
-
-        // Assert
-        secondResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-    }
-
-    [Fact]
-    public async Task StreamSse_ReleasesStreamLock_OnError()
-    {
-        // Similar to completion test but with error scenario
-        var sessionId = await CreateTestSession();
-        var request = CreateInputJson("Test");
-
-        // Act
-        var response = await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-    }
-
-    [Fact]
-    public async Task StreamSse_ReleasesStreamLock_OnCancellation()
-    {
-        // Arrange
-        var sessionId = await CreateTestSession();
-        var request = CreateInputJson("Test");
-
-        using var cts = new CancellationTokenSource();
-        var streamTask = PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request, cts.Token);
-
-        await Task.Delay(50);
-        cts.Cancel();
-
-        try { await streamTask; } catch { }
-
-        // Act - Try new stream after cancellation
-        var newResponse = await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
-
-        // Assert - Lock should be released
-        newResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-    }
-
-    [Fact]
-    public async Task StreamSse_UsesRunConfig_WhenProvided()
-    {
-        // Arrange
         var sessionId = await CreateTestSession();
         _factory.FakeChatClient.Clear();
 
-        var request = CreateInputJson("Test with config", new AgentRunConfig
+        var response = await PostInputAsync(sessionId, "main", CreateInputJson("Test with config", new AgentRunConfig
         {
             Chat = new ChatRunConfig
             {
@@ -284,15 +69,14 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
             AdditionalSystemInstructions = "Be concise",
             CoalesceDeltas = true,
             SkipTools = false
-        });
+        }));
 
-        // Act
-        var response = await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
 
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        _factory.FakeChatClient.CapturedOptions.Should().ContainSingle();
-        var options = _factory.FakeChatClient.CapturedOptions.Single();
+        await WaitUntilAsync(() => _factory.FakeChatClient.CapturedOptions.Any(
+            options => options?.Temperature == 0.7f && options.MaxOutputTokens == 1000));
+        var options = _factory.FakeChatClient.CapturedOptions.Single(
+            options => options?.Temperature == 0.7f && options.MaxOutputTokens == 1000);
         options.Should().NotBeNull();
         options!.Temperature.Should().Be(0.7f);
         options.MaxOutputTokens.Should().Be(1000);
@@ -300,68 +84,89 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task StreamSse_AppendsMessagesToBranch()
+    public async Task SubmitInput_AppendsMessagesToBranch()
     {
-        // Arrange
         var sessionId = await CreateTestSession();
-        var request = CreateInputJson("Save this message");
 
-        // Act
-        await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
+        var response = await PostInputAsync(sessionId, "main", CreateInputJson("Save this message"));
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
 
-        // Verify branch events were saved
-        var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/branches/main/events");
-        using var events = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
-
-        // Assert
-        events.RootElement.EnumerateArray()
-            .Should()
-            .Contain(e => e.GetProperty("type").GetString() == EventTypes.Content.TEXT_DELTA);
+        await WaitUntilAsync(async () =>
+        {
+            var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/branches/main/events");
+            using var events = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
+            return events.RootElement.EnumerateArray()
+                .Any(e => e.GetProperty("type").GetString() == "TEXT_DELTA");
+        });
     }
 
     [Fact]
-    public async Task StreamSse_SavesSessionAndBranch_OnCompletion()
+    public async Task Interrupt_ReturnsConflict_WhenBranchHasNoActiveRun()
     {
-        // Arrange
         var sessionId = await CreateTestSession();
-        var request = CreateInputJson("Persistent message");
 
-        // Act
-        await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/main/stream", request);
+        var response = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/branches/main/interrupt",
+            new { reason = "stop from test" });
 
-        // Verify session still exists
-        var sessionResponse = await _client.GetAsync($"/sessions/{sessionId}");
-
-        // Assert
-        sessionResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     [Fact]
-    public async Task StreamSse_Returns404_WhenSessionNotFound()
+    public async Task SubmitInput_Returns400_ForInvalidEnvelope()
     {
-        // Arrange
-        var request = CreateInputJson("Test");
+        var sessionId = await CreateTestSession();
 
-        // Act
-        var response = await PostInputAsync("/agents/test-agent/sessions/nonexistent/branches/main/stream", request);
+        var response = await _client.PostAsync(
+            $"/agents/test-agent/sessions/{sessionId}/branches/main/inputs",
+            new StringContent("{\"type\":\"NOT_AN_AGENT_INPUT\",\"text\":\"Hello\"}", Encoding.UTF8, "application/json"));
 
-        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task SubmitInput_Returns404_WhenSessionNotFound()
+    {
+        var response = await _client.PostAsync(
+            "/agents/test-agent/sessions/nonexistent/branches/main/inputs",
+            new StringContent(CreateInputJson("Test"), Encoding.UTF8, "application/json"));
+
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task StreamSse_Returns404_WhenBranchNotFound()
+    public async Task SubmitInput_Returns404_WhenBranchNotFound()
     {
-        // Arrange
         var sessionId = await CreateTestSession();
-        var request = CreateInputJson("Test");
 
-        // Act
-        var response = await PostInputAsync($"/agents/test-agent/sessions/{sessionId}/branches/nonexistent/stream", request);
+        var response = await PostInputAsync(sessionId, "nonexistent", CreateInputJson("Test"));
 
-        // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
-    #endregion
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var i = 0; i < 50; i++)
+        {
+            if (condition())
+                return;
+
+            await Task.Delay(50);
+        }
+
+        condition().Should().BeTrue();
+    }
+
+    private static async Task WaitUntilAsync(Func<Task<bool>> condition)
+    {
+        for (var i = 0; i < 50; i++)
+        {
+            if (await condition())
+                return;
+
+            await Task.Delay(50);
+        }
+
+        (await condition()).Should().BeTrue();
+    }
 }

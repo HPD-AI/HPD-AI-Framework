@@ -59,6 +59,7 @@ export function appPaneWidthForKeyboardResize(
 
 export class ChatLayoutController {
   #resizableWidth = 0;
+  #chatSectionCollapsed: boolean;
   #expandedAppPaneWidth: number | null = null;
   #collapsedAppPaneWidth: number | null = null;
   #storage: ChatLayoutStorage | null;
@@ -72,6 +73,7 @@ export class ChatLayoutController {
       ...options.initialSnapshot
     };
 
+    this.#chatSectionCollapsed = snapshot.chatSectionCollapsed;
     this.#expandedAppPaneWidth = snapshot.expandedAppPaneWidth;
     this.#collapsedAppPaneWidth = snapshot.collapsedAppPaneWidth;
     this.#stateStore = writable(this.snapshot);
@@ -83,9 +85,26 @@ export class ChatLayoutController {
 
   public get snapshot(): ChatLayoutSnapshot {
     return {
+      chatSectionCollapsed: this.#chatSectionCollapsed,
       expandedAppPaneWidth: this.#expandedAppPaneWidth,
       collapsedAppPaneWidth: this.#collapsedAppPaneWidth
     };
+  }
+
+  public get chatSectionCollapsed(): boolean {
+    return this.#chatSectionCollapsed;
+  }
+
+  public toggleChatSection(): void {
+    this.setChatSectionCollapsed(!this.#chatSectionCollapsed);
+  }
+
+  public setChatSectionCollapsed(chatSectionCollapsed: boolean, commit = true): void {
+    if (this.#chatSectionCollapsed === chatSectionCollapsed) return;
+
+    this.#chatSectionCollapsed = chatSectionCollapsed;
+    this.#publish();
+    if (commit) this.commit();
   }
 
   public measure(resizableWidth: number, mode: ChatLayoutMode): ChatPaneLayout | null {
@@ -142,6 +161,7 @@ export class ChatLayoutController {
   }
 
   public restore(snapshot: ChatLayoutSnapshot, commit = false): void {
+    this.#chatSectionCollapsed = snapshot.chatSectionCollapsed;
     this.#expandedAppPaneWidth = snapshot.expandedAppPaneWidth;
     this.#collapsedAppPaneWidth = snapshot.collapsedAppPaneWidth;
     this.#publish();

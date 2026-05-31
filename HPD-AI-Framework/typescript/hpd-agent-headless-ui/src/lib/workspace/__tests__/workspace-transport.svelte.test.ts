@@ -128,7 +128,7 @@ function makeFakeAgentClient(sessions: Session[], branchesPerSession: Map<string
 		forkBranch: vi.fn(async (sid: string, _bid: string, opts: ForkBranchRequest) => {
 			const b = makeBranch(opts.newBranchId ?? `fork-${Date.now()}`, sid, {
 				forkedFrom: _bid,
-				forkedAtMessageIndex: opts.fromMessageIndex,
+				forkedAtMessageId: opts.fromMessageId,
 				isOriginal: false,
 				originalBranchId: _bid
 			});
@@ -151,7 +151,7 @@ function makeFakeAgentClient(sessions: Session[], branchesPerSession: Map<string
 		createAgent: vi.fn(),
 		updateAgent: vi.fn(),
 		deleteAgent: vi.fn(),
-		uploadAsset: vi.fn(),
+		uploadContent: vi.fn(),
 	};
 
 	return client;

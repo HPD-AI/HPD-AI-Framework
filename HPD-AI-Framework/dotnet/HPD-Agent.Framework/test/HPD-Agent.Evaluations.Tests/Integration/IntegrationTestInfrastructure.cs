@@ -20,23 +20,43 @@ internal sealed class StubProviderRegistry : IProviderRegistry
 
     public StubProviderRegistry(IChatClient? client = null) => _client = client;
 
-    public IProviderFeatures? GetProvider(string providerKey) =>
-        providerKey == "test" ? new StubProviderFeatures(_client ?? new StubChatClient()) : null;
+    public IProvider? GetProvider(string providerKey) =>
+        providerKey == "test" ? new StubChatClientProvider(_client ?? new StubChatClient()) : null;
+
+    public TProvider? GetProvider<TProvider>(string providerKey)
+        where TProvider : class, IProvider
+        => GetProvider(providerKey) as TProvider;
 
     public IReadOnlyCollection<string> GetRegisteredProviders() => ["test"];
-    public void Register(IProviderFeatures provider) { }
+    public void Register(IProvider provider) { }
     public bool IsRegistered(string providerKey) => providerKey == "test";
     public void Clear() { }
 }
 
-internal sealed class StubProviderFeatures(IChatClient client) : IProviderFeatures
+internal sealed class StubChatClientProvider(IChatClient client) : IChatClientProvider
 {
     public string ProviderKey => "test";
     public string DisplayName => "Test";
-    public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services) => client;
+    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services) => client;
     public HPD.Agent.ErrorHandling.IProviderErrorHandler CreateErrorHandler() => new StubErrorHandler();
-    public ProviderMetadata GetMetadata() => new() { ProviderKey = "test", DisplayName = "Test", SupportsStreaming = true, SupportsFunctionCalling = true };
-    public ProviderValidationResult ValidateConfiguration(ProviderConfig config) => ProviderValidationResult.Success();
+    public ProviderMetadata GetMetadata() => new()
+    {
+        ProviderKey = "test",
+        DisplayName = "Test",
+        Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+        {
+            [ProviderClientFamily.Chat] = new()
+            {
+                Family = ProviderClientFamily.Chat,
+                Capabilities = new Dictionary<string, object?>
+                {
+                    ["SupportsStreaming"] = true,
+                    ["SupportsFunctionCalling"] = true
+                }
+            }
+        }
+    };
+    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family) => ProviderValidationResult.Success();
 }
 
 internal sealed class StubErrorHandler : HPD.Agent.ErrorHandling.IProviderErrorHandler
@@ -144,7 +164,6 @@ internal sealed class FakeSessionStore : ISessionStore
     public Task<UncommittedTurn?> LoadUncommittedTurnAsync(string sessionId, CancellationToken ct = default) => Task.FromResult<UncommittedTurn?>(null);
     public Task SaveUncommittedTurnAsync(UncommittedTurn turn, CancellationToken ct = default) => Task.CompletedTask;
     public Task DeleteUncommittedTurnAsync(string sessionId, CancellationToken ct = default) => Task.CompletedTask;
-    public IContentStore? GetContentStore(string sessionId) => null;
     public Task<int> DeleteInactiveSessionsAsync(TimeSpan threshold, bool dryRun = false, CancellationToken ct = default) => Task.FromResult(0);
 }
 

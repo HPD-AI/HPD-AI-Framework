@@ -13,7 +13,7 @@ namespace HPD.Agent.Middleware.Image;
 /// <para>
 /// <b>Two-Layer Architecture:</b>
 /// <list type="bullet">
-/// <item><b>AssetUploadMiddleware (Layer 1)</b>: Universal storage - uploads ALL binary content automatically</item>
+/// <item><b>ContentUploadMiddleware (Layer 1)</b>: Universal storage - uploads ALL binary content automatically</item>
 /// <item><b>ImageMiddleware (Layer 2)</b>: Domain processing - transforms images based on strategy</item>
 /// </list>
 /// </para>
@@ -21,7 +21,7 @@ namespace HPD.Agent.Middleware.Image;
 /// <b>Default Behavior (PassThrough):</b>
 /// <list type="number">
 /// <item>User sends ImageContent</item>
-/// <item>AssetUploadMiddleware uploads bytes → transforms to UriContent</item>
+/// <item>ContentUploadMiddleware uploads bytes → transforms to UriContent</item>
 /// <item>ImageMiddleware (PassThrough): No-op, image passes through</item>
 /// <item>Vision model receives image for native processing</item>
 /// </list>
@@ -56,7 +56,7 @@ public class ImageMiddleware : IAgentMiddleware
 
     /// <summary>
     /// Process images in the user message before sending to LLM.
-    /// NOTE: AssetUploadMiddleware handles storage automatically (runs before this).
+    /// NOTE: ContentUploadMiddleware handles storage automatically (runs before this).
     /// </summary>
     public async Task BeforeMessageTurnAsync(
         BeforeMessageTurnContext context,

@@ -17,7 +17,6 @@ public static class AgentBuilderExtensions
     /// <param name="model">The model ID to use (e.g., "mistral-large-latest", "mistral-small-latest", "open-mixtral-8x7b")</param>
     /// <param name="apiKey">Optional API key. If not provided, will use MISTRAL_API_KEY environment variable</param>
     /// <param name="configure">Optional action to configure additional Mistral-specific options</param>
-    /// <param name="clientFactory">Optional factory to wrap the chat client with middleware (logging, caching, etc.)</param>
     /// <returns>The builder for method chaining</returns>
     /// <remarks>
     /// <para>
@@ -28,7 +27,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates a <see cref="MistralProviderConfig"/> that is:
-    /// - Stored in <c>ProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
     /// - Applied during <c>MistralProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -91,16 +90,6 @@ public static class AgentBuilderExtensions
     ///             opts.Temperature = 0m;
     ///         })
     ///     .Build();
-    ///
-    /// // Option 5: With middleware via ClientFactory
-    /// var agent = new AgentBuilder()
-    ///     .WithMistral(
-    ///         model: "mistral-large-latest",
-    ///         apiKey: "your-api-key",
-    ///         configure: opts => opts.MaxTokens = 4096,
-    ///         clientFactory: client => new LoggingChatClient(client, logger))
-    ///     .Build();
-    ///
     /// // Option 6: Auto-resolve API key from environment
     /// // Set MISTRAL_API_KEY environment variable first
     /// var agent = new AgentBuilder()
@@ -112,8 +101,7 @@ public static class AgentBuilderExtensions
         this AgentBuilder builder,
         string model,
         string? apiKey = null,
-        Action<MistralProviderConfig>? configure = null,
-        Func<IChatClient, IChatClient>? clientFactory = null)
+        Action<MistralProviderConfig>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -131,16 +119,17 @@ public static class AgentBuilderExtensions
         ValidateProviderConfig(providerConfig, configure);
 
         // Build provider config
-        builder.Config.Provider = new ProviderConfig
+        var chatConfig = new ClientProviderConfig
         {
             ProviderKey = "mistral",
             ApiKey = apiKey, // May be null - AgentBuilder.Build() will resolve via ISecretResolver
             ModelName = model
         };
 
+        builder.Config.SetChatClientConfig(chatConfig);
+
         // Store the typed config
-        builder.Config.Provider.SetProviderConfig(providerConfig);
-        builder.Config.Provider.ClientFactory = clientFactory;
+        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Nodes;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
@@ -35,9 +36,34 @@ public class AgentConfig
     public int ContinuationExtensionAmount { get; set; } = 3;
 
     /// <summary>
-    /// Configuration for the AI provider (e.g., OpenAI, Ollama).
+    /// Configuration for provider-created client families.
     /// </summary>
-    public ProviderConfig? Provider { get; set; }
+    public AgentClientConfig? Clients { get; set; }
+
+    public void SetClientConfig(HPD.Agent.Providers.ProviderClientFamily family, ClientProviderConfig? config)
+    {
+        Clients ??= new AgentClientConfig();
+        Clients.SetFamilyConfig(family, config);
+    }
+
+    public void SetChatClientConfig(ClientProviderConfig? config) =>
+        SetClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat, config);
+
+    public ClientProviderConfig EnsureClientConfig(HPD.Agent.Providers.ProviderClientFamily family)
+    {
+        Clients ??= new AgentClientConfig();
+
+        var config = Clients.GetFamilyConfig(family);
+        if (config is not null)
+            return config;
+
+        config = new ClientProviderConfig();
+        Clients.SetFamilyConfig(family, config);
+        return config;
+    }
+
+    public ClientProviderConfig EnsureChatClientConfig() =>
+        EnsureClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat);
 
     /// <summary>
     /// Configuration for provider validation behavior during agent building.
@@ -60,9 +86,9 @@ public class AgentConfig
     public DocumentHandlingConfig? DocumentHandling { get; set; }
 
     /// <summary>
-    /// Configuration for conversation history reduction to manage context window size.
+    /// Configuration for conversation compaction to manage context window size.
     /// </summary>
-    public HistoryReductionConfig? HistoryReduction { get; set; }
+    public CompactionConfig? Compaction { get; set; }
 
     /// <summary>
     /// Configuration for agentic loop safety controls (timeouts, circuit breakers).
@@ -199,6 +225,19 @@ public class AgentConfig
     /// </para>
     /// </remarks>
     public bool IncludeReasoningInModelHistory { get; set; } = false;
+
+    public ClientProviderConfig? ResolveClientConfig(
+        HPD.Agent.Providers.ProviderClientFamily family,
+        AgentClientConfig? runClients = null,
+        ClientProviderConfig? legacyRunChat = null)
+    {
+        return ClientProviderConfigResolver.Resolve(
+            Clients,
+            family,
+            runClients,
+            null,
+            legacyRunChat);
+    }
 
     /// <summary>
     /// Default reasoning options applied to every LLM call made by this agent.
@@ -407,17 +446,20 @@ public class AgentConfig
     /// <code>
     /// var config = new AgentConfig
     /// {
-    ///     ChatClientMiddleware = new()
+    ///     ClientMiddleware = new()
     ///     {
-    ///         (client, services) => new RateLimitingChatClient(client),
-    ///         (client, services) => new CostTrackingChatClient(client, services)
+    ///         Chat = new()
+    ///         {
+    ///             (client, services) => new RateLimitingChatClient(client),
+    ///             (client, services) => new CostTrackingChatClient(client, services)
+    ///         }
     ///     }
     /// };
     /// </code>
     /// </para>
     /// </remarks>
     [JsonIgnore] // Don't serialize middleware delegates
-    public List<Func<IChatClient, IServiceProvider?, IChatClient>>? ChatClientMiddleware { get; set; }
+    public AgentClientMiddlewareConfig? ClientMiddleware { get; set; }
 
     /// <summary>
     /// Builds an Agent from this configuration asynchronously.
@@ -515,7 +557,7 @@ public class McpConfig
 /// Configuration for AI provider settings.
 /// Based on existing patterns in AgentBuilder.
 /// </summary>
-public class ProviderConfig
+public class ClientProviderConfig
 {
     /// <summary>
     /// Provider identifier (lowercase, e.g., "openai", "anthropic", "ollama").
@@ -534,6 +576,12 @@ public class ProviderConfig
     /// Used for OAuth flows that require additional headers (e.g., ChatGPT-Account-Id for OpenAI Codex).
     /// </summary>
     public Dictionary<string, string>? CustomHeaders { get; set; }
+
+    /// <summary>
+    /// Family-specific provider-neutral settings that do not need dedicated
+    /// strongly typed properties in core config.
+    /// </summary>
+    public Dictionary<string, object>? AdditionalProperties { get; set; }
 
     /// <summary>
     /// Provider-specific configuration as raw JSON string.
@@ -565,12 +613,6 @@ public class ProviderConfig
     public string? AppName { get; set; }
 
     /// <summary>
-    /// Optional runtime-only hook for wrapping the provider-created chat client.
-    /// </summary>
-    [JsonIgnore]
-    public Func<IChatClient, IChatClient>? ClientFactory { get; set; }
-
-    /// <summary>
     /// Optional runtime-only prompt formatter for local providers that expose formatter hooks.
     /// </summary>
     [JsonIgnore]
@@ -586,13 +628,22 @@ public class ProviderConfig
     /// </summary>
     public T? GetProviderConfig<T>() where T : class
     {
+        return GetProviderConfig<T>(HPD.Agent.Providers.ProviderClientFamily.Chat);
+    }
+
+    /// <summary>
+    /// Gets provider-specific configuration for a client family from <see cref="ProviderOptionsJson"/>
+    /// using the provider's registered source-generated serializer.
+    /// </summary>
+    public T? GetProviderConfig<T>(HPD.Agent.Providers.ProviderClientFamily family) where T : class
+    {
         if (_cachedProviderConfig is T cached)
             return cached;
 
         if (string.IsNullOrWhiteSpace(ProviderOptionsJson))
             return null;
 
-        var registration = Providers.ProviderDiscovery.GetProviderConfigType(ProviderKey);
+        var registration = HPD.Agent.Providers.ProviderDiscovery.GetProviderConfigType(ProviderKey, family);
         if (registration is null || registration.ConfigType != typeof(T))
             return null;
 
@@ -609,16 +660,248 @@ public class ProviderConfig
     /// <param name="config">The configuration object to set</param>
     public void SetProviderConfig<T>(T config) where T : class
     {
+        SetProviderConfig(config, HPD.Agent.Providers.ProviderClientFamily.Chat);
+    }
+
+    /// <summary>
+    /// Sets the provider-specific configuration for a client family and updates ProviderOptionsJson.
+    /// Uses the provider's registered serializer from ProviderDiscovery for AOT compatibility.
+    /// </summary>
+    public void SetProviderConfig<T>(T config, HPD.Agent.Providers.ProviderClientFamily family) where T : class
+    {
         _cachedProviderConfig = config;
 
         // Serialize using registered serializer
-        var registration = Providers.ProviderDiscovery.GetProviderConfigType(ProviderKey);
+        var registration = HPD.Agent.Providers.ProviderDiscovery.GetProviderConfigType(ProviderKey, family);
         if (registration != null && registration.ConfigType == typeof(T))
         {
             ProviderOptionsJson = registration.Serialize(config);
         }
     }
 
+}
+
+/// <summary>
+/// Provider-created client-family configuration for an agent or a single run.
+/// Shared provider defaults live in <see cref="Providers"/> and are merged with
+/// family-specific settings when a client family is resolved.
+/// </summary>
+public class AgentClientConfig
+{
+    public Dictionary<string, ClientProviderConfig>? Providers { get; set; }
+
+    public ClientProviderConfig? Chat { get; set; }
+    public ClientProviderConfig? TextToSpeech { get; set; }
+    public ClientProviderConfig? SpeechToText { get; set; }
+    public ClientProviderConfig? Realtime { get; set; }
+    public ClientProviderConfig? ImageGeneration { get; set; }
+    public ClientProviderConfig? Embeddings { get; set; }
+    public ClientProviderConfig? HostedFiles { get; set; }
+    public ClientProviderConfig? VoiceActivityDetection { get; set; }
+    public ClientProviderConfig? EndOfTurnDetection { get; set; }
+
+    public ClientProviderConfig? GetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family) =>
+        family switch
+        {
+            HPD.Agent.Providers.ProviderClientFamily.Chat => Chat,
+            HPD.Agent.Providers.ProviderClientFamily.TextToSpeech => TextToSpeech,
+            HPD.Agent.Providers.ProviderClientFamily.SpeechToText => SpeechToText,
+            HPD.Agent.Providers.ProviderClientFamily.Realtime => Realtime,
+            HPD.Agent.Providers.ProviderClientFamily.ImageGeneration => ImageGeneration,
+            HPD.Agent.Providers.ProviderClientFamily.Embeddings => Embeddings,
+            HPD.Agent.Providers.ProviderClientFamily.HostedFiles => HostedFiles,
+            HPD.Agent.Providers.ProviderClientFamily.VoiceActivityDetection => VoiceActivityDetection,
+            HPD.Agent.Providers.ProviderClientFamily.EndOfTurnDetection => EndOfTurnDetection,
+            _ => null
+        };
+
+    public void SetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family, ClientProviderConfig? config)
+    {
+        switch (family)
+        {
+            case HPD.Agent.Providers.ProviderClientFamily.Chat:
+                Chat = config;
+                break;
+            case HPD.Agent.Providers.ProviderClientFamily.TextToSpeech:
+                TextToSpeech = config;
+                break;
+            case HPD.Agent.Providers.ProviderClientFamily.SpeechToText:
+                SpeechToText = config;
+                break;
+            case HPD.Agent.Providers.ProviderClientFamily.Realtime:
+                Realtime = config;
+                break;
+            case HPD.Agent.Providers.ProviderClientFamily.ImageGeneration:
+                ImageGeneration = config;
+                break;
+            case HPD.Agent.Providers.ProviderClientFamily.Embeddings:
+                Embeddings = config;
+                break;
+            case HPD.Agent.Providers.ProviderClientFamily.HostedFiles:
+                HostedFiles = config;
+                break;
+            case HPD.Agent.Providers.ProviderClientFamily.VoiceActivityDetection:
+                VoiceActivityDetection = config;
+                break;
+            case HPD.Agent.Providers.ProviderClientFamily.EndOfTurnDetection:
+                EndOfTurnDetection = config;
+                break;
+        }
+    }
+}
+
+/// <summary>
+/// Runtime-only wrappers for provider-created client families.
+/// </summary>
+public class AgentClientMiddlewareConfig
+{
+    public List<Func<IChatClient, IServiceProvider?, IChatClient>>? Chat { get; set; }
+    public List<Func<ITextToSpeechClient, IServiceProvider?, ITextToSpeechClient>>? TextToSpeech { get; set; }
+    public List<Func<ISpeechToTextClient, IServiceProvider?, ISpeechToTextClient>>? SpeechToText { get; set; }
+    public List<Func<IRealtimeClient, IServiceProvider?, IRealtimeClient>>? Realtime { get; set; }
+    public List<Func<IImageGenerator, IServiceProvider?, IImageGenerator>>? ImageGeneration { get; set; }
+    public List<Func<IEmbeddingGenerator, IServiceProvider?, IEmbeddingGenerator>>? Embeddings { get; set; }
+    public List<Func<IHostedFileClient, IServiceProvider?, IHostedFileClient>>? HostedFiles { get; set; }
+    public List<Func<IVoiceActivityDetector, HPD.Agent.Providers.ProviderComponentLifetimeContext, IServiceProvider?, IVoiceActivityDetector>>? VoiceActivityDetection { get; set; }
+    public List<Func<IEotDetector, HPD.Agent.Providers.ProviderComponentLifetimeContext, IServiceProvider?, IEotDetector>>? EndOfTurnDetection { get; set; }
+}
+
+internal static class ClientProviderConfigResolver
+{
+    public static ClientProviderConfig? Resolve(
+        AgentClientConfig? agentClients,
+        HPD.Agent.Providers.ProviderClientFamily family,
+        AgentClientConfig? runClients = null,
+        ClientProviderConfig? legacyAgentChat = null,
+        ClientProviderConfig? legacyRunChat = null)
+    {
+        var agentFamily = agentClients?.GetFamilyConfig(family)
+            ?? (family == HPD.Agent.Providers.ProviderClientFamily.Chat ? legacyAgentChat : null);
+
+        var providerKey = agentFamily?.ProviderKey;
+        var agentShared = GetShared(agentClients, providerKey);
+
+        var runFamily = runClients?.GetFamilyConfig(family)
+            ?? (family == HPD.Agent.Providers.ProviderClientFamily.Chat ? legacyRunChat : null);
+
+        var runProviderKey = FirstNonEmpty(runFamily?.ProviderKey, providerKey);
+        var runShared = GetShared(runClients, runProviderKey);
+
+        return Merge(agentShared, agentFamily, runShared, runFamily);
+    }
+
+    public static ClientProviderConfig? Merge(params ClientProviderConfig?[] configs)
+    {
+        ClientProviderConfig? result = null;
+
+        foreach (var config in configs)
+        {
+            if (config == null)
+                continue;
+
+            result ??= new ClientProviderConfig();
+            Apply(result, config);
+        }
+
+        return IsEmpty(result) ? null : result;
+    }
+
+    public static ClientProviderConfig Clone(ClientProviderConfig config)
+    {
+        var clone = new ClientProviderConfig();
+        Apply(clone, config);
+        return clone;
+    }
+
+    private static ClientProviderConfig? GetShared(AgentClientConfig? clients, string? providerKey)
+    {
+        if (clients?.Providers == null || string.IsNullOrWhiteSpace(providerKey))
+            return null;
+
+        return clients.Providers.TryGetValue(providerKey, out var exact)
+            ? exact
+            : clients.Providers.FirstOrDefault(pair =>
+                string.Equals(pair.Key, providerKey, StringComparison.OrdinalIgnoreCase)).Value;
+    }
+
+    private static void Apply(ClientProviderConfig target, ClientProviderConfig source)
+    {
+        if (!string.IsNullOrWhiteSpace(source.ProviderKey))
+            target.ProviderKey = source.ProviderKey;
+
+        if (!string.IsNullOrWhiteSpace(source.ModelName))
+            target.ModelName = source.ModelName;
+
+        target.ApiKey = source.ApiKey ?? target.ApiKey;
+        target.Endpoint = source.Endpoint ?? target.Endpoint;
+        target.DefaultChatOptions = source.DefaultChatOptions ?? target.DefaultChatOptions;
+        target.HttpReferer = source.HttpReferer ?? target.HttpReferer;
+        target.AppName = source.AppName ?? target.AppName;
+        target.PromptFormatter = source.PromptFormatter ?? target.PromptFormatter;
+
+        if (source.CustomHeaders != null)
+        {
+            target.CustomHeaders ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in source.CustomHeaders)
+                target.CustomHeaders[pair.Key] = pair.Value;
+        }
+
+        if (source.AdditionalProperties != null)
+        {
+            target.AdditionalProperties ??= new Dictionary<string, object>();
+            foreach (var pair in source.AdditionalProperties)
+                target.AdditionalProperties[pair.Key] = pair.Value;
+        }
+
+        target.ProviderOptionsJson = MergeProviderOptionsJson(
+            target.ProviderOptionsJson,
+            source.ProviderOptionsJson);
+    }
+
+    private static string? MergeProviderOptionsJson(string? lowerPriority, string? higherPriority)
+    {
+        if (string.IsNullOrWhiteSpace(lowerPriority))
+            return higherPriority;
+
+        if (string.IsNullOrWhiteSpace(higherPriority))
+            return lowerPriority;
+
+        var lower = ParseObject(lowerPriority);
+        var higher = ParseObject(higherPriority);
+
+        foreach (var pair in higher)
+        {
+            lower[pair.Key] = pair.Value?.DeepClone();
+        }
+
+        return lower.ToJsonString();
+    }
+
+    private static JsonObject ParseObject(string json)
+    {
+        var node = JsonNode.Parse(json);
+        if (node is not JsonObject obj)
+            throw new InvalidOperationException("ProviderOptionsJson merge requires each non-empty value to be a JSON object.");
+
+        return obj;
+    }
+
+    private static bool IsEmpty(ClientProviderConfig? config) =>
+        config == null ||
+        (string.IsNullOrWhiteSpace(config.ProviderKey) &&
+         string.IsNullOrWhiteSpace(config.ModelName) &&
+         string.IsNullOrWhiteSpace(config.ApiKey) &&
+         string.IsNullOrWhiteSpace(config.Endpoint) &&
+         config.DefaultChatOptions == null &&
+         config.CustomHeaders == null &&
+         config.AdditionalProperties == null &&
+         string.IsNullOrWhiteSpace(config.ProviderOptionsJson) &&
+         string.IsNullOrWhiteSpace(config.HttpReferer) &&
+         string.IsNullOrWhiteSpace(config.AppName) &&
+         config.PromptFormatter == null);
+
+    private static string? FirstNonEmpty(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 }
 
 /// <summary>
@@ -767,120 +1050,154 @@ public class DocumentHandlingConfig
 }
 
 /// <summary>
-/// Configuration for conversation history reduction using Microsoft.Extensions.AI IChatReducer.
+/// Configuration for conversation compaction using Microsoft.Extensions.AI IChatReducer.
 /// </summary>
-public class HistoryReductionConfig
+public class CompactionConfig
 {
     /// <summary>
-    /// Whether history reduction is enabled.
+    /// Whether compaction is enabled.
     /// Default is false to maintain backward compatibility.
     /// </summary>
     public bool Enabled { get; set; } = false;
 
     /// <summary>
-    /// Strategy for reducing conversation history.
-    /// Default is MessageCounting (keeps last N messages).
+    /// Whether newly forked branches should be compacted before their first persistence.
+    /// Default is false so normal fork behavior remains a raw copy unless explicitly enabled.
     /// </summary>
-    public HistoryReductionStrategy Strategy { get; set; } = HistoryReductionStrategy.MessageCounting;
+    public bool CompactOnFork { get; set; } = false;
 
     /// <summary>
-    /// Behavior when history reduction is triggered.
-    /// - Continue (default): Reduction happens transparently, agent continues immediately
-    /// - CircuitBreaker: Reduction terminates the turn, user must explicitly continue
-    /// Can be overridden per-turn via AgentRunConfig.HistoryReductionBehaviorOverride.
+    /// Strategy for reducing conversation history. Strategy-specific settings live on the selected option type.
     /// </summary>
-    public HistoryReductionBehavior Behavior { get; set; } = HistoryReductionBehavior.Continue;
+    public CompactionStrategyOptions Strategy { get; set; } = new MessageCountingCompactionOptions();
 
     /// <summary>
-    /// Unit used to measure history depth for threshold comparisons.
-    /// Default: Exchanges (one RunAsync call = one user↔agent exchange).
+    /// Trigger policy for deciding when compaction should run.
     /// </summary>
-    public HistoryCountingUnit CountingUnit { get; set; } = HistoryCountingUnit.Exchanges;
+    public CompactionTriggerOptions Trigger { get; set; } = new CountCompactionTriggerOptions();
 
     /// <summary>
-    /// Target count to retain after reduction. Unit determined by <see cref="CountingUnit"/>.
-    /// With CountingUnit.Exchanges (default): number of user↔agent exchanges to keep.
-    /// With CountingUnit.Messages: number of raw ChatMessage objects to keep.
-    /// Default is 20.
+    /// Retention policy for durable branch history. PreserveBranchHistoryOptions is soft compaction.
     /// </summary>
-    public int TargetCount { get; set; } = 20;
+    public CompactionRetentionOptions Retention { get; set; } = new PreserveBranchHistoryOptions();
 
     /// <summary>
-    /// Threshold count for SummarizingChatReducer.
-    /// Number of units (exchanges or messages, per CountingUnit) allowed beyond TargetCount before summarization is triggered.
-    /// Only used when Strategy is Summarizing. Default is 5.
+    /// Behavior when compaction is triggered.
+    /// - Continue (default): Compaction happens transparently, agent continues immediately
+    /// - CircuitBreaker: Compaction terminates the turn, user must explicitly continue
+    /// Can be overridden per-turn via AgentRunConfig.CompactionBehaviorOverride.
     /// </summary>
-    public int? SummarizationThreshold { get; set; } = 5;
+    public CompactionBehavior Behavior { get; set; } = CompactionBehavior.Continue;
+}
 
-    /// <summary>
-    /// Target token count after reduction (default: 4000).
-    ///
-    ///   CURRENTLY IGNORED - Token tracking is not implemented.
-    /// </summary>
-    public int TargetTokenBudget { get; set; } = 4000;
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(MessageCountingCompactionOptions), "messageCounting")]
+[JsonDerivedType(typeof(SummarizingCompactionOptions), "summarizing")]
+public abstract record CompactionStrategyOptions;
 
-    /// <summary>
-    /// Token threshold for triggering reduction when using token budgets.
-    /// Number of tokens allowed beyond TargetTokenBudget before reduction is triggered.
-    ///
-    ///   CURRENTLY IGNORED - Token tracking is not implemented.
-    /// </summary>
-    public int TokenBudgetThreshold { get; set; } = 1000;
+public sealed record MessageCountingCompactionOptions : CompactionStrategyOptions
+{
+    public int TargetMessageCount { get; init; } = 50;
+}
 
-    /// <summary>
-    /// When set, uses percentage-based triggers instead of absolute token counts.
-    /// Requires ContextWindowSize to be configured.
-    /// Example: 0.7 = trigger reduction at 70% of context window.
-    ///
-    ///   CURRENTLY IGNORED - Token tracking is not implemented.
-    /// Use TargetCount instead for reliable history reduction.
-    /// </summary>
-    public double? TokenBudgetTriggerPercentage { get; set; } = null;
+public sealed record SummarizingCompactionOptions : CompactionStrategyOptions
+{
+    public int TargetRecentMessageCount { get; init; } = 20;
+    public int ResummarizeAfterNewMessages { get; init; } = 5;
+    public string? CustomPrompt { get; init; }
+    public ClientProviderConfig? SummarizerProvider { get; init; }
+    public bool UseSingleSummary { get; init; } = true;
+    public SummaryStyle SummaryStyle { get; init; } = SummaryStyle.Handoff;
+    public SummaryMemoryOptions Memory { get; init; } = new();
+}
 
-    /// <summary>
-    /// Percentage of context window to preserve after reduction.
-    /// Only used when TokenBudgetTriggerPercentage is set.
-    /// Example: 0.3 = keep 30% of context window after compression.
-    ///
-    ///   CURRENTLY IGNORED - Token tracking is not implemented.
-    /// </summary>
-    public double TokenBudgetPreservePercentage { get; set; } = 0.3;
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(CountCompactionTriggerOptions), "count")]
+[JsonDerivedType(typeof(TokenBudgetCompactionTriggerOptions), "tokenBudget")]
+[JsonDerivedType(typeof(ContextWindowCompactionTriggerOptions), "contextWindow")]
+[JsonDerivedType(typeof(CompositeCompactionTriggerOptions), "composite")]
+public abstract record CompactionTriggerOptions;
 
-    /// <summary>
-    /// Context window size for percentage calculations.
-    /// Required when using TokenBudgetTriggerPercentage.
-    ///
-    ///   CURRENTLY IGNORED - Token tracking is not implemented.
-    /// </summary>
-    public int? ContextWindowSize { get; set; } = null;
+public sealed record CountCompactionTriggerOptions : CompactionTriggerOptions
+{
+    public HistoryCountingUnit CountingUnit { get; init; } = HistoryCountingUnit.MessageTurns;
+    public int TargetCount { get; init; } = 20;
+    public int Threshold { get; init; } = 5;
+}
 
-    /// <summary>
-    /// Custom summarization prompt for SummarizingChatReducer.
-    /// If null, uses the default prompt from Microsoft.Extensions.AI.
-    /// Only used when Strategy is Summarizing.
-    /// </summary>
-    public string? CustomSummarizationPrompt { get; set; }
+public sealed record TokenBudgetCompactionTriggerOptions : CompactionTriggerOptions
+{
+    public int TargetTokenBudget { get; init; }
+    public int TokenBudgetThreshold { get; init; }
+}
 
-    /// <summary>
-    /// Optional separate provider configuration for the summarization LLM.
-    /// If null, uses the agent's main provider (baseClient).
-    /// Useful for cost optimization - e.g., use GPT-4o-mini for summaries while main agent uses GPT-4.
-    /// Only used when Strategy is Summarizing.
-    /// </summary>
-    public ProviderConfig? SummarizerProvider { get; set; }
+public sealed record ContextWindowCompactionTriggerOptions : CompactionTriggerOptions
+{
+    public int ContextWindowSize { get; init; }
+    public double TriggerPercentage { get; init; }
+    public double PreservePercentage { get; init; } = 0.3;
+}
 
-    /// <summary>
-    /// Whether to use a single comprehensive summary (re-summarize everything including old summary)
-    /// or maintain layered summaries (incremental summarization).
-    /// Default is true (single summary for better quality, following Semantic Kernel pattern).
-    /// </summary>
-    public bool UseSingleSummary { get; set; } = true;
+public sealed record CompositeCompactionTriggerOptions : CompactionTriggerOptions
+{
+    public required IReadOnlyList<CompactionTriggerOptions> AnyOf { get; init; }
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(PreserveBranchHistoryOptions), "preserve")]
+[JsonDerivedType(typeof(CompactBranchHistoryOptions), "compact")]
+[JsonDerivedType(typeof(DeleteCompactedMessagesOptions), "delete")]
+public abstract record CompactionRetentionOptions;
+
+public sealed record PreserveBranchHistoryOptions : CompactionRetentionOptions;
+
+public sealed record CompactBranchHistoryOptions : CompactionRetentionOptions
+{
+    public CompactionBoundaryOptions Boundary { get; init; } = new ExactCompactedMessagesBoundaryOptions();
+}
+
+public sealed record DeleteCompactedMessagesOptions : CompactionRetentionOptions
+{
+    public CompactionBoundaryOptions Boundary { get; init; } = new ExactCompactedMessagesBoundaryOptions();
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(ExactCompactedMessagesBoundaryOptions), "exactCompactedMessages")]
+[JsonDerivedType(typeof(IncludePreviousMessagesBoundaryOptions), "includePreviousMessages")]
+[JsonDerivedType(typeof(IncludeMessageTurnBoundaryOptions), "includeMessageTurn")]
+[JsonDerivedType(typeof(IncludeToolCallGroupBoundaryOptions), "includeToolCallGroup")]
+[JsonDerivedType(typeof(CompositeCompactionBoundaryOptions), "composite")]
+public abstract record CompactionBoundaryOptions;
+
+public sealed record ExactCompactedMessagesBoundaryOptions : CompactionBoundaryOptions;
+
+public sealed record IncludePreviousMessagesBoundaryOptions(int Count) : CompactionBoundaryOptions;
+
+public sealed record IncludeMessageTurnBoundaryOptions : CompactionBoundaryOptions;
+
+public sealed record IncludeToolCallGroupBoundaryOptions : CompactionBoundaryOptions;
+
+public sealed record CompositeCompactionBoundaryOptions(IReadOnlyList<CompactionBoundaryOptions> Policies)
+    : CompactionBoundaryOptions;
+
+public enum SummaryStyle
+{
+    Generic,
+    Handoff
+}
+
+public sealed record SummaryMemoryOptions
+{
+    public int RecentUserMessageTokenBudget { get; init; } = 20_000;
+    public bool PreserveRecentUserMessagesSeparately { get; init; } = true;
+    public bool ReinjectCurrentContextAfterCompaction { get; init; } = true;
+    public bool FilterGeneratedContextWrappers { get; init; } = true;
 }
 
 /// <summary>
 /// Strategy for reducing conversation history size.
 /// </summary>
-public enum HistoryReductionStrategy
+public enum CompactionStrategy
 {
     /// <summary>
     /// Keep only the N most recent messages (plus first system message).
@@ -896,36 +1213,36 @@ public enum HistoryReductionStrategy
 }
 
 /// <summary>
-/// Behavior when history reduction is triggered.
+/// Behavior when compaction is triggered.
 /// Controls whether the agent continues immediately or stops for user confirmation.
 /// </summary>
-public enum HistoryReductionBehavior
+public enum CompactionBehavior
 {
     /// <summary>
-    /// Continue immediately after reduction (default).
-    /// Reduction happens transparently without interrupting the agent flow.
-    /// Use when: Reduction is an implementation detail, users don't need to know.
+    /// Continue immediately after compaction (default).
+    /// Compaction happens transparently without interrupting the agent flow.
+    /// Use when: Compaction is an implementation detail, users don't need to know.
     /// </summary>
     Continue,
 
     /// <summary>
-    /// Stop execution after reduction and require user confirmation to continue.
-    /// Acts as a circuit breaker - reduction terminates the current turn.
+    /// Stop execution after compaction and require user confirmation to continue.
+    /// Acts as a circuit breaker - compaction terminates the current turn.
     /// Use when: Users need to be aware of context loss, review summary, or save important info.
     /// </summary>
     CircuitBreaker
 }
 
 /// <summary>
-/// Unit used to measure conversation history depth for history reduction thresholds.
+/// Unit used to measure conversation history depth for compaction thresholds.
 /// </summary>
 public enum HistoryCountingUnit
 {
     /// <summary>
-    /// Count RunAsync calls (one per user↔agent exchange, regardless of internal tool call depth).
-    /// Default. TargetCount=20 means "keep 20 conversation exchanges."
+    /// Count RunAsync calls (one per user-visible message turn, regardless of internal tool call depth).
+    /// Default. TargetCount=20 means "keep 20 message turns."
     /// </summary>
-    Exchanges,
+    MessageTurns,
 
     /// <summary>
     /// Count raw ChatMessage protocol objects.
@@ -1287,7 +1604,7 @@ public class BackgroundResponsesConfig
 /// lives in HPD-Agent.Audio package and is referenced by the audio middleware.
 ///
 /// Module initializers in audio provider packages (HPD-Agent.AudioProviders.*)
-/// register their factories with TtsProviderDiscovery, SttProviderDiscovery, VadProviderDiscovery.
+/// register provider factories with the unified ProviderDiscovery registry.
 /// </summary>
 public class AudioConfig
 {

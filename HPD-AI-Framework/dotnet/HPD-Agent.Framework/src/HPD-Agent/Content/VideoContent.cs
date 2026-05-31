@@ -17,7 +17,7 @@ namespace HPD.Agent;
 /// <remarks>
 /// <para>
 /// VideoContent is prepared for future video model integrations (Sora, world models, etc.).
-/// Currently supported by AssetUploadMiddleware for storage.
+/// Currently supported by ContentUploadMiddleware for storage.
 /// </para>
 /// <para>
 /// <b>Supported Formats:</b> MP4, WebM, MOV, AVI

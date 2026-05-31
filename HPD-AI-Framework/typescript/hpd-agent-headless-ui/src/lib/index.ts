@@ -24,7 +24,7 @@ export type {
 	Session,
 	Branch,
 	BranchMessage,
-	AssetReference,
+	ContentReference,
 	ChatRunConfig,
 	CreateSessionRequest,
 	CreateBranchRequest,

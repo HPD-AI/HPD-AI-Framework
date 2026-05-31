@@ -23,13 +23,11 @@ internal sealed class HpdosWorkspaceStoreService
     };
 
     private readonly string storePath;
-    private readonly HpdosProjectContext projectContext;
     private readonly SemaphoreSlim gate = new(1, 1);
 
-    public HpdosWorkspaceStoreService(string dataRoot, HpdosProjectContext projectContext)
+    public HpdosWorkspaceStoreService(string dataRoot)
     {
         storePath = Path.Combine(dataRoot, "workspaces.json");
-        this.projectContext = projectContext;
     }
 
     public async Task<HpdosWorkspaceStore> GetAsync(CancellationToken ct)
@@ -37,7 +35,7 @@ internal sealed class HpdosWorkspaceStoreService
         await gate.WaitAsync(ct);
         try
         {
-            var store = await ReadUnsafeAsync(ct) ?? CreateDefaultStore();
+            var store = await ReadUnsafeAsync(ct) ?? EmptyStore();
             store = Normalize(store);
             await WriteUnsafeAsync(store, ct);
             return store;
@@ -85,20 +83,7 @@ internal sealed class HpdosWorkspaceStoreService
         await JsonSerializer.SerializeAsync(stream, store, JsonOptions, ct);
     }
 
-    private HpdosWorkspaceStore CreateDefaultStore()
-    {
-        var now = DateTimeOffset.UtcNow.ToString("O");
-        var root = new HpdosWorkspaceRoot("default", projectContext.Name, projectContext.Directory);
-        var workspace = new HpdosWorkspace(
-            Id: Slug(projectContext.Name),
-            Name: projectContext.Name,
-            CreatedAt: now,
-            UpdatedAt: now,
-            DefaultRootId: root.Id,
-            Roots: [root]);
-
-        return new HpdosWorkspaceStore(1, workspace.Id, [workspace]);
-    }
+    private static HpdosWorkspaceStore EmptyStore() => new(1, "", []);
 
     private HpdosWorkspaceStore Normalize(HpdosWorkspaceStore store)
     {
@@ -109,7 +94,7 @@ internal sealed class HpdosWorkspaceStoreService
             .ToList();
 
         if (workspaces.Count == 0)
-            return CreateDefaultStore();
+            return EmptyStore();
 
         var activeWorkspaceId = workspaces.Any(workspace => string.Equals(workspace.Id, store.ActiveWorkspaceId, StringComparison.OrdinalIgnoreCase))
             ? store.ActiveWorkspaceId

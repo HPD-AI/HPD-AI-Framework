@@ -174,7 +174,7 @@ var agent1 = await new AgentBuilder()
     .WithSessionStore("./sessions", persistAfterTurn: true)
     .WithMiddleware<MyCustomMiddleware>()
     .WithMiddleware<ErrorHandlingMiddleware>()
-    .WithMiddleware<HistoryReductionMiddleware>()
+    .WithMiddleware<CompactionMiddleware>()
     .WithHarness<Harness1>()
     .WithHarness<Harness2>()
     .WithHarness<Harness3>()
@@ -197,7 +197,7 @@ var agent2 = await new AgentBuilder()
     .WithSessionStore("./sessions", persistAfterTurn: true)  // Repeated!
     .WithMiddleware<MyCustomMiddleware>()
     .WithMiddleware<ErrorHandlingMiddleware>()  
-    .WithMiddleware<HistoryReductionMiddleware>()  
+    .WithMiddleware<CompactionMiddleware>()  
     .WithHarness<Harness2>()
     .BuildAsync();
 ```
@@ -366,7 +366,7 @@ var agent = await new AgentBuilder(config)
 | `Middlewares` | `List<MiddlewareReference>` | `[]` | Middleware pipeline |
 | `Caching` | `CachingConfig?` | `null` | Prompt caching settings |
 | `ErrorHandling` | `ErrorHandlingConfig?` | `null` | Retry and timeout settings |
-| `HistoryReduction` | `HistoryReductionConfig?` | `null` | Conversation history summarization |
+| `Compaction` | `CompactionConfig?` | `null` | Conversation history summarization |
 | `AgenticLoop` | `AgenticLoopConfig?` | `null` | Loop timeout and control settings |
 | `Collapsing` | `CollapsingConfig` | enabled | Harness collapse/expand behaviour |
 | `Observability` | `ObservabilityConfig?` | `null` | Tracing and metrics |

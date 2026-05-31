@@ -9,11 +9,13 @@ namespace HPD.Agent.Hosting.Data;
 /// <param name="Name">Display name for this branch</param>
 /// <param name="Description">Optional user-friendly description</param>
 /// <param name="ForkedFrom">Source branch ID if this was forked (null for original branches)</param>
-/// <param name="ForkedAtMessageIndex">Message index where fork occurred (null for original branches)</param>
+/// <param name="ForkedAtMessageId">Message id where fork occurred (null for original branches)</param>
+/// <param name="ForkedAtMessageIndex">Resolved message index where fork occurred (diagnostic; null for original branches)</param>
 /// <param name="CreatedAt">When this branch was created</param>
 /// <param name="LastActivity">Last time this branch was updated</param>
 /// <param name="MessageCount">Number of messages in this branch</param>
 /// <param name="Tags">Optional tags for categorizing branches</param>
+/// <param name="Metadata">Arbitrary branch-level metadata (optional)</param>
 /// <param name="Ancestors">Full ancestry chain for multi-level fork tracking</param>
 /// <param name="SiblingIndex">Position among siblings at this fork point (0-based)</param>
 /// <param name="TotalSiblings">Total number of sibling branches at this fork point</param>
@@ -28,6 +30,7 @@ public record BranchDto(
     string Name,
     string? Description,
     string? ForkedFrom,
+    string? ForkedAtMessageId,
     int? ForkedAtMessageIndex,
     DateTime CreatedAt,
     DateTime LastActivity,
@@ -41,7 +44,8 @@ public record BranchDto(
     string? OriginalBranchId,
     string? PreviousSiblingId,
     string? NextSiblingId,
-    int TotalForks);
+    int TotalForks,
+    Dictionary<string, object>? Metadata = null);
 
 /// <summary>
 /// Lightweight sibling branch metadata for navigation UI.

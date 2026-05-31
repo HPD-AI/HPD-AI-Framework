@@ -47,6 +47,8 @@ public static partial class EventTypes
         public const string AGENT_TURN_STARTED = "AGENT_TURN_STARTED";
         public const string AGENT_TURN_FINISHED = "AGENT_TURN_FINISHED";
         public const string STATE_SNAPSHOT = "STATE_SNAPSHOT";
+        public const string BRANCH_RUN_STARTED = "BRANCH_RUN_STARTED";
+        public const string BRANCH_RUN_COMPLETED = "BRANCH_RUN_COMPLETED";
     }
 
     #endregion
@@ -136,7 +138,7 @@ public static partial class EventTypes
     public static class Middleware
     {
         public const string MIDDLEWARE_ERROR = "MIDDLEWARE_ERROR";
-        public const string HISTORY_REDUCTION = "HISTORY_REDUCTION";
+        public const string COMPACTION = "COMPACTION";
         public const string MAX_CONSECUTIVE_ERRORS_EXCEEDED = "MAX_CONSECUTIVE_ERRORS_EXCEEDED";
         public const string TOTAL_ERROR_THRESHOLD_EXCEEDED = "TOTAL_ERROR_THRESHOLD_EXCEEDED";
         public const string PII_DETECTED = "PII_DETECTED";
@@ -170,7 +172,7 @@ public static partial class EventTypes
         public const string PERMISSION_CHECK = "PERMISSION_CHECK";
         public const string ITERATION_START = "ITERATION_START";
         public const string CIRCUIT_BREAKER_TRIGGERED = "CIRCUIT_BREAKER_TRIGGERED";
-        public const string HISTORY_REDUCTION_CACHE = "HISTORY_REDUCTION_CACHE";
+        public const string COMPACTION_CACHE = "COMPACTION_CACHE";
         public const string CHECKPOINT = "CHECKPOINT";
         public const string INTERNAL_PARALLEL_TOOL_EXECUTION = "INTERNAL_PARALLEL_TOOL_EXECUTION";
         public const string INTERNAL_RETRY = "INTERNAL_RETRY";
@@ -197,8 +199,12 @@ public static partial class EventTypes
         public const string STRUCTURED_OUTPUT_START = "STRUCTURED_OUTPUT_START";
         public const string STRUCTURED_OUTPUT_PARTIAL = "STRUCTURED_OUTPUT_PARTIAL";
         public const string STRUCTURED_OUTPUT_COMPLETE = "STRUCTURED_OUTPUT_COMPLETE";
-        public const string ASSET_UPLOADED = "ASSET_UPLOADED";
-        public const string ASSET_UPLOAD_FAILED = "ASSET_UPLOAD_FAILED";
+        public const string CONTENT_UPLOADED = "CONTENT_UPLOADED";
+        public const string CONTENT_UPLOAD_FAILED = "CONTENT_UPLOAD_FAILED";
+        public const string HOSTED_FILE_UPLOADED = "HOSTED_FILE_UPLOADED";
+        public const string HOSTED_FILE_UPLOAD_FAILED = "HOSTED_FILE_UPLOAD_FAILED";
+        public const string CONTENT_REFERENCE_RESOLVED = "CONTENT_REFERENCE_RESOLVED";
+        public const string CONTENT_REFERENCE_RESOLUTION_FAILED = "CONTENT_REFERENCE_RESOLUTION_FAILED";
     }
 
     #endregion

@@ -30,10 +30,11 @@ public class MistralProviderTests
         metadata.Should().NotBeNull();
         metadata.ProviderKey.Should().Be("mistral");
         metadata.DisplayName.Should().Be("Mistral");
-        metadata.SupportsStreaming.Should().BeTrue();
-        metadata.SupportsFunctionCalling.Should().BeTrue();
-        metadata.SupportsVision.Should().BeFalse();
-        metadata.DocumentationUrl.Should().Be("https://docs.mistral.ai/");
+        metadata.DocumentationUri.Should().Be(new Uri("https://docs.mistral.ai/"));
+        var chat = metadata.Families[ProviderClientFamily.Chat];
+        chat.Capabilities!["SupportsStreaming"].Should().Be(true);
+        chat.Capabilities["SupportsFunctionCalling"].Should().Be(true);
+        chat.Capabilities["SupportsVision"].Should().Be(false);
     }
 
     #endregion
@@ -44,7 +45,7 @@ public class MistralProviderTests
     public void ValidateConfiguration_WithValidConfig_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "mistral",
             ModelName = "mistral-large-latest",
@@ -52,7 +53,7 @@ public class MistralProviderTests
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -63,14 +64,14 @@ public class MistralProviderTests
     public void ValidateConfiguration_WithMissingModelName_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "mistral",
             ApiKey = "test-key"
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -81,14 +82,14 @@ public class MistralProviderTests
     public void ValidateConfiguration_WithMissingApiKey_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "mistral",
             ModelName = "mistral-large-latest"
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -99,7 +100,7 @@ public class MistralProviderTests
     public void ValidateConfiguration_WithInvalidTemperature_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "mistral",
             ModelName = "mistral-large-latest",
@@ -113,7 +114,7 @@ public class MistralProviderTests
         config.SetProviderConfig(mistralConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -124,7 +125,7 @@ public class MistralProviderTests
     public void ValidateConfiguration_WithNegativeTemperature_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "mistral",
             ModelName = "mistral-large-latest",
@@ -138,7 +139,7 @@ public class MistralProviderTests
         config.SetProviderConfig(mistralConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -149,7 +150,7 @@ public class MistralProviderTests
     public void ValidateConfiguration_WithValidTemperatureRange_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "mistral",
             ModelName = "mistral-large-latest",
@@ -163,7 +164,7 @@ public class MistralProviderTests
         config.SetProviderConfig(mistralConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -174,7 +175,7 @@ public class MistralProviderTests
     public void ValidateConfiguration_WithInvalidTopP_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "mistral",
             ModelName = "mistral-large-latest",
@@ -188,7 +189,7 @@ public class MistralProviderTests
         config.SetProviderConfig(mistralConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -199,7 +200,7 @@ public class MistralProviderTests
     public void ValidateConfiguration_WithInvalidResponseFormat_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "mistral",
             ModelName = "mistral-large-latest",
@@ -213,7 +214,7 @@ public class MistralProviderTests
         config.SetProviderConfig(mistralConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -224,7 +225,7 @@ public class MistralProviderTests
     public void ValidateConfiguration_WithInvalidToolChoice_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "mistral",
             ModelName = "mistral-large-latest",
@@ -238,7 +239,7 @@ public class MistralProviderTests
         config.SetProviderConfig(mistralConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -249,7 +250,7 @@ public class MistralProviderTests
     public void ValidateConfiguration_WithValidMistralConfig_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "mistral",
             ModelName = "mistral-large-latest",
@@ -270,7 +271,7 @@ public class MistralProviderTests
         config.SetProviderConfig(mistralConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -421,12 +422,11 @@ public class MistralProviderTests
         var config = new AgentConfig
         {
             Name = "Test Agent",
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "mistral",
                 ModelName = "mistral-large-latest",
                 ApiKey = "test-key"
-            }
+            } }
         };
 
         var mistralOpts = new MistralProviderConfig
@@ -436,7 +436,7 @@ public class MistralProviderTests
             TopP = 0.9m,
             RandomSeed = 12345
         };
-        config.Provider.SetProviderConfig(mistralOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(mistralOpts);
 
         // Act
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
@@ -465,12 +465,14 @@ public class MistralProviderTests
         var json = """
         {
             "name": "Test Agent",
-            "provider": {
+            "clients": {
+                "chat": {
                 "providerKey": "mistral",
                 "modelName": "mistral-large-latest",
                 "apiKey": "test-key",
                 "providerOptionsJson": "{\"maxTokens\":4096,\"temperature\":0.7,\"topP\":0.9,\"randomSeed\":12345}"
             }
+        }
         }
         """;
 
@@ -480,14 +482,14 @@ public class MistralProviderTests
         // Assert
         config.Should().NotBeNull();
         config!.Name.Should().Be("Test Agent");
-        config.Provider.Should().NotBeNull();
-        config.Provider!.ProviderKey.Should().Be("mistral");
-        config.Provider.ModelName.Should().Be("mistral-large-latest");
-        config.Provider.ApiKey.Should().Be("test-key");
-        config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().Should().NotBeNull();
+        config.EnsureChatClientConfig()!.ProviderKey.Should().Be("mistral");
+        config.EnsureChatClientConfig().ModelName.Should().Be("mistral-large-latest");
+        config.EnsureChatClientConfig().ApiKey.Should().Be("test-key");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
 
         // Verify typed config can be retrieved
-        var mistralConfig = config.Provider.GetProviderConfig<MistralProviderConfig>();
+        var mistralConfig = config.EnsureChatClientConfig().GetProviderConfig<MistralProviderConfig>();
         mistralConfig.Should().NotBeNull();
         mistralConfig!.MaxTokens.Should().Be(4096);
         mistralConfig.Temperature.Should().Be(0.7m);
@@ -504,12 +506,11 @@ public class MistralProviderTests
             Name = "Round Trip Test",
             MaxAgenticIterations = 20,
             SystemInstructions = "You are a test assistant.",
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "mistral",
                 ModelName = "mistral-large-latest",
                 ApiKey = "test-key"
-            }
+            } }
         };
 
         var originalMistralOpts = new MistralProviderConfig
@@ -523,7 +524,7 @@ public class MistralProviderTests
             ToolChoice = "auto",
             ParallelToolCalls = true
         };
-        originalConfig.Provider.SetProviderConfig(originalMistralOpts);
+        originalConfig.EnsureChatClientConfig().SetProviderConfig(originalMistralOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(originalConfig, HPDJsonContext.Default.AgentConfig);
@@ -536,13 +537,13 @@ public class MistralProviderTests
         deserializedConfig.SystemInstructions.Should().Be("You are a test assistant.");
 
         // Assert - Provider properties
-        deserializedConfig.Provider.Should().NotBeNull();
-        deserializedConfig.Provider!.ProviderKey.Should().Be("mistral");
-        deserializedConfig.Provider.ModelName.Should().Be("mistral-large-latest");
-        deserializedConfig.Provider.ApiKey.Should().Be("test-key");
+        deserializedConfig.EnsureChatClientConfig().Should().NotBeNull();
+        deserializedConfig.EnsureChatClientConfig()!.ProviderKey.Should().Be("mistral");
+        deserializedConfig.EnsureChatClientConfig().ModelName.Should().Be("mistral-large-latest");
+        deserializedConfig.EnsureChatClientConfig().ApiKey.Should().Be("test-key");
 
         // Assert - Mistral-specific config
-        var deserializedMistralOpts = deserializedConfig.Provider.GetProviderConfig<MistralProviderConfig>();
+        var deserializedMistralOpts = deserializedConfig.EnsureChatClientConfig().GetProviderConfig<MistralProviderConfig>();
         deserializedMistralOpts.Should().NotBeNull();
         deserializedMistralOpts!.MaxTokens.Should().Be(4096);
         deserializedMistralOpts.Temperature.Should().Be(0.7m);
@@ -560,11 +561,10 @@ public class MistralProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "mistral",
                 ModelName = "mistral-large-latest"
-            }
+            } }
         };
 
         // Act - Set typed config
@@ -573,17 +573,17 @@ public class MistralProviderTests
             MaxTokens = 4096,
             Temperature = 0.5m
         };
-        config.Provider.SetProviderConfig(mistralOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(mistralOpts);
 
         // Assert - ProviderOptionsJson should be populated
-        config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
-        config.Provider.ProviderOptionsJson.Should().Contain("maxTokens");
-        config.Provider.ProviderOptionsJson.Should().Contain("4096");
-        config.Provider.ProviderOptionsJson.Should().Contain("temperature");
-        config.Provider.ProviderOptionsJson.Should().Contain("0.5");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("maxTokens");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("4096");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("temperature");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("0.5");
 
         // Verify we can retrieve it back
-        var retrieved = config.Provider.GetProviderConfig<MistralProviderConfig>();
+        var retrieved = config.EnsureChatClientConfig().GetProviderConfig<MistralProviderConfig>();
         retrieved.Should().NotBeNull();
         retrieved!.MaxTokens.Should().Be(4096);
         retrieved.Temperature.Should().Be(0.5m);
@@ -595,11 +595,10 @@ public class MistralProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "mistral",
                 ModelName = "mistral-large-latest"
-            }
+            } }
         };
 
         var mistralOpts = new MistralProviderConfig
@@ -607,11 +606,11 @@ public class MistralProviderTests
             MaxTokens = 4096,
             Temperature = 0.7m
         };
-        config.Provider.SetProviderConfig(mistralOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(mistralOpts);
 
         // Act - Call GetProviderConfig multiple times
-        var first = config.Provider.GetProviderConfig<MistralProviderConfig>();
-        var second = config.Provider.GetProviderConfig<MistralProviderConfig>();
+        var first = config.EnsureChatClientConfig().GetProviderConfig<MistralProviderConfig>();
+        var second = config.EnsureChatClientConfig().GetProviderConfig<MistralProviderConfig>();
 
         // Assert - Should return the same cached instance
         first.Should().BeSameAs(second);
@@ -625,11 +624,10 @@ public class MistralProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "mistral",
                 ModelName = "mistral-large-latest"
-            }
+            } }
         };
 
         var mistralOpts = new MistralProviderConfig
@@ -637,14 +635,14 @@ public class MistralProviderTests
             MaxTokens = 4096
             // Leave Temperature, TopP, etc. as null
         };
-        config.Provider.SetProviderConfig(mistralOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(mistralOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
         var deserialized = System.Text.Json.JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentConfig);
 
         // Assert
-        var deserializedOpts = deserialized!.Provider.GetProviderConfig<MistralProviderConfig>();
+        var deserializedOpts = deserialized!.EnsureChatClientConfig().GetProviderConfig<MistralProviderConfig>();
         deserializedOpts.Should().NotBeNull();
         deserializedOpts!.MaxTokens.Should().Be(4096);
         deserializedOpts.Temperature.Should().BeNull();
@@ -675,12 +673,12 @@ public class MistralProviderTests
             });
 
         // Assert
-        builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.ProviderKey.Should().Be("mistral");
-        builder.Config.Provider.ModelName.Should().Be("mistral-large-latest");
-        builder.Config.Provider.ApiKey.Should().Be("test-api-key");
+        builder.Config.EnsureChatClientConfig().Should().NotBeNull();
+        builder.Config.EnsureChatClientConfig()!.ProviderKey.Should().Be("mistral");
+        builder.Config.EnsureChatClientConfig().ModelName.Should().Be("mistral-large-latest");
+        builder.Config.EnsureChatClientConfig().ApiKey.Should().Be("test-api-key");
 
-        var mistralConfig = builder.Config.Provider.GetProviderConfig<MistralProviderConfig>();
+        var mistralConfig = builder.Config.EnsureChatClientConfig().GetProviderConfig<MistralProviderConfig>();
         mistralConfig.Should().NotBeNull();
         mistralConfig!.MaxTokens.Should().Be(4096);
         mistralConfig.Temperature.Should().Be(0.7m);
@@ -698,11 +696,11 @@ public class MistralProviderTests
             model: "mistral-large-latest");
 
         // Assert
-        builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.ProviderKey.Should().Be("mistral");
-        builder.Config.Provider.ModelName.Should().Be("mistral-large-latest");
+        builder.Config.EnsureChatClientConfig().Should().NotBeNull();
+        builder.Config.EnsureChatClientConfig()!.ProviderKey.Should().Be("mistral");
+        builder.Config.EnsureChatClientConfig().ModelName.Should().Be("mistral-large-latest");
         // ApiKey will be null (will be resolved at runtime from environment)
-        builder.Config.Provider.ApiKey.Should().BeNull();
+        builder.Config.EnsureChatClientConfig().ApiKey.Should().BeNull();
     }
 
     [Fact]
@@ -722,33 +720,10 @@ public class MistralProviderTests
             });
 
         // Assert
-        var mistralConfig = builder.Config.Provider!.GetProviderConfig<MistralProviderConfig>();
+        var mistralConfig = builder.Config.EnsureChatClientConfig()!.GetProviderConfig<MistralProviderConfig>();
         mistralConfig.Should().NotBeNull();
         mistralConfig!.ResponseFormat.Should().Be("json_object");
         mistralConfig.Temperature.Should().Be(0.3m);
-    }
-
-    [Fact]
-    public void WithMistral_WithClientFactory_ShouldStoreClientFactory()
-    {
-        // Arrange
-        var builder = new AgentBuilder();
-        var factoryCalled = false;
-        Func<IChatClient, IChatClient> clientFactory = client =>
-        {
-            factoryCalled = true;
-            return client;
-        };
-
-        // Act
-        builder.WithMistral(
-            model: "mistral-large-latest",
-            apiKey: "test-key",
-            clientFactory: clientFactory);
-
-        // Assert
-        builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.ClientFactory.Should().BeSameAs(clientFactory);
     }
 
     [Fact]
@@ -840,7 +815,7 @@ public class MistralProviderTests
             configure: opts => opts.Temperature = 0.7m);
 
         // Assert
-        var mistralConfig = builder.Config.Provider!.GetProviderConfig<MistralProviderConfig>();
+        var mistralConfig = builder.Config.EnsureChatClientConfig()!.GetProviderConfig<MistralProviderConfig>();
         mistralConfig.Should().NotBeNull();
         mistralConfig!.Temperature.Should().Be(0.7m);
     }
@@ -916,7 +891,7 @@ public class MistralProviderTests
             });
 
         // Assert
-        var mistralConfig = builder.Config.Provider!.GetProviderConfig<MistralProviderConfig>();
+        var mistralConfig = builder.Config.EnsureChatClientConfig()!.GetProviderConfig<MistralProviderConfig>();
         mistralConfig.Should().NotBeNull();
         mistralConfig!.MaxTokens.Should().Be(4096);
         mistralConfig.Temperature.Should().Be(0.7m);

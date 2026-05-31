@@ -14,7 +14,7 @@ namespace HPD.Agent.Integrations;
 /// <para>
 /// <b>Usage:</b>
 /// <code>
-/// app.MapAgentSseEndpoint("/agent/stream", sp =>
+/// app.MapAgentLiveEventsEndpoint("/agent/events/live", sp =>
 ///     new AgentBuilder()
 ///         .WithProvider("openrouter", "gemini")
 ///         .Build()
@@ -25,7 +25,7 @@ namespace HPD.Agent.Integrations;
 public static class AspNetCoreExtensions
 {
     /// <summary>
-    /// Maps an SSE (Server-Sent Events) endpoint for streaming agent events.
+    /// Maps an SSE (Server-Sent Events) endpoint for observing live agent events.
     /// </summary>
     /// <param name="endpoints">The endpoint route builder.</param>
     /// <param name="pattern">The URL pattern for the endpoint.</param>
@@ -33,22 +33,16 @@ public static class AspNetCoreExtensions
     /// <returns>The endpoint convention builder for further configuration.</returns>
     /// <remarks>
     /// <para>
-    /// This method creates a POST endpoint that:
-    /// - Accepts a JSON agent input event
-    /// - Streams agent events as SSE
+    /// This method creates an observer endpoint that:
+    /// - Subscribes to live agent events
+    /// - Streams observed events as SSE
+    /// - Does not submit input or own agent execution
     /// - Uses standard event serialization format
     /// </para>
     /// <para>
     /// <b>Request format:</b>
     /// <code>
-    /// POST /agent/stream
-    /// Content-Type: application/json
-    ///
-    /// {
-    ///   "version": "1.0",
-    ///   "type": "USER_TEXT_INPUT",
-    ///   "text": "Hello, agent!"
-    /// }
+    /// GET /agent/events/live
     /// </code>
     /// </para>
     /// <para>
@@ -65,19 +59,19 @@ public static class AspNetCoreExtensions
     /// <example>
     /// <code>
     /// // Simple usage
-    /// app.MapAgentSseEndpoint("/agent/stream", sp =>
+    /// app.MapAgentLiveEventsEndpoint("/agent/events/live", sp =>
     ///     new AgentBuilder()
     ///         .WithProvider("anthropic", "claude-3-sonnet")
     ///         .Build()
     /// );
     ///
     /// // With DI
-    /// app.MapAgentSseEndpoint("/chat", sp =>
+    /// app.MapAgentLiveEventsEndpoint("/chat/events/live", sp =>
     ///     sp.GetRequiredService&lt;IAgentFactory&gt;().CreateAgent()
     /// );
     /// </code>
     /// </example>
-    public static object MapAgentSseEndpoint(
+    public static object MapAgentLiveEventsEndpoint(
         this object endpoints,
         string pattern,
         Func<IServiceProvider, Agent> agentFactory)
@@ -87,7 +81,7 @@ public static class AspNetCoreExtensions
         // See the HPD-Agent.AspNetCore package for the full implementation.
         throw new NotImplementedException(
             "This method requires ASP.NET Core. " +
-            "Use the MapAgentSseEndpointCore extension method or implement the endpoint manually.");
+            "Use the HPD-Agent.AspNetCore endpoint mapper or implement submit and observe endpoints manually.");
     }
 }
 
@@ -95,31 +89,46 @@ public static class AspNetCoreExtensions
 /// Helper class for manually implementing SSE endpoints.
 /// </summary>
 /// <remarks>
-/// Use this when you need more control over the SSE streaming process.
+/// Use this when you need more control over the SSE observation process.
 /// </remarks>
 public static class SseHelper
 {
     /// <summary>
-    /// Streams agent events as SSE data lines.
+    /// Submits input to the agent runtime.
     /// </summary>
-    /// <param name="agent">The agent to run.</param>
-    /// <param name="input">The input event to submit to the agent.</param>
+    /// <param name="agent">The agent runtime to submit input to.</param>
+    /// <param name="input">The input event to submit.</param>
+    /// <param name="cancellationToken">Cancellation token for the short submit/enqueue operation.</param>
+    public static async Task SubmitInputAsync(
+        Agent agent,
+        AgentInputEvent input,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(agent);
+        ArgumentNullException.ThrowIfNull(input);
+
+        await agent.StartAsync(cancellationToken: CancellationToken.None).ConfigureAwait(false);
+        await agent.RunAsync(input, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Observes agent events as SSE data lines.
+    /// </summary>
+    /// <param name="agent">The agent to observe.</param>
     /// <param name="writeAsync">Async function to write SSE data.</param>
     /// <param name="flushAsync">Async function to flush the response.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when streaming is finished.</returns>
+    /// <param name="cancellationToken">Cancellation token for this observer.</param>
+    /// <returns>A task that completes when observation is cancelled.</returns>
     /// <example>
     /// <code>
-    /// // In an ASP.NET Core minimal API
-    /// app.MapPost("/agent/stream", async (HttpContext context, UserTextInputEvent input) =>
+    /// app.MapGet("/agent/events/live", async (HttpContext context) =>
     /// {
     ///     context.Response.ContentType = "text/event-stream";
     ///     context.Response.Headers.CacheControl = "no-cache";
     ///
     ///     var agent = CreateAgent();
-    ///     await SseHelper.StreamEventsAsync(
+    ///     await SseHelper.ObserveEventsAsync(
     ///         agent,
-    ///         input,
     ///         data => context.Response.WriteAsync($"data: {data}\n\n"),
     ///         () => context.Response.Body.FlushAsync(),
     ///         context.RequestAborted
@@ -127,47 +136,29 @@ public static class SseHelper
     /// });
     /// </code>
     /// </example>
-    public static async Task StreamEventsAsync(
+    public static Task ObserveEventsAsync(
         Agent agent,
-        AgentInputEvent input,
         Func<string, Task> writeAsync,
         Func<Task> flushAsync,
         CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(agent);
-        ArgumentNullException.ThrowIfNull(input);
-        ArgumentNullException.ThrowIfNull(writeAsync);
-        ArgumentNullException.ThrowIfNull(flushAsync);
-
-        using var subscription = agent.SubscribeAny((Func<AgentEvent, Task>)(async evt =>
-        {
-            var json = AgentEventSerializer.ToJson(evt);
-            await writeAsync($"data: {json}\n\n");
-            await flushAsync();
-        }));
-
-        await agent.RunAsync(input, cancellationToken);
-    }
+        => ObserveEventsAsync(agent, writeAsync, flushAsync, AgentEventSerializer.ToJson, cancellationToken);
 
     /// <summary>
-    /// Streams agent events as SSE with a custom serializer.
+    /// Observes agent events as SSE with a custom serializer.
     /// </summary>
-    /// <param name="agent">The agent to run.</param>
-    /// <param name="input">The input event to submit to the agent.</param>
+    /// <param name="agent">The agent to observe.</param>
     /// <param name="writeAsync">Async function to write SSE data.</param>
     /// <param name="flushAsync">Async function to flush the response.</param>
     /// <param name="eventSerializer">Custom event serializer function.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    public static async Task StreamEventsAsync(
+    /// <param name="cancellationToken">Cancellation token for this observer.</param>
+    public static async Task ObserveEventsAsync(
         Agent agent,
-        AgentInputEvent input,
         Func<string, Task> writeAsync,
         Func<Task> flushAsync,
         Func<AgentEvent, string> eventSerializer,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(agent);
-        ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(writeAsync);
         ArgumentNullException.ThrowIfNull(flushAsync);
         ArgumentNullException.ThrowIfNull(eventSerializer);
@@ -179,6 +170,6 @@ public static class SseHelper
             await flushAsync();
         }));
 
-        await agent.RunAsync(input, cancellationToken);
+        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
     }
 }

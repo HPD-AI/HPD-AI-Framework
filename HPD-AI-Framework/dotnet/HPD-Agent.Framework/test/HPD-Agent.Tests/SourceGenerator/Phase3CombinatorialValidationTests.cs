@@ -131,11 +131,12 @@ public class Phase3CombinatorialValidationTests
                 && val1 is bool b1 && b1;
             Assert.True(isSubAgent, $"{subAgent.Name} should have IsSubAgent = true");
 
-            // Should have SessionMode
-            object? SessionMode = null;
-            var hasSessionMode = subAgent.AdditionalProperties?.TryGetValue("SessionMode", out SessionMode) == true;
-            Assert.True(hasSessionMode, $"SubAgent {subAgent.Name} should have SessionMode");
-            Assert.True(SessionMode is string);
+            // Should advertise branch-native execution
+            object? executionModel = null;
+            var hasExecutionModel = subAgent.AdditionalProperties?.TryGetValue("ExecutionModel", out executionModel) == true;
+            Assert.True(hasExecutionModel, $"SubAgent {subAgent.Name} should have ExecutionModel");
+            Assert.Equal("BranchNative", executionModel as string);
+            Assert.False(subAgent.AdditionalProperties?.ContainsKey("SessionMode") == true);
 
             // Should have ParentHarness
             object? toolName = null;
@@ -355,7 +356,7 @@ public class Phase3CombinatorialValidationTests
         // METADATA VALIDATION:
         //  Function metadata (ParentHarness, IsContainer = false)
         //  Skill metadata (IsContainer = true, IsSkill = true, ReferencedFunctions, ReferencedHarneses)
-        //  SubAgent metadata (IsSubAgent = true, SessionMode, HarnessName)
+        //  SubAgent metadata (IsSubAgent = true, ExecutionModel, HarnessName)
         //  Empty array types (new string[] { } instead of new[] { })
         //
         // FUNCTIONAL VALIDATION:

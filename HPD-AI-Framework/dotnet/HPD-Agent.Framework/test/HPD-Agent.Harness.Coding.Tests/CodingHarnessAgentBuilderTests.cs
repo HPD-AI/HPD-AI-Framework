@@ -18,11 +18,11 @@ public class CodingHarnessAgentBuilderTests
         using var chatClient = new TestChatClient();
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model"
-            }
+            } }
         };
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(chatClient))
@@ -72,11 +72,11 @@ public class CodingHarnessAgentBuilderTests
             var agent = await new AgentBuilder(
                     new AgentConfig
                     {
-                        Provider = new ProviderConfig
+                        Clients = new AgentClientConfig { Chat = new ClientProviderConfig
                         {
                             ProviderKey = "test",
                             ModelName = "test-model"
-                        }
+                        } }
                     },
                     new TestProviderRegistry(chatClient))
                 .WithName("coding-harness-test-agent")
@@ -191,14 +191,18 @@ public class CodingHarnessAgentBuilderTests
 
     private sealed class TestProviderRegistry(IChatClient chatClient) : IProviderRegistry
     {
-        public IProviderFeatures? GetProvider(string providerKey)
+        public IProvider? GetProvider(string providerKey)
             => string.Equals(providerKey, "test", StringComparison.Ordinal)
-                ? new TestProviderFeatures(chatClient)
+                ? new TestChatClientProvider(chatClient)
                 : null;
+
+        public TProvider? GetProvider<TProvider>(string providerKey)
+            where TProvider : class, IProvider
+            => GetProvider(providerKey) as TProvider;
 
         public IReadOnlyCollection<string> GetRegisteredProviders() => ["test"];
 
-        public void Register(IProviderFeatures provider)
+        public void Register(IProvider provider)
         {
         }
 
@@ -209,13 +213,13 @@ public class CodingHarnessAgentBuilderTests
         }
     }
 
-    private sealed class TestProviderFeatures(IChatClient chatClient) : IProviderFeatures
+    private sealed class TestChatClientProvider(IChatClient chatClient) : IChatClientProvider
     {
         public string ProviderKey => "test";
 
         public string DisplayName => "Test";
 
-        public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null) => chatClient;
+        public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null) => chatClient;
 
         public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
 
@@ -224,11 +228,21 @@ public class CodingHarnessAgentBuilderTests
             {
                 ProviderKey = ProviderKey,
                 DisplayName = DisplayName,
-                SupportsFunctionCalling = true,
-                SupportsStreaming = true
+                Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+                {
+                    [ProviderClientFamily.Chat] = new()
+                    {
+                        Family = ProviderClientFamily.Chat,
+                        Capabilities = new Dictionary<string, object?>
+                        {
+                            ["SupportsFunctionCalling"] = true,
+                            ["SupportsStreaming"] = true
+                        }
+                    }
+                }
             };
 
-        public ProviderValidationResult ValidateConfiguration(ProviderConfig config) => ProviderValidationResult.Success();
+        public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family) => ProviderValidationResult.Success();
     }
 
     private sealed class TestChatClient : IChatClient

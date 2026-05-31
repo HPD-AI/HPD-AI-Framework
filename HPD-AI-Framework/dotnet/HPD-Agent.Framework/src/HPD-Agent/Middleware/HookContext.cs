@@ -50,8 +50,22 @@ public abstract class HookContext
     public string? TraceId => Base.TraceId;
 
     /// <summary>
+    /// Agent configuration for middleware that needs agent-level client-family defaults.
+    /// </summary>
+    public AgentConfig? Config => Base.Config;
+
+    /// <summary>
+    /// Provider-created client-family instances resolved for this agent build.
+    /// </summary>
+    internal AgentClientSet? ClientSet => Base.ClientSet;
+
+    /// <summary>
+    /// Explicit content store configured for this agent.
+    /// </summary>
+    public IContentStore? ContentStore => Base.ContentStore;
+
+    /// <summary>
     /// The session metadata container.
-    /// Access session.Store for infrastructure operations (asset upload, etc.).
     /// Does NOT contain messages - messages are in <see cref="Branch"/>.
     /// </summary>
     /// <remarks>
@@ -59,10 +73,11 @@ public abstract class HookContext
     /// <code>
     /// public async Task BeforeIterationAsync(BeforeIterationContext context, ...)
     /// {
-    ///     var contentStore = context.Session?.Store?.GetContentStore(context.Session.Id);
+    ///     var contentStore = context.ContentStore;
     ///     if (contentStore != null)
     ///     {
-    ///         var id = await contentStore.PutAsync(context.Session.Id, bytes, "image/jpeg");
+    ///         var info = await contentStore.WriteBytesAsync(context.Session.Id, bytes,
+    ///             new ContentMetadata { ContentType = "image/jpeg" });
     ///     }
     /// }
     /// </code>
@@ -316,22 +331,32 @@ public abstract class HookContext
     }
 
     /// <summary>
-    /// Gets the parent agent's execution context for hierarchical event attribution.
+    /// Gets the parent agent's definition store for stored-agent subagent resolution.
+    /// Used by source-generated SubAgent wrappers.
+    /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public IAgentStore? GetParentAgentStore()
+    {
+        return Base.ParentAgentStore;
+    }
+
+    /// <summary>
+    /// Gets the parent agent's metadata for hierarchical event attribution.
     /// Used by source-generated SubAgent and MultiAgent wrappers.
     /// </summary>
     /// <remarks>
     /// <para><b>For source-generated code only.</b></para>
     /// <para>
-    /// Returns the ExecutionContext from RootAgent, which contains:
+    /// Returns the metadata from RootAgent, which contains:
     /// - AgentName, AgentId, ParentAgentId
     /// - AgentChain (full hierarchy path)
     /// - Depth (nesting level)
     /// </para>
     /// </remarks>
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public AgentExecutionContext? GetParentExecutionContext()
+    public AgentMetadata? GetParentAgentMetadata()
     {
-        return Agent.RootAgent?.ExecutionContext;
+        return Agent.RootAgent?.AgentMetadata;
     }
 
     //

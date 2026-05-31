@@ -15,14 +15,14 @@ namespace HPD.Agent.Providers;
 /// </summary>
 public static class ProviderDiscovery
 {
-    private static readonly List<Func<IProviderFeatures>> _factories = new();
-    private static readonly Dictionary<string, ProviderConfigRegistration> _configTypes = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly List<Func<IProvider>> _factories = new();
+    private static readonly Dictionary<ProviderConfigKey, ProviderConfigRegistration> _configTypes = new();
     private static readonly object _lock = new();
 
     /// <summary>
     /// Called by provider package ModuleInitializers to register a provider.
     /// </summary>
-    public static void RegisterProviderFactory(Func<IProviderFeatures> factory)
+    public static void RegisterProviderFactory(Func<IProvider> factory)
     {
         lock (_lock)
         {
@@ -34,7 +34,7 @@ public static class ProviderDiscovery
     /// Get all discovered provider factories.
     /// Called by AgentBuilder to populate its instance registry.
     /// </summary>
-    internal static IEnumerable<Func<IProviderFeatures>> GetFactories()
+    internal static IEnumerable<Func<IProvider>> GetFactories()
     {
         lock (_lock)
         {
@@ -94,7 +94,7 @@ public static class ProviderDiscovery
             foreach (var assembly in loadedAssemblies)
             {
                 var assemblyName = assembly.GetName().Name;
-                if (assemblyName != null && assemblyName.StartsWith("HPD-Agent.Providers.", StringComparison.OrdinalIgnoreCase))
+                if (IsProviderAssemblyName(assemblyName))
                 {
                     TriggerModuleInitializer(assembly);
                 }
@@ -107,8 +107,7 @@ public static class ProviderDiscovery
                 var referencedAssemblies = entryAssembly.GetReferencedAssemblies();
                 foreach (var assemblyName in referencedAssemblies)
                 {
-                    if (assemblyName.Name != null &&
-                        assemblyName.Name.StartsWith("HPD-Agent.Providers.", StringComparison.OrdinalIgnoreCase))
+                    if (IsProviderAssemblyName(assemblyName.Name))
                     {
                         try
                         {
@@ -128,6 +127,11 @@ public static class ProviderDiscovery
             // Silently continue - providers may be registered via other means
         }
     }
+
+    private static bool IsProviderAssemblyName(string? assemblyName) =>
+        assemblyName != null &&
+        (assemblyName.StartsWith("HPD-Agent.Providers.", StringComparison.OrdinalIgnoreCase) ||
+         assemblyName.StartsWith("HPD-Agent.AudioProviders.", StringComparison.OrdinalIgnoreCase));
 
     [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Uses RuntimeHelpers.RunModuleConstructor which requires the module to be preserved.")]
     private static void TriggerModuleInitializer(Assembly assembly)
@@ -170,9 +174,22 @@ public static class ProviderDiscovery
         Func<string, TConfig?> deserializer,
         Func<TConfig, string> serializer) where TConfig : class
     {
+        RegisterProviderConfigType(providerKey, ProviderClientFamily.Chat, deserializer, serializer);
+    }
+
+    /// <summary>
+    /// Registers a provider-specific configuration type for a specific client family.
+    /// Use this when one provider key exposes multiple MEAI/HPD client families with different option shapes.
+    /// </summary>
+    public static void RegisterProviderConfigType<TConfig>(
+        string providerKey,
+        ProviderClientFamily family,
+        Func<string, TConfig?> deserializer,
+        Func<TConfig, string> serializer) where TConfig : class
+    {
         lock (_lock)
         {
-            _configTypes[providerKey] = new ProviderConfigRegistration(
+            _configTypes[new ProviderConfigKey(providerKey, family)] = new ProviderConfigRegistration(
                 typeof(TConfig),
                 json => deserializer(json),
                 obj => serializer((TConfig)obj));
@@ -186,9 +203,19 @@ public static class ProviderDiscovery
     /// <returns>Registration info, or null if not registered</returns>
     public static ProviderConfigRegistration? GetProviderConfigType(string providerKey)
     {
+        return GetProviderConfigType(providerKey, ProviderClientFamily.Chat);
+    }
+
+    /// <summary>
+    /// Gets the registered config type for a provider client family.
+    /// </summary>
+    public static ProviderConfigRegistration? GetProviderConfigType(string providerKey, ProviderClientFamily family)
+    {
         lock (_lock)
         {
-            return _configTypes.TryGetValue(providerKey, out var registration) ? registration : null;
+            return _configTypes.TryGetValue(new ProviderConfigKey(providerKey, family), out var registration)
+                ? registration
+                : null;
         }
     }
 
@@ -200,10 +227,18 @@ public static class ProviderDiscovery
     /// <returns>Deserialized config object, or null if provider not registered or JSON is empty</returns>
     public static object? DeserializeProviderConfig(string providerKey, string? json)
     {
+        return DeserializeProviderConfig(providerKey, ProviderClientFamily.Chat, json);
+    }
+
+    /// <summary>
+    /// Deserializes provider-specific client-family config from JSON using the registered deserializer.
+    /// </summary>
+    public static object? DeserializeProviderConfig(string providerKey, ProviderClientFamily family, string? json)
+    {
         if (string.IsNullOrWhiteSpace(json))
             return null;
 
-        var registration = GetProviderConfigType(providerKey);
+        var registration = GetProviderConfigType(providerKey, family);
         return registration?.Deserialize(json);
     }
 
@@ -215,10 +250,18 @@ public static class ProviderDiscovery
     /// <returns>JSON string, or null if provider not registered or config is null</returns>
     public static string? SerializeProviderConfig(string providerKey, object? config)
     {
+        return SerializeProviderConfig(providerKey, ProviderClientFamily.Chat, config);
+    }
+
+    /// <summary>
+    /// Serializes provider-specific client-family config to JSON using the registered serializer.
+    /// </summary>
+    public static string? SerializeProviderConfig(string providerKey, ProviderClientFamily family, object? config)
+    {
         if (config == null)
             return null;
 
-        var registration = GetProviderConfigType(providerKey);
+        var registration = GetProviderConfigType(providerKey, family);
         return registration?.Serialize(config);
     }
 
@@ -230,9 +273,34 @@ public static class ProviderDiscovery
     {
         lock (_lock)
         {
-            return new Dictionary<string, ProviderConfigRegistration>(_configTypes);
+            return _configTypes
+                .Where(pair => pair.Key.Family == ProviderClientFamily.Chat)
+                .ToDictionary(pair => pair.Key.ProviderKey, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
         }
     }
+
+    /// <summary>
+    /// Gets all registered provider config types keyed by provider and client family.
+    /// </summary>
+    public static IReadOnlyDictionary<(string ProviderKey, ProviderClientFamily Family), ProviderConfigRegistration> GetAllClientFamilyConfigTypes()
+    {
+        lock (_lock)
+        {
+            return _configTypes.ToDictionary(
+                pair => (pair.Key.ProviderKey, pair.Key.Family),
+                pair => pair.Value);
+        }
+    }
+}
+
+internal readonly record struct ProviderConfigKey(string ProviderKey, ProviderClientFamily Family)
+{
+    public bool Equals(ProviderConfigKey other) =>
+        Family == other.Family &&
+        string.Equals(ProviderKey, other.ProviderKey, StringComparison.OrdinalIgnoreCase);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(ProviderKey), Family);
 }
 
 /// <summary>

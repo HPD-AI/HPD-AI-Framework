@@ -3,8 +3,10 @@
 using System.Reflection;
 using System.Text.Json;
 using FluentAssertions;
+using HPD.Agent;
 using HPD.Agent.Audio.Vad;
 using HPD.Agent.AudioProviders.Silero;
+using HPD.Agent.Providers;
 using Microsoft.ML.OnnxRuntime;
 
 namespace HPD.Agent.Audio.Tests;
@@ -65,7 +67,7 @@ public class SileroVadTests
     [Fact]
     public void Validate_DefaultConfig_ReturnsSuccess()
     {
-        var factory = new SileroVadProviderFactory();
+        var factory = new SileroVadProvider();
         var config = new VadConfig();
 
         var result = factory.Validate(config);
@@ -80,7 +82,7 @@ public class SileroVadTests
     [Fact]
     public void Validate_InvalidActivationThreshold_ReturnsFailure()
     {
-        var factory = new SileroVadProviderFactory();
+        var factory = new SileroVadProvider();
         var config = new VadConfig { ActivationThreshold = 1.5f };
 
         var result = factory.Validate(config);
@@ -96,7 +98,7 @@ public class SileroVadTests
     [Fact]
     public void Validate_InvalidSampleRateInJson_ReturnsFailure()
     {
-        var factory = new SileroVadProviderFactory();
+        var factory = new SileroVadProvider();
         var config = new VadConfig
         {
             ProviderOptionsJson = JsonSerializer.Serialize(new SileroVadConfig { SampleRate = 22050 })
@@ -115,7 +117,7 @@ public class SileroVadTests
     [Fact]
     public void Validate_ZeroModelResetInterval_ReturnsFailure()
     {
-        var factory = new SileroVadProviderFactory();
+        var factory = new SileroVadProvider();
         var config = new VadConfig
         {
             ProviderOptionsJson = JsonSerializer.Serialize(new SileroVadConfig { ModelResetIntervalSeconds = 0f })
@@ -134,7 +136,7 @@ public class SileroVadTests
     [Fact]
     public void Validate_DeactivationThresholdOutOfRange_ReturnsFailure()
     {
-        var factory = new SileroVadProviderFactory();
+        var factory = new SileroVadProvider();
         var config = new VadConfig
         {
             ProviderOptionsJson = JsonSerializer.Serialize(new SileroVadConfig { DeactivationThreshold = 1.5f })
@@ -153,7 +155,7 @@ public class SileroVadTests
     [Fact]
     public void Validate_MalformedJson_DoesNotThrow_ReturnsFailure()
     {
-        var factory = new SileroVadProviderFactory();
+        var factory = new SileroVadProvider();
         var config = new VadConfig { ProviderOptionsJson = "not-json" };
 
         var result = factory.Validate(config);
@@ -170,7 +172,7 @@ public class SileroVadTests
     public void Validate_ModelResourceExists_IsAccessible()
     {
         // Verify the embedded resource is readable by calling Validate on a clean config.
-        var factory = new SileroVadProviderFactory();
+        var factory = new SileroVadProvider();
         var result = factory.Validate(new VadConfig());
 
         // If the resource is missing, Validate returns failure with an error about the model.
@@ -184,13 +186,15 @@ public class SileroVadTests
     [Fact]
     public void GetMetadata_ReturnsCorrectProviderKey_DisplayName_SupportedFormats()
     {
-        var factory = new SileroVadProviderFactory();
-        var meta = factory.GetMetadata();
+        var provider = new SileroVadProvider();
+        var meta = ((IProvider)provider).GetMetadata();
 
         meta.ProviderKey.Should().Be("silero-vad");
         meta.DisplayName.Should().Be("Silero VAD");
-        meta.SupportedFormats.Should().Contain("pcm-16bit-8khz");
-        meta.SupportedFormats.Should().Contain("pcm-16bit-16khz");
+        meta.DocumentationUri.Should().Be(new Uri("https://github.com/snakers4/silero-vad"));
+        meta.Families.Should().ContainKey(ProviderClientFamily.VoiceActivityDetection);
+        meta.Families[ProviderClientFamily.VoiceActivityDetection].Lifetime
+            .Should().Be(ProviderFamilyLifetime.StatefulPerAudioSession);
     }
 
     // =========================================================================
@@ -200,7 +204,7 @@ public class SileroVadTests
     [Fact]
     public void CreateDetector_DefaultConfig_ReturnsDetector()
     {
-        var factory = new SileroVadProviderFactory();
+        var factory = new SileroVadProvider();
         var config = new VadConfig();
 
         IVoiceActivityDetector? detector = null;
@@ -218,7 +222,7 @@ public class SileroVadTests
     [Fact]
     public void CreateDetector_WithProviderOptionsJson_AppliesConfig()
     {
-        var factory = new SileroVadProviderFactory();
+        var factory = new SileroVadProvider();
         var config = new VadConfig
         {
             ProviderOptionsJson = JsonSerializer.Serialize(new SileroVadConfig
@@ -774,10 +778,10 @@ public class SileroVadTests
     public void ModuleInitializer_RegistersSileroVad()
     {
         // Assembly is loaded by virtue of referencing the project; module initializer fires
-        var factory = VadProviderDiscovery.GetFactory("silero-vad");
+        var provider = new AgentBuilder().ProviderRegistry.GetProvider<IVoiceActivityDetectorProvider>("silero-vad");
 
-        factory.Should().NotBeNull("Silero VAD factory should be auto-registered by module initializer");
-        VadProviderDiscovery.GetAvailableProviders().Should().Contain("silero-vad");
+        provider.Should().NotBeNull("Silero VAD provider should be auto-registered by module initializer");
+        new AgentBuilder().ProviderRegistry.GetRegisteredProviders().Should().Contain("silero-vad");
     }
 
     // =========================================================================
@@ -787,10 +791,10 @@ public class SileroVadTests
     [Fact]
     public void ModuleInitializer_RegistersConfigType()
     {
-        var configType = VadProviderDiscovery.GetConfigType("silero-vad");
+        var configType = ProviderDiscovery.GetProviderConfigType("silero-vad", ProviderClientFamily.VoiceActivityDetection);
 
         configType.Should().NotBeNull("SileroVadConfig should be registered");
-        configType.Should().Be(typeof(SileroVadConfig));
+        configType!.ConfigType.Should().Be(typeof(SileroVadConfig));
     }
 
     // =========================================================================
@@ -801,7 +805,7 @@ public class SileroVadTests
     public void WithSileroVad_SetsVadOnMiddleware()
     {
         // Validate that the factory creates a SileroVadDetector
-        var factory = new SileroVadProviderFactory();
+        var factory = new SileroVadProvider();
         var config = new VadConfig { ActivationThreshold = 0.5f };
 
         using var detector = factory.CreateDetector(config);
@@ -817,7 +821,7 @@ public class SileroVadTests
     public void WithSileroVad_CustomThreshold_Applied()
     {
         const float customThreshold = 0.7f;
-        var factory = new SileroVadProviderFactory();
+        var factory = new SileroVadProvider();
         var config = new VadConfig { ActivationThreshold = customThreshold };
 
         using var detector = (SileroVadDetector)factory.CreateDetector(config);
@@ -864,7 +868,7 @@ public class SileroVadTests
     /// <summary>Creates a detector with all-default settings.</summary>
     private static SileroVadDetector CreateDefaultDetector()
     {
-        var factory = new SileroVadProviderFactory();
+        var factory = new SileroVadProvider();
         return (SileroVadDetector)factory.CreateDetector(new VadConfig());
     }
 
@@ -891,7 +895,7 @@ public class SileroVadTests
     private static SileroVadDetector CreateDetectorDirect(VadConfig vadConfig, SileroVadConfig sileroConfig)
     {
         // Load the real ONNX session via the factory's private LoadSession method
-        var factory = new SileroVadProviderFactory();
+        var factory = new SileroVadProvider();
         // We need a real InferenceSession; obtain it by creating a default detector and
         // extracting the session, or by calling the factory with a stock config then
         // replacing. Since InternalsVisibleTo is granted, we can call the internal ctor.

@@ -20,11 +20,11 @@ public class PermissionTests : AgentTestBase
     private Agent CreateAgentWithPermissions(FakeChatClient client, params AIFunction[] tools)
     {
         var config = DefaultConfig();
-        config.Provider ??= new ProviderConfig();
-        config.Provider.ProviderKey = "test";
-        config.Provider.ModelName = "test-model";
-        config.Provider.DefaultChatOptions ??= new ChatOptions();
-        config.Provider.DefaultChatOptions.Tools = tools.Cast<AITool>().ToList();
+        config.EnsureChatClientConfig();
+        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().ModelName = "test-model";
+        config.EnsureChatClientConfig().DefaultChatOptions ??= new ChatOptions();
+        config.EnsureChatClientConfig().DefaultChatOptions.Tools = tools.Cast<AITool>().ToList();
 
         var builder = new AgentBuilder(config, new TestProviderRegistry(client));
         builder.WithPermissions(); // Enable permission filtering

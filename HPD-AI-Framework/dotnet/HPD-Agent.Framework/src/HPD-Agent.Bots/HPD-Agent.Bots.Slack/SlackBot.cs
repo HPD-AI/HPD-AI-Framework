@@ -220,7 +220,7 @@ public partial class SlackBot(
         Console.WriteLine($"[SLACK] HandleMessageAsync: channel={ev.Channel} channelType={ev.ChannelType} user={ev.User} botId={ev.BotId} subtype={ev.Subtype} text={ev.Text} threadTs={threadTs} sessionId={sessionId} branchId={branchId}");
 
         // Fire-and-forget: Slack requires 200 within 3 seconds.
-        _ = StreamToSlackAsync(sessionId, branchId, input, ev.Channel!, threadTs, ctx.RequestAborted);
+        _ = StreamToSlackAsync(sessionId, branchId, input, ev.Channel!, threadTs, CancellationToken.None);
         return Results.Ok();
     }
 
@@ -289,7 +289,7 @@ public partial class SlackBot(
             });
 
         // Fire-and-forget: Slack requires 200 within 3 seconds.
-        _ = StreamToSlackAsync(sessionId, branchId, input, payload.ChannelId, "", ctx.RequestAborted);
+        _ = StreamToSlackAsync(sessionId, branchId, input, payload.ChannelId, "", CancellationToken.None);
         return Results.Ok();
     }
 
@@ -416,7 +416,7 @@ public partial class SlackBot(
                 ct);
 
             if (!started)
-                Console.WriteLine($"[SLACK] StreamToSlackAsync: stream lock already held for session={sessionId} branch={branchId}, dropping");
+                Console.WriteLine($"[SLACK] StreamToSlackAsync: branch operation lock already held for session={sessionId} branch={branchId}, dropping");
             else
                 Console.WriteLine("[SLACK] StreamToSlackAsync: agent stream complete");
         }
@@ -648,7 +648,7 @@ public partial class SlackBot(
                             var platformKey = SlackThreadId.Format(ev!.Channel!, threadTs);
                             var (sessionId, branchId) = await sessionMapper.ResolveAsync(platformKey, ct);
                             var input = await BuildInputAsync(ev, ct);
-                            _ = StreamToSlackAsync(sessionId, branchId, input, ev.Channel!, threadTs, ct);
+                            _ = StreamToSlackAsync(sessionId, branchId, input, ev.Channel!, threadTs, CancellationToken.None);
                         }
                         break;
                     }

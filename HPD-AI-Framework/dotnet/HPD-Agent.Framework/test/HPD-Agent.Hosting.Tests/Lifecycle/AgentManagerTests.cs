@@ -8,7 +8,7 @@ namespace HPD.Agent.Hosting.Tests.Lifecycle;
 
 /// <summary>
 /// Tests for the AgentManager abstract base class.
-/// Covers definition CRUD, instance caching (keyed by agentId), build locking, and idle eviction.
+/// Covers definition CRUD, instance caching, build locking, and idle eviction.
 /// </summary>
 public class AgentManagerTests : IDisposable
 {
@@ -160,6 +160,55 @@ public class AgentManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task GetOrBuildAgentRuntimeAsync_ReturnsSameInstance_ForSameBranchRuntime()
+    {
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+
+        var a1 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-1");
+        var a2 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-1");
+
+        a1.Should().BeSameAs(a2);
+        _manager.BuildCallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GetOrBuildAgentRuntimeAsync_CreatesDifferentInstances_ForDifferentBranches()
+    {
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+
+        var a1 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-1");
+        var a2 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-2");
+
+        a1.Should().NotBeSameAs(a2);
+        _manager.BuildCallCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task GetOrBuildAgentRuntimeAsync_CreatesDifferentInstances_ForDifferentSessions()
+    {
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+
+        var a1 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-1");
+        var a2 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-2", "branch-1");
+
+        a1.Should().NotBeSameAs(a2);
+        _manager.BuildCallCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task UpdateDefinitionAsync_EvictsBranchRuntimeInstances()
+    {
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var first = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-1");
+
+        await _manager.UpdateDefinitionAsync(stored.Id, MakeConfig("X-updated"));
+
+        var second = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-1");
+        second.Should().NotBeSameAs(first);
+        _manager.BuildCallCount.Should().Be(2);
+    }
+
+    [Fact]
     public async Task GetOrBuildAgentAsync_PreventsConcurrentBuilds_WithPerAgentLock()
     {
         var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
@@ -259,11 +308,11 @@ public class AgentManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task EvictIdleAgents_EvictsOldAgents_EvenIfStreamLockHeld()
+    public async Task EvictIdleAgents_EvictsOldAgents_EvenIfBranchOperationLockHeld()
     {
         // KEY BEHAVIORAL CHANGE: IsStreaming is gone — time-based eviction only.
-        // The stream lock (held externally by SessionManager) does NOT protect the
-        // agent cache from eviction. After eviction the next stream request rebuilds.
+        // The branch operation lock (held externally by SessionManager) does NOT protect the
+        // agent cache from eviction. After eviction the next agent request rebuilds.
         var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
         await _manager.GetOrBuildAgentAsync(stored.Id);
 
@@ -289,7 +338,7 @@ public class AgentManagerTests : IDisposable
     {
         Name = name,
         MaxAgenticIterations = 5,
-        Provider = new ProviderConfig { ProviderKey = "test", ModelName = "test-model" }
+        Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } }
     };
 
     // ──────────────────────────────────────────────────────────────────────────

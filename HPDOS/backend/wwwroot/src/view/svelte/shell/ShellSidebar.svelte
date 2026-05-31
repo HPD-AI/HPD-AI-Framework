@@ -1,8 +1,11 @@
 <script lang="ts">
+  import WorkspaceNavigator from "../chat/components/WorkspaceNavigator.svelte";
+  import type { ChatRuntimeController } from "../chat/runtime/chatRuntime.svelte";
   import type { ShellController, ShellRoute } from "./controller";
 
   type Props = {
     shell: ShellController;
+    chatRuntime: ChatRuntimeController;
   };
 
   type RouteItem = {
@@ -12,7 +15,7 @@
     placement: "primary" | "secondary";
   };
 
-  let { shell }: Props = $props();
+  let { shell, chatRuntime }: Props = $props();
 
   const shellState = $derived(shell.state);
   const routeItems: RouteItem[] = [
@@ -40,6 +43,10 @@
       </button>
     {/each}
   </nav>
+
+  {#if $shellState.activeRoute === "chat"}
+    <WorkspaceNavigator runtime={chatRuntime} />
+  {/if}
 
   <nav class="hpd-shell-sidebar-nav hpd-shell-sidebar-nav-secondary" aria-label="Secondary">
     {#each secondaryItems as item}

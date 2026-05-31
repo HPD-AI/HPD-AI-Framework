@@ -36,7 +36,7 @@ public enum ErrorCategory
     AuthError,
 
     /// <summary>
-    /// Context window exceeded - don't retry, need history reduction.
+    /// Context window exceeded - don't retry, need compaction.
     /// </summary>
     ContextWindow,
 

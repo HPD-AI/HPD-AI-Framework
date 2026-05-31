@@ -3,6 +3,7 @@
 
 namespace HPD.Agent.Audio.Stt;
 
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
 
 /// <summary>
@@ -75,8 +76,8 @@ public class SttConfig
     //
 
     /// <summary>
-    /// STT provider key (e.g., "openai-audio", "deepgram", "google-cloud-stt").
-    /// Resolved via SttProviderDiscovery at runtime.
+    /// STT provider key (e.g., "openai", "deepgram", "google-cloud-stt").
+    /// Resolved via the unified provider registry at runtime.
     /// </summary>
     public string Provider { get; set; } = string.Empty;
 
@@ -90,6 +91,13 @@ public class SttConfig
     /// - Google: {"credentialsJson":"..."}
     /// </summary>
     public string? ProviderOptionsJson { get; set; }
+
+    /// <summary>
+    /// Direct runtime STT client override.
+    /// Highest precedence when the audio pipeline resolves speech-to-text.
+    /// </summary>
+    [JsonIgnore]
+    public ISpeechToTextClient? OverrideClient { get; set; }
 
     /// <summary>
     /// Converts this HPD STT config into Microsoft.Extensions.AI request options.

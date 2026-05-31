@@ -1,4 +1,5 @@
 using HPD.Events;
+using HPD.Events.Struct;
 using Rhodium.Primitives;
 
 namespace Rhodium.Simulation.Frames;

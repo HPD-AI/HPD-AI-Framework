@@ -390,7 +390,7 @@ public sealed class ReadFileTests : IDisposable
     }
 
     [Fact]
-    public async Task ReadFile_DoesNotReturnUnchangedWhenHistoryReductionIsNewerThanPriorRead()
+    public async Task ReadFile_DoesNotReturnUnchangedWhenCompactionIsNewerThanPriorRead()
     {
         await File.WriteAllTextAsync("reduced.txt", "one\ntwo\n");
         var agentContext = CreateAgentContext();
@@ -399,8 +399,8 @@ public sealed class ReadFileTests : IDisposable
         await ReadFileThroughMiddlewareAsync(agentContext, harness, "reduced.txt");
 
         CreateBeforeFunctionContext(agentContext)
-            .UpdateMiddlewareState<HistoryReductionStateData>(state =>
-                state.WithReductionApplied(DateTimeOffset.UtcNow.AddSeconds(1)));
+            .UpdateMiddlewareState<CompactionStateData>(state =>
+                state.WithCompactionApplied(DateTimeOffset.UtcNow.AddSeconds(1)));
 
         var second = await ReadFileThroughMiddlewareAsync(agentContext, harness, "reduced.txt");
 

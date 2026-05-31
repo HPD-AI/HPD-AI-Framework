@@ -5,13 +5,13 @@ namespace HPD.Agent.Hosting.Lifecycle;
 
 /// <summary>
 /// Abstract base class for managing session and branch lifecycle,
-/// stream locks, and session-level locks.
+/// branch operation locks, and session-level locks.
 /// </summary>
 /// <remarks>
 /// Responsibilities:
 /// <list type="bullet">
 ///   <item>Session and initial branch creation (delegated to <see cref="ISessionStore"/>)</item>
-///   <item>Per-branch stream lock (prevents concurrent streams on same branch)</item>
+///   <item>Per-branch operation lock (protects branch mutations that must not overlap)</item>
 ///   <item>Per-session exclusive lock (safe metadata updates)</item>
 /// </list>
 ///
@@ -22,7 +22,8 @@ namespace HPD.Agent.Hosting.Lifecycle;
 public abstract class SessionManager : IDisposable
 {
     private readonly ISessionStore _store;
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _streamLocks = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _branchOperationLocks = new();
+    private readonly ConcurrentDictionary<string, BranchRunState> _activeBranchRuns = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks = new();
     private bool _disposed;
 
@@ -64,7 +65,7 @@ public abstract class SessionManager : IDisposable
     }
 
     /// <summary>
-    /// Clean up in-memory stream and session locks for a session.
+    /// Clean up in-memory branch operation and session locks for a session.
     /// Does NOT delete store data and does NOT evict any agent from <see cref="AgentManager"/>.
     /// </summary>
     public void RemoveSession(string sessionId)
@@ -74,52 +75,119 @@ public abstract class SessionManager : IDisposable
         _sessionLocks.TryRemove(sessionId, out _);
 
         var prefix = $"{sessionId}:";
-        var keysToRemove = _streamLocks.Keys.Where(k => k.StartsWith(prefix)).ToList();
+        var keysToRemove = _branchOperationLocks.Keys.Where(k => k.StartsWith(prefix)).ToList();
         foreach (var key in keysToRemove)
-            if (_streamLocks.TryRemove(key, out var sem))
+            if (_branchOperationLocks.TryRemove(key, out var sem))
                 sem.Dispose();
+
+        foreach (var key in _activeBranchRuns.Keys.Where(k => k.StartsWith(prefix)).ToList())
+            _activeBranchRuns.TryRemove(key, out _);
     }
 
-    // ─── Stream locks ────────────────────────────────────────────────────
+    // ─── Branch run ownership ───────────────────────────────────────────
+
+    public bool TryStartBranchRun(
+        string agentId,
+        string sessionId,
+        string branchId,
+        out BranchRunState run)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+
+        var candidate = new BranchRunState(
+            Guid.NewGuid().ToString("N"),
+            agentId,
+            sessionId,
+            branchId,
+            DateTimeOffset.UtcNow);
+
+        var key = BranchRunKey(sessionId, branchId);
+        if (_activeBranchRuns.TryAdd(key, candidate))
+        {
+            run = candidate;
+            return true;
+        }
+
+        run = _activeBranchRuns.TryGetValue(key, out var active)
+            ? active
+            : candidate;
+        return false;
+    }
+
+    public BranchRunState? GetActiveBranchRun(string sessionId, string branchId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+
+        return _activeBranchRuns.TryGetValue(BranchRunKey(sessionId, branchId), out var run)
+            ? run
+            : null;
+    }
+
+    public bool CompleteBranchRun(string sessionId, string branchId, string runtimeRunId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(runtimeRunId);
+
+        var key = BranchRunKey(sessionId, branchId);
+        return _activeBranchRuns.TryGetValue(key, out var current) &&
+            current.RuntimeRunId == runtimeRunId &&
+            _activeBranchRuns.TryRemove(key, out _);
+    }
+
+    public bool CompleteActiveBranchRun(string sessionId, string branchId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+
+        return _activeBranchRuns.TryRemove(BranchRunKey(sessionId, branchId), out _);
+    }
+
+    private static string BranchRunKey(string sessionId, string branchId) => $"{sessionId}:{branchId}";
+
+    // ─── Branch operation locks ──────────────────────────────────────────
 
     /// <summary>
-    /// Try to acquire the stream lock for a branch.
-    /// Returns false if a stream is already in progress on this branch.
+    /// Try to acquire the branch operation lock for a branch.
+    /// Returns false if another exclusive branch operation is already in progress.
     /// </summary>
-    public bool TryAcquireStreamLock(string sessionId, string branchId)
+    public bool TryAcquireBranchOperationLock(string sessionId, string branchId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
 
         var key = $"{sessionId}:{branchId}";
-        var semaphore = _streamLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+        var semaphore = _branchOperationLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         return semaphore.Wait(0);
     }
 
-    /// <summary>Release the stream lock for a branch.</summary>
-    public void ReleaseStreamLock(string sessionId, string branchId)
+    /// <summary>Release the branch operation lock for a branch.</summary>
+    public void ReleaseBranchOperationLock(string sessionId, string branchId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
 
         var key = $"{sessionId}:{branchId}";
-        if (_streamLocks.TryGetValue(key, out var semaphore))
+        if (_branchOperationLocks.TryGetValue(key, out var semaphore))
         {
             try { semaphore.Release(); } catch (SemaphoreFullException) { }
         }
     }
 
     /// <summary>
-    /// Remove and dispose the stream lock for a single branch.
-    /// Call AFTER <see cref="ReleaseStreamLock"/>, never before.
+    /// Remove and dispose the branch operation lock for a single branch.
+    /// Call AFTER <see cref="ReleaseBranchOperationLock"/>, never before.
     /// </summary>
-    public void RemoveBranchStreamLock(string sessionId, string branchId)
+    public void RemoveBranchOperationLock(string sessionId, string branchId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
 
         var key = $"{sessionId}:{branchId}";
-        if (_streamLocks.TryRemove(key, out var sem))
+        if (_branchOperationLocks.TryRemove(key, out var sem))
             sem.Dispose();
     }
 
@@ -179,9 +247,17 @@ public abstract class SessionManager : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        foreach (var kvp in _streamLocks)
+        foreach (var kvp in _branchOperationLocks)
             kvp.Value.Dispose();
         foreach (var kvp in _sessionLocks)
             kvp.Value.Dispose();
+        _activeBranchRuns.Clear();
     }
 }
+
+public sealed record BranchRunState(
+    string RuntimeRunId,
+    string AgentId,
+    string SessionId,
+    string BranchId,
+    DateTimeOffset StartedAt);

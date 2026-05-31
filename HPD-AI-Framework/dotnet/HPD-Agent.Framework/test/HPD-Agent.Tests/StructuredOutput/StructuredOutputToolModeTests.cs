@@ -203,7 +203,7 @@ public class StructuredOutputToolModeTests
             Name = "TestAgent",
             MaxAgenticIterations = 50,
             SystemInstructions = "You are a helpful test agent.",
-            Provider = new ProviderConfig
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model",
@@ -211,7 +211,7 @@ public class StructuredOutputToolModeTests
                 {
                     Tools = new List<AITool> { regularTool }
                 }
-            }
+            } }
         };
         var agent = TestAgentFactory.Create(config: config, chatClient: fakeClient);
         var options = new AgentRunConfig

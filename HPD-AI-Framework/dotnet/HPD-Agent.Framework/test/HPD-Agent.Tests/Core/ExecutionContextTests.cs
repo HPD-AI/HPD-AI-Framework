@@ -7,17 +7,17 @@ using System.Linq;
 namespace HPD.Agent.Tests.Core;
 
 /// <summary>
-/// Tests for AgentExecutionContext functionality including creation, hierarchy, and event attribution
+/// Tests for AgentMetadata functionality including creation, hierarchy, and event attribution
 /// </summary>
-public class ExecutionContextTests
+public class AgentMetadataTests
 {
-    // ===== P0: AgentExecutionContext Creation =====
+    // ===== P0: AgentMetadata Creation =====
 
     [Fact]
-    public void AgentExecutionContext_CanBeCreated_WithRequiredProperties()
+    public void AgentMetadata_CanBeCreated_WithRequiredProperties()
     {
         // Arrange & Act
-        var context = new AgentExecutionContext
+        var context = new AgentMetadata
         {
             AgentName = "TestAgent",
             AgentId = "test-abc12345"
@@ -34,10 +34,10 @@ public class ExecutionContextTests
     }
 
     [Fact]
-    public void AgentExecutionContext_RootOrchestrator_HasDepthZero()
+    public void AgentMetadata_RootOrchestrator_HasDepthZero()
     {
         // Arrange & Act
-        var context = new AgentExecutionContext
+        var context = new AgentMetadata
         {
             AgentName = "Orchestrator",
             AgentId = "orchestrator-abc12345",
@@ -54,10 +54,10 @@ public class ExecutionContextTests
     }
 
     [Fact]
-    public void AgentExecutionContext_DirectSubAgent_HasDepthOne()
+    public void AgentMetadata_DirectSubAgent_HasDepthOne()
     {
         // Arrange & Act
-        var context = new AgentExecutionContext
+        var context = new AgentMetadata
         {
             AgentName = "WeatherExpert",
             AgentId = "orchestrator-abc12345-weatherExpert-def67890",
@@ -74,10 +74,10 @@ public class ExecutionContextTests
     }
 
     [Fact]
-    public void AgentExecutionContext_NestedSubAgent_HasCorrectDepth()
+    public void AgentMetadata_NestedSubAgent_HasCorrectDepth()
     {
         // Arrange & Act - 3 levels deep
-        var context = new AgentExecutionContext
+        var context = new AgentMetadata
         {
             AgentName = "DataFetcher",
             AgentId = "orch-abc-domain-xyz-dataFetcher-def",
@@ -102,10 +102,10 @@ public class ExecutionContextTests
     [InlineData(1, true)]  // Direct SubAgent
     [InlineData(2, true)]  // Nested SubAgent
     [InlineData(5, true)]  // Deep nested SubAgent
-    public void AgentExecutionContext_IsSubAgent_CorrectlyIdentifiesSubAgents(int depth, bool expectedIsSubAgent)
+    public void AgentMetadata_IsSubAgent_CorrectlyIdentifiesSubAgents(int depth, bool expectedIsSubAgent)
     {
         // Arrange & Act
-        var context = new AgentExecutionContext
+        var context = new AgentMetadata
         {
             AgentName = "TestAgent",
             AgentId = "test-123",
@@ -119,7 +119,7 @@ public class ExecutionContextTests
     // ===== P0: Hierarchical Agent IDs =====
 
     [Fact]
-    public void AgentExecutionContext_HierarchicalIds_ShowFullExecutionPath()
+    public void AgentMetadata_HierarchicalIds_ShowFullExecutionPath()
     {
         // Arrange - Simulate a 3-level hierarchy
         var rootId = "orchestrator-abc12345";
@@ -127,14 +127,14 @@ public class ExecutionContextTests
         var level2Id = $"{level1Id}-dataFetcher-ghi11111";
 
         // Act - Create contexts
-        var rooTMetadata = new AgentExecutionContext
+        var rooTMetadata = new AgentMetadata
         {
             AgentName = "Orchestrator",
             AgentId = rootId,
             Depth = 0
         };
 
-        var level1Context = new AgentExecutionContext
+        var level1Context = new AgentMetadata
         {
             AgentName = "WeatherExpert",
             AgentId = level1Id,
@@ -142,7 +142,7 @@ public class ExecutionContextTests
             Depth = 1
         };
 
-        var level2Context = new AgentExecutionContext
+        var level2Context = new AgentMetadata
         {
             AgentName = "DataFetcher",
             AgentId = level2Id,
@@ -162,11 +162,11 @@ public class ExecutionContextTests
     // ===== P0: Agent Chain =====
 
     [Fact]
-    public void AgentExecutionContext_AgentChain_BuildsCorrectHierarchy()
+    public void AgentMetadata_AgentChain_BuildsCorrectHierarchy()
     {
         // Arrange & Act
         var chain = new List<string> { "Orchestrator", "DomainExpert", "WeatherExpert", "DataFetcher" };
-        var context = new AgentExecutionContext
+        var context = new AgentMetadata
         {
             AgentName = "DataFetcher",
             AgentId = "test-123",
@@ -183,10 +183,10 @@ public class ExecutionContextTests
     }
 
     [Fact]
-    public void AgentExecutionContext_AgentChain_EmptyForRootWithDefaultInitializer()
+    public void AgentMetadata_AgentChain_EmptyForRootWithDefaultInitializer()
     {
         // Arrange & Act - Create without setting AgentChain
-        var context = new AgentExecutionContext
+        var context = new AgentMetadata
         {
             AgentName = "Orchestrator",
             AgentId = "orch-123"
@@ -197,23 +197,23 @@ public class ExecutionContextTests
         Assert.Empty(context.AgentChain);
     }
 
-    // ===== P0: AgentEvent ExecutionContext Integration =====
+    // ===== P0: AgentEvent AgentMetadata Integration =====
 
     [Fact]
-    public void AgentEvent_CanHaveNullExecutionContext()
+    public void AgentEvent_CanHaveNullAgentMetadata()
     {
         // Arrange & Act - Create a test event
         var evt = new TestAgentEvent();
 
-        // Assert - ExecutionContext is optional (null by default)
-        Assert.Null(evt.ExecutionContext);
+        // Assert - AgentMetadata is optional (null by default)
+        Assert.Null(evt.Metadata);
     }
 
     [Fact]
-    public void AgentEvent_CanAttachExecutionContext()
+    public void AgentEvent_CanAttachAgentMetadata()
     {
         // Arrange
-        var context = new AgentExecutionContext
+        var context = new AgentMetadata
         {
             AgentName = "WeatherExpert",
             AgentId = "weather-abc123",
@@ -223,45 +223,45 @@ public class ExecutionContextTests
         // Act - Create event with context using record 'with' syntax
         var evt = new TestAgentEvent
         {
-            ExecutionContext = context
+            Metadata = context
         };
 
         // Assert
-        Assert.NotNull(evt.ExecutionContext);
-        Assert.Equal("WeatherExpert", evt.ExecutionContext.AgentName);
-        Assert.Equal("weather-abc123", evt.ExecutionContext.AgentId);
-        Assert.Equal(1, evt.ExecutionContext.Depth);
+        Assert.NotNull(evt.Metadata);
+        Assert.Equal("WeatherExpert", evt.Metadata.AgentName);
+        Assert.Equal("weather-abc123", evt.Metadata.AgentId);
+        Assert.Equal(1, evt.Metadata.Depth);
     }
 
     [Fact]
-    public void AgentEvent_ExecutionContext_SupportsRecordWithSyntax()
+    public void AgentEvent_AgentMetadata_SupportsRecordWithSyntax()
     {
         // Arrange
-        var originalContext = new AgentExecutionContext
+        var originalContext = new AgentMetadata
         {
             AgentName = "OriginalAgent",
             AgentId = "original-123",
             Depth = 1
         };
 
-        var evt = new TestAgentEvent { ExecutionContext = originalContext };
+        var evt = new TestAgentEvent { Metadata = originalContext };
 
         // Act - Create new context using 'with' syntax
-        var newContext = new AgentExecutionContext
+        var newContext = new AgentMetadata
         {
             AgentName = "NewAgent",
             AgentId = "new-456",
             Depth = 2
         };
 
-        var newEvt = evt with { ExecutionContext = newContext };
+        var newEvt = evt with { Metadata = newContext };
 
         // Assert - Original unchanged, new event has new context
-        Assert.Equal("OriginalAgent", evt.ExecutionContext!.AgentName);
-        Assert.Equal("NewAgent", newEvt.ExecutionContext!.AgentName);
+        Assert.Equal("OriginalAgent", evt.Metadata!.AgentName);
+        Assert.Equal("NewAgent", newEvt.Metadata!.AgentName);
     }
 
-    // ===== P0: Filtering by ExecutionContext =====
+    // ===== P0: Filtering by Metadata =====
 
     [Fact]
     public void Events_CanBeFiltered_ByAgentName()
@@ -269,17 +269,17 @@ public class ExecutionContextTests
         // Arrange
         var events = new List<AgentEvent>
         {
-            new TestAgentEvent { ExecutionContext = new AgentExecutionContext { AgentName = "WeatherExpert", AgentId = "w-1" } },
-            new TestAgentEvent { ExecutionContext = new AgentExecutionContext { AgentName = "MathExpert", AgentId = "m-1" } },
-            new TestAgentEvent { ExecutionContext = new AgentExecutionContext { AgentName = "WeatherExpert", AgentId = "w-2" } }
+            new TestAgentEvent { Metadata = new AgentMetadata { AgentName = "WeatherExpert", AgentId = "w-1" } },
+            new TestAgentEvent { Metadata = new AgentMetadata { AgentName = "MathExpert", AgentId = "m-1" } },
+            new TestAgentEvent { Metadata = new AgentMetadata { AgentName = "WeatherExpert", AgentId = "w-2" } }
         };
 
         // Act
-        var weatherEvents = events.Where(e => e.ExecutionContext?.AgentName == "WeatherExpert").ToList();
+        var weatherEvents = events.Where(e => e.Metadata?.AgentName == "WeatherExpert").ToList();
 
         // Assert
         Assert.Equal(2, weatherEvents.Count);
-        Assert.All(weatherEvents, e => Assert.Equal("WeatherExpert", e.ExecutionContext!.AgentName));
+        Assert.All(weatherEvents, e => Assert.Equal("WeatherExpert", e.Metadata!.AgentName));
     }
 
     [Fact]
@@ -288,18 +288,18 @@ public class ExecutionContextTests
         // Arrange
         var events = new List<AgentEvent>
         {
-            new TestAgentEvent { ExecutionContext = new AgentExecutionContext { AgentName = "Root", AgentId = "r-1", Depth = 0 } },
-            new TestAgentEvent { ExecutionContext = new AgentExecutionContext { AgentName = "Sub1", AgentId = "s1-1", Depth = 1 } },
-            new TestAgentEvent { ExecutionContext = new AgentExecutionContext { AgentName = "Sub2", AgentId = "s2-1", Depth = 1 } },
-            new TestAgentEvent { ExecutionContext = new AgentExecutionContext { AgentName = "Nested", AgentId = "n-1", Depth = 2 } }
+            new TestAgentEvent { Metadata = new AgentMetadata { AgentName = "Root", AgentId = "r-1", Depth = 0 } },
+            new TestAgentEvent { Metadata = new AgentMetadata { AgentName = "Sub1", AgentId = "s1-1", Depth = 1 } },
+            new TestAgentEvent { Metadata = new AgentMetadata { AgentName = "Sub2", AgentId = "s2-1", Depth = 1 } },
+            new TestAgentEvent { Metadata = new AgentMetadata { AgentName = "Nested", AgentId = "n-1", Depth = 2 } }
         };
 
         // Act - Get only direct SubAgents (depth = 1)
-        var directSubAgents = events.Where(e => e.ExecutionContext?.Depth == 1).ToList();
+        var directSubAgents = events.Where(e => e.Metadata?.Depth == 1).ToList();
 
         // Assert
         Assert.Equal(2, directSubAgents.Count);
-        Assert.All(directSubAgents, e => Assert.Equal(1, e.ExecutionContext!.Depth));
+        Assert.All(directSubAgents, e => Assert.Equal(1, e.Metadata!.Depth));
     }
 
     [Fact]
@@ -308,17 +308,17 @@ public class ExecutionContextTests
         // Arrange
         var events = new List<AgentEvent>
         {
-            new TestAgentEvent { ExecutionContext = new AgentExecutionContext { AgentName = "Root", AgentId = "r-1", Depth = 0 } },
-            new TestAgentEvent { ExecutionContext = new AgentExecutionContext { AgentName = "Sub1", AgentId = "s1-1", Depth = 1 } },
-            new TestAgentEvent { ExecutionContext = new AgentExecutionContext { AgentName = "Sub2", AgentId = "s2-1", Depth = 2 } }
+            new TestAgentEvent { Metadata = new AgentMetadata { AgentName = "Root", AgentId = "r-1", Depth = 0 } },
+            new TestAgentEvent { Metadata = new AgentMetadata { AgentName = "Sub1", AgentId = "s1-1", Depth = 1 } },
+            new TestAgentEvent { Metadata = new AgentMetadata { AgentName = "Sub2", AgentId = "s2-1", Depth = 2 } }
         };
 
         // Act - Get only SubAgent events (not root orchestrator)
-        var subAgentEvents = events.Where(e => e.ExecutionContext?.IsSubAgent == true).ToList();
+        var subAgentEvents = events.Where(e => e.Metadata?.IsSubAgent == true).ToList();
 
         // Assert
         Assert.Equal(2, subAgentEvents.Count);
-        Assert.All(subAgentEvents, e => Assert.True(e.ExecutionContext!.IsSubAgent));
+        Assert.All(subAgentEvents, e => Assert.True(e.Metadata!.IsSubAgent));
     }
 
     [Fact]
@@ -329,7 +329,7 @@ public class ExecutionContextTests
         {
             new TestAgentEvent
             {
-                ExecutionContext = new AgentExecutionContext
+                Metadata = new AgentMetadata
                 {
                     AgentName = "Weather",
                     AgentId = "w-1",
@@ -339,7 +339,7 @@ public class ExecutionContextTests
             },
             new TestAgentEvent
             {
-                ExecutionContext = new AgentExecutionContext
+                Metadata = new AgentMetadata
                 {
                     AgentName = "Math",
                     AgentId = "m-1",
@@ -349,7 +349,7 @@ public class ExecutionContextTests
             },
             new TestAgentEvent
             {
-                ExecutionContext = new AgentExecutionContext
+                Metadata = new AgentMetadata
                 {
                     AgentName = "Data",
                     AgentId = "d-1",
@@ -361,26 +361,26 @@ public class ExecutionContextTests
 
         // Act - Get events from DomainExpert subtree
         var domainExpertEvents = events
-            .Where(e => e.ExecutionContext?.AgentChain.Contains("DomainExpert") == true)
+            .Where(e => e.Metadata?.AgentChain.Contains("DomainExpert") == true)
             .ToList();
 
         // Assert
         Assert.Equal(2, domainExpertEvents.Count);
         Assert.All(domainExpertEvents, e =>
-            Assert.Contains("DomainExpert", e.ExecutionContext!.AgentChain));
+            Assert.Contains("DomainExpert", e.Metadata!.AgentChain));
     }
 
     // ===== P0: Parent-Child Relationships =====
 
     [Fact]
-    public void AgentExecutionContext_ParentAgentId_LinksChildToParent()
+    public void AgentMetadata_ParentAgentId_LinksChildToParent()
     {
         // Arrange
         var parentId = "orchestrator-abc123";
         var childId = $"{parentId}-weather-def456";
 
         // Act
-        var parenTMetadata = new AgentExecutionContext
+        var parenTMetadata = new AgentMetadata
         {
             AgentName = "Orchestrator",
             AgentId = parentId,
@@ -388,7 +388,7 @@ public class ExecutionContextTests
             Depth = 0
         };
 
-        var childContext = new AgentExecutionContext
+        var childContext = new AgentMetadata
         {
             AgentName = "Weather",
             AgentId = childId,

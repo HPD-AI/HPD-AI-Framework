@@ -37,12 +37,12 @@ namespace HPD.Agent.Providers.OnnxRuntime;
 /// - WebGPU (browser-based inference)
 /// </para>
 /// </remarks>
-internal class OnnxRuntimeProvider : IProviderFeatures
+internal class OnnxRuntimeProvider : IChatClientProvider
 {
     public string ProviderKey => "onnx-runtime";
     public string DisplayName => "ONNX Runtime GenAI";
 
-    public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null)
+    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
     {
         // Get typed config
         var onnxConfig = config.GetProviderConfig<OnnxRuntimeProviderConfig>();
@@ -112,7 +112,7 @@ internal class OnnxRuntimeProvider : IProviderFeatures
             PromptFormatter = null // Will use default formatter unless overridden
         };
 
-        // Get prompt formatter from the runtime-only ProviderConfig hook if provided.
+        // Get prompt formatter from the runtime-only ClientProviderConfig hook if provided.
         if (config.PromptFormatter is { } formatter)
         {
             clientOptions.PromptFormatter = formatter;
@@ -127,11 +127,6 @@ internal class OnnxRuntimeProvider : IProviderFeatures
 
         // Apply client factory middleware if provided
         IChatClient finalClient = wrappedClient;
-        if (config.ClientFactory is { } clientFactory)
-        {
-            finalClient = clientFactory(finalClient);
-        }
-
         return finalClient;
     }
 
@@ -146,14 +141,24 @@ internal class OnnxRuntimeProvider : IProviderFeatures
         {
             ProviderKey = ProviderKey,
             DisplayName = DisplayName,
-            SupportsStreaming = true,
-            SupportsFunctionCalling = false, // ONNX Runtime GenAI doesn't have built-in function calling yet
-            SupportsVision = true, // Phi Vision and other multi-modal models are supported
-            DocumentationUrl = "https://onnxruntime.ai/docs/genai/"
+            DocumentationUri = new Uri("https://onnxruntime.ai/docs/genai/"),
+            Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            {
+                [ProviderClientFamily.Chat] = new()
+                {
+                    Family = ProviderClientFamily.Chat,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsStreaming"] = true,
+                        ["SupportsFunctionCalling"] = false,
+                        ["SupportsVision"] = true
+                    }
+                }
+            }
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ProviderConfig config)
+    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
 

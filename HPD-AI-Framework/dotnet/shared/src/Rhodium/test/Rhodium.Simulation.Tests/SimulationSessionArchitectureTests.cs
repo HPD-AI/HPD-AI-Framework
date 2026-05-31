@@ -4827,7 +4827,7 @@ public sealed class SimulationSessionArchitectureTests
     }
 
     [Fact]
-    public void SimulationSession_ModuleFrameSinkEmitsToLocalStructInbox()
+    public void SimulationSession_ModuleFrameSinkEmitsToStructEventInbox()
     {
         var module = new FrameEmittingModule();
         using var session = new SimulationSession();

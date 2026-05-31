@@ -472,7 +472,7 @@ When an agent is created, it automatically selects the appropriate error handler
 // In Agent constructor
 if (config.ErrorHandling != null && config.ErrorHandling.ProviderHandler == null)
 {
-    config.ErrorHandling.ProviderHandler = CreateProviderHandler(config.Provider?.Provider);
+    config.ErrorHandling.ProviderHandler = CreateProviderHandler(config.Clients?.Chat?.ProviderKey);
 }
 
 private static IProviderErrorHandler CreateProviderHandler(ChatProvider? provider)

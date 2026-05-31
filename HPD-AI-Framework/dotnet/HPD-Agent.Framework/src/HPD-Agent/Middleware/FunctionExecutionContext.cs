@@ -18,8 +18,10 @@ public sealed class FunctionExecutionContext
 {
     private readonly AgentLoopState _stateSnapshot;
     private readonly IChatClient? _parentChatClient;
-    private readonly AgentExecutionContext? _parentExecutionContext;
+    private readonly AgentMetadata? _parentAgentMetadata;
     private readonly ISessionStore? _parentSessionStore;
+    private readonly IAgentStore? _parentAgentStore;
+    private readonly IContentStore? _contentStore;
 
     internal FunctionExecutionContext(
         HookContext hookContext,
@@ -46,9 +48,11 @@ public sealed class FunctionExecutionContext
         BackgroundTasks = request.BackgroundTasks;
         Services = hookContext.Services;
         RuntimeCapabilities = hookContext.RuntimeCapabilities;
+        _contentStore = hookContext.ContentStore;
         _parentChatClient = hookContext.GetParentChatClient();
-        _parentExecutionContext = hookContext.GetParentExecutionContext();
+        _parentAgentMetadata = hookContext.GetParentAgentMetadata();
         _parentSessionStore = hookContext.Session?.Store;
+        _parentAgentStore = hookContext.GetParentAgentStore();
     }
 
     public FunctionInvocationSnapshot InvocationSnapshot { get; }
@@ -84,6 +88,8 @@ public sealed class FunctionExecutionContext
     public IServiceProvider? Services { get; }
 
     public IRuntimeCapabilityRegistry RuntimeCapabilities { get; }
+
+    public IContentStore? ContentStore => _contentStore;
 
     public IAgentBackgroundTaskRegistry? BackgroundTasks { get; }
 
@@ -143,12 +149,16 @@ public sealed class FunctionExecutionContext
         => _parentChatClient;
 
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public AgentExecutionContext? GetParentExecutionContext()
-        => _parentExecutionContext;
+    public AgentMetadata? GetParentAgentMetadata()
+        => _parentAgentMetadata;
 
     [EditorBrowsable(EditorBrowsableState.Never)]
     public ISessionStore? GetParentSessionStore()
         => _parentSessionStore;
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public IAgentStore? GetParentAgentStore()
+        => _parentAgentStore;
 
     public void RegisterBackgroundTask(
         string name,

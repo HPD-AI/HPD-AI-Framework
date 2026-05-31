@@ -8,6 +8,7 @@
 
   .hpd-window-chrome {
     @apply fixed z-50 flex items-center;
+    gap: 0.125rem;
     height: 1.75rem;
     inset-inline-start: 6.125rem;
     top: 0.375rem;
@@ -45,8 +46,13 @@
     stroke-linejoin: round;
   }
 
+  .hpd-window-chat-collapse-icon {
+    width: 1.2rem;
+    height: 1.2rem;
+  }
+
   .hpd-view {
-    @apply min-h-0 min-w-0 overflow-hidden;
+    @apply h-full min-h-0 min-w-0 overflow-hidden;
     padding-block: 0;
     padding-inline: 0;
   }
@@ -66,6 +72,10 @@
 
   .hpd-shell-frame[data-hydrated="false"] {
     visibility: hidden;
+  }
+
+  .hpd-shell-route-host {
+    @apply grid h-full min-h-0 min-w-0 overflow-hidden;
   }
 
   .hpd-shell-sidebar,
@@ -163,6 +173,234 @@
     color: var(--hpd-foreground);
   }
 
+  .hpd-settings-route {
+    @apply grid min-h-0 gap-5 overflow-hidden;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .hpd-settings-header {
+    @apply grid gap-1;
+  }
+
+  .hpd-settings-header p,
+  .hpd-settings-panel-header span,
+  .hpd-settings-detail p,
+  .hpd-settings-options p,
+  .hpd-settings-model-row p,
+  .hpd-settings-empty,
+  .hpd-settings-message {
+    @apply text-sm;
+    color: var(--hpd-muted-foreground);
+  }
+
+  .hpd-settings-grid {
+    @apply grid min-h-0 gap-4 overflow-hidden;
+    grid-template-columns: minmax(18rem, 0.85fr) minmax(22rem, 1.15fr);
+  }
+
+  .hpd-settings-panel {
+    @apply grid min-h-0 gap-4 overflow-auto rounded-md border p-4;
+    align-content: start;
+    border-color: var(--hpd-border);
+    background: color-mix(in oklab, var(--hpd-panel-background) 88%, transparent);
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--hpd-muted-foreground) 42%, transparent) transparent;
+  }
+
+  .hpd-settings-panel-header {
+    @apply flex items-center justify-between gap-3;
+  }
+
+  .hpd-settings-panel-header h2,
+  .hpd-settings-detail h3,
+  .hpd-settings-options h3,
+  .hpd-settings-model-section > h3,
+  .hpd-settings-model-row h4 {
+    @apply text-sm font-semibold;
+    color: var(--hpd-foreground);
+  }
+
+  .hpd-settings-panel-header button,
+  .hpd-settings-actions button,
+  .hpd-settings-model-actions button {
+    @apply rounded-md border px-3 py-1.5 text-sm;
+    border-color: var(--hpd-border);
+    color: var(--hpd-foreground);
+    background: color-mix(in oklab, var(--hpd-muted-background) 72%, transparent);
+  }
+
+  .hpd-settings-panel-header button:disabled,
+  .hpd-settings-actions button:disabled,
+  .hpd-settings-model-actions button:disabled {
+    @apply opacity-50;
+  }
+
+  .hpd-settings-model-actions button[aria-pressed="true"] {
+    border-color: var(--hpd-accent);
+  }
+
+  .hpd-settings-provider-list,
+  .hpd-settings-model-list {
+    @apply grid gap-2;
+  }
+
+  .hpd-settings-search input {
+    @apply w-full rounded-md border px-3 py-2 text-sm outline-none;
+    border-color: var(--hpd-border);
+    color: var(--hpd-foreground);
+    background: color-mix(in oklab, var(--hpd-panel-background) 94%, transparent);
+  }
+
+  .hpd-settings-search input:focus {
+    border-color: var(--hpd-accent);
+  }
+
+  .hpd-settings-model-tags {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .hpd-settings-model-tags button {
+    @apply rounded-md border px-2.5 py-1.5 text-xs;
+    border-color: var(--hpd-border);
+    color: var(--hpd-muted-foreground);
+    background: transparent;
+  }
+
+  .hpd-settings-model-tags button:hover,
+  .hpd-settings-model-tags button[aria-pressed="true"] {
+    color: var(--hpd-foreground);
+    background: color-mix(in oklab, var(--hpd-muted-background) 72%, transparent);
+  }
+
+  .hpd-settings-provider-list button {
+    @apply flex items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--hpd-foreground);
+  }
+
+  .hpd-settings-provider-list button:hover,
+  .hpd-settings-provider-list button[aria-selected="true"] {
+    border-color: var(--hpd-border);
+    background: color-mix(in oklab, var(--hpd-muted-background) 72%, transparent);
+  }
+
+  .hpd-settings-provider-list small {
+    @apply rounded px-2 py-0.5 text-xs;
+    color: var(--hpd-muted-foreground);
+    background: color-mix(in oklab, var(--hpd-muted-background) 72%, transparent);
+  }
+
+  .hpd-settings-provider-list small[data-status="connected"] {
+    color: var(--hpd-foreground);
+  }
+
+  .hpd-settings-detail {
+    @apply grid gap-3 border-t pt-4;
+    border-color: var(--hpd-border);
+  }
+
+  .hpd-settings-options {
+    @apply grid gap-3 rounded-md border p-3;
+    border-color: var(--hpd-border);
+    background: color-mix(in oklab, var(--hpd-muted-background) 42%, transparent);
+  }
+
+  .hpd-settings-detail dl {
+    @apply grid gap-2 text-sm;
+  }
+
+  .hpd-settings-detail dl div {
+    @apply flex items-center justify-between gap-3;
+  }
+
+  .hpd-settings-detail dt {
+    color: var(--hpd-muted-foreground);
+  }
+
+  .hpd-settings-detail dd {
+    color: var(--hpd-foreground);
+  }
+
+  .hpd-settings-detail label,
+  .hpd-settings-options label,
+  .hpd-settings-toggle,
+  .hpd-settings-model-actions label {
+    @apply flex items-center gap-2 text-sm;
+    color: var(--hpd-foreground);
+  }
+
+  .hpd-settings-detail label,
+  .hpd-settings-options label {
+    @apply grid items-start gap-1;
+  }
+
+  .hpd-settings-detail input[type="password"],
+  .hpd-settings-options input[type="text"],
+  .hpd-settings-options input[type="url"],
+  .hpd-settings-options input[type="number"],
+  .hpd-settings-options select,
+  .hpd-settings-options textarea {
+    @apply w-full rounded-md border px-3 py-2 text-sm outline-none;
+    border-color: var(--hpd-border);
+    color: var(--hpd-foreground);
+    background: color-mix(in oklab, var(--hpd-panel-background) 94%, transparent);
+  }
+
+  .hpd-settings-options input[type="checkbox"] {
+    @apply h-4 w-4;
+  }
+
+  .hpd-settings-options textarea {
+    @apply min-h-28 resize-y font-mono;
+  }
+
+  .hpd-settings-detail input[type="password"]:focus,
+  .hpd-settings-options input[type="text"]:focus,
+  .hpd-settings-options input[type="url"]:focus,
+  .hpd-settings-options input[type="number"]:focus,
+  .hpd-settings-options select:focus,
+  .hpd-settings-options textarea:focus {
+    border-color: var(--hpd-accent);
+  }
+
+  .hpd-settings-option-grid {
+    @apply grid gap-3;
+  }
+
+  .hpd-settings-option-checks {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .hpd-settings-option-checks label {
+    @apply flex items-center gap-2 rounded-md border px-2 py-1;
+    border-color: var(--hpd-border);
+    background: color-mix(in oklab, var(--hpd-panel-background) 82%, transparent);
+  }
+
+  .hpd-settings-actions {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .hpd-settings-model-section {
+    @apply grid gap-2;
+  }
+
+  .hpd-settings-model-section > h3 {
+    @apply px-1 pt-2 text-xs uppercase;
+    color: var(--hpd-muted-foreground);
+  }
+
+  .hpd-settings-model-row {
+    @apply flex items-center justify-between gap-3 rounded-md border p-3;
+    border-color: var(--hpd-border);
+    background: color-mix(in oklab, var(--hpd-muted-background) 46%, transparent);
+  }
+
+  .hpd-settings-model-actions {
+    @apply flex shrink-0 flex-wrap items-center justify-end gap-3;
+  }
+
 }
 
 @media (max-width: 768px) {
@@ -172,5 +410,9 @@
 
   .hpd-shell-sidebar {
     display: none;
+  }
+
+  .hpd-settings-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

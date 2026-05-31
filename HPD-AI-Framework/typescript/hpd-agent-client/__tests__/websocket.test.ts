@@ -67,7 +67,7 @@ describe('WebSocketTransport runtime', () => {
   it('sends inputs with scoped session, branch, and agent IDs', async () => {
     const transport = new WebSocketTransport('http://localhost:5135');
     await transport.connect({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
-    await transport.run({
+    await transport.submitInput({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'p1',
       sourceName: 'permission',
@@ -89,7 +89,7 @@ describe('WebSocketTransport runtime', () => {
 
   it('throws when sending without a connection', async () => {
     const transport = new WebSocketTransport('http://localhost:5135');
-    await expect(transport.run({
+    await expect(transport.submitInput({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'p1',
       sourceName: 'permission',

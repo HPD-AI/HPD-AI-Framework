@@ -14,7 +14,7 @@ public class AudioOptionsMappingTests
     {
         var config = new SttConfig
         {
-            Provider = "openai-audio",
+            Provider = "openai",
             ModelId = "whisper-1",
             Language = "en",
             SpeechSampleRate = 16000,
@@ -43,7 +43,7 @@ public class AudioOptionsMappingTests
     {
         var config = new TtsConfig
         {
-            Provider = "openai-audio",
+            Provider = "openai",
             ModelId = "tts-1-hd",
             Voice = "nova",
             Language = "en-US",

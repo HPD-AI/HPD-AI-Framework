@@ -1,4 +1,5 @@
 using HPD.Events;
+using HPD.Events.Struct;
 using Rhodium.Events;
 using Rhodium.Simulation.Exchange;
 using Rhodium.Simulation.Frames;
@@ -74,39 +75,39 @@ public readonly ref struct SimulationStructFrameSink
     }
 
     /// <summary>Emit one quote frame when frame emission is enabled.</summary>
-    public LocalStructEmitResult Emit(in QuoteFrame frame) => EmitMarketData(in frame);
+    public StructEventEmitResult Emit(in QuoteFrame frame) => EmitMarketData(in frame);
 
     /// <summary>Emit one trade frame when frame emission is enabled.</summary>
-    public LocalStructEmitResult Emit(in TradeFrame frame) => EmitMarketData(in frame);
+    public StructEventEmitResult Emit(in TradeFrame frame) => EmitMarketData(in frame);
 
     /// <summary>Emit one book level delta frame when frame emission is enabled.</summary>
-    public LocalStructEmitResult Emit(in BookLevelDeltaFrame frame) => EmitMarketData(in frame);
+    public StructEventEmitResult Emit(in BookLevelDeltaFrame frame) => EmitMarketData(in frame);
 
     /// <summary>Emit one book depth level frame when frame emission is enabled.</summary>
-    public LocalStructEmitResult Emit(in BookDepthLevelFrame frame) => EmitMarketData(in frame);
+    public StructEventEmitResult Emit(in BookDepthLevelFrame frame) => EmitMarketData(in frame);
 
     /// <summary>Emit one book order add frame when frame emission is enabled.</summary>
-    public LocalStructEmitResult Emit(in BookOrderAddedFrame frame) => EmitMarketData(in frame);
+    public StructEventEmitResult Emit(in BookOrderAddedFrame frame) => EmitMarketData(in frame);
 
     /// <summary>Emit one book order modify frame when frame emission is enabled.</summary>
-    public LocalStructEmitResult Emit(in BookOrderModifiedFrame frame) => EmitMarketData(in frame);
+    public StructEventEmitResult Emit(in BookOrderModifiedFrame frame) => EmitMarketData(in frame);
 
     /// <summary>Emit one book order delete frame when frame emission is enabled.</summary>
-    public LocalStructEmitResult Emit(in BookOrderDeletedFrame frame) => EmitMarketData(in frame);
+    public StructEventEmitResult Emit(in BookOrderDeletedFrame frame) => EmitMarketData(in frame);
 
     /// <summary>Emit one book order execution frame when frame emission is enabled.</summary>
-    public LocalStructEmitResult Emit(in BookOrderExecutedFrame frame) => EmitMarketData(in frame);
+    public StructEventEmitResult Emit(in BookOrderExecutedFrame frame) => EmitMarketData(in frame);
 
     /// <summary>Emit one execution fill frame when frame emission is enabled.</summary>
-    public LocalStructEmitResult Emit(in ExecutionFillFrame frame) => EmitExecution(in frame);
+    public StructEventEmitResult Emit(in ExecutionFillFrame frame) => EmitExecution(in frame);
 
     /// <summary>Emit one risk metric frame when frame emission is enabled.</summary>
-    public LocalStructEmitResult Emit(in RiskMetricFrame frame) => EmitDiagnostics(in frame);
+    public StructEventEmitResult Emit(in RiskMetricFrame frame) => EmitDiagnostics(in frame);
 
     /// <summary>Emit one tensor projection frame when frame emission is enabled.</summary>
-    public LocalStructEmitResult Emit(in TensorProjectionFrame frame) => EmitDiagnostics(in frame);
+    public StructEventEmitResult Emit(in TensorProjectionFrame frame) => EmitDiagnostics(in frame);
 
-    private LocalStructEmitResult EmitMarketData(in QuoteFrame frame)
+    private StructEventEmitResult EmitMarketData(in QuoteFrame frame)
     {
         if (!CanEmitMarketData())
             return Filtered();
@@ -115,7 +116,7 @@ public readonly ref struct SimulationStructFrameSink
         return _frames.Emit(in frame);
     }
 
-    private LocalStructEmitResult EmitMarketData(in TradeFrame frame)
+    private StructEventEmitResult EmitMarketData(in TradeFrame frame)
     {
         if (!CanEmitMarketData())
             return Filtered();
@@ -124,7 +125,7 @@ public readonly ref struct SimulationStructFrameSink
         return _frames.Emit(in frame);
     }
 
-    private LocalStructEmitResult EmitMarketData(in BookLevelDeltaFrame frame)
+    private StructEventEmitResult EmitMarketData(in BookLevelDeltaFrame frame)
     {
         if (!CanEmitMarketData())
             return Filtered();
@@ -133,7 +134,7 @@ public readonly ref struct SimulationStructFrameSink
         return _frames.Emit(in frame);
     }
 
-    private LocalStructEmitResult EmitMarketData(in BookDepthLevelFrame frame)
+    private StructEventEmitResult EmitMarketData(in BookDepthLevelFrame frame)
     {
         if (!CanEmitMarketData())
             return Filtered();
@@ -142,7 +143,7 @@ public readonly ref struct SimulationStructFrameSink
         return _frames.Emit(in frame);
     }
 
-    private LocalStructEmitResult EmitMarketData(in BookOrderAddedFrame frame)
+    private StructEventEmitResult EmitMarketData(in BookOrderAddedFrame frame)
     {
         if (!CanEmitMarketData())
             return Filtered();
@@ -151,7 +152,7 @@ public readonly ref struct SimulationStructFrameSink
         return _frames.Emit(in frame);
     }
 
-    private LocalStructEmitResult EmitMarketData(in BookOrderModifiedFrame frame)
+    private StructEventEmitResult EmitMarketData(in BookOrderModifiedFrame frame)
     {
         if (!CanEmitMarketData())
             return Filtered();
@@ -160,7 +161,7 @@ public readonly ref struct SimulationStructFrameSink
         return _frames.Emit(in frame);
     }
 
-    private LocalStructEmitResult EmitMarketData(in BookOrderDeletedFrame frame)
+    private StructEventEmitResult EmitMarketData(in BookOrderDeletedFrame frame)
     {
         if (!CanEmitMarketData())
             return Filtered();
@@ -169,7 +170,7 @@ public readonly ref struct SimulationStructFrameSink
         return _frames.Emit(in frame);
     }
 
-    private LocalStructEmitResult EmitMarketData(in BookOrderExecutedFrame frame)
+    private StructEventEmitResult EmitMarketData(in BookOrderExecutedFrame frame)
     {
         if (!CanEmitMarketData())
             return Filtered();
@@ -178,7 +179,7 @@ public readonly ref struct SimulationStructFrameSink
         return _frames.Emit(in frame);
     }
 
-    private LocalStructEmitResult EmitExecution(in ExecutionFillFrame frame)
+    private StructEventEmitResult EmitExecution(in ExecutionFillFrame frame)
     {
         if (!CanEmitExecution())
             return Filtered();
@@ -187,7 +188,7 @@ public readonly ref struct SimulationStructFrameSink
         return _frames.Emit(in frame);
     }
 
-    private LocalStructEmitResult EmitDiagnostics(in RiskMetricFrame frame)
+    private StructEventEmitResult EmitDiagnostics(in RiskMetricFrame frame)
     {
         if (!CanEmitDiagnostics())
             return Filtered();
@@ -196,7 +197,7 @@ public readonly ref struct SimulationStructFrameSink
         return _frames.Emit(in frame);
     }
 
-    private LocalStructEmitResult EmitDiagnostics(in TensorProjectionFrame frame)
+    private StructEventEmitResult EmitDiagnostics(in TensorProjectionFrame frame)
     {
         if (!CanEmitDiagnostics())
             return Filtered();
@@ -214,8 +215,8 @@ public readonly ref struct SimulationStructFrameSink
     private bool CanEmitDiagnostics()
         => _frameMode is SimulationFrameMode.Diagnostics or SimulationFrameMode.All;
 
-    private static LocalStructEmitResult Filtered()
-        => new(LocalStructEmitStatus.Filtered, 0, 0, 0);
+    private static StructEventEmitResult Filtered()
+        => new(StructEventEmitStatus.Filtered, 0, 0, 0);
 }
 
 /// <summary>

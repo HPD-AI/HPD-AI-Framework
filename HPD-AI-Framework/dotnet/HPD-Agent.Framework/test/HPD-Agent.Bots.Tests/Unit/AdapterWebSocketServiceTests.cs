@@ -288,7 +288,7 @@ public class BotWebSocketServiceTests
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await svc.StartAsync(cts.Token);
-        await Task.Delay(500, CancellationToken.None);
+        await svc.DelayObserved.WaitAsync(TimeSpan.FromSeconds(5));
         await svc.StopAsync(CancellationToken.None);
 
         // After the success on call 2, the next GetReconnectDelay call should be attempt=0

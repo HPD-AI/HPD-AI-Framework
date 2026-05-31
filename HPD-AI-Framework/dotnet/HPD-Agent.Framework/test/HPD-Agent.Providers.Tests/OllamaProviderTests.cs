@@ -33,10 +33,11 @@ public class OllamaProviderTests
         metadata.Should().NotBeNull();
         metadata.ProviderKey.Should().Be("ollama");
         metadata.DisplayName.Should().Be("Ollama");
-        metadata.SupportsStreaming.Should().BeTrue();
-        metadata.SupportsFunctionCalling.Should().BeTrue();
-        metadata.SupportsVision.Should().BeTrue();
-        metadata.DocumentationUrl.Should().Be("https://ollama.com/");
+        metadata.DocumentationUri.Should().Be(new Uri("https://ollama.com/"));
+        var chat = metadata.Families[ProviderClientFamily.Chat];
+        chat.Capabilities!["SupportsStreaming"].Should().Be(true);
+        chat.Capabilities["SupportsFunctionCalling"].Should().Be(true);
+        chat.Capabilities["SupportsVision"].Should().Be(true);
     }
 
     #endregion
@@ -47,7 +48,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithValidConfig_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b",
@@ -55,7 +56,7 @@ public class OllamaProviderTests
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -66,14 +67,14 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithMissingModelName_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             Endpoint = "http://localhost:11434"
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -84,7 +85,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithInvalidEndpoint_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b",
@@ -92,7 +93,7 @@ public class OllamaProviderTests
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -103,7 +104,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithInvalidTemperature_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -112,7 +113,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -123,7 +124,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithInvalidTopP_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -132,7 +133,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -143,7 +144,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithInvalidMinP_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -152,7 +153,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -163,7 +164,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithInvalidTypicalP_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -172,7 +173,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -183,7 +184,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithNegativeTfsZ_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -192,7 +193,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -203,7 +204,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithNegativeRepeatPenalty_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -212,7 +213,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -223,7 +224,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithInvalidPresencePenalty_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -232,7 +233,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -243,7 +244,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithInvalidFrequencyPenalty_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -252,7 +253,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -263,7 +264,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithInvalidMiroStat_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -272,7 +273,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -283,7 +284,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithNegativeMiroStatEta_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -292,7 +293,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -303,7 +304,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithNegativeMiroStatTau_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -312,7 +313,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -323,7 +324,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithInvalidNumPredict_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -332,7 +333,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -343,7 +344,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithInvalidNumCtx_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -352,7 +353,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -363,7 +364,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithInvalidTopK_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -372,7 +373,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -383,7 +384,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithValidBoundaryValues_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -408,7 +409,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -419,7 +420,7 @@ public class OllamaProviderTests
     public void ValidateConfiguration_WithMultipleErrors_ShouldReturnAllErrors()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             Endpoint = "invalid-uri"
@@ -433,7 +434,7 @@ public class OllamaProviderTests
         config.SetProviderConfig(ollamaConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -452,7 +453,7 @@ public class OllamaProviderTests
     public void CreateChatClient_WithValidConfig_ShouldReturnClient()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b",
@@ -471,7 +472,7 @@ public class OllamaProviderTests
     public void CreateChatClient_WithMissingModelName_ShouldThrow()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             Endpoint = "http://localhost:11434"
@@ -487,7 +488,7 @@ public class OllamaProviderTests
     public void CreateChatClient_WithoutEndpoint_ShouldUseDefaultLocalhost()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b"
@@ -505,7 +506,7 @@ public class OllamaProviderTests
     public void CreateChatClient_WithOllamaConfig_ShouldCreateClient()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "ollama",
             ModelName = "llama3:8b",
@@ -684,10 +685,10 @@ public class OllamaProviderTests
         builder.WithOllama(model: "llama3:8b");
 
         // Assert
-        builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.ProviderKey.Should().Be("ollama");
-        builder.Config.Provider.ModelName.Should().Be("llama3:8b");
-        builder.Config.Provider.Endpoint.Should().Be("http://localhost:11434");
+        builder.Config.EnsureChatClientConfig().Should().NotBeNull();
+        builder.Config.EnsureChatClientConfig()!.ProviderKey.Should().Be("ollama");
+        builder.Config.EnsureChatClientConfig().ModelName.Should().Be("llama3:8b");
+        builder.Config.EnsureChatClientConfig().Endpoint.Should().Be("http://localhost:11434");
     }
 
     [Fact]
@@ -702,7 +703,7 @@ public class OllamaProviderTests
             endpoint: "http://remote-server:11434");
 
         // Assert
-        builder.Config.Provider!.Endpoint.Should().Be("http://remote-server:11434");
+        builder.Config.EnsureChatClientConfig()!.Endpoint.Should().Be("http://remote-server:11434");
     }
 
     [Fact]
@@ -722,7 +723,7 @@ public class OllamaProviderTests
             });
 
         // Assert
-        var config = builder.Config.Provider!.GetProviderConfig<OllamaProviderConfig>();
+        var config = builder.Config.EnsureChatClientConfig()!.GetProviderConfig<OllamaProviderConfig>();
         config.Should().NotBeNull();
         config!.Temperature.Should().Be(0.7f);
         config.NumPredict.Should().Be(2048);

@@ -4,7 +4,7 @@ namespace HPD.TUI.Core;
 
 public readonly record struct Style(Color Foreground, Color Background, TextAttributes Attributes = TextAttributes.None)
 {
-    public static Style Default { get; } = new(Color.White, Color.Black);
+    public static Style Default { get; } = new(Color.White, Color.Default);
 
     public int WriteAnsiPrefix(Span<char> destination)
     {
@@ -16,13 +16,18 @@ public readonly record struct Style(Color Foreground, Color Background, TextAttr
             !TryAppend(destination, ref pos, ";") ||
             !TryAppendByte(destination, ref pos, bytes, Foreground.G) ||
             !TryAppend(destination, ref pos, ";") ||
-            !TryAppendByte(destination, ref pos, bytes, Foreground.B) ||
-            !TryAppend(destination, ref pos, ";48;2;") ||
+            !TryAppendByte(destination, ref pos, bytes, Foreground.B))
+        {
+            return 0;
+        }
+
+        if (!Background.IsDefault &&
+            (!TryAppend(destination, ref pos, ";48;2;") ||
             !TryAppendByte(destination, ref pos, bytes, Background.R) ||
             !TryAppend(destination, ref pos, ";") ||
             !TryAppendByte(destination, ref pos, bytes, Background.G) ||
             !TryAppend(destination, ref pos, ";") ||
-            !TryAppendByte(destination, ref pos, bytes, Background.B))
+            !TryAppendByte(destination, ref pos, bytes, Background.B)))
         {
             return 0;
         }

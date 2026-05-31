@@ -104,6 +104,38 @@ describe('SseParser', () => {
     expect(events).toHaveLength(0);
   });
 
+  it('should ignore JSON values that are not event objects', () => {
+    const parser = new SseParser();
+    const chunk = new TextEncoder().encode(
+      'data: null\n\n' +
+        'data: true\n\n' +
+        'data: {"version":"1.0","text":"missing type"}\n\n'
+    );
+
+    const events = parser.processChunk(chunk);
+    expect(events).toHaveLength(0);
+  });
+
+  it('should parse durable branch metadata events with branchMetadata payloads', () => {
+    const parser = new SseParser();
+    const chunk = new TextEncoder().encode(
+      'data: {"version":"1.0","type":"BRANCH_METADATA_UPDATED","name":"Reviewer","branchMetadata":{"kind":"subagent","parentBranchId":"main"}}\n\n'
+    );
+
+    const events = parser.processChunk(chunk);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      version: '1.0',
+      type: 'BRANCH_METADATA_UPDATED',
+      name: 'Reviewer',
+      branchMetadata: {
+        kind: 'subagent',
+        parentBranchId: 'main',
+      },
+    });
+  });
+
   it('should ignore non-data lines', () => {
     const parser = new SseParser();
     const chunk = new TextEncoder().encode(

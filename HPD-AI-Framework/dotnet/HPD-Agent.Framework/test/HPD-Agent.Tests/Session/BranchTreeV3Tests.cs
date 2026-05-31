@@ -1,6 +1,8 @@
+using FluentAssertions;
 using Microsoft.Extensions.AI;
 using Xunit;
 using HPD.Agent;
+using HPD.Agent.Middleware;
 using HPD.Agent.Tests.Infrastructure;
 
 namespace HPD.Agent.Tests.Session;
@@ -358,7 +360,7 @@ public class BranchTreeV3Tests : AgentTestBase
 
         // Act - Fork main branch
         main.Session = session;
-        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 1);
+        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[1].MessageId!);
 
         // Assert - Fork has correct metadata
         // main is sibling #0 (the original), fork-1 is sibling #1 — TotalSiblings=2
@@ -381,7 +383,371 @@ public class BranchTreeV3Tests : AgentTestBase
     }
 
     [Fact]
-    public async Task Test10_ForkBranch_SetsCorrectSiblingIndex_ChronologicalOrder()
+    public async Task Test10_ForkBranch_PersistsBranchMetadata()
+    {
+        // Arrange
+        var store = new InMemorySessionStore();
+        var agent = await CreateAgentWithStore(store);
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+
+        var main = session.CreateBranch("main");
+        main.AddMessage(UserMessage("Message 1"));
+        await store.SaveInitialBranchAsync("test-session", main);
+        main.Session = session;
+
+        // Act
+        await agent.ForkBranchAsync(
+            main,
+            "fork-with-metadata",
+            fromMessageId: main.Messages[0].MessageId!,
+            metadata: new Dictionary<string, object>
+            {
+                ["workspaceId"] = "hpdos-main",
+                ["paneId"] = "chat-left"
+            });
+
+        // Assert
+        var reloaded = await store.LoadBranchAsync("test-session", "fork-with-metadata");
+        Assert.NotNull(reloaded);
+        Assert.Equal("hpdos-main", reloaded.Metadata["workspaceId"]);
+        Assert.Equal("chat-left", reloaded.Metadata["paneId"]);
+    }
+
+    [Fact]
+    public async Task ForkBranch_InvokesBeforeBranchForkCommit_WithPreparedTargetBranch()
+    {
+        // Arrange
+        var store = new InMemorySessionStore();
+        var middleware = new RecordingBranchForkMiddleware();
+        var agent = await CreateAgentWithStore(store, middleware);
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+
+        var main = session.CreateBranch("main");
+        var message = UserMessage("Message 1");
+        message.MessageId = "message-1";
+        main.AddMessage(message);
+        await store.SaveInitialBranchAsync("test-session", main);
+        main.Session = session;
+
+        // Act
+        await agent.ForkBranchAsync(
+            main,
+            "fork-with-hook",
+            fromMessageId: main.Messages[0].MessageId!,
+            metadata: new Dictionary<string, object> { ["caller"] = "present" });
+
+        // Assert
+        var reloaded = await store.LoadBranchAsync("test-session", "fork-with-hook");
+        Assert.NotNull(reloaded);
+        Assert.Equal(1, middleware.CallCount);
+        Assert.Equal("main", middleware.SourceBranchId);
+        Assert.Equal("fork-with-hook", middleware.TargetBranchId);
+        Assert.Equal("fork-with-hook", middleware.ActiveBranchId);
+        Assert.Equal(0, middleware.ForkedAtMessageIndex);
+        Assert.Equal("message-1", middleware.ForkedAtMessageId);
+        Assert.True(middleware.CallerMetadataWasPresent);
+        Assert.Equal("from-hook", reloaded!.Metadata["branchHook"]);
+        Assert.Equal(2, reloaded.Messages.Count);
+        Assert.Equal("hook-added", reloaded.Messages[1].MessageId);
+    }
+
+    [Fact]
+    public async Task ForkBranch_FlushesMiddlewareStateUpdatedByBeforeBranchForkCommit()
+    {
+        // Arrange
+        var store = new InMemorySessionStore();
+        var agent = await CreateAgentWithStore(store, new BranchForkStateMiddleware());
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+
+        var main = session.CreateBranch("main");
+        main.AddMessage(UserMessage("Message 1"));
+        await store.SaveInitialBranchAsync("test-session", main);
+        main.Session = session;
+
+        // Act
+        await agent.ForkBranchAsync(main, "fork-with-state", fromMessageId: main.Messages[0].MessageId!);
+
+        // Assert
+        var reloaded = await store.LoadBranchAsync("test-session", "fork-with-state");
+        Assert.NotNull(reloaded);
+
+        var state = MiddlewareState.LoadFromBranch(reloaded, agent.StateFactories);
+        var compactionState = state.GetState<CompactionStateData>(typeof(CompactionStateData).FullName!);
+        Assert.NotNull(compactionState);
+        Assert.Equal(42, compactionState!.MessageTurnCount);
+    }
+
+    [Fact]
+    public async Task ForkBranch_WhenBeforeBranchForkCommitThrows_DoesNotPersistTargetOrSourceTreeUpdates()
+    {
+        // Arrange
+        var store = new InMemorySessionStore();
+        var agent = await CreateAgentWithStore(store, new ThrowingBranchForkMiddleware());
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+
+        var main = session.CreateBranch("main");
+        main.AddMessage(UserMessage("Message 1"));
+        await store.SaveInitialBranchAsync("test-session", main);
+        main.Session = session;
+
+        // Act
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => agent.ForkBranchAsync(main, "fork-fails", fromMessageId: main.Messages[0].MessageId!));
+
+        // Assert
+        Assert.Equal("branch fork hook failed", ex.Message);
+        Assert.Null(await store.LoadBranchAsync("test-session", "fork-fails"));
+
+        var reloadedMain = await store.LoadBranchAsync("test-session", "main");
+        Assert.NotNull(reloadedMain);
+        Assert.Empty(reloadedMain!.ChildBranches);
+        Assert.Equal(1, reloadedMain.TotalSiblings);
+        Assert.Null(reloadedMain.NextSiblingId);
+    }
+
+    [Fact]
+    public async Task ForkBranch_WithCompactionOnFork_CompactsOnlyTargetBranch()
+    {
+        // Arrange
+        var store = new InMemorySessionStore();
+        var strategy = new RetainLastMessagesCompactionStrategy(retainCount: 2);
+        var agent = await CreateAgentWithStore(
+            store,
+            new CompactionMiddleware
+            {
+                Strategy = strategy,
+                Config = new CompactionConfig
+                {
+                    Enabled = true,
+                    CompactOnFork = true,
+                    Strategy = new MessageCountingCompactionOptions { TargetMessageCount = 2 }
+                }
+            });
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+
+        var main = session.CreateBranch("main");
+        for (var i = 0; i < 5; i++)
+        {
+            var message = UserMessage($"Message {i}");
+            message.MessageId = $"message-{i}";
+            main.AddMessage(message);
+        }
+        await store.SaveInitialBranchAsync("test-session", main);
+        main.Session = session;
+
+        // Act
+        await agent.ForkBranchAsync(main, "fork-compacted", fromMessageId: main.Messages[4].MessageId!);
+
+        // Assert
+        var reloadedMain = await store.LoadBranchAsync("test-session", "main");
+        var reloadedFork = await store.LoadBranchAsync("test-session", "fork-compacted");
+
+        reloadedMain!.Messages.Select(m => m.MessageId)
+            .Should().Equal("message-0", "message-1", "message-2", "message-3", "message-4");
+        reloadedFork!.Messages.Select(m => m.MessageId)
+            .Should().Equal("message-3", "message-4");
+
+        var state = MiddlewareState.LoadFromBranch(reloadedFork, agent.StateFactories);
+        var compactionState = state.GetState<CompactionStateData>(typeof(CompactionStateData).FullName!);
+        compactionState.Should().NotBeNull();
+        compactionState!.LastCompaction!.ModelCompactedMessageIds
+            .Should().Equal("message-0", "message-1", "message-2");
+    }
+
+    [Fact]
+    public async Task ForkBranch_WithCompactionOnForkDisabled_DoesNotInvokeCompactionStrategy()
+    {
+        // Arrange
+        var store = new InMemorySessionStore();
+        var strategy = new RetainLastMessagesCompactionStrategy(retainCount: 1);
+        var agent = await CreateAgentWithStore(
+            store,
+            new CompactionMiddleware
+            {
+                Strategy = strategy,
+                Config = new CompactionConfig
+                {
+                    Enabled = true,
+                    CompactOnFork = false
+                }
+            });
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+
+        var main = session.CreateBranch("main");
+        var message1 = UserMessage("Message 1");
+        message1.MessageId = "message-1";
+        main.AddMessage(message1);
+        var message2 = UserMessage("Message 2");
+        message2.MessageId = "message-2";
+        main.AddMessage(message2);
+        await store.SaveInitialBranchAsync("test-session", main);
+        main.Session = session;
+
+        // Act
+        await agent.ForkBranchAsync(main, "fork-uncompacted", fromMessageId: main.Messages[1].MessageId!);
+
+        // Assert
+        strategy.CallCount.Should().Be(0);
+        var reloadedFork = await store.LoadBranchAsync("test-session", "fork-uncompacted");
+        reloadedFork!.Messages.Select(m => m.MessageId)
+            .Should().Equal("message-1", "message-2");
+    }
+
+    [Fact]
+    public async Task ForkBranch_WithCompactionIntentEnabled_CompactsEvenWhenGlobalForkCompactionIsDisabled()
+    {
+        // Arrange
+        var store = new InMemorySessionStore();
+        var strategy = new RetainLastMessagesCompactionStrategy(retainCount: 1);
+        var agent = await CreateAgentWithStore(
+            store,
+            new CompactionMiddleware
+            {
+                Strategy = strategy,
+                Config = new CompactionConfig
+                {
+                    Enabled = true,
+                    CompactOnFork = false,
+                    Strategy = new MessageCountingCompactionOptions { TargetMessageCount = 1 }
+                }
+            });
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+
+        var main = session.CreateBranch("main");
+        for (var i = 0; i < 3; i++)
+        {
+            var message = UserMessage($"Message {i}");
+            message.MessageId = $"message-{i}";
+            main.AddMessage(message);
+        }
+        await store.SaveInitialBranchAsync("test-session", main);
+        main.Session = session;
+
+        // Act
+        await agent.ForkBranchAsync(
+            main,
+            "fork-force-compacted",
+            fromMessageId: main.Messages[2].MessageId!,
+            forkOptions: new BranchForkOptions
+            {
+                CompactionIntent = BranchForkCompactionIntent.Enabled
+            });
+
+        // Assert
+        strategy.CallCount.Should().Be(1);
+        var reloadedFork = await store.LoadBranchAsync("test-session", "fork-force-compacted");
+        reloadedFork!.Messages.Select(m => m.MessageId)
+            .Should().Equal("message-2");
+    }
+
+    [Fact]
+    public async Task ForkBranch_WithCompactionIntentDisabled_SkipsGlobalForkCompaction()
+    {
+        // Arrange
+        var store = new InMemorySessionStore();
+        var strategy = new RetainLastMessagesCompactionStrategy(retainCount: 1);
+        var agent = await CreateAgentWithStore(
+            store,
+            new CompactionMiddleware
+            {
+                Strategy = strategy,
+                Config = new CompactionConfig
+                {
+                    Enabled = true,
+                    CompactOnFork = true,
+                    Strategy = new MessageCountingCompactionOptions { TargetMessageCount = 1 }
+                }
+            });
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+
+        var main = session.CreateBranch("main");
+        for (var i = 0; i < 3; i++)
+        {
+            var message = UserMessage($"Message {i}");
+            message.MessageId = $"message-{i}";
+            main.AddMessage(message);
+        }
+        await store.SaveInitialBranchAsync("test-session", main);
+        main.Session = session;
+
+        // Act
+        await agent.ForkBranchAsync(
+            main,
+            "fork-force-uncompacted",
+            fromMessageId: main.Messages[2].MessageId!,
+            forkOptions: new BranchForkOptions
+            {
+                CompactionIntent = BranchForkCompactionIntent.Disabled
+            });
+
+        // Assert
+        strategy.CallCount.Should().Be(0);
+        var reloadedFork = await store.LoadBranchAsync("test-session", "fork-force-uncompacted");
+        reloadedFork!.Messages.Select(m => m.MessageId)
+            .Should().Equal("message-0", "message-1", "message-2");
+    }
+
+    [Fact]
+    public async Task ForkBranch_WhenMessageIdWasCompactedOut_ThrowsWithReplacementCandidates()
+    {
+        // Arrange
+        var store = new InMemorySessionStore();
+        var agent = await CreateAgentWithStore(store);
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+
+        var main = session.CreateBranch("main");
+        var removed = UserMessage("Removed");
+        removed.MessageId = "removed-message";
+        main.AddMessage(removed);
+        var retained = UserMessage("Retained");
+        retained.MessageId = "retained-message";
+        main.AddMessage(retained);
+        await store.SaveInitialBranchAsync("test-session", main);
+
+        var summary = new ChatMessage(ChatRole.Assistant, "Summary")
+        {
+            MessageId = "summary-message"
+        };
+        await store.AppendBranchEventAsync(
+            "test-session",
+            "main",
+            BranchEventFactory.BranchHistoryCompacted(
+                "test-session",
+                "main",
+                new BranchHistoryCompactedEvent(
+                    "compaction-1",
+                    ["removed-message"],
+                    ["removed-message"],
+                    [summary],
+                    nameof(MessageCountingCompactionOptions),
+                    nameof(CompactBranchHistoryOptions),
+                    nameof(ExactCompactedMessagesBoundaryOptions),
+                    "Summary",
+                    DateTimeOffset.UtcNow)));
+
+        var reloadedMain = await store.LoadBranchAsync("test-session", "main");
+        reloadedMain!.Session = session;
+
+        // Act
+        var ex = await Assert.ThrowsAsync<MessageNotPresentOnBranchException>(
+            () => agent.ForkBranchAsync(reloadedMain, "fork-missing", fromMessageId: "removed-message"));
+
+        // Assert
+        ex.ReplacementMessageIds.Should().ContainSingle("summary-message");
+        Assert.Null(await store.LoadBranchAsync("test-session", "fork-missing"));
+    }
+
+    [Fact]
+    public async Task Test11_ForkBranch_SetsCorrectSiblingIndex_ChronologicalOrder()
     {
         // Arrange
         var store = new InMemorySessionStore();
@@ -398,19 +764,19 @@ public class BranchTreeV3Tests : AgentTestBase
         // Act - Fork main THREE TIMES at the SAME index
         // This creates three siblings: fork-1, fork-2, fork-3
         // All have ForkedFrom="main", ForkedAtMessageIndex=1
-        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 1);
+        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[1].MessageId!);
         await Task.Delay(10); // Ensure time difference
 
         // Reload main to get updated metadata
         main = (await store.LoadBranchAsync("test-session", "main"))!;
         main.Session = session;
-        var fork2 = await agent.ForkBranchAsync(main, "fork-2", fromMessageIndex: 1);
+        var fork2 = await agent.ForkBranchAsync(main, "fork-2", fromMessageId: main.Messages[1].MessageId!);
         await Task.Delay(10);
 
         // Reload main again
         main = (await store.LoadBranchAsync("test-session", "main"))!;
         main.Session = session;
-        var fork3 = await agent.ForkBranchAsync(main, "fork-3", fromMessageIndex: 1);
+        var fork3 = await agent.ForkBranchAsync(main, "fork-3", fromMessageId: main.Messages[1].MessageId!);
 
         // Assert - main is sibling #0, fork-1 is #1, fork-2 is #2, fork-3 is #3 (TotalSiblings=4)
         var reloadedMain = await store.LoadBranchAsync("test-session", "main");
@@ -454,7 +820,7 @@ public class BranchTreeV3Tests : AgentTestBase
         main.Session = session;
 
         // Act
-        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
 
         // Assert - main is sibling #0, fork-1 is sibling #1 — linked bidirectionally
         var reloadedMain = await store.LoadBranchAsync("test-session", "main");
@@ -484,7 +850,7 @@ public class BranchTreeV3Tests : AgentTestBase
         main.Session = session;
 
         // Act
-        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        var fork1 = await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
 
         // Assert - Parent tracks child
         var reloadedMain = await store.LoadBranchAsync("test-session", "main");
@@ -514,7 +880,7 @@ public class BranchTreeV3Tests : AgentTestBase
         main.Session = session;
 
         // Act - create one fork
-        await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
 
         // Assert - main is sibling #0, fork-1 is sibling #1
         var reloadedMain = await store.LoadBranchAsync("test-session", "main");
@@ -548,11 +914,11 @@ public class BranchTreeV3Tests : AgentTestBase
         main.Session = session;
 
         // Act - fork twice at the same index
-        await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
         await Task.Delay(10);
         main = (await store.LoadBranchAsync("test-session", "main"))!;
         main.Session = session;
-        await agent.ForkBranchAsync(main, "fork-2", fromMessageIndex: 0);
+        await agent.ForkBranchAsync(main, "fork-2", fromMessageId: main.Messages[0].MessageId!);
 
         // Assert - main(0), fork-1(1), fork-2(2) — TotalSiblings=3 on all
         var reloadedMain = await store.LoadBranchAsync("test-session", "main");
@@ -589,10 +955,10 @@ public class BranchTreeV3Tests : AgentTestBase
         main.Session = session;
 
         // Act - fork at index 0 and at index 2 (independent sibling groups)
-        await agent.ForkBranchAsync(main, "fork-at-0", fromMessageIndex: 0);
+        await agent.ForkBranchAsync(main, "fork-at-0", fromMessageId: main.Messages[0].MessageId!);
         main = (await store.LoadBranchAsync("test-session", "main"))!;
         main.Session = session;
-        await agent.ForkBranchAsync(main, "fork-at-2", fromMessageIndex: 2);
+        await agent.ForkBranchAsync(main, "fork-at-2", fromMessageId: main.Messages[2].MessageId!);
 
         // Assert - two forks with different ForkedAtMessageIndex are separate groups
         var forkAt0 = await store.LoadBranchAsync("test-session", "fork-at-0");
@@ -625,15 +991,15 @@ public class BranchTreeV3Tests : AgentTestBase
         main.Session = session;
 
         // Act - create 3 forks; verify existing forks keep stable indices
-        await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
         await Task.Delay(10);
         main = (await store.LoadBranchAsync("test-session", "main"))!;
         main.Session = session;
-        await agent.ForkBranchAsync(main, "fork-2", fromMessageIndex: 0);
+        await agent.ForkBranchAsync(main, "fork-2", fromMessageId: main.Messages[0].MessageId!);
         await Task.Delay(10);
         main = (await store.LoadBranchAsync("test-session", "main"))!;
         main.Session = session;
-        await agent.ForkBranchAsync(main, "fork-3", fromMessageIndex: 0);
+        await agent.ForkBranchAsync(main, "fork-3", fromMessageId: main.Messages[0].MessageId!);
 
         // Assert - fork-1 stays at index 1 (never re-ordered)
         var f1 = await store.LoadBranchAsync("test-session", "fork-1");
@@ -663,10 +1029,10 @@ public class BranchTreeV3Tests : AgentTestBase
         main.Session = session;
 
         // Act - two forks from main
-        await agent.ForkBranchAsync(main, "fork-1", fromMessageIndex: 0);
+        await agent.ForkBranchAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
         main = (await store.LoadBranchAsync("test-session", "main"))!;
         main.Session = session;
-        await agent.ForkBranchAsync(main, "fork-2", fromMessageIndex: 0);
+        await agent.ForkBranchAsync(main, "fork-2", fromMessageId: main.Messages[0].MessageId!);
 
         // Assert - source (main) has no OriginalBranchId; forks point to main
         var reloadedMain = await store.LoadBranchAsync("test-session", "main");
@@ -685,10 +1051,88 @@ public class BranchTreeV3Tests : AgentTestBase
     // HELPER METHODS
     //──────────────────────────────────────────────────────────────────
 
-    private async Task<HPD.Agent.Agent> CreateAgentWithStore(ISessionStore store)
+    private async Task<HPD.Agent.Agent> CreateAgentWithStore(
+        ISessionStore store,
+        params IAgentMiddleware[] middlewares)
     {
-        return await new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
-            .WithSessionStore(store)
-            .BuildAsync(CancellationToken.None);
+        var builder = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
+            .WithSessionStore(store);
+
+        foreach (var middleware in middlewares)
+        {
+            builder.WithMiddleware(middleware);
+        }
+
+        return await builder.BuildAsync(CancellationToken.None);
+    }
+
+    private sealed class RecordingBranchForkMiddleware : IAgentMiddleware
+    {
+        public int CallCount { get; private set; }
+        public string? SourceBranchId { get; private set; }
+        public string? TargetBranchId { get; private set; }
+        public string? ActiveBranchId { get; private set; }
+        public int ForkedAtMessageIndex { get; private set; }
+        public string? ForkedAtMessageId { get; private set; }
+        public bool CallerMetadataWasPresent { get; private set; }
+
+        public Task BeforeBranchForkCommitAsync(
+            BeforeBranchForkCommitContext context,
+            CancellationToken cancellationToken)
+        {
+            CallCount++;
+            SourceBranchId = context.SourceBranch.Id;
+            TargetBranchId = context.TargetBranch.Id;
+            ActiveBranchId = context.Branch?.Id;
+            ForkedAtMessageIndex = context.ForkedAtMessageIndex;
+            ForkedAtMessageId = context.ForkedAtMessageId;
+            CallerMetadataWasPresent = context.TargetBranch.Metadata.ContainsKey("caller");
+
+            context.TargetBranch.Metadata["branchHook"] = "from-hook";
+            context.TargetBranch.Messages.Add(new ChatMessage(ChatRole.Assistant, "hook-added")
+            {
+                MessageId = "hook-added"
+            });
+
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class BranchForkStateMiddleware : IAgentMiddleware
+    {
+        public Task BeforeBranchForkCommitAsync(
+            BeforeBranchForkCommitContext context,
+            CancellationToken cancellationToken)
+        {
+            context.UpdateMiddlewareState<CompactionStateData>(
+                state => state with { MessageTurnCount = 42 });
+
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingBranchForkMiddleware : IAgentMiddleware
+    {
+        public Task BeforeBranchForkCommitAsync(
+            BeforeBranchForkCommitContext context,
+            CancellationToken cancellationToken)
+            => throw new InvalidOperationException("branch fork hook failed");
+    }
+
+    private sealed class RetainLastMessagesCompactionStrategy(int retainCount) : ICompactionStrategy
+    {
+        public int CallCount { get; private set; }
+
+        public Task<CompactionResult> ReduceAsync(
+            IReadOnlyList<ChatMessage> originalMessages,
+            CancellationToken cancellationToken)
+        {
+            CallCount++;
+            var modelVisible = originalMessages.TakeLast(retainCount).ToList();
+            return Task.FromResult(CompactionResult.FromOriginalAndCompacted(
+                originalMessages,
+                modelVisible,
+                new MessageCountingCompactionOptions { TargetMessageCount = retainCount }));
+        }
     }
 }

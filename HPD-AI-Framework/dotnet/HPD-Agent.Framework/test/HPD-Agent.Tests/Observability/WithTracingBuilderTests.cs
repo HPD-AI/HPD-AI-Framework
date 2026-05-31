@@ -158,9 +158,11 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
             sourceName: _testSourceName,
             sanitizerOptions: new SpanSanitizerOptions { MaxStringLength = 50 });
         var tools = new[] { bigTool };
-        config.Provider ??= new ProviderConfig { ProviderKey = "test", ModelName = "test-model" };
-        config.Provider.DefaultChatOptions ??= new ChatOptions();
-        config.Provider.DefaultChatOptions.Tools = tools.Cast<AITool>().ToList();
+        config.EnsureChatClientConfig();
+        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().ModelName = "test-model";
+        config.EnsureChatClientConfig().DefaultChatOptions ??= new ChatOptions();
+        config.EnsureChatClientConfig().DefaultChatOptions.Tools = tools.Cast<AITool>().ToList();
         var agent = builder.BuildAsync(CancellationToken.None).GetAwaiter().GetResult();
 
         await RunTurnAsync(agent);
@@ -211,9 +213,11 @@ public class WithTracingBuilderTests : AgentTestBase, IDisposable
         var config = DefaultConfig();
         if (tools.Length > 0)
         {
-            config.Provider ??= new ProviderConfig { ProviderKey = "test", ModelName = "test-model" };
-            config.Provider.DefaultChatOptions ??= new ChatOptions();
-            config.Provider.DefaultChatOptions.Tools = tools.Cast<AITool>().ToList();
+            config.EnsureChatClientConfig();
+        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().ModelName = "test-model";
+            config.EnsureChatClientConfig().DefaultChatOptions ??= new ChatOptions();
+            config.EnsureChatClientConfig().DefaultChatOptions.Tools = tools.Cast<AITool>().ToList();
         }
 
         var builder = new AgentBuilder(config, new TestProviderRegistry(fakeLLM));

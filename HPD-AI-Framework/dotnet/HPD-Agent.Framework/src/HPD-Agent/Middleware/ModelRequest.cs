@@ -107,11 +107,17 @@ public sealed record ModelRequest
     public IEventFlowRegistry? EventFlows { get; init; }
 
     /// <summary>
-    /// The current session. Provides access to session storage (content store, asset store).
-    /// Middleware can use this for storing artifacts produced during the model call.
+    /// The current session. Middleware can use this for session identity while storing
+    /// artifacts through <see cref="ContentStore"/>.
     ///   May be NULL if no session is active
     /// </summary>
     public Session? Session { get; init; }
+
+    /// <summary>
+    /// Explicit content store configured for this agent.
+    /// Middleware can use this for storing artifacts produced during the model call.
+    /// </summary>
+    public IContentStore? ContentStore { get; init; }
 
     /// <summary>
     /// Original run options for this agent turn.
@@ -153,6 +159,11 @@ public sealed record ModelRequest
     /// </code>
     /// </remarks>
     public HPD.Events.IEventCoordinator? EventCoordinator { get; init; }
+
+    /// <summary>
+    /// Process-local realtime struct event hub for low-allocation runtime samples.
+    /// </summary>
+    public HPD.Events.Struct.IStructEventHub? StructEvents { get; init; }
 
     /// <summary>
     /// Creates a modified copy of this request.

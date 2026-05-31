@@ -112,7 +112,10 @@ export interface Branch {
   /** Source branch ID if this was forked (null for original branches) */
   forkedFrom?: string;
 
-  /** Message index where fork occurred (null for original branches) */
+  /** Message id where fork occurred (null for original branches) */
+  forkedAtMessageId?: string;
+
+  /** Resolved message index where fork occurred (diagnostic; null for original branches) */
   forkedAtMessageIndex?: number;
 
   /**
@@ -138,13 +141,16 @@ export interface Branch {
   /** Optional tags for categorizing branches */
   tags?: string[];
 
+  /** Branch-level application metadata */
+  metadata?: Record<string, unknown>;
+
   // ==========================================
   // Sibling metadata (V3 - for ordering)
   // ==========================================
 
   /**
    * Position among siblings at this fork point (0-based).
-   * Siblings are branches that forked from the same parent at the same message index.
+   * Siblings are branches that forked from the same parent at the same message id.
    * Stable ordering: original branch = 0, subsequent forks ordered chronologically.
    */
   siblingIndex: number;
@@ -249,19 +255,39 @@ export interface CreateBranchRequest {
   /** Optional tags */
   tags?: string[];
 
+  /** Optional branch-level metadata */
+  metadata?: Record<string, unknown>;
+
   /** Agent definition ID used in the route for agent-scoped branch creation */
   agentId?: string;
 }
 
 /**
- * Request to fork a branch at a specific message index.
+ * Request to update branch metadata.
+ */
+export interface UpdateBranchRequest {
+  /** Optional display name */
+  name?: string;
+
+  /** Optional description */
+  description?: string;
+
+  /** Optional tags */
+  tags?: string[];
+
+  /** Metadata fields to merge; null removes a key */
+  metadata?: Record<string, unknown | null>;
+}
+
+/**
+ * Request to fork a branch at a specific message id.
  */
 export interface ForkBranchRequest {
   /** Optional new branch ID (generated if not provided) */
   newBranchId?: string;
 
-  /** Message index where fork occurs (0-based, copies messages 0..index) */
-  fromMessageIndex: number;
+  /** Message id where fork occurs (copies messages through this message) */
+  fromMessageId: string;
 
   /** Optional display name for the forked branch */
   name?: string;
@@ -271,6 +297,9 @@ export interface ForkBranchRequest {
 
   /** Optional tags */
   tags?: string[];
+
+  /** Optional branch-level metadata */
+  metadata?: Record<string, unknown>;
 
   /** Agent definition ID used in the route for agent-scoped branch forking */
   agentId?: string;
@@ -389,6 +418,26 @@ export type AIContent =
   | AiHpdDocumentContent
   | AiUnknownContent;
 
+/**
+ * Materialized branch transcript message returned by branch-history APIs.
+ */
+export interface BranchMessage {
+  /** Stable message id. */
+  id: string;
+
+  /** Chat role for this message. */
+  role: 'system' | 'user' | 'assistant' | 'tool' | string;
+
+  /** Full structured contents for this message. */
+  contents: AIContent[];
+
+  /** Message timestamp as ISO 8601. */
+  timestamp: string;
+
+  /** Optional author name. */
+  authorName?: string;
+}
+
 // ============================================
 // BRANCH EVENT LOG
 // ============================================
@@ -408,12 +457,13 @@ export type BranchEvent = AgentEvent & {
 };
 
 /**
- * Reference to an uploaded asset (returned by POST /sessions/{sid}/assets).
+ * Reference to an uploaded content (returned by POST /sessions/{sid}/content).
  * Passed as attachments in SendOptions; the workspace converts these to
  * UriContent references in the outgoing message.
  */
-export interface AssetReference {
-  assetId: string;
+export interface ContentReference {
+  contentId: string;
+  version: string;
   contentType: string;
   name?: string;
   sizeBytes?: number;

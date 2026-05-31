@@ -12,7 +12,7 @@
 	import * as FileAttachment from '../exports.js';
 	import { FileAttachmentState } from '../file-attachment.svelte.js';
 	import { boxWith } from 'svelte-toolbelt';
-	import type { AssetReference } from '@hpd/hpd-agent-client';
+	import type { ContentReference } from '@hpd/hpd-agent-client';
 	import type { AgentClientLike } from '$lib/workspace/types.js';
 
 	interface Props {
@@ -21,13 +21,14 @@
 		sessionId?: string | null;
 		disabled?: boolean;
 		// Mock upload function — called by the state
-		uploadFn?: (sessionId: string, file: File) => Promise<AssetReference>;
+		uploadFn?: (sessionId: string, file: File) => Promise<ContentReference>;
 		// Mock client for internal mode
 		client?: AgentClientLike;
 	}
 
-	const DEFAULT_ASSET: AssetReference = {
-		assetId: 'test-asset-1',
+	const DEFAULT_CONTENT: ContentReference = {
+		contentId: 'test-content-1',
+		version: 'rev:1',
 		contentType: 'image/png',
 		name: 'test.png',
 		sizeBytes: 512,
@@ -37,7 +38,7 @@
 		mode = 'external',
 		sessionId = 'sess-test',
 		disabled = false,
-		uploadFn = async (_sid: string, _file: File) => DEFAULT_ASSET,
+		uploadFn = async (_sid: string, _file: File) => DEFAULT_CONTENT,
 		client = undefined,
 	}: Props = $props();
 
@@ -106,6 +107,6 @@
 	</FileAttachment.Root>
 {/if}
 
-<!-- Resolved assets as JSON — readable by tests after upload completes -->
-<div data-testid="resolved-assets">{JSON.stringify(externalState.resolvedAssets)}</div>
+<!-- Resolved contents as JSON — readable by tests after upload completes -->
+<div data-testid="resolved-content">{JSON.stringify(externalState.resolvedContent)}</div>
 <div data-testid="attachment-count">{externalState.attachments.length}</div>

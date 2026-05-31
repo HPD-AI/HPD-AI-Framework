@@ -14,7 +14,7 @@ namespace HPD.Agent;
 /// Session is the top-level container that holds:
 /// - Metadata (user info, project context, etc.)
 /// - Session-scoped middleware state (permissions, user preferences - shared across all branches)
-/// - Reference to session store (for asset access)
+/// - Reference to session store (for session and branch persistence)
 /// </para>
 ///
 /// <para><b>Relationship to Branch:</b></para>
@@ -58,7 +58,7 @@ public class Session
     /// </remarks>
     public Dictionary<string, string> MiddlewareState { get; init; }
 
-    /// <summary>Reference to session store (for asset access)</summary>
+    /// <summary>Reference to session store (for session and branch persistence)</summary>
     [JsonIgnore]
     public ISessionStore? Store { get; set; }
 

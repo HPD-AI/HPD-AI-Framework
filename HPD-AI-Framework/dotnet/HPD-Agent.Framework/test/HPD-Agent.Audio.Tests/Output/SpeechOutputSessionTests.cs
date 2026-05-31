@@ -18,8 +18,8 @@ public sealed class SpeechOutputSessionTests
             model: "tts-1",
             voice: "nova");
 
-        var frame = new AudioChunkFrame(
-            SynthesisId: "synth-1",
+        var frame = new AudioOutputFrame(
+            OutputId: "synth-1",
             Audio: new byte[] { 1, 2, 3 },
             MimeType: "audio/mpeg",
             ChunkIndex: 0,
@@ -70,8 +70,8 @@ public sealed class SpeechOutputSessionTests
     {
         await using var session = new SpeechOutputSession("speech-1", "stream-1");
 
-        var frame = new AudioChunkFrame(
-            SynthesisId: "synth-1",
+        var frame = new AudioOutputFrame(
+            OutputId: "synth-1",
             Audio: new byte[] { 1 },
             MimeType: "audio/mpeg",
             ChunkIndex: 0,
@@ -103,8 +103,8 @@ public sealed class SpeechOutputSessionTests
     {
         await using var session = new SpeechOutputSession("speech-1", "stream-1");
 
-        var frame = new AudioChunkFrame(
-            SynthesisId: "synth-1",
+        var frame = new AudioOutputFrame(
+            OutputId: "synth-1",
             Audio: new byte[] { 1 },
             MimeType: "audio/mpeg",
             ChunkIndex: 0,
@@ -130,8 +130,8 @@ public sealed class SpeechOutputSessionTests
     {
         await using var session = new SpeechOutputSession("speech-1", "stream-1");
 
-        var first = new AudioChunkFrame(
-            SynthesisId: "synth-1",
+        var first = new AudioOutputFrame(
+            OutputId: "synth-1",
             Audio: new byte[] { 1 },
             MimeType: "audio/mpeg",
             ChunkIndex: 0,
@@ -172,8 +172,8 @@ public sealed class SpeechOutputSessionTests
     {
         await using var session = new SpeechOutputSession("speech-1", "stream-1");
 
-        var first = new AudioChunkFrame(
-            SynthesisId: "synth-1",
+        var first = new AudioOutputFrame(
+            OutputId: "synth-1",
             Audio: new byte[] { 1 },
             MimeType: "audio/mpeg",
             ChunkIndex: 0,

@@ -5,6 +5,7 @@ using HPD.Agent.Audio.Stt;
 using HPD.Agent.Audio.Tts;
 using HPD.Agent.Audio.Vad;
 using HPD.Agent.Audio.Eot;
+using HPD.Agent.Audio.Realtime;
 
 namespace HPD.Agent.Audio;
 
@@ -42,12 +43,17 @@ public class AudioConfig
     /// </summary>
     public EotConfig? Eot { get; set; } = new();
 
+    /// <summary>
+    /// Realtime session configuration. Required when <see cref="ProcessingMode"/> is Realtime.
+    /// </summary>
+    public RealtimeAudioConfig? Realtime { get; set; }
+
     //
     // PROCESSING MODE & I/O
     //
 
     /// <summary>
-    /// Processing mode: Pipeline (external STT/TTS/VAD/EOT) or Native (model handles audio directly).
+    /// Processing mode: Pipeline (HPD STT/chat/TTS) or Realtime (MEAI realtime session).
     /// Default: Pipeline.
     /// </summary>
     public AudioProcessingMode ProcessingMode { get; set; } = AudioProcessingMode.Pipeline;
@@ -175,6 +181,7 @@ public class AudioConfig
             Stt = overrides.Stt ?? Stt,
             Vad = overrides.Vad ?? Vad,
             Eot = overrides.Eot ?? Eot,
+            Realtime = overrides.Realtime ?? Realtime,
 
             // Processing
             ProcessingMode = overrides.ProcessingMode,
@@ -225,6 +232,7 @@ public class AudioConfig
         Stt = CloneStt(Stt),
         Vad = CloneVad(Vad),
         Eot = CloneEot(Eot),
+        Realtime = Realtime?.Clone(),
         ProcessingMode = ProcessingMode,
         IOMode = IOMode,
         Language = Language,
@@ -267,6 +275,7 @@ public class AudioConfig
         Language = config.Language,
         Provider = config.Provider,
         ProviderOptionsJson = config.ProviderOptionsJson,
+        OverrideClient = config.OverrideClient,
         AdditionalProperties = config.AdditionalProperties is null
             ? null
             : new Dictionary<string, object>(config.AdditionalProperties)
@@ -284,7 +293,8 @@ public class AudioConfig
             ? null
             : new Dictionary<string, object>(config.AdditionalProperties),
         Provider = config.Provider,
-        ProviderOptionsJson = config.ProviderOptionsJson
+        ProviderOptionsJson = config.ProviderOptionsJson,
+        OverrideClient = config.OverrideClient
     };
 
     internal static VadConfig? CloneVad(VadConfig? config) => config is null ? null : new VadConfig
@@ -319,30 +329,39 @@ public class AudioConfig
     /// </summary>
     public void Validate()
     {
-        // Native mode: the model handles audio I/O directly — STT/TTS/VAD are not used.
-        // Setting them alongside Native mode is a configuration error.
-        if (ProcessingMode == AudioProcessingMode.Native)
+        // Realtime mode is hosted by IRealtimeClientSession; HPD pipeline STT/TTS/VAD are not used.
+        // Setting them alongside Realtime mode is a configuration error.
+        if (ProcessingMode == AudioProcessingMode.Realtime)
         {
+            if (Realtime == null)
+                throw new InvalidOperationException(
+                    "AudioConfig.Realtime must be set when ProcessingMode is Realtime.");
+
             if (Stt != null)
                 throw new InvalidOperationException(
-                    "AudioConfig.Stt cannot be set when ProcessingMode is Native. " +
-                    "In Native mode the model handles speech-to-text directly; " +
+                    "AudioConfig.Stt cannot be set when ProcessingMode is Realtime. " +
+                    "In Realtime mode audio input is sent to the realtime session; " +
                     "remove the Stt configuration or switch to ProcessingMode.Pipeline.");
 
             if (Tts != null)
                 throw new InvalidOperationException(
-                    "AudioConfig.Tts cannot be set when ProcessingMode is Native. " +
-                    "In Native mode the model produces audio output directly; " +
+                    "AudioConfig.Tts cannot be set when ProcessingMode is Realtime. " +
+                    "In Realtime mode audio output is received from the realtime session; " +
                     "remove the Tts configuration or switch to ProcessingMode.Pipeline.");
 
             if (Vad != null)
                 throw new InvalidOperationException(
-                    "AudioConfig.Vad cannot be set when ProcessingMode is Native. " +
-                    "In Native mode EOT detection is handled by the model itself; " +
+                    "AudioConfig.Vad cannot be set when ProcessingMode is Realtime. " +
+                    "In Realtime mode turn handling is configured on the realtime session; " +
                     "remove the Vad configuration or switch to ProcessingMode.Pipeline.");
 
             return;
         }
+
+        if (Realtime != null)
+            throw new InvalidOperationException(
+                "AudioConfig.Realtime cannot be set when ProcessingMode is Pipeline. " +
+                "Remove the Realtime configuration or switch to ProcessingMode.Realtime.");
 
         // Validate role configs. Provider selection is only required when a provider
         // factory must be used; injected MEAI clients can use option-only configs.

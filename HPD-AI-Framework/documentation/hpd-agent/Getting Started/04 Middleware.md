@@ -47,7 +47,7 @@ Middleware can intercept at multiple levels:
 Run once per user message. Use for context injection, memory retrieval, logging.
 
 ### Iteration Level  
-Run per LLM call (loops if agent re-thinks). Use for history reduction, dynamic instructions, caching.
+Run per LLM call (loops if agent re-thinks). Use for compaction, dynamic instructions, caching.
 
 ### Function Level
 Run per function execution. Use for permissions, argument validation, retry logic, logging.

@@ -34,9 +34,10 @@ public static class TestAgentFactory
         // Add tools to config if provided
         if (tools.Length > 0)
         {
-            config.Provider ??= new ProviderConfig();
-            config.Provider.DefaultChatOptions ??= new Microsoft.Extensions.AI.ChatOptions();
-            config.Provider.DefaultChatOptions.Tools = tools.Cast<Microsoft.Extensions.AI.AITool>().ToList();
+            config.Clients ??= new AgentClientConfig();
+            config.Clients.Chat ??= new ClientProviderConfig();
+            config.Clients.Chat.DefaultChatOptions ??= new Microsoft.Extensions.AI.ChatOptions();
+            config.Clients.Chat.DefaultChatOptions.Tools = tools.Cast<Microsoft.Extensions.AI.AITool>().ToList();
         }
 
         // Register standard iteration middlewares for loop protection
@@ -62,10 +63,13 @@ public static class TestAgentFactory
             Name = "TestAgent",
             MaxAgenticIterations = 50,
             SystemInstructions = "You are a helpful test agent.",
-            Provider = new ProviderConfig
+            Clients = new AgentClientConfig
             {
-                ProviderKey = "test",  // Required by validation
-                ModelName = "test-model"
+                Chat = new ClientProviderConfig
+                {
+                    ProviderKey = "test",  // Required by validation
+                    ModelName = "test-model"
+                }
             },
             AgenticLoop = new AgenticLoopConfig
             {
@@ -92,11 +96,11 @@ internal class TestProviderRegistry : IProviderRegistry
         _chatClient = chatClient;
     }
 
-    public IProviderFeatures? GetProvider(string providerKey)
+    public IProvider? GetProvider(string providerKey)
     {
         if (providerKey == "test")
         {
-            return new TestProviderFeatures(_chatClient ?? new FakeChatClient());
+            return new TestChatClientProvider(_chatClient ?? new FakeChatClient());
         }
         return null;
     }
@@ -106,7 +110,13 @@ internal class TestProviderRegistry : IProviderRegistry
         return new[] { "test" };
     }
 
-    public void Register(IProviderFeatures provider)
+    public TProvider? GetProvider<TProvider>(string providerKey)
+        where TProvider : class, IProvider
+    {
+        return GetProvider(providerKey) as TProvider;
+    }
+
+    public void Register(IProvider provider)
     {
         // No-op for tests
     }
@@ -123,13 +133,13 @@ internal class TestProviderRegistry : IProviderRegistry
 }
 
 /// <summary>
-/// Test implementation of IProviderFeatures that returns the provided chat client.
+/// Test implementation of IChatClientProvider that returns the provided chat client.
 /// </summary>
-internal class TestProviderFeatures : IProviderFeatures
+internal class TestChatClientProvider : IChatClientProvider
 {
     private readonly IChatClient _chatClient;
 
-    public TestProviderFeatures(IChatClient chatClient)
+    public TestChatClientProvider(IChatClient chatClient)
     {
         _chatClient = chatClient;
     }
@@ -137,7 +147,7 @@ internal class TestProviderFeatures : IProviderFeatures
     public string ProviderKey => "test";
     public string DisplayName => "Test Provider";
 
-    public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null)
+    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
     {
         return _chatClient;
     }
@@ -153,12 +163,22 @@ internal class TestProviderFeatures : IProviderFeatures
         {
             ProviderKey = "test",
             DisplayName = "Test Provider",
-            SupportsStreaming = true,
-            SupportsFunctionCalling = true
+            Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            {
+                [ProviderClientFamily.Chat] = new()
+                {
+                    Family = ProviderClientFamily.Chat,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsStreaming"] = true,
+                        ["SupportsFunctionCalling"] = true
+                    }
+                }
+            }
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ProviderConfig config)
+    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
     {
         return ProviderValidationResult.Success();
     }

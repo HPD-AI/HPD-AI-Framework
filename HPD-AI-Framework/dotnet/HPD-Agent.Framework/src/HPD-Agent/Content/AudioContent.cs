@@ -25,7 +25,7 @@ namespace HPD.Agent;
 /// <para>
 /// <b>Middleware Behavior:</b>
 /// <list type="bullet">
-/// <item>AssetUploadMiddleware: Uploads to IContentStore with /uploads folder tag</item>
+/// <item>ContentUploadMiddleware: Uploads to IContentStore with /uploads folder tag</item>
 /// <item>AudioPipelineMiddleware: Transcribes via STT, replaces with TextContent</item>
 /// </list>
 /// </para>

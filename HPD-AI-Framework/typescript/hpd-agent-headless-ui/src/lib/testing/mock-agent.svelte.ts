@@ -62,6 +62,7 @@ function makeMockBranch(overrides: Partial<Branch> & { id: string; sessionId: st
 		name: overrides.id,
 		description: '',
 		forkedFrom: undefined,
+		forkedAtMessageId: undefined,
 		forkedAtMessageIndex: undefined,
 		ancestors: undefined,
 		createdAt: new Date().toISOString(),
@@ -143,11 +144,11 @@ class MockWorkspaceImpl implements Workspace {
 	readonly activeSiblings = $derived.by((): Branch[] => {
 		const branch = this.activeBranch;
 		if (!branch) return [];
-		// Include peer forks (same ForkedFrom + ForkedAtMessageIndex) AND the source branch (slot 0).
+		// Include peer forks (same ForkedFrom + ForkedAtMessageId) AND the source branch (slot 0).
 		const peers = Array.from(this.#branches.values()).filter(
 			(b) =>
 				b.forkedFrom === branch.forkedFrom &&
-				b.forkedAtMessageIndex === branch.forkedAtMessageIndex
+				b.forkedAtMessageId === branch.forkedAtMessageId
 		);
 		// For a fork branch: also include its source (ForkedFrom)
 		if (!branch.isOriginal && branch.forkedFrom) {
@@ -402,10 +403,15 @@ class MockWorkspaceImpl implements Workspace {
 
 		const forkId = `fork-${generateId()}`;
 		const sourceBranch = this.#branches.get(branchId);
+		const forkAtIndex = Math.max(0, messageIndex - 1);
+		const fromMessageId = messages[forkAtIndex]?.id;
+		if (!fromMessageId) {
+			throw new Error('Cannot fork because the fork point message has no id');
+		}
 
-		// Existing forks at this message index (not including source)
+		// Existing forks at this message id (not including source)
 		const existingForks = Array.from(this.#branches.values())
-			.filter((b) => b.forkedFrom === branchId && b.forkedAtMessageIndex === messageIndex)
+			.filter((b) => b.forkedFrom === branchId && b.forkedAtMessageId === fromMessageId)
 			.sort((a, b) => a.siblingIndex - b.siblingIndex);
 
 		// Source is always slot 0; new fork is appended after all existing forks
@@ -420,7 +426,8 @@ class MockWorkspaceImpl implements Workspace {
 			id: forkId,
 			sessionId,
 			forkedFrom: branchId,
-			forkedAtMessageIndex: messageIndex,
+			forkedAtMessageId: fromMessageId,
+			forkedAtMessageIndex: forkAtIndex,
 			isOriginal: false,
 			originalBranchId: branchId,
 			siblingIndex: newForkSiblingIndex,
@@ -445,9 +452,9 @@ class MockWorkspaceImpl implements Workspace {
 
 		this.#updateBranch(sessionId, fork);
 
-		// Pre-populate fork state with messages up to messageIndex (exclusive)
+		// Pre-populate fork state with messages through the fork point.
 		const forkState = new AgentState();
-		forkState.loadHistory(messages.slice(0, messageIndex).map((m) => ({ ...m })));
+		forkState.loadHistory(messages.slice(0, forkAtIndex + 1).map((m) => ({ ...m })));
 		this.#branchStates.set(`${sessionId}:${forkId}`, forkState);
 
 		await this.switchBranch(forkId);
@@ -585,7 +592,7 @@ class MockWorkspaceImpl implements Workspace {
 		createAgent: async () => ({ id: 'mock', name: 'mock', config: {}, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }),
 		updateAgent: async () => ({ id: 'mock', name: 'mock', config: {}, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }),
 		deleteAgent: async () => {},
-		uploadAsset: async () => ({ assetId: 'mock', contentType: 'text/plain' }),
+		uploadContent: async () => ({ contentId: 'mock', contentType: 'text/plain' }),
 	} as any;
 }
 
@@ -687,7 +694,7 @@ class MockAgentImpl implements Workspace {
 		createAgent: async () => ({ id: 'mock', name: 'mock', config: {}, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }),
 		updateAgent: async () => ({ id: 'mock', name: 'mock', config: {}, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }),
 		deleteAgent: async () => {},
-		uploadAsset: async () => ({ assetId: 'mock', contentType: 'text/plain' }),
+		uploadContent: async () => ({ contentId: 'mock', contentType: 'text/plain' }),
 	} as any;
 }
 

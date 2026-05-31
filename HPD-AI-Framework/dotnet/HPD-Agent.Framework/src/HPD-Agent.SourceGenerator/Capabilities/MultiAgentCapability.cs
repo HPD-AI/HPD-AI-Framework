@@ -94,7 +94,7 @@ internal class MultiAgentCapability : BaseCapability
         // Get parent context for event bubbling, execution hierarchy, and chat client inheritance
         sb.AppendLine("        // Use the explicit runtime context supplied by the agent runtime");
         sb.AppendLine("        var parentCoordinator = functionContext?.GetParentEventCoordinator();");
-        sb.AppendLine("        var parentExecutionContext = functionContext?.GetParentExecutionContext();");
+        sb.AppendLine("        var parentAgentMetadata = functionContext?.GetParentAgentMetadata();");
         sb.AppendLine("        var parentChatClient = functionContext?.GetParentChatClient();");
         sb.AppendLine();
 
@@ -119,7 +119,7 @@ internal class MultiAgentCapability : BaseCapability
             // Streaming execution with full hierarchical context and chat client inheritance
             sb.AppendLine("        // Execute with streaming, capturing text output");
             sb.AppendLine("        var textResult = new System.Text.StringBuilder();");
-            sb.AppendLine("        await foreach (var evt in workflow.ExecuteStreamingAsync(input, parentCoordinator, parentExecutionContext, parentChatClient, cancellationToken))");
+            sb.AppendLine("        await foreach (var evt in workflow.ExecuteStreamingAsync(input, parentCoordinator, parentAgentMetadata, parentChatClient, cancellationToken))");
             sb.AppendLine("        {");
             sb.AppendLine("            // TextDeltaEvent is in HPD.Agent namespace");
             sb.AppendLine("            if (evt is HPD.Agent.TextDeltaEvent textDelta)");

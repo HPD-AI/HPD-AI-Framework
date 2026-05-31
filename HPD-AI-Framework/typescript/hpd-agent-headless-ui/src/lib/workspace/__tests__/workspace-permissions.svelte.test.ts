@@ -16,6 +16,7 @@ import { createWorkspace } from '../workspace.svelte.ts';
 import type { AgentClientLike, CreateWorkspaceOptions } from '../types.ts';
 import type {
 	AgentEvent,
+	KnownAgentEvent,
 	AgentRunInputEvent,
 	Branch,
 	BranchMessage,
@@ -29,7 +30,7 @@ import type {
 	CreateAgentRequest,
 	UpdateAgentRequest,
 	StoredAgentDto,
-	AssetReference,
+	ContentReference,
 	EventSubscription,
 	PermissionRequestEvent,
 	ClarificationRequestEvent,
@@ -89,9 +90,9 @@ class FakeAgentClient implements AgentClientLike {
 
 	// ---- Event runtime ----
 
-	on<TType extends AgentEvent['type']>(
+	on<TType extends KnownAgentEvent['type']>(
 		type: TType,
-		handler: (event: Extract<AgentEvent, { type: TType }>) => void | Promise<void>
+		handler: (event: Extract<KnownAgentEvent, { type: TType }>) => void | Promise<void>
 	): EventSubscription {
 		const handlers = this.#typedHandlers.get(type) ?? [];
 		const stored = handler as (event: AgentEvent) => void | Promise<void>;
@@ -198,9 +199,9 @@ class FakeAgentClient implements AgentClientLike {
 	}
 	async deleteAgent(_agentId: string) {}
 
-	// ---- Asset upload ----
+	// ---- Content upload ----
 
-	async uploadAsset(_sessionId: string, _file: File | Blob, _name?: string): Promise<AssetReference> {
+	async uploadContent(_sessionId: string, _file: File | Blob, _name?: string): Promise<ContentReference> {
 		throw new Error('not needed in permission tests');
 	}
 

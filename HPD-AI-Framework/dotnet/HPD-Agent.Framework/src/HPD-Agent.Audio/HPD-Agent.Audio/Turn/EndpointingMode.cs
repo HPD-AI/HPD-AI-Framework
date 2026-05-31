@@ -20,6 +20,6 @@ public enum EndpointingMode
     /// <summary>Recognition, VAD, and EOT signals are combined.</summary>
     Hybrid,
 
-    /// <summary>Native realtime model turn events drive endpointing.</summary>
+    /// <summary>Realtime model turn events drive endpointing.</summary>
     RealtimeModel
 }

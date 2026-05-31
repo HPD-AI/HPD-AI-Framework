@@ -1,4 +1,5 @@
 using HPD.Events;
+using HPD.Events.Struct;
 using Rhodium.Primitives;
 
 namespace Rhodium.Simulation.Diagnostics;
@@ -166,7 +167,7 @@ public sealed class SimulationDiagnostics
         new LatencyDiagnostics(0, Duration.Zero, Duration.Zero, Duration.Zero),
         new RunTimingDiagnostics(null, null, Instant.Epoch, 0),
         [],
-        new LocalStructEventBusStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+        new StructEventHubStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
         [],
         []);
 
@@ -178,7 +179,7 @@ public sealed class SimulationDiagnostics
         LatencyDiagnostics latency,
         RunTimingDiagnostics timing,
         IReadOnlyList<SimulationModuleDiagnostics> modules,
-        LocalStructEventBusStats frameStats,
+        StructEventHubStats frameStats,
         IReadOnlyList<SimulationDataProvenance> dataSources,
         IReadOnlyList<SimulationRejectionDiagnostic> rejections)
     {
@@ -212,7 +213,7 @@ public sealed class SimulationDiagnostics
     public IReadOnlyList<SimulationModuleDiagnostics> Modules { get; }
 
     /// <summary>Local struct frame bus diagnostics.</summary>
-    public LocalStructEventBusStats FrameStats { get; }
+    public StructEventHubStats FrameStats { get; }
 
     /// <summary>Replay data source provenance.</summary>
     public IReadOnlyList<SimulationDataProvenance> DataSources { get; }

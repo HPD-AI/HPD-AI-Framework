@@ -271,5 +271,5 @@ The framework saves and restores it automatically between runs on the same sessi
 ## Going further
 
 - **Events** — middleware can emit events to the UI and wait for responses (human-in-the-loop, permission prompts). See [04.3 Middleware Events](../Middleware/04.3%20Middleware%20Events.md).
-- **Built-in middleware** — circuit breakers, PII redaction, history reduction, retry, logging — ready to register. See [04.4 Built-in Middleware](../Middleware/04.4%20Built-in%20Middleware.md).
+- **Built-in middleware** — circuit breakers, PII redaction, compaction, retry, logging — ready to register. See [04.4 Built-in Middleware](../Middleware/04.4%20Built-in%20Middleware.md).
 - **Complete hook reference** — every hook, every context property, execution order. See [04.1 Middleware Lifecycle](../Middleware/04.1%20Middleware%20Lifecycle.md).

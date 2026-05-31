@@ -34,7 +34,8 @@ applyEvents(history);
 
 client.onAny((event) => applyEvent(event));
 
-await chat.sendText('Hello', {
+await chat.subscribeLive();
+await chat.submitText('Hello', {
   runConfig: {
     modelId: 'gpt-4o',
     chat: { temperature: 0.3 },
@@ -76,6 +77,12 @@ client.on(EventTypes.TEXT_DELTA, (event) => {
   process.stdout.write(event.text);
 });
 
+await client.start({
+  agentId: 'assistant',
+  sessionId: 'session-1',
+  branchId: 'main',
+});
+
 await client.run({
   type: EventTypes.USER_TEXT_INPUT,
   agentId: 'assistant',
@@ -99,7 +106,7 @@ const events = await client.api.getBranchEvents(sessions[0].id, 'main');
 
 ## Transports
 
-Runtime transports support SSE and WebSocket:
+Runtime transports support SSE and WebSocket. SSE separates live observation from input submission: `start()` opens the live event observer, while `run()` submits input to the runtime.
 
 ```typescript
 new AgentClient({ baseUrl: 'http://localhost:5135', transport: 'sse' });

@@ -2,7 +2,7 @@ namespace HPD.Agent;
 
 /// <summary>
 /// Unified content storage interface for the framework.
-/// Provides Put/Get/Delete/Query operations with scope-based isolation.
+/// Provides stream-first versioned writes, OpenRead/Delete/Query operations with scope-based isolation.
 /// </summary>
 /// <remarks>
 /// <para><b>V3 Design:</b></para>
@@ -23,41 +23,52 @@ namespace HPD.Agent;
 public interface IContentStore
 {
     /// <summary>
-    /// Store content in the given scope and return a unique identifier.
+    /// Write content in the given scope and return metadata for the stored item.
     /// </summary>
     /// <param name="scope">
     /// Scope identifier for isolation (e.g., agentName or sessionId).
     /// Pass null for global content visible to all agents.
     /// </param>
-    /// <param name="data">Content bytes (binary or UTF-8 text)</param>
-    /// <param name="contentType">MIME type (e.g., "image/jpeg", "text/plain")</param>
-    /// <param name="metadata">Optional metadata (tags, origin, description, name, etc.)</param>
+    /// <param name="data">Readable content stream.</param>
+    /// <param name="metadata">Metadata describing the content, including content type.</param>
+    /// <param name="options">Explicit write intent and conditional write options.</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Unique content identifier for later retrieval</returns>
-    /// <remarks>
-    /// <para><b>Named Upsert:</b></para>
-    /// <para>
-    /// When <see cref="ContentMetadata.Name"/> is provided, behaves as an upsert keyed on (scope, Name):
-    /// same name + same content hash = no-op; same name + changed content = overwrite.
-    /// When Name is null, always creates a new entry (unnamed insert — correct for uploads/artifacts).
-    /// </para>
-    /// </remarks>
-    Task<string> PutAsync(
+    /// <returns>Metadata for the stored content</returns>
+    Task<ContentInfo> WriteAsync(
         string? scope,
-        byte[] data,
-        string contentType,
-        ContentMetadata? metadata = null,
+        Stream data,
+        ContentMetadata metadata,
+        ContentWriteOptions options,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Retrieve content by identifier within the given scope.
+    /// Open content for reading by identifier within the given scope.
     /// Returns null if not found.
     /// </summary>
     /// <param name="scope">Scope identifier (e.g., agentName or sessionId). Pass null for global scope.</param>
-    /// <param name="contentId">Content identifier returned by PutAsync</param>
+    /// <param name="contentId">Content identifier returned by WriteAsync.</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Content data, or null if not found</returns>
-    Task<ContentData?> GetAsync(
+    /// <returns>A readable stream, or null if not found. Caller owns disposal.</returns>
+    Task<Stream?> OpenReadAsync(
+        string? scope,
+        string contentId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Create a temporary provider-readable URI for content, when supported by the store.
+    /// Returns null if this store cannot expose direct read URIs.
+    /// </summary>
+    Task<Uri?> CreateReadUriAsync(
+        string? scope,
+        string contentId,
+        TimeSpan expiresIn,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieve metadata by identifier within the given scope without opening the content.
+    /// Returns null if not found.
+    /// </summary>
+    Task<ContentInfo?> StatAsync(
         string? scope,
         string contentId,
         CancellationToken cancellationToken = default);
@@ -72,11 +83,12 @@ public interface IContentStore
     Task DeleteAsync(
         string? scope,
         string contentId,
+        ContentDeleteOptions? options = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Query content within the given scope with optional filters.
-    /// Returns metadata only (not full content bytes).
+    /// Returns metadata only and never opens content streams.
     /// </summary>
     /// <param name="scope">Scope identifier (e.g., agentName or sessionId). Pass null to query across ALL scopes.</param>
     /// <param name="query">Optional query filters (null = return all content in scope)</param>
@@ -85,7 +97,7 @@ public interface IContentStore
     /// <remarks>
     /// <para><b>Performance Note:</b></para>
     /// <para>
-    /// Query returns metadata only. Call GetAsync to retrieve full content bytes.
+    /// Query returns metadata only. Call OpenReadAsync to retrieve content.
     /// This enables efficient listing and filtering without loading all content into memory.
     /// </para>
     /// </remarks>
@@ -95,12 +107,64 @@ public interface IContentStore
         CancellationToken cancellationToken = default);
 }
 
+public sealed record ContentWriteOptions
+{
+    public ContentWriteMode Mode { get; init; } = ContentWriteMode.Create;
+
+    public string? ContentId { get; init; }
+
+    public string? IfMatchVersion { get; init; }
+
+    public bool FailIfNameExists { get; init; }
+
+    public IReadOnlyDictionary<string, string>? PolicyHints { get; init; }
+}
+
+public enum ContentWriteMode
+{
+    Create,
+    ReplaceById,
+    ReplaceByName,
+    Append,
+    Stage
+}
+
+public sealed record ContentDeleteOptions
+{
+    public string? IfMatchVersion { get; init; }
+}
+
+public sealed class ContentConflictException : Exception
+{
+    public ContentConflictException(
+        string message,
+        string? contentId = null,
+        string? expectedVersion = null,
+        string? actualVersion = null)
+        : base(message)
+    {
+        ContentId = contentId;
+        ExpectedVersion = expectedVersion;
+        ActualVersion = actualVersion;
+    }
+
+    public string? ContentId { get; }
+
+    public string? ExpectedVersion { get; }
+
+    public string? ActualVersion { get; }
+}
+
 /// <summary>
 /// Metadata provided when storing content.
-/// All fields are optional - stores may compute defaults.
 /// </summary>
 public record ContentMetadata
 {
+    /// <summary>
+    /// MIME type (e.g., "image/jpeg", "text/plain").
+    /// </summary>
+    public string ContentType { get; init; } = "application/octet-stream";
+
     /// <summary>
     /// User-friendly name (e.g., "resume.pdf", "API Documentation").
     /// Defaults to contentId if not provided.
@@ -139,6 +203,9 @@ public record ContentInfo
     /// <summary>Unique content identifier</summary>
     public required string Id { get; init; }
 
+    /// <summary>Opaque store-specific version token used for conditional writes.</summary>
+    public required string Version { get; init; }
+
     /// <summary>User-friendly name</summary>
     public required string Name { get; init; }
 
@@ -172,31 +239,14 @@ public record ContentInfo
     /// <summary>
     /// Store-specific extended metadata.
     /// Examples:
-    /// - IAssetStore: (none)
+    /// - Local content uploads: {"folder": "/uploads"} with scope=session-id
     /// - StaticMemoryStore: {"extractedTextLength": "15234"}
     /// - DynamicMemoryStore: {"title": "Meeting Notes"}
     /// - IInstructionDocumentStore: {"version": "3", "contentHash": "abc123"}
     /// </summary>
     public IReadOnlyDictionary<string, object>? ExtendedMetadata { get; init; }
-}
 
-/// <summary>
-/// Full content with metadata.
-/// Returned by GetAsync.
-/// </summary>
-public record ContentData
-{
-    /// <summary>Unique content identifier</summary>
-    public required string Id { get; init; }
-
-    /// <summary>Content bytes (binary or UTF-8 text)</summary>
-    public required byte[] Data { get; init; }
-
-    /// <summary>MIME type</summary>
-    public required string ContentType { get; init; }
-
-    /// <summary>Full metadata</summary>
-    public required ContentInfo Info { get; init; }
+    public override string ToString() => Id;
 }
 
 /// <summary>

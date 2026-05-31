@@ -21,15 +21,15 @@ export interface RunTransportOptions {
 /**
  * Abstract runtime transport interface.
  * Implementations handle only event streaming and bidirectional runtime input.
- * HTTP resources such as sessions, branches, agents, evals, and assets are owned
+ * HTTP resources such as sessions, branches, agents, evals, and contents are owned
  * by AgentHttpApi rather than duplicated by every transport.
  */
 export interface AgentTransport {
   /** Connect/start a long-lived runtime transport. SSE transports may no-op. */
   connect(scope?: RuntimeScope): Promise<void>;
 
-  /** Send an agent input event. */
-  run(event: AgentRunInputEvent, options?: RunTransportOptions): Promise<void>;
+  /** Submit an agent input event to the runtime. */
+  submitInput(event: AgentRunInputEvent, options?: RunTransportOptions): Promise<void>;
 
   /** Register event handler */
   onEvent(handler: (event: AgentEvent) => void): void;

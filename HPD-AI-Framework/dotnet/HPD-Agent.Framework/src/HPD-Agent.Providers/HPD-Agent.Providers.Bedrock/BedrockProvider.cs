@@ -41,13 +41,13 @@ namespace HPD.Agent.Providers.Bedrock;
 /// 3. AWS profile from credentials file
 /// </para>
 /// </remarks>
-internal class BedrockProvider : IProviderFeatures
+internal class BedrockProvider : IChatClientProvider
 {
     public string ProviderKey => "bedrock";
     public string DisplayName => "AWS Bedrock";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null)
+    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
     {
         // Get typed config
         var bedrockConfig = config.GetProviderConfig<BedrockProviderConfig>();
@@ -75,12 +75,6 @@ internal class BedrockProvider : IProviderFeatures
 
         // Convert to IChatClient using the MEAI extension
         IChatClient chatClient = bedrockRuntime.AsIChatClient(modelName);
-
-        // Apply client factory middleware if provided
-        if (config.ClientFactory is { } clientFactory)
-        {
-            chatClient = clientFactory(chatClient);
-        }
 
         return chatClient;
     }
@@ -181,15 +175,25 @@ internal class BedrockProvider : IProviderFeatures
         {
             ProviderKey = ProviderKey,
             DisplayName = DisplayName,
-            SupportsStreaming = true,
-            SupportsFunctionCalling = true, // Bedrock supports tool use
-            SupportsVision = true,
-            DocumentationUrl = "https://aws.amazon.com/bedrock/"
+            DocumentationUri = new Uri("https://aws.amazon.com/bedrock/"),
+            Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            {
+                [ProviderClientFamily.Chat] = new()
+                {
+                    Family = ProviderClientFamily.Chat,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsStreaming"] = true,
+                        ["SupportsFunctionCalling"] = true,
+                        ["SupportsVision"] = true
+                    }
+                }
+            }
         };
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public ProviderValidationResult ValidateConfiguration(ProviderConfig config)
+    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
 

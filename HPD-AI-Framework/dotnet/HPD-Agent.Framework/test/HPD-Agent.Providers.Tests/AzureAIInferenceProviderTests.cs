@@ -29,10 +29,11 @@ public class AzureAIInferenceProviderTests
         metadata.Should().NotBeNull();
         metadata.ProviderKey.Should().Be("azure-ai-inference");
         metadata.DisplayName.Should().Be("Azure AI Inference");
-        metadata.SupportsStreaming.Should().BeTrue();
-        metadata.SupportsFunctionCalling.Should().BeTrue();
-        metadata.SupportsVision.Should().BeFalse();
-        metadata.DocumentationUrl.Should().Be("https://learn.microsoft.com/en-us/azure/ai-studio/how-to/deploy-models-inference");
+        metadata.DocumentationUri.Should().Be(new Uri("https://learn.microsoft.com/en-us/azure/ai-studio/how-to/deploy-models-inference"));
+        var chat = metadata.Families[ProviderClientFamily.Chat];
+        chat.Capabilities!["SupportsStreaming"].Should().Be(true);
+        chat.Capabilities["SupportsFunctionCalling"].Should().Be(true);
+        chat.Capabilities["SupportsVision"].Should().Be(false);
     }
 
     #endregion
@@ -43,7 +44,7 @@ public class AzureAIInferenceProviderTests
     public void ValidateConfiguration_WithValidConfig_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai-inference",
             ModelName = "llama-3-8b",
@@ -52,7 +53,7 @@ public class AzureAIInferenceProviderTests
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -63,7 +64,7 @@ public class AzureAIInferenceProviderTests
     public void ValidateConfiguration_WithMissingModelName_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai-inference",
             Endpoint = "https://test.inference.ai.azure.com",
@@ -71,7 +72,7 @@ public class AzureAIInferenceProviderTests
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -82,7 +83,7 @@ public class AzureAIInferenceProviderTests
     public void ValidateConfiguration_WithMissingEndpoint_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai-inference",
             ModelName = "llama-3-8b",
@@ -90,7 +91,7 @@ public class AzureAIInferenceProviderTests
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -101,7 +102,7 @@ public class AzureAIInferenceProviderTests
     public void ValidateConfiguration_WithMissingApiKey_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai-inference",
             ModelName = "llama-3-8b",
@@ -109,7 +110,7 @@ public class AzureAIInferenceProviderTests
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -120,7 +121,7 @@ public class AzureAIInferenceProviderTests
     public void ValidateConfiguration_WithInvalidTemperature_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai-inference",
             ModelName = "llama-3-8b",
@@ -135,7 +136,7 @@ public class AzureAIInferenceProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -146,7 +147,7 @@ public class AzureAIInferenceProviderTests
     public void ValidateConfiguration_WithInvalidTopP_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai-inference",
             ModelName = "llama-3-8b",
@@ -161,7 +162,7 @@ public class AzureAIInferenceProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -172,7 +173,7 @@ public class AzureAIInferenceProviderTests
     public void ValidateConfiguration_WithInvalidFrequencyPenalty_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai-inference",
             ModelName = "llama-3-8b",
@@ -187,7 +188,7 @@ public class AzureAIInferenceProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -198,7 +199,7 @@ public class AzureAIInferenceProviderTests
     public void ValidateConfiguration_WithInvalidPresencePenalty_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai-inference",
             ModelName = "llama-3-8b",
@@ -213,7 +214,7 @@ public class AzureAIInferenceProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -224,7 +225,7 @@ public class AzureAIInferenceProviderTests
     public void ValidateConfiguration_WithInvalidResponseFormat_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai-inference",
             ModelName = "llama-3-8b",
@@ -239,7 +240,7 @@ public class AzureAIInferenceProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -250,7 +251,7 @@ public class AzureAIInferenceProviderTests
     public void ValidateConfiguration_WithJsonSchemaButMissingName_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai-inference",
             ModelName = "llama-3-8b",
@@ -267,7 +268,7 @@ public class AzureAIInferenceProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -278,7 +279,7 @@ public class AzureAIInferenceProviderTests
     public void ValidateConfiguration_WithJsonSchemaButMissingSchema_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai-inference",
             ModelName = "llama-3-8b",
@@ -295,7 +296,7 @@ public class AzureAIInferenceProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -306,7 +307,7 @@ public class AzureAIInferenceProviderTests
     public void ValidateConfiguration_WithInvalidToolChoice_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai-inference",
             ModelName = "llama-3-8b",
@@ -321,7 +322,7 @@ public class AzureAIInferenceProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -332,7 +333,7 @@ public class AzureAIInferenceProviderTests
     public void ValidateConfiguration_WithInvalidExtraParametersMode_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai-inference",
             ModelName = "llama-3-8b",
@@ -347,7 +348,7 @@ public class AzureAIInferenceProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -358,7 +359,7 @@ public class AzureAIInferenceProviderTests
     public void ValidateConfiguration_WithValidAzureConfig_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-ai-inference",
             ModelName = "llama-3-8b",
@@ -381,7 +382,7 @@ public class AzureAIInferenceProviderTests
         config.SetProviderConfig(azureConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -598,13 +599,12 @@ public class AzureAIInferenceProviderTests
         var config = new AgentConfig
         {
             Name = "Test Agent",
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "azure-ai-inference",
                 ModelName = "llama-3-8b",
                 Endpoint = "https://test.inference.ai.azure.com",
                 ApiKey = "test-key"
-            }
+            } }
         };
 
         var azureOpts = new AzureAIInferenceProviderConfig
@@ -614,7 +614,7 @@ public class AzureAIInferenceProviderTests
             TopP = 0.9f,
             Seed = 12345
         };
-        config.Provider.SetProviderConfig(azureOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(azureOpts);
 
         // Act
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
@@ -643,13 +643,15 @@ public class AzureAIInferenceProviderTests
         var json = """
         {
             "name": "Test Agent",
-            "provider": {
+            "clients": {
+                "chat": {
                 "providerKey": "azure-ai-inference",
                 "modelName": "llama-3-8b",
                 "endpoint": "https://test.inference.ai.azure.com",
                 "apiKey": "test-key",
                 "providerOptionsJson": "{\"maxTokens\":2048,\"temperature\":0.7,\"topP\":0.9,\"seed\":12345}"
             }
+        }
         }
         """;
 
@@ -659,15 +661,15 @@ public class AzureAIInferenceProviderTests
         // Assert
         config.Should().NotBeNull();
         config!.Name.Should().Be("Test Agent");
-        config.Provider.Should().NotBeNull();
-        config.Provider!.ProviderKey.Should().Be("azure-ai-inference");
-        config.Provider.ModelName.Should().Be("llama-3-8b");
-        config.Provider.Endpoint.Should().Be("https://test.inference.ai.azure.com");
-        config.Provider.ApiKey.Should().Be("test-key");
-        config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().Should().NotBeNull();
+        config.EnsureChatClientConfig()!.ProviderKey.Should().Be("azure-ai-inference");
+        config.EnsureChatClientConfig().ModelName.Should().Be("llama-3-8b");
+        config.EnsureChatClientConfig().Endpoint.Should().Be("https://test.inference.ai.azure.com");
+        config.EnsureChatClientConfig().ApiKey.Should().Be("test-key");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
 
         // Verify typed config can be retrieved
-        var azureConfig = config.Provider.GetProviderConfig<AzureAIInferenceProviderConfig>();
+        var azureConfig = config.EnsureChatClientConfig().GetProviderConfig<AzureAIInferenceProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.MaxTokens.Should().Be(2048);
         azureConfig.Temperature.Should().Be(0.7f);
@@ -684,13 +686,12 @@ public class AzureAIInferenceProviderTests
             Name = "Round Trip Test",
             MaxAgenticIterations = 20,
             SystemInstructions = "You are a test assistant.",
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "azure-ai-inference",
                 ModelName = "llama-3-8b",
                 Endpoint = "https://test.inference.ai.azure.com",
                 ApiKey = "test-key"
-            }
+            } }
         };
 
         var originalAzureOpts = new AzureAIInferenceProviderConfig
@@ -705,7 +706,7 @@ public class AzureAIInferenceProviderTests
             ToolChoice = "auto",
             StopSequences = new List<string> { "STOP", "END" }
         };
-        originalConfig.Provider.SetProviderConfig(originalAzureOpts);
+        originalConfig.EnsureChatClientConfig().SetProviderConfig(originalAzureOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(originalConfig, HPDJsonContext.Default.AgentConfig);
@@ -718,14 +719,14 @@ public class AzureAIInferenceProviderTests
         deserializedConfig.SystemInstructions.Should().Be("You are a test assistant.");
 
         // Assert - Provider properties
-        deserializedConfig.Provider.Should().NotBeNull();
-        deserializedConfig.Provider!.ProviderKey.Should().Be("azure-ai-inference");
-        deserializedConfig.Provider.ModelName.Should().Be("llama-3-8b");
-        deserializedConfig.Provider.Endpoint.Should().Be("https://test.inference.ai.azure.com");
-        deserializedConfig.Provider.ApiKey.Should().Be("test-key");
+        deserializedConfig.EnsureChatClientConfig().Should().NotBeNull();
+        deserializedConfig.EnsureChatClientConfig()!.ProviderKey.Should().Be("azure-ai-inference");
+        deserializedConfig.EnsureChatClientConfig().ModelName.Should().Be("llama-3-8b");
+        deserializedConfig.EnsureChatClientConfig().Endpoint.Should().Be("https://test.inference.ai.azure.com");
+        deserializedConfig.EnsureChatClientConfig().ApiKey.Should().Be("test-key");
 
         // Assert - Azure-specific config
-        var deserializedAzureOpts = deserializedConfig.Provider.GetProviderConfig<AzureAIInferenceProviderConfig>();
+        var deserializedAzureOpts = deserializedConfig.EnsureChatClientConfig().GetProviderConfig<AzureAIInferenceProviderConfig>();
         deserializedAzureOpts.Should().NotBeNull();
         deserializedAzureOpts!.MaxTokens.Should().Be(2048);
         deserializedAzureOpts.Temperature.Should().Be(0.7f);
@@ -746,11 +747,10 @@ public class AzureAIInferenceProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "azure-ai-inference",
                 ModelName = "llama-3-8b"
-            }
+            } }
         };
 
         // Act - Set typed config
@@ -759,17 +759,17 @@ public class AzureAIInferenceProviderTests
             MaxTokens = 2048,
             Temperature = 0.5f
         };
-        config.Provider.SetProviderConfig(azureOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(azureOpts);
 
         // Assert - ProviderOptionsJson should be populated
-        config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
-        config.Provider.ProviderOptionsJson.Should().Contain("maxTokens");
-        config.Provider.ProviderOptionsJson.Should().Contain("2048");
-        config.Provider.ProviderOptionsJson.Should().Contain("temperature");
-        config.Provider.ProviderOptionsJson.Should().Contain("0.5");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("maxTokens");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("2048");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("temperature");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("0.5");
 
         // Verify we can retrieve it back
-        var retrieved = config.Provider.GetProviderConfig<AzureAIInferenceProviderConfig>();
+        var retrieved = config.EnsureChatClientConfig().GetProviderConfig<AzureAIInferenceProviderConfig>();
         retrieved.Should().NotBeNull();
         retrieved!.MaxTokens.Should().Be(2048);
         retrieved.Temperature.Should().Be(0.5f);
@@ -781,11 +781,10 @@ public class AzureAIInferenceProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "azure-ai-inference",
                 ModelName = "llama-3-8b"
-            }
+            } }
         };
 
         var azureOpts = new AzureAIInferenceProviderConfig
@@ -793,11 +792,11 @@ public class AzureAIInferenceProviderTests
             MaxTokens = 2048,
             Temperature = 0.7f
         };
-        config.Provider.SetProviderConfig(azureOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(azureOpts);
 
         // Act - Call GetProviderConfig multiple times
-        var first = config.Provider.GetProviderConfig<AzureAIInferenceProviderConfig>();
-        var second = config.Provider.GetProviderConfig<AzureAIInferenceProviderConfig>();
+        var first = config.EnsureChatClientConfig().GetProviderConfig<AzureAIInferenceProviderConfig>();
+        var second = config.EnsureChatClientConfig().GetProviderConfig<AzureAIInferenceProviderConfig>();
 
         // Assert - Should return the same cached instance
         first.Should().BeSameAs(second);
@@ -811,11 +810,10 @@ public class AzureAIInferenceProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "azure-ai-inference",
                 ModelName = "llama-3-8b"
-            }
+            } }
         };
 
         var azureOpts = new AzureAIInferenceProviderConfig
@@ -823,14 +821,14 @@ public class AzureAIInferenceProviderTests
             MaxTokens = 2048
             // Leave Temperature, TopP, etc. as null
         };
-        config.Provider.SetProviderConfig(azureOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(azureOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
         var deserialized = System.Text.Json.JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentConfig);
 
         // Assert
-        var deserializedOpts = deserialized!.Provider.GetProviderConfig<AzureAIInferenceProviderConfig>();
+        var deserializedOpts = deserialized!.EnsureChatClientConfig().GetProviderConfig<AzureAIInferenceProviderConfig>();
         deserializedOpts.Should().NotBeNull();
         deserializedOpts!.MaxTokens.Should().Be(2048);
         deserializedOpts.Temperature.Should().BeNull();
@@ -863,13 +861,13 @@ public class AzureAIInferenceProviderTests
             });
 
         // Assert
-        builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.ProviderKey.Should().Be("azure-ai-inference");
-        builder.Config.Provider.ModelName.Should().Be("llama-3-8b");
-        builder.Config.Provider.Endpoint.Should().Be("https://test.inference.ai.azure.com");
-        builder.Config.Provider.ApiKey.Should().Be("test-api-key");
+        builder.Config.EnsureChatClientConfig().Should().NotBeNull();
+        builder.Config.EnsureChatClientConfig()!.ProviderKey.Should().Be("azure-ai-inference");
+        builder.Config.EnsureChatClientConfig().ModelName.Should().Be("llama-3-8b");
+        builder.Config.EnsureChatClientConfig().Endpoint.Should().Be("https://test.inference.ai.azure.com");
+        builder.Config.EnsureChatClientConfig().ApiKey.Should().Be("test-api-key");
 
-        var azureConfig = builder.Config.Provider.GetProviderConfig<AzureAIInferenceProviderConfig>();
+        var azureConfig = builder.Config.EnsureChatClientConfig().GetProviderConfig<AzureAIInferenceProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.MaxTokens.Should().Be(2048);
         azureConfig.Temperature.Should().Be(0.7f);
@@ -888,12 +886,12 @@ public class AzureAIInferenceProviderTests
             model: "llama-3-8b");
 
         // Assert
-        builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.ProviderKey.Should().Be("azure-ai-inference");
-        builder.Config.Provider.ModelName.Should().Be("llama-3-8b");
-        builder.Config.Provider.Endpoint.Should().Be("https://test.inference.ai.azure.com");
+        builder.Config.EnsureChatClientConfig().Should().NotBeNull();
+        builder.Config.EnsureChatClientConfig()!.ProviderKey.Should().Be("azure-ai-inference");
+        builder.Config.EnsureChatClientConfig().ModelName.Should().Be("llama-3-8b");
+        builder.Config.EnsureChatClientConfig().Endpoint.Should().Be("https://test.inference.ai.azure.com");
         // ApiKey should be null (will be resolved from env vars or appsettings during Build)
-        builder.Config.Provider.ApiKey.Should().BeNull();
+        builder.Config.EnsureChatClientConfig().ApiKey.Should().BeNull();
     }
 
     [Fact]
@@ -916,36 +914,12 @@ public class AzureAIInferenceProviderTests
             });
 
         // Assert
-        var azureConfig = builder.Config.Provider!.GetProviderConfig<AzureAIInferenceProviderConfig>();
+        var azureConfig = builder.Config.EnsureChatClientConfig()!.GetProviderConfig<AzureAIInferenceProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.ResponseFormat.Should().Be("json_schema");
         azureConfig.JsonSchemaName.Should().Be("UserInfo");
         azureConfig.JsonSchema.Should().NotBeNullOrEmpty();
         azureConfig.JsonSchemaIsStrict.Should().BeTrue();
-    }
-
-    [Fact]
-    public void WithAzureAIInference_WithClientFactory_ShouldStoreClientFactory()
-    {
-        // Arrange
-        var builder = new AgentBuilder();
-        var factoryCalled = false;
-        Func<IChatClient, IChatClient> clientFactory = client =>
-        {
-            factoryCalled = true;
-            return client;
-        };
-
-        // Act
-        builder.WithAzureAIInference(
-            endpoint: "https://test.inference.ai.azure.com",
-            model: "llama-3-8b",
-            apiKey: "test-key",
-            clientFactory: clientFactory);
-
-        // Assert
-        builder.Config.Provider.Should().NotBeNull();
-        builder.Config.Provider!.ClientFactory.Should().BeSameAs(clientFactory);
     }
 
     [Fact]
@@ -1233,7 +1207,7 @@ public class AzureAIInferenceProviderTests
             });
 
         // Assert
-        var azureConfig = builder.Config.Provider!.GetProviderConfig<AzureAIInferenceProviderConfig>();
+        var azureConfig = builder.Config.EnsureChatClientConfig()!.GetProviderConfig<AzureAIInferenceProviderConfig>();
         azureConfig.Should().NotBeNull();
         azureConfig!.MaxTokens.Should().Be(2048);
         azureConfig.Temperature.Should().Be(0.7f);

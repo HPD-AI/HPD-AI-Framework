@@ -17,7 +17,7 @@
 		BranchSwitcher,
 		ChatInput,
 	} from '$lib/index.js';
-	import type { AssetReference } from '$lib/index.js';
+	import type { ContentReference } from '$lib/index.js';
 
 	// ── Props ────────────────────────────────────────────────────────────────
 	let {
@@ -76,9 +76,9 @@
 		disabled:  boxWith(() => isStreaming),
 	});
 
-	async function mockUpload(_sid: string, file: File): Promise<AssetReference> {
+	async function mockUpload(_sid: string, file: File): Promise<ContentReference> {
 		await new Promise(r => setTimeout(r, 600));
-		return { assetId: `asset-${Date.now()}`, contentType: file.type || 'application/octet-stream', name: file.name, sizeBytes: file.size };
+		return { contentId: `content-${Date.now()}`, version: 'rev:demo', contentType: file.type || 'application/octet-stream', name: file.name, sizeBytes: file.size };
 	}
 
 	let fileInput: HTMLInputElement | undefined = $state();

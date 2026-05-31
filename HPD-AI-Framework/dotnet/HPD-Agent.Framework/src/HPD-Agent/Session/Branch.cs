@@ -14,7 +14,7 @@ namespace HPD.Agent;
 /// Think of branches like ChatGPT's message editing feature:
 /// - User edits a message → creates a new branch from that point
 /// - Each branch is an independent conversation path
-/// - All branches share the same session (metadata, assets, session-scoped state)
+/// - All branches share the same session (metadata, content, session-scoped state)
 /// </para>
 ///
 /// <para><b>Relationship to Session:</b></para>
@@ -22,14 +22,14 @@ namespace HPD.Agent;
 /// Branch belongs to a Session (via SessionId).
 /// Multiple branches can exist in one session, all sharing:
 /// - Session metadata
-/// - Session assets (uploaded files)
+/// - Session content (uploaded files)
 /// - Session-scoped middleware state (permissions, preferences)
 /// </para>
 ///
 /// <para><b>Branch-Scoped vs Session-Scoped:</b></para>
 /// <list type="bullet">
 /// <item><b>Branch-scoped:</b> Messages, plan progress, history cache (diverges per branch)</item>
-/// <item><b>Session-scoped:</b> Permissions, assets, user preferences (shared across branches)</item>
+/// <item><b>Session-scoped:</b> Permissions, content, user preferences (shared across branches)</item>
 /// </list>
 /// </remarks>
 public class Branch
@@ -55,9 +55,14 @@ public class Branch
     public string? ForkedFrom { get; internal set; }
 
     /// <summary>
-    /// Index of the last shared message before this branch diverges from its siblings (null for original branches).
-    /// The first diverging message is at ForkedAtMessageIndex + 1.
-    /// Siblings are grouped by ForkedFrom + ForkedAtMessageIndex — all branches that share the same preceding context.
+    /// Message id of the last shared message before this branch diverges from its siblings (null for original branches).
+    /// Siblings are grouped by ForkedFrom + ForkedAtMessageId.
+    /// </summary>
+    public string? ForkedAtMessageId { get; internal set; }
+
+    /// <summary>
+    /// Resolved index of the last shared message when the fork was created (null for original branches).
+    /// This is diagnostic metadata only; fork identity is ForkedAtMessageId.
     /// </summary>
     public int? ForkedAtMessageIndex { get; internal set; }
 
@@ -87,6 +92,12 @@ public class Branch
     public List<string>? Tags { get; set; }
 
     /// <summary>
+    /// Arbitrary branch-level application metadata.
+    /// Use this for UI/app state that belongs to one conversation path rather than the whole session.
+    /// </summary>
+    public Dictionary<string, object> Metadata { get; init; }
+
+    /// <summary>
     /// Full ancestry chain for multi-level fork tracking.
     /// Key: depth (0 = root), Value: branch ID at that depth.
     /// Example: { "0": "main", "1": "experimental", "2": "formal" }
@@ -100,7 +111,7 @@ public class Branch
 
     /// <summary>
     /// Position among siblings at this fork point (0-based).
-    /// Siblings are branches that forked from the same parent at the same message index.
+    /// Siblings are branches that forked from the same parent at the same message id.
     /// Stable ordering: original branch = 0, subsequent forks ordered chronologically.
     /// </summary>
     public int SiblingIndex { get; set; }
@@ -174,7 +185,7 @@ public class Branch
     /// <para><b>Examples of branch-scoped persistent state:</b></para>
     /// <list type="bullet">
     /// <item>PlanModePersistentState: Current plan steps and progress</item>
-    /// <item>HistoryReductionState: Conversation summarization cache</item>
+    /// <item>CompactionState: Conversation summarization cache</item>
     /// </list>
     ///
     /// <para>
@@ -201,6 +212,7 @@ public class Branch
         SessionId = string.Empty;
         Messages = [];
         MiddlewareState = [];
+        Metadata = [];
         CreatedAt = DateTime.UtcNow;
         LastActivity = DateTime.UtcNow;
 
@@ -222,6 +234,7 @@ public class Branch
         SessionId = sessionId;
         Messages = [];
         MiddlewareState = [];
+        Metadata = [];
         CreatedAt = DateTime.UtcNow;
         LastActivity = DateTime.UtcNow;
 
@@ -244,6 +257,7 @@ public class Branch
         SessionId = sessionId;
         Messages = [];
         MiddlewareState = [];
+        Metadata = [];
         CreatedAt = DateTime.UtcNow;
         LastActivity = DateTime.UtcNow;
 
@@ -263,6 +277,7 @@ public class Branch
         string sessionId,
         List<ChatMessage> messages,
         string? forkedFrom,
+        string? forkedAtMessageId,
         int? forkedAtMessageIndex,
         DateTime createdAt,
         DateTime lastActivity,
@@ -271,6 +286,7 @@ public class Branch
         List<string>? tags,
         Dictionary<string, string>? ancestors,
         Dictionary<string, string> middlewareState,
+        Dictionary<string, object>? metadata = null,
         //  Tree navigation properties (with safe defaults for backward compatibility)
         int siblingIndex = 0,
         int totalSiblings = 1,
@@ -284,12 +300,14 @@ public class Branch
         SessionId = sessionId;
         Messages = messages;
         ForkedFrom = forkedFrom;
+        ForkedAtMessageId = forkedAtMessageId;
         ForkedAtMessageIndex = forkedAtMessageIndex;
         CreatedAt = createdAt;
         LastActivity = lastActivity;
         Name = name;
         Description = description;
         Tags = tags;
+        Metadata = metadata ?? [];
         Ancestors = ancestors;
         MiddlewareState = middlewareState;
 
@@ -347,10 +365,12 @@ public class Branch
 
     internal void SetForkMetadata(
         string? forkedFrom,
+        string? forkedAtMessageId,
         int? forkedAtMessageIndex,
         Dictionary<string, string>? ancestors)
     {
         ForkedFrom = forkedFrom;
+        ForkedAtMessageId = forkedAtMessageId;
         ForkedAtMessageIndex = forkedAtMessageIndex;
         Ancestors = ancestors;
         IsOriginal = forkedFrom is null;
@@ -360,6 +380,7 @@ public class Branch
 
     internal void SetTreeMetadata(
         string? forkedFrom,
+        string? forkedAtMessageId,
         int? forkedAtMessageIndex,
         int siblingIndex,
         int totalSiblings,
@@ -370,6 +391,7 @@ public class Branch
         List<string> childBranches)
     {
         ForkedFrom = forkedFrom;
+        ForkedAtMessageId = forkedAtMessageId;
         ForkedAtMessageIndex = forkedAtMessageIndex;
         SiblingIndex = siblingIndex;
         TotalSiblings = totalSiblings;

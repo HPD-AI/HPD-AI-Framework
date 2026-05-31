@@ -17,7 +17,6 @@ public static class AgentBuilderExtensions
     /// <param name="model">The model to use (e.g., "claude-sonnet-4-5-20250929")</param>
     /// <param name="apiKey">Optional API key. If not provided, will try to resolve from environment variables (ANTHROPIC_API_KEY) or appsettings.json</param>
     /// <param name="configure">Optional action to configure additional Anthropic-specific options</param>
-    /// <param name="clientFactory">Optional factory to wrap the chat client with middleware (logging, caching, etc.)</param>
     /// <returns>The builder for method chaining</returns>
     /// <remarks>
     /// <para>
@@ -28,7 +27,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates an <see cref="AnthropicProviderConfig"/> that is:
-    /// - Stored in <c>ProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
     /// - Applied during <c>AnthropicProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -64,21 +63,13 @@ public static class AgentBuilderExtensions
     ///         opts.ThinkingBudgetTokens = 4096;
     ///     })
     ///     .Build();
-    ///
-    /// // Option 3: With middleware via ClientFactory
-    /// var agent = new AgentBuilder()
-    ///     .WithAnthropic("claude-sonnet-4-5-20250929",
-    ///         configure: opts => opts.MaxTokens = 4096,
-    ///         clientFactory: client => new LoggingChatClient(client, logger))
-    ///     .Build();
     /// </code>
     /// </example>
     public static AgentBuilder WithAnthropic(
         this AgentBuilder builder,
         string model,
         string? apiKey = null,
-        Action<AnthropicProviderConfig>? configure = null,
-        Func<IChatClient, IChatClient>? clientFactory = null)
+        Action<AnthropicProviderConfig>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -104,16 +95,17 @@ public static class AgentBuilderExtensions
         }
 
         // Build provider config
-        builder.Config.Provider = new ProviderConfig
+        var chatConfig = new ClientProviderConfig
         {
             ProviderKey = "anthropic",
             ApiKey = apiKey, // May be null - AgentBuilder.Build() will resolve via ISecretResolver
             ModelName = model
         };
 
+        builder.Config.SetChatClientConfig(chatConfig);
+
         // Store the typed config
-        builder.Config.Provider.SetProviderConfig(providerConfig);
-        builder.Config.Provider.ClientFactory = clientFactory;
+        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
     }

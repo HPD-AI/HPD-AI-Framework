@@ -84,10 +84,17 @@ export class SseParser {
     try {
       // Join multi-line data and parse as JSON
       const json = dataLines.join('\n');
-      return JSON.parse(json) as AgentEvent;
+      const parsed = JSON.parse(json);
+      return isAgentEventLike(parsed) ? parsed : null;
     } catch {
       // Invalid JSON - skip this event
       return null;
     }
   }
+}
+
+function isAgentEventLike(value: unknown): value is AgentEvent {
+  return value !== null &&
+    typeof value === 'object' &&
+    typeof (value as { type?: unknown }).type === 'string';
 }

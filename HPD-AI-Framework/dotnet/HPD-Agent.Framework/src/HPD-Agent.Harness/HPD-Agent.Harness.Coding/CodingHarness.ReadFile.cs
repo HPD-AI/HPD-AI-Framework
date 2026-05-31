@@ -41,12 +41,12 @@ public partial class CodingHarness
                 return FormatError(resolvedPath.FullPath, "Cannot read blocked device path.");
 
             var readFileStateKey = typeof(ReadFileState).FullName!;
-            var historyReductionStateKey = typeof(HistoryReductionStateData).FullName!;
+            var compactionStateKey = typeof(CompactionStateData).FullName!;
             var priorSnapshot = context
                 .Analyze(s => s.MiddlewareState.GetState<ReadFileState>(readFileStateKey))
                 ?.FilesByPath.GetValueOrDefault(resolvedPath.FullPath);
-            var historyReductionState = context
-                .Analyze(s => s.MiddlewareState.GetState<HistoryReductionStateData>(historyReductionStateKey));
+            var compactionState = context
+                .Analyze(s => s.MiddlewareState.GetState<CompactionStateData>(compactionStateKey));
 
             var sourceResult = await TryReadFromTextSourcesAsync(resolvedPath.FullPath, CancellationToken.None).ConfigureAwait(false);
             ReadFileTextResult result;
@@ -94,7 +94,7 @@ public partial class CodingHarness
                     null).ConfigureAwait(false);
             }
 
-            if (CanReturnUnchanged(priorSnapshot, result, offset, limit, historyReductionState))
+            if (CanReturnUnchanged(priorSnapshot, result, offset, limit, compactionState))
                 return FormatFileUnchanged(priorSnapshot!);
 
             var snapshot = new ReadFileSnapshot
@@ -289,14 +289,14 @@ public partial class CodingHarness
         ReadFileTextResult result,
         int offset,
         int limit,
-        HistoryReductionStateData? historyReductionState)
+        CompactionStateData? compactionState)
     {
         if (snapshot == null)
             return false;
 
         var priorReadStillVisible =
-            historyReductionState?.LastAppliedAt is null ||
-            historyReductionState.LastAppliedAt <= snapshot.ReadAt;
+            compactionState?.LastAppliedAt is null ||
+            compactionState.LastAppliedAt <= snapshot.ReadAt;
 
         return snapshot.Path == result.Path &&
                snapshot.Offset == offset &&

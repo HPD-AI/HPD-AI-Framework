@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 using HPD.Events;
+using HPD.Events.Struct;
 using HPD.Agent.Audio.Preemptive;
 
 namespace HPD.Agent.Audio;
@@ -33,10 +34,10 @@ public record AudioChunkEvent(
 ) : AgentEvent;
 
 /// <summary>
-/// Local zero-allocation audio chunk frame for hot-path audio delivery.
+/// Local zero-allocation audio output frame for hot-path audio delivery.
 /// </summary>
-public readonly record struct AudioChunkFrame(
-    string SynthesisId,
+public readonly record struct AudioOutputFrame(
+    string OutputId,
     ReadOnlyMemory<byte> Audio,
     string MimeType,
     int ChunkIndex,
@@ -44,13 +45,13 @@ public readonly record struct AudioChunkFrame(
     bool IsLast,
     long TimestampNs = 0,
     long SequenceNumber = 0
-) : IStructEvent, ISequencedStructEvent<AudioChunkFrame>
+) : IStructEvent, ISequencedStructEvent<AudioOutputFrame>
 {
     /// <inheritdoc />
     public EventKind Kind => EventKind.Content;
 
     /// <inheritdoc />
-    public AudioChunkFrame WithSequenceNumber(long sequenceNumber) =>
+    public AudioOutputFrame WithSequenceNumber(long sequenceNumber) =>
         this with { SequenceNumber = sequenceNumber };
 }
 

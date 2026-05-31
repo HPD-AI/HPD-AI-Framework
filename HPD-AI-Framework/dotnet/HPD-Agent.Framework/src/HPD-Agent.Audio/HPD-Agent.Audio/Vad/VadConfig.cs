@@ -48,7 +48,7 @@ public class VadConfig
 
     /// <summary>
     /// VAD provider key (e.g., "silero-vad", "webrtc-vad").
-    /// Resolved via VadProviderDiscovery at runtime.
+    /// Resolved via the unified provider registry at runtime.
     /// Default: "silero-vad"
     /// </summary>
     public string Provider { get; set; } = "silero-vad";

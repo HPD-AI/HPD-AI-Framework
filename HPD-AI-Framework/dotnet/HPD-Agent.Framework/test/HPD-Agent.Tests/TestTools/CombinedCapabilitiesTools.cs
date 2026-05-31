@@ -50,7 +50,7 @@ public partial class CombinedCapabilitiesTools
     [SubAgent]
     public SubAgent DataExpertAgent()
     {
-        return SubAgentFactory.Create(
+        return SubAgent.FromConfig(
             "DataExpert",
             "Expert sub-agent specialized in data analysis tasks",
             new AgentConfig
@@ -58,18 +58,17 @@ public partial class CombinedCapabilitiesTools
                 Name = "Data Expert",
                 SystemInstructions = "You are an expert in data analysis. Help users understand their data.",
                 MaxAgenticIterations = 10,
-                Provider = new ProviderConfig
-                {
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                     ProviderKey = "test",
                     ModelName = "test-model"
-                }
+                } }
             });
     }
 
     [SubAgent]
     public SubAgent DataProcessorAgent()
     {
-        return SubAgentFactory.Create(
+        return SubAgent.FromConfig(
             "DataProcessor",
             "Sub-agent for batch data processing tasks",
             new AgentConfig
@@ -77,11 +76,10 @@ public partial class CombinedCapabilitiesTools
                 Name = "Data Processor",
                 SystemInstructions = "You process large amounts of data efficiently.",
                 MaxAgenticIterations = 20,
-                Provider = new ProviderConfig
-                {
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                     ProviderKey = "test",
                     ModelName = "test-model"
-                }
+                } }
             });
     }
 }
@@ -102,7 +100,7 @@ public partial class FunctionsAndSubAgentsHarness
     [SubAgent]
     public SubAgent SearchExpertAgent()
     {
-        return SubAgentFactory.Create(
+        return SubAgent.FromConfig(
             "SearchExpert",
             "Expert in search and discovery",
             new AgentConfig
@@ -110,11 +108,10 @@ public partial class FunctionsAndSubAgentsHarness
                 Name = "Search Expert",
                 SystemInstructions = "You help users find information efficiently.",
                 MaxAgenticIterations = 5,
-                Provider = new ProviderConfig
-                {
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                     ProviderKey = "test",
                     ModelName = "test-model"
-                }
+                } }
             });
     }
 }
@@ -139,7 +136,7 @@ public partial class SkillsAndSubAgentsHarness
     [SubAgent]
     public SubAgent FileAssistantAgent()
     {
-        return SubAgentFactory.Create(
+        return SubAgent.FromConfig(
             "FileAssistant",
             "Assistant for file management tasks",
             new AgentConfig
@@ -147,11 +144,10 @@ public partial class SkillsAndSubAgentsHarness
                 Name = "File Assistant",
                 SystemInstructions = "You help users manage their files.",
                 MaxAgenticIterations = 8,
-                Provider = new ProviderConfig
-                {
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                     ProviderKey = "test",
                     ModelName = "test-model"
-                }
+                } }
             });
     }
 }

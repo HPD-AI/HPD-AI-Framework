@@ -1467,8 +1467,6 @@ public sealed class LanguageServerMiddlewareTests
             EventInboxOptions? options = null)
             => _inner.CreateChannelInbox(channel, options);
 
-        public ILocalStructEventBus LocalStructs => _inner.LocalStructs;
-
         public void SetParent(IEventCoordinator parent)
             => _inner.SetParent(parent);
 

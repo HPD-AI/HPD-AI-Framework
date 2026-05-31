@@ -6,7 +6,9 @@ namespace HPD.Agent.Hosting.Data;
 /// <param name="Name">New display name, or null to leave unchanged</param>
 /// <param name="Description">New description, or null to leave unchanged</param>
 /// <param name="Tags">New tags list, or null to leave unchanged</param>
+/// <param name="Metadata">Metadata fields to merge; null values remove keys</param>
 public record UpdateBranchRequest(
     string? Name,
     string? Description,
-    List<string>? Tags);
+    List<string>? Tags,
+    Dictionary<string, object?>? Metadata = null);

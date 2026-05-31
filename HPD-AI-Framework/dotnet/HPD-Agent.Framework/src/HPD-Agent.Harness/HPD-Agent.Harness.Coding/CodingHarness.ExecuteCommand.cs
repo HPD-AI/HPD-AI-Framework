@@ -1853,8 +1853,8 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         var rootDirectory = Path.Combine(Path.GetTempPath(), "hpd-command-results", commandId);
         Directory.CreateDirectory(rootDirectory);
 
-        var contentStore = context.SessionId is { Length: > 0 } sessionId
-            ? context.GetParentSessionStore()?.GetContentStore(sessionId)
+        var contentStore = context.SessionId is { Length: > 0 }
+            ? context.ContentStore
             : null;
 
         var session = new ExecuteCommandOutputStoreSession(
@@ -2010,14 +2010,20 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         if (local.LocalPath is null || _contentStore is null || _sessionId is null)
             return local;
 
-        var data = await File.ReadAllBytesAsync(local.LocalPath, cancellationToken).ConfigureAwait(false);
         var artifactName = $"commands/{_commandId}/{fileName}";
-        var contentId = await _contentStore.PutAsync(
+        await using var data = new FileStream(
+            local.LocalPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read | FileShare.Delete,
+            bufferSize: 81920,
+            useAsync: true);
+        var contentInfo = await _contentStore.WriteAsync(
             _sessionId,
             data,
-            local.ContentType,
             new ContentMetadata
             {
+                ContentType = local.ContentType,
                 Name = artifactName,
                 Origin = ContentSource.Agent,
                 Tags = new Dictionary<string, string>
@@ -2031,12 +2037,13 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
                     ["cwd"] = _request.WorkingDirectory
                 }
             },
+            new ContentWriteOptions { Mode = ContentWriteMode.Create },
             cancellationToken).ConfigureAwait(false);
 
         return local with
         {
             ArtifactPath = $"/artifacts/{artifactName}",
-            ContentId = contentId
+            ContentId = contentInfo.Id
         };
     }
 

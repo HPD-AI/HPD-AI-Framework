@@ -11,15 +11,18 @@ To use the OpenRouter provider, configure it in your `AgentConfig`. You must pro
 ```csharp
 var config = new AgentConfig
 {
-    Provider = new ProviderConfig
+    Clients = new AgentClientConfig
     {
-        ProviderKey = "openrouter",
-        ModelName = "google/gemini-flash-1.5", // Specify any model available on OpenRouter
-        ApiKey = "YOUR_OPENROUTER_API_KEY",
-        AdditionalProperties = new()
+        Chat = new ClientProviderConfig
         {
-            ["HttpReferer"] = "https://your-app.com", // Optional: Your app's URL for OpenRouter analytics
-            ["AppName"] = "My Awesome Agent" // Optional: Your app's name for OpenRouter analytics
+            ProviderKey = "openrouter",
+            ModelName = "google/gemini-flash-1.5", // Specify any model available on OpenRouter
+            ApiKey = "YOUR_OPENROUTER_API_KEY",
+            AdditionalProperties = new()
+            {
+                ["HttpReferer"] = "https://your-app.com", // Optional: Your app's URL for OpenRouter analytics
+                ["AppName"] = "My Awesome Agent" // Optional: Your app's name for OpenRouter analytics
+            }
         }
     }
 };
@@ -30,13 +33,15 @@ var config = new AgentConfig
 ```json
 {
   "Agent": {
-    "Provider": {
-      "ProviderKey": "openrouter",
-      "ModelName": "google/gemini-flash-1.5",
-      "ApiKey": "YOUR_OPENROUTER_API_KEY",
-      "AdditionalProperties": {
-        "HttpReferer": "https://your-app.com",
-        "AppName": "My Awesome Agent"
+    "Clients": {
+      "Chat": {
+        "ProviderKey": "openrouter",
+        "ModelName": "google/gemini-flash-1.5",
+        "ApiKey": "YOUR_OPENROUTER_API_KEY",
+        "AdditionalProperties": {
+          "HttpReferer": "https://your-app.com",
+          "AppName": "My Awesome Agent"
+        }
       }
     }
   }

@@ -1,7 +1,9 @@
 // Copyright (c) 2025 Einstein Essibu. All rights reserved.
 
+using HPD.Agent;
 using HPD.Agent.Audio;
 using HPD.Agent.Audio.Eot;
+using HPD.Agent.Providers;
 using Xunit;
 
 namespace HPD.Agent.Tests.Audio;
@@ -100,11 +102,13 @@ public class HeuristicEotDetectorTests
     public void HeuristicEotProvider_IsRegistered()
     {
         // Act
-        var factory = EotProviderDiscovery.GetFactory("heuristic-eot");
+        var provider = new AgentBuilder().ProviderRegistry.GetProvider<IEndOfTurnDetectorProvider>("heuristic-eot");
+        var configType = ProviderDiscovery.GetProviderConfigType("heuristic-eot", ProviderClientFamily.EndOfTurnDetection);
 
         // Assert
-        Assert.IsType<HeuristicEotProviderFactory>(factory);
-        Assert.Same(typeof(EotConfig), EotProviderDiscovery.GetConfigType("heuristic-eot"));
+        Assert.IsType<HeuristicEotProvider>(provider);
+        Assert.NotNull(configType);
+        Assert.Same(typeof(EotConfig), configType!.ConfigType);
     }
 
     [Fact]

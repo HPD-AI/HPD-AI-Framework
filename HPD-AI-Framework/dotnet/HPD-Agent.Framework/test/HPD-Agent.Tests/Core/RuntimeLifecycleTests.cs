@@ -4,6 +4,7 @@ using HPD.Agent.Tests.Infrastructure;
 using HPD.Agent.ClientTools;
 using HPD.Agent.Middleware;
 using HPD.Events;
+using HPD.Events.Struct;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Tests.Core;
@@ -330,7 +331,7 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         Assert.False(agent.IsRunning);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
 
         Assert.True(agent.IsRunning);
 
@@ -363,7 +364,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         agent.Dispose();
 
         Assert.Contains("A:before-stop", order);
@@ -381,7 +382,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middlewareA, middlewareB]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         Assert.Equal(
@@ -416,7 +417,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             middlewares: [middleware]);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            agent.StartAsync(TestCancellationToken));
+            agent.StartAsync(cancellationToken: TestCancellationToken));
 
         Assert.Contains("nope", ex.Message);
         Assert.False(agent.IsRunning);
@@ -441,7 +442,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             middlewares: [middleware]);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            agent.StartAsync(TestCancellationToken));
+            agent.StartAsync(cancellationToken: TestCancellationToken));
 
         Assert.False(agent.IsRunning);
         Assert.True(disposable.Disposed);
@@ -466,7 +467,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             middlewares: [middleware]);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            agent.StartAsync(TestCancellationToken));
+            agent.StartAsync(cancellationToken: TestCancellationToken));
 
         Assert.NotNull(runtimeCoordinator);
         Assert.Throws<ObjectDisposedException>(() =>
@@ -500,7 +501,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
 
         Assert.NotNull(registry);
         Assert.True(registry.IsSealed);
@@ -534,7 +535,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             middlewares: [middleware]);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            agent.StartAsync(TestCancellationToken));
+            agent.StartAsync(cancellationToken: TestCancellationToken));
 
         Assert.NotNull(registry);
         Assert.False(registry.IsSealed);
@@ -552,7 +553,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         await cts.CancelAsync();
 
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
-            agent.StartAsync(cts.Token));
+            agent.StartAsync(cancellationToken: cts.Token));
 
         Assert.Empty(order);
         Assert.False(agent.IsRunning);
@@ -577,7 +578,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             middlewares: [middleware]);
 
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
-            agent.StartAsync(cts.Token));
+            agent.StartAsync(cancellationToken: cts.Token));
 
         Assert.False(agent.IsRunning);
     }
@@ -606,7 +607,7 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         agent.Subscribe<RuntimeHookProbeEvent>(events.Add);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         Assert.Contains(events, e => e.Stage == "started");
@@ -632,7 +633,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         Assert.True(disposableA.Disposed);
@@ -652,7 +653,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
 
         var ex = await Assert.ThrowsAsync<AggregateException>(() =>
             agent.StopAsync(TestCancellationToken));
@@ -678,7 +679,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
 
         var ex = await Assert.ThrowsAsync<AggregateException>(() =>
             agent.StopAsync(TestCancellationToken));
@@ -711,7 +712,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await Task.Delay(10, TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
@@ -742,7 +743,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         Assert.True(createdAt.HasValue);
@@ -772,7 +773,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await Assert.ThrowsAsync<AggregateException>(() =>
             agent.StopAsync(TestCancellationToken));
 
@@ -797,7 +798,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         Assert.True(drainPendingInputs);
@@ -838,7 +839,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         Assert.False(string.IsNullOrWhiteSpace(beforeStartRuntimeId));
@@ -891,9 +892,9 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         Assert.Equal(2, runtimeIds.Count);
@@ -911,8 +912,8 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         Assert.Single(order, item => item == "A:before-start");
@@ -929,9 +930,9 @@ public class RuntimeLifecycleTests : AgentTestBase
             middlewares: [middleware]);
 
         await Task.WhenAll(
-            agent.StartAsync(TestCancellationToken),
-            agent.StartAsync(TestCancellationToken),
-            agent.StartAsync(TestCancellationToken));
+            agent.StartAsync(cancellationToken: TestCancellationToken),
+            agent.StartAsync(cancellationToken: TestCancellationToken),
+            agent.StartAsync(cancellationToken: TestCancellationToken));
 
         await agent.StopAsync(TestCancellationToken);
 
@@ -948,7 +949,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await Task.WhenAll(
             agent.StopAsync(TestCancellationToken),
             agent.StopAsync(TestCancellationToken),
@@ -976,7 +977,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             middlewares: [middleware]);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            agent.StartAsync(TestCancellationToken));
+            agent.StartAsync(cancellationToken: TestCancellationToken));
 
         Assert.Equal("startup failed", ex.Message);
         Assert.False(agent.IsRunning);
@@ -996,7 +997,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             middlewares: [middleware]);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            agent.StartAsync(TestCancellationToken));
+            agent.StartAsync(cancellationToken: TestCancellationToken));
 
         Assert.Equal("after failed", ex.Message);
         Assert.False(agent.IsRunning);
@@ -1016,7 +1017,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             middlewares: [middleware]);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            agent.StartAsync(TestCancellationToken));
+            agent.StartAsync(cancellationToken: TestCancellationToken));
 
         Assert.Equal("original after-start failure", ex.Message);
     }
@@ -1034,7 +1035,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             middlewares: [middleware]);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            agent.StartAsync(TestCancellationToken));
+            agent.StartAsync(cancellationToken: TestCancellationToken));
 
         Assert.False(agent.IsRunning);
     }
@@ -1067,7 +1068,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             }
         });
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await seenStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
@@ -1095,7 +1096,7 @@ public class RuntimeLifecycleTests : AgentTestBase
                 coordinator.Subscribe<AgentEvent>(observer.HandleAsync))
             .BuildAsync(TestCancellationToken);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await observedSignal.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
@@ -1121,7 +1122,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         Assert.True(disposableA.Disposed);
@@ -1146,7 +1147,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: blockingClient,
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync("block", cancellationToken: TestCancellationToken);
         await blockingClient.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
 
@@ -1175,7 +1176,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: blockingClient,
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync("block", cancellationToken: TestCancellationToken);
         await blockingClient.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
@@ -1200,7 +1201,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: blockingClient,
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync("block", cancellationToken: TestCancellationToken);
         await blockingClient.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
@@ -1237,7 +1238,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         await tokenCancelled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
@@ -1265,7 +1266,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
     }
@@ -1287,7 +1288,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         Assert.False(agent.IsRunning);
@@ -1314,7 +1315,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         Assert.True(taskCompleted);
@@ -1336,7 +1337,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
 
         var ex = await Assert.ThrowsAsync<AggregateException>(() =>
             agent.StopAsync(TestCancellationToken));
@@ -1357,7 +1358,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
 
         var ex = await Assert.ThrowsAsync<AggregateException>(() =>
             agent.StopAsync(TestCancellationToken));
@@ -1384,7 +1385,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await Assert.ThrowsAsync<AggregateException>(() =>
             agent.StopAsync(TestCancellationToken));
 
@@ -1408,7 +1409,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         Assert.True(order.IndexOf("resource:disposed") < order.IndexOf("A:after-stopped"));
@@ -1430,10 +1431,17 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
         var events = new List<RuntimeHookProbeEvent>();
-        agent.Subscribe<RuntimeHookProbeEvent>(events.Add);
+        var observed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        agent.Subscribe<RuntimeHookProbeEvent>(evt =>
+        {
+            events.Add(evt);
+            if (evt.Stage == "final")
+                observed.TrySetResult();
+        });
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
+        await observed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
 
         Assert.Single(events, e => e.Stage == "final");
     }
@@ -1455,7 +1463,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             middlewares: [middleware]);
 
         await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            agent.StartAsync(TestCancellationToken));
+            agent.StartAsync(cancellationToken: TestCancellationToken));
     }
 
     [Fact]
@@ -1475,7 +1483,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             middlewares: [middleware]);
 
         await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            agent.StartAsync(TestCancellationToken));
+            agent.StartAsync(cancellationToken: TestCancellationToken));
     }
 
     [Fact]
@@ -1495,7 +1503,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             middlewares: [middleware]);
 
         await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            agent.StartAsync(TestCancellationToken));
+            agent.StartAsync(cancellationToken: TestCancellationToken));
     }
 
     [Fact]
@@ -1516,7 +1524,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         Assert.NotNull(registrationError);
@@ -1885,12 +1893,21 @@ public class RuntimeLifecycleTests : AgentTestBase
         {
             OnAfterStarted = (context, _) =>
             {
-                var subscription = context.EventCoordinator.LocalStructs.Route<TestStructFrame>().Observe(frame =>
-                {
-                    received.TrySetResult(frame);
-                    return ValueTask.CompletedTask;
-                });
+                var subscription = context.StructEvents.Route<TestStructFrame>().Subscribe();
                 context.RegisterDisposable(subscription);
+                context.RegisterBackgroundTask(async runtimeToken =>
+                {
+                    while (!runtimeToken.IsCancellationRequested)
+                    {
+                        if (subscription.TryRead(out var frame))
+                        {
+                            received.TrySetResult(frame);
+                            return;
+                        }
+
+                        await Task.Delay(1, runtimeToken);
+                    }
+                });
                 return Task.CompletedTask;
             }
         };
@@ -1898,7 +1915,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync(new TestStructFrame(123), TestCancellationToken);
 
         var frame = await received.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
@@ -1916,12 +1933,21 @@ public class RuntimeLifecycleTests : AgentTestBase
         {
             OnAfterStarted = (context, _) =>
             {
-                var subscription = context.EventCoordinator.LocalStructs.Route<TestStructFrame>().Observe(frame =>
-                {
-                    received.TrySetResult(frame);
-                    return ValueTask.CompletedTask;
-                });
+                var subscription = context.StructEvents.Route<TestStructFrame>().Subscribe();
                 context.RegisterDisposable(subscription);
+                context.RegisterBackgroundTask(async runtimeToken =>
+                {
+                    while (!runtimeToken.IsCancellationRequested)
+                    {
+                        if (subscription.TryRead(out var frame))
+                        {
+                            received.TrySetResult(frame);
+                            return;
+                        }
+
+                        await Task.Delay(1, runtimeToken);
+                    }
+                });
                 return Task.CompletedTask;
             }
         };
@@ -1929,7 +1955,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync(new TestStructFrame(321), TestCancellationToken);
 
         var frame = await received.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
@@ -1950,7 +1976,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             return ValueTask.CompletedTask;
         });
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync(new TestStructFrame(456), TestCancellationToken);
         await Task.Delay(100, TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
@@ -1976,7 +2002,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync(new InterruptionRequestEvent(
             eventFlowId: "runtime-stream",
             Reason: "runtime scoped",
@@ -2006,7 +2032,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             return ValueTask.CompletedTask;
         });
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync("hello", cancellationToken: TestCancellationToken);
 
         await finished.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
@@ -2030,7 +2056,7 @@ public class RuntimeLifecycleTests : AgentTestBase
                 allFinished.TrySetResult();
         });
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync("first", cancellationToken: TestCancellationToken);
         await agent.RunAsync("second", cancellationToken: TestCancellationToken);
         await allFinished.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
@@ -2062,7 +2088,7 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         agent.Subscribe<MessageTurnFinishedEvent>(_ => finished.TrySetResult());
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await finished.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
@@ -2099,7 +2125,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: blockingClient,
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
 
         await enqueueReturned.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await blockingClient.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
@@ -2126,7 +2152,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         Assert.NotNull(capturedContext);
@@ -2153,7 +2179,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         var agent = CreateAgentWithMiddlewares(
             client: new FakeChatClient(),
             middlewares: [middleware]);
-        var startTask = agent.StartAsync(TestCancellationToken);
+        var startTask = agent.StartAsync(cancellationToken: TestCancellationToken);
 
         await beforeStartEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
 
@@ -2184,7 +2210,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: client,
             middlewares: [middleware]);
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         var stopTask = agent.StopAsync(TestCancellationToken);
         await beforeStopEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
 
@@ -2205,16 +2231,21 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         var agent = CreateAgent(client: fakeClient);
         var events = new List<AgentEvent>();
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         using var subscription = agent.SubscribeAny(evt =>
         {
             events.Add(evt);
+            if (evt is MessageTurnFinishedEvent)
+                finished.TrySetResult();
+
             return ValueTask.CompletedTask;
         });
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync("hello", cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
+        await finished.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
 
         Assert.False(agent.IsRunning);
         Assert.Contains(events, e => e is TextDeltaEvent text && text.Text.Contains("drained response"));
@@ -2232,7 +2263,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         var session = new global::HPD.Agent.Session("session-1");
         var branch = new Branch("session-1");
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
 
         await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "question one")])
         {
@@ -2274,7 +2305,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             return ValueTask.CompletedTask;
         }));
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync("block", cancellationToken: TestCancellationToken);
 
         await blockingClient.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
@@ -2330,7 +2361,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             return ValueTask.CompletedTask;
         });
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
         await agent.RunAsync(new TestStructFrame(77), TestCancellationToken);
 
@@ -2350,7 +2381,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             return ValueTask.CompletedTask;
         });
 
-        agent.EventCoordinator.LocalStructs.Route<TestStructFrame>().CreateEmitter().Emit(new TestStructFrame(7));
+        agent.StructEvents.Route<TestStructFrame>().CreateEmitter().Emit(new TestStructFrame(7));
 
         var frame = await received.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         Assert.Equal(7, frame.Value);
@@ -2368,7 +2399,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             return ValueTask.CompletedTask;
         });
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync(new TestStructFrame(99), TestCancellationToken);
 
         var frame = await received.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
@@ -2717,7 +2748,7 @@ public class RuntimeLifecycleTests : AgentTestBase
                 requestSeen.TrySetResult();
         });
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync("needs approval", cancellationToken: TestCancellationToken);
 
         await requestSeen.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
@@ -2738,7 +2769,7 @@ public class RuntimeLifecycleTests : AgentTestBase
     public async Task StoppedRuntime_ResponseEvent_RoutesToRootCoordinator()
     {
         var agent = CreateAgent(client: new FakeChatClient());
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         var waitTask = agent.EventCoordinator.RequestAsync<PermissionRequestEvent, PermissionResponseEvent>(
@@ -2802,7 +2833,7 @@ public class RuntimeLifecycleTests : AgentTestBase
                 requestSeen.TrySetResult();
         });
 
-        await agent.StartAsync(TestCancellationToken);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
         await agent.RunAsync("needs approval", cancellationToken: TestCancellationToken);
         await requestSeen.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
 
@@ -2903,6 +2934,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         }));
 
         await agent.RunAsync("hello", cancellationToken: TestCancellationToken);
+        await WaitForAsync(() => actionCalled && taskCalled);
 
         Assert.True(actionCalled);
         Assert.True(taskCalled);
@@ -2918,6 +2950,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             new AgentConfig(),
             services,
             new HPD.Events.Core.EventCoordinator(),
+            new HPD.Events.Struct.StructEventHub(),
             inbox.Writer,
             (_, _) => ValueTask.CompletedTask,
             () => false,

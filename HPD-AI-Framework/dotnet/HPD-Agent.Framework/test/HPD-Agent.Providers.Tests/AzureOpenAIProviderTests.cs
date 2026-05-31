@@ -3,6 +3,8 @@ using HPD.Agent;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
 using HPD.Agent.Providers.OpenAI;
+using HPD.Agent.Secrets;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace HPD.Agent.Tests.Providers;
@@ -28,11 +30,19 @@ public class AzureOpenAIProviderTests
         metadata.Should().NotBeNull();
         metadata.ProviderKey.Should().Be("azure-openai");
         metadata.DisplayName.Should().Be("Azure OpenAI (Traditional)");
-        metadata.SupportsStreaming.Should().BeTrue();
-        metadata.SupportsFunctionCalling.Should().BeTrue();
-        metadata.SupportsVision.Should().BeTrue();
-        metadata.DefaulTMetadataWindow.Should().Be(128000);
-        metadata.DocumentationUrl.Should().Be("https://learn.microsoft.com/azure/ai-services/openai/");
+        metadata.DocumentationUri.Should().Be(new Uri("https://learn.microsoft.com/azure/ai-services/openai/"));
+        var chat = metadata.Families[ProviderClientFamily.Chat];
+        chat.Capabilities!["SupportsStreaming"].Should().Be(true);
+        chat.Capabilities["SupportsFunctionCalling"].Should().Be(true);
+        chat.Capabilities["SupportsVision"].Should().Be(true);
+        chat.Capabilities["DefaultMetadataWindow"].Should().Be(128000);
+        metadata.Families.Should().ContainKey(ProviderClientFamily.ImageGeneration);
+        metadata.Families.Should().ContainKey(ProviderClientFamily.Embeddings);
+        metadata.Families.Should().ContainKey(ProviderClientFamily.HostedFiles);
+        metadata.Families[ProviderClientFamily.HostedFiles].Capabilities!["SupportsContainerFiles"].Should().Be(false);
+        metadata.Families.Should().NotContainKey(ProviderClientFamily.TextToSpeech);
+        metadata.Families.Should().NotContainKey(ProviderClientFamily.SpeechToText);
+        metadata.Families.Should().NotContainKey(ProviderClientFamily.Realtime);
     }
 
     #endregion
@@ -43,7 +53,7 @@ public class AzureOpenAIProviderTests
     public void ValidateConfiguration_WithValidConfig_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-openai",
             ModelName = "gpt-4",
@@ -52,7 +62,7 @@ public class AzureOpenAIProviderTests
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -63,7 +73,7 @@ public class AzureOpenAIProviderTests
     public void ValidateConfiguration_WithMissingEndpoint_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-openai",
             ModelName = "gpt-4",
@@ -71,7 +81,7 @@ public class AzureOpenAIProviderTests
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -82,7 +92,7 @@ public class AzureOpenAIProviderTests
     public void ValidateConfiguration_WithMissingApiKey_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-openai",
             ModelName = "gpt-4",
@@ -90,7 +100,7 @@ public class AzureOpenAIProviderTests
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -101,7 +111,7 @@ public class AzureOpenAIProviderTests
     public void ValidateConfiguration_WithMissingModelName_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-openai",
             Endpoint = "https://test.openai.azure.com",
@@ -109,7 +119,7 @@ public class AzureOpenAIProviderTests
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -117,10 +127,76 @@ public class AzureOpenAIProviderTests
     }
 
     [Fact]
+    public void ValidateConfiguration_HostedFiles_DoesNotRequireModelName()
+    {
+        // Arrange
+        var config = new ClientProviderConfig
+        {
+            ProviderKey = "azure-openai",
+            Endpoint = "https://test.openai.azure.com",
+            ApiKey = "test-key"
+        };
+
+        // Act
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.HostedFiles);
+
+        // Assert
+        result.IsValid.Should().BeTrue();
+        result.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Provider_ShouldImplementNonAudioClientFamilies()
+    {
+        _provider.Should().BeAssignableTo<IChatClientProvider>();
+        _provider.Should().BeAssignableTo<IImageGeneratorProvider>();
+        _provider.Should().BeAssignableTo<IEmbeddingGeneratorProvider>();
+        _provider.Should().BeAssignableTo<IHostedFileClientProvider>();
+        _provider.Should().NotBeAssignableTo<ITextToSpeechClientProvider>();
+        _provider.Should().NotBeAssignableTo<ISpeechToTextClientProvider>();
+        _provider.Should().NotBeAssignableTo<IRealtimeClientProvider>();
+    }
+
+    [Fact]
+    public void CreateNonAudioClients_WithValidConfig_ShouldCreateClients()
+    {
+        // Arrange
+        var services = CreateServices();
+        var config = new ClientProviderConfig
+        {
+            ProviderKey = "azure-openai",
+            ModelName = "gpt-4",
+            Endpoint = "https://test.openai.azure.com",
+            ApiKey = "test-key"
+        };
+
+        // Act
+        var imageGenerator = _provider.CreateImageGenerator(config, services);
+        var embeddingGenerator = _provider.CreateEmbeddingGenerator(config, services);
+        var hostedFiles = _provider.CreateHostedFileClient(
+            new ClientProviderConfig
+            {
+                ProviderKey = "azure-openai",
+                Endpoint = "https://test.openai.azure.com",
+                ApiKey = "test-key"
+            },
+            services);
+
+        // Assert
+        imageGenerator.Should().NotBeNull();
+        embeddingGenerator.Should().NotBeNull();
+        hostedFiles.Should().NotBeNull();
+
+        imageGenerator.Dispose();
+        embeddingGenerator.Dispose();
+        hostedFiles.Dispose();
+    }
+
+    [Fact]
     public void ValidateConfiguration_WithInvalidTemperature_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-openai",
             ModelName = "gpt-4",
@@ -135,7 +211,7 @@ public class AzureOpenAIProviderTests
         config.SetProviderConfig(openAIConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -146,7 +222,7 @@ public class AzureOpenAIProviderTests
     public void ValidateConfiguration_WithInvalidTopP_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-openai",
             ModelName = "gpt-4",
@@ -161,7 +237,7 @@ public class AzureOpenAIProviderTests
         config.SetProviderConfig(openAIConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -172,7 +248,7 @@ public class AzureOpenAIProviderTests
     public void ValidateConfiguration_WithInvalidFrequencyPenalty_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-openai",
             ModelName = "gpt-4",
@@ -187,7 +263,7 @@ public class AzureOpenAIProviderTests
         config.SetProviderConfig(openAIConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -198,7 +274,7 @@ public class AzureOpenAIProviderTests
     public void ValidateConfiguration_WithInvalidPresencePenalty_ShouldFail()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-openai",
             ModelName = "gpt-4",
@@ -213,7 +289,7 @@ public class AzureOpenAIProviderTests
         config.SetProviderConfig(openAIConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -224,7 +300,7 @@ public class AzureOpenAIProviderTests
     public void ValidateConfiguration_WithValidProviderConfig_ShouldSucceed()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-openai",
             ModelName = "gpt-4",
@@ -243,7 +319,7 @@ public class AzureOpenAIProviderTests
         config.SetProviderConfig(openAIConfig);
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeTrue();
@@ -254,14 +330,14 @@ public class AzureOpenAIProviderTests
     public void ValidateConfiguration_WithMultipleErrors_ShouldReturnAllErrors()
     {
         // Arrange
-        var config = new ProviderConfig
+        var config = new ClientProviderConfig
         {
             ProviderKey = "azure-openai"
             // Missing ModelName, Endpoint, and ApiKey
         };
 
         // Act
-        var result = _provider.ValidateConfiguration(config);
+        var result = _provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
         // Assert
         result.IsValid.Should().BeFalse();
@@ -287,4 +363,11 @@ public class AzureOpenAIProviderTests
     }
 
     #endregion
+
+    private static IServiceProvider CreateServices()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<ISecretResolver>(new ExplicitSecretResolver());
+        return services.BuildServiceProvider();
+    }
 }

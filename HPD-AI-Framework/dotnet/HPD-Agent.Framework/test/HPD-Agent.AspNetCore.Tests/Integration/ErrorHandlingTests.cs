@@ -36,12 +36,12 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
         // Act - Try various 404 scenarios
         var sessionResponse = await _client.GetAsync("/sessions/nonexistent");
         var branchResponse = await _client.GetAsync("/agents/test-agent/sessions/nonexistent/branches/main");
-        var assetResponse = await _client.GetAsync("/sessions/nonexistent/assets");
+        var contentResponse = await _client.GetAsync("/sessions/nonexistent/content");
 
         // Assert
         sessionResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
         branchResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        assetResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        contentResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -51,8 +51,8 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
         var createResponse = await _client.PostAsync("/sessions", null);
         var session = await createResponse.Content.ReadFromJsonAsync<SessionDto>();
 
-        // Act - Try to fork at invalid index
-        var forkRequest = new ForkBranchRequest("fork", 9999, null, null, null);
+        // Act - Try to fork from a missing message id
+        var forkRequest = new ForkBranchRequest("fork", "missing-message", null, null, null);
         var response = await _client.PostAsJsonAsync(
             $"/agents/test-agent/sessions/{session!.Id}/branches/main/fork",
             forkRequest);
@@ -139,7 +139,7 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
     #region Stream Errors
 
     [Fact]
-    public async Task StreamingEndpoint_ReturnsError_InlineForStreamErrors()
+    public async Task SubmitInputEndpoint_AcceptsRuntimeOwnedWork()
     {
         // Arrange
         var createResponse = await _client.PostAsync("/sessions", null);
@@ -149,11 +149,10 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await PostInputAsync(
-             $"/agents/test-agent/sessions/{session!.Id}/branches/main/stream",
+             $"/agents/test-agent/sessions/{session!.Id}/branches/main/inputs",
             streamRequest);
 
-        // Assert - Should establish connection even if agent errors
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
     }
 
     #endregion

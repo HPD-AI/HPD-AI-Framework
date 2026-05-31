@@ -594,7 +594,7 @@ public partial class TelegramBot
             return;
 
         var (sessionId, branchId) = await _sessionMapper.ResolveAsync(threadId, ct);
-        _ = StreamToTelegramAsync(sessionId, branchId, parsed, ct);
+        _ = StreamToTelegramAsync(sessionId, branchId, parsed, CancellationToken.None);
     }
 
     private async Task ProcessCallbackQueryAsync(CallbackQuery query, CancellationToken ct)

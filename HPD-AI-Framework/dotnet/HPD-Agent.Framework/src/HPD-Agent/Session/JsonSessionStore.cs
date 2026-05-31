@@ -19,10 +19,7 @@ namespace HPD.Agent;
 ///   │   │   └── branch.json
 ///   │   └── casual/
 ///   │       └── branch.json
-///   ├── uncommitted.json       ← Crash recovery buffer (session-scoped, contains branchId)
-///   └── assets/                ← Binary assets (session-scoped, shared by all branches)
-///       ├── {assetId}.pdf
-///       └── {assetId}.jpg
+///   └── uncommitted.json       ← Crash recovery buffer (session-scoped, contains branchId)
 /// </code>
 /// </remarks>
 public class JsonSessionStore : ISessionStore
@@ -125,7 +122,8 @@ public class JsonSessionStore : ISessionStore
         lock (_lock)
         {
             var json = File.ReadAllText(branchPath);
-            var document = JsonSerializer.Deserialize<BranchEventDocument>(json, SessionJsonContext.Combined.Options);
+            var document = JsonSerializer.Deserialize<BranchEventDocument>(json, BranchEventJson.Options);
+            document = document is null ? null : ScopeLoadedBranchDocument(document, sessionId, branchId);
             var branch = document is null ? null : BranchProjector.Project(document);
             return Task.FromResult(branch);
         }
@@ -147,8 +145,10 @@ public class JsonSessionStore : ISessionStore
         lock (_lock)
         {
             var json = File.ReadAllText(branchPath);
-            var document = JsonSerializer.Deserialize<BranchEventDocument>(json, SessionJsonContext.Combined.Options);
-            return Task.FromResult(document);
+            var document = JsonSerializer.Deserialize<BranchEventDocument>(json, BranchEventJson.Options);
+            return Task.FromResult<BranchEventDocument?>(document is null
+                ? null
+                : ScopeLoadedBranchDocument(document, sessionId, branchId));
         }
     }
 
@@ -166,7 +166,7 @@ public class JsonSessionStore : ISessionStore
             if (expectedSequenceNumber is not null && File.Exists(branchPath))
             {
                 var existingJson = File.ReadAllText(branchPath);
-                var existing = JsonSerializer.Deserialize<BranchEventDocument>(existingJson, SessionJsonContext.Combined.Options);
+                var existing = JsonSerializer.Deserialize<BranchEventDocument>(existingJson, BranchEventJson.Options);
                 if (existing is not null && existing.NextSequenceNumber - 1 != expectedSequenceNumber.Value)
                 {
                     throw new InvalidOperationException(
@@ -174,7 +174,7 @@ public class JsonSessionStore : ISessionStore
                 }
             }
 
-            var json = JsonSerializer.Serialize(document, SessionJsonContext.Combined.Options);
+            var json = JsonSerializer.Serialize(document, BranchEventJson.Options);
             WriteAtomically(branchPath, json);
         }
 
@@ -200,8 +200,9 @@ public class JsonSessionStore : ISessionStore
             if (File.Exists(branchPath))
             {
                 var json = File.ReadAllText(branchPath);
-                document = JsonSerializer.Deserialize<BranchEventDocument>(json, SessionJsonContext.Combined.Options)
+                document = JsonSerializer.Deserialize<BranchEventDocument>(json, BranchEventJson.Options)
                     ?? new BranchEventDocument { SessionId = sessionId, BranchId = branchId };
+                document = ScopeLoadedBranchDocument(document, sessionId, branchId);
             }
             else
             {
@@ -236,7 +237,7 @@ public class JsonSessionStore : ISessionStore
                 Events = events
             };
 
-            var outputJson = JsonSerializer.Serialize(document, SessionJsonContext.Combined.Options);
+            var outputJson = JsonSerializer.Serialize(document, BranchEventJson.Options);
             WriteAtomically(branchPath, outputJson);
         }
 
@@ -353,18 +354,6 @@ public class JsonSessionStore : ISessionStore
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // CONTENT STORAGE (Session-Scoped)
-    // ═══════════════════════════════════════════════════════════════════
-
-    /// <inheritdoc />
-    public IContentStore? GetContentStore(string sessionId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-
-        return new LocalFileContentStore(Path.Combine(_basePath, sessionId, "content"));
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
     // CLEANUP
     // ═══════════════════════════════════════════════════════════════════
 
@@ -421,6 +410,31 @@ public class JsonSessionStore : ISessionStore
 
     private string GetBranchFilePath(string sessionId, string branchId)
         => Path.Combine(GetBranchDirectoryPath(sessionId, branchId), "branch.json");
+
+    private static BranchEventDocument ScopeLoadedBranchDocument(
+        BranchEventDocument document,
+        string sessionId,
+        string branchId)
+    {
+        var events = new List<AgentEvent>(document.Events.Count);
+        foreach (var evt in document.Events)
+        {
+            var scoped = evt with
+            {
+                SessionId = evt.SessionId ?? sessionId,
+                BranchId = evt.BranchId ?? branchId
+            };
+            scoped.SequenceNumber = evt.SequenceNumber;
+            events.Add(scoped);
+        }
+
+        return document with
+        {
+            SessionId = string.IsNullOrWhiteSpace(document.SessionId) ? sessionId : document.SessionId,
+            BranchId = string.IsNullOrWhiteSpace(document.BranchId) ? branchId : document.BranchId,
+            Events = events
+        };
+    }
 
     private string GetUncommittedTurnFilePath(string sessionId)
         => Path.Combine(GetSessionDirectoryPath(sessionId), "uncommitted.json");

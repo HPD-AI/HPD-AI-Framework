@@ -11,14 +11,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { boxWith } from 'svelte-toolbelt';
 import { FileAttachmentState } from '../file-attachment.svelte.ts';
-import type { AssetReference } from '@hpd/hpd-agent-client';
+import type { ContentReference } from '@hpd/hpd-agent-client';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const ASSET: AssetReference = { assetId: 'asset-1', contentType: 'image/png', name: 'shot.png', sizeBytes: 1024 };
-const ASSET2: AssetReference = { assetId: 'asset-2', contentType: 'text/plain', name: 'doc.txt', sizeBytes: 512 };
+const CONTENT: ContentReference = { contentId: 'content-1', version: 'rev:1', contentType: 'image/png', name: 'shot.png', sizeBytes: 1024 };
+const CONTENT2: ContentReference = { contentId: 'content-2', version: 'rev:1', contentType: 'text/plain', name: 'doc.txt', sizeBytes: 512 };
 
 function makeFile(name = 'test.png', type = 'image/png'): File {
 	return new File(['x'], name, { type });
@@ -27,11 +27,11 @@ function makeFile(name = 'test.png', type = 'image/png'): File {
 interface StateOpts {
 	sessionId?: string | null;
 	disabled?: boolean;
-	uploadFn?: (sessionId: string, file: File) => Promise<AssetReference>;
+	uploadFn?: (sessionId: string, file: File) => Promise<ContentReference>;
 }
 
 function makeState(opts: StateOpts = {}) {
-	const uploadFn = opts.uploadFn ?? vi.fn(async () => ASSET);
+	const uploadFn = opts.uploadFn ?? vi.fn(async () => CONTENT);
 	const sessionId: string = 'sessionId' in opts ? (opts.sessionId as string) : 'sess-1';
 	const state = new FileAttachmentState({
 		uploadFn: boxWith(() => uploadFn),
@@ -61,9 +61,9 @@ describe('FileAttachmentState — initial state', () => {
 		expect(state.isUploading).toBe(false);
 	});
 
-	it('resolvedAssets is empty initially', () => {
+	it('resolvedContent is empty initially', () => {
 		const { state } = makeState();
-		expect(state.resolvedAssets).toEqual([]);
+		expect(state.resolvedContent).toEqual([]);
 	});
 
 	it('canSubmit is true initially (no uploads in progress, not disabled)', () => {
@@ -85,7 +85,7 @@ describe('FileAttachmentState — add()', () => {
 		await state.add([makeFile()]);
 		expect(state.attachments).toHaveLength(1);
 		expect(state.attachments[0].status).toBe('done');
-		expect(state.attachments[0].asset).toEqual(ASSET);
+		expect(state.attachments[0].content).toEqual(CONTENT);
 	});
 
 	it('transitions to error on upload failure', async () => {
@@ -99,8 +99,8 @@ describe('FileAttachmentState — add()', () => {
 
 	it('adds multiple files at once', async () => {
 		const uploadFn = vi.fn()
-			.mockResolvedValueOnce(ASSET)
-			.mockResolvedValueOnce(ASSET2);
+			.mockResolvedValueOnce(CONTENT)
+			.mockResolvedValueOnce(CONTENT2);
 		const { state } = makeState({ uploadFn });
 		await state.add([makeFile('a.png'), makeFile('b.txt', 'text/plain')]);
 		expect(state.attachments).toHaveLength(2);
@@ -130,7 +130,7 @@ describe('FileAttachmentState — add()', () => {
 		const uploadFn = vi.fn(async () => {
 			callCount++;
 			await new Promise((r) => setTimeout(r, 10));
-			return ASSET;
+			return CONTENT;
 		});
 		const { state } = makeState({ uploadFn });
 		const addPromise = state.add([makeFile('a.png'), makeFile('b.png')]);
@@ -140,30 +140,30 @@ describe('FileAttachmentState — add()', () => {
 	});
 });
 
-describe('FileAttachmentState — resolvedAssets', () => {
-	it('returns only done entries as AssetReference[]', async () => {
+describe('FileAttachmentState — resolvedContent', () => {
+	it('returns only done entries as ContentReference[]', async () => {
 		const uploadFn = vi.fn()
-			.mockResolvedValueOnce(ASSET)
+			.mockResolvedValueOnce(CONTENT)
 			.mockRejectedValueOnce(new Error('fail'));
 		const { state } = makeState({ uploadFn });
 		await state.add([makeFile('ok.png'), makeFile('bad.png')]);
-		expect(state.resolvedAssets).toHaveLength(1);
-		expect(state.resolvedAssets[0]).toEqual(ASSET);
+		expect(state.resolvedContent).toHaveLength(1);
+		expect(state.resolvedContent[0]).toEqual(CONTENT);
 	});
 
 	it('is empty when all entries are uploading', () => {
 		// Not easy to test mid-upload without racing; verify it excludes error/uploading
 		const { state } = makeState();
-		expect(state.resolvedAssets).toEqual([]);
+		expect(state.resolvedContent).toEqual([]);
 	});
 
-	it('contains all assets when all uploads succeeded', async () => {
+	it('contains all contents when all uploads succeeded', async () => {
 		const uploadFn = vi.fn()
-			.mockResolvedValueOnce(ASSET)
-			.mockResolvedValueOnce(ASSET2);
+			.mockResolvedValueOnce(CONTENT)
+			.mockResolvedValueOnce(CONTENT2);
 		const { state } = makeState({ uploadFn });
 		await state.add([makeFile('a.png'), makeFile('b.txt', 'text/plain')]);
-		expect(state.resolvedAssets).toHaveLength(2);
+		expect(state.resolvedContent).toHaveLength(2);
 	});
 });
 
@@ -184,14 +184,14 @@ describe('FileAttachmentState — remove()', () => {
 
 	it('only removes the targeted entry, leaving others intact', async () => {
 		const uploadFn = vi.fn()
-			.mockResolvedValueOnce(ASSET)
-			.mockResolvedValueOnce(ASSET2);
+			.mockResolvedValueOnce(CONTENT)
+			.mockResolvedValueOnce(CONTENT2);
 		const { state } = makeState({ uploadFn });
 		await state.add([makeFile('a.png'), makeFile('b.png')]);
 		const firstId = state.attachments[0].localId;
 		state.remove(firstId);
 		expect(state.attachments).toHaveLength(1);
-		expect(state.attachments[0].asset).toEqual(ASSET2);
+		expect(state.attachments[0].content).toEqual(CONTENT2);
 	});
 });
 
@@ -201,7 +201,7 @@ describe('FileAttachmentState — retry()', () => {
 		const uploadFn = vi.fn(async () => {
 			callCount++;
 			if (callCount === 1) throw new Error('first attempt failed');
-			return ASSET;
+			return CONTENT;
 		});
 		const { state } = makeState({ uploadFn });
 		await state.add([makeFile()]);
@@ -209,7 +209,7 @@ describe('FileAttachmentState — retry()', () => {
 
 		await state.retry(state.attachments[0].localId);
 		expect(state.attachments[0].status).toBe('done');
-		expect(state.attachments[0].asset).toEqual(ASSET);
+		expect(state.attachments[0].content).toEqual(CONTENT);
 	});
 
 	it('does nothing on a done entry', async () => {
@@ -232,7 +232,7 @@ describe('FileAttachmentState — retry()', () => {
 		const uploadFn = vi.fn(async () => {
 			calls++;
 			if (calls === 1) throw new Error('fail');
-			return ASSET;
+			return CONTENT;
 		});
 		const { state } = makeState({ uploadFn });
 		await state.add([makeFile()]);
@@ -243,15 +243,15 @@ describe('FileAttachmentState — retry()', () => {
 		await state.retry(id);
 		expect(state.attachments[0].status).toBe('done');
 		expect(state.attachments[0].error).toBeUndefined();
-		expect(state.attachments[0].asset).toEqual(ASSET);
+		expect(state.attachments[0].content).toEqual(CONTENT);
 	});
 });
 
 describe('FileAttachmentState — clear()', () => {
 	it('empties all attachments', async () => {
 		const uploadFn = vi.fn()
-			.mockResolvedValueOnce(ASSET)
-			.mockResolvedValueOnce(ASSET2);
+			.mockResolvedValueOnce(CONTENT)
+			.mockResolvedValueOnce(CONTENT2);
 		const { state } = makeState({ uploadFn });
 		await state.add([makeFile('a.png'), makeFile('b.png')]);
 		expect(state.attachments).toHaveLength(2);

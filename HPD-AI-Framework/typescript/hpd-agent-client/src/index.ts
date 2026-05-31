@@ -22,7 +22,7 @@ export { SseParser } from './parser.js';
 
 // Chat runtime
 export { ChatManager, ChatSession } from './chat.js';
-export type { ChatSessionOptions, OpenChatOptions, SendTextOptions } from './chat.js';
+export type { CancelActiveTurnOptions, ChatSessionOptions, OpenChatOptions, SendTextOptions } from './chat.js';
 
 // Client tools
 export { ClientToolRegistry, normalizeClientToolName } from './tools.js';

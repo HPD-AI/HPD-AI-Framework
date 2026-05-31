@@ -3,7 +3,7 @@
  *
  * Provides Edit, Retry, and branch navigation (Prev/Next/Position) all
  * scoped to a single message bubble. The navigator parts (Prev/Next/Position)
- * only become active when the active branch was forked at this message index,
+ * only become active when the active branch was forked at this message row,
  * so no conditional logic is needed in the consumer template.
  *
  * @example

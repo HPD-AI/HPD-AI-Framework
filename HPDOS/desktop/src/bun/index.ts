@@ -1,15 +1,19 @@
-import Electrobun, { BrowserWindow, PATHS } from "electrobun/bun";
+import Electrobun, { BrowserWindow, PATHS, Utils } from "electrobun/bun";
 import { existsSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   normalizeChatLayoutSnapshot,
+  normalizeProviderModelUiState,
   normalizeShellSnapshot,
   readChatLayout,
+  readChatProviderModel,
   readShell,
   writeChatLayout,
+  writeChatProviderModel,
   writeShell,
   type ChatLayoutSnapshot,
+  type ProviderModelUiState,
   type ShellSnapshot
 } from "./settingsStore";
 
@@ -25,9 +29,9 @@ let backendProcess: Bun.Subprocess | null = null;
 let backendProcessMode: "run" | "published" | null = null;
 let mainWindow: BrowserWindow | null = null;
 let chromeModeInterval: Timer | null = null;
-const pendingDesktopSettingsResponses: DesktopSettingsHostResponse[] = [];
+const pendingDesktopHostResponses: DesktopHostResponse[] = [];
 
-type DesktopSettingsHostRequest =
+type DesktopHostRequest =
   | { source: "hpdos.shell"; type: "request"; id: number; method: "read"; params: {} }
   | { source: "hpdos.shell"; type: "request"; id: number; method: "write"; params: ShellSnapshot }
   | { source: "hpdos.chat.layout"; type: "request"; id: number; method: "read"; params: {} }
@@ -37,11 +41,20 @@ type DesktopSettingsHostRequest =
       id: number;
       method: "write";
       params: ChatLayoutSnapshot;
-    };
+    }
+  | { source: "hpdos.chat.providerModel.v1"; type: "request"; id: number; method: "read"; params: {} }
+  | {
+      source: "hpdos.chat.providerModel.v1";
+      type: "request";
+      id: number;
+      method: "write";
+      params: ProviderModelUiState;
+    }
+  | { source: "hpdos.workspace.dialog"; type: "request"; id: number; method: "pickDirectories"; params: {} };
 
-type DesktopSettingsHostResponse =
-  | { source: DesktopSettingsHostRequest["source"]; type: "response"; id: number; success: true; payload: unknown }
-  | { source: DesktopSettingsHostRequest["source"]; type: "response"; id: number; success: false; error?: string };
+type DesktopHostResponse =
+  | { source: DesktopHostRequest["source"]; type: "response"; id: number; success: true; payload: unknown }
+  | { source: DesktopHostRequest["source"]; type: "response"; id: number; success: false; error?: string };
 
 function syncWindowChromeMode(): void {
   if (!mainWindow) return;
@@ -51,28 +64,41 @@ function syncWindowChromeMode(): void {
   );
 }
 
-function handleDesktopSettingsHostMessage(message: unknown): void {
-  if (!isDesktopSettingsRequest(message)) return;
+async function handleDesktopHostMessage(message: unknown): Promise<void> {
+  if (!isDesktopHostRequest(message)) return;
 
   try {
-    if (message.method === "read") {
-      sendDesktopSettingsResponse({
+    if (message.source === "hpdos.workspace.dialog") {
+      sendDesktopHostResponse({
         source: message.source,
         type: "response",
         id: message.id,
         success: true,
-        payload: message.source === "hpdos.shell" ? readShell() : readChatLayout()
+        payload: await pickWorkspaceDirectories()
+      });
+      return;
+    }
+
+    if (message.method === "read") {
+      sendDesktopHostResponse({
+        source: message.source,
+        type: "response",
+        id: message.id,
+        success: true,
+        payload: readDesktopSettingsPayload(message.source)
       });
       return;
     }
 
     if (message.source === "hpdos.shell") {
       writeShell(message.params as ShellSnapshot);
-    } else {
+    } else if (message.source === "hpdos.chat.layout") {
       writeChatLayout(message.params as ChatLayoutSnapshot);
+    } else {
+      writeChatProviderModel(message.params as ProviderModelUiState);
     }
 
-    sendDesktopSettingsResponse({
+    sendDesktopHostResponse({
       source: message.source,
       type: "response",
       id: message.id,
@@ -80,7 +106,7 @@ function handleDesktopSettingsHostMessage(message: unknown): void {
       payload: { success: true }
     });
   } catch (error) {
-    sendDesktopSettingsResponse({
+    sendDesktopHostResponse({
       source: message.source,
       type: "response",
       id: message.id,
@@ -90,13 +116,15 @@ function handleDesktopSettingsHostMessage(message: unknown): void {
   }
 }
 
-function isDesktopSettingsRequest(message: unknown): message is DesktopSettingsHostRequest {
+function isDesktopHostRequest(message: unknown): message is DesktopHostRequest {
   if (typeof message !== "object" || message === null) return false;
 
-  const request = message as Partial<DesktopSettingsHostRequest>;
+  const request = message as Partial<DesktopHostRequest>;
   if (
     request.source !== "hpdos.shell"
     && request.source !== "hpdos.chat.layout"
+    && request.source !== "hpdos.chat.providerModel.v1"
+    && request.source !== "hpdos.workspace.dialog"
   ) {
     return false;
   }
@@ -105,30 +133,62 @@ function isDesktopSettingsRequest(message: unknown): message is DesktopSettingsH
     return false;
   }
 
+  if (request.source === "hpdos.workspace.dialog") {
+    return request.method === "pickDirectories";
+  }
+
   if (request.method === "read") return true;
 
   if (request.method !== "write") return false;
 
-  return request.source === "hpdos.shell"
-    ? normalizeShellSnapshot(request.params) !== null
-    : normalizeChatLayoutSnapshot(request.params) !== null;
+  switch (request.source) {
+    case "hpdos.shell":
+      return normalizeShellSnapshot(request.params) !== null;
+    case "hpdos.chat.layout":
+      return normalizeChatLayoutSnapshot(request.params) !== null;
+    case "hpdos.chat.providerModel.v1":
+      return normalizeProviderModelUiState(request.params) !== null;
+  }
 }
 
-function sendDesktopSettingsResponse(response: DesktopSettingsHostResponse): void {
+function readDesktopSettingsPayload(source: Exclude<DesktopHostRequest["source"], "hpdos.workspace.dialog">): unknown {
+  switch (source) {
+    case "hpdos.shell":
+      return readShell();
+    case "hpdos.chat.layout":
+      return readChatLayout();
+    case "hpdos.chat.providerModel.v1":
+      return readChatProviderModel();
+  }
+}
+
+async function pickWorkspaceDirectories(): Promise<string[]> {
+  const paths = await Utils.openFileDialog({
+    startingFolder: process.env.HOME || projectDirectory,
+    allowedFileTypes: "*",
+    canChooseFiles: false,
+    canChooseDirectory: true,
+    allowsMultipleSelection: true
+  });
+
+  return paths.map((path) => path.trim()).filter(Boolean);
+}
+
+function sendDesktopHostResponse(response: DesktopHostResponse): void {
   if (!mainWindow) {
-    pendingDesktopSettingsResponses.push(response);
+    pendingDesktopHostResponses.push(response);
     return;
   }
 
   mainWindow.webview.executeJavascript(
-    `window.dispatchEvent(new CustomEvent("hpdos-desktop-settings-response", { detail: ${JSON.stringify(response)} }));`
+    `window.dispatchEvent(new CustomEvent("hpdos-desktop-host-response", { detail: ${JSON.stringify(response)} }));`
   );
 }
 
-function flushDesktopSettingsResponses(): void {
-  while (pendingDesktopSettingsResponses.length > 0) {
-    const response = pendingDesktopSettingsResponses.shift();
-    if (response) sendDesktopSettingsResponse(response);
+function flushDesktopHostResponses(): void {
+  while (pendingDesktopHostResponses.length > 0) {
+    const response = pendingDesktopHostResponses.shift();
+    if (response) sendDesktopHostResponse(response);
   }
 }
 
@@ -260,7 +320,7 @@ function findDotnetExecutable(): string | null {
 }
 
 Electrobun.events.on("host-message", (event) => {
-  handleDesktopSettingsHostMessage((event as { data?: { detail?: unknown } }).data?.detail);
+  void handleDesktopHostMessage((event as { data?: { detail?: unknown } }).data?.detail);
 });
 
 await startBackendIfNeeded();
@@ -282,7 +342,7 @@ const hpdosWindow = new BrowserWindow({
   }
 });
 mainWindow = hpdosWindow;
-flushDesktopSettingsResponses();
+flushDesktopHostResponses();
 
 hpdosWindow.on("resize", () => {
   syncWindowChromeMode();

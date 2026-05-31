@@ -92,7 +92,7 @@ public sealed class SpeechOutputSession : ISpeechOutputSession
     }
 
     /// <inheritdoc />
-    public async ValueTask PushAudioAsync(AudioChunkFrame frame, CancellationToken cancellationToken = default)
+    public async ValueTask PushAudioAsync(AudioOutputFrame frame, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
         await EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
@@ -381,7 +381,7 @@ public sealed class SpeechOutputSession : ISpeechOutputSession
             BranchId: _branchId,
             SpeechId: SpeechId,
             StreamId: StreamId,
-            SynthesisId: _synthesisId,
+            OutputId: _synthesisId,
             Provider: _provider,
             Model: _model,
             Voice: _voice,

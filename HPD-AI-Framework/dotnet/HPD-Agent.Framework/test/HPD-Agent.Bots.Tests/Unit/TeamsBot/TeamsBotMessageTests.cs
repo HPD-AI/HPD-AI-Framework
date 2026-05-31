@@ -28,7 +28,7 @@ public class TeamsBotMessageTests
     }
 
     [Fact]
-    public async Task ProcessMessageAsync_WhenStreamLockHeld_ReturnsFalseWithoutStartingStream()
+    public async Task ProcessMessageAsync_WhenBranchOperationLockHeld_ReturnsFalseWithoutStartingStream()
     {
         var (bot, sessionManager) = CreateBot();
         var turn = new FakeTeamsTurn
@@ -39,7 +39,7 @@ public class TeamsBotMessageTests
         };
         var platformKey = TeamsThreadId.FormatRaw(turn.ConversationId, turn.ServiceUrl);
         var (sessionId, branchId) = await bot.SessionMapper.ResolveAsync(platformKey);
-        sessionManager.TryAcquireStreamLock(sessionId, branchId).Should().BeTrue();
+        sessionManager.TryAcquireBranchOperationLock(sessionId, branchId).Should().BeTrue();
 
         try
         {
@@ -51,12 +51,12 @@ public class TeamsBotMessageTests
         }
         finally
         {
-            sessionManager.ReleaseStreamLock(sessionId, branchId);
+            sessionManager.ReleaseBranchOperationLock(sessionId, branchId);
         }
     }
 
     [Fact]
-    public async Task ProcessMessageAsync_WhenStreamLockHeld_CreatesOrFindsPlatformSession()
+    public async Task ProcessMessageAsync_WhenBranchOperationLockHeld_CreatesOrFindsPlatformSession()
     {
         var (bot, sessionManager) = CreateBot();
         var turn = new FakeTeamsTurn
@@ -67,7 +67,7 @@ public class TeamsBotMessageTests
         };
         var platformKey = TeamsThreadId.FormatRaw(turn.ConversationId, turn.ServiceUrl);
         var (sessionId, branchId) = await bot.SessionMapper.ResolveAsync(platformKey);
-        sessionManager.TryAcquireStreamLock(sessionId, branchId).Should().BeTrue();
+        sessionManager.TryAcquireBranchOperationLock(sessionId, branchId).Should().BeTrue();
 
         try
         {
@@ -78,7 +78,7 @@ public class TeamsBotMessageTests
         }
         finally
         {
-            sessionManager.ReleaseStreamLock(sessionId, branchId);
+            sessionManager.ReleaseBranchOperationLock(sessionId, branchId);
         }
     }
 
@@ -100,7 +100,7 @@ public class TeamsBotMessageTests
         };
         var platformKey = TeamsThreadId.FormatRaw(turn.ConversationId, turn.ServiceUrl);
         var (sessionId, branchId) = await bot.SessionMapper.ResolveAsync(platformKey);
-        sessionManager.TryAcquireStreamLock(sessionId, branchId).Should().BeTrue();
+        sessionManager.TryAcquireBranchOperationLock(sessionId, branchId).Should().BeTrue();
 
         try
         {
@@ -119,7 +119,7 @@ public class TeamsBotMessageTests
         }
         finally
         {
-            sessionManager.ReleaseStreamLock(sessionId, branchId);
+            sessionManager.ReleaseBranchOperationLock(sessionId, branchId);
         }
     }
 
@@ -188,11 +188,10 @@ public class TeamsBotMessageTests
             Name = "TeamsTestAgent",
             MaxAgenticIterations = 1,
             SystemInstructions = "You are a Teams test agent.",
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "test",
                 ModelName = "test-model",
-            },
+            } },
             AgenticLoop = new AgenticLoopConfig
             {
                 MaxTurnDuration = TimeSpan.FromMinutes(1),

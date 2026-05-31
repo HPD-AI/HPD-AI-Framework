@@ -15,10 +15,9 @@ public enum AudioProcessingMode
     Pipeline,
 
     /// <summary>
-    /// Single model handles audio I/O directly.
-    /// Used with GPT-4o Realtime, Gemini Live, etc.
+    /// HPD hosts a bidirectional MEAI realtime session for audio input, output, and tools.
     /// </summary>
-    Native
+    Realtime
 }
 
 /// <summary>

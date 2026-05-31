@@ -9,10 +9,10 @@ using EventDirection = HPD.Events.EventDirection;
 
 namespace HPD.Agent;
 /// <summary>
-/// Provides hierarchical context about which agent emitted an event.
+/// Provides hierarchical metadata about which agent emitted an event.
 /// Enables event attribution and filtering in multi-agent systems.
 /// </summary>
-public record AgentExecutionContext
+public record AgentMetadata
 {
     /// <summary>
     /// The immediate agent that emitted this event (e.g., "WeatherExpert")
@@ -206,10 +206,11 @@ public abstract record AgentEvent : HPD.Events.Event
     public string? BranchId { get; init; }
 
     /// <summary>
-    /// Context about which agent emitted this event (optional for backwards compatibility).
-    /// Automatically attached by EventCoordinator.Emit() if not already set.
+    /// Live metadata about which agent emitted this event.
+    /// This is omitted from durable branch event JSON by default because branch ownership
+    /// and durable attribution live on branch metadata.
     /// </summary>
-    public AgentExecutionContext? ExecutionContext { get; init; }
+    public AgentMetadata? Metadata { get; init; }
 
     /// <summary>
     /// OpenTelemetry-compatible trace ID (128-bit, 32 hex chars).
@@ -235,6 +236,12 @@ public abstract record AgentEvent : HPD.Events.Event
     /// This is event type policy, not serialized event payload.
     /// </summary>
     public virtual bool ShouldPersistToBranch() => false;
+
+    /// <summary>
+    /// Optional content-store persistence policy for this event type.
+    /// This is event type policy, not serialized event payload.
+    /// </summary>
+    public virtual ContentPersistenceRequest? GetContentPersistenceRequest() => null;
 }
 
 /// <summary>
@@ -253,6 +260,37 @@ public abstract record AgentInputEvent
 
     /// <summary>Per-run configuration carried with the input event.</summary>
     public AgentRunConfig? RunConfig { get; init; }
+
+    /// <summary>Runtime-owned run identifier assigned by hosting layers that track active work.</summary>
+    public string? RuntimeRunId { get; init; }
+}
+
+/// <summary>
+/// Emitted when hosting accepts input into a runtime-owned branch run.
+/// </summary>
+public sealed record BranchRunStartedEvent(
+    string RuntimeRunId,
+    string AgentId,
+    DateTimeOffset StartedAt) : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override EventChannel Channel { get; init; } = EventChannel.Control;
+    public override bool ShouldPersistToBranch() => true;
+}
+
+/// <summary>
+/// Emitted by the runtime when a submitted input has left the active execution slot.
+/// </summary>
+public sealed record BranchRunCompletedEvent(
+    string RuntimeRunId,
+    string AgentId,
+    bool Cancelled,
+    string? ErrorType = null,
+    string? ErrorMessage = null) : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override EventChannel Channel { get; init; } = EventChannel.Control;
+    public override bool ShouldPersistToBranch() => true;
 }
 
 /// <summary>
@@ -717,6 +755,7 @@ public sealed record ToolResultPayload(
 public abstract record ToolCallBackgroundTaskEvent : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override bool ShouldPersistToBranch() => true;
 
     public required string TaskId { get; init; }
 
@@ -1100,12 +1139,12 @@ public record CircuitBreakerTriggeredEvent(
 }
 
 /// <summary>
-/// Emitted when history reduction cache is checked.
+/// Emitted when compaction cache is checked.
 /// </summary>
-public record HistoryReductionCacheEvent(
+public record CompactionCacheEvent(
     string AgentName,
     bool IsHit,
-    DateTime? ReductionCreatedAt,
+    DateTime? CompactionCreatedAt,
     int? SummarizedUpToIndex,
     int CurrentMessageCount,
     int? TokenSavings,
@@ -1115,41 +1154,6 @@ public record HistoryReductionCacheEvent(
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
 
-/// <summary>
-/// Emitted when an asset is successfully uploaded to AssetStore.
-/// Provides observability for binary asset storage operations.
-/// </summary>
-public record AssetUploadedEvent(
-    string AssetId,
-    string MediaType,
-    int SizeBytes
-) : AgentEvent, IObservabilityEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-}
-
-/// <summary>
-/// Emitted when an asset upload fails.
-/// Provides observability for asset storage failures.
-/// </summary>
-public record AssetUploadFailedEvent(
-    string MediaType,
-    string Error
-) : AgentEvent, IObservabilityEvent, IErrorEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-
-    /// <summary>
-    /// Human-readable error message describing what went wrong.
-    /// </summary>
-    string IErrorEvent.ErrorMessage => Error;
-
-    /// <summary>
-    /// The underlying exception, if available.
-    /// </summary>
-    [System.Text.Json.Serialization.JsonIgnore]
-    Exception? IErrorEvent.Exception => null;
-}
 
 /// <summary>
 /// Checkpoint operation type.
@@ -1198,6 +1202,7 @@ public record BackgroundOperationStartedEvent(
 ) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override bool ShouldPersistToBranch() => true;
 }
 
 /// <summary>
@@ -1210,6 +1215,10 @@ public record BackgroundOperationStatusEvent(
 ) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override bool ShouldPersistToBranch() =>
+        Status.IsTerminal ||
+        !string.IsNullOrWhiteSpace(StatusMessage) &&
+        !StatusMessage.StartsWith("Polling attempt ", StringComparison.OrdinalIgnoreCase);
 }
 
 #endregion

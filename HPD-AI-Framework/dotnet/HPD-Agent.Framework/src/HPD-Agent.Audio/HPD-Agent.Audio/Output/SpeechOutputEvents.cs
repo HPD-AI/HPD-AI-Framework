@@ -24,7 +24,7 @@ public sealed record SpeechOutputStartedEvent : SpeechOutputEvent
 /// <summary>Emitted when text is queued for speech output.</summary>
 public sealed record SpeechOutputTextQueuedEvent : SpeechOutputEvent
 {
-    /// <summary>Text queued for synthesis or native output.</summary>
+    /// <summary>Text queued for synthesis or realtime output.</summary>
     public required string Text { get; init; }
 
     /// <inheritdoc />
@@ -35,7 +35,7 @@ public sealed record SpeechOutputTextQueuedEvent : SpeechOutputEvent
 public sealed record SpeechOutputAudioQueuedEvent : SpeechOutputEvent
 {
     /// <summary>Queued audio frame.</summary>
-    public required AudioChunkFrame Frame { get; init; }
+    public required AudioOutputFrame Frame { get; init; }
 
     /// <summary>Output state after the frame was queued.</summary>
     public required SpeechOutputState State { get; init; }

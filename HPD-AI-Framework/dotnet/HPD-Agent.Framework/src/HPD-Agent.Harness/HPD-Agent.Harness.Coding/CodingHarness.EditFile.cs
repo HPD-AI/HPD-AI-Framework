@@ -145,7 +145,7 @@ public partial class CodingHarness
             return new EditReadValidationResult(null, null, null);
 
         var readFileStateKey = typeof(ReadFileState).FullName!;
-        var historyReductionStateKey = typeof(HistoryReductionStateData).FullName!;
+        var compactionStateKey = typeof(CompactionStateData).FullName!;
         var priorRead = context
             .Analyze(state => state.MiddlewareState.GetState<ReadFileState>(readFileStateKey))
             ?.FilesByPath.GetValueOrDefault(fullPath);
@@ -158,9 +158,9 @@ public partial class CodingHarness
                 "File has not been read yet. Read it first before editing.");
         }
 
-        var historyReductionState = context
-            .Analyze(state => state.MiddlewareState.GetState<HistoryReductionStateData>(historyReductionStateKey));
-        if (historyReductionState?.LastAppliedAt > priorRead.ReadAt)
+        var compactionState = context
+            .Analyze(state => state.MiddlewareState.GetState<CompactionStateData>(compactionStateKey));
+        if (compactionState?.LastAppliedAt > priorRead.ReadAt)
         {
             return new EditReadValidationResult(
                 priorRead,

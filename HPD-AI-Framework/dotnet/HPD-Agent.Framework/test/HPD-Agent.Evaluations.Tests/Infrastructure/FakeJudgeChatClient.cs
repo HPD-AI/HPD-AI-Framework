@@ -56,7 +56,11 @@ internal sealed class FakeJudgeChatClient : IChatClient
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var response = await GetResponseAsync(chatMessages, options, cancellationToken);
-        yield return new ChatResponseUpdate { Contents = response.Messages[0].Contents };
+        yield return new ChatResponseUpdate
+        {
+            Contents = [new TextContent(response.Text)],
+            FinishReason = ChatFinishReason.Stop
+        };
     }
 
     public object? GetService(Type serviceType, object? serviceKey = null) => null;

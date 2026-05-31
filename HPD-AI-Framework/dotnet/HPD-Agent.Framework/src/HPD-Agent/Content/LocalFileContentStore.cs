@@ -5,7 +5,7 @@ namespace HPD.Agent;
 /// <summary>
 /// Local file system implementation of IContentStore.
 /// Stores content as individual files in a directory structure organized by scope.
-/// Supports folder-based organization via metadata tags, named upsert, and full ContentQuery filtering.
+/// Supports folder-based organization via metadata tags, explicit versioned writes, and full ContentQuery filtering.
 /// </summary>
 /// <remarks>
 /// <para><b>Storage Layout:</b></para>
@@ -19,13 +19,6 @@ namespace HPD.Agent;
 ///     {contentId}.bin    (Unknown types)
 ///     {contentId}.meta   (JSON metadata companion file)
 /// </code>
-/// <para><b>Named Upsert Semantics:</b></para>
-/// <para>
-/// When ContentMetadata.Name is provided, PutAsync behaves as an upsert keyed on (scope, Name):
-/// - Same name + same content hash → no-op, returns existing ID
-/// - Same name + different content → overwrites in place, returns same ID
-/// - No name → always inserts as a new entry with a generated ID
-/// </para>
 /// </remarks>
 public class LocalFileContentStore : IContentStore
 {
@@ -46,117 +39,109 @@ public class LocalFileContentStore : IContentStore
     // ═══════════════════════════════════════════════════════════════════
 
     /// <inheritdoc />
-    public async Task<string> PutAsync(
+    public async Task<ContentInfo> WriteAsync(
         string? scope,
-        byte[] data,
-        string contentType,
-        ContentMetadata? metadata = null,
+        Stream data,
+        ContentMetadata metadata,
+        ContentWriteOptions options,
         CancellationToken cancellationToken = default)
     {
         if (data == null) throw new ArgumentNullException(nameof(data));
-        if (string.IsNullOrWhiteSpace(contentType))
-            contentType = "application/octet-stream";
+        if (metadata == null) throw new ArgumentNullException(nameof(metadata));
+        if (options == null) throw new ArgumentNullException(nameof(options));
+        var contentType = string.IsNullOrWhiteSpace(metadata.ContentType)
+            ? "application/octet-stream"
+            : metadata.ContentType;
 
         var actualScope = scope ?? "global";
         var scopePath = Path.Combine(_basePath, SanitizePath(actualScope));
         Directory.CreateDirectory(scopePath);
 
-        var name = metadata?.Name;
+        var (tempPath, contentHash, sizeBytes) = await WriteStreamToTempFileAsync(scopePath, data, cancellationToken)
+            .ConfigureAwait(false);
 
-        if (name != null)
+        try
         {
-            // Named upsert — check index under a lock to avoid races
             lock (_writeLock)
             {
-                var nameIndex = ReadNameIndex(scopePath);
-                if (nameIndex.TryGetValue(name, out var existingId))
+                return options.Mode switch
                 {
-                var existingMeta = ReadMetaFile(scopePath, existingId);
-                var newHash = ComputeHash(data);
-                    var existingHash = existingMeta?.ContentHash;
-                    if (existingHash == newHash)
-                    {
-                        // Same content — no-op
-                        return existingId;
-                    }
-                    else
-                    {
-                        // Overwrite in place
-                        var existingFile = FindContentFile(scopePath, existingId);
-                        var newExt = GetExtensionFromContentType(contentType);
-                        var newFilePath = Path.Combine(scopePath, $"{existingId}{newExt}");
-
-                        // Remove old file if extension changed
-                        if (existingFile != null && existingFile != newFilePath)
-                            File.Delete(existingFile);
-
-                        File.WriteAllBytes(newFilePath, data);
-                        WriteMetaFile(scopePath, existingId, contentType, metadata, newHash);
-                        return existingId;
-                    }
-                }
-
-                // New named entry
-                var newId = Guid.NewGuid().ToString("N");
-                var hash = ComputeHash(data);
-                var ext = GetExtensionFromContentType(contentType);
-                var filePath = Path.Combine(scopePath, $"{newId}{ext}");
-                File.WriteAllBytes(filePath, data);
-                WriteMetaFile(scopePath, newId, contentType, metadata, hash);
-                nameIndex[name] = newId;
-                WriteNameIndex(scopePath, nameIndex);
-                return newId;
+                    ContentWriteMode.Create or ContentWriteMode.Stage => Create(scopePath, tempPath, contentType, metadata, contentHash, sizeBytes, options),
+                    ContentWriteMode.ReplaceById => ReplaceById(scopePath, tempPath, contentType, metadata, contentHash, options),
+                    ContentWriteMode.ReplaceByName => ReplaceByName(scopePath, tempPath, contentType, metadata, contentHash, options),
+                    ContentWriteMode.Append => Append(scopePath, tempPath, contentType, metadata, contentHash, options),
+                    _ => throw new ArgumentOutOfRangeException(nameof(options), options.Mode, "Unsupported content write mode.")
+                };
             }
         }
-
-        // Unnamed insert — always creates a new entry
-        var id = Guid.NewGuid().ToString("N");
-        var extension = GetExtensionFromContentType(contentType);
-        var contentFilePath = Path.Combine(scopePath, $"{id}{extension}");
-        await File.WriteAllBytesAsync(contentFilePath, data, cancellationToken);
-        WriteMetaFile(scopePath, id, contentType, metadata, null);
-        return id;
+        catch
+        {
+            TryDelete(tempPath);
+            throw;
+        }
     }
 
     /// <inheritdoc />
-    public async Task<ContentData?> GetAsync(
+    public Task<Stream?> OpenReadAsync(
         string? scope,
         string contentId,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(contentId))
-            return null;
+            return Task.FromResult<Stream?>(null);
 
         var actualScope = scope ?? "global";
         var scopePath = Path.Combine(_basePath, SanitizePath(actualScope));
 
         if (!Directory.Exists(scopePath))
-            return null;
+            return Task.FromResult<Stream?>(null);
 
         var filePath = FindContentFile(scopePath, contentId);
         if (filePath == null)
-            return null;
+            return Task.FromResult<Stream?>(null);
 
-        var data = await File.ReadAllBytesAsync(filePath, cancellationToken);
-        var contentType = GetContentTypeFromExtension(Path.GetExtension(filePath));
-        var fileInfo = new FileInfo(filePath);
-        var metaRaw = ReadMetaFile(scopePath, contentId);
-        var metadata = DeserializeMetadata(metaRaw);
+        Stream stream = new FileStream(
+            filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read | FileShare.Delete,
+            bufferSize: 81920,
+            useAsync: true);
+        return Task.FromResult<Stream?>(stream);
+    }
 
-        return new ContentData
-        {
-            Id = contentId,
-            Data = data,
-            ContentType = contentType,
-            Info = BuildContentInfo(contentId, contentType, fileInfo.Length,
-                fileInfo.CreationTimeUtc, fileInfo.LastWriteTimeUtc, metadata, metaRaw)
-        };
+    /// <inheritdoc />
+    public Task<Uri?> CreateReadUriAsync(
+        string? scope,
+        string contentId,
+        TimeSpan expiresIn,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<Uri?>(null);
+    }
+
+    /// <inheritdoc />
+    public Task<ContentInfo?> StatAsync(
+        string? scope,
+        string contentId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(contentId))
+            return Task.FromResult<ContentInfo?>(null);
+
+        var actualScope = scope ?? "global";
+        var scopePath = Path.Combine(_basePath, SanitizePath(actualScope));
+        if (!Directory.Exists(scopePath))
+            return Task.FromResult<ContentInfo?>(null);
+
+        return Task.FromResult(BuildContentInfoFromId(scopePath, contentId));
     }
 
     /// <inheritdoc />
     public Task DeleteAsync(
         string? scope,
         string contentId,
+        ContentDeleteOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(contentId))
@@ -172,7 +157,12 @@ public class LocalFileContentStore : IContentStore
         {
             // Read metadata to find name before deleting
             var metaRaw = ReadMetaFile(scopePath, contentId);
-            var name = metaRaw?.Name;
+            if (options?.IfMatchVersion != null && metaRaw?.Version != options.IfMatchVersion)
+                throw new ContentConflictException(
+                    $"Content '{contentId}' version conflict.",
+                    contentId,
+                    options.IfMatchVersion,
+                    metaRaw?.Version);
 
             // Delete content + meta files
             foreach (var file in Directory.GetFiles(scopePath, $"{contentId}.*"))
@@ -181,10 +171,10 @@ public class LocalFileContentStore : IContentStore
             }
 
             // Remove from name index
-            if (name != null)
+            if (metaRaw?.Name != null)
             {
                 var nameIndex = ReadNameIndex(scopePath);
-                if (nameIndex.Remove(name))
+                if (nameIndex.Remove(MakeNameKey(metaRaw.Name, metaRaw.Tags)))
                     WriteNameIndex(scopePath, nameIndex);
             }
         }
@@ -216,15 +206,15 @@ public class LocalFileContentStore : IContentStore
 
         var results = scopePaths
             .SelectMany(sp => Directory.Exists(sp) ? Directory.GetFiles(sp) : Array.Empty<string>())
-            .Where(f => !f.EndsWith(".meta") && !f.EndsWith(".nameindex"))
+            .Where(f => !f.EndsWith(".meta") && !f.EndsWith(".nameindex") && !f.EndsWith(".tmp"))
             .GroupBy(f => Path.GetFileNameWithoutExtension(f))
             .Select(g => g.First())
             .Select(filePath =>
             {
                 var contentId = Path.GetFileNameWithoutExtension(filePath);
-                var contentType = GetContentTypeFromExtension(Path.GetExtension(filePath));
                 var fileInfo = new FileInfo(filePath);
                 var metaRaw = ReadMetaFile(Path.GetDirectoryName(filePath)!, contentId);
+                var contentType = metaRaw?.ContentType ?? GetContentTypeFromExtension(Path.GetExtension(filePath));
                 var metadata = DeserializeMetadata(metaRaw);
                 return BuildContentInfo(contentId, contentType, fileInfo.Length,
                     fileInfo.CreationTimeUtc, fileInfo.LastWriteTimeUtc, metadata, metaRaw);
@@ -258,11 +248,132 @@ public class LocalFileContentStore : IContentStore
     // Metadata Helpers
     // ═══════════════════════════════════════════════════════════════════
 
+    private static ContentInfo Create(
+        string scopePath,
+        string tempPath,
+        string contentType,
+        ContentMetadata metadata,
+        string contentHash,
+        long sizeBytes,
+        ContentWriteOptions options)
+    {
+        var nameIndex = ReadNameIndex(scopePath);
+        if (options.FailIfNameExists &&
+            metadata.Name != null &&
+            nameIndex.ContainsKey(MakeNameKey(metadata)))
+        {
+            throw new ContentConflictException($"Content named '{metadata.Name}' already exists.");
+        }
+
+        var id = Guid.NewGuid().ToString("N");
+        var filePath = Path.Combine(scopePath, $"{id}{GetExtensionFromContentType(contentType)}");
+        File.Move(tempPath, filePath, overwrite: false);
+        WriteMetaFile(scopePath, id, contentType, metadata, contentHash, NewVersion());
+        if (metadata.Name != null)
+        {
+            nameIndex[MakeNameKey(metadata)] = id;
+            WriteNameIndex(scopePath, nameIndex);
+        }
+
+        var fileInfo = new FileInfo(filePath);
+        return BuildContentInfo(id, contentType, sizeBytes,
+            fileInfo.CreationTimeUtc, fileInfo.LastWriteTimeUtc, metadata, ReadMetaFile(scopePath, id));
+    }
+
+    private static ContentInfo ReplaceById(
+        string scopePath,
+        string tempPath,
+        string contentType,
+        ContentMetadata metadata,
+        string contentHash,
+        ContentWriteOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.ContentId))
+            throw new ArgumentException("ReplaceById requires ContentWriteOptions.ContentId.", nameof(options));
+
+        var contentId = options.ContentId;
+        var existingMeta = ReadMetaFile(scopePath, contentId);
+        if (existingMeta == null || FindContentFile(scopePath, contentId) == null)
+            throw new FileNotFoundException($"Content '{contentId}' was not found.");
+
+        EnsureVersionMatches(contentId, existingMeta.Version, options.IfMatchVersion);
+
+        var existingFile = FindContentFile(scopePath, contentId);
+        var newFilePath = Path.Combine(scopePath, $"{contentId}{GetExtensionFromContentType(contentType)}");
+        if (existingFile != null && existingFile != newFilePath)
+            File.Delete(existingFile);
+
+        File.Move(tempPath, newFilePath, overwrite: true);
+        WriteMetaFile(scopePath, contentId, contentType, metadata, contentHash, NewVersion());
+
+        var nameIndex = ReadNameIndex(scopePath);
+        if (existingMeta.Name != null)
+            nameIndex.Remove(MakeNameKey(existingMeta.Name, existingMeta.Tags));
+        if (metadata.Name != null)
+            nameIndex[MakeNameKey(metadata)] = contentId;
+        WriteNameIndex(scopePath, nameIndex);
+
+        return BuildContentInfoFromId(scopePath, contentId)!;
+    }
+
+    private static ContentInfo ReplaceByName(
+        string scopePath,
+        string tempPath,
+        string contentType,
+        ContentMetadata metadata,
+        string contentHash,
+        ContentWriteOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(metadata.Name))
+            throw new ArgumentException("ReplaceByName requires ContentMetadata.Name.", nameof(metadata));
+
+        var nameIndex = ReadNameIndex(scopePath);
+        if (!nameIndex.TryGetValue(MakeNameKey(metadata), out var contentId))
+            throw new FileNotFoundException($"Content named '{metadata.Name}' was not found.");
+
+        return ReplaceById(scopePath, tempPath, contentType, metadata, contentHash, options with { ContentId = contentId });
+    }
+
+    private static ContentInfo Append(
+        string scopePath,
+        string tempPath,
+        string contentType,
+        ContentMetadata metadata,
+        string contentHash,
+        ContentWriteOptions options)
+    {
+        string? contentId = options.ContentId;
+        if (contentId == null && metadata.Name != null)
+        {
+            var nameIndex = ReadNameIndex(scopePath);
+            nameIndex.TryGetValue(MakeNameKey(metadata), out contentId);
+        }
+
+        if (contentId == null || FindContentFile(scopePath, contentId) == null)
+            return Create(scopePath, tempPath, contentType, metadata, contentHash, new FileInfo(tempPath).Length, options with { Mode = ContentWriteMode.Create });
+
+        var existingMeta = ReadMetaFile(scopePath, contentId);
+        EnsureVersionMatches(contentId, existingMeta?.Version, options.IfMatchVersion);
+
+        var existingFile = FindContentFile(scopePath, contentId)!;
+        using (var output = new FileStream(existingFile, FileMode.Append, FileAccess.Write, FileShare.None))
+        using (var input = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            input.CopyTo(output);
+        }
+
+        File.Delete(tempPath);
+        var appendedHash = ComputeHashFile(existingFile);
+        WriteMetaFile(scopePath, contentId, contentType, metadata, appendedHash, NewVersion());
+        return BuildContentInfoFromId(scopePath, contentId)!;
+    }
+
     private static void WriteMetaFile(string scopePath, string contentId, string contentType,
-        ContentMetadata? metadata, string? contentHash)
+        ContentMetadata? metadata, string? contentHash, string version)
     {
         var meta = new LocalContentMetadata(
             ContentType: contentType,
+            Version: version,
             Name: metadata?.Name,
             Description: metadata?.Description,
             Origin: metadata?.Origin?.ToString(),
@@ -298,6 +409,7 @@ public class LocalFileContentStore : IContentStore
 
         return new ContentMetadata
         {
+            ContentType = raw.ContentType,
             Name = raw.Name,
             Description = raw.Description,
             OriginalSource = raw.OriginalSource,
@@ -317,6 +429,7 @@ public class LocalFileContentStore : IContentStore
         return new ContentInfo
         {
             Id = contentId,
+            Version = metaRaw?.Version ?? "legacy:unknown",
             Name = metadata?.Name ?? contentId,
             ContentType = contentType,
             SizeBytes = sizeBytes,
@@ -329,6 +442,20 @@ public class LocalFileContentStore : IContentStore
             OriginalSource = metadata?.OriginalSource,
             ExtendedMetadata = extendedMeta
         };
+    }
+
+    private static ContentInfo? BuildContentInfoFromId(string scopePath, string contentId)
+    {
+        var filePath = FindContentFile(scopePath, contentId);
+        if (filePath == null)
+            return null;
+
+        var fileInfo = new FileInfo(filePath);
+        var metaRaw = ReadMetaFile(scopePath, contentId);
+        var contentType = metaRaw?.ContentType ?? GetContentTypeFromExtension(Path.GetExtension(filePath));
+        var metadata = DeserializeMetadata(metaRaw);
+        return BuildContentInfo(contentId, contentType, fileInfo.Length,
+            fileInfo.CreationTimeUtc, fileInfo.LastWriteTimeUtc, metadata, metaRaw);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -354,6 +481,16 @@ public class LocalFileContentStore : IContentStore
         File.WriteAllText(indexPath, System.Text.Json.JsonSerializer.Serialize(index, HPDJsonContext.Default.DictionaryStringString));
     }
 
+    private static string MakeNameKey(ContentMetadata metadata) => MakeNameKey(metadata.Name, metadata.Tags);
+
+    private static string MakeNameKey(string? name, IReadOnlyDictionary<string, string>? tags)
+    {
+        var folder = tags != null && tags.TryGetValue("folder", out var value)
+            ? value.Trim().Trim('/')
+            : "";
+        return $"{folder}/{name}".ToLowerInvariant();
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // File Helpers
     // ═══════════════════════════════════════════════════════════════════
@@ -361,7 +498,7 @@ public class LocalFileContentStore : IContentStore
     private static string? FindContentFile(string scopePath, string contentId)
     {
         var files = Directory.GetFiles(scopePath, $"{contentId}.*")
-            .Where(f => !f.EndsWith(".meta") && !f.EndsWith(".nameindex"))
+            .Where(f => !f.EndsWith(".meta") && !f.EndsWith(".nameindex") && !f.EndsWith(".tmp"))
             .ToArray();
         return files.Length > 0 ? files[0] : null;
     }
@@ -373,6 +510,74 @@ public class LocalFileContentStore : IContentStore
     {
         var hashBytes = SHA256.HashData(data);
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
+    }
+
+    private static string ComputeHashFile(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var hashBytes = SHA256.HashData(stream);
+        return Convert.ToHexString(hashBytes).ToLowerInvariant();
+    }
+
+    private static void EnsureVersionMatches(string contentId, string? actualVersion, string? expectedVersion)
+    {
+        if (expectedVersion != null && actualVersion != expectedVersion)
+        {
+            throw new ContentConflictException(
+                $"Content '{contentId}' version conflict.",
+                contentId,
+                expectedVersion,
+                actualVersion);
+        }
+    }
+
+    private static string NewVersion() => $"rev:{Guid.NewGuid():N}";
+
+    private static async Task<(string TempPath, string ContentHash, long SizeBytes)> WriteStreamToTempFileAsync(
+        string scopePath,
+        Stream data,
+        CancellationToken cancellationToken)
+    {
+        var tempPath = Path.Combine(scopePath, $".upload-{Guid.NewGuid():N}.tmp");
+        await using (var output = new FileStream(
+            tempPath,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 81920,
+            useAsync: true))
+        {
+            await data.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+        }
+
+        var info = new FileInfo(tempPath);
+        var hash = await ComputeHashFileAsync(tempPath, cancellationToken).ConfigureAwait(false);
+        return (tempPath, hash, info.Length);
+    }
+
+    private static async Task<string> ComputeHashFileAsync(string path, CancellationToken cancellationToken)
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 81920,
+            useAsync: true);
+        var hashBytes = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
+        return Convert.ToHexString(hashBytes).ToLowerInvariant();
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+        }
     }
 
     private static string GetExtensionFromContentType(string contentType) =>
@@ -429,6 +634,7 @@ public class LocalFileContentStore : IContentStore
 
 public sealed record LocalContentMetadata(
     string ContentType,
+    string? Version = null,
     string? Name = null,
     string? Description = null,
     string? Origin = null,

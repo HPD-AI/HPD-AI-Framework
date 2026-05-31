@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using FluentAssertions;
+using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
 using Microsoft.AspNetCore.Builder;
@@ -87,11 +89,57 @@ public class RecursiveBranchDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
 
     private async Task<BranchDto> ForkBranch(string sessionId, string sourceBranchId, string newBranchId)
     {
-        var request = new ForkBranchRequest(newBranchId, 0, null, null, null);
+        var forkMessageId = await EnsureForkMessageAsync(sessionId, sourceBranchId);
+        var request = new ForkBranchRequest(newBranchId, forkMessageId, null, null, null);
         var response = await _client.PostAsJsonAsync(
             $"/agents/test-agent/sessions/{sessionId}/branches/{sourceBranchId}/fork", request);
         response.IsSuccessStatusCode.Should().BeTrue($"fork to {newBranchId} should succeed");
         return (await response.Content.ReadFromJsonAsync<BranchDto>())!;
+    }
+
+    private async Task<string> EnsureForkMessageAsync(string sessionId, string branchId)
+    {
+        var existing = await TryGetFirstUserMessageIdAsync(sessionId, branchId);
+        if (!string.IsNullOrWhiteSpace(existing))
+            return existing!;
+
+        var inputResponse = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/branches/{branchId}/inputs",
+            new StreamTextRequest("Seed fork message"));
+        inputResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        for (var i = 0; i < 50; i++)
+        {
+            var messageId = await TryGetFirstUserMessageIdAsync(sessionId, branchId);
+            if (!string.IsNullOrWhiteSpace(messageId))
+                return messageId!;
+
+            await Task.Delay(50);
+        }
+
+        throw new TimeoutException("Timed out waiting for a persisted fork message.");
+    }
+
+    private async Task<string?> TryGetFirstUserMessageIdAsync(string sessionId, string branchId)
+    {
+        var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/branches/{branchId}/events");
+        eventsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var document = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
+        foreach (var evt in document.RootElement.EnumerateArray())
+        {
+            if (evt.GetProperty("type").GetString() != BranchEventTypes.MessageStarted)
+                continue;
+
+            if (evt.TryGetProperty("role", out var role) &&
+                string.Equals(role.GetString(), "user", StringComparison.OrdinalIgnoreCase) &&
+                evt.TryGetProperty("messageId", out var messageId))
+            {
+                return messageId.GetString();
+            }
+        }
+
+        return null;
     }
 
     private async Task<BranchDto?> GetBranch(string sessionId, string branchId)
@@ -100,6 +148,24 @@ public class RecursiveBranchDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
         return response.StatusCode == HttpStatusCode.NotFound
             ? null
             : await response.Content.ReadFromJsonAsync<BranchDto>();
+    }
+
+    private async Task<BranchDto> WaitForBranch(
+        string sessionId,
+        string branchId,
+        Func<BranchDto, bool> predicate,
+        string expectation)
+    {
+        for (var i = 0; i < 50; i++)
+        {
+            var branch = await GetBranch(sessionId, branchId);
+            if (branch != null && predicate(branch))
+                return branch;
+
+            await Task.Delay(50);
+        }
+
+        throw new TimeoutException($"Timed out waiting for branch '{branchId}' to satisfy: {expectation}.");
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -224,16 +290,24 @@ public class RecursiveBranchDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
         await ForkBranch(sid, "fork-1", "fork-1a");
 
         // Verify main has fork-1 as child
-        var beforeMain = await GetBranch(sid, "main");
-        beforeMain!.TotalForks.Should().Be(1);
+        var beforeMain = await WaitForBranch(
+            sid,
+            "main",
+            static branch => branch.TotalForks == 1,
+            "TotalForks == 1");
+        beforeMain.TotalForks.Should().Be(1);
 
         // Act
         var response = await _client.DeleteAsync($"/sessions/{sid}/branches/fork-1?recursive=true");
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         // Assert: main no longer has fork-1 in children
-        var afterMain = await GetBranch(sid, "main");
-        afterMain!.TotalForks.Should().Be(0);
+        var afterMain = await WaitForBranch(
+            sid,
+            "main",
+            static branch => branch.TotalForks == 0,
+            "TotalForks == 0");
+        afterMain.TotalForks.Should().Be(0);
     }
 
     [Fact]
@@ -293,11 +367,57 @@ public class RecursiveBranchDeleteGuardTests : IClassFixture<TestWebApplicationF
 
     private async Task<BranchDto> ForkBranch(string sessionId, string sourceBranchId, string newBranchId)
     {
-        var request = new ForkBranchRequest(newBranchId, 0, null, null, null);
+        var forkMessageId = await EnsureForkMessageAsync(sessionId, sourceBranchId);
+        var request = new ForkBranchRequest(newBranchId, forkMessageId, null, null, null);
         var response = await _client.PostAsJsonAsync(
             $"/agents/test-agent/sessions/{sessionId}/branches/{sourceBranchId}/fork", request);
         response.IsSuccessStatusCode.Should().BeTrue();
         return (await response.Content.ReadFromJsonAsync<BranchDto>())!;
+    }
+
+    private async Task<string> EnsureForkMessageAsync(string sessionId, string branchId)
+    {
+        var existing = await TryGetFirstUserMessageIdAsync(sessionId, branchId);
+        if (!string.IsNullOrWhiteSpace(existing))
+            return existing!;
+
+        var inputResponse = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/branches/{branchId}/inputs",
+            new StreamTextRequest("Seed fork message"));
+        inputResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        for (var i = 0; i < 50; i++)
+        {
+            var messageId = await TryGetFirstUserMessageIdAsync(sessionId, branchId);
+            if (!string.IsNullOrWhiteSpace(messageId))
+                return messageId!;
+
+            await Task.Delay(50);
+        }
+
+        throw new TimeoutException("Timed out waiting for a persisted fork message.");
+    }
+
+    private async Task<string?> TryGetFirstUserMessageIdAsync(string sessionId, string branchId)
+    {
+        var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/branches/{branchId}/events");
+        eventsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var document = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
+        foreach (var evt in document.RootElement.EnumerateArray())
+        {
+            if (evt.GetProperty("type").GetString() != BranchEventTypes.MessageStarted)
+                continue;
+
+            if (evt.TryGetProperty("role", out var role) &&
+                string.Equals(role.GetString(), "user", StringComparison.OrdinalIgnoreCase) &&
+                evt.TryGetProperty("messageId", out var messageId))
+            {
+                return messageId.GetString();
+            }
+        }
+
+        return null;
     }
 
     [Fact]

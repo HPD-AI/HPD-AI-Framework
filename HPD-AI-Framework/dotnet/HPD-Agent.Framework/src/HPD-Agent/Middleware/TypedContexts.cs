@@ -16,7 +16,7 @@ public sealed class BeforeMessageTurnContext : HookContext
     /// <summary>
     /// The user message that initiated this turn.
     ///   Can be NULL in continuation scenarios (when resuming from checkpoint with no new user input)
-    ///   Can be reassigned by middleware (e.g., AssetUploadMiddleware for content transformation)
+    ///   Can be reassigned by middleware (e.g., ContentUploadMiddleware for content transformation)
     /// NOTE: Changes do NOT flow to iteration messages - update session.ReplaceMessage() for persistence.
     /// </summary>
     public ChatMessage? UserMessage { get; set; }
@@ -171,7 +171,7 @@ public sealed class BeforeIterationContext : HookContext
     /// <summary>
     /// Token usage accumulated from all previous iterations in this turn.
     /// Useful for making cost-aware decisions before launching the next LLM call —
-    /// e.g. trigger history reduction or bail early if tokens are already high.
+    /// e.g. trigger compaction or bail early if tokens are already high.
     /// Null on the first iteration (no previous LLM calls yet).
     /// </summary>
     public UsageDetails? PreviousIterationsUsage => State.AccumulatedUsage;
@@ -570,6 +570,58 @@ public sealed class AfterFunctionContext : HookContext
         HarnessName = harnessName;
         SkillName = skillName;
         RunConfig = runConfig ?? throw new ArgumentNullException(nameof(runConfig));
+    }
+}
+
+//
+// BRANCH LIFECYCLE CONTEXTS
+//
+
+/// <summary>
+/// Context for the BeforeBranchForkCommit hook.
+/// Available properties: SourceBranch, TargetBranch, ForkedAtMessageIndex, ForkedAtMessageId, ForkOptions.
+/// </summary>
+public sealed class BeforeBranchForkCommitContext : HookContext
+{
+    /// <summary>
+    /// Branch being forked from.
+    /// </summary>
+    public Branch SourceBranch { get; }
+
+    /// <summary>
+    /// New branch being created. This branch has not been persisted yet.
+    /// </summary>
+    public Branch TargetBranch { get; }
+
+    /// <summary>
+    /// Resolved source message index where the fork occurs. The fork includes this message.
+    /// </summary>
+    public int ForkedAtMessageIndex { get; }
+
+    /// <summary>
+    /// Stable id of the source message at the fork point, if available.
+    /// </summary>
+    public string? ForkedAtMessageId { get; }
+
+    /// <summary>
+    /// Typed options used to create the fork.
+    /// </summary>
+    public BranchForkOptions ForkOptions { get; }
+
+    internal BeforeBranchForkCommitContext(
+        AgentContext baseContext,
+        Branch sourceBranch,
+        Branch targetBranch,
+        int forkedAtMessageIndex,
+        string? forkedAtMessageId,
+        BranchForkOptions? forkOptions = null)
+        : base(baseContext)
+    {
+        SourceBranch = sourceBranch ?? throw new ArgumentNullException(nameof(sourceBranch));
+        TargetBranch = targetBranch ?? throw new ArgumentNullException(nameof(targetBranch));
+        ForkedAtMessageIndex = forkedAtMessageIndex;
+        ForkedAtMessageId = forkedAtMessageId;
+        ForkOptions = forkOptions ?? BranchForkOptions.Default;
     }
 }
 

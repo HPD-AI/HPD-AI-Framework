@@ -14,7 +14,6 @@ namespace HPD.Agent;
 /// _sessions: ConcurrentDictionary&lt;string, Session&gt;        ← Session metadata
 /// _branches: ConcurrentDictionary&lt;string, BranchEventDocument&gt; ← Event documents per branch
 /// _uncommittedTurns: ConcurrentDictionary&lt;string, UncommittedTurn&gt; ← Crash recovery
-/// _assetStore: InMemoryAssetStore                        ← Shared assets
 /// </code>
 /// </remarks>
 public class InMemorySessionStore : ISessionStore
@@ -22,19 +21,6 @@ public class InMemorySessionStore : ISessionStore
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, BranchEventDocument>> _branches = new();
     private readonly ConcurrentDictionary<string, UncommittedTurn> _uncommittedTurns = new();
-    private readonly InMemoryContentStore _contentStore;
-
-    public InMemorySessionStore()
-    {
-        _contentStore = new InMemoryContentStore();
-    }
-
-    /// <inheritdoc />
-    public IContentStore? GetContentStore(string sessionId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        return _contentStore;
-    }
 
     // ═══════════════════════════════════════════════════════════════════
     // SESSION PERSISTENCE ( Metadata only)

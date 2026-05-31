@@ -56,9 +56,9 @@ public class ContainerExpansionTests : AgentTestBase
         {
             Enabled = true
         };
-        config.Provider ??= new ProviderConfig();
-        config.Provider.ProviderKey = "test";
-        config.Provider.ModelName = "test-model";
+        config.EnsureChatClientConfig();
+        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().ModelName = "test-model";
 
         // Register both container and member functions
         var allFunctions = new List<AIFunction> { container };
@@ -143,9 +143,9 @@ public class ContainerExpansionTests : AgentTestBase
 
         var config = DefaultConfig();
         config.Collapsing = new CollapsingConfig { Enabled = true };
-        config.Provider ??= new ProviderConfig();
-        config.Provider.ProviderKey = "test";
-        config.Provider.ModelName = "test-model";
+        config.EnsureChatClientConfig();
+        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().ModelName = "test-model";
 
         var allFunctions = new List<AIFunction> { container };
         allFunctions.AddRange(members);
@@ -222,9 +222,9 @@ public class ContainerExpansionTests : AgentTestBase
 
         var config = DefaultConfig();
         config.Collapsing = new CollapsingConfig { Enabled = true };
-        config.Provider ??= new ProviderConfig();
-        config.Provider.ProviderKey = "test";
-        config.Provider.ModelName = "test-model";
+        config.EnsureChatClientConfig();
+        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().ModelName = "test-model";
 
         var allFunctions = new List<AIFunction> { getTime, container };
         allFunctions.AddRange(members);

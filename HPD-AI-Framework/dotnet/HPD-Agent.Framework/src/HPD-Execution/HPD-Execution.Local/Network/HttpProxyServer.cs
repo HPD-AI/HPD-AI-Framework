@@ -735,7 +735,7 @@ internal sealed class HttpProxyServer : IHttpProxyServer
         var length = 0;
         while (length < buffer.Length)
         {
-            var read = await stream.ReadAsync(buffer.AsMemory(length, 1), cancellationToken);
+            var read = await stream.ReadAsync(buffer.AsMemory(length), cancellationToken);
             if (read == 0)
                 return null;
 

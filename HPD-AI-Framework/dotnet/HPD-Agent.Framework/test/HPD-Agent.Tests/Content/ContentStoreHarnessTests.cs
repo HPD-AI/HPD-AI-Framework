@@ -28,7 +28,7 @@ public class ContentStoreHarnessTests
         store.CreateFolder("memory", new FolderOptions
         {
             Description = "Agent memory",
-            Permissions = ContentPermissions.Full
+            Permissions = ContentPermissions.Read
         });
         store.CreateFolder("skills", new FolderOptions
         {
@@ -43,6 +43,28 @@ public class ContentStoreHarnessTests
         return (store, harness);
     }
 
+    private static Task<ContentInfo> SeedCanonicalMemoryAsync(
+        IContentStore store,
+        string name,
+        string content)
+    {
+        return store.WriteTextAsync(
+            AgentName,
+            content,
+            new ContentMetadata
+            {
+                ContentType = "text/plain",
+                Name = name,
+                Origin = ContentSource.System,
+                Tags = new Dictionary<string, string> { ["folder"] = "/memory" }
+            },
+            new ContentWriteOptions
+            {
+                Mode = ContentWriteMode.Create,
+                FailIfNameExists = true
+            });
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // T-1: ReadAsync returns text content
     // ═══════════════════════════════════════════════════════════════════
@@ -51,7 +73,7 @@ public class ContentStoreHarnessTests
     public async Task ReadAsync_ReturnsTextContent()
     {
         var (store, harness) = CreateHarness();
-        await store.WriteMemoryAsync(AgentName, "notes.md", "# My notes\nLine 2");
+        await SeedCanonicalMemoryAsync(store, "notes.md", "# My notes\nLine 2");
 
         var result = await harness.ReadAsync("/memory/notes.md");
 
@@ -68,7 +90,7 @@ public class ContentStoreHarnessTests
     {
         var (store, harness) = CreateHarness();
         var content = "line0\nline1\nline2\nline3\nline4";
-        await store.WriteMemoryAsync(AgentName, "file.txt", content);
+        await SeedCanonicalMemoryAsync(store, "file.txt", content);
 
         var result = await harness.ReadAsync("/memory/file.txt", offset: 1, limit: 2);
 
@@ -87,7 +109,7 @@ public class ContentStoreHarnessTests
     {
         var (store, harness) = CreateHarness(withSession: true);
         var binaryData = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 }; // JPEG header
-        await store.PutAsync(SessionId, binaryData, "image/jpeg",
+        await store.WriteBytesAsync(SessionId, binaryData, "image/jpeg",
             new ContentMetadata
             {
                 Name = "photo.jpg",
@@ -134,24 +156,35 @@ public class ContentStoreHarnessTests
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // T-6: WriteAsync stores content in the correct folder
+    // T-6: WriteAsync stores content in the session artifact folder
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task WriteAsync_WritesToCorrectFolder()
+    public async Task WriteAsync_WritesToArtifactFolder()
     {
-        var (store, harness) = CreateHarness();
+        var (store, harness) = CreateHarness(withSession: true);
 
-        var writeResult = await harness.WriteAsync("/memory/prefs.md", "User prefers dark mode");
+        var writeResult = await harness.WriteAsync("/artifacts/prefs.md", "User prefers dark mode");
 
         Assert.DoesNotContain("Error", writeResult);
 
-        var items = await store.QueryAsync(AgentName, new ContentQuery
+        var items = await store.QueryAsync(SessionId, new ContentQuery
         {
-            Tags = new Dictionary<string, string> { ["folder"] = "/memory" }
+            Tags = new Dictionary<string, string> { ["folder"] = "/artifacts" }
         });
         Assert.Single(items);
         Assert.Equal("prefs.md", items[0].Name);
+    }
+
+    [Fact]
+    public async Task WriteAsync_MemoryFolder_ReturnsReadOnlyError()
+    {
+        var (_, harness) = CreateHarness();
+
+        var result = await harness.WriteAsync("/memory/prefs.md", "User prefers dark mode");
+
+        Assert.Contains("Error", result);
+        Assert.Contains("read-only", result, StringComparison.OrdinalIgnoreCase);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -171,18 +204,18 @@ public class ContentStoreHarnessTests
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // T-8: WriteAsync to the same path twice overwrites content
+    // T-8: WriteAsync to the same artifact path uses explicit versioned replace
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
     public async Task WriteAsync_UpdatesExistingFile()
     {
-        var (_, harness) = CreateHarness();
+        var (_, harness) = CreateHarness(withSession: true);
 
-        await harness.WriteAsync("/memory/notes.md", "original content");
-        await harness.WriteAsync("/memory/notes.md", "updated content");
+        await harness.WriteAsync("/artifacts/notes.md", "original content");
+        await harness.WriteAsync("/artifacts/notes.md", "updated content");
 
-        var result = await harness.ReadAsync("/memory/notes.md");
+        var result = await harness.ReadAsync("/artifacts/notes.md");
         Assert.Contains("updated content", result);
         Assert.DoesNotContain("original content", result);
     }
@@ -226,8 +259,8 @@ public class ContentStoreHarnessTests
     public async Task ListAsync_Folder_ShowsFiles()
     {
         var (store, harness) = CreateHarness();
-        await store.WriteMemoryAsync(AgentName, "note-a.md", "note a");
-        await store.WriteMemoryAsync(AgentName, "note-b.md", "note b");
+        await SeedCanonicalMemoryAsync(store, "note-a.md", "note a");
+        await SeedCanonicalMemoryAsync(store, "note-b.md", "note b");
 
         var result = await harness.ListAsync("/memory");
 
@@ -257,9 +290,9 @@ public class ContentStoreHarnessTests
     public async Task GlobAsync_FindsMatchingFiles()
     {
         var (store, harness) = CreateHarness();
-        await store.WriteMemoryAsync(AgentName, "api-guide.md", "api guide");
-        await store.WriteMemoryAsync(AgentName, "api-reference.md", "api reference");
-        await store.WriteMemoryAsync(AgentName, "unrelated.md", "unrelated");
+        await SeedCanonicalMemoryAsync(store, "api-guide.md", "api guide");
+        await SeedCanonicalMemoryAsync(store, "api-reference.md", "api reference");
+        await SeedCanonicalMemoryAsync(store, "unrelated.md", "unrelated");
 
         var result = await harness.GlobAsync("*api*");
 
@@ -276,7 +309,7 @@ public class ContentStoreHarnessTests
     public async Task GlobAsync_WithFolderFilter_ScopedToFolder()
     {
         var (store, harness) = CreateHarness();
-        await store.WriteMemoryAsync(AgentName, "api.md", "memory api doc");
+        await SeedCanonicalMemoryAsync(store, "api.md", "memory api doc");
         await store.UploadKnowledgeDocumentAsync(AgentName, "api.md",
             Encoding.UTF8.GetBytes("knowledge api doc"), "text/markdown");
 
@@ -302,20 +335,20 @@ public class ContentStoreHarnessTests
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // T-16: DeleteAsync removes the file
+    // T-16: DeleteAsync removes artifact files with a version-guarded delete
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
     public async Task DeleteAsync_RemovesFile()
     {
-        var (store, harness) = CreateHarness();
-        await store.WriteMemoryAsync(AgentName, "old-note.md", "stale");
+        var (_, harness) = CreateHarness(withSession: true);
+        await harness.WriteAsync("/artifacts/old-note.md", "stale");
 
-        var deleteResult = await harness.DeleteAsync("/memory/old-note.md");
+        var deleteResult = await harness.DeleteAsync("/artifacts/old-note.md");
 
         Assert.DoesNotContain("Error", deleteResult);
 
-        var readResult = await harness.ReadAsync("/memory/old-note.md");
+        var readResult = await harness.ReadAsync("/artifacts/old-note.md");
         Assert.Contains("Error", readResult);
         Assert.Contains("not found", readResult, StringComparison.OrdinalIgnoreCase);
     }
@@ -334,7 +367,7 @@ public class ContentStoreHarnessTests
             Permissions = ContentPermissions.Read // no Delete
         });
         var harness = new ContentStoreHarness(store, AgentName);
-        await store.PutAsync(AgentName, Encoding.UTF8.GetBytes("content"), "text/plain",
+        await store.WriteBytesAsync(AgentName, Encoding.UTF8.GetBytes("content"), "text/plain",
             new ContentMetadata
             {
                 Name = "file.md",
@@ -360,7 +393,7 @@ public class ContentStoreHarnessTests
     {
         var (store, harness) = CreateHarness();
         var data = Encoding.UTF8.GetBytes("some content for stat");
-        await store.PutAsync(AgentName, data, "text/markdown",
+        await store.WriteBytesAsync(AgentName, data, "text/markdown",
             new ContentMetadata
             {
                 Name = "stat-test.md",
@@ -384,8 +417,8 @@ public class ContentStoreHarnessTests
     public async Task TreeAsync_ShowsFolderHierarchy()
     {
         var (store, harness) = CreateHarness();
-        await store.WriteMemoryAsync(AgentName, "note1.md", "note 1");
-        await store.WriteMemoryAsync(AgentName, "note2.md", "note 2");
+        await SeedCanonicalMemoryAsync(store, "note1.md", "note 1");
+        await SeedCanonicalMemoryAsync(store, "note2.md", "note 2");
         await store.UploadKnowledgeDocumentAsync(AgentName, "guide.md",
             Encoding.UTF8.GetBytes("guide"), "text/markdown");
 

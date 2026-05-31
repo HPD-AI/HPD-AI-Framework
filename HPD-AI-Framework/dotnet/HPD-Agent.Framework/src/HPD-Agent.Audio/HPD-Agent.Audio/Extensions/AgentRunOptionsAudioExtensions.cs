@@ -1,6 +1,8 @@
 // Copyright 2026 Einstein Essibu
 // SPDX-License-Identifier: AGPL-3.0-only
 
+using HPD.Agent.Audio.Realtime;
+
 namespace HPD.Agent.Audio;
 
 /// <summary>
@@ -64,11 +66,16 @@ public static class AgentRunConfigAudioExtensions
     public static AgentRunConfig WithFullVoice(this AgentRunConfig options)
         => options.WithAudio(new AudioRunConfig { IOMode = AudioIOMode.AudioToAudio });
 
-    /// <summary>Native processing with captions (GPT-4o Realtime, Gemini Live).</summary>
+    /// <summary>Realtime session processing with captions.</summary>
     /// <param name="options">The agent run options.</param>
     /// <returns>The agent run options for chaining.</returns>
-    public static AgentRunConfig WithNativeAudio(this AgentRunConfig options)
-        => options.WithAudio(new AudioRunConfig { ProcessingMode = AudioProcessingMode.Native, IOMode = AudioIOMode.AudioToAudioAndText });
+    public static AgentRunConfig WithRealtimeAudio(this AgentRunConfig options)
+        => options.WithAudio(new AudioRunConfig
+        {
+            ProcessingMode = AudioProcessingMode.Realtime,
+            IOMode = AudioIOMode.AudioToAudioAndText,
+            Realtime = new RealtimeAudioConfig()
+        });
 
     /// <summary>
     /// Sets the TTS voice for this request.

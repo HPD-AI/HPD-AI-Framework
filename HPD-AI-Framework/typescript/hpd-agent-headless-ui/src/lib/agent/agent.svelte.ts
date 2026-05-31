@@ -5,7 +5,7 @@
  * the event handler methods that EventMapper calls when HPD protocol events arrive.
  */
 
-import type { AgentEvent, ToolResultPayload } from '@hpd/hpd-agent-client';
+import type { AgentEvent, KnownAgentEvent, ToolResultPayload } from '@hpd/hpd-agent-client';
 import type {
 	Message,
 	MessageRole,
@@ -472,45 +472,46 @@ export class AgentState {
 	 * Single entry point — protocol knowledge lives here, not in callers.
 	 */
 	dispatch(event: AgentEvent): void {
-		switch (event.type) {
+		const known = event as KnownAgentEvent;
+		switch (known.type) {
 			case 'TEXT_MESSAGE_START':
-				this.onTextMessageStart(event.messageId, event.role);
+				this.onTextMessageStart(known.messageId, known.role);
 				break;
 			case 'TEXT_DELTA':
-				this.onTextDelta(event.text, event.messageId);
+				this.onTextDelta(known.text, known.messageId);
 				break;
 			case 'TEXT_MESSAGE_END':
-				this.onTextMessageEnd(event.messageId);
+				this.onTextMessageEnd(known.messageId);
 				break;
 			case 'REASONING_MESSAGE_START':
-				this.onReasoningMessageStart(event.messageId, event.role);
+				this.onReasoningMessageStart(known.messageId, known.role);
 				break;
 			case 'REASONING_DELTA':
-				this.onReasoningDelta(event.text, event.messageId);
+				this.onReasoningDelta(known.text, known.messageId);
 				break;
 			case 'REASONING_MESSAGE_END':
-				this.onReasoningMessageEnd(event.messageId);
+				this.onReasoningMessageEnd(known.messageId);
 				break;
 			case 'TOOL_CALL_START':
-				this.onToolCallStart(event.callId, event.name, event.messageId);
+				this.onToolCallStart(known.callId, known.name, known.messageId);
 				break;
 			case 'TOOL_CALL_ARGS':
-				this.onToolCallArgs(event.callId, event.argsJson);
+				this.onToolCallArgs(known.callId, known.argsJson);
 				break;
 			case 'TOOL_CALL_END':
-				this.onToolCallEnd(event.callId);
+				this.onToolCallEnd(known.callId);
 				break;
 			case 'TOOL_CALL_RESULT':
-				this.onToolCallResult(event.callId, event.result);
+				this.onToolCallResult(known.callId, known.result);
 				break;
 			case 'MESSAGE_TURN_STARTED':
-				this.onMessageTurnStarted(event.messageTurnId, event.conversationId, event.agentName, event.timestamp);
+				this.onMessageTurnStarted(known.messageTurnId, known.conversationId, known.agentName, known.timestamp);
 				break;
 			case 'MESSAGE_TURN_FINISHED':
-				this.onMessageTurnFinished(event.messageTurnId, event.conversationId, event.duration, event.timestamp);
+				this.onMessageTurnFinished(known.messageTurnId, known.conversationId, known.duration, known.timestamp);
 				break;
 			case 'MESSAGE_TURN_ERROR':
-				this.onMessageTurnError(event.message);
+				this.onMessageTurnError(known.message);
 				break;
 			// All other event types (audio, VAD, permissions, etc.) are handled
 			// by callers that need them (e.g. createAgent). BranchManager ignores them.

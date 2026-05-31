@@ -17,7 +17,6 @@ public static class AgentBuilderExtensions
     /// <param name="apiKey">The Google AI API key. If not provided, will attempt to resolve from environment variables</param>
     /// <param name="model">The model name (e.g., "gemini-2.0-flash", "gemini-1.5-pro")</param>
     /// <param name="configure">Optional action to configure additional Google AI-specific options</param>
-    /// <param name="clientFactory">Optional factory to wrap the chat client with middleware (logging, caching, etc.)</param>
     /// <returns>The builder for method chaining</returns>
     /// <remarks>
     /// <para>
@@ -28,7 +27,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates a <see cref="GoogleAIProviderConfig"/> that is:
-    /// - Stored in <c>ProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
     /// - Applied during <c>GoogleAIProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -125,8 +124,7 @@ public static class AgentBuilderExtensions
         this AgentBuilder builder,
         string? apiKey = null,
         string model = "gemini-2.0-flash",
-        Action<GoogleAIProviderConfig>? configure = null,
-        Func<IChatClient, IChatClient>? clientFactory = null)
+        Action<GoogleAIProviderConfig>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -145,16 +143,17 @@ public static class AgentBuilderExtensions
         ValidateProviderConfig(providerConfig, configure);
 
         // Build provider config
-        builder.Config.Provider = new ProviderConfig
+        var chatConfig = new ClientProviderConfig
         {
             ProviderKey = "google-ai",
             ApiKey = apiKey, // May be null - AgentBuilder.Build() will resolve via ISecretResolver
             ModelName = model
         };
 
+        builder.Config.SetChatClientConfig(chatConfig);
+
         // Store the typed config
-        builder.Config.Provider.SetProviderConfig(providerConfig);
-        builder.Config.Provider.ClientFactory = clientFactory;
+        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
     }

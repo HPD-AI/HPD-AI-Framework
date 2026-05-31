@@ -1,8 +1,13 @@
 // Copyright (c) 2025 Einstein Essibu. All rights reserved.
 
-using HPD.Agent.Audio.Stt;
-using HPD.Agent.Audio.Tts;
 using FluentAssertions;
+using HPD.Agent;
+using HPD.Agent.AudioProviders.ElevenLabs;
+using HPD.Agent.AudioProviders.ElevenLabs.Tts;
+using HPD.Agent.AudioProviders.OpenAI;
+using HPD.Agent.AudioProviders.OpenAI.Stt;
+using HPD.Agent.AudioProviders.OpenAI.Tts;
+using HPD.Agent.Providers;
 
 namespace HPD.Agent.Audio.Tests;
 
@@ -16,73 +21,72 @@ public class ModuleInitializerTests
     public void OpenAI_TtsProvider_IsRegistered()
     {
         // Act
-        var factory = TtsProviderDiscovery.GetFactory("openai-audio");
+        var provider = new AgentBuilder().ProviderRegistry.GetProvider<ITextToSpeechClientProvider>("openai");
 
         // Assert
-        factory.Should().NotBeNull("OpenAI TTS provider should be auto-registered by module initializer");
+        provider.Should().NotBeNull("OpenAI TTS provider should be auto-registered by module initializer");
     }
 
     [Fact]
     public void OpenAI_SttProvider_IsRegistered()
     {
         // Act
-        var factory = SttProviderDiscovery.GetFactory("openai-audio");
+        var provider = new AgentBuilder().ProviderRegistry.GetProvider<ISpeechToTextClientProvider>("openai");
 
         // Assert
-        factory.Should().NotBeNull("OpenAI STT provider should be auto-registered by module initializer");
+        provider.Should().NotBeNull("OpenAI STT provider should be auto-registered by module initializer");
     }
 
     [Fact]
     public void ElevenLabs_TtsProvider_IsRegistered()
     {
         // Act
-        var factory = TtsProviderDiscovery.GetFactory("elevenlabs");
+        var provider = new AgentBuilder().ProviderRegistry.GetProvider<ITextToSpeechClientProvider>("elevenlabs");
 
         // Assert
-        factory.Should().NotBeNull("ElevenLabs TTS provider should be auto-registered by module initializer");
+        provider.Should().NotBeNull("ElevenLabs TTS provider should be auto-registered by module initializer");
     }
 
     [Fact]
     public void OpenAI_TtsConfigType_IsRegistered()
     {
         // Act
-        var configType = TtsProviderDiscovery.GetConfigType("openai-audio");
+        var configType = ProviderDiscovery.GetProviderConfigType("openai", ProviderClientFamily.TextToSpeech);
 
         // Assert
         configType.Should().NotBeNull("OpenAI TTS config type should be registered");
-        configType!.Name.Should().Be("OpenAITtsConfig");
+        configType!.ConfigType.Should().Be(typeof(OpenAITtsConfig));
     }
 
     [Fact]
     public void OpenAI_SttConfigType_IsRegistered()
     {
         // Act
-        var configType = SttProviderDiscovery.GetConfigType("openai-audio");
+        var configType = ProviderDiscovery.GetProviderConfigType("openai", ProviderClientFamily.SpeechToText);
 
         // Assert
         configType.Should().NotBeNull("OpenAI STT config type should be registered");
-        configType!.Name.Should().Be("OpenAISttConfig");
+        configType!.ConfigType.Should().Be(typeof(OpenAISttConfig));
     }
 
     [Fact]
     public void ElevenLabs_TtsConfigType_IsRegistered()
     {
         // Act
-        var configType = TtsProviderDiscovery.GetConfigType("elevenlabs");
+        var configType = ProviderDiscovery.GetProviderConfigType("elevenlabs", ProviderClientFamily.TextToSpeech);
 
         // Assert
         configType.Should().NotBeNull("ElevenLabs TTS config type should be registered");
-        configType!.Name.Should().Be("ElevenLabsTtsConfig");
+        configType!.ConfigType.Should().Be(typeof(ElevenLabsTtsConfig));
     }
 
     [Fact]
-    public void UnknownProvider_ThrowsException()
+    public void UnknownProvider_ReturnsNull()
     {
         // Act
-        var act = () => TtsProviderDiscovery.GetFactory("nonexistent-provider");
+        var provider = new AgentBuilder().ProviderRegistry.GetProvider<ITextToSpeechClientProvider>("nonexistent-provider");
 
         // Assert
-        act.Should().Throw<InvalidOperationException>()
-            .WithMessage("TTS provider 'nonexistent-provider' not found*");
+        provider.Should().BeNull();
     }
 }

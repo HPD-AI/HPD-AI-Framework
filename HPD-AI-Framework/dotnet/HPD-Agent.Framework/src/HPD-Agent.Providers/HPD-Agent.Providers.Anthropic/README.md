@@ -19,7 +19,7 @@ This NuGet package provides an `IChatClient` implementation for the [Anthropic A
 ## Getting Started
 
 ```csharp
-var config = new ProviderConfig
+var config = new ClientProviderConfig
 {
     ProviderKey = "anthropic",
     ApiKey = "your-api-key",

@@ -17,7 +17,7 @@ namespace HPD.Agent.Middleware.Image;
 /// </list>
 /// </para>
 /// <para>
-/// <b>Note:</b> Image storage is handled by AssetUploadMiddleware (universal storage layer).
+/// <b>Note:</b> Image storage is handled by ContentUploadMiddleware (universal storage layer).
 /// Strategies focus on content transformation only.
 /// </para>
 /// </remarks>

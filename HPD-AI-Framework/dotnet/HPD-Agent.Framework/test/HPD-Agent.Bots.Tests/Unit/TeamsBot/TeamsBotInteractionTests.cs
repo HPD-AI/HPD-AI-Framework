@@ -149,11 +149,10 @@ public class TeamsBotInteractionTests
             Name = "TeamsPermissionTestAgent",
             MaxAgenticIterations = 1,
             SystemInstructions = "You are a Teams permission test agent.",
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "test",
                 ModelName = "test-model",
-            },
+            } },
             AgenticLoop = new AgenticLoopConfig
             {
                 MaxTurnDuration = TimeSpan.FromMinutes(1),

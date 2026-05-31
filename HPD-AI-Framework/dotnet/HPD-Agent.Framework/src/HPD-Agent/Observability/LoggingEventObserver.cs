@@ -105,21 +105,21 @@ public class LoggingEventObserver
                 // Skip to avoid duplication
                 break;
 
-            // History reduction cache
-            case HistoryReductionCacheEvent e:
+            // History compaction cache
+            case CompactionCacheEvent e:
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
                     if (e.IsHit)
                     {
                         _logger.LogDebug(
-                            "Agent '{AgentName}' history reduction cache HIT: Reusing reduction from {CreatedAt}, " +
+                            "Agent '{AgentName}' compaction cache HIT: Reusing compaction from {CreatedAt}, " +
                             "summarized {SummarizedCount} messages, current count: {CurrentCount}",
-                            e.AgentName, e.ReductionCreatedAt, e.SummarizedUpToIndex, e.CurrentMessageCount);
+                            e.AgentName, e.CompactionCreatedAt, e.SummarizedUpToIndex, e.CurrentMessageCount);
                     }
                     else
                     {
                         _logger.LogDebug(
-                            "Agent '{AgentName}' history reduction cache MISS: Current count: {CurrentCount}",
+                            "Agent '{AgentName}' compaction cache MISS: Current count: {CurrentCount}",
                             e.AgentName, e.CurrentMessageCount);
                     }
                 }

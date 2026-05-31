@@ -36,6 +36,7 @@ public static class DtoMappingExtensions
             branch.GetDisplayName(),
             branch.Description,
             branch.ForkedFrom,
+            branch.ForkedAtMessageId,
             branch.ForkedAtMessageIndex,
             branch.CreatedAt,
             branch.LastActivity,
@@ -48,21 +49,23 @@ public static class DtoMappingExtensions
             branch.OriginalBranchId,
             branch.PreviousSiblingId,
             branch.NextSiblingId,
-            branch.TotalForks);
+            branch.TotalForks,
+            branch.Metadata.Count > 0 ? branch.Metadata : null);
     }
 
     /// <summary>
-    /// Convert ContentInfo to AssetDto.
+    /// Convert ContentInfo to ContentDto.
     /// </summary>
-    public static AssetDto ToDto(this ContentInfo asset)
+    public static ContentDto ToDto(this ContentInfo content)
     {
-        ArgumentNullException.ThrowIfNull(asset);
+        ArgumentNullException.ThrowIfNull(content);
 
-        return new AssetDto(
-            asset.Id,
-            asset.ContentType,
-            asset.SizeBytes,
-            asset.CreatedAt.ToString("O"));
+        return new ContentDto(
+            content.Id,
+            content.Version,
+            content.ContentType,
+            content.SizeBytes,
+            content.CreatedAt.ToString("O"));
     }
 
 }

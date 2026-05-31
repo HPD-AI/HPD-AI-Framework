@@ -6,7 +6,7 @@ namespace HPD.Agent;
 /// </summary>
 /// <remarks>
 /// Obtain instances via ContentStoreExtensions.CreateFolder() or GetFolder().
-/// IContentFolder pre-bakes the folder tag into every query/put/delete so callers
+/// IContentFolder pre-bakes the folder tag into every query/write/delete so callers
 /// don't have to construct tags manually.
 /// </remarks>
 public interface IContentFolder
@@ -21,20 +21,27 @@ public interface IContentFolder
     FolderOptions Options { get; }
 
     /// <summary>
-    /// Store content in this folder.
-    /// Uses named upsert semantics when metadata.Name is provided.
+    /// Write content in this folder with explicit write intent.
     /// </summary>
-    Task<string> PutAsync(
+    Task<ContentInfo> WriteAsync(
         string? scope,
-        byte[] data,
-        string contentType,
-        ContentMetadata? metadata = null,
+        Stream data,
+        ContentMetadata metadata,
+        ContentWriteOptions options,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Retrieve content by name or ID from this folder.
+    /// Open content by name or ID from this folder.
     /// </summary>
-    Task<ContentData?> GetAsync(
+    Task<Stream?> OpenReadAsync(
+        string scope,
+        string nameOrId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieve content metadata by name or ID from this folder.
+    /// </summary>
+    Task<ContentInfo?> StatAsync(
         string scope,
         string nameOrId,
         CancellationToken cancellationToken = default);
@@ -45,6 +52,7 @@ public interface IContentFolder
     Task DeleteAsync(
         string scope,
         string nameOrId,
+        ContentDeleteOptions? options = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

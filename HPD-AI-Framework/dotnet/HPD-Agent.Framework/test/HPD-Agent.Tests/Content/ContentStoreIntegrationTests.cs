@@ -19,13 +19,14 @@ public class ContentStoreIntegrationTests
         var store = new InMemoryContentStore();
         var data = new byte[] { 1, 2, 3 };
 
-        var id = await store.PutAsync("session-a", data, "image/jpeg");
-        var result = await store.GetAsync("session-a", id);
+        var id = await store.WriteBytesAsync("session-a", data, "image/jpeg");
+        var result = await store.ReadBytesAsync("session-a", id);
 
         Assert.NotNull(result);
-        Assert.Equal(id, result.Id);
-        Assert.Equal("image/jpeg", result.ContentType);
-        Assert.Equal(data, result.Data);
+        var info = await store.StatAsync("session-a", id.Id);
+        Assert.Equal(id.Id, info!.Id);
+        Assert.Equal("image/jpeg", info.ContentType);
+        Assert.Equal(data, result);
     }
 
     [Fact]
@@ -33,8 +34,8 @@ public class ContentStoreIntegrationTests
     {
         var store = new InMemoryContentStore();
 
-        var id = await store.PutAsync("session-a", new byte[] { 1, 2, 3 }, "image/jpeg");
-        var result = await store.GetAsync("session-b", id);
+        var id = await store.WriteBytesAsync("session-a", new byte[] { 1, 2, 3 }, "image/jpeg");
+        var result = await store.ReadBytesAsync("session-b", id);
 
         Assert.Null(result);
     }
@@ -44,9 +45,9 @@ public class ContentStoreIntegrationTests
     {
         var store = new InMemoryContentStore();
 
-        await store.PutAsync("agent-x", new byte[] { 1 }, "text/plain");
-        await store.PutAsync("agent-x", new byte[] { 2 }, "text/plain");
-        await store.PutAsync("agent-y", new byte[] { 3 }, "text/plain");
+        await store.WriteBytesAsync("agent-x", new byte[] { 1 }, "text/plain");
+        await store.WriteBytesAsync("agent-x", new byte[] { 2 }, "text/plain");
+        await store.WriteBytesAsync("agent-y", new byte[] { 3 }, "text/plain");
 
         var xResults = await store.QueryAsync("agent-x");
         var yResults = await store.QueryAsync("agent-y");
@@ -60,8 +61,8 @@ public class ContentStoreIntegrationTests
     {
         var store = new InMemoryContentStore();
 
-        await store.PutAsync("scope-1", new byte[] { 1 }, "text/plain");
-        await store.PutAsync("scope-2", new byte[] { 2 }, "text/plain");
+        await store.WriteBytesAsync("scope-1", new byte[] { 1 }, "text/plain");
+        await store.WriteBytesAsync("scope-2", new byte[] { 2 }, "text/plain");
 
         var all = await store.QueryAsync(null);
 
@@ -77,9 +78,9 @@ public class ContentStoreIntegrationTests
     {
         var store = new InMemoryContentStore();
 
-        await store.PutAsync("session-1", new byte[] { 1 }, "image/jpeg");
-        await store.PutAsync("session-1", new byte[] { 2 }, "image/jpeg");
-        await store.PutAsync("session-1", new byte[] { 3 }, "audio/mpeg");
+        await store.WriteBytesAsync("session-1", new byte[] { 1 }, "image/jpeg");
+        await store.WriteBytesAsync("session-1", new byte[] { 2 }, "image/jpeg");
+        await store.WriteBytesAsync("session-1", new byte[] { 3 }, "audio/mpeg");
 
         var jpegs = await store.QueryAsync("session-1", new ContentQuery { ContentType = "image/jpeg" });
 
@@ -91,7 +92,7 @@ public class ContentStoreIntegrationTests
     public async Task QueryByContentType_NoMatches_ReturnsEmptyList()
     {
         var store = new InMemoryContentStore();
-        await store.PutAsync("session-1", new byte[] { 1 }, "image/jpeg");
+        await store.WriteBytesAsync("session-1", new byte[] { 1 }, "image/jpeg");
 
         var results = await store.QueryAsync("session-1", new ContentQuery { ContentType = "video/mp4" });
 
@@ -109,8 +110,8 @@ public class ContentStoreIntegrationTests
         var cutoff = DateTime.UtcNow.AddMinutes(-1);
 
         await Task.Delay(50); // ensure timestamps land after cutoff
-        await store.PutAsync("agent-1", new byte[] { 1 }, "text/plain");
-        await store.PutAsync("agent-1", new byte[] { 2 }, "text/plain");
+        await store.WriteBytesAsync("agent-1", new byte[] { 1 }, "text/plain");
+        await store.WriteBytesAsync("agent-1", new byte[] { 2 }, "text/plain");
 
         var results = await store.QueryAsync("agent-1", new ContentQuery { CreatedAfter = cutoff });
 
@@ -122,7 +123,7 @@ public class ContentStoreIntegrationTests
     public async Task QueryByCreatedAfter_FutureTimestamp_ReturnsEmpty()
     {
         var store = new InMemoryContentStore();
-        await store.PutAsync("agent-1", new byte[] { 1 }, "text/plain");
+        await store.WriteBytesAsync("agent-1", new byte[] { 1 }, "text/plain");
 
         var results = await store.QueryAsync("agent-1", new ContentQuery
         {
@@ -141,11 +142,11 @@ public class ContentStoreIntegrationTests
     {
         var store = new InMemoryContentStore();
 
-        var id = await store.PutAsync("session-1", new byte[] { 1, 2, 3 }, "image/png");
-        Assert.NotNull(await store.GetAsync("session-1", id));
+        var id = await store.WriteBytesAsync("session-1", new byte[] { 1, 2, 3 }, "image/png");
+        Assert.NotNull(await store.ReadBytesAsync("session-1", id));
 
         await store.DeleteAsync("session-1", id);
-        Assert.Null(await store.GetAsync("session-1", id));
+        Assert.Null(await store.ReadBytesAsync("session-1", id));
     }
 
     [Fact]
@@ -162,14 +163,14 @@ public class ContentStoreIntegrationTests
     {
         var store = new InMemoryContentStore();
 
-        var id1 = await store.PutAsync("session-1", new byte[] { 1 }, "text/plain");
-        var id2 = await store.PutAsync("session-1", new byte[] { 2 }, "text/plain");
+        var id1 = await store.WriteBytesAsync("session-1", new byte[] { 1 }, "text/plain");
+        var id2 = await store.WriteBytesAsync("session-1", new byte[] { 2 }, "text/plain");
 
         await store.DeleteAsync("session-1", id1);
 
         var results = await store.QueryAsync("session-1");
         Assert.Single(results);
-        Assert.Equal(id2, results[0].Id);
+        Assert.Equal(id2.Id, results[0].Id);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -182,7 +183,7 @@ public class ContentStoreIntegrationTests
         var store = new InMemoryContentStore();
         var data = System.Text.Encoding.UTF8.GetBytes("hello");
 
-        await store.PutAsync("agent-1", data, "text/plain", new ContentMetadata
+        await store.WriteBytesAsync("agent-1", data, "text/plain", new ContentMetadata
         {
             Name = "greeting.txt",
             Description = "A simple greeting",
@@ -210,11 +211,11 @@ public class ContentStoreIntegrationTests
     {
         var store = new InMemoryContentStore();
 
-        await store.PutAsync("agent-1", new byte[] { 1 }, "text/plain", new ContentMetadata
+        await store.WriteBytesAsync("agent-1", new byte[] { 1 }, "text/plain", new ContentMetadata
         {
             Tags = new Dictionary<string, string> { ["folder"] = "/knowledge" }
         });
-        await store.PutAsync("agent-1", new byte[] { 2 }, "text/plain", new ContentMetadata
+        await store.WriteBytesAsync("agent-1", new byte[] { 2 }, "text/plain", new ContentMetadata
         {
             Tags = new Dictionary<string, string> { ["folder"] = "/memory" }
         });

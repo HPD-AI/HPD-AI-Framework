@@ -235,8 +235,7 @@ public class TotalErrorThresholdMiddleware : IAgentMiddleware
                 AgentName: context.AgentName,
                 TotalErrorCount: totalErrorCount,
                 MaxTotalErrors: MaxTotalErrors,
-                Iteration: 0, // V2 TODO: Not all contexts have Iteration
-                Timestamp: DateTimeOffset.UtcNow));
+                Iteration: 0)); // V2 TODO: Not all contexts have Iteration
         }
         catch (InvalidOperationException)
         {
@@ -253,8 +252,7 @@ public record TotalErrorThresholdExceededEvent(
     string AgentName,
     int TotalErrorCount,
     int MaxTotalErrors,
-    int Iteration,
-    DateTimeOffset Timestamp) : AgentEvent, IObservabilityEvent, IErrorEvent
+    int Iteration) : AgentEvent, IObservabilityEvent, IErrorEvent
 {
     /// <inheritdoc />
     public string ErrorMessage => $"Total error threshold ({TotalErrorCount}/{MaxTotalErrors}) exceeded";

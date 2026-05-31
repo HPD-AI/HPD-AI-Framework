@@ -1,6 +1,7 @@
 // Copyright (c) 2025 Einstein Essibu. All rights reserved.
 
 using HPD.Agent.Audio;
+using HPD.Agent.Audio.Realtime;
 using HPD.Agent.Audio.Tts;
 using HPD.Agent.Audio.Stt;
 using HPD.Agent.Audio.Vad;
@@ -49,19 +50,19 @@ public class AudioRunConfigTests
     }
 
     [Fact]
-    public void AllNativePropertiesCanBeSet()
+    public void AllRealtimePropertiesCanBeSet()
     {
-        // Native mode — only ProcessingMode, IOMode, Language, Disabled are valid
+        // Realtime mode — only ProcessingMode, IOMode, Language, Disabled are valid
         var options = new AudioRunConfig
         {
-            ProcessingMode = AudioProcessingMode.Native,
+            ProcessingMode = AudioProcessingMode.Realtime,
             IOMode = AudioIOMode.AudioToAudio,
             Language = "en",
             Disabled = false
         };
 
         // Assert
-        Assert.Equal(AudioProcessingMode.Native, options.ProcessingMode);
+        Assert.Equal(AudioProcessingMode.Realtime, options.ProcessingMode);
         Assert.Equal(AudioIOMode.AudioToAudio, options.IOMode);
         Assert.Equal("en", options.Language);
         Assert.False(options.Disabled);
@@ -120,26 +121,27 @@ public class AudioRunConfigTests
     }
 
     [Fact]
-    public void ToFullConfig_NativeMode_NoRoleConfigs_Succeeds()
+    public void ToFullConfig_RealtimeMode_NoPipelineRoleConfigs_Succeeds()
     {
-        // Native mode with only IOMode/Language is valid
         var options = new AudioRunConfig
         {
-            ProcessingMode = AudioProcessingMode.Native,
+            ProcessingMode = AudioProcessingMode.Realtime,
             IOMode = AudioIOMode.AudioToAudioAndText,
-            Language = "es"
+            Language = "es",
+            Realtime = new RealtimeAudioConfig()
         };
 
         // Act
         var config = options.ToFullConfig();
 
         // Assert
-        Assert.Equal(AudioProcessingMode.Native, config.ProcessingMode);
+        Assert.Equal(AudioProcessingMode.Realtime, config.ProcessingMode);
         Assert.Equal(AudioIOMode.AudioToAudioAndText, config.IOMode);
         Assert.Equal("es", config.Language);
         Assert.Null(config.Tts);
         Assert.Null(config.Stt);
         Assert.Null(config.Vad);
+        Assert.NotNull(config.Realtime);
     }
 
     [Fact]
@@ -294,77 +296,77 @@ public class AudioRunConfigTests
     }
 
     [Fact]
-    public void Validate_Native_WithStt_Throws()
+    public void Validate_Realtime_WithStt_Throws()
     {
         var options = new AudioRunConfig
         {
-            ProcessingMode = AudioProcessingMode.Native,
+            ProcessingMode = AudioProcessingMode.Realtime,
             Stt = new SttConfig()
         };
         Assert.Throws<InvalidOperationException>(() => options.Validate());
     }
 
     [Fact]
-    public void Validate_Native_WithTts_Throws()
+    public void Validate_Realtime_WithTts_Throws()
     {
         var options = new AudioRunConfig
         {
-            ProcessingMode = AudioProcessingMode.Native,
+            ProcessingMode = AudioProcessingMode.Realtime,
             Tts = new TtsConfig()
         };
         Assert.Throws<InvalidOperationException>(() => options.Validate());
     }
 
     [Fact]
-    public void Validate_Native_WithVad_Throws()
+    public void Validate_Realtime_WithVad_Throws()
     {
         var options = new AudioRunConfig
         {
-            ProcessingMode = AudioProcessingMode.Native,
+            ProcessingMode = AudioProcessingMode.Realtime,
             Vad = new VadConfig()
         };
         Assert.Throws<InvalidOperationException>(() => options.Validate());
     }
 
     [Fact]
-    public void Validate_Native_WithVoiceShortcut_Throws()
+    public void Validate_Realtime_WithVoiceShortcut_Throws()
     {
         var options = new AudioRunConfig
         {
-            ProcessingMode = AudioProcessingMode.Native,
+            ProcessingMode = AudioProcessingMode.Realtime,
             Voice = "alloy"
         };
         Assert.Throws<InvalidOperationException>(() => options.Validate());
     }
 
     [Fact]
-    public void Validate_Native_WithTtsModelShortcut_Throws()
+    public void Validate_Realtime_WithTtsModelShortcut_Throws()
     {
         var options = new AudioRunConfig
         {
-            ProcessingMode = AudioProcessingMode.Native,
+            ProcessingMode = AudioProcessingMode.Realtime,
             TtsModel = "tts-1"
         };
         Assert.Throws<InvalidOperationException>(() => options.Validate());
     }
 
     [Fact]
-    public void Validate_Native_WithTtsSpeedShortcut_Throws()
+    public void Validate_Realtime_WithTtsSpeedShortcut_Throws()
     {
         var options = new AudioRunConfig
         {
-            ProcessingMode = AudioProcessingMode.Native,
+            ProcessingMode = AudioProcessingMode.Realtime,
             TtsSpeed = 1.2f
         };
         Assert.Throws<InvalidOperationException>(() => options.Validate());
     }
 
     [Fact]
-    public void Validate_Native_WithOnlyIOModeAndLanguage_Succeeds()
+    public void Validate_Realtime_WithOnlyIOModeAndLanguage_Succeeds()
     {
         var options = new AudioRunConfig
         {
-            ProcessingMode = AudioProcessingMode.Native,
+            ProcessingMode = AudioProcessingMode.Realtime,
             IOMode = AudioIOMode.AudioToAudio,
             Language = "fr"
         };
@@ -373,12 +375,12 @@ public class AudioRunConfigTests
     }
 
     [Fact]
-    public void ToFullConfig_Native_WithVoiceShortcut_Throws()
+    public void ToFullConfig_Realtime_WithVoiceShortcut_Throws()
     {
         // Validate is called inside ToFullConfig — shortcut conflict caught before config is built
         var options = new AudioRunConfig
         {
-            ProcessingMode = AudioProcessingMode.Native,
+            ProcessingMode = AudioProcessingMode.Realtime,
             Voice = "nova"
         };
         Assert.Throws<InvalidOperationException>(() => options.ToFullConfig());

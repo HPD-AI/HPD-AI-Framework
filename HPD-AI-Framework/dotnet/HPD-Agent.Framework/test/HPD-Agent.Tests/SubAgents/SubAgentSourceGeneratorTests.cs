@@ -9,7 +9,7 @@ namespace HPD.Agent.Tests.SubAgents;
 /// 1. Detects [SubAgent] attribute
 /// 2. Generates AIFunction wrappers for sub-agents
 /// 3. Parses AgentConfig from method body
-/// 4. Handles different Session modes (Stateless, SharedSession, PerSession)
+/// 4. Handles branch-native execution policies
 /// 5. Validates method signatures
 /// </summary>
 public class SubAgentSourceGeneratorTests
@@ -42,53 +42,57 @@ public class SubAgentSourceGeneratorTests
         Assert.NotNull(subAgent.AgentConfig);
     }
 
-    // ===== P0: SubAgentFactory.Create() Patterns =====
+    // ===== P0: SubAgent.FromConfig() Patterns =====
 
     [Fact]
-    public void SubAgentFactory_Create_GeneratesStatelessSubAgent()
+    public void SubAgent_FromConfig_GeneratesDefaultBranchNativeSubAgent()
     {
         // Arrange
         var Harness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.StatelessSubAgent();
+        var subAgent = Harness.DefaultBranchNativeSubAgent();
 
         // Assert
         Assert.NotNull(subAgent);
-        Assert.Equal("StatelessSubAgent", subAgent.Name);
-        Assert.Equal(SubAgentSessionMode.Stateless, subAgent.SessionMode);
-        Assert.Null(subAgent.SharedSessionId); // No shared session ID for stateless
+        Assert.Equal("DefaultBranchNativeSubAgent", subAgent.Name);
+        Assert.Equal(SubAgentSourceKind.InlineConfig, subAgent.SourceKind);
+        Assert.Equal(SubAgentSessionPolicy.ParentSession, subAgent.ExecutionPolicy.SessionPolicy);
+        Assert.Equal(SubAgentBranchPolicy.ForkFromParentBranch, subAgent.ExecutionPolicy.BranchPolicy);
+        Assert.Null(subAgent.ExecutionPolicy.SharedSessionId);
     }
 
     [Fact]
-    public void SubAgentFactory_CreateStateful_GeneratesStatefulSubAgent()
+    public void SubAgent_SharedSessionPolicy_GeneratesSharedSessionSubAgent()
     {
         // Arrange
         var Harness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.StatefulSubAgent();
+        var subAgent = Harness.SharedSessionSubAgent();
 
         // Assert
         Assert.NotNull(subAgent);
-        Assert.Equal("StatefulSubAgent", subAgent.Name);
-        Assert.Equal(SubAgentSessionMode.SharedSession, subAgent.SessionMode);
-        Assert.NotNull(subAgent.SharedSessionId); // Should have shared session ID
+        Assert.Equal("SharedSessionSubAgent", subAgent.Name);
+        Assert.Equal(SubAgentSessionPolicy.SharedSession, subAgent.ExecutionPolicy.SessionPolicy);
+        Assert.Equal(SubAgentBranchPolicy.FreshBranch, subAgent.ExecutionPolicy.BranchPolicy);
+        Assert.NotNull(subAgent.ExecutionPolicy.SharedSessionId);
     }
 
     [Fact]
-    public void SubAgentFactory_CreatePerSession_GeneratesPerSessionSubAgent()
+    public void SubAgent_ParentBranchPolicy_GeneratesParentBranchSubAgent()
     {
         // Arrange
         var Harness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.PerSessionSubAgent();
+        var subAgent = Harness.ParentBranchSubAgent();
 
         // Assert
         Assert.NotNull(subAgent);
-        Assert.Equal("PerSessionSubAgent", subAgent.Name);
-        Assert.Equal(SubAgentSessionMode.PerSession, subAgent.SessionMode);
+        Assert.Equal("ParentBranchSubAgent", subAgent.Name);
+        Assert.Equal(SubAgentSessionPolicy.ParentSession, subAgent.ExecutionPolicy.SessionPolicy);
+        Assert.Equal(SubAgentBranchPolicy.ParentBranch, subAgent.ExecutionPolicy.BranchPolicy);
     }
 
     // ===== P0: AgentConfig Extraction =====
@@ -105,9 +109,9 @@ public class SubAgentSourceGeneratorTests
         // Assert
         Assert.NotNull(subAgent);
         Assert.NotNull(subAgent.AgentConfig);
-        Assert.NotNull(subAgent.AgentConfig.Provider);
-        Assert.Equal("openrouter", subAgent.AgentConfig.Provider.ProviderKey);
-        Assert.Equal("google/gemini-2.0-flash-exp:free", subAgent.AgentConfig.Provider.ModelName);
+        Assert.NotNull(subAgent.AgentConfig.EnsureChatClientConfig());
+        Assert.Equal("openrouter", subAgent.AgentConfig.EnsureChatClientConfig().ProviderKey);
+        Assert.Equal("google/gemini-2.0-flash-exp:free", subAgent.AgentConfig.EnsureChatClientConfig().ModelName);
     }
 
     [Fact]
@@ -171,32 +175,32 @@ public class SubAgentSourceGeneratorTests
         Assert.Equal("A valid test sub-agent", subAgent.Description);
     }
 
-    // ===== P0: Session mode Validation =====
+    // ===== P0: Execution policy Validation =====
 
     [Fact]
-    public void SubAgent_DefaultSessionMode_IsStateless()
+    public void SubAgent_DefaultExecutionPolicy_IsParentSessionForkedBranch()
     {
         // Arrange
         var Harness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.StatelessSubAgent();
+        var subAgent = Harness.DefaultBranchNativeSubAgent();
 
         // Assert
-        Assert.Equal(SubAgentSessionMode.Stateless, subAgent.SessionMode);
+        Assert.Equal(SubAgentExecutionPolicy.Default, subAgent.ExecutionPolicy);
     }
 
     [Fact]
-    public void SubAgent_SharedSessionId_IsNotNullForStateful()
+    public void SubAgent_SharedSessionId_IsOnExecutionPolicyForSharedSessionFreshBranch()
     {
         // Arrange
         var Harness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.StatefulSubAgent();
+        var subAgent = Harness.SharedSessionSubAgent();
 
         // Assert
-        Assert.NotNull(subAgent.SharedSessionId);
+        Assert.NotNull(subAgent.ExecutionPolicy.SharedSessionId);
     }
 
     // ===== P0: Complex Scenarios =====
@@ -214,7 +218,7 @@ public class SubAgentSourceGeneratorTests
         Assert.NotNull(subAgent);
         Assert.Equal("ComplexSubAgent", subAgent.Name);
         Assert.NotNull(subAgent.AgentConfig);
-        Assert.NotNull(subAgent.AgentConfig.Provider);
+        Assert.NotNull(subAgent.AgentConfig.EnsureChatClientConfig());
         Assert.NotNull(subAgent.AgentConfig.SystemInstructions);
         Assert.Equal(20, subAgent.AgentConfig.MaxAgenticIterations);
     }

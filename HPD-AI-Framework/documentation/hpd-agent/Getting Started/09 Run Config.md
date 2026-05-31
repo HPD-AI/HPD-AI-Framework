@@ -257,25 +257,25 @@ Attachments can be used without a `UserMessage` — middleware handles content-o
 
 ---
 
-### History Reduction
+### Compaction
 
-Override the history reduction behaviour for one turn:
+Override the compaction behaviour for one turn:
 
 ```csharp
-// Force reduction now (context switch, expensive operation coming up)
-var options = new AgentRunConfig { TriggerHistoryReduction = true };
+// Force compaction now (context switch, expensive operation coming up)
+var options = new AgentRunConfig { TriggerCompaction = true };
 
-// Skip reduction (important decision — need full context)
-var options = new AgentRunConfig { SkipHistoryReduction = true };
+// Skip compaction (important decision — need full context)
+var options = new AgentRunConfig { SkipCompaction = true };
 
-// Override the reduction mode for this turn only
+// Override the compaction mode for this turn only
 var options = new AgentRunConfig
 {
-    HistoryReductionBehaviorOverride = HistoryReductionBehavior.CircuitBreaker
+    CompactionBehaviorOverride = CompactionBehavior.CircuitBreaker
 };
 ```
 
-`SkipHistoryReduction` takes precedence over `TriggerHistoryReduction` if both are set.
+`SkipCompaction` takes precedence over `TriggerCompaction` if both are set.
 
 ---
 
@@ -306,7 +306,7 @@ var options = new AgentRunConfig
 | `SystemInstructions`, `AdditionalSystemInstructions` | `RuntimeMiddleware` |
 | `ContextOverrides`, `PermissionOverrides` | `ContextInstances` |
 | `RunTimeout`, `SkipTools`, `CoalesceDeltas`, `UseCache` | `AdditionalTools`, `ToolModeOverride` |
-| `TriggerHistoryReduction`, `SkipHistoryReduction` | `Attachments`, `CustomStreamCallback` |
+| `TriggerCompaction`, `SkipCompaction` | `Attachments`, `CustomStreamCallback` |
 | `AllowBackgroundResponses`, `BackgroundPollingInterval` | `ContinuationToken` |
 
 In web apps, the TypeScript client sends `StreamRunConfigDto` fields as part of the stream request body. C#-only properties must be injected server-side via `ConfigureAgent` or middleware.

@@ -35,6 +35,10 @@ public sealed class AgentContext
     private readonly IEventCoordinator _events;
     private readonly CancellationToken _cancellationToken;
     private readonly IChatClient? _parentChatClient;
+    private readonly IAgentStore? _parentAgentStore;
+    private readonly AgentConfig? _config;
+    private readonly AgentClientSet? _clientSet;
+    private readonly IContentStore? _contentStore;
     private readonly Session? _session;
     private readonly Branch? _branch;
     private readonly IServiceProvider? _services;
@@ -53,6 +57,27 @@ public sealed class AgentContext
     /// Parent agent's chat client (for SubAgent inheritance).
     /// </summary>
     internal IChatClient? ParentChatClient => _parentChatClient;
+
+    /// <summary>
+    /// Parent agent's definition store (for stored-agent subagent resolution).
+    /// </summary>
+    internal IAgentStore? ParentAgentStore => _parentAgentStore;
+
+    /// <summary>
+    /// Agent configuration for middleware that needs agent-level client-family defaults.
+    /// </summary>
+    public AgentConfig? Config => _config;
+
+    /// <summary>
+    /// Provider-created client-family instances resolved for this agent build.
+    /// </summary>
+    internal AgentClientSet? ClientSet => _clientSet;
+
+    /// <summary>
+    /// Explicit content store configured for this agent.
+    /// Content visibility is controlled by scope and folder metadata, not by the session store.
+    /// </summary>
+    public IContentStore? ContentStore => _contentStore;
 
     //
     // IDENTITY (immutable)
@@ -77,20 +102,19 @@ public sealed class AgentContext
 
     /// <summary>
     /// The session metadata container.
-    /// Provides access to session.Store for middleware infrastructure operations.
     /// May be null if no session was provided.
     /// </summary>
     /// <remarks>
     /// <para>
     /// Session contains metadata and session-scoped middleware state (permissions, preferences).
     /// Messages live in <see cref="Branch"/> instead.
-    /// Middleware can access session?.Store.GetContentStore(sessionId) for session-scoped content storage.
+    /// Middleware should use <see cref="ContentStore"/> for uploads, artifacts, and other content.
     /// </para>
     /// <para><b>Example:</b></para>
     /// <code>
     /// public async Task BeforeIterationAsync(BeforeIterationContext context, ...)
     /// {
-    ///     var contentStore = context.Session?.Store?.GetContentStore(context.Session.Id);
+    ///     var contentStore = context.ContentStore;
     ///     if (contentStore != null)
     ///     {
     ///         // Upload/retrieve session-scoped content, etc.
@@ -133,8 +157,8 @@ public sealed class AgentContext
     /// <para><b>Example - Audio Provider with HttpClient:</b></para>
     /// <code>
     /// var httpClient = context.Services?.GetService(typeof(HttpClient)) as HttpClient;
-    /// var ttsFactory = TtsProviderDiscovery.GetFactory("openai");
-    /// var ttsClient = ttsFactory.CreateClient(config, context.Services);
+    /// var provider = providerRegistry.GetProvider&lt;ITextToSpeechClientProvider&gt;("openai");
+    /// var ttsClient = provider?.CreateTextToSpeechClient(config, context.Services);
     /// </code>
     /// </remarks>
     public IServiceProvider? Services => _services;
@@ -399,17 +423,25 @@ public sealed class AgentContext
         IChatClient? parentChatClient = null,
         IServiceProvider? services = null,
         IRuntimeCapabilityRegistry? runtimeCapabilities = null,
-        string? traceId = null)
+        string? traceId = null,
+        IAgentStore? parentAgentStore = null,
+        AgentConfig? config = null,
+        AgentClientSet? clientSet = null,
+        IContentStore? contentStore = null)
     {
         AgentName = agentName ?? throw new ArgumentNullException(nameof(agentName));
         ConversationId = conversationId;
         TraceId = traceId;
+        _config = config;
+        _clientSet = clientSet;
+        _contentStore = contentStore;
         _state = initialState ?? throw new ArgumentNullException(nameof(initialState));
         _events = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
         _session = session;
         _branch = branch;
         _cancellationToken = cancellationToken;
         _parentChatClient = parentChatClient;
+        _parentAgentStore = parentAgentStore;
         _services = services;
         _runtimeCapabilities = runtimeCapabilities ?? new RuntimeCapabilityRegistry();
     }
@@ -499,6 +531,17 @@ public sealed class AgentContext
         ToolInvocationInfo? invocation = null,
         ToolResultMetadata? resultMetadata = null)
         => new(this, function, callId, result, exception, runConfig, harnessName, skillName, invocation, resultMetadata);
+
+    /// <summary>
+    /// Creates a typed context for BeforeBranchForkCommit hook.
+    /// </summary>
+    internal BeforeBranchForkCommitContext AsBeforeBranchForkCommit(
+        Branch sourceBranch,
+        Branch targetBranch,
+        int forkedAtMessageIndex,
+        string? forkedAtMessageId,
+        BranchForkOptions? forkOptions = null)
+        => new(this, sourceBranch, targetBranch, forkedAtMessageIndex, forkedAtMessageId, forkOptions);
 
     /// <summary>
     /// Creates a typed context for OnError hook.

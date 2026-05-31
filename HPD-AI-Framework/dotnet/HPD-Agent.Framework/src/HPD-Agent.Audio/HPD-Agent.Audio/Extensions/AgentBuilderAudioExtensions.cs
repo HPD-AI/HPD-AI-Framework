@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using HPD.Agent.Audio.Recognition;
+using HPD.Agent.Audio.Realtime;
 using HPD.Agent.Audio.Tts;
 using HPD.Agent.Audio.Stt;
 using HPD.Agent.Audio.Vad;
@@ -27,6 +28,7 @@ public static class AgentBuilderAudioExtensions
         Action<AudioPipelineMiddleware> configure)
     {
         var middleware = new AudioPipelineMiddleware();
+        middleware.ProviderRegistry = builder.ProviderRegistry;
         configure(middleware);
         return builder.WithMiddleware(middleware);
     }
@@ -38,7 +40,49 @@ public static class AgentBuilderAudioExtensions
     /// <returns>The agent builder for chaining.</returns>
     public static AgentBuilder UseAudioPipeline(this AgentBuilder builder)
     {
-        return builder.WithMiddleware(new AudioPipelineMiddleware());
+        return builder.WithMiddleware(new AudioPipelineMiddleware
+        {
+            ProviderRegistry = builder.ProviderRegistry
+        });
+    }
+
+    /// <summary>
+    /// Adds explicit audio attachment transcription middleware.
+    /// </summary>
+    /// <param name="builder">The agent builder.</param>
+    /// <param name="configure">Optional action to configure the middleware.</param>
+    /// <returns>The agent builder for chaining.</returns>
+    public static AgentBuilder UseAudioAttachmentTranscription(
+        this AgentBuilder builder,
+        Action<AudioAttachmentTranscriptionMiddleware>? configure = null)
+    {
+        var middleware = new AudioAttachmentTranscriptionMiddleware
+        {
+            ProviderRegistry = builder.ProviderRegistry
+        };
+        configure?.Invoke(middleware);
+        return builder.WithMiddleware(middleware);
+    }
+
+    /// <summary>
+    /// Adds explicit audio attachment transcription middleware with a speech recognizer.
+    /// </summary>
+    /// <param name="builder">The agent builder.</param>
+    /// <param name="speechRecognizer">The speech recognizer to use for attachment transcription.</param>
+    /// <param name="configure">Optional action to configure the middleware.</param>
+    /// <returns>The agent builder for chaining.</returns>
+    public static AgentBuilder UseAudioAttachmentTranscription(
+        this AgentBuilder builder,
+        ISpeechRecognizer speechRecognizer,
+        Action<AudioAttachmentTranscriptionMiddleware>? configure = null)
+    {
+        var middleware = new AudioAttachmentTranscriptionMiddleware
+        {
+            SpeechRecognizer = speechRecognizer,
+            ProviderRegistry = builder.ProviderRegistry
+        };
+        configure?.Invoke(middleware);
+        return builder.WithMiddleware(middleware);
     }
 
     /// <summary>
@@ -55,7 +99,8 @@ public static class AgentBuilderAudioExtensions
     {
         var middleware = new AudioPipelineMiddleware
         {
-            TextToSpeechClient = ttsClient
+            TextToSpeechClient = ttsClient,
+            ProviderRegistry = builder.ProviderRegistry
         };
         configure?.Invoke(middleware);
         return builder.WithMiddleware(middleware);
@@ -84,7 +129,8 @@ public static class AgentBuilderAudioExtensions
             TextToSpeechClient = ttsClient,
             SpeechRecognizer = speechRecognizer,
             Vad = vad,
-            EotDetector = eotDetector ?? new HeuristicEotDetector()
+            EotDetector = eotDetector ?? new HeuristicEotDetector(),
+            ProviderRegistry = builder.ProviderRegistry
         };
         configure?.Invoke(middleware);
         return builder.WithMiddleware(middleware);
@@ -98,29 +144,39 @@ public static class AgentBuilderAudioExtensions
         var config = new AudioConfig();
         configure(config);
 
-        // Create middleware and set full configuration
-        var middleware = new AudioPipelineMiddleware(config);
-
-        // Create clients from configuration
-        if (config.Tts != null)
+        if (config.ProcessingMode == AudioProcessingMode.Realtime)
         {
-            var ttsFactory = TtsProviderDiscovery.GetFactory(config.Tts.Provider);
-            middleware.TextToSpeechClient = ttsFactory.CreateClient(config.Tts);
+            return builder.UseRealtimeAudio(config);
         }
 
-        if (config.Stt != null)
+        return builder.WithMiddleware(new AudioPipelineMiddleware(config)
         {
-            var sttFactory = SttProviderDiscovery.GetFactory(config.Stt.Provider);
-            middleware.SpeechRecognizer = sttFactory.CreateRecognizer(config.Stt);
-        }
+            ProviderRegistry = builder.ProviderRegistry
+        });
+    }
 
-        if (config.Vad != null)
+    /// <summary>
+    /// Adds true bidirectional realtime audio middleware.
+    /// </summary>
+    public static AgentBuilder UseRealtimeAudio(
+        this AgentBuilder builder,
+        AudioConfig? config = null,
+        IRealtimeClient? realtimeClient = null)
+    {
+        var realtimeConfig = config?.Clone() ?? new AudioConfig
         {
-            var vadFactory = VadProviderDiscovery.GetFactory(config.Vad.Provider);
-            middleware.Vad = vadFactory.CreateDetector(config.Vad);
-        }
+            ProcessingMode = AudioProcessingMode.Realtime,
+            Realtime = new RealtimeAudioConfig()
+        };
 
-        return builder.WithMiddleware(middleware);
+        realtimeConfig.ProcessingMode = AudioProcessingMode.Realtime;
+        realtimeConfig.Realtime ??= new RealtimeAudioConfig();
+
+        return builder.WithMiddleware(new RealtimeAudioMiddleware(realtimeConfig)
+        {
+            ProviderRegistry = builder.ProviderRegistry,
+            RealtimeClient = realtimeClient
+        });
     }
 
     /// <summary>
@@ -135,6 +191,7 @@ public static class AgentBuilderAudioExtensions
             c.Stt = copy.Stt;
             c.Vad = copy.Vad;
             c.Eot = copy.Eot;
+            c.Realtime = copy.Realtime;
             c.ProcessingMode = copy.ProcessingMode;
             c.IOMode = copy.IOMode;
             c.Language = copy.Language;
@@ -183,7 +240,7 @@ public static class AgentBuilderAudioExtensions
         {
             audio.Tts = new TtsConfig
             {
-                Provider = "openai-audio",
+                Provider = "openai",
                 Voice = ttsVoice,
                 ModelId = ttsModel,
                 ProviderOptionsJson = JsonSerializer.Serialize(new { apiKey = resolvedApiKey })
@@ -191,7 +248,7 @@ public static class AgentBuilderAudioExtensions
 
             audio.Stt = new SttConfig
             {
-                Provider = "openai-audio",
+                Provider = "openai",
                 ModelId = sttModel,
                 ProviderOptionsJson = JsonSerializer.Serialize(new { apiKey = resolvedApiKey })
             };
@@ -227,7 +284,7 @@ public static class AgentBuilderAudioExtensions
 
             audio.Stt = new SttConfig
             {
-                Provider = "openai-audio",
+                Provider = "openai",
                 ModelId = "whisper-1",
                 ProviderOptionsJson = JsonSerializer.Serialize(new { apiKey = resolvedOpenAiKey })
             };

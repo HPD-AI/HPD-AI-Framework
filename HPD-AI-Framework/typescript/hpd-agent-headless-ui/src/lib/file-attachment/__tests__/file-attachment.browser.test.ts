@@ -11,15 +11,16 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
-import type { AssetReference } from '@hpd/hpd-agent-client';
+import type { ContentReference } from '@hpd/hpd-agent-client';
 import FileAttachmentTest from './file-attachment-test.svelte';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const DEFAULT_ASSET: AssetReference = {
-	assetId: 'test-asset-1',
+const DEFAULT_CONTENT: ContentReference = {
+	contentId: 'test-content-1',
+	version: 'rev:1',
 	contentType: 'image/png',
 	name: 'test.png',
 	sizeBytes: 512,
@@ -29,7 +30,7 @@ function setup(props: {
 	mode?: 'external' | 'internal';
 	sessionId?: string | null;
 	disabled?: boolean;
-	uploadFn?: (sid: string, file: File) => Promise<AssetReference>;
+	uploadFn?: (sid: string, file: File) => Promise<ContentReference>;
 } = {}) {
 	render(FileAttachmentTest, { props } as any);
 }
@@ -102,7 +103,7 @@ describe('FileAttachment.Root — upload lifecycle', () => {
 	});
 
 	it('successfully uploaded file appears in attachment list with status done', async () => {
-		setup({ uploadFn: async () => DEFAULT_ASSET });
+		setup({ uploadFn: async () => DEFAULT_CONTENT });
 		await page.getByTestId('add-png-btn').click();
 
 		const count = page.getByTestId('attachment-count');
@@ -121,25 +122,25 @@ describe('FileAttachment.Root — upload lifecycle', () => {
 
 		// canSubmit becomes false when there's an error entry
 		await expect.element(page.getByTestId('can-submit')).toHaveTextContent('false');
-		// resolved-assets stays empty
-		await expect.element(page.getByTestId('resolved-assets')).toHaveTextContent('[]');
+		// resolved-content stays empty
+		await expect.element(page.getByTestId('resolved-content')).toHaveTextContent('[]');
 	});
 
-	it('resolved-assets JSON contains uploaded asset', async () => {
-		setup({ uploadFn: async () => DEFAULT_ASSET });
+	it('resolved-content JSON contains uploaded content', async () => {
+		setup({ uploadFn: async () => DEFAULT_CONTENT });
 		await page.getByTestId('add-png-btn').click();
 
-		const resolved = page.getByTestId('resolved-assets');
-		await expect.element(resolved).toHaveTextContent('test-asset-1');
+		const resolved = page.getByTestId('resolved-content');
+		await expect.element(resolved).toHaveTextContent('test-content-1');
 	});
 
-	it('resolved-assets is empty when upload failed', async () => {
+	it('resolved-content is empty when upload failed', async () => {
 		setup({
 			uploadFn: async () => { throw new Error('fail'); },
 		});
 		await page.getByTestId('add-png-btn').click();
 
-		const resolved = page.getByTestId('resolved-assets');
+		const resolved = page.getByTestId('resolved-content');
 		await expect.element(resolved).toHaveTextContent('[]');
 	});
 });
@@ -150,13 +151,13 @@ describe('FileAttachment.Root — upload lifecycle', () => {
 
 describe('FileAttachment.Root — remove and clear', () => {
 	it('remove button removes the attachment', async () => {
-		setup({ uploadFn: async () => DEFAULT_ASSET });
+		setup({ uploadFn: async () => DEFAULT_CONTENT });
 		await page.getByTestId('add-png-btn').click();
 
 		// Wait for attachment to appear
 		await expect.element(page.getByTestId('attachment-count')).toHaveTextContent('1');
 
-		// resolved-assets contains the asset — extract localId from the remove button testid
+		// resolved-content contains the content — extract localId from the remove button testid
 		// The harness renders <button data-testid="remove-{localId}">
 		const removeBtn = page.getByRole('button', { name: 'Remove' });
 		await removeBtn.click();
@@ -166,7 +167,7 @@ describe('FileAttachment.Root — remove and clear', () => {
 	});
 
 	it('clear button empties all attachments', async () => {
-		setup({ uploadFn: async () => DEFAULT_ASSET });
+		setup({ uploadFn: async () => DEFAULT_CONTENT });
 		await page.getByTestId('add-png-btn').click();
 		await page.getByTestId('add-txt-btn').click();
 
@@ -185,18 +186,18 @@ describe('FileAttachment.Root — remove and clear', () => {
 // ---------------------------------------------------------------------------
 
 describe('FileAttachment.Root — external state prop', () => {
-	it('component uses provided state (resolvedAssets readable outside snippet)', async () => {
-		setup({ uploadFn: async () => DEFAULT_ASSET });
+	it('component uses provided state (resolvedContent readable outside snippet)', async () => {
+		setup({ uploadFn: async () => DEFAULT_CONTENT });
 
-		// resolved-assets is populated from externalState directly (not from inside snippet)
+		// resolved-content is populated from externalState directly (not from inside snippet)
 		await page.getByTestId('add-png-btn').click();
 
-		const resolved = page.getByTestId('resolved-assets');
-		await expect.element(resolved).toHaveTextContent('test-asset-1');
+		const resolved = page.getByTestId('resolved-content');
+		await expect.element(resolved).toHaveTextContent('test-content-1');
 	});
 
 	it('canSubmit reflects external state after upload', async () => {
-		setup({ uploadFn: async () => DEFAULT_ASSET });
+		setup({ uploadFn: async () => DEFAULT_CONTENT });
 		await page.getByTestId('add-png-btn').click();
 
 		// After a successful upload, canSubmit should still be true

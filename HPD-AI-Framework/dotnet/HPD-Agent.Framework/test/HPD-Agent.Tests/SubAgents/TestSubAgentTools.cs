@@ -10,7 +10,7 @@ public class TestSubAgentTools
     [SubAgent]
     public SubAgent ValidSubAgent()
     {
-        return SubAgentFactory.Create(
+        return SubAgent.FromConfig(
             "ValidSubAgent",
             "A valid test sub-agent",
             new AgentConfig
@@ -18,120 +18,120 @@ public class TestSubAgentTools
                 Name = "Valid Sub-Agent",
                 SystemInstructions = "Test instructions",
                 MaxAgenticIterations = 10,
-                Provider = new ProviderConfig
-                {
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                     ProviderKey = "openrouter",
                     ModelName = "google/gemini-2.0-flash-exp:free"
-                }
+                } }
             });
     }
 
     [SubAgent]
     public SubAgent CategorizedSubAgent()
     {
-        return SubAgentFactory.Create(
+        return SubAgent.FromConfig(
             "CategorizedSubAgent",
             "Sub-agent with category",
             new AgentConfig
             {
                 Name = "Categorized",
                 SystemInstructions = "Test",
-                Provider = new ProviderConfig { ProviderKey = "openrouter", ModelName = "test" }
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
             });
     }
 
     [SubAgent]
     public SubAgent PrioritizedSubAgent()
     {
-        return SubAgentFactory.Create(
+        return SubAgent.FromConfig(
             "PrioritizedSubAgent",
             "Sub-agent with priority",
             new AgentConfig
             {
                 Name = "Prioritized",
                 SystemInstructions = "Test",
-                Provider = new ProviderConfig { ProviderKey = "openrouter", ModelName = "test" }
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
             });
     }
 
     [SubAgent]
-    public SubAgent StatelessSubAgent()
+    public SubAgent DefaultBranchNativeSubAgent()
     {
-        return SubAgentFactory.Create(
-            "StatelessSubAgent",
-            "Stateless sub-agent (default)",
+        return SubAgent.FromConfig(
+            "DefaultBranchNativeSubAgent",
+            "Default branch-native sub-agent",
             new AgentConfig
             {
-                Name = "Stateless",
+                Name = "DefaultBranchNative",
                 SystemInstructions = "Test",
-                Provider = new ProviderConfig { ProviderKey = "openrouter", ModelName = "test" }
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
             });
     }
 
     [SubAgent]
-    public SubAgent StatefulSubAgent()
+    public SubAgent SharedSessionSubAgent()
     {
-        return SubAgentFactory.CreateStateful(
-            "StatefulSubAgent",
-            "Stateful sub-agent with shared thread",
+        return SubAgent.FromConfig(
+            "SharedSessionSubAgent",
+            "Sub-agent with a shared session",
             new AgentConfig
             {
-                Name = "Stateful",
+                Name = "SharedSession",
                 SystemInstructions = "Test",
-                Provider = new ProviderConfig { ProviderKey = "openrouter", ModelName = "test" }
-            });
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
+            },
+            SubAgentExecutionPolicies.SharedSessionFreshBranch("shared-session-subagent"));
     }
 
     [SubAgent]
-    public SubAgent PerSessionSubAgent()
+    public SubAgent ParentBranchSubAgent()
     {
-        return SubAgentFactory.CreatePerSession(
-            "PerSessionSubAgent",
-            "Per-session sub-agent",
+        return SubAgent.FromConfig(
+            "ParentBranchSubAgent",
+            "Sub-agent that writes directly into the parent branch",
             new AgentConfig
             {
-                Name = "PerSession",
+                Name = "ParentBranch",
                 SystemInstructions = "Test",
-                Provider = new ProviderConfig { ProviderKey = "openrouter", ModelName = "test" }
-            });
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
+            },
+            SubAgentExecutionPolicies.ParentBranch());
     }
 
     [SubAgent]
     public SubAgent SubAgentWithProvider()
     {
-        return SubAgentFactory.Create(
+        return SubAgent.FromConfig(
             "SubAgentWithProvider",
             "Sub-agent with specific provider",
             new AgentConfig
             {
                 Name = "With Provider",
                 SystemInstructions = "Test",
-                Provider = new ProviderConfig
-                {
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                     ProviderKey = "openrouter",
                     ModelName = "google/gemini-2.0-flash-exp:free"
-                }
+                } }
             });
     }
 
     [SubAgent]
     public SubAgent SubAgentWithInstructions()
     {
-        return SubAgentFactory.Create(
+        return SubAgent.FromConfig(
             "SubAgentWithInstructions",
             "Sub-agent with system instructions",
             new AgentConfig
             {
                 Name = "With Instructions",
                 SystemInstructions = "You are a test agent. Follow these rules:\n1. Be helpful\n2. Be concise",
-                Provider = new ProviderConfig { ProviderKey = "openrouter", ModelName = "test" }
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
             });
     }
 
     [SubAgent]
     public SubAgent SubAgentWithIterationLimit()
     {
-        return SubAgentFactory.Create(
+        return SubAgent.FromConfig(
             "SubAgentWithIterationLimit",
             "Sub-agent with custom iteration limit",
             new AgentConfig
@@ -139,14 +139,14 @@ public class TestSubAgentTools
                 Name = "With Iterations",
                 SystemInstructions = "Test",
                 MaxAgenticIterations = 15,
-                Provider = new ProviderConfig { ProviderKey = "openrouter", ModelName = "test" }
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
             });
     }
 
     [SubAgent]
     public SubAgent ComplexSubAgent()
     {
-        return SubAgentFactory.Create(
+        return SubAgent.FromConfig(
             "ComplexSubAgent",
             "Sub-agent with full configuration",
             new AgentConfig
@@ -154,42 +154,41 @@ public class TestSubAgentTools
                 Name = "Complex Sub-Agent",
                 SystemInstructions = "You are a complex test agent with multiple configurations.",
                 MaxAgenticIterations = 20,
-                Provider = new ProviderConfig
-                {
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                     ProviderKey = "openrouter",
                     ModelName = "google/gemini-2.0-flash-exp:free"
-                }
+                } }
             });
     }
 
     [SubAgent]
-    public SubAgent StatefulSubAgentWithBranch()
+    public SubAgent SharedSessionExistingBranchSubAgent()
     {
-        var subAgent = SubAgentFactory.CreateStateful(
-            "StatefulSubAgentWithBranch",
-            "Stateful sub-agent pinned to a specific branch",
+        return SubAgent.FromConfig(
+            "SharedSessionExistingBranchSubAgent",
+            "Sub-agent pinned to a shared session branch",
             new AgentConfig
             {
-                Name = "StatefulWithBranch",
+                Name = "SharedSessionExistingBranch",
                 SystemInstructions = "Test",
-                Provider = new ProviderConfig { ProviderKey = "openrouter", ModelName = "test" }
-            });
-        subAgent.SharedBranchId = "review-thread";
-        return subAgent;
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
+            },
+            SubAgentExecutionPolicies.SharedSessionExistingBranch("shared-session-with-branch", "review-thread"));
     }
 
     [SubAgent]
     public SubAgent SubAgentWithToolss()
     {
-        return SubAgentFactory.Create(
+        return SubAgent.FromConfig(
             "SubAgentWithToolss",
             "Sub-agent with Harneses registered",
             new AgentConfig
             {
                 Name = "With Harneses",
                 SystemInstructions = "Test agent with Harness access",
-                Provider = new ProviderConfig { ProviderKey = "openrouter", ModelName = "test" }
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
             },
+            null,
             typeof(HPD.Agent.Harness.FileSystem.FileSystemTools));
     }
 }

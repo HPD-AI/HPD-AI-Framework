@@ -2,6 +2,7 @@
 
 using HPD.Agent.Audio;
 using HPD.Agent.Audio.Eot;
+using HPD.Agent.Audio.Realtime;
 using HPD.Agent.Audio.Stt;
 using HPD.Agent.Audio.Tts;
 using HPD.Agent.Audio.Vad;
@@ -148,10 +149,10 @@ public class AudioConfigTests
         var config = new AudioConfig();
 
         // Act
-        config.ProcessingMode = AudioProcessingMode.Native;
+        config.ProcessingMode = AudioProcessingMode.Realtime;
 
         // Assert
-        config.ProcessingMode.Should().Be(AudioProcessingMode.Native);
+        config.ProcessingMode.Should().Be(AudioProcessingMode.Realtime);
     }
 
     [Fact]
@@ -269,13 +270,13 @@ public class AudioConfigTests
     {
         // Arrange
         var baseConfig = new AudioConfig { ProcessingMode = AudioProcessingMode.Pipeline };
-        var overrides = new AudioConfig { ProcessingMode = AudioProcessingMode.Native };
+        var overrides = new AudioConfig { ProcessingMode = AudioProcessingMode.Realtime };
 
         // Act
         var merged = baseConfig.MergeWith(overrides);
 
         // Assert
-        merged.ProcessingMode.Should().Be(AudioProcessingMode.Native);
+        merged.ProcessingMode.Should().Be(AudioProcessingMode.Realtime);
     }
 
     [Fact]
@@ -362,64 +363,80 @@ public class AudioConfigTests
     }
 
     [Fact]
-    public void Validate_Native_WithStt_Throws()
+    public void Validate_Realtime_WithStt_Throws()
     {
         // Arrange
         var config = new AudioConfig
         {
-            ProcessingMode = AudioProcessingMode.Native,
+            ProcessingMode = AudioProcessingMode.Realtime,
+            Realtime = new RealtimeAudioConfig(),
             Stt = new SttConfig()
         };
 
         // Act & Assert
         var act = () => config.Validate();
         act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*Stt*Native*");
+            .WithMessage("*Stt*Realtime*");
     }
 
     [Fact]
-    public void Validate_Native_WithTts_Throws()
+    public void Validate_Realtime_WithTts_Throws()
     {
         // Arrange
         var config = new AudioConfig
         {
-            ProcessingMode = AudioProcessingMode.Native,
+            ProcessingMode = AudioProcessingMode.Realtime,
+            Realtime = new RealtimeAudioConfig(),
             Tts = new TtsConfig()
         };
 
         // Act & Assert
         var act = () => config.Validate();
         act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*Tts*Native*");
+            .WithMessage("*Tts*Realtime*");
     }
 
     [Fact]
-    public void Validate_Native_WithVad_Throws()
+    public void Validate_Realtime_WithVad_Throws()
     {
         // Arrange
         var config = new AudioConfig
         {
-            ProcessingMode = AudioProcessingMode.Native,
+            ProcessingMode = AudioProcessingMode.Realtime,
+            Realtime = new RealtimeAudioConfig(),
             Vad = new VadConfig()
         };
 
         // Act & Assert
         var act = () => config.Validate();
         act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*Vad*Native*");
+            .WithMessage("*Vad*Realtime*");
     }
 
     [Fact]
-    public void Validate_Native_WithoutRoleConfigs_Succeeds()
+    public void Validate_Realtime_WithoutRealtimeConfig_Throws()
     {
-        // Arrange — Native mode with no STT/TTS/VAD is valid
         var config = new AudioConfig
         {
-            ProcessingMode = AudioProcessingMode.Native,
+            ProcessingMode = AudioProcessingMode.Realtime,
             IOMode = AudioIOMode.AudioToAudio
         };
 
-        // Act & Assert
+        var act = () => config.Validate();
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*Realtime*must be set*");
+    }
+
+    [Fact]
+    public void Validate_Realtime_WithRealtimeConfig_Succeeds()
+    {
+        var config = new AudioConfig
+        {
+            ProcessingMode = AudioProcessingMode.Realtime,
+            IOMode = AudioIOMode.AudioToAudio,
+            Realtime = new RealtimeAudioConfig()
+        };
+
         var act = () => config.Validate();
         act.Should().NotThrow();
     }

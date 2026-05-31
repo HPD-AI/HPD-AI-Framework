@@ -22,8 +22,8 @@ public class Phase5DocumentLinkingTests
         var id1 = await store.UploadSkillDocumentAsync("oauth-guide", content, "OAuth authentication guide");
         var id2 = await store.UploadSkillDocumentAsync("oauth-guide", content, "OAuth authentication guide");
 
-        // Same content = same ID returned (no-op, no duplicate entry)
-        Assert.Equal(id1, id2);
+        // Same document key = same ID returned, no duplicate entry.
+        Assert.Equal(id1.Id, id2.Id);
         var all = await store.QueryAsync(null, new ContentQuery
         {
             Tags = new Dictionary<string, string> { ["folder"] = "/skills" }
@@ -39,12 +39,13 @@ public class Phase5DocumentLinkingTests
         var id1 = await store.UploadSkillDocumentAsync("oauth-guide", "# Version 1", "OAuth guide");
         var id2 = await store.UploadSkillDocumentAsync("oauth-guide", "# Version 2 — updated", "OAuth guide");
 
-        // Same ID (in-place overwrite), content updated
-        Assert.Equal(id1, id2);
+        // Same ID (explicit versioned replace), content updated.
+        Assert.Equal(id1.Id, id2.Id);
+        Assert.NotEqual(id1.Version, id2.Version);
 
-        var data = await store.GetAsync(null, id1);
+        var data = await store.ReadBytesAsync(null, id1);
         Assert.NotNull(data);
-        Assert.Contains("Version 2", System.Text.Encoding.UTF8.GetString(data.Data));
+        Assert.Contains("Version 2", System.Text.Encoding.UTF8.GetString(data));
     }
 
     [Fact]
@@ -150,7 +151,7 @@ public class Phase5DocumentLinkingTests
         var id1 = await store.UploadKnowledgeDocumentAsync("my-agent", "api-guide", data, "text/markdown");
         var id2 = await store.UploadKnowledgeDocumentAsync("my-agent", "api-guide", data, "text/markdown");
 
-        Assert.Equal(id1, id2);
+        Assert.Equal(id1.Id, id2.Id);
 
         var results = await store.QueryAsync("my-agent", new ContentQuery
         {
@@ -180,21 +181,21 @@ public class Phase5DocumentLinkingTests
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task WriteMemory_SameTitleTwice_OverwritesContent()
+    public async Task WriteMemory_SameTitleTwice_FailsCreateOnly()
     {
         var store = new InMemoryContentStore();
 
         var id1 = await store.WriteMemoryAsync("my-agent", "user-prefs", "Prefers email");
-        var id2 = await store.WriteMemoryAsync("my-agent", "user-prefs", "Prefers SMS now");
 
-        Assert.Equal(id1, id2);
+        await Assert.ThrowsAsync<ContentConflictException>(() =>
+            store.WriteMemoryAsync("my-agent", "user-prefs", "Prefers SMS now"));
 
-        var data = await store.GetAsync("my-agent", id1);
-        Assert.Contains("SMS", System.Text.Encoding.UTF8.GetString(data!.Data));
+        var data = await store.ReadBytesAsync("my-agent", id1);
+        Assert.Contains("email", System.Text.Encoding.UTF8.GetString(data!));
     }
 
     [Fact]
-    public async Task WriteMemory_IsTaggedWithMemoryFolder()
+    public async Task WriteMemory_IsTaggedWithMemoryEventsFolder()
     {
         var store = new InMemoryContentStore();
 
@@ -205,7 +206,15 @@ public class Phase5DocumentLinkingTests
             Tags = new Dictionary<string, string> { ["folder"] = "/memory" }
         });
 
-        Assert.Single(results);
-        Assert.Equal("note-1", results[0].Name);
+        Assert.Empty(results);
+
+        var events = await store.QueryAsync("my-agent", new ContentQuery
+        {
+            Tags = new Dictionary<string, string> { ["folder"] = "/memory/events" }
+        });
+
+        Assert.Single(events);
+        Assert.Equal("note-1", events[0].Name);
+        Assert.Equal("agent_note", events[0].Tags!["memory.kind"]);
     }
 }

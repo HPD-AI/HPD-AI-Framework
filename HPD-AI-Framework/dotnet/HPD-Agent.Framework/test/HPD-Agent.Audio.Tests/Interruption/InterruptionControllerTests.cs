@@ -138,7 +138,7 @@ public sealed class InterruptionControllerTests
                 BranchId: "main",
                 SpeechId: "speech-1",
                 StreamId: "stream-1",
-                SynthesisId: "synth-1",
+                OutputId: "synth-1",
                 Provider: "test",
                 Model: "tts",
                 Voice: "voice",

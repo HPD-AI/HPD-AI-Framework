@@ -5,15 +5,15 @@ using HPD.Agent;
 namespace HPD.Agent.AspNetCore.Tests.Unit;
 
 /// <summary>
-/// Unit tests for SessionManager stream-lock and session-lock behaviour.
-/// Covers RemoveBranchStreamLock, RemoveSession cleanup, and WithSessionLockAsync overloads.
+/// Unit tests for SessionManager branch-operation-lock and session-lock behaviour.
+/// Covers RemoveBranchOperationLock, RemoveSession cleanup, and WithSessionLockAsync overloads.
 /// </summary>
-public class SessionManagerStreamLockTests : IDisposable
+public class SessionManagerBranchOperationLockTests : IDisposable
 {
     private readonly InMemorySessionStore _store;
     private readonly TestSessionManagerImpl _manager;
 
-    public SessionManagerStreamLockTests()
+    public SessionManagerBranchOperationLockTests()
     {
         _store = new InMemorySessionStore();
         _manager = new TestSessionManagerImpl(_store);
@@ -22,68 +22,68 @@ public class SessionManagerStreamLockTests : IDisposable
     public void Dispose() => _manager.Dispose();
 
     // ──────────────────────────────────────────────────────────────────────────
-    // RemoveBranchStreamLock
+    // RemoveBranchOperationLock
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void TryAcquireStreamLock_ReturnsFalse_WhenAlreadyAcquired()
+    public void TryAcquireBranchOperationLock_ReturnsFalse_WhenAlreadyAcquired()
     {
-        _manager.TryAcquireStreamLock("session-1", "branch-a").Should().BeTrue();
-        _manager.TryAcquireStreamLock("session-1", "branch-a").Should().BeFalse();
+        _manager.TryAcquireBranchOperationLock("session-1", "branch-a").Should().BeTrue();
+        _manager.TryAcquireBranchOperationLock("session-1", "branch-a").Should().BeFalse();
     }
 
     [Fact]
-    public void RemoveBranchStreamLock_AllowsReacquisition_AfterRelease()
+    public void RemoveBranchOperationLock_AllowsReacquisition_AfterRelease()
     {
-        _manager.TryAcquireStreamLock("session-1", "branch-a");
-        _manager.ReleaseStreamLock("session-1", "branch-a");
-        _manager.RemoveBranchStreamLock("session-1", "branch-a");
+        _manager.TryAcquireBranchOperationLock("session-1", "branch-a");
+        _manager.ReleaseBranchOperationLock("session-1", "branch-a");
+        _manager.RemoveBranchOperationLock("session-1", "branch-a");
 
-        _manager.TryAcquireStreamLock("session-1", "branch-a").Should().BeTrue();
+        _manager.TryAcquireBranchOperationLock("session-1", "branch-a").Should().BeTrue();
     }
 
     [Fact]
-    public void RemoveBranchStreamLock_IsIdempotent_WhenKeyNotPresent()
+    public void RemoveBranchOperationLock_IsIdempotent_WhenKeyNotPresent()
     {
-        var act = () => _manager.RemoveBranchStreamLock("session-x", "branch-x");
+        var act = () => _manager.RemoveBranchOperationLock("session-x", "branch-x");
         act.Should().NotThrow();
     }
 
     [Fact]
-    public void RemoveSession_CleansUpAllStreamLocks_ForSession()
+    public void RemoveSession_CleansUpAllBranchOperationLocks_ForSession()
     {
-        _manager.TryAcquireStreamLock("session-a", "branch-1");
-        _manager.TryAcquireStreamLock("session-a", "branch-2");
-        _manager.TryAcquireStreamLock("session-a", "branch-3");
-        _manager.TryAcquireStreamLock("session-b", "branch-1");
+        _manager.TryAcquireBranchOperationLock("session-a", "branch-1");
+        _manager.TryAcquireBranchOperationLock("session-a", "branch-2");
+        _manager.TryAcquireBranchOperationLock("session-a", "branch-3");
+        _manager.TryAcquireBranchOperationLock("session-b", "branch-1");
 
-        _manager.ReleaseStreamLock("session-a", "branch-1");
-        _manager.ReleaseStreamLock("session-a", "branch-2");
-        _manager.ReleaseStreamLock("session-a", "branch-3");
-        _manager.ReleaseStreamLock("session-b", "branch-1");
+        _manager.ReleaseBranchOperationLock("session-a", "branch-1");
+        _manager.ReleaseBranchOperationLock("session-a", "branch-2");
+        _manager.ReleaseBranchOperationLock("session-a", "branch-3");
+        _manager.ReleaseBranchOperationLock("session-b", "branch-1");
 
         _manager.RemoveSession("session-a");
 
         // session-a locks are gone — fresh semaphores created on acquire
-        _manager.TryAcquireStreamLock("session-a", "branch-1").Should().BeTrue();
-        _manager.TryAcquireStreamLock("session-a", "branch-2").Should().BeTrue();
-        _manager.TryAcquireStreamLock("session-a", "branch-3").Should().BeTrue();
+        _manager.TryAcquireBranchOperationLock("session-a", "branch-1").Should().BeTrue();
+        _manager.TryAcquireBranchOperationLock("session-a", "branch-2").Should().BeTrue();
+        _manager.TryAcquireBranchOperationLock("session-a", "branch-3").Should().BeTrue();
 
         // session-b lock was released above so reacquire is fine
-        _manager.TryAcquireStreamLock("session-b", "branch-1").Should().BeTrue();
+        _manager.TryAcquireBranchOperationLock("session-b", "branch-1").Should().BeTrue();
     }
 
     [Fact]
-    public void RemoveSession_DoesNotCleanupOtherSessions_StreamLocks()
+    public void RemoveSession_DoesNotCleanupOtherSessions_BranchOperationLocks()
     {
         // Hold a lock on session-b
-        _manager.TryAcquireStreamLock("session-b", "branch-z");
+        _manager.TryAcquireBranchOperationLock("session-b", "branch-z");
 
         // Remove a different session
         _manager.RemoveSession("session-a");
 
         // session-b lock must still be held
-        _manager.TryAcquireStreamLock("session-b", "branch-z").Should().BeFalse();
+        _manager.TryAcquireBranchOperationLock("session-b", "branch-z").Should().BeFalse();
     }
 
     // ──────────────────────────────────────────────────────────────────────────

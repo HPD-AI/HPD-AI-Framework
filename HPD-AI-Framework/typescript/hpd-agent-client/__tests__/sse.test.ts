@@ -16,7 +16,7 @@ describe('SseTransport runtime', () => {
   beforeEach(() => vi.resetAllMocks());
   afterEach(() => vi.restoreAllMocks());
 
-  it('posts text input to the scoped stream endpoint and emits parsed events', async () => {
+  it('connects to the scoped live events endpoint and emits parsed events', async () => {
     const events: unknown[] = [];
     const transport = new SseTransport('http://localhost:5135');
     transport.onEvent((event) => events.push(event));
@@ -27,7 +27,28 @@ describe('SseTransport runtime', () => {
       text: async () => '',
     } as Response);
 
-    await transport.run({
+    await transport.connect({ sessionId: 's1', agentId: 'a1', branchId: 'main' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:5135/agents/a1/sessions/s1/branches/main/events/live',
+      expect.objectContaining({
+        method: 'GET',
+      }),
+    );
+    expect(events).toEqual([{ type: EventTypes.TEXT_DELTA, text: 'Hello', messageId: 'm1' }]);
+  });
+
+  it('submits text input to the scoped inputs endpoint', async () => {
+    const transport = new SseTransport('http://localhost:5135');
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      body: null,
+      text: async () => '',
+    } as Response);
+
+    await transport.submitInput({
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 's1',
       agentId: 'a1',
@@ -37,25 +58,27 @@ describe('SseTransport runtime', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/agents/a1/sessions/s1/branches/main/stream',
+      'http://localhost:5135/agents/a1/sessions/s1/branches/main/inputs',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ text: 'Hi', runConfig: { modelId: 'm' } }),
       }),
     );
-    expect(events).toEqual([{ type: EventTypes.TEXT_DELTA, text: 'Hello', messageId: 'm1' }]);
   });
 
   it('posts bidirectional responses to their response endpoints after scope is known', async () => {
     const transport = new SseTransport('http://localhost:5135');
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({ ok: true, body: stream(), text: async () => '' } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => '',
+      } as Response);
+
     await transport.connect({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
 
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      text: async () => '',
-    } as Response);
-
-    await transport.run({
+    await transport.submitInput({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'p1',
       sourceName: 'permission',
@@ -70,14 +93,17 @@ describe('SseTransport runtime', () => {
 
   it('surfaces stale response conflicts as AgentError', async () => {
     const transport = new SseTransport('http://localhost:5135');
-    await transport.connect({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: false,
-      status: 409,
-      json: async () => null,
-    } as Response);
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({ ok: true, body: stream(), text: async () => '' } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => null,
+      } as Response);
 
-    await expect(transport.run({
+    await transport.connect({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
+
+    await expect(transport.submitInput({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'p1',
       sourceName: 'permission',
@@ -88,7 +114,7 @@ describe('SseTransport runtime', () => {
     } satisfies Partial<AgentError>);
   });
 
-  it('disconnects an active stream', async () => {
+  it('disconnects an active live subscription', async () => {
     const transport = new SseTransport('http://localhost:5135');
     let streamController: ReadableStreamDefaultController<Uint8Array>;
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
@@ -101,19 +127,13 @@ describe('SseTransport runtime', () => {
       text: async () => '',
     } as Response);
 
-    const run = transport.run({
-      type: EventTypes.USER_TEXT_INPUT,
-      sessionId: 's1',
-      agentId: 'a1',
-      branchId: 'main',
-      text: 'Hi',
-    });
+    await transport.connect({ sessionId: 's1', agentId: 'a1', branchId: 'main' });
 
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(transport.connected).toBe(true);
     transport.disconnect();
     streamController!.close();
-    await run;
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(transport.connected).toBe(false);
   });
 });

@@ -27,7 +27,6 @@ public static class AgentBuilderExtensions
     /// <param name="model">The model deployment name (e.g., "llama-3-8b")</param>
     /// <param name="apiKey">Optional API key. If not provided, will try to resolve from environment variables (AZURE_AI_INFERENCE_API_KEY) or appsettings.json</param>
     /// <param name="configure">Optional action to configure additional Azure AI Inference-specific options</param>
-    /// <param name="clientFactory">Optional factory to wrap the chat client with middleware (logging, caching, etc.)</param>
     /// <returns>The builder for method chaining</returns>
     /// <remarks>
     /// <para>
@@ -44,7 +43,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates an <see cref="AzureAIInferenceProviderConfig"/> that is:
-    /// - Stored in <c>ProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
     /// - Applied during <c>AzureAIInferenceProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -115,15 +114,6 @@ public static class AgentBuilderExtensions
     ///             opts.JsonSchemaIsStrict = true;
     ///         })
     ///     .Build();
-    ///
-    /// // Option 4: With middleware via ClientFactory
-    /// var agent = new AgentBuilder()
-    ///     .WithAzureAIInference(
-    ///         endpoint: "https://your-resource.inference.ai.azure.com",
-    ///         model: "llama-3-8b",
-    ///         configure: opts => opts.MaxTokens = 2048,
-    ///         clientFactory: client => new LoggingChatClient(client, logger))
-    ///     .Build();
     /// </code>
     /// </example>
     public static AgentBuilder WithAzureAIInference(
@@ -131,8 +121,7 @@ public static class AgentBuilderExtensions
         string endpoint,
         string model,
         string? apiKey = null,
-        Action<AzureAIInferenceProviderConfig>? configure = null,
-        Func<IChatClient, IChatClient>? clientFactory = null)
+        Action<AzureAIInferenceProviderConfig>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -155,7 +144,7 @@ public static class AgentBuilderExtensions
         ValidateProviderConfig(providerConfig, configure);
 
         // Build provider config
-        builder.Config.Provider = new ProviderConfig
+        var chatConfig = new ClientProviderConfig
         {
             ProviderKey = "azure-ai-inference",
             Endpoint = endpoint,
@@ -163,9 +152,10 @@ public static class AgentBuilderExtensions
             ModelName = model
         };
 
+        builder.Config.SetChatClientConfig(chatConfig);
+
         // Store the typed config
-        builder.Config.Provider.SetProviderConfig(providerConfig);
-        builder.Config.Provider.ClientFactory = clientFactory;
+        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
     }

@@ -10,7 +10,7 @@ public class TestIntegrationSubAgents
     [SubAgent]
     public SubAgent WeatherExpert()
     {
-        return SubAgentFactory.Create(
+        return SubAgent.FromConfig(
             "WeatherExpert",
             "Specialized agent for weather forecasts and meteorological analysis",
             new AgentConfig
@@ -18,18 +18,17 @@ public class TestIntegrationSubAgents
                 Name = "Weather Expert",
                 SystemInstructions = "You are a meteorology expert. Provide weather information.",
                 MaxAgenticIterations = 10,
-                Provider = new ProviderConfig
-                {
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                     ProviderKey = "openrouter",
                     ModelName = "google/gemini-2.0-flash-exp:free"
-                }
+                } }
             });
     }
 
     [SubAgent]
     public SubAgent MathExpert()
     {
-        return SubAgentFactory.CreateStateful(
+        return SubAgent.FromConfig(
             "MathExpert",
             "Specialized agent for mathematical calculations and problem-solving",
             new AgentConfig
@@ -37,18 +36,18 @@ public class TestIntegrationSubAgents
                 Name = "Math Expert",
                 SystemInstructions = "You are a mathematics expert. Solve problems step-by-step.",
                 MaxAgenticIterations = 15,
-                Provider = new ProviderConfig
-                {
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                     ProviderKey = "openrouter",
                     ModelName = "google/gemini-2.0-flash-exp:free"
-                }
-            });
+                } }
+            },
+            SubAgentExecutionPolicies.SharedSessionFreshBranch("math-expert"));
     }
 
     [SubAgent]
     public SubAgent CodeReviewer()
     {
-        return SubAgentFactory.Create(
+        return SubAgent.FromConfig(
             "CodeReviewer",
             "Specialized agent for code review and security analysis",
             new AgentConfig
@@ -56,11 +55,10 @@ public class TestIntegrationSubAgents
                 Name = "Code Reviewer",
                 SystemInstructions = "You are a senior software engineer. Review code for quality and security.",
                 MaxAgenticIterations = 20,
-                Provider = new ProviderConfig
-                {
+                Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                     ProviderKey = "openrouter",
                     ModelName = "google/gemini-2.0-flash-exp:free"
-                }
+                } }
             });
     }
 }

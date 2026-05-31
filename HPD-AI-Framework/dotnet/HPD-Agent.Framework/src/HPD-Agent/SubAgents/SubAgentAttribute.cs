@@ -20,7 +20,7 @@ public sealed class SubAgentAttribute<TMetadata> : Attribute where TMetadata : I
 /// Use SubAgent&lt;TMetadata&gt; if you need context-aware features.
 /// </summary>
 /// <remarks>
-/// Pattern: [SubAgent] public SubAgent MethodName() => SubAgentFactory.Create(...)
+/// Pattern: [SubAgent] public SubAgent MethodName() => SubAgent.FromConfig(...) or FromAgentId(...)
 /// The source generator will:
 /// 1. Detect methods marked with [SubAgent]
 /// 2. Extract the AgentConfig from the method body

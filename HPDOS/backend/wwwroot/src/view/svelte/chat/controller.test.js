@@ -75,13 +75,31 @@ describe("chat layout controller", () => {
 
   test("loads remembered chat layout state from storage", () => {
     const { storage } = createMemoryStorage({
+      chatSectionCollapsed: true,
       expandedAppPaneWidth: 320,
       collapsedAppPaneWidth: 520
     });
     const controller = new ChatLayoutController({ storage });
 
+    expect(controller.chatSectionCollapsed).toBe(true);
     expect(controller.measure(1000, "collapsed").appPaneWidth).toBe(520);
     expect(controller.measure(1000, "expanded").appPaneWidth).toBe(320);
+  });
+
+  test("toggles and persists the chat section collapsed state", () => {
+    const { storage, saves } = createMemoryStorage();
+    const controller = new ChatLayoutController({ storage });
+
+    controller.toggleChatSection();
+
+    expect(controller.chatSectionCollapsed).toBe(true);
+    expect(saves).toEqual([
+      {
+        chatSectionCollapsed: true,
+        expandedAppPaneWidth: null,
+        collapsedAppPaneWidth: null
+      }
+    ]);
   });
 
   test("persists committed chat layout without sidebar or route state", () => {
@@ -95,6 +113,7 @@ describe("chat layout controller", () => {
     controller.commit();
     expect(saves).toEqual([
       {
+        chatSectionCollapsed: false,
         expandedAppPaneWidth: 430,
         collapsedAppPaneWidth: null
       }

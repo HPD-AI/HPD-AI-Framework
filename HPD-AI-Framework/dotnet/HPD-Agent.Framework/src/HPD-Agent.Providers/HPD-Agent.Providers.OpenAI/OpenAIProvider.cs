@@ -1,4 +1,5 @@
 #pragma warning disable OPENAI001 // ResponsesClient is experimental
+#pragma warning disable MEAI001 // Some Microsoft.Extensions.AI OpenAI client families are experimental
 
 using System;
 using System.Collections.Generic;
@@ -12,6 +13,7 @@ using HPD.Agent.ErrorHandling;
 using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using OpenAI;
 
 namespace HPD.Agent.Providers.OpenAI;
 
@@ -26,12 +28,16 @@ namespace HPD.Agent.Providers.OpenAI;
 /// - Native reasoning content support
 /// Supports both OpenAI and Azure OpenAI endpoints.
 /// </summary>
-internal class OpenAIProvider : IProviderFeatures
+internal class OpenAIProvider :
+    IChatClientProvider,
+    IImageGeneratorProvider,
+    IEmbeddingGeneratorProvider,
+    IHostedFileClientProvider
 {
     public string ProviderKey => "openai";
     public string DisplayName => "OpenAI";
 
-    public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null)
+    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
     {
         // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
@@ -42,62 +48,40 @@ internal class OpenAIProvider : IProviderFeatures
                 "Ensure the agent builder is properly configured with secret resolution.");
         }
 
-        // Resolve API key using ISecretResolver
-        var apiKeyTask = secrets.RequireAsync("openai:ApiKey", "OpenAI", config.ApiKey, CancellationToken.None);
-        string apiKey = apiKeyTask.GetAwaiter().GetResult();
-
         string? modelName = config.ModelName;
         if (string.IsNullOrEmpty(modelName))
         {
             throw new InvalidOperationException("For OpenAI, the ModelName must be configured.");
         }
 
-        // Resolve optional endpoint using ISecretResolver
-        var endpointTask = secrets.ResolveOrDefaultAsync("openai:Endpoint", config.Endpoint, CancellationToken.None);
-        var endpoint = endpointTask.GetAwaiter().GetResult();
-        var hasCustomEndpoint = !string.IsNullOrEmpty(endpoint);
-        var hasCustomHeaders = config.CustomHeaders?.Count > 0;
-
         IChatClient client;
 
-        // Create OpenAI client options
-        var options = new global::OpenAI.OpenAIClientOptions();
-
-        if (hasCustomEndpoint || hasCustomHeaders)
-        {
-            // Custom endpoint - use ResponsesClient with custom HttpClient
-            var httpClient = new System.Net.Http.HttpClient();
-
-            if (config.CustomHeaders != null)
-            {
-                foreach (var header in config.CustomHeaders)
-                {
-                    httpClient.DefaultRequestHeaders.TryAddWithoutValidation(header.Key, header.Value);
-                }
-            }
-
-            httpClient.DefaultRequestHeaders.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
-
-            if (hasCustomEndpoint)
-            {
-                options.Endpoint = new Uri(endpoint!);
-            }
-            options.Transport = new System.ClientModel.Primitives.HttpClientPipelineTransport(httpClient);
-        }
-
         // Create the OpenAI client and get the ResponsesClient
-        var openAIClient = new global::OpenAI.OpenAIClient(new System.ClientModel.ApiKeyCredential(apiKey), options);
+        var openAIClient = CreateOpenAIClient(config, secrets);
         var responsesClient = openAIClient.GetResponsesClient();
         client = responsesClient.AsIChatClient();
 
-        // Apply client factory middleware if provided
-        if (config.ClientFactory is { } clientFactory)
-        {
-            client = clientFactory(client);
-        }
-
         return client;
+    }
+
+    public IImageGenerator CreateImageGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    {
+        var secrets = GetSecretResolver(services);
+        var modelName = RequireModelName(config, "OpenAI image generation");
+        return CreateOpenAIClient(config, secrets).GetImageClient(modelName).AsIImageGenerator();
+    }
+
+    public IEmbeddingGenerator CreateEmbeddingGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    {
+        var secrets = GetSecretResolver(services);
+        var modelName = RequireModelName(config, "OpenAI embeddings");
+        return CreateOpenAIClient(config, secrets).GetEmbeddingClient(modelName).AsIEmbeddingGenerator();
+    }
+
+    public IHostedFileClient CreateHostedFileClient(ClientProviderConfig config, IServiceProvider? services = null)
+    {
+        var secrets = GetSecretResolver(services);
+        return CreateOpenAIClient(config, secrets).AsIHostedFileClient();
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -111,17 +95,46 @@ internal class OpenAIProvider : IProviderFeatures
         {
             ProviderKey = ProviderKey,
             DisplayName = DisplayName,
-            SupportsStreaming = true,
-            SupportsFunctionCalling = true,
-            SupportsVision = true,
-            SupportsAudio = true,
-            DefaulTMetadataWindow = 128000, // GPT-4 Turbo
-            DocumentationUrl = "https://platform.openai.com/docs"
+            DocumentationUri = new Uri("https://platform.openai.com/docs"),
+            Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            {
+                [ProviderClientFamily.Chat] = new()
+                {
+                    Family = ProviderClientFamily.Chat,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsStreaming"] = true,
+                        ["SupportsFunctionCalling"] = true,
+                        ["SupportsVision"] = true,
+                        ["DefaultMetadataWindow"] = 128000
+                    }
+                },
+                [ProviderClientFamily.ImageGeneration] = new()
+                {
+                    Family = ProviderClientFamily.ImageGeneration,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsStreaming"] = false
+                    }
+                },
+                [ProviderClientFamily.Embeddings] = new()
+                {
+                    Family = ProviderClientFamily.Embeddings
+                },
+                [ProviderClientFamily.HostedFiles] = new()
+                {
+                    Family = ProviderClientFamily.HostedFiles,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsContainerFiles"] = true
+                    }
+                }
+            }
         };
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in OpenAIProviderModule")]
-    public ProviderValidationResult ValidateConfiguration(ProviderConfig config)
+    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
 
@@ -133,8 +146,8 @@ internal class OpenAIProvider : IProviderFeatures
                       "Set it via the apiKey parameter, OPENAI_API_KEY environment variable, or configuration.");
         }
 
-        // Validate model name
-        if (string.IsNullOrEmpty(config.ModelName))
+        // Validate model name for model-scoped families. Hosted files are account/client scoped.
+        if (family != ProviderClientFamily.HostedFiles && string.IsNullOrEmpty(config.ModelName))
             errors.Add("Model name is required for OpenAI");
 
         // Validate OpenAI-specific config if present
@@ -255,21 +268,9 @@ internal class OpenAIProvider : IProviderFeatures
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
     }
-}
 
-/// <summary>
-/// Azure OpenAI provider implementation (traditional API key-based endpoints).
-/// Uses the newer Responses API (ResponsesClient) for enhanced capabilities.
-/// For modern Azure AI Projects/Foundry, use the AzureAI provider instead.
-/// </summary>
-internal class AzureOpenAIProvider : IProviderFeatures
-{
-    public string ProviderKey => "azure-openai";
-    public string DisplayName => "Azure OpenAI (Traditional)";
-
-    public IChatClient CreateChatClient(ProviderConfig config, IServiceProvider? services = null)
+    private static ISecretResolver GetSecretResolver(IServiceProvider? services)
     {
-        // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
         if (secrets == null)
         {
@@ -278,14 +279,72 @@ internal class AzureOpenAIProvider : IProviderFeatures
                 "Ensure the agent builder is properly configured with secret resolution.");
         }
 
-        // Resolve required endpoint using ISecretResolver (Azure requires endpoint)
-        var endpointTask = secrets.RequireAsync("azure-openai:Endpoint", "Azure OpenAI", config.Endpoint, CancellationToken.None);
-        string endpoint = endpointTask.GetAwaiter().GetResult();
+        return secrets;
+    }
 
-        // Resolve required API key using ISecretResolver
-        var apiKeyTask = secrets.RequireAsync("azure-openai:ApiKey", "Azure OpenAI", config.ApiKey, CancellationToken.None);
-        string apiKey = apiKeyTask.GetAwaiter().GetResult();
+    private static string RequireModelName(ClientProviderConfig config, string scenario)
+    {
+        if (string.IsNullOrEmpty(config.ModelName))
+            throw new InvalidOperationException($"For {scenario}, the ModelName must be configured.");
 
+        return config.ModelName;
+    }
+
+    private static OpenAIClient CreateOpenAIClient(ClientProviderConfig config, ISecretResolver secrets)
+    {
+        var apiKeyTask = secrets.RequireAsync("openai:ApiKey", "OpenAI", config.ApiKey, CancellationToken.None);
+        var apiKey = apiKeyTask.GetAwaiter().GetResult();
+
+        var endpointTask = secrets.ResolveOrDefaultAsync("openai:Endpoint", config.Endpoint, CancellationToken.None);
+        var endpoint = endpointTask.GetAwaiter().GetResult();
+        var hasCustomEndpoint = !string.IsNullOrEmpty(endpoint);
+        var hasCustomHeaders = config.CustomHeaders?.Count > 0;
+
+        var options = new OpenAIClientOptions();
+
+        if (hasCustomEndpoint || hasCustomHeaders)
+        {
+            var httpClient = new System.Net.Http.HttpClient();
+
+            if (config.CustomHeaders != null)
+            {
+                foreach (var header in config.CustomHeaders)
+                {
+                    httpClient.DefaultRequestHeaders.TryAddWithoutValidation(header.Key, header.Value);
+                }
+            }
+
+            httpClient.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+
+            if (hasCustomEndpoint)
+            {
+                options.Endpoint = new Uri(endpoint!);
+            }
+
+            options.Transport = new System.ClientModel.Primitives.HttpClientPipelineTransport(httpClient);
+        }
+
+        return new OpenAIClient(new System.ClientModel.ApiKeyCredential(apiKey), options);
+    }
+}
+
+/// <summary>
+/// Azure OpenAI provider implementation (traditional API key-based endpoints).
+/// Uses the newer Responses API (ResponsesClient) for enhanced capabilities.
+/// For modern Azure AI Projects/Foundry, use the AzureAI provider instead.
+/// </summary>
+internal class AzureOpenAIProvider :
+    IChatClientProvider,
+    IImageGeneratorProvider,
+    IEmbeddingGeneratorProvider,
+    IHostedFileClientProvider
+{
+    public string ProviderKey => "azure-openai";
+    public string DisplayName => "Azure OpenAI (Traditional)";
+
+    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    {
         string? modelName = config.ModelName;
         if (string.IsNullOrEmpty(modelName))
         {
@@ -293,21 +352,29 @@ internal class AzureOpenAIProvider : IProviderFeatures
         }
 
         // Create Azure OpenAI client and get ResponsesClient
-        var azureClient = new AzureOpenAIClient(
-            new Uri(endpoint),
-            new AzureKeyCredential(apiKey)
-        );
+        var azureClient = CreateAzureOpenAIClient(config, GetSecretResolver(services));
 
         var responsesClient = azureClient.GetResponsesClient();
         IChatClient client = responsesClient.AsIChatClient();
 
-        // Apply client factory middleware if provided
-        if (config.ClientFactory is { } clientFactory)
-        {
-            client = clientFactory(client);
-        }
-
         return client;
+    }
+
+    public IImageGenerator CreateImageGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    {
+        var modelName = RequireDeploymentName(config, "Azure OpenAI image generation");
+        return CreateAzureOpenAIClient(config, GetSecretResolver(services)).GetImageClient(modelName).AsIImageGenerator();
+    }
+
+    public IEmbeddingGenerator CreateEmbeddingGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    {
+        var modelName = RequireDeploymentName(config, "Azure OpenAI embeddings");
+        return CreateAzureOpenAIClient(config, GetSecretResolver(services)).GetEmbeddingClient(modelName).AsIEmbeddingGenerator();
+    }
+
+    public IHostedFileClient CreateHostedFileClient(ClientProviderConfig config, IServiceProvider? services = null)
+    {
+        return CreateAzureOpenAIClient(config, GetSecretResolver(services)).GetOpenAIFileClient().AsIHostedFileClient();
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -321,16 +388,46 @@ internal class AzureOpenAIProvider : IProviderFeatures
         {
             ProviderKey = ProviderKey,
             DisplayName = DisplayName,
-            SupportsStreaming = true,
-            SupportsFunctionCalling = true,
-            SupportsVision = true,
-            DefaulTMetadataWindow = 128000,
-            DocumentationUrl = "https://learn.microsoft.com/azure/ai-services/openai/"
+            DocumentationUri = new Uri("https://learn.microsoft.com/azure/ai-services/openai/"),
+            Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            {
+                [ProviderClientFamily.Chat] = new()
+                {
+                    Family = ProviderClientFamily.Chat,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsStreaming"] = true,
+                        ["SupportsFunctionCalling"] = true,
+                        ["SupportsVision"] = true,
+                        ["DefaultMetadataWindow"] = 128000
+                    }
+                },
+                [ProviderClientFamily.ImageGeneration] = new()
+                {
+                    Family = ProviderClientFamily.ImageGeneration,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsStreaming"] = false
+                    }
+                },
+                [ProviderClientFamily.Embeddings] = new()
+                {
+                    Family = ProviderClientFamily.Embeddings
+                },
+                [ProviderClientFamily.HostedFiles] = new()
+                {
+                    Family = ProviderClientFamily.HostedFiles,
+                    Capabilities = new Dictionary<string, object?>
+                    {
+                        ["SupportsContainerFiles"] = false
+                    }
+                }
+            }
         };
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in OpenAIProviderModule")]
-    public ProviderValidationResult ValidateConfiguration(ProviderConfig config)
+    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
 
@@ -348,8 +445,8 @@ internal class AzureOpenAIProvider : IProviderFeatures
                       "Set it via the apiKey parameter, AZURE_OPENAI_API_KEY environment variable, or configuration.");
         }
 
-        // Validate model name
-        if (string.IsNullOrEmpty(config.ModelName))
+        // Validate model/deployment name for model-scoped families. Hosted files are account/client scoped.
+        if (family != ProviderClientFamily.HostedFiles && string.IsNullOrEmpty(config.ModelName))
             errors.Add("Model name (deployment name) is required for Azure OpenAI");
 
         // Validate OpenAI-specific config if present (same validation as OpenAI)
@@ -386,5 +483,39 @@ internal class AzureOpenAIProvider : IProviderFeatures
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
+    }
+
+    private static ISecretResolver GetSecretResolver(IServiceProvider? services)
+    {
+        var secrets = services?.GetService<ISecretResolver>();
+        if (secrets == null)
+        {
+            throw new InvalidOperationException(
+                "ISecretResolver is required for provider initialization. " +
+                "Ensure the agent builder is properly configured with secret resolution.");
+        }
+
+        return secrets;
+    }
+
+    private static string RequireDeploymentName(ClientProviderConfig config, string scenario)
+    {
+        if (string.IsNullOrEmpty(config.ModelName))
+            throw new InvalidOperationException($"For {scenario}, the ModelName (deployment name) must be configured.");
+
+        return config.ModelName;
+    }
+
+    private static AzureOpenAIClient CreateAzureOpenAIClient(ClientProviderConfig config, ISecretResolver secrets)
+    {
+        var endpointTask = secrets.RequireAsync("azure-openai:Endpoint", "Azure OpenAI", config.Endpoint, CancellationToken.None);
+        var endpoint = endpointTask.GetAwaiter().GetResult();
+
+        var apiKeyTask = secrets.RequireAsync("azure-openai:ApiKey", "Azure OpenAI", config.ApiKey, CancellationToken.None);
+        var apiKey = apiKeyTask.GetAwaiter().GetResult();
+
+        return new AzureOpenAIClient(
+            new Uri(endpoint),
+            new AzureKeyCredential(apiKey));
     }
 }

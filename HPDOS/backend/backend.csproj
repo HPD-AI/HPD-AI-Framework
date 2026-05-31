@@ -22,4 +22,8 @@
     <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Execution/HPD-Execution.Local/HPD-Execution.Local.csproj" />
     <ProjectReference Include="../../HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="models-dev.snapshot.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

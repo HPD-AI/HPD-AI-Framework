@@ -306,9 +306,11 @@ public class SpanIdWiringTests : AgentTestBase
             async (args, _, ct) => "result", sensitiveOptions);
 
         var config = DefaultConfig();
-        config.Provider ??= new ProviderConfig { ProviderKey = "test", ModelName = "test-model" };
-        config.Provider.DefaultChatOptions ??= new ChatOptions();
-        config.Provider.DefaultChatOptions.Tools = [guardedTool];
+        config.EnsureChatClientConfig();
+        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().ModelName = "test-model";
+        config.EnsureChatClientConfig().DefaultChatOptions ??= new ChatOptions();
+        config.EnsureChatClientConfig().DefaultChatOptions.Tools = [guardedTool];
 
         fakeLLM.EnqueueToolCall("guarded_tool", "call-1");
         fakeLLM.EnqueueStreamingResponse("Done.");

@@ -1,4 +1,5 @@
 using HPD.Events;
+using HPD.Events.Struct;
 using System.Threading.Channels;
 
 namespace HPD.Agent.Middleware;
@@ -31,9 +32,13 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
 
     public string AgentName { get; }
     public AgentConfig Config { get; }
+    public AgentRunConfig? RunConfig { get; }
+    internal AgentClientSet? ClientSet { get; }
     public IServiceProvider? Services { get; }
     public IEventCoordinator EventCoordinator { get; }
     public IEventFlowRegistry EventFlows => EventCoordinator.EventFlows;
+    public IStructEventHub StructEvents { get; }
+    public IContentStore? ContentStore { get; }
     public IRuntimeCapabilityRegistry RuntimeCapabilities { get; } = new RuntimeCapabilityRegistry();
     public string RuntimeId { get; }
     public DateTimeOffset CreatedAt { get; }
@@ -47,18 +52,26 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
         AgentConfig config,
         IServiceProvider? services,
         IEventCoordinator eventCoordinator,
+        IStructEventHub structEvents,
         ChannelWriter<AgentInputEvent> runtimeInputWriter,
         Func<InterruptionRequestEvent, CancellationToken, ValueTask> runtimeInterruptionHandler,
         Func<bool> hasActiveRuntimeTurns,
-        CancellationToken runtimeCancellationToken)
+        CancellationToken runtimeCancellationToken,
+        AgentClientSet? clientSet = null,
+        AgentRunConfig? runConfig = null,
+        IContentStore? contentStore = null)
     {
         AgentName = agentName ?? throw new ArgumentNullException(nameof(agentName));
         Config = config ?? throw new ArgumentNullException(nameof(config));
         Services = services;
         EventCoordinator = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
+        StructEvents = structEvents ?? throw new ArgumentNullException(nameof(structEvents));
         _runtimeInputWriter = runtimeInputWriter ?? throw new ArgumentNullException(nameof(runtimeInputWriter));
         _runtimeInterruptionHandler = runtimeInterruptionHandler ?? throw new ArgumentNullException(nameof(runtimeInterruptionHandler));
         _hasActiveRuntimeTurns = hasActiveRuntimeTurns ?? throw new ArgumentNullException(nameof(hasActiveRuntimeTurns));
+        ClientSet = clientSet;
+        RunConfig = runConfig;
+        ContentStore = contentStore;
         RuntimeCancellationToken = runtimeCancellationToken;
         RuntimeId = Guid.NewGuid().ToString("N");
         CreatedAt = DateTimeOffset.UtcNow;
@@ -347,9 +360,13 @@ public abstract class RuntimeHookContext
 
     public string AgentName => Base.AgentName;
     public AgentConfig Config => Base.Config;
+    public AgentRunConfig? RunConfig => Base.RunConfig;
+    internal AgentClientSet? ClientSet => Base.ClientSet;
     public IServiceProvider? Services => Base.Services;
     public IEventCoordinator EventCoordinator => Base.EventCoordinator;
     public IEventFlowRegistry EventFlows => Base.EventFlows;
+    public IStructEventHub StructEvents => Base.StructEvents;
+    public IContentStore? ContentStore => Base.ContentStore;
     public IRuntimeCapabilityRegistry RuntimeCapabilities => Base.RuntimeCapabilities;
     public string RuntimeId => Base.RuntimeId;
     public DateTimeOffset CreatedAt => Base.CreatedAt;

@@ -27,7 +27,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates a <see cref="HuggingFaceProviderConfig"/> that is:
-    /// - Stored in <c>ProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
     /// - Applied during <c>HuggingFaceProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -126,15 +126,17 @@ public static class AgentBuilderExtensions
         ValidateProviderConfig(providerConfig, configure);
 
         // Build provider config
-        builder.Config.Provider = new ProviderConfig
+        var chatConfig = new ClientProviderConfig
         {
             ProviderKey = "huggingface",
             ModelName = model,
             ApiKey = apiKey // Store explicit override; ISecretResolver will handle resolution
         };
 
+        builder.Config.SetChatClientConfig(chatConfig);
+
         // Store the typed config
-        builder.Config.Provider.SetProviderConfig(providerConfig);
+        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
     }

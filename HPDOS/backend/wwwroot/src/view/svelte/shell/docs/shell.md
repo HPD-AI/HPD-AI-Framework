@@ -25,7 +25,7 @@ The shell should feel native, stable, and predictable. Resize, collapse, refresh
 - `../chat/storage.ts` bridges chat layout state to desktop persistence.
 - `../chat/styles.css` owns chat-specific layout styling.
 - `styles.css` owns shell-specific CSS.
-- `../desktopSettingsBridge.ts` owns the shared renderer-to-desktop settings bridge.
+- `../desktopHostBridge.ts` owns the shared renderer-to-desktop host bridge.
 - `desktop/src/bun/settingsStore.ts` owns durable desktop settings storage.
 
 ## Invariants

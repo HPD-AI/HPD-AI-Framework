@@ -4,82 +4,253 @@ namespace HPD.Agent;
 
 /// <summary>
 /// Represents a callable sub-agent - another agent that can be invoked as a tool/function.
-/// Created via SubAgentFactory.Create() and processed by source generator.
-/// Similar to Microsoft's AsAIFunction() but with compile-time validation.
 /// </summary>
 public class SubAgent
 {
     /// <summary>
-    /// Sub-agent name (REQUIRED - becomes AIFunction name shown to parent agent)
+    /// Sub-agent name (REQUIRED - becomes AIFunction name shown to parent agent).
     /// </summary>
-    public string Name { get; internal set; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
 
     /// <summary>
     /// Description shown in tool list (REQUIRED - becomes AIFunction description).
-    /// This is what the parent agent sees when browsing available sub-agent tools.
-    /// Example: "Specialized weather forecasting agent"
     /// </summary>
-    public string Description { get; internal set; } = string.Empty;
+    public string Description { get; init; } = string.Empty;
 
     /// <summary>
-    /// Agent configuration - defines the sub-agent's behavior, provider, Harneses, etc.
-    /// This is used to build the actual Agent instance at runtime.
+    /// Where the child agent definition comes from.
     /// </summary>
-    public AgentConfig AgentConfig { get; internal set; } = null!;
+    public SubAgentSourceKind SourceKind { get; init; }
 
     /// <summary>
-    /// Thread handling strategy for sub-agent invocations.
-    /// Determines how conversation context is managed across multiple calls.
+    /// Inline agent configuration. Set only when <see cref="SourceKind"/> is <see cref="SubAgentSourceKind.InlineConfig"/>.
     /// </summary>
-    public SubAgentSessionMode SessionMode { get; internal set; } = SubAgentSessionMode.Stateless;
+    public AgentConfig? AgentConfig { get; init; }
 
     /// <summary>
-    /// Optional: Shared session ID for stateful multi-turn conversations.
-    /// Only used when SessionMode = SharedSession.
-    /// WARNING: Do not use shared sessions concurrently - can cause race conditions.
+    /// Stored agent id. Set only when <see cref="SourceKind"/> is <see cref="SubAgentSourceKind.StoredAgent"/>.
     /// </summary>
-    public string? SharedSessionId { get; set; }
+    public string? AgentId { get; init; }
 
     /// <summary>
-    /// Optional: Shared branch ID to use alongside SharedSessionId.
-    /// Only used when SessionMode = SharedSession. Defaults to "main" if not set.
+    /// Session and branch routing policy for sub-agent execution.
     /// </summary>
-    public string? SharedBranchId { get; set; }
+    public SubAgentExecutionPolicy ExecutionPolicy { get; init; } = SubAgentExecutionPolicy.Default;
 
     /// <summary>
-    /// Harness types to register with the sub-agent (e.g., typeof(FileSystemHarness), typeof(WebSearchHarness)).
-    /// These Harneses will be available as tools for the sub-agent to use.
-    /// This is a runtime-only property and is not serializable (similar to Skills' References).
+    /// Harness types to register with the sub-agent.
     /// </summary>
-    public Type[] HarnessTypes { get; set; } = Array.Empty<Type>();
+    public Type[] HarnessTypes { get; init; } = Array.Empty<Type>();
+
+    /// <summary>
+    /// Optional branch metadata defaults applied to subagent-created branches.
+    /// </summary>
+    public Dictionary<string, object>? Metadata { get; init; }
+
+    public static SubAgent FromConfig(
+        string name,
+        string description,
+        AgentConfig agentConfig,
+        SubAgentExecutionPolicy? executionPolicy = null,
+        params Type[] harnessTypes)
+        => FromConfig(name, description, agentConfig, executionPolicy, metadata: null, harnessTypes);
+
+    public static SubAgent FromConfig(
+        string name,
+        string description,
+        AgentConfig agentConfig,
+        SubAgentExecutionPolicy? executionPolicy,
+        Dictionary<string, object>? metadata,
+        params Type[] harnessTypes)
+    {
+        ValidateNameAndDescription(name, description);
+        ArgumentNullException.ThrowIfNull(agentConfig);
+
+        var policy = executionPolicy ?? SubAgentExecutionPolicy.Default;
+        policy.Validate();
+
+        return new SubAgent
+        {
+            Name = name,
+            Description = description,
+            SourceKind = SubAgentSourceKind.InlineConfig,
+            AgentConfig = agentConfig,
+            AgentId = null,
+            ExecutionPolicy = policy,
+            HarnessTypes = harnessTypes ?? Array.Empty<Type>(),
+            Metadata = metadata
+        };
+    }
+
+    public static SubAgent FromAgentId(
+        string name,
+        string description,
+        string agentId,
+        SubAgentExecutionPolicy? executionPolicy = null,
+        params Type[] harnessTypes)
+        => FromAgentId(name, description, agentId, executionPolicy, metadata: null, harnessTypes);
+
+    public static SubAgent FromAgentId(
+        string name,
+        string description,
+        string agentId,
+        SubAgentExecutionPolicy? executionPolicy,
+        Dictionary<string, object>? metadata,
+        params Type[] harnessTypes)
+    {
+        ValidateNameAndDescription(name, description);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+
+        var policy = executionPolicy ?? SubAgentExecutionPolicy.Default;
+        policy.Validate();
+
+        return new SubAgent
+        {
+            Name = name,
+            Description = description,
+            SourceKind = SubAgentSourceKind.StoredAgent,
+            AgentConfig = null,
+            AgentId = agentId,
+            ExecutionPolicy = policy,
+            HarnessTypes = harnessTypes ?? Array.Empty<Type>(),
+            Metadata = metadata
+        };
+    }
+
+    private static void ValidateNameAndDescription(string name, string description)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+    }
+
 }
 
-/// <summary>
-/// Defines how sub-agent threads are managed across invocations.
-/// Mirrors Microsoft's AsAIFunction() thread handling patterns.
-/// </summary>
-public enum SubAgentSessionMode
+public enum SubAgentSourceKind
 {
-    /// <summary>
-    /// Stateless - New thread created per invocation (default).
-    /// Each call is independent, no context preserved.
-    /// Use when: Sub-agent calls are unrelated (e.g., "What's weather in NYC?" then "What's weather in SF?")
-    /// </summary>
-    Stateless,
+    InlineConfig,
+    StoredAgent
+}
 
-    /// <summary>
-    /// Stateful - Shared thread across all invocations.
-    /// Agent remembers previous conversation context.
-    /// Use when: Multi-turn conversations where context matters (e.g., "What's weather in SF?" then "How about tomorrow?")
-    /// WARNING: Avoid concurrent usage - not thread-safe!
-    /// </summary>
-    SharedSession,
+public enum SubAgentSessionPolicy
+{
+    ParentSession,
+    NewSession,
+    SharedSession
+}
 
-    /// <summary>
-    /// Per-session - Inherits the parent agent's current session and branch as read-only context.
-    /// The sub-agent sees the parent's conversation history but does not write back to it.
-    /// Use when: The task benefits from full conversation context (e.g., summarization, analysis of what was said).
-    /// Falls back to stateless if no parent session is available.
-    /// </summary>
-    PerSession
+public enum SubAgentBranchPolicy
+{
+    ForkFromParentBranch,
+    FreshBranch,
+    ExistingBranch,
+    ParentBranch
+}
+
+public enum SubAgentBranchCompaction
+{
+    Inherit,
+    Enabled,
+    Disabled
+}
+
+public sealed record SubAgentExecutionPolicy(
+    SubAgentSessionPolicy SessionPolicy,
+    SubAgentBranchPolicy BranchPolicy,
+    string? SharedSessionId = null,
+    string? ExistingBranchId = null,
+    string? BranchNamePrefix = null,
+    SubAgentBranchCompaction BranchCompaction = SubAgentBranchCompaction.Inherit)
+{
+    public static SubAgentExecutionPolicy Default { get; } =
+        new(SubAgentSessionPolicy.ParentSession, SubAgentBranchPolicy.ForkFromParentBranch);
+}
+
+public static class SubAgentExecutionPolicies
+{
+    public static SubAgentExecutionPolicy ParentSessionForkedBranch(
+        SubAgentBranchCompaction branchCompaction = SubAgentBranchCompaction.Inherit) =>
+        new(
+            SubAgentSessionPolicy.ParentSession,
+            SubAgentBranchPolicy.ForkFromParentBranch,
+            BranchCompaction: branchCompaction);
+
+    public static SubAgentExecutionPolicy ParentSessionFreshBranch() =>
+        new(SubAgentSessionPolicy.ParentSession, SubAgentBranchPolicy.FreshBranch);
+
+    public static SubAgentExecutionPolicy ParentBranch() =>
+        new(SubAgentSessionPolicy.ParentSession, SubAgentBranchPolicy.ParentBranch);
+
+    public static SubAgentExecutionPolicy NewSession() =>
+        new(SubAgentSessionPolicy.NewSession, SubAgentBranchPolicy.FreshBranch);
+
+    public static SubAgentExecutionPolicy SharedSessionFreshBranch(string sessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        return new(
+            SubAgentSessionPolicy.SharedSession,
+            SubAgentBranchPolicy.FreshBranch,
+            SharedSessionId: sessionId);
+    }
+
+    public static SubAgentExecutionPolicy SharedSessionExistingBranch(string sessionId, string branchId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        return new(
+            SubAgentSessionPolicy.SharedSession,
+            SubAgentBranchPolicy.ExistingBranch,
+            SharedSessionId: sessionId,
+            ExistingBranchId: branchId);
+    }
+
+    public static SubAgentExecutionPolicy ExistingBranch(string branchId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        return new(SubAgentSessionPolicy.ParentSession, SubAgentBranchPolicy.ExistingBranch, ExistingBranchId: branchId);
+    }
+}
+
+internal static class SubAgentExecutionPolicyExtensions
+{
+    public static void Validate(this SubAgentExecutionPolicy policy)
+    {
+        if (policy.SessionPolicy == SubAgentSessionPolicy.SharedSession)
+        {
+            if (string.IsNullOrWhiteSpace(policy.SharedSessionId))
+                throw new ArgumentException("SharedSessionId is required when SessionPolicy is SharedSession.");
+        }
+        else if (!string.IsNullOrWhiteSpace(policy.SharedSessionId))
+        {
+            throw new ArgumentException("SharedSessionId is only valid when SessionPolicy is SharedSession.");
+        }
+
+        if (policy.BranchPolicy == SubAgentBranchPolicy.ExistingBranch)
+        {
+            if (string.IsNullOrWhiteSpace(policy.ExistingBranchId))
+                throw new ArgumentException("ExistingBranchId is required when BranchPolicy is ExistingBranch.");
+        }
+        else if (!string.IsNullOrWhiteSpace(policy.ExistingBranchId))
+        {
+            throw new ArgumentException("ExistingBranchId is only valid when BranchPolicy is ExistingBranch.");
+        }
+
+        if (policy.BranchPolicy == SubAgentBranchPolicy.ForkFromParentBranch &&
+            policy.SessionPolicy != SubAgentSessionPolicy.ParentSession)
+        {
+            throw new ArgumentException("ForkFromParentBranch requires SessionPolicy to be ParentSession.");
+        }
+
+        if (policy.BranchPolicy == SubAgentBranchPolicy.ParentBranch &&
+            policy.SessionPolicy != SubAgentSessionPolicy.ParentSession)
+        {
+            throw new ArgumentException("ParentBranch requires SessionPolicy to be ParentSession.");
+        }
+
+        if (policy.BranchCompaction != SubAgentBranchCompaction.Inherit &&
+            policy.BranchPolicy != SubAgentBranchPolicy.ForkFromParentBranch)
+        {
+            throw new ArgumentException("BranchCompaction can only be set when BranchPolicy is ForkFromParentBranch.");
+        }
+    }
+
 }

@@ -109,18 +109,66 @@ public class BranchEventStoreTests : AgentTestBase
 
             var branchJsonPath = Path.Combine(tempDir, "session-1", "branches", "main", "branch.json");
             var json = await File.ReadAllTextAsync(branchJsonPath);
-            var document = JsonSerializer.Deserialize<BranchEventDocument>(json, SessionJsonContext.Combined.Options);
+            using var raw = JsonDocument.Parse(json);
+            var events = raw.RootElement.GetProperty("events").EnumerateArray().ToList();
 
+            Assert.Equal("hpd.agent.branch.events", raw.RootElement.GetProperty("schema").GetString());
+            Assert.Contains(events, e => e.GetProperty("type").GetString() == BranchEventTypes.BranchCreated);
+            Assert.Contains(events, e => e.GetProperty("type").GetString() == EventTypes.MessageTurn.MESSAGE_TURN_STARTED);
+            Assert.All(events, e =>
+            {
+                Assert.False(e.TryGetProperty("sessionId", out _));
+                Assert.False(e.TryGetProperty("branchId", out _));
+                Assert.False(e.TryGetProperty("channel", out _));
+                Assert.False(e.TryGetProperty("kind", out _));
+                Assert.False(e.TryGetProperty("direction", out _));
+                Assert.False(e.TryGetProperty("canInterrupt", out _));
+                Assert.False(e.TryGetProperty("exchangeTimestampNs", out _));
+            });
+
+            var document = await store.LoadBranchDocumentAsync(session.Id, branch.Id, TestCancellationToken);
             Assert.NotNull(document);
-            Assert.Equal("hpd.agent.branch.events", document.Schema);
             Assert.Contains(document.Events, e => EventType(e) == BranchEventTypes.BranchCreated);
             Assert.Contains(document.Events, e => EventType(e) == EventTypes.MessageTurn.MESSAGE_TURN_STARTED);
+            Assert.All(document.Events, e =>
+            {
+                Assert.Equal(session.Id, e.SessionId);
+                Assert.Equal(branch.Id, e.BranchId);
+            });
         }
         finally
         {
             if (Directory.Exists(tempDir))
                 Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Agent_PersistsInputAndRuntimeOutputWithoutDuplicateTranscriptEvents()
+    {
+        var store = new InMemorySessionStore();
+        var config = DefaultConfig();
+        config.SessionStore = store;
+        var client = new FakeChatClient();
+        client.EnqueueTextResponse("hello human");
+        var agent = CreateAgent(config, client);
+        var sessionId = "session-1";
+
+        await agent.CreateSessionAsync(sessionId, cancellationToken: TestCancellationToken);
+        await agent.RunAsync("who are you", sessionId, "main", cancellationToken: TestCancellationToken);
+
+        var document = await store.LoadBranchDocumentAsync(sessionId, "main", TestCancellationToken);
+        Assert.NotNull(document);
+
+        var textDeltas = document.Events.OfType<TextDeltaEvent>().ToList();
+        Assert.Single(textDeltas.Where(e => e.Text == "who are you"));
+        Assert.Single(textDeltas.Where(e => e.Text == "hello human"));
+
+        var loaded = await store.LoadBranchAsync(sessionId, "main", TestCancellationToken);
+        Assert.NotNull(loaded);
+        Assert.Equal(2, loaded.Messages.Count);
+        Assert.Equal("who are you", loaded.Messages[0].Text);
+        Assert.Equal("hello human", loaded.Messages[1].Text);
     }
 
     [Fact]

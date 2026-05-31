@@ -25,14 +25,21 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(BranchDto))]
 [JsonSerializable(typeof(BranchDto[]))]
 [JsonSerializable(typeof(List<BranchDto>))]
+[JsonSerializable(typeof(BranchRunDto))]
+[JsonSerializable(typeof(BranchRunDto[]))]
+[JsonSerializable(typeof(List<BranchRunDto>))]
+[JsonSerializable(typeof(BranchRunErrorDto))]
+[JsonSerializable(typeof(BranchRunBackgroundOperationDto))]
+[JsonSerializable(typeof(BranchRunBackgroundTaskDto))]
+[JsonSerializable(typeof(List<BranchRunBackgroundTaskDto>))]
 // Branch event DTOs
 [JsonSerializable(typeof(AgentEvent))]
 [JsonSerializable(typeof(AgentEvent[]))]
 [JsonSerializable(typeof(List<AgentEvent>))]
-// Asset DTOs
-[JsonSerializable(typeof(AssetDto))]
-[JsonSerializable(typeof(AssetDto[]))]
-[JsonSerializable(typeof(List<AssetDto>))]
+// Content DTOs
+[JsonSerializable(typeof(ContentDto))]
+[JsonSerializable(typeof(ContentDto[]))]
+[JsonSerializable(typeof(List<ContentDto>))]
 // Request DTOs
 [JsonSerializable(typeof(CreateSessionRequest))]
 [JsonSerializable(typeof(UpdateSessionRequest))]

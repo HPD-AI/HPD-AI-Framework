@@ -28,13 +28,13 @@ public class AnthropicProviderTests
 
         // Assert
         var config = builder.Config;
-        config.Provider.Should().NotBeNull();
-        config.Provider.ProviderKey.Should().Be("anthropic");
-        config.Provider.ApiKey.Should().Be("test-api-key");
-        config.Provider.ModelName.Should().Be("claude-sonnet-4-5-20250929");
+        config.EnsureChatClientConfig().Should().NotBeNull();
+        config.EnsureChatClientConfig().ProviderKey.Should().Be("anthropic");
+        config.EnsureChatClientConfig().ApiKey.Should().Be("test-api-key");
+        config.EnsureChatClientConfig().ModelName.Should().Be("claude-sonnet-4-5-20250929");
 
         // Verify typed config
-        var providerConfig = config.Provider.GetProviderConfig<AnthropicProviderConfig>();
+        var providerConfig = config.EnsureChatClientConfig().GetProviderConfig<AnthropicProviderConfig>();
         providerConfig.Should().NotBeNull();
         providerConfig.MaxTokens.Should().Be(2048);
         providerConfig.Temperature.Should().Be(0.5);
@@ -52,7 +52,7 @@ public class AnthropicProviderTests
         builder.WithAnthropic("claude-sonnet-4-5-20250929", apiKey: "test-api-key");
 
         // Assert
-        var providerConfig = builder.Config.Provider.GetProviderConfig<AnthropicProviderConfig>();
+        var providerConfig = builder.Config.EnsureChatClientConfig().GetProviderConfig<AnthropicProviderConfig>();
         providerConfig.Should().NotBeNull();
         providerConfig.MaxTokens.Should().Be(4096); // Default
         providerConfig.Temperature.Should().BeNull();
@@ -111,7 +111,7 @@ public class AnthropicProviderTests
             builder.WithAnthropic("claude-sonnet-4-5-20250929", apiKey: "explicit-key");
 
             // Assert
-            builder.Config.Provider.ApiKey.Should().Be("explicit-key");
+            builder.Config.EnsureChatClientConfig().ApiKey.Should().Be("explicit-key");
         }
         finally
         {
@@ -191,7 +191,7 @@ public class AnthropicProviderTests
         });
 
         // Assert
-        var providerConfig = builder.Config.Provider.GetProviderConfig<AnthropicProviderConfig>();
+        var providerConfig = builder.Config.EnsureChatClientConfig().GetProviderConfig<AnthropicProviderConfig>();
         providerConfig.Should().NotBeNull();
         providerConfig!.EnablePromptCaching.Should().BeTrue();
         providerConfig.PromptCacheTTLMinutes.Should().Be(10);
@@ -220,27 +220,6 @@ public class AnthropicProviderTests
         });
         actHigh.Should().Throw<ArgumentException>()
             .WithMessage("*PromptCacheTTLMinutes*1 and 60*");
-    }
-
-    [Fact]
-    public void WithAnthropic_ShouldAcceptClientFactory()
-    {
-        // Arrange
-        var builder = new AgentBuilder();
-        var factoryCalled = false;
-        Func<IChatClient, IChatClient> clientFactory = client =>
-        {
-            factoryCalled = true;
-            return client; // Just return the same client for testing
-        };
-
-        // Act
-        builder.WithAnthropic("claude-sonnet-4-5-20250929",
-            apiKey: "test-api-key",
-            clientFactory: clientFactory);
-
-        // Assert
-        builder.Config.Provider.ClientFactory.Should().Be(clientFactory);
     }
 
     #region Error Handler Tests
@@ -521,12 +500,11 @@ public class AnthropicProviderTests
         var config = new AgentConfig
         {
             Name = "Test Agent",
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "anthropic",
                 ModelName = "claude-sonnet-4-5",
                 ApiKey = "sk-ant-test-key"
-            }
+            } }
         };
 
         var anthropicOpts = new AnthropicProviderConfig
@@ -536,7 +514,7 @@ public class AnthropicProviderTests
             Temperature = 1.0f,
             ThinkingBudgetTokens = 2048
         };
-        config.Provider.SetProviderConfig(anthropicOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(anthropicOpts);
 
         // Act
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
@@ -564,12 +542,13 @@ public class AnthropicProviderTests
         var json = """
         {
             "name": "Test Agent",
-            "provider": {
+            "clients": {
+                "chat": {
                 "providerKey": "anthropic",
                 "modelName": "claude-sonnet-4-5",
                 "apiKey": "sk-ant-test-key",
                 "providerOptionsJson": "{\"maxTokens\":4096,\"enablePromptCaching\":true,\"temperature\":1.0,\"thinkingBudgetTokens\":2048}"
-            }
+            } }
         }
         """;
 
@@ -579,14 +558,14 @@ public class AnthropicProviderTests
         // Assert
         config.Should().NotBeNull();
         config!.Name.Should().Be("Test Agent");
-        config.Provider.Should().NotBeNull();
-        config.Provider!.ProviderKey.Should().Be("anthropic");
-        config.Provider.ModelName.Should().Be("claude-sonnet-4-5");
-        config.Provider.ApiKey.Should().Be("sk-ant-test-key");
-        config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().Should().NotBeNull();
+        config.EnsureChatClientConfig()!.ProviderKey.Should().Be("anthropic");
+        config.EnsureChatClientConfig().ModelName.Should().Be("claude-sonnet-4-5");
+        config.EnsureChatClientConfig().ApiKey.Should().Be("sk-ant-test-key");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
 
         // Verify typed config can be retrieved
-        var anthropicConfig = config.Provider.GetProviderConfig<AnthropicProviderConfig>();
+        var anthropicConfig = config.EnsureChatClientConfig().GetProviderConfig<AnthropicProviderConfig>();
         anthropicConfig.Should().NotBeNull();
         anthropicConfig!.MaxTokens.Should().Be(4096);
         anthropicConfig.EnablePromptCaching.Should().BeTrue();
@@ -603,13 +582,12 @@ public class AnthropicProviderTests
             Name = "Round Trip Test",
             MaxAgenticIterations = 20,
             SystemInstructions = "You are a test assistant.",
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "anthropic",
                 ModelName = "claude-sonnet-4-5-20250929",
                 ApiKey = "sk-ant-original-key",
                 Endpoint = "https://api.anthropic.com"
-            }
+            } }
         };
 
         var originalAnthropicOpts = new AnthropicProviderConfig
@@ -624,7 +602,7 @@ public class AnthropicProviderTests
             ServiceTier = "auto",
             StopSequences = new List<string> { "STOP", "END" }
         };
-        originalConfig.Provider.SetProviderConfig(originalAnthropicOpts);
+        originalConfig.EnsureChatClientConfig().SetProviderConfig(originalAnthropicOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(originalConfig, HPDJsonContext.Default.AgentConfig);
@@ -637,14 +615,14 @@ public class AnthropicProviderTests
         deserializedConfig.SystemInstructions.Should().Be("You are a test assistant.");
 
         // Assert - Provider properties
-        deserializedConfig.Provider.Should().NotBeNull();
-        deserializedConfig.Provider!.ProviderKey.Should().Be("anthropic");
-        deserializedConfig.Provider.ModelName.Should().Be("claude-sonnet-4-5-20250929");
-        deserializedConfig.Provider.ApiKey.Should().Be("sk-ant-original-key");
-        deserializedConfig.Provider.Endpoint.Should().Be("https://api.anthropic.com");
+        deserializedConfig.EnsureChatClientConfig().Should().NotBeNull();
+        deserializedConfig.EnsureChatClientConfig()!.ProviderKey.Should().Be("anthropic");
+        deserializedConfig.EnsureChatClientConfig().ModelName.Should().Be("claude-sonnet-4-5-20250929");
+        deserializedConfig.EnsureChatClientConfig().ApiKey.Should().Be("sk-ant-original-key");
+        deserializedConfig.EnsureChatClientConfig().Endpoint.Should().Be("https://api.anthropic.com");
 
         // Assert - Anthropic-specific config
-        var deserializedAnthropicOpts = deserializedConfig.Provider.GetProviderConfig<AnthropicProviderConfig>();
+        var deserializedAnthropicOpts = deserializedConfig.EnsureChatClientConfig().GetProviderConfig<AnthropicProviderConfig>();
         deserializedAnthropicOpts.Should().NotBeNull();
         deserializedAnthropicOpts!.MaxTokens.Should().Be(8192);
         deserializedAnthropicOpts.EnablePromptCaching.Should().BeTrue();
@@ -665,11 +643,10 @@ public class AnthropicProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "anthropic",
                 ModelName = "claude-sonnet-4-5"
-            }
+            } }
         };
 
         // Act - Set typed config
@@ -678,17 +655,17 @@ public class AnthropicProviderTests
             MaxTokens = 2048,
             Temperature = 0.5f
         };
-        config.Provider.SetProviderConfig(anthropicOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(anthropicOpts);
 
         // Assert - ProviderOptionsJson should be populated
-        config.Provider.ProviderOptionsJson.Should().NotBeNullOrEmpty();
-        config.Provider.ProviderOptionsJson.Should().Contain("maxTokens");
-        config.Provider.ProviderOptionsJson.Should().Contain("2048");
-        config.Provider.ProviderOptionsJson.Should().Contain("temperature");
-        config.Provider.ProviderOptionsJson.Should().Contain("0.5");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("maxTokens");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("2048");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("temperature");
+        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("0.5");
 
         // Verify we can retrieve it back
-        var retrieved = config.Provider.GetProviderConfig<AnthropicProviderConfig>();
+        var retrieved = config.EnsureChatClientConfig().GetProviderConfig<AnthropicProviderConfig>();
         retrieved.Should().NotBeNull();
         retrieved!.MaxTokens.Should().Be(2048);
         retrieved.Temperature.Should().Be(0.5f);
@@ -700,11 +677,10 @@ public class AnthropicProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "anthropic",
                 ModelName = "claude-sonnet-4-5"
-            }
+            } }
         };
 
         var anthropicOpts = new AnthropicProviderConfig
@@ -712,11 +688,11 @@ public class AnthropicProviderTests
             MaxTokens = 4096,
             Temperature = 1.0f
         };
-        config.Provider.SetProviderConfig(anthropicOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(anthropicOpts);
 
         // Act - Call GetProviderConfig multiple times
-        var first = config.Provider.GetProviderConfig<AnthropicProviderConfig>();
-        var second = config.Provider.GetProviderConfig<AnthropicProviderConfig>();
+        var first = config.EnsureChatClientConfig().GetProviderConfig<AnthropicProviderConfig>();
+        var second = config.EnsureChatClientConfig().GetProviderConfig<AnthropicProviderConfig>();
 
         // Assert - Should return the same cached instance
         first.Should().BeSameAs(second);
@@ -730,11 +706,10 @@ public class AnthropicProviderTests
         // Arrange
         var config = new AgentConfig
         {
-            Provider = new ProviderConfig
-            {
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                 ProviderKey = "anthropic",
                 ModelName = "claude-sonnet-4-5"
-            }
+            } }
         };
 
         var anthropicOpts = new AnthropicProviderConfig
@@ -743,14 +718,14 @@ public class AnthropicProviderTests
             // Leave Temperature, TopP, etc. as null
             EnablePromptCaching = false
         };
-        config.Provider.SetProviderConfig(anthropicOpts);
+        config.EnsureChatClientConfig().SetProviderConfig(anthropicOpts);
 
         // Act - Serialize and deserialize
         var json = System.Text.Json.JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
         var deserialized = System.Text.Json.JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentConfig);
 
         // Assert
-        var deserializedOpts = deserialized!.Provider.GetProviderConfig<AnthropicProviderConfig>();
+        var deserializedOpts = deserialized!.EnsureChatClientConfig().GetProviderConfig<AnthropicProviderConfig>();
         deserializedOpts.Should().NotBeNull();
         deserializedOpts!.MaxTokens.Should().Be(4096);
         deserializedOpts.Temperature.Should().BeNull();

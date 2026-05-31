@@ -205,11 +205,11 @@ public class HPDAgentRegistryTests
 
     private static void InjectTestProvider(AgentBuilder builder)
     {
-        builder.Config.Provider = new ProviderConfig
+        builder.Config.SetChatClientConfig(new ClientProviderConfig
         {
             ProviderKey = "test",
             ModelName = "test-model"
-        };
+        });
 
         var chatClient = new FakeChatClient();
         var registry = new TestProviderRegistry(chatClient);

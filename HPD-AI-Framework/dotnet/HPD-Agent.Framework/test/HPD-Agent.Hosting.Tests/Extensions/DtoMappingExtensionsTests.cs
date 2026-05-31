@@ -131,6 +131,7 @@ public class DtoMappingExtensionsTests
                 new ChatMessage(ChatRole.Assistant, "Response 1")
             },
             forkedFrom: "main",
+            forkedAtMessageId: "message-1",
             forkedAtMessageIndex: 1,
             createdAt: DateTime.UtcNow,
             lastActivity: DateTime.UtcNow,
@@ -138,30 +139,34 @@ public class DtoMappingExtensionsTests
             description: null,
             tags: null,
             ancestors: new Dictionary<string, string> { ["0"] = "root", ["1"] = "main" },
-            middlewareState: new Dictionary<string, string>());
+            middlewareState: new Dictionary<string, string>(),
+            metadata: new Dictionary<string, object> { ["surface"] = "hpdos" });
 
         // Act
         var dto = forkedBranch.ToDto("session-123");
 
         // Assert
         dto.ForkedFrom.Should().Be("main");
+        dto.ForkedAtMessageId.Should().Be("message-1");
         dto.ForkedAtMessageIndex.Should().Be(1);
         dto.Ancestors.Should().ContainKey("0");
         dto.Ancestors.Should().ContainKey("1");
+        dto.Metadata.Should().ContainKey("surface");
     }
 
     #endregion
 
-    #region Asset Mapping
+    #region Content Mapping
 
     [Fact]
-    public void ToDto_MapsAssetCorrectly_WithAllProperties()
+    public void ToDto_MapsContentCorrectly_WithAllProperties()
     {
         // Arrange
         var metadata = new HPD.Agent.ContentInfo
         {
-            Id = "asset-123",
-            Name = "asset-123",
+            Id = "content-123",
+            Version = "rev:123",
+            Name = "content-123",
             ContentType = "image/png",
             SizeBytes = 1024000,
             CreatedAt = DateTime.UtcNow
@@ -171,7 +176,7 @@ public class DtoMappingExtensionsTests
         var dto = metadata.ToDto();
 
         // Assert
-        dto.AssetId.Should().Be("asset-123");
+        dto.ContentId.Should().Be("content-123");
         dto.ContentType.Should().Be("image/png");
         dto.SizeBytes.Should().Be(1024000);
         DateTime.TryParse(dto.CreatedAt, null, System.Globalization.DateTimeStyles.RoundtripKind, out var createdAt).Should().BeTrue();

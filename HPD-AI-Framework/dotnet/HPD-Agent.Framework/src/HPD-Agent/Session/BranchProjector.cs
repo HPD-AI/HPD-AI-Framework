@@ -50,13 +50,18 @@ public static class BranchProjector
                 branch.Name = data.Name;
                 branch.Description = data.Description;
                 branch.Tags = data.Tags;
+                ReplaceMetadata(branch.Metadata, data.BranchMetadata);
                 branch.LastActivity = data.CreatedAt;
                 break;
             }
 
             case BranchForkedEvent data:
             {
-                branch.SetForkMetadata(data.SourceBranchId, data.FromMessageIndex, data.Ancestors);
+                branch.SetForkMetadata(
+                    data.SourceBranchId,
+                    data.FromMessageId,
+                    data.ResolvedMessageIndex,
+                    data.Ancestors);
                 break;
             }
 
@@ -65,6 +70,7 @@ public static class BranchProjector
                 branch.Name = data.Name;
                 branch.Description = data.Description;
                 branch.Tags = data.Tags;
+                ReplaceMetadata(branch.Metadata, data.BranchMetadata);
                 branch.LastActivity = evt.Timestamp.UtcDateTime;
                 break;
             }
@@ -73,6 +79,7 @@ public static class BranchProjector
             {
                 branch.SetTreeMetadata(
                     data.ForkedFrom,
+                    data.ForkedAtMessageId,
                     data.ForkedAtMessageIndex,
                     data.SiblingIndex,
                     data.TotalSiblings,
@@ -116,7 +123,8 @@ public static class BranchProjector
 
             case TextMessageStartEvent data:
             {
-                GetMessage(messages, messageOrder, data.MessageId, ParseRole(data.Role));
+                GetMessage(messages, messageOrder, data.MessageId, ParseRole(data.Role))
+                    .SetMessageTurnId(evt.EventFlowId);
                 break;
             }
 
@@ -130,7 +138,8 @@ public static class BranchProjector
 
             case ReasoningMessageStartEvent data:
             {
-                GetMessage(messages, messageOrder, data.MessageId, ParseRole(data.Role));
+                GetMessage(messages, messageOrder, data.MessageId, ParseRole(data.Role))
+                    .SetMessageTurnId(evt.EventFlowId);
                 break;
             }
 
@@ -147,7 +156,8 @@ public static class BranchProjector
 
             case ToolCallStartEvent data:
             {
-                GetMessage(messages, messageOrder, data.MessageId, ChatRole.Assistant);
+                GetMessage(messages, messageOrder, data.MessageId, ChatRole.Assistant)
+                    .SetMessageTurnId(evt.EventFlowId);
                 toolCalls[data.CallId] = new ToolCallProjection(data.MessageId, data.Name);
                 break;
             }
@@ -177,6 +187,7 @@ public static class BranchProjector
                     ? $"tool-{data.CallId}"
                     : data.MessageId;
                 GetMessage(messages, messageOrder, messageId, ChatRole.Tool)
+                    .SetMessageTurnId(evt.EventFlowId)
                     .Contents.Add(new FunctionResultContent(data.CallId, ToResultObject(data.Result)));
                 branch.LastActivity = evt.Timestamp.UtcDateTime;
                 break;
@@ -192,7 +203,58 @@ public static class BranchProjector
                 branch.LastActivity = evt.Timestamp.UtcDateTime;
                 break;
             }
+
+            case BranchHistoryCompactedEvent data:
+            {
+                ApplyCompaction(data, messages, messageOrder);
+                branch.LastActivity = data.CompactedAt.UtcDateTime;
+                break;
+            }
         }
+    }
+
+    private static void ApplyCompaction(
+        BranchHistoryCompactedEvent data,
+        Dictionary<string, MessageProjection> messages,
+        List<string> messageOrder)
+    {
+        var durableRemoved = data.DurableCompactedMessageIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (durableRemoved.Count == 0)
+            return;
+
+        var insertIndex = messageOrder.FindIndex(durableRemoved.Contains);
+        if (insertIndex < 0)
+            insertIndex = messageOrder.Count;
+
+        messageOrder.RemoveAll(durableRemoved.Contains);
+        foreach (var messageId in durableRemoved)
+            messages.Remove(messageId);
+
+        var replacementIds = new List<string>();
+        foreach (var replacement in data.ReplacementMessages)
+        {
+            EnsureMessageIdentity(replacement);
+            var replacementId = replacement.MessageId!;
+            replacementIds.Add(replacementId);
+            messages[replacementId] = MessageProjection.FromChatMessage(replacement);
+        }
+
+        messageOrder.InsertRange(insertIndex, replacementIds);
+    }
+
+    private static void ReplaceMetadata(
+        Dictionary<string, object> target,
+        Dictionary<string, object>? source)
+    {
+        target.Clear();
+        if (source == null)
+            return;
+
+        foreach (var (key, value) in source)
+            target[key] = value;
     }
 
     private static MessageProjection GetMessage(
@@ -254,6 +316,17 @@ public static class BranchProjector
         DateTimeOffset? CreatedAt)
     {
         public List<AIContent> Contents { get; } = [];
+        public AdditionalPropertiesDictionary? AdditionalProperties { get; private set; }
+
+        public MessageProjection SetMessageTurnId(string? messageTurnId)
+        {
+            if (string.IsNullOrWhiteSpace(messageTurnId))
+                return this;
+
+            AdditionalProperties ??= [];
+            AdditionalProperties[BranchHistoryCompactionMetadata.MessageTurnIdPropertyName] = messageTurnId;
+            return this;
+        }
 
         public ChatMessage ToChatMessage()
         {
@@ -261,8 +334,28 @@ public static class BranchProjector
             {
                 MessageId = MessageId,
                 AuthorName = AuthorName,
-                CreatedAt = CreatedAt
+                CreatedAt = CreatedAt,
+                AdditionalProperties = AdditionalProperties?.Clone()
             };
         }
+
+        public static MessageProjection FromChatMessage(ChatMessage message)
+        {
+            var projection = new MessageProjection(
+                message.MessageId ?? Guid.NewGuid().ToString(),
+                message.Role,
+                message.AuthorName,
+                message.CreatedAt);
+
+            projection.Contents.AddRange(message.Contents);
+            projection.AdditionalProperties = message.AdditionalProperties?.Clone();
+            return projection;
+        }
+    }
+
+    private static void EnsureMessageIdentity(ChatMessage message)
+    {
+        message.MessageId ??= Guid.NewGuid().ToString();
+        message.CreatedAt ??= DateTimeOffset.UtcNow;
     }
 }

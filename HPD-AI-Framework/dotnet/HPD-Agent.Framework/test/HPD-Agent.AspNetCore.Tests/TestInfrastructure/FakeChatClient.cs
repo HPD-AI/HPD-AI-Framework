@@ -9,6 +9,7 @@ namespace HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 /// </summary>
 public sealed class FakeChatClient : IChatClient
 {
+    private readonly object _gate = new();
     private readonly Queue<QueuedResponse> _queuedResponses = new();
     private readonly List<IList<ChatMessage>> _capturedRequests = new();
     private readonly List<ChatOptions?> _capturedOptions = new();
@@ -23,25 +24,42 @@ public sealed class FakeChatClient : IChatClient
     /// Gets all captured request message histories.
     /// Useful for verifying what was sent to the LLM.
     /// </summary>
-    public IReadOnlyList<IList<ChatMessage>> CapturedRequests => _capturedRequests.AsReadOnly();
+    public IReadOnlyList<IList<ChatMessage>> CapturedRequests
+    {
+        get
+        {
+            lock (_gate)
+                return _capturedRequests.ToArray();
+        }
+    }
 
     /// <summary>
     /// Gets all captured chat options.
     /// Useful for verifying per-run configuration reached the model call.
     /// </summary>
-    public IReadOnlyList<ChatOptions?> CapturedOptions => _capturedOptions.AsReadOnly();
+    public IReadOnlyList<ChatOptions?> CapturedOptions
+    {
+        get
+        {
+            lock (_gate)
+                return _capturedOptions.ToArray();
+        }
+    }
 
     /// <summary>
     /// Enqueues a simple text response.
     /// </summary>
     public void EnqueueTextResponse(string text, string? finishReason = "stop")
     {
-        _queuedResponses.Enqueue(new QueuedResponse
+        lock (_gate)
         {
-            Type = ResponseType.Text,
-            Text = text,
-            FinishReason = finishReason
-        });
+            _queuedResponses.Enqueue(new QueuedResponse
+            {
+                Type = ResponseType.Text,
+                Text = text,
+                FinishReason = finishReason
+            });
+        }
     }
 
     /// <summary>
@@ -50,12 +68,15 @@ public sealed class FakeChatClient : IChatClient
     /// </summary>
     public void EnqueueStreamingResponse(params string[] textChunks)
     {
-        _queuedResponses.Enqueue(new QueuedResponse
+        lock (_gate)
         {
-            Type = ResponseType.StreamingText,
-            TextChunks = textChunks.ToList(),
-            FinishReason = "stop"
-        });
+            _queuedResponses.Enqueue(new QueuedResponse
+            {
+                Type = ResponseType.StreamingText,
+                TextChunks = textChunks.ToList(),
+                FinishReason = "stop"
+            });
+        }
     }
 
     /// <summary>
@@ -67,14 +88,17 @@ public sealed class FakeChatClient : IChatClient
         Dictionary<string, object?>? args = null,
         string? finishReason = "tool_calls")
     {
-        _queuedResponses.Enqueue(new QueuedResponse
+        lock (_gate)
         {
-            Type = ResponseType.ToolCall,
-            FunctionName = functionName,
-            CallId = callId,
-            Arguments = args ?? new Dictionary<string, object?>(),
-            FinishReason = finishReason
-        });
+            _queuedResponses.Enqueue(new QueuedResponse
+            {
+                Type = ResponseType.ToolCall,
+                FunctionName = functionName,
+                CallId = callId,
+                Arguments = args ?? new Dictionary<string, object?>(),
+                FinishReason = finishReason
+            });
+        }
     }
 
     /// <summary>
@@ -86,15 +110,18 @@ public sealed class FakeChatClient : IChatClient
         string callId,
         Dictionary<string, object?>? args = null)
     {
-        _queuedResponses.Enqueue(new QueuedResponse
+        lock (_gate)
         {
-            Type = ResponseType.TextWithToolCall,
-            Text = text,
-            FunctionName = functionName,
-            CallId = callId,
-            Arguments = args ?? new Dictionary<string, object?>(),
-            FinishReason = "tool_calls"
-        });
+            _queuedResponses.Enqueue(new QueuedResponse
+            {
+                Type = ResponseType.TextWithToolCall,
+                Text = text,
+                FunctionName = functionName,
+                CallId = callId,
+                Arguments = args ?? new Dictionary<string, object?>(),
+                FinishReason = "tool_calls"
+            });
+        }
     }
 
     /// <summary>
@@ -102,9 +129,12 @@ public sealed class FakeChatClient : IChatClient
     /// </summary>
     public void Clear()
     {
-        _queuedResponses.Clear();
-        _capturedRequests.Clear();
-        _capturedOptions.Clear();
+        lock (_gate)
+        {
+            _queuedResponses.Clear();
+            _capturedRequests.Clear();
+            _capturedOptions.Clear();
+        }
     }
 
     public async Task<ChatResponse> GetResponseAsync(
@@ -112,20 +142,21 @@ public sealed class FakeChatClient : IChatClient
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        // Capture the request
-        _capturedRequests.Add(chatMessages.ToList());
-        _capturedOptions.Add(options);
-
-        // Get next queued response, or use default
-        if (!_queuedResponses.TryDequeue(out var response))
+        QueuedResponse response;
+        lock (_gate)
         {
-            // Auto-generate a default response for tests that don't need specific responses
-            response = new QueuedResponse
+            _capturedRequests.Add(chatMessages.ToList());
+            _capturedOptions.Add(options);
+
+            if (!_queuedResponses.TryDequeue(out response))
             {
-                Type = ResponseType.Text,
-                Text = "Test response",
-                FinishReason = "stop"
-            };
+                response = new QueuedResponse
+                {
+                    Type = ResponseType.Text,
+                    Text = "Test response",
+                    FinishReason = "stop"
+                };
+            }
         }
 
         // Simulate small delay
@@ -146,20 +177,21 @@ public sealed class FakeChatClient : IChatClient
         ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        // Capture the request
-        _capturedRequests.Add(chatMessages.ToList());
-        _capturedOptions.Add(options);
-
-        // Get next queued response, or use default
-        if (!_queuedResponses.TryDequeue(out var response))
+        QueuedResponse response;
+        lock (_gate)
         {
-            // Auto-generate a default streaming response for tests that don't need specific responses
-            response = new QueuedResponse
+            _capturedRequests.Add(chatMessages.ToList());
+            _capturedOptions.Add(options);
+
+            if (!_queuedResponses.TryDequeue(out response))
             {
-                Type = ResponseType.StreamingText,
-                TextChunks = ["Test ", "streaming ", "response"],
-                FinishReason = "stop"
-            };
+                response = new QueuedResponse
+                {
+                    Type = ResponseType.StreamingText,
+                    TextChunks = ["Test ", "streaming ", "response"],
+                    FinishReason = "stop"
+                };
+            }
         }
 
         switch (response.Type)

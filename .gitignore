@@ -7,6 +7,7 @@
 
 # HPDOS generated publish/build output
 HPDOS/backend/artifacts/
+HPDOS/backend/wwwroot/assets/
 HPDOSBenchmarkDotNet.Artifacts/
 BenchmarkDotNet.Artifacts/
 
@@ -17,6 +18,10 @@ dispatch-benchmark-results.log
 memory-results.log
 memory-results.trx
 HPD-AI-Framework/dotnet/shared/src/Rhodium/benchmarks/vector-smoke-report.json
+
+# RealtimeMedia local/investigation workspace
+HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/
+HPD-AI-Framework/dotnet/shared/test/HPD-RealtimeMedia/
 
 # Local native/runtime artifacts
 artifacts/

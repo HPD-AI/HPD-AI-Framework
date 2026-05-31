@@ -6,76 +6,76 @@ using Xunit;
 namespace HPD.Agent.Tests.Core;
 
 /// <summary>
-/// Tests for BidirectionalEventCoordinator ExecutionContext auto-attachment.
+/// Tests for BidirectionalEventCoordinator AgentMetadata auto-attachment.
 /// NOTE: Core cycle detection and event bubbling tests have been migrated to HPD.Events.Tests/EventCoordinatorTests.cs
-/// These tests focus on agent-specific behavior (ExecutionContext enrichment).
+/// These tests focus on agent-specific behavior (AgentMetadata enrichment).
 /// </summary>
 public class BidirectionalEventCoordinatorTests
 {
-    // ===== P0: ExecutionContext Auto-Attachment =====
+    // ===== P0: AgentMetadata Auto-Attachment =====
 
     [Fact]
-    public void Emit_AutoAttachesExecutionContext_WhenEventHasNone()
+    public void Emit_AutoAttachesAgentMetadata_WhenEventHasNone()
     {
         // Arrange
         var agent = TestAgentFactory.Create();
 
-        // Set ExecutionContext on agent
-        agent.ExecutionContext = new AgentExecutionContext
+        // Set AgentMetadata on agent
+        agent.AgentMetadata = new AgentMetadata
         {
             AgentName = "TestAgent",
             AgentId = "test-abc123",
             Depth = 0
         };
 
-        // Act - Emit event without ExecutionContext
+        // Act - Emit event without AgentMetadata
         var evt = new TestAgentEvent { Message = "Test" };
-        Assert.Null(evt.ExecutionContext); // Verify it starts null
+        Assert.Null(evt.Metadata); // Verify it starts null
 
         agent.EventCoordinator.Emit(evt);
 
         // Read emitted event from channel
         agent.EventCoordinator.TryRead(out var emittedEvent);
 
-        // Assert - ExecutionContext should be auto-attached
+        // Assert - AgentMetadata should be auto-attached
         Assert.NotNull(emittedEvent);
-        Assert.NotNull(emittedEvent.ExecutionContext);
-        Assert.Equal("TestAgent", emittedEvent.ExecutionContext!.AgentName);
-        Assert.Equal("test-abc123", emittedEvent.ExecutionContext.AgentId);
+        Assert.NotNull(emittedEvent.Metadata);
+        Assert.Equal("TestAgent", emittedEvent.Metadata!.AgentName);
+        Assert.Equal("test-abc123", emittedEvent.Metadata.AgentId);
     }
 
     [Fact]
-    public void Emit_PreservesExecutionContext_WhenEventAlreadyHasOne()
+    public void Emit_PreservesAgentMetadata_WhenEventAlreadyHasOne()
     {
         // Arrange
         var agent = TestAgentFactory.Create();
 
-        agent.ExecutionContext = new AgentExecutionContext
+        agent.AgentMetadata = new AgentMetadata
         {
             AgentName = "TestAgent",
             AgentId = "test-abc123",
             Depth = 0
         };
 
-        // Act - Emit event WITH ExecutionContext already set
-        var customContext = new AgentExecutionContext
+        // Act - Emit event WITH AgentMetadata already set
+        var customContext = new AgentMetadata
         {
             AgentName = "CustomAgent",
             AgentId = "custom-xyz789",
             Depth = 5
         };
 
-        var evt = new TestAgentEvent { Message = "Test", ExecutionContext = customContext };
+        var evt = new TestAgentEvent { Message = "Test", Metadata = customContext };
         agent.EventCoordinator.Emit(evt);
 
         // Read emitted event
         agent.EventCoordinator.TryRead(out var emittedEvent);
 
-        // Assert - Original ExecutionContext should be preserved
-        Assert.NotNull(emittedEvent!.ExecutionContext);
-        Assert.Equal("CustomAgent", emittedEvent.ExecutionContext!.AgentName);
-        Assert.Equal("custom-xyz789", emittedEvent.ExecutionContext.AgentId);
-        Assert.Equal(5, emittedEvent.ExecutionContext.Depth);
+        // Assert - Original AgentMetadata should be preserved
+        Assert.NotNull(emittedEvent!.Metadata);
+        Assert.Equal("CustomAgent", emittedEvent.Metadata!.AgentName);
+        Assert.Equal("custom-xyz789", emittedEvent.Metadata.AgentId);
+        Assert.Equal(5, emittedEvent.Metadata.Depth);
     }
 
     [Fact]
@@ -85,23 +85,23 @@ public class BidirectionalEventCoordinatorTests
         var parentAgent = TestAgentFactory.Create(new AgentConfig
         {
             Name = "ParentAgent",
-            Provider = new ProviderConfig { ProviderKey = "test", ModelName = "test-model" }
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } }
         });
         var childAgent = TestAgentFactory.Create(new AgentConfig
         {
             Name = "ChildAgent",
-            Provider = new ProviderConfig { ProviderKey = "test", ModelName = "test-model" }
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } }
         });
 
-        // Set ExecutionContexts
-        parentAgent.ExecutionContext = new AgentExecutionContext
+        // Set AgentMetadatas
+        parentAgent.AgentMetadata = new AgentMetadata
         {
             AgentName = "ParentAgent",
             AgentId = "parent-abc123",
             Depth = 0
         };
 
-        childAgent.ExecutionContext = new AgentExecutionContext
+        childAgent.AgentMetadata = new AgentMetadata
         {
             AgentName = "ChildAgent",
             AgentId = "parent-abc123-child-def456",
@@ -120,14 +120,14 @@ public class BidirectionalEventCoordinatorTests
         // Assert - Event should appear in both child and parent channels with context
         // Child channel
         Assert.True(childAgent.EventCoordinator.TryRead(out var childEvent));
-        Assert.NotNull(childEvent!.ExecutionContext);
-        Assert.Equal("ChildAgent", childEvent.ExecutionContext!.AgentName);
+        Assert.NotNull(childEvent!.Metadata);
+        Assert.Equal("ChildAgent", childEvent.Metadata!.AgentName);
 
         // Parent channel (bubbled event)
         Assert.True(parentAgent.EventCoordinator.TryRead(out var parentEvent));
-        Assert.NotNull(parentEvent!.ExecutionContext);
-        Assert.Equal("ChildAgent", parentEvent.ExecutionContext!.AgentName); // Context preserved during bubbling
-        Assert.Equal(1, parentEvent.ExecutionContext.Depth);
+        Assert.NotNull(parentEvent!.Metadata);
+        Assert.Equal("ChildAgent", parentEvent.Metadata!.AgentName); // Context preserved during bubbling
+        Assert.Equal(1, parentEvent.Metadata.Depth);
     }
 
     [Fact]
@@ -137,27 +137,27 @@ public class BidirectionalEventCoordinatorTests
         var parent = TestAgentFactory.Create(new AgentConfig
         {
             Name = "Orchestrator",
-            Provider = new ProviderConfig { ProviderKey = "test", ModelName = "test-model" }
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } }
         });
         var child1 = TestAgentFactory.Create(new AgentConfig
         {
             Name = "WeatherExpert",
-            Provider = new ProviderConfig { ProviderKey = "test", ModelName = "test-model" }
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } }
         });
         var child2 = TestAgentFactory.Create(new AgentConfig
         {
             Name = "MathExpert",
-            Provider = new ProviderConfig { ProviderKey = "test", ModelName = "test-model" }
+            Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } }
         });
 
-        parent.ExecutionContext = new AgentExecutionContext
+        parent.AgentMetadata = new AgentMetadata
         {
             AgentName = "Orchestrator",
             AgentId = "orch-123",
             Depth = 0
         };
 
-        child1.ExecutionContext = new AgentExecutionContext
+        child1.AgentMetadata = new AgentMetadata
         {
             AgentName = "WeatherExpert",
             AgentId = "orch-123-weather-456",
@@ -165,7 +165,7 @@ public class BidirectionalEventCoordinatorTests
             Depth = 1
         };
 
-        child2.ExecutionContext = new AgentExecutionContext
+        child2.AgentMetadata = new AgentMetadata
         {
             AgentName = "MathExpert",
             AgentId = "orch-123-math-789",
@@ -191,13 +191,13 @@ public class BidirectionalEventCoordinatorTests
         Assert.Equal(2, parentEvents.Count);
 
         // Verify contexts are preserved
-        var weatherEvent = parentEvents.FirstOrDefault(e => e.ExecutionContext?.AgentName == "WeatherExpert");
-        var mathEvent = parentEvents.FirstOrDefault(e => e.ExecutionContext?.AgentName == "MathExpert");
+        var weatherEvent = parentEvents.FirstOrDefault(e => e.Metadata?.AgentName == "WeatherExpert");
+        var mathEvent = parentEvents.FirstOrDefault(e => e.Metadata?.AgentName == "MathExpert");
 
         Assert.NotNull(weatherEvent);
         Assert.NotNull(mathEvent);
-        Assert.Equal("orch-123-weather-456", weatherEvent!.ExecutionContext!.AgentId);
-        Assert.Equal("orch-123-math-789", mathEvent!.ExecutionContext!.AgentId);
+        Assert.Equal("orch-123-weather-456", weatherEvent!.Metadata!.AgentId);
+        Assert.Equal("orch-123-math-789", mathEvent!.Metadata!.AgentId);
     }
 }
 

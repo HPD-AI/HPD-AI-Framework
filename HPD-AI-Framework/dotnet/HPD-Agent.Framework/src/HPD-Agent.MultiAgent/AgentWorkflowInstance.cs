@@ -109,7 +109,7 @@ internal sealed class ConfigAgentFactory : AgentFactory
         _builderAction?.Invoke(builder);
 
         // If no provider configured and we have a fallback, use it
-        if (_config.Provider == null && fallbackChatClient != null)
+        if (_config.ResolveClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat) == null && fallbackChatClient != null)
         {
             builder.WithChatClient(fallbackChatClient);
         }
@@ -269,7 +269,7 @@ public sealed class AgentWorkflowInstance
         string input,
         CancellationToken cancellationToken = default)
     {
-        return ExecuteStreamingAsync(input, parentCoordinator: null, parentExecutionContext: null, parentChatClient: null, cancellationToken);
+        return ExecuteStreamingAsync(input, parentCoordinator: null, parentAgentMetadata: null, parentChatClient: null, cancellationToken);
     }
 
     /// <summary>
@@ -290,7 +290,7 @@ public sealed class AgentWorkflowInstance
         WorkflowEventCoordinator coordinator,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        await foreach (var evt in ExecuteStreamingAsync(input, coordinator.Inner, parentExecutionContext: null, parentChatClient: null, cancellationToken))
+        await foreach (var evt in ExecuteStreamingAsync(input, coordinator.Inner, parentAgentMetadata: null, parentChatClient: null, cancellationToken))
         {
             yield return evt;
         }
@@ -310,7 +310,7 @@ public sealed class AgentWorkflowInstance
         HPD.Events.IEventCoordinator? parentCoordinator,
         CancellationToken cancellationToken = default)
     {
-        return ExecuteStreamingAsync(input, parentCoordinator, parentExecutionContext: null, parentChatClient: null, cancellationToken);
+        return ExecuteStreamingAsync(input, parentCoordinator, parentAgentMetadata: null, parentChatClient: null, cancellationToken);
     }
 
     /// <summary>
@@ -318,16 +318,16 @@ public sealed class AgentWorkflowInstance
     /// </summary>
     /// <param name="input">The input to the workflow.</param>
     /// <param name="parentCoordinator">Optional parent event coordinator for hierarchical event bubbling.</param>
-    /// <param name="parentExecutionContext">Optional parent execution context for agent hierarchy tracking.</param>
+    /// <param name="parentAgentMetadata">Optional parent execution context for agent hierarchy tracking.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Unified stream of graph and agent events.</returns>
     public IAsyncEnumerable<Event> ExecuteStreamingAsync(
         string input,
         HPD.Events.IEventCoordinator? parentCoordinator,
-        AgentExecutionContext? parentExecutionContext,
+        AgentMetadata? parentAgentMetadata,
         CancellationToken cancellationToken = default)
     {
-        return ExecuteStreamingAsync(input, parentCoordinator, parentExecutionContext, parentChatClient: null, cancellationToken);
+        return ExecuteStreamingAsync(input, parentCoordinator, parentAgentMetadata, parentChatClient: null, cancellationToken);
     }
 
     /// <summary>
@@ -335,14 +335,14 @@ public sealed class AgentWorkflowInstance
     /// </summary>
     /// <param name="input">The input to the workflow.</param>
     /// <param name="parentCoordinator">Optional parent event coordinator for hierarchical event bubbling.</param>
-    /// <param name="parentExecutionContext">Optional parent execution context for agent hierarchy tracking.</param>
+    /// <param name="parentAgentMetadata">Optional parent execution context for agent hierarchy tracking.</param>
     /// <param name="parentChatClient">Optional parent chat client for agents that don't have their own provider configured.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Unified stream of graph and agent events.</returns>
     public async IAsyncEnumerable<Event> ExecuteStreamingAsync(
         string input,
         HPD.Events.IEventCoordinator? parentCoordinator,
-        AgentExecutionContext? parentExecutionContext,
+        AgentMetadata? parentAgentMetadata,
         IChatClient? parentChatClient,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -363,23 +363,23 @@ public sealed class AgentWorkflowInstance
         var sanitizedWorkflowName = System.Text.RegularExpressions.Regex.Replace(
             _workflowName, @"[^a-zA-Z0-9]", "_");
 
-        var workflowContext = new AgentExecutionContext
+        var workflowContext = new AgentMetadata
         {
             AgentName = _workflowName,
-            AgentId = parentExecutionContext != null
-                ? $"{parentExecutionContext.AgentId}-{sanitizedWorkflowName}-{randomId}"
+            AgentId = parentAgentMetadata != null
+                ? $"{parentAgentMetadata.AgentId}-{sanitizedWorkflowName}-{randomId}"
                 : $"{sanitizedWorkflowName}-{randomId}",
-            ParentAgentId = parentExecutionContext?.AgentId,
-            AgentChain = parentExecutionContext != null
-                ? new List<string>(parentExecutionContext.AgentChain) { _workflowName }
+            ParentAgentId = parentAgentMetadata?.AgentId,
+            AgentChain = parentAgentMetadata != null
+                ? new List<string>(parentAgentMetadata.AgentChain) { _workflowName }
                 : new List<string> { _workflowName },
-            Depth = (parentExecutionContext?.Depth ?? -1) + 1
+            Depth = (parentAgentMetadata?.Depth ?? -1) + 1
         };
 
         // Set ExecutionContext on each agent in the workflow for proper event attribution
         foreach (var (agentName, agent) in agents)
         {
-            agent.ExecutionContext = new AgentExecutionContext
+            agent.AgentMetadata = new AgentMetadata
             {
                 AgentName = agentName,
                 AgentId = agent.AgentId,
@@ -464,7 +464,7 @@ public sealed class AgentWorkflowInstance
     /// Wraps internal graph events into public AgentEvent-derived workflow events.
     /// This allows consumers to use only HPD.Agent + HPD.MultiAgent without depending on HPD.Graph.
     /// </summary>
-    private Event? WrapGraphEvent(Event evt, AgentExecutionContext workflowContext)
+    private Event? WrapGraphEvent(Event evt, AgentMetadata workflowContext)
     {
         return evt switch
         {
@@ -474,7 +474,7 @@ public sealed class AgentWorkflowInstance
                 WorkflowName = _workflowName,
                 NodeCount = g.NodeCount,
                 LayerCount = g.LayerCount,
-                ExecutionContext = workflowContext
+                Metadata = workflowContext
             },
 
             GraphExecutionCompletedEvent g => new WorkflowCompletedEvent
@@ -484,7 +484,7 @@ public sealed class AgentWorkflowInstance
                 SuccessfulNodes = g.SuccessfulNodes,
                 FailedNodes = g.FailedNodes,
                 SkippedNodes = g.SkippedNodes,
-                ExecutionContext = workflowContext
+                Metadata = workflowContext
             },
 
             // Node events → WorkflowNode events
@@ -494,7 +494,7 @@ public sealed class AgentWorkflowInstance
                 NodeId = n.NodeId,
                 AgentName = n.HandlerName,
                 LayerIndex = n.LayerIndex,
-                ExecutionContext = workflowContext
+                Metadata = workflowContext
             },
 
             NodeExecutionCompletedEvent n => new WorkflowNodeCompletedEvent
@@ -507,7 +507,7 @@ public sealed class AgentWorkflowInstance
                 Progress = n.Progress,
                 Outputs = n.Outputs,
                 ErrorMessage = n.Result is NodeExecutionResult.Failure f ? f.Exception.Message : null,
-                ExecutionContext = workflowContext
+                Metadata = workflowContext
             },
 
             NodeSkippedEvent n => new WorkflowNodeSkippedEvent
@@ -515,7 +515,7 @@ public sealed class AgentWorkflowInstance
                 WorkflowName = _workflowName,
                 NodeId = n.NodeId,
                 Reason = n.Reason,
-                ExecutionContext = workflowContext
+                Metadata = workflowContext
             },
 
             // Layer events → WorkflowLayer events
@@ -524,7 +524,7 @@ public sealed class AgentWorkflowInstance
                 WorkflowName = _workflowName,
                 LayerIndex = l.LayerIndex,
                 NodeCount = l.NodeCount,
-                ExecutionContext = workflowContext
+                Metadata = workflowContext
             },
 
             LayerExecutionCompletedEvent l => new WorkflowLayerCompletedEvent
@@ -533,7 +533,7 @@ public sealed class AgentWorkflowInstance
                 LayerIndex = l.LayerIndex,
                 Duration = l.Duration,
                 SuccessfulNodes = l.SuccessfulNodes,
-                ExecutionContext = workflowContext
+                Metadata = workflowContext
             },
 
             // Edge events → WorkflowEdge events (diagnostic)
@@ -544,7 +544,7 @@ public sealed class AgentWorkflowInstance
                 ToNodeId = e.ToNodeId,
                 HasCondition = e.HasCondition,
                 ConditionDescription = e.ConditionDescription,
-                ExecutionContext = workflowContext
+                Metadata = workflowContext
             },
 
             // Diagnostic events
@@ -555,7 +555,7 @@ public sealed class AgentWorkflowInstance
                 Source = d.Source,
                 Message = d.Message,
                 NodeId = d.NodeId,
-                ExecutionContext = workflowContext
+                Metadata = workflowContext
             },
 
             // Pass through AgentEvents unchanged (they're already in the right format)

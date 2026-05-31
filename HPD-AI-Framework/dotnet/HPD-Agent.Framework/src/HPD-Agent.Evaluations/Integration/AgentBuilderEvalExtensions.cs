@@ -202,6 +202,7 @@ public static class AgentBuilderEvalExtensions
             {
                 var text = new StringBuilder();
                 UsageDetails? usage = null;
+                var finishedSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
                 using var subscription = judgeAgent.SubscribeAny(evt =>
                 {
@@ -212,6 +213,7 @@ public static class AgentBuilderEvalExtensions
                             break;
                         case MessageTurnFinishedEvent finished:
                             usage = finished.Usage;
+                            finishedSignal.TrySetResult();
                             break;
                     }
                 });
@@ -224,6 +226,10 @@ public static class AgentBuilderEvalExtensions
                 {
                     RunConfig = config,
                 }, ct).ConfigureAwait(false);
+
+                using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                waitCts.CancelAfter(config.RunTimeout ?? TimeSpan.FromSeconds(30));
+                await finishedSignal.Task.WaitAsync(waitCts.Token).ConfigureAwait(false);
 
                 return new Microsoft.Extensions.AI.ChatResponse(
                     [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.Assistant, text.ToString())])

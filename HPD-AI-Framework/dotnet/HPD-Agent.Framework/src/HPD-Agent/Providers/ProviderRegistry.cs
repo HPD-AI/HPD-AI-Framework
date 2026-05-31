@@ -12,18 +12,36 @@ namespace HPD.Agent.Providers;
 /// </summary>
 public class ProviderRegistry : IProviderRegistry
 {
-    private readonly Dictionary<string, IProviderFeatures> _providers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IProvider> _providers = new(StringComparer.OrdinalIgnoreCase);
     private readonly ReaderWriterLockSlim _lock = new();
 
-    public void Register(IProviderFeatures features)
+    public void Register(IProvider provider)
     {
-        if (string.IsNullOrWhiteSpace(features.ProviderKey))
-            throw new ArgumentException("ProviderKey cannot be empty", nameof(features));
+        if (string.IsNullOrWhiteSpace(provider.ProviderKey))
+            throw new ArgumentException("ProviderKey cannot be empty", nameof(provider));
 
         _lock.EnterWriteLock();
         try
         {
-            _providers[features.ProviderKey] = features;
+            if (_providers.TryGetValue(provider.ProviderKey, out var existing))
+            {
+                if (existing is CompositeProvider composite)
+                {
+                    composite.Add(provider);
+                }
+                else if (existing.GetType() == provider.GetType())
+                {
+                    _providers[provider.ProviderKey] = provider;
+                }
+                else
+                {
+                    _providers[provider.ProviderKey] = new CompositeProvider(existing, provider);
+                }
+            }
+            else
+            {
+                _providers[provider.ProviderKey] = provider;
+            }
         }
         finally
         {
@@ -31,12 +49,31 @@ public class ProviderRegistry : IProviderRegistry
         }
     }
 
-    public IProviderFeatures? GetProvider(string providerKey)
+    public IProvider? GetProvider(string providerKey)
     {
         _lock.EnterReadLock();
         try
         {
-            return _providers.TryGetValue(providerKey, out var features) ? features : null;
+            return _providers.TryGetValue(providerKey, out var provider) ? provider : null;
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
+    public TProvider? GetProvider<TProvider>(string providerKey) where TProvider : class, IProvider
+    {
+        _lock.EnterReadLock();
+        try
+        {
+            if (!_providers.TryGetValue(providerKey, out var provider))
+                return null;
+
+            if (provider is CompositeProvider composite && !composite.Supports<TProvider>())
+                return null;
+
+            return provider as TProvider;
         }
         finally
         {

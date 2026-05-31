@@ -37,7 +37,7 @@ import type {
 	StoredAgentDto,
 	CreateAgentRequest,
 	UpdateAgentRequest,
-	AssetReference,
+	ContentReference,
 } from '@hpd/hpd-agent-client';
 
 // ---------------------------------------------------------------------------
@@ -86,7 +86,7 @@ function makeBranchMessage(id: string, role: 'user' | 'assistant', text: string)
 	} as BranchMessage;
 }
 
-const DUMMY_ASSET: AssetReference = { assetId: 'a', contentType: 'image/png', name: 'a.png' };
+const DUMMY_CONTENT: ContentReference = { contentId: 'a', version: 'rev:1', contentType: 'image/png', name: 'a.png' };
 
 function makeFakeClient(
 	sessions: Session[],
@@ -118,7 +118,7 @@ function makeFakeClient(
 		createAgent: vi.fn(async (_req: CreateAgentRequest): Promise<StoredAgentDto> => { throw new Error('not implemented'); }),
 		updateAgent: vi.fn(async (_id: string, _req: UpdateAgentRequest): Promise<StoredAgentDto> => { throw new Error('not implemented'); }),
 		deleteAgent: vi.fn(async () => {}),
-		uploadAsset: vi.fn(async (): Promise<AssetReference> => DUMMY_ASSET),
+		uploadContent: vi.fn(async (): Promise<ContentReference> => DUMMY_CONTENT),
 	};
 }
 

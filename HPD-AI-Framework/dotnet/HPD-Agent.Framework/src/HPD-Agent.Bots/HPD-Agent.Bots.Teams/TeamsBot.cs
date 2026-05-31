@@ -136,7 +136,7 @@ public sealed class TeamsBot(
         var approved = string.Equals(actionId, PermissionApproveActionId, StringComparison.Ordinal);
         var agent = await _agentManager.GetOrBuildAgentAsync(_config.ResolveAgentId(), ct);
 
-        await agent.RespondAsync(new PermissionResponseEvent(
+        await agent.TryRespondAsync(new PermissionResponseEvent(
             PermissionId: permissionId,
             SourceName: "teams",
             Approved: approved,
@@ -163,7 +163,7 @@ public sealed class TeamsBot(
         string text,
         CancellationToken ct)
     {
-        if (!_sessionManager.TryAcquireStreamLock(sessionId, branchId))
+        if (!_sessionManager.TryAcquireBranchOperationLock(sessionId, branchId))
             return false;
 
         var streamStarted = false;
@@ -220,7 +220,7 @@ public sealed class TeamsBot(
         {
             if (streamStarted)
                 await turn.EndStreamAsync(ct);
-            _sessionManager.ReleaseStreamLock(sessionId, branchId);
+            _sessionManager.ReleaseBranchOperationLock(sessionId, branchId);
         }
     }
 

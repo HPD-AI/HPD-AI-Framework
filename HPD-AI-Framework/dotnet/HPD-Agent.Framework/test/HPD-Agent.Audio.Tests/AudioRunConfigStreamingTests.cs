@@ -3,6 +3,7 @@
 
 using HPD.Agent;
 using HPD.Agent.Middleware;
+using HPD.Agent.Audio.Tts;
 using Microsoft.Extensions.AI;
 using System.Runtime.CompilerServices;
 
@@ -46,6 +47,44 @@ public class AudioRunConfigStreamingTests
         Assert.Equal("nova", synthesis.Options?.VoiceId);
         Assert.Equal("tts-1-hd", synthesis.Options?.ModelId);
         Assert.Equal(1.25f, synthesis.Options?.Speed);
+    }
+
+    [Fact]
+    public async Task WrapModelCallStreamingAsync_AudioRunConfigTtsOverrideClient_IsUsedForSynthesis()
+    {
+        var overrideTts = new FakeTextToSpeechClient();
+        var middleware = new AudioPipelineMiddleware
+        {
+            IOMode = AudioIOMode.TextToAudio
+        };
+
+        var request = new ModelRequest
+        {
+            Model = new SingleResponseChatClient("Hello from override."),
+            Messages = [new ChatMessage(ChatRole.User, "test")],
+            Options = new ChatOptions(),
+            State = AgentLoopState.InitialSafe([], "run", "conv", "TestAgent"),
+            Iteration = 0,
+            RunConfig = new AgentRunConfig().WithAudio(audio =>
+            {
+                audio.Tts = new TtsConfig
+                {
+                    OverrideClient = overrideTts,
+                    Voice = "nova",
+                    ModelId = "tts-1-hd"
+                };
+            })
+        };
+
+        await DrainAsync(middleware.WrapModelCallStreamingAsync(
+            request,
+            r => r.Model.GetStreamingResponseAsync(r.Messages, r.Options),
+            CancellationToken.None)!);
+
+        var synthesis = Assert.Single(overrideTts.Requests);
+        Assert.Equal("nova", synthesis.Options?.VoiceId);
+        Assert.Equal("tts-1-hd", synthesis.Options?.ModelId);
+        Assert.True(synthesis.IsStreaming);
     }
 
     private static async Task DrainAsync(IAsyncEnumerable<ChatResponseUpdate> stream)

@@ -16,7 +16,6 @@ public static class AgentBuilderExtensions
     /// <param name="model">The Bedrock model ID (e.g., "anthropic.claude-3-5-sonnet-20241022-v2:0", "meta.llama3-70b-instruct-v1:0")</param>
     /// <param name="region">AWS region where Bedrock is hosted (e.g., "us-east-1", "us-west-2")</param>
     /// <param name="configure">Optional action to configure additional Bedrock-specific options</param>
-    /// <param name="clientFactory">Optional factory to wrap the chat client with middleware (logging, caching, etc.)</param>
     /// <returns>The builder for method chaining</returns>
     /// <remarks>
     /// <para>
@@ -35,7 +34,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates a <see cref="BedrockProviderConfig"/> that is:
-    /// - Stored in <c>ProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
     /// - Applied during <c>BedrockProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -115,23 +114,13 @@ public static class AgentBuilderExtensions
     ///             opts.MaxTokens = 8192;
     ///         })
     ///     .Build();
-    ///
-    /// // Option 6: With middleware via ClientFactory
-    /// var agent = await new AgentBuilder()
-    ///     .WithBedrock(
-    ///         model: "anthropic.claude-3-5-sonnet-20241022-v2:0",
-    ///         region: "us-east-1",
-    ///         configure: opts => opts.MaxTokens = 4096,
-    ///         clientFactory: client => new LoggingChatClient(client, logger))
-    ///     .Build();
-    ///
-    /// // Option 7: Auto-resolve from environment variables
+    /// // Option 6: Auto-resolve from environment variables
     /// // Set AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
     /// var agent = await new AgentBuilder()
     ///     .WithBedrock(model: "anthropic.claude-3-5-sonnet-20241022-v2:0")
     ///     .Build();
     ///
-    /// // Option 8: With prompt caching (Claude 3.5+)
+    /// // Option 7: With prompt caching (Claude 3.5+)
     /// var agent = await new AgentBuilder()
     ///     .WithBedrock(
     ///         model: "anthropic.claude-3-5-sonnet-20241022-v2:0",
@@ -143,7 +132,7 @@ public static class AgentBuilderExtensions
     ///         })
     ///     .Build();
     ///
-    /// // Option 9: With custom endpoint (VPC endpoint)
+    /// // Option 8: With custom endpoint (VPC endpoint)
     /// var agent = await new AgentBuilder()
     ///     .WithBedrock(
     ///         model: "anthropic.claude-3-5-sonnet-20241022-v2:0",
@@ -159,8 +148,7 @@ public static class AgentBuilderExtensions
         this AgentBuilder builder,
         string model,
         string? region = null,
-        Action<BedrockProviderConfig>? configure = null,
-        Func<IChatClient, IChatClient>? clientFactory = null)
+        Action<BedrockProviderConfig>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -183,15 +171,16 @@ public static class AgentBuilderExtensions
         ValidateProviderConfig(providerConfig, model, configure);
 
         // Build provider config
-        builder.Config.Provider = new ProviderConfig
+        var chatConfig = new ClientProviderConfig
         {
             ProviderKey = "bedrock",
             ModelName = model
         };
 
+        builder.Config.SetChatClientConfig(chatConfig);
+
         // Store the typed config
-        builder.Config.Provider.SetProviderConfig(providerConfig);
-        builder.Config.Provider.ClientFactory = clientFactory;
+        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
     }

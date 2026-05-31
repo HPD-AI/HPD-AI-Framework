@@ -63,11 +63,10 @@ public abstract class AgentTestBase : IAsyncDisposable, IDisposable
     {
         Name = "TestAgent",
         MaxAgenticIterations = 50,
-        Provider = new ProviderConfig
-        {
+        Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
             ProviderKey = "test",  // Required by validation
             ModelName = "test-model"
-        },
+        } },
         AgenticLoop = new AgenticLoopConfig
         {
             MaxTurnDuration = TimeSpan.FromMinutes(1)

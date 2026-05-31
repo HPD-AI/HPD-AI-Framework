@@ -11,7 +11,7 @@ namespace HPD.Agent.AspNetCore.Tests.Integration;
 
 /// <summary>
 /// Integration tests for concurrency and multi-agent scenarios.
-/// Tests concurrent operations, multi-agent isolation, and stream locking.
+/// Tests concurrent operations, multi-agent isolation, and runtime-owned input submission.
 /// </summary>
 public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
 {
@@ -105,7 +105,7 @@ public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task ConcurrentStreams_OnDifferentBranches_BothSucceed()
+    public async Task ConcurrentInputs_OnDifferentBranches_BothAccepted()
     {
         // Arrange
         var createResponse = await _client.PostAsync("/sessions", null);
@@ -118,21 +118,21 @@ public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
         var request1 = CreateInputJson("Test 1");
         var request2 = CreateInputJson("Test 2");
 
-        // Act - Stream on both branches simultaneously
+        // Act - Submit on both branches simultaneously
         var stream1Task = PostInputAsync(
-             $"/agents/test-agent/sessions/{session.Id}/branches/main/stream", request1);
+             $"/agents/test-agent/sessions/{session.Id}/branches/main/inputs", request1);
         var stream2Task = PostInputAsync(
-             $"/agents/test-agent/sessions/{session.Id}/branches/branch2/stream", request2);
+             $"/agents/test-agent/sessions/{session.Id}/branches/branch2/inputs", request2);
 
         await Task.WhenAll(stream1Task, stream2Task);
 
-        // Assert - Both should succeed
-        stream1Task.Result.StatusCode.Should().Be(HttpStatusCode.OK);
-        stream2Task.Result.StatusCode.Should().Be(HttpStatusCode.OK);
+        // Assert - Both submissions should be accepted by the runtime.
+        stream1Task.Result.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        stream2Task.Result.StatusCode.Should().Be(HttpStatusCode.Accepted);
     }
 
     [Fact]
-    public async Task ConcurrentStreams_OnSameBranch_SecondReturns409()
+    public async Task ConcurrentInputs_OnSameBranch_ReturnsConflictForSecondRun()
     {
         // Arrange
         var createResponse = await _client.PostAsync("/sessions", null);
@@ -140,22 +140,16 @@ public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
 
         var request = CreateInputJson("Long task");
 
-        // Act - Start first stream (don't await)
         var stream1Task = PostInputAsync(
-             $"/agents/test-agent/sessions/{session!.Id}/branches/main/stream", request);
+             $"/agents/test-agent/sessions/{session!.Id}/branches/main/inputs", request);
+        var stream2Task = PostInputAsync(
+             $"/agents/test-agent/sessions/{session.Id}/branches/main/inputs", request);
 
-        // Give first stream time to acquire lock
-        await Task.Delay(100);
+        await Task.WhenAll(stream1Task, stream2Task);
 
-        // Try second stream
-        var stream2Response = await PostInputAsync(
-             $"/agents/test-agent/sessions/{session.Id}/branches/main/stream", request);
-
-        // Assert
-        stream2Response.StatusCode.Should().Be(HttpStatusCode.Conflict);
-
-        // Cleanup
-        try { await stream1Task; } catch { }
+        new[] { stream1Task.Result.StatusCode, stream2Task.Result.StatusCode }
+            .Should()
+            .BeEquivalentTo([HttpStatusCode.Accepted, HttpStatusCode.Conflict]);
     }
 
     [Fact]

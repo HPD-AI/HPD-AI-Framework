@@ -503,9 +503,9 @@ public class MiddlewareStateExtensionsTests
     }
 
     [Fact]
-    public void Integration_BeforeAfterComparison_VerifiesCodeReduction()
+    public void Integration_BeforeAfterComparison_VerifiesCodeCompaction()
     {
-        // This test demonstrates the code reduction benefit
+        // This test demonstrates the code compaction benefit
 
         var context = MiddlewareTestHelpers.CreateBeforeIterationContext();
 

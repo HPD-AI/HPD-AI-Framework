@@ -3,6 +3,8 @@
 
 namespace HPD.Agent.Audio.Tts;
 
+using System.Text.Json.Serialization;
+using HPD.Agent;
 using Microsoft.Extensions.AI;
 
 /// <summary>
@@ -75,8 +77,8 @@ public class TtsConfig
     //
 
     /// <summary>
-    /// TTS provider key (e.g., "openai-audio", "elevenlabs", "google-cloud-tts").
-    /// Resolved via TtsProviderDiscovery at runtime.
+    /// TTS provider key (e.g., "openai", "elevenlabs", "google-cloud-tts").
+    /// Resolved via the unified provider registry at runtime.
     /// </summary>
     public string Provider { get; set; } = string.Empty;
 
@@ -96,6 +98,13 @@ public class TtsConfig
     /// Values are copied to <see cref="TextToSpeechOptions.AdditionalProperties"/>.
     /// </summary>
     public Dictionary<string, object>? AdditionalProperties { get; set; }
+
+    /// <summary>
+    /// Direct runtime TTS client override.
+    /// Highest precedence when the audio pipeline resolves text-to-speech.
+    /// </summary>
+    [JsonIgnore]
+    public ITextToSpeechClient? OverrideClient { get; set; }
 
     /// <summary>
     /// Converts this HPD TTS config into Microsoft.Extensions.AI request options.

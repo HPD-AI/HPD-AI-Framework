@@ -18,7 +18,6 @@ public static class AgentBuilderExtensions
     /// <param name="builder">The agent builder instance</param>
     /// <param name="modelPath">The path to the ONNX model directory containing the model files</param>
     /// <param name="configure">Optional action to configure additional ONNX Runtime-specific options</param>
-    /// <param name="clientFactory">Optional factory to wrap the chat client with middleware (logging, caching, etc.)</param>
     /// <returns>The builder for method chaining</returns>
     /// <remarks>
     /// <para>
@@ -28,7 +27,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates an <see cref="OnnxRuntimeProviderConfig"/> that is:
-    /// - Stored in <c>ProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
     /// - Applied during <c>OnnxRuntimeProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -136,8 +135,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithOnnxRuntime(
         this AgentBuilder builder,
         string modelPath,
-        Action<OnnxRuntimeProviderConfig>? configure = null,
-        Func<IChatClient, IChatClient>? clientFactory = null)
+        Action<OnnxRuntimeProviderConfig>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -161,15 +159,16 @@ public static class AgentBuilderExtensions
         ValidateProviderConfig(providerConfig, configure);
 
         // Build provider config
-        builder.Config.Provider = new ProviderConfig
+        var chatConfig = new ClientProviderConfig
         {
             ProviderKey = "onnx-runtime",
             ModelName = Path.GetFileName(modelPath) // Use directory name as model name
         };
 
+        builder.Config.SetChatClientConfig(chatConfig);
+
         // Store the typed config
-        builder.Config.Provider.SetProviderConfig(providerConfig);
-        builder.Config.Provider.ClientFactory = clientFactory;
+        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
     }

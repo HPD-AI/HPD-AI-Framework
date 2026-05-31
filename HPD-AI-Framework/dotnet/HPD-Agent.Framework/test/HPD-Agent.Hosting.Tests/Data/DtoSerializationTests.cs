@@ -85,13 +85,15 @@ public class DtoSerializationTests
             "Main Branch",
             "Primary conversation branch",
             "parent-branch",
+            "message-5",
             5,
             DateTime.UtcNow,
             DateTime.UtcNow.AddMinutes(10),
             25,
             new List<string> { "tag1", "tag2" },
             new Dictionary<string, string> { ["0"] = "root", ["1"] = "parent-branch" },
-            0, 1, true, null, null, null, 0);
+            0, 1, true, null, null, null, 0,
+            new Dictionary<string, object> { ["purpose"] = "draft", ["priority"] = 2 });
 
         // Act
         var json = JsonSerializer.Serialize(original, _options);
@@ -104,10 +106,14 @@ public class DtoSerializationTests
         deserialized.Name.Should().Be(original.Name);
         deserialized.Description.Should().Be(original.Description);
         deserialized.ForkedFrom.Should().Be(original.ForkedFrom);
+        deserialized.ForkedAtMessageId.Should().Be(original.ForkedAtMessageId);
         deserialized.ForkedAtMessageIndex.Should().Be(original.ForkedAtMessageIndex);
         deserialized.MessageCount.Should().Be(original.MessageCount);
         deserialized.Tags.Should().BeEquivalentTo(original.Tags);
         deserialized.Ancestors.Should().BeEquivalentTo(original.Ancestors);
+        deserialized.Metadata.Should().NotBeNull();
+        deserialized.Metadata!["purpose"].ToString().Should().Be("draft");
+        deserialized.Metadata["priority"].ToString().Should().Be("2");
     }
 
     [Fact]
@@ -118,6 +124,7 @@ public class DtoSerializationTests
             "branch-1",
             "session-123",
             "Main",
+            null,
             null,
             null,
             null,
@@ -140,22 +147,24 @@ public class DtoSerializationTests
     }
 
     [Fact]
-    public void AssetDto_SerializesAndDeserializes_Correctly()
+    public void ContentDto_SerializesAndDeserializes_Correctly()
     {
         // Arrange
-        var original = new AssetDto(
-            "asset-123",
+        var original = new ContentDto(
+            "content-123",
+            "rev:123",
             "image/png",
             1024000,
             DateTime.UtcNow.ToString("O"));
 
         // Act
         var json = JsonSerializer.Serialize(original, _options);
-        var deserialized = JsonSerializer.Deserialize<AssetDto>(json, _options);
+        var deserialized = JsonSerializer.Deserialize<ContentDto>(json, _options);
 
         // Assert
         deserialized.Should().NotBeNull();
-        deserialized!.AssetId.Should().Be(original.AssetId);
+        deserialized!.ContentId.Should().Be(original.ContentId);
+        deserialized.Version.Should().Be(original.Version);
         deserialized.ContentType.Should().Be(original.ContentType);
         deserialized.SizeBytes.Should().Be(original.SizeBytes);
         deserialized.CreatedAt.Should().Be(original.CreatedAt);
@@ -223,7 +232,8 @@ public class DtoSerializationTests
             "new-branch",
             "New Branch",
             "Branch description",
-            null);
+            null,
+            new Dictionary<string, object> { ["workspaceId"] = "workspace-1" });
 
         // Act
         var json = JsonSerializer.Serialize(original, _options);
@@ -234,6 +244,8 @@ public class DtoSerializationTests
         deserialized!.BranchId.Should().Be(original.BranchId);
         deserialized.Name.Should().Be(original.Name);
         deserialized.Description.Should().Be(original.Description);
+        deserialized.Metadata.Should().NotBeNull();
+        deserialized.Metadata!["workspaceId"].ToString().Should().Be("workspace-1");
     }
 
     [Fact]
@@ -242,10 +254,11 @@ public class DtoSerializationTests
         // Arrange
         var original = new ForkBranchRequest(
             "forked-branch",
-            5,
+            "message-5",
             "Forked Branch",
             "Fork description",
-            null);
+            null,
+            new Dictionary<string, object> { ["variant"] = "formal" });
 
         // Act
         var json = JsonSerializer.Serialize(original, _options);
@@ -254,8 +267,10 @@ public class DtoSerializationTests
         // Assert
         deserialized.Should().NotBeNull();
         deserialized!.NewBranchId.Should().Be(original.NewBranchId);
-        deserialized.FromMessageIndex.Should().Be(original.FromMessageIndex);
+        deserialized.FromMessageId.Should().Be(original.FromMessageId);
         deserialized.Name.Should().Be(original.Name);
+        deserialized.Metadata.Should().NotBeNull();
+        deserialized.Metadata!["variant"].ToString().Should().Be("formal");
     }
 
     [Fact]
