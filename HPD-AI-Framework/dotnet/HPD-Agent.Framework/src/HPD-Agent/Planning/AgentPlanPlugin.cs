@@ -6,7 +6,7 @@ using HPD.Agent.Middleware;
 namespace HPD.Agent.Planning;
 
 /// <summary>
-/// HPD-Agent AI Harness for Plan Mode management.
+/// HPD-Agent AI ToolHarness for Plan Mode management.
 /// Provides functions for agents to create and manage execution plans.
 /// Uses MiddlewareState (PlanModePersistentStateData) for session-persistent plan storage.
 /// </summary>
@@ -30,11 +30,11 @@ namespace HPD.Agent.Planning;
 /// scheduler-owned state commits, and ConversationId for plan scoping.
 /// </para>
 /// </remarks>
-public class AgentPlanHarness
+public class AgentPlanToolHarness
 {
-    private readonly ILogger<AgentPlanHarness>? _logger;
+    private readonly ILogger<AgentPlanToolHarness>? _logger;
 
-    public AgentPlanHarness(ILogger<AgentPlanHarness>? logger = null)
+    public AgentPlanToolHarness(ILogger<AgentPlanToolHarness>? logger = null)
     {
         _logger = logger;
     }

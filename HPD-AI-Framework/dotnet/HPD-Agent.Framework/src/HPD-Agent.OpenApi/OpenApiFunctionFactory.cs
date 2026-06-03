@@ -30,7 +30,7 @@ internal static partial class OpenApiFunctionFactory
         OpenApiOperationRunner runner,
         string? namePrefix = null,
         string? parentContainer = null,
-        bool collapseWithinHarness = false)
+        bool collapseWithinToolHarness = false)
     {
         var functions = new List<AIFunction>();
 
@@ -39,7 +39,7 @@ internal static partial class OpenApiFunctionFactory
             try
             {
                 functions.Add(CreateFunction(
-                    operation, runner, config, namePrefix, parentContainer, collapseWithinHarness));
+                    operation, runner, config, namePrefix, parentContainer, collapseWithinToolHarness));
             }
             catch (Exception ex)
             {
@@ -49,10 +49,10 @@ internal static partial class OpenApiFunctionFactory
             }
         }
 
-        // If CollapseWithinHarness, wrap all functions behind their own container.
+        // If CollapseWithinToolHarness, wrap all functions behind their own container.
         // parentContainer may be null for standalone WithOpenApi calls — that's fine,
-        // the container becomes a top-level tool with no parent (same as CodingHarness).
-        if (collapseWithinHarness && functions.Count > 0)
+        // the container becomes a top-level tool with no parent (same as CodingToolHarness).
+        if (collapseWithinToolHarness && functions.Count > 0)
         {
             var containerName = $"OpenApi_{namePrefix ?? "spec"}";
             var (container, collapsedFunctions) =
@@ -73,7 +73,7 @@ internal static partial class OpenApiFunctionFactory
         OpenApiConfig config,
         string? namePrefix,
         string? parentContainer,
-        bool collapseWithinHarness)
+        bool collapseWithinToolHarness)
     {
         var functionName = BuildFunctionName(operation, namePrefix);
         var schema = BuildParameterSchema(operation, config);
@@ -97,11 +97,11 @@ internal static partial class OpenApiFunctionFactory
         }
 
         // ParentContainer metadata:
-        // - collapseWithinHarness=false → stamp parentContainer on each function so
-        //   ToolVisibilityManager treats them as flat members of the parent harness
-        // - collapseWithinHarness=true → parentContainer is stamped on the wrapper
+        // - collapseWithinToolHarness=false → stamp parentContainer on each function so
+        //   ToolVisibilityManager treats them as flat members of the parent toolharness
+        // - collapseWithinToolHarness=true → parentContainer is stamped on the wrapper
         //   container (in CreateFunctions above), not on individual functions
-        var effectiveParent = collapseWithinHarness ? null : parentContainer;
+        var effectiveParent = collapseWithinToolHarness ? null : parentContainer;
 
         return HPDAIFunctionFactory.Create(
             InvokeAsync,

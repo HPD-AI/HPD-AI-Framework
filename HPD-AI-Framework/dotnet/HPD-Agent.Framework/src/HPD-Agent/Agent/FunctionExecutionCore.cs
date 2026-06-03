@@ -14,7 +14,7 @@ internal sealed record FunctionExecutionOutcome(
     bool WasUnknown,
     bool WasOutputTool,
     bool ShouldTerminate,
-    string? HarnessName,
+    string? ToolHarnessName,
     ToolCallType? CallType,
     ToolResultMetadata ResultMetadata,
     ToolInvocationInfo? Invocation = null);
@@ -26,7 +26,7 @@ internal sealed record FunctionExecutionPreparation(
     IReadOnlyDictionary<string, object?> Arguments,
     BeforeFunctionContext? BeforeFunctionContext,
     FunctionExecutionOutcome? ImmediateOutcome,
-    string? HarnessName,
+    string? ToolHarnessName,
     ToolCallType? CallType);
 
 internal sealed record FunctionBodyExecutionResult(
@@ -131,29 +131,29 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                && kind?.ToString() == "Output";
     }
 
-    public string? LookupHarnessName(string? functionName, IList<AITool>? tools)
+    public string? LookupToolHarnessName(string? functionName, IList<AITool>? tools)
     {
         if (string.IsNullOrEmpty(functionName))
             return null;
 
         var functionMap = BuildMergedMap(tools);
         var function = FindFunction(functionName, functionMap);
-        return LookupHarnessName(function);
+        return LookupToolHarnessName(function);
     }
 
-    public static string? LookupHarnessName(AIFunction? function)
+    public static string? LookupToolHarnessName(AIFunction? function)
     {
         if (function == null)
             return null;
 
-        if (function.AdditionalProperties?.TryGetValue("ParentHarness", out var parentHarness) == true
-            && parentHarness is string pt)
+        if (function.AdditionalProperties?.TryGetValue("ParentToolHarness", out var parentToolHarness) == true
+            && parentToolHarness is string pt)
         {
             return pt;
         }
 
-        if (function.AdditionalProperties?.TryGetValue("HarnessName", out var harnessName) == true
-            && harnessName is string tn)
+        if (function.AdditionalProperties?.TryGetValue("ToolHarnessName", out var toolharnessName) == true
+            && toolharnessName is string tn)
         {
             return tn;
         }
@@ -241,7 +241,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 WasUnknown: false,
                 WasOutputTool: false,
                 ShouldTerminate: false,
-                HarnessName: null,
+                ToolHarnessName: null,
                 CallType: null,
                 ResultMetadata: new ToolResultMetadata(),
                 Invocation: invocation);
@@ -253,13 +253,13 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 Arguments: new Dictionary<string, object?>(),
                 BeforeFunctionContext: null,
                 ImmediateOutcome: outcome,
-                HarnessName: null,
+                ToolHarnessName: null,
                 CallType: null);
         }
 
         var functionMap = BuildMergedMap(options?.Tools);
         var function = FindFunction(functionCall.Name, functionMap);
-        var harnessName = LookupHarnessName(function);
+        var toolharnessName = LookupToolHarnessName(function);
         var callType = LookupToolCallType(function);
 
         if (IsOutputTool(function))
@@ -275,7 +275,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 WasUnknown: false,
                 WasOutputTool: true,
                 ShouldTerminate: false,
-                HarnessName: harnessName,
+                ToolHarnessName: toolharnessName,
                 CallType: callType,
                 ResultMetadata: new ToolResultMetadata(),
                 Invocation: invocation);
@@ -287,7 +287,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 Arguments: new Dictionary<string, object?>(),
                 BeforeFunctionContext: null,
                 ImmediateOutcome: outcome,
-                HarnessName: harnessName,
+                ToolHarnessName: toolharnessName,
                 CallType: callType);
         }
 
@@ -306,7 +306,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 WasUnknown: true,
                 WasOutputTool: false,
                 ShouldTerminate: true,
-                HarnessName: null,
+                ToolHarnessName: null,
                 CallType: null,
                 ResultMetadata: new ToolResultMetadata(),
                 Invocation: invocation);
@@ -318,7 +318,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 Arguments: new Dictionary<string, object?>(),
                 BeforeFunctionContext: null,
                 ImmediateOutcome: outcome,
-                HarnessName: null,
+                ToolHarnessName: null,
                 CallType: null);
         }
 
@@ -330,7 +330,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             callId: functionCall.CallId,
             arguments: arguments,
             runConfig: runConfig,
-            harnessName: harnessName,
+            toolharnessName: toolharnessName,
             skillName: null,
             invocation: invocation);
 
@@ -350,7 +350,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 WasUnknown: function == null,
                 WasOutputTool: false,
                 ShouldTerminate: false,
-                HarnessName: harnessName,
+                ToolHarnessName: toolharnessName,
                 CallType: callType,
                 ResultMetadata: new ToolResultMetadata(),
                 Invocation: invocation);
@@ -362,7 +362,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 arguments,
                 beforeFunctionContext,
                 ImmediateOutcome: outcome,
-                HarnessName: harnessName,
+                ToolHarnessName: toolharnessName,
                 CallType: callType);
         }
 
@@ -373,7 +373,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             arguments,
             beforeFunctionContext,
             ImmediateOutcome: null,
-            HarnessName: harnessName,
+            ToolHarnessName: toolharnessName,
             CallType: callType);
     }
 
@@ -418,7 +418,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 RunConfig = beforeFunctionContext.RunConfig,
                 Invocation = preparation.Invocation,
                 ResultMetadata = resultMetadata,
-                HarnessName = preparation.HarnessName,
+                ToolHarnessName = preparation.ToolHarnessName,
                 SkillName = null,
                 EventCoordinator = agentContext.EventCoordinator,
                 BackgroundTasks = _getBackgroundTaskRegistry()
@@ -499,7 +499,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             result: bodyResult.Result,
             exception: bodyResult.Exception,
             runConfig: runConfig,
-            harnessName: preparation.HarnessName,
+            toolharnessName: preparation.ToolHarnessName,
             skillName: null,
             invocation: preparation.Invocation,
             resultMetadata: bodyResult.ResultMetadata);
@@ -527,7 +527,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             WasUnknown: preparation.Function == null,
             WasOutputTool: false,
             ShouldTerminate: false,
-            HarnessName: preparation.HarnessName,
+            ToolHarnessName: preparation.ToolHarnessName,
             CallType: preparation.CallType,
             ResultMetadata: afterFunctionContext.ResultMetadata,
             Invocation: preparation.Invocation);

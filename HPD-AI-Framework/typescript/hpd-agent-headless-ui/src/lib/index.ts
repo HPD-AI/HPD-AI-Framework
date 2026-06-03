@@ -29,7 +29,7 @@ export type {
 	CreateSessionRequest,
 	CreateBranchRequest,
 	ForkBranchRequest,
-	ClientHarnessDefinition,
+	ClientToolHarnessDefinition,
 	AgentClientInput,
 	ClientToolDefinition,
 	ClientSkillDefinition,
@@ -61,7 +61,7 @@ export type {
 export {
 	createSuccessResponse,
 	createErrorResponse,
-	createExpandedHarness,
+	createExpandedToolHarness,
 } from '@hpd/hpd-agent-client';
 
 // BranchSwitcher component (V3 - Sibling navigation UI)

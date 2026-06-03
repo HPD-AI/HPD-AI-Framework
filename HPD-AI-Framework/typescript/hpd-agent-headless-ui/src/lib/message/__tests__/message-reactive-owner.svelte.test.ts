@@ -17,7 +17,7 @@ import { describe, it, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 import { flushSync } from 'svelte';
-import MessageReactiveOwnerHarness from './message-reactive-owner-harness.svelte';
+import MessageReactiveOwnerToolHarness from './message-reactive-owner-toolharness.svelte';
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -31,7 +31,7 @@ describe('MessageState — reactive owner safety', () => {
 	 * '' due to an orphaned $state field.
 	 */
 	it('renders initial message content through the children snippet', async () => {
-		render(MessageReactiveOwnerHarness, {
+		render(MessageReactiveOwnerToolHarness, {
 			props: { scenario: 'initial-content' }
 		});
 
@@ -40,7 +40,7 @@ describe('MessageState — reactive owner safety', () => {
 	});
 
 	it('renders initial role through the children snippet', async () => {
-		render(MessageReactiveOwnerHarness, {
+		render(MessageReactiveOwnerToolHarness, {
 			props: { scenario: 'initial-role' }
 		});
 
@@ -49,7 +49,7 @@ describe('MessageState — reactive owner safety', () => {
 	});
 
 	it('reflects streaming=true through the children snippet', async () => {
-		render(MessageReactiveOwnerHarness, {
+		render(MessageReactiveOwnerToolHarness, {
 			props: { scenario: 'streaming' }
 		});
 
@@ -58,7 +58,7 @@ describe('MessageState — reactive owner safety', () => {
 	});
 
 	it('reflects thinking=true through the children snippet', async () => {
-		render(MessageReactiveOwnerHarness, {
+		render(MessageReactiveOwnerToolHarness, {
 			props: { scenario: 'thinking' }
 		});
 
@@ -74,7 +74,7 @@ describe('MessageState — reactive owner safety', () => {
 	 * signals had no owner tracking downstream effects.
 	 */
 	it('updates content when the message prop changes', async () => {
-		const { rerender } = render(MessageReactiveOwnerHarness, {
+		const { rerender } = render(MessageReactiveOwnerToolHarness, {
 			props: { scenario: 'update-content', content: 'First content' }
 		});
 
@@ -87,7 +87,7 @@ describe('MessageState — reactive owner safety', () => {
 	});
 
 	it('updates streaming state when the message prop changes', async () => {
-		const { rerender } = render(MessageReactiveOwnerHarness, {
+		const { rerender } = render(MessageReactiveOwnerToolHarness, {
 			props: { scenario: 'update-streaming', streaming: false }
 		});
 
@@ -105,7 +105,7 @@ describe('MessageState — reactive owner safety', () => {
 	 * these could be undefined/stale.
 	 */
 	it('applies data attributes from state.props to the root element', async () => {
-		render(MessageReactiveOwnerHarness, {
+		render(MessageReactiveOwnerToolHarness, {
 			props: { scenario: 'data-attrs' }
 		});
 

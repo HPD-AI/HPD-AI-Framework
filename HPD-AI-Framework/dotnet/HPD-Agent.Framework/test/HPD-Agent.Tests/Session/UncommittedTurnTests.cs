@@ -287,7 +287,7 @@ public class UncommittedTurnTests : AgentTestBase
         using var contextValue = JsonDocument.Parse("""{"workspace":"HPD-OS"}""");
 
         var clientToolState = new ClientToolStateData()
-            .WithRegisteredHarness(new clientHarnessDefinition(
+            .WithRegisteredToolHarness(new clientToolHarnessDefinition(
                 Name: "hpdos.browser",
                 Description: "Browser-side HPD-OS tools.",
                 Tools:
@@ -316,7 +316,7 @@ public class UncommittedTurnTests : AgentTestBase
 
         var restored = deserialized.MiddlewareState.GetState<ClientToolStateData>(typeof(ClientToolStateData).FullName!);
         Assert.NotNull(restored);
-        Assert.True(restored.RegisteredHarnesses.ContainsKey("hpdos.browser"));
+        Assert.True(restored.RegisteredToolHarnesses.ContainsKey("hpdos.browser"));
         Assert.True(restored.Context.ContainsKey("hpdos.activeView"));
     }
 }

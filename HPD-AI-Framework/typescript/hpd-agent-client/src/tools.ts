@@ -1,6 +1,6 @@
 import type { ClientToolInvokeRequestEvent } from './types/events.js';
 import type {
-  ClientHarnessDefinition,
+  ClientToolHarnessDefinition,
   ClientToolInvokeResponse,
   ToolResultContent,
 } from './types/client-tools.js';
@@ -24,7 +24,7 @@ export type ClientToolHandler =
 
 export class ClientToolRegistry {
   private readonly handlers = new Map<string, ClientToolHandler>();
-  private readonly harnesses = new Map<string, ClientHarnessDefinition>();
+  private readonly toolharnesses = new Map<string, ClientToolHarnessDefinition>();
   private fallbackHandler: ClientToolHandler | null = null;
 
   register(name: string, handler: ClientToolHandler): this {
@@ -32,9 +32,9 @@ export class ClientToolRegistry {
     return this;
   }
 
-  registerHarness(harness: ClientHarnessDefinition, handler: ClientToolHandler): this {
-    this.harnesses.set(harness.name, harness);
-    for (const tool of harness.tools) this.register(tool.name, handler);
+  registerToolHarness(toolharness: ClientToolHarnessDefinition, handler: ClientToolHandler): this {
+    this.toolharnesses.set(toolharness.name, toolharness);
+    for (const tool of toolharness.tools) this.register(tool.name, handler);
     return this;
   }
 
@@ -55,12 +55,12 @@ export class ClientToolRegistry {
 
   clear(): void {
     this.handlers.clear();
-    this.harnesses.clear();
+    this.toolharnesses.clear();
     this.fallbackHandler = null;
   }
 
-  get clientHarnesses(): ClientHarnessDefinition[] {
-    return [...this.harnesses.values()];
+  get clientToolHarnesses(): ClientToolHarnessDefinition[] {
+    return [...this.toolharnesses.values()];
   }
 
   canHandle(toolName: string): boolean {

@@ -1,6 +1,6 @@
 using System;
 
-namespace HPD.Agent.Harness.WebSearch;
+namespace HPD.Agent.ToolHarness.WebSearch;
 
 /// <summary>
 /// Base interface for all web search provider builders

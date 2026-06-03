@@ -9,25 +9,31 @@ namespace HPD.Agent.Middleware;
 
 /// <summary>
 /// Context for BeforeMessageTurn hook.
-/// Available properties: UserMessage, ConversationHistory, RunConfig
+/// Available properties: UserMessage, BranchHistory, RunConfig
 /// </summary>
 public sealed class BeforeMessageTurnContext : HookContext
 {
     /// <summary>
-    /// The user message that initiated this turn.
-    ///   Can be NULL in continuation scenarios (when resuming from checkpoint with no new user input)
-    ///   Can be reassigned by middleware (e.g., ContentUploadMiddleware for content transformation)
-    /// NOTE: Changes do NOT flow to iteration messages - update session.ReplaceMessage() for persistence.
+    /// The new user message that initiated this turn.
     /// </summary>
+    /// <remarks>
+    /// This can be <see langword="null"/> in continuation scenarios, such as resuming from a checkpoint
+    /// without new user input. Middleware may replace this value when transforming the current input
+    /// message, for example when converting uploaded content into provider-specific references. Replacing
+    /// this value updates the turn-owned message lists used for model input and persistence.
+    /// </remarks>
     public ChatMessage? UserMessage { get; set; }
 
     /// <summary>
-    /// Complete conversation history prior to this turn - shared mutable reference.
-    ///   Always available (never NULL)
-    /// MUTABLE - middleware can modify history in-place (Insert, Add, Remove).
-    /// Changes are visible to all subsequent middleware and Agent.cs immediately.
+    /// The active branch's model-visible message history for this turn.
     /// </summary>
-    public List<ChatMessage> ConversationHistory { get; }
+    /// <remarks>
+    /// This is a shared mutable list. Middleware can add, insert, remove, or reorder messages to shape
+    /// what the model sees for the turn. Changes are visible to subsequent middleware and to the agent
+    /// loop immediately. Use this for context injection, compaction, planning state, and other branch
+    /// history transformations. Use <see cref="UserMessage"/> when transforming only the current input.
+    /// </remarks>
+    public List<ChatMessage> BranchHistory { get; }
 
     /// <summary>
     /// Agent run options for this turn.
@@ -44,7 +50,7 @@ public sealed class BeforeMessageTurnContext : HookContext
         : base(baseContext)
     {
         UserMessage = userMessage; // Can be null in continuation scenarios
-        ConversationHistory = conversationHistory ?? throw new ArgumentNullException(nameof(conversationHistory));
+        BranchHistory = conversationHistory ?? throw new ArgumentNullException(nameof(conversationHistory));
         RunConfig = runConfig ?? throw new ArgumentNullException(nameof(runConfig));
     }
 }
@@ -348,7 +354,7 @@ public sealed class BeforeParallelBatchContext : HookContext
 
 /// <summary>
 /// Context for BeforeFunction hook.
-/// Available properties: Function, FunctionCallId, Arguments, HarnessName, SkillName, RunConfig
+/// Available properties: Function, FunctionCallId, Arguments, ToolHarnessName, SkillName, RunConfig
 /// </summary>
 public sealed class BeforeFunctionContext : HookContext
 {
@@ -381,10 +387,10 @@ public sealed class BeforeFunctionContext : HookContext
     public IReadOnlyDictionary<string, object?> Arguments { get; }
 
     /// <summary>
-    /// Name of the Harness that contains this function, if any.
-    /// May be NULL if function is not part of a Harness.
+    /// Name of the ToolHarness that contains this function, if any.
+    /// May be NULL if function is not part of a ToolHarness.
     /// </summary>
-    public string? HarnessName { get; }
+    public string? ToolHarnessName { get; }
 
     /// <summary>
     /// Name of the skill that referenced this function, if any.
@@ -425,16 +431,16 @@ public sealed class BeforeFunctionContext : HookContext
     public bool IsSkillFunction => SkillName != null;
 
     /// <summary>
-    /// True if this function is part of a Harness.
+    /// True if this function is part of a ToolHarness.
     /// </summary>
-    public bool IsHarnessFunction => HarnessName != null;
+    public bool IsToolHarnessFunction => ToolHarnessName != null;
 
     internal BeforeFunctionContext(
         AgentContext baseContext,
         AIFunction? function,
         string callId,
         IReadOnlyDictionary<string, object?> arguments,
-        string? harnessName,
+        string? toolharnessName,
         string? skillName,
         AgentRunConfig runConfig,
         ToolInvocationInfo? invocation = null)
@@ -444,7 +450,7 @@ public sealed class BeforeFunctionContext : HookContext
         FunctionCallId = callId ?? throw new ArgumentNullException(nameof(callId));
         Invocation = invocation;
         Arguments = arguments ?? throw new ArgumentNullException(nameof(arguments));
-        HarnessName = harnessName;
+        ToolHarnessName = toolharnessName;
         SkillName = skillName;
         RunConfig = runConfig ?? throw new ArgumentNullException(nameof(runConfig));
     }
@@ -452,7 +458,7 @@ public sealed class BeforeFunctionContext : HookContext
 
 /// <summary>
 /// Context for AfterFunction hook.
-/// Available properties: Function, FunctionCallId, Result, Exception, HarnessName, SkillName, RunConfig
+/// Available properties: Function, FunctionCallId, Result, Exception, ToolHarnessName, SkillName, RunConfig
 /// </summary>
 public sealed class AfterFunctionContext : HookContext
 {
@@ -504,10 +510,10 @@ public sealed class AfterFunctionContext : HookContext
     public Exception? Exception { get; set; }
 
     /// <summary>
-    /// Name of the Harness that contains this function, if any.
-    /// May be NULL if function is not part of a Harness.
+    /// Name of the ToolHarness that contains this function, if any.
+    /// May be NULL if function is not part of a ToolHarness.
     /// </summary>
-    public string? HarnessName { get; }
+    public string? ToolHarnessName { get; }
 
     /// <summary>
     /// Name of the skill that referenced this function, if any.
@@ -543,9 +549,9 @@ public sealed class AfterFunctionContext : HookContext
     public bool IsSkillFunction => SkillName != null;
 
     /// <summary>
-    /// True if this function is part of a Harness.
+    /// True if this function is part of a ToolHarness.
     /// </summary>
-    public bool IsHarnessFunction => HarnessName != null;
+    public bool IsToolHarnessFunction => ToolHarnessName != null;
 
     internal AfterFunctionContext(
         AgentContext baseContext,
@@ -554,7 +560,7 @@ public sealed class AfterFunctionContext : HookContext
         object? result,
         Exception? exception,
         AgentRunConfig runConfig,
-        string? harnessName = null,
+        string? toolharnessName = null,
         string? skillName = null,
         ToolInvocationInfo? invocation = null,
         ToolResultMetadata? resultMetadata = null)
@@ -567,7 +573,7 @@ public sealed class AfterFunctionContext : HookContext
         Result = result;
         Exception = exception;
         ResultMetadata = resultMetadata ?? new ToolResultMetadata();
-        HarnessName = harnessName;
+        ToolHarnessName = toolharnessName;
         SkillName = skillName;
         RunConfig = runConfig ?? throw new ArgumentNullException(nameof(runConfig));
     }

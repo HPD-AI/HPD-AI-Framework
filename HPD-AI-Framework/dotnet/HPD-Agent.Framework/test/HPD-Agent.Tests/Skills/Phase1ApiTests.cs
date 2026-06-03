@@ -8,14 +8,14 @@ namespace HPD.Agent.Tests.Skills;
 /// </summary>
 public class Phase1ApiTests
 {
-    // Mock Harneses for testing
+    // Mock ToolHarnesses for testing
     private static class MockFileSystemTools
     {
         public static string ReadFile(string path) => $"Reading {path}";
         public static void WriteFile(string path, string content) { }
     }
 
-    private static class MockDebugHarness
+    private static class MockDebugToolHarness
     {
         public static string GetStackTrace() => "Stack trace...";
     }
@@ -56,7 +56,7 @@ public class Phase1ApiTests
             systemPrompt: "Test instructions",
             options: options,
             "MockFileSystemTools.ReadFile",
-            "MockDebugHarness.GetStackTrace"
+            "MockDebugToolHarness.GetStackTrace"
         );
 
         // Assert
@@ -302,11 +302,11 @@ public class Phase1ApiTests
         var skill = SkillFactory.Create("Test", "Test", "FunctionResult", "SystemPrompt");
 
         // Act
-        skill.ResolvedFunctionReferences = new[] { "Harness1.Func1", "Harness2.Func2" };
-        skill.ResolvedHarnessTypes = new[] { "Harness1", "Harness2" };
+        skill.ResolvedFunctionReferences = new[] { "ToolHarness1.Func1", "ToolHarness2.Func2" };
+        skill.ResolvedToolHarnessTypes = new[] { "ToolHarness1", "ToolHarness2" };
 
         // Assert
         Assert.Equal(2, skill.ResolvedFunctionReferences.Length);
-        Assert.Equal(2, skill.ResolvedHarnessTypes.Length);
+        Assert.Equal(2, skill.ResolvedToolHarnessTypes.Length);
     }
 }

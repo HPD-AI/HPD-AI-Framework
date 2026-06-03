@@ -4,7 +4,7 @@ import { createJsonResponse, createTextResponse } from '../src/types/client-tool
 import { EventTypes } from '../src/types/events.js';
 
 describe('ClientToolRegistry', () => {
-  it('normalizes harness-qualified tool names', () => {
+  it('normalizes toolharness-qualified tool names', () => {
     expect(normalizeClientToolName('browser.create_artifact')).toBe('create_artifact');
   });
 
@@ -28,14 +28,14 @@ describe('ClientToolRegistry', () => {
     });
   });
 
-  it('registers every tool in a harness to one handler', async () => {
+  it('registers every tool in a toolharness to one handler', async () => {
     const registry = new ClientToolRegistry();
-    registry.registerHarness({
+    registry.registerToolHarness({
       name: 'browser',
       tools: [{ name: 'ping', description: 'Ping', parametersSchema: {} }],
     }, () => 'pong');
 
-    expect(registry.clientHarnesses).toHaveLength(1);
+    expect(registry.clientToolHarnesses).toHaveLength(1);
     expect(await registry.handleInvoke({
       type: EventTypes.CLIENT_TOOL_INVOKE_REQUEST,
       requestId: 'r1',

@@ -112,5 +112,5 @@ public sealed record AppleVirtualizationAcceptanceCase(
     ProviderContractKind ContractKind,
     string ContractExpectation,
     string AppleApiSurface,
-    string HarnessCoverage,
+    string ToolHarnessCoverage,
     bool Required);

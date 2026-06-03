@@ -8,7 +8,7 @@ This release encompasses **32 commits** and represents a major evolution of the 
 - **Evaluation & Analytics Framework**: Comprehensive evaluation scoring and result tracking
 - **RAG (Retrieval-Augmented Generation) System**: Modular retrieval and ingestion pipeline
 - **ML Framework Integration**: New HPD-ML machine learning module stack
-- **Middleware & Harness Scoping**: Advanced middleware composition and harness-scoped execution
+- **Middleware & ToolHarness Scoping**: Advanced middleware composition and toolharness-scoped execution
 - **Slack Socket Mode**: Real-time WebSocket support for Slack bots
 - **Adapter → Bot Terminology**: Alignment with modern bot/chatbot nomenclature
 - **Project Restructuring**: Repository reorganization under HPD-AI-Framework
@@ -338,13 +338,13 @@ public class SlackSocketModeService : AdapterWebSocketService { }
 - Message reactions
 - View submissions/closures
 
-#### Harness-Scoped Middleware
+#### ToolHarness-Scoped Middleware
 
-New middleware scoping mechanism that activates per-harness:
+New middleware scoping mechanism that activates per-toolharness:
 
 ```csharp
 [Collapse(Middlewares = [typeof(CustomMiddleware)])]
-public class MyHarness : IHarness
+public class MyToolHarness : IToolHarness
 {
     [AIFunction]
     public string MyTool() { }
@@ -352,16 +352,16 @@ public class MyHarness : IHarness
 ```
 
 **Features**:
-- Per-harness middleware pipelines
+- Per-toolharness middleware pipelines
 - Activation at expansion time
 - Dual constructor support: parameterless + config-based
-- `IHarnessMiddleware` marker interface
-- `HarnessOptions` for builder-time DI registration
+- `IToolHarnessMiddleware` marker interface
+- `ToolHarnessOptions` for builder-time DI registration
 
 **Refactored Components**:
-- `ContainerMiddleware`: Now manages unified harness + skill collapsing with dual context (FunctionResult ephemeral + SystemPrompt persistent)
+- `ContainerMiddleware`: Now manages unified toolharness + skill collapsing with dual context (FunctionResult ephemeral + SystemPrompt persistent)
 - `AgentMiddlewarePipeline`: New dual Execute/Dispatch pattern with reverse-order After* hooks and error aggregation
-- `HarnessFactory`: Enhanced metadata deserialization and harness-scoped middleware factory delegates
+- `ToolHarnessFactory`: Enhanced metadata deserialization and toolharness-scoped middleware factory delegates
 
 #### Impact on Existing Code
 
@@ -369,7 +369,7 @@ public class MyHarness : IHarness
 - **NuGet updates**: Dependency updates may require API adjustments
 - **Project structure**: References to relocated `HPD-Events`, `HPD-Graph`, `HPD.OpenApi.Core` must be updated
 - **MCP integration**: Update to new `McpClient` API if using MCP servers
-- **Middleware composition**: Harness-scoped middleware provides new patterns and may supersede old patterns
+- **Middleware composition**: ToolHarness-scoped middleware provides new patterns and may supersede old patterns
 
 ---
 
@@ -397,7 +397,7 @@ Major refactoring of component reactivity and state management:
   - New reactive ownership model
   - Improved message synchronization
   - Enhanced test coverage (238 new lines)
-  - `message-reactive-owner-harness.svelte` and tests
+  - `message-reactive-owner-toolharness.svelte` and tests
 
 - **Message Actions** (`message-actions.svelte.ts`):
   - Refactored state machine (160 lines modified)
@@ -943,7 +943,7 @@ result.Should().BeLessThanOrEqualTo(10);
 | RAG Framework | HPD-RAG.Framework | New | LLM grounding, retrieval, embeddings ecosystem |
 | ML Framework | HPD-ML Framework | New | ML algorithms, data handling, model training |
 | Slack Socket Mode | HPD-Agent.Bots.Slack | New | Real-time WebSocket support for Slack |
-| Harness-Scoped Middleware | HPD-Agent Core | New | Per-harness middleware pipelines |
+| ToolHarness-Scoped Middleware | HPD-Agent Core | New | Per-toolharness middleware pipelines |
 | Branch Sibling Navigation | HPD-Agent Core | New | Conversation UX improvements |
 | Headless UI Overhaul | hpd-agent-headless-ui | Enhanced | Better component reactivity, state management |
 | Graph Optimization | HPD-Graph | Enhanced | Performance: XxHash64, fast-path execution |
@@ -1092,13 +1092,13 @@ This release represents a fundamental evolution of the HPD-Agent Framework with 
 - RAG framework provides comprehensive retrieval capabilities
 - ML framework enables in-framework machine learning
 - Evaluation framework enables agent quality measurement
-- Middleware and harness scoping provide more flexible composition
+- Middleware and toolharness scoping provide more flexible composition
 - Project structure reorganization enables multi-framework monorepo
 
 **Recommended Review Areas** for integrators:
 - Agent management refactoring (most critical)
 - RAG framework capabilities and integration
-- Middleware scoping for harness composition
+- Middleware scoping for toolharness composition
 - Slack Socket Mode if using Slack adapter
 - New evaluation endpoints for agent monitoring
 

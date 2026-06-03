@@ -9,8 +9,8 @@ public enum MiddlewareScope
     /// <summary>Middleware applies to all functions globally</summary>
     Global = 0,
 
-    /// <summary>Middleware applies to all functions from a specific Harness</summary>
-    Harness = 1,
+    /// <summary>Middleware applies to all functions from a specific ToolHarness</summary>
+    ToolHarness = 1,
 
     /// <summary>Middleware applies to skill container and functions called by a specific skill</summary>
     Skill = 2,
@@ -26,7 +26,7 @@ public enum MiddlewareScope
 internal class MiddlewareScopeMetadata
 {
     public MiddlewareScope Scope { get; init; } = MiddlewareScope.Global;
-    public string? Target { get; init; } // Harness type name, skill name, or function name
+    public string? Target { get; init; } // ToolHarness type name, skill name, or function name
 
     public MiddlewareScopeMetadata(MiddlewareScope scope, string? target = null)
     {
@@ -41,7 +41,7 @@ internal class MiddlewareScopeMetadata
     {
         // Handle unknown functions (Function can be null)
         var functionName = context.Function?.Name;
-        var toolName = context.HarnessName;
+        var toolName = context.ToolHarnessName;
         var skillName = context.SkillName;
 
         // Check if this is a skill container by looking at AdditionalProperties
@@ -52,7 +52,7 @@ internal class MiddlewareScopeMetadata
         {
             MiddlewareScope.Global => true,
 
-            MiddlewareScope.Harness => !string.IsNullOrEmpty(toolName) &&
+            MiddlewareScope.ToolHarness => !string.IsNullOrEmpty(toolName) &&
                                        string.Equals(Target, toolName, StringComparison.Ordinal),
 
             MiddlewareScope.Skill =>
@@ -74,7 +74,7 @@ internal class MiddlewareScopeMetadata
     {
         // Handle unknown functions (Function can be null)
         var functionName = context.Function?.Name;
-        var toolName = context.HarnessName;
+        var toolName = context.ToolHarnessName;
         var skillName = context.SkillName;
 
         // Check if this is a skill container by looking at AdditionalProperties
@@ -85,7 +85,7 @@ internal class MiddlewareScopeMetadata
         {
             MiddlewareScope.Global => true,
 
-            MiddlewareScope.Harness => !string.IsNullOrEmpty(toolName) &&
+            MiddlewareScope.ToolHarness => !string.IsNullOrEmpty(toolName) &&
                                        string.Equals(Target, toolName, StringComparison.Ordinal),
 
             MiddlewareScope.Skill =>
@@ -122,16 +122,16 @@ public static class MiddlewareScopeExtensions
     }
 
     /// <summary>
-    /// Marks this middleware as Harness-scoped (applies only to functions from the specified Harness).
+    /// Marks this middleware as ToolHarness-scoped (applies only to functions from the specified ToolHarness).
     /// </summary>
     /// <param name="middleware">The middleware instance</param>
-    /// <param name="toolTypeName">The Harness type name (e.g., "FileSystemHarness")</param>
-    public static IAgentMiddleware ForHarness(this IAgentMiddleware middleware, string toolTypeName)
+    /// <param name="toolTypeName">The ToolHarness type name (e.g., "FileSystemToolHarness")</param>
+    public static IAgentMiddleware ForToolHarness(this IAgentMiddleware middleware, string toolTypeName)
     {
         if (string.IsNullOrWhiteSpace(toolTypeName))
-            throw new ArgumentException("Harness type name cannot be null or empty", nameof(toolTypeName));
+            throw new ArgumentException("ToolHarness type name cannot be null or empty", nameof(toolTypeName));
 
-        _scopeMetadata.AddOrUpdate(middleware, new MiddlewareScopeMetadata(MiddlewareScope.Harness, toolTypeName));
+        _scopeMetadata.AddOrUpdate(middleware, new MiddlewareScopeMetadata(MiddlewareScope.ToolHarness, toolTypeName));
         return middleware;
     }
 

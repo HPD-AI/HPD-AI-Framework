@@ -17,7 +17,7 @@ public class SubAgentIntegrationTests
     private static AIFunction CreateSubAgentFunction(
         string name,
         string description,
-        string? parentHarness = null)
+        string? parentToolHarness = null)
     {
         var additionalProps = new Dictionary<string, object>
         {
@@ -25,10 +25,10 @@ public class SubAgentIntegrationTests
             ["ExecutionModel"] = "BranchNative"
         };
 
-        // Add ParentHarness if specified (not HarnessName - that was the bug!)
-        if (parentHarness != null)
+        // Add ParentToolHarness if specified (not ToolHarnessName - that was the bug!)
+        if (parentToolHarness != null)
         {
-            additionalProps["ParentHarness"] = parentHarness;
+            additionalProps["ParentToolHarness"] = parentToolHarness;
         }
 
         return AIFunctionFactory.Create(
@@ -45,29 +45,29 @@ public class SubAgentIntegrationTests
             });
     }
 
-    // ===== P0: Harness Registration =====
+    // ===== P0: ToolHarness Registration =====
 
     [Fact]
-    public void CrossAssemblyHarnessLoading_LoadsRegistryFromHarnessAssembly()
+    public void CrossAssemblyToolHarnessLoading_LoadsRegistryFromToolHarnessAssembly()
     {
-        // This test verifies that the cross-assembly Harness loading mechanism works.
-        // When WithHarness<T>() is called, it should load the ToolRegistry from T's assembly
+        // This test verifies that the cross-assembly ToolHarness loading mechanism works.
+        // When WithToolHarness<T>() is called, it should load the ToolRegistry from T's assembly
         // if not already loaded.
 
         // Arrange - Create a builder
         var builder = new AgentBuilder();
 
-        // Act - Attempt to load a Harness registry from the test assembly
-        // Even though there's no Harness, it should not throw - just find nothing
+        // Act - Attempt to load a ToolHarness registry from the test assembly
+        // Even though there's no ToolHarness, it should not throw - just find nothing
         builder.LoadToolRegistryFromAssembly(typeof(TestIntegrationSubAgents).Assembly);
 
-        // Assert - The assembly was tracked as loaded (even if no Harneses found)
+        // Assert - The assembly was tracked as loaded (even if no ToolHarnesses found)
         // This verifies the cross-assembly loading mechanism is working
         Assert.Contains(typeof(TestIntegrationSubAgents).Assembly, builder._loadedAssemblies);
     }
 
     [Fact]
-    public void SubAgentHarness_GeneratesAIFunctions_WithCorrectStructure()
+    public void SubAgentToolHarness_GeneratesAIFunctions_WithCorrectStructure()
     {
         // Arrange - Simulate what source generator would create
         var functions = new List<AIFunction>

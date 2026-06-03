@@ -190,7 +190,7 @@ public class EventBubblingTests
     }
 
     [Fact]
-    public void WorkflowNodeCompletedEvent_HasAgentMetadata()
+    public void WorkflowAgentCompletedEvent_HasAgentMetadata()
     {
         // Arrange
         var context = new AgentMetadata
@@ -202,10 +202,10 @@ public class EventBubblingTests
         };
 
         // Act
-        var evt = new WorkflowNodeCompletedEvent
+        var evt = new WorkflowAgentCompletedEvent
         {
             WorkflowName = "MathWorkflow",
-            NodeId = "solver",
+            AgentId = "solver",
             Success = true,
             Duration = TimeSpan.FromSeconds(1.5),
             Metadata = context
@@ -213,7 +213,7 @@ public class EventBubblingTests
 
         // Assert
         evt.Metadata.Should().Be(context);
-        evt.NodeId.Should().Be("solver");
+        evt.AgentId.Should().Be("solver");
     }
 
     #endregion
@@ -276,9 +276,9 @@ public class EventBubblingTests
         // All workflow events should be AgentEvents for unified handling
         var workflowStarted = new WorkflowStartedEvent { WorkflowName = "Test", NodeCount = 1 };
         var workflowCompleted = new WorkflowCompletedEvent { WorkflowName = "Test", Duration = TimeSpan.Zero };
-        var nodeStarted = new WorkflowNodeStartedEvent { WorkflowName = "Test", NodeId = "n1" };
-        var nodeCompleted = new WorkflowNodeCompletedEvent { WorkflowName = "Test", NodeId = "n1", Success = true, Duration = TimeSpan.Zero };
-        var nodeSkipped = new WorkflowNodeSkippedEvent { WorkflowName = "Test", NodeId = "n1", Reason = "skipped" };
+        var agentStarted = new WorkflowAgentStartedEvent { WorkflowName = "Test", AgentId = "n1" };
+        var agentCompleted = new WorkflowAgentCompletedEvent { WorkflowName = "Test", AgentId = "n1", Success = true, Duration = TimeSpan.Zero };
+        var agentSkipped = new WorkflowAgentSkippedEvent { WorkflowName = "Test", AgentId = "n1", Reason = "skipped" };
         var edgeTraversed = new WorkflowEdgeTraversedEvent { WorkflowName = "Test", FromNodeId = "a", ToNodeId = "b" };
         var layerStarted = new WorkflowLayerStartedEvent { WorkflowName = "Test", LayerIndex = 0, NodeCount = 1 };
         var layerCompleted = new WorkflowLayerCompletedEvent { WorkflowName = "Test", LayerIndex = 0, Duration = TimeSpan.Zero };
@@ -287,9 +287,9 @@ public class EventBubblingTests
         // Assert all are AgentEvents
         workflowStarted.Should().BeAssignableTo<AgentEvent>();
         workflowCompleted.Should().BeAssignableTo<AgentEvent>();
-        nodeStarted.Should().BeAssignableTo<AgentEvent>();
-        nodeCompleted.Should().BeAssignableTo<AgentEvent>();
-        nodeSkipped.Should().BeAssignableTo<AgentEvent>();
+        agentStarted.Should().BeAssignableTo<AgentEvent>();
+        agentCompleted.Should().BeAssignableTo<AgentEvent>();
+        agentSkipped.Should().BeAssignableTo<AgentEvent>();
         edgeTraversed.Should().BeAssignableTo<AgentEvent>();
         layerStarted.Should().BeAssignableTo<AgentEvent>();
         layerCompleted.Should().BeAssignableTo<AgentEvent>();

@@ -31,7 +31,7 @@ export interface RunConfig {
   chat?: ChatRunConfig;
   /** Per-tool permission overrides — key is tool name, value is allow/deny */
   permissionOverrides?: Record<string, boolean>;
-  /** Per-run context values available to agent middleware and harness functions */
+  /** Per-run context values available to agent middleware and toolharness functions */
   contextOverrides?: Record<string, unknown>;
   /** Whether to coalesce streamed text deltas before sending to the client */
   coalesceDeltas?: boolean;

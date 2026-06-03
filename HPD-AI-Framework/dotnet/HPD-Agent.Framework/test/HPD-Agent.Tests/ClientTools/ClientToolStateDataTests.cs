@@ -25,8 +25,8 @@ public class ClientToolStateDataTests
 
         // Assert
         Assert.NotNull(state);
-        Assert.Empty(state.RegisteredHarnesses);
-        Assert.Empty(state.ExpandedHarneses);
+        Assert.Empty(state.RegisteredToolHarnesses);
+        Assert.Empty(state.ExpandedToolHarnesses);
         Assert.Empty(state.HiddenTools);
         Assert.Empty(state.Context);
         Assert.Null(state.State);
@@ -34,142 +34,142 @@ public class ClientToolStateDataTests
     }
 
     // ============================================
-    // Harness Registration Tests
+    // ToolHarness Registration Tests
     // ============================================
 
     [Fact]
-    public void WithRegisteredHarness_AddsHarness()
+    public void WithRegisteredToolHarness_AddsToolHarness()
     {
         // Arrange
         var state = new ClientToolStateData();
-        var Harness = CreateTestHarness("TestHarness");
+        var ToolHarness = CreateTestToolHarness("TestToolHarness");
 
         // Act
-        var updated = state.WithRegisteredHarness(Harness);
+        var updated = state.WithRegisteredToolHarness(ToolHarness);
 
         // Assert
         Assert.NotSame(state, updated);
-        Assert.Single(updated.RegisteredHarnesses);
-        Assert.True(updated.RegisteredHarnesses.ContainsKey("TestHarness"));
-        Assert.Equal(Harness, updated.RegisteredHarnesses["TestHarness"]);
+        Assert.Single(updated.RegisteredToolHarnesses);
+        Assert.True(updated.RegisteredToolHarnesses.ContainsKey("TestToolHarness"));
+        Assert.Equal(ToolHarness, updated.RegisteredToolHarnesses["TestToolHarness"]);
     }
 
     [Fact]
-    public void WithRegisteredHarness_MultipleCalls_AddsAllHarneses()
+    public void WithRegisteredToolHarness_MultipleCalls_AddsAllToolHarnesses()
     {
         // Arrange
         var state = new ClientToolStateData();
-        var Harness1 = CreateTestHarness("Harness1");
-        var Harness2 = CreateTestHarness("Harness2");
+        var ToolHarness1 = CreateTestToolHarness("ToolHarness1");
+        var ToolHarness2 = CreateTestToolHarness("ToolHarness2");
 
         // Act
         var updated = state
-            .WithRegisteredHarness(Harness1)
-            .WithRegisteredHarness(Harness2);
+            .WithRegisteredToolHarness(ToolHarness1)
+            .WithRegisteredToolHarness(ToolHarness2);
 
         // Assert
-        Assert.Equal(2, updated.RegisteredHarnesses.Count);
-        Assert.True(updated.RegisteredHarnesses.ContainsKey("Harness1"));
-        Assert.True(updated.RegisteredHarnesses.ContainsKey("Harness2"));
+        Assert.Equal(2, updated.RegisteredToolHarnesses.Count);
+        Assert.True(updated.RegisteredToolHarnesses.ContainsKey("ToolHarness1"));
+        Assert.True(updated.RegisteredToolHarnesses.ContainsKey("ToolHarness2"));
     }
 
     [Fact]
-    public void WithRegisteredHarness_SameName_ReplacesHarness()
+    public void WithRegisteredToolHarness_SameName_ReplacesToolHarness()
     {
         // Arrange
         var state = new ClientToolStateData();
-        var Harness1 = CreateTestHarness("TestHarness", tools: new[] { CreateTestTool("Tool1") });
-        var Harness2 = CreateTestHarness("TestHarness", tools: new[] { CreateTestTool("Tool2") });
+        var ToolHarness1 = CreateTestToolHarness("TestToolHarness", tools: new[] { CreateTestTool("Tool1") });
+        var ToolHarness2 = CreateTestToolHarness("TestToolHarness", tools: new[] { CreateTestTool("Tool2") });
 
         // Act
         var updated = state
-            .WithRegisteredHarness(Harness1)
-            .WithRegisteredHarness(Harness2);
+            .WithRegisteredToolHarness(ToolHarness1)
+            .WithRegisteredToolHarness(ToolHarness2);
 
         // Assert
-        Assert.Single(updated.RegisteredHarnesses);
-        Assert.Equal("Tool2", updated.RegisteredHarnesses["TestHarness"].Tools[0].Name);
+        Assert.Single(updated.RegisteredToolHarnesses);
+        Assert.Equal("Tool2", updated.RegisteredToolHarnesses["TestToolHarness"].Tools[0].Name);
     }
 
     [Fact]
-    public void WithoutRegisteredHarness_RemovesHarness()
+    public void WithoutRegisteredToolHarness_RemovesToolHarness()
     {
         // Arrange
         var state = new ClientToolStateData()
-            .WithRegisteredHarness(CreateTestHarness("Harness1"))
-            .WithRegisteredHarness(CreateTestHarness("Harness2"));
+            .WithRegisteredToolHarness(CreateTestToolHarness("ToolHarness1"))
+            .WithRegisteredToolHarness(CreateTestToolHarness("ToolHarness2"));
 
         // Act
-        var updated = state.WithoutRegisteredHarness("Harness1");
+        var updated = state.WithoutRegisteredToolHarness("ToolHarness1");
 
         // Assert
-        Assert.Single(updated.RegisteredHarnesses);
-        Assert.False(updated.RegisteredHarnesses.ContainsKey("Harness1"));
-        Assert.True(updated.RegisteredHarnesses.ContainsKey("Harness2"));
+        Assert.Single(updated.RegisteredToolHarnesses);
+        Assert.False(updated.RegisteredToolHarnesses.ContainsKey("ToolHarness1"));
+        Assert.True(updated.RegisteredToolHarnesses.ContainsKey("ToolHarness2"));
     }
 
     [Fact]
-    public void WithoutRegisteredHarness_NonExistent_ReturnsUnchanged()
+    public void WithoutRegisteredToolHarness_NonExistent_ReturnsUnchanged()
     {
         // Arrange
         var state = new ClientToolStateData()
-            .WithRegisteredHarness(CreateTestHarness("Harness1"));
+            .WithRegisteredToolHarness(CreateTestToolHarness("ToolHarness1"));
 
         // Act
-        var updated = state.WithoutRegisteredHarness("NonExistent");
+        var updated = state.WithoutRegisteredToolHarness("NonExistent");
 
         // Assert
-        Assert.Single(updated.RegisteredHarnesses);
+        Assert.Single(updated.RegisteredToolHarnesses);
     }
 
     // ============================================
-    // Expanded Harneses Tests
+    // Expanded ToolHarnesses Tests
     // ============================================
 
     [Fact]
-    public void WithExpandedHarness_AddsToSet()
+    public void WithExpandedToolHarness_AddsToSet()
     {
         // Arrange
         var state = new ClientToolStateData();
 
         // Act
-        var updated = state.WithExpandedHarness("Harness1");
+        var updated = state.WithExpandedToolHarness("ToolHarness1");
 
         // Assert
         Assert.NotSame(state, updated);
-        Assert.Single(updated.ExpandedHarneses);
-        Assert.Contains("Harness1", updated.ExpandedHarneses);
+        Assert.Single(updated.ExpandedToolHarnesses);
+        Assert.Contains("ToolHarness1", updated.ExpandedToolHarnesses);
     }
 
     [Fact]
-    public void WithExpandedHarness_Duplicate_NoEffect()
+    public void WithExpandedToolHarness_Duplicate_NoEffect()
     {
         // Arrange
         var state = new ClientToolStateData()
-            .WithExpandedHarness("Harness1");
+            .WithExpandedToolHarness("ToolHarness1");
 
         // Act
-        var updated = state.WithExpandedHarness("Harness1");
+        var updated = state.WithExpandedToolHarness("ToolHarness1");
 
         // Assert
-        Assert.Single(updated.ExpandedHarneses);
+        Assert.Single(updated.ExpandedToolHarnesses);
     }
 
     [Fact]
-    public void WithCollapsedHarness_RemovesFromSet()
+    public void WithCollapsedToolHarness_RemovesFromSet()
     {
         // Arrange
         var state = new ClientToolStateData()
-            .WithExpandedHarness("Harness1")
-            .WithExpandedHarness("Harness2");
+            .WithExpandedToolHarness("ToolHarness1")
+            .WithExpandedToolHarness("ToolHarness2");
 
         // Act
-        var updated = state.WithCollapsedHarness("Harness1");
+        var updated = state.WithCollapsedToolHarness("ToolHarness1");
 
         // Assert
-        Assert.Single(updated.ExpandedHarneses);
-        Assert.DoesNotContain("Harness1", updated.ExpandedHarneses);
-        Assert.Contains("Harness2", updated.ExpandedHarneses);
+        Assert.Single(updated.ExpandedToolHarnesses);
+        Assert.DoesNotContain("ToolHarness1", updated.ExpandedToolHarnesses);
+        Assert.Contains("ToolHarness2", updated.ExpandedToolHarnesses);
     }
 
     // ============================================
@@ -290,7 +290,7 @@ public class ClientToolStateDataTests
         var state = new ClientToolStateData();
         var augmentation = new ClientToolAugmentation
         {
-            ExpandHarneses = new HashSet<string> { "Harness1" }
+            ExpandToolHarnesses = new HashSet<string> { "ToolHarness1" }
         };
 
         // Act
@@ -299,7 +299,7 @@ public class ClientToolStateDataTests
         // Assert
         Assert.NotSame(state, updated);
         Assert.NotNull(updated.PendingAugmentation);
-        Assert.Contains("Harness1", updated.PendingAugmentation.ExpandHarneses!);
+        Assert.Contains("ToolHarness1", updated.PendingAugmentation.ExpandToolHarnesses!);
     }
 
     [Fact]
@@ -307,7 +307,7 @@ public class ClientToolStateDataTests
     {
         // Arrange
         var state = new ClientToolStateData()
-            .WithPendingAugmentation(new ClientToolAugmentation { ExpandHarneses = new HashSet<string> { "Harness1" } });
+            .WithPendingAugmentation(new ClientToolAugmentation { ExpandToolHarnesses = new HashSet<string> { "ToolHarness1" } });
 
         // Act
         var updated = state.ClearPendingAugmentation();
@@ -339,7 +339,7 @@ public class ClientToolStateDataTests
         // Arrange
         var container = new MiddlewareState();
         var testState = new ClientToolStateData()
-            .WithRegisteredHarness(CreateTestHarness("TestHarness"));
+            .WithRegisteredToolHarness(CreateTestToolHarness("TestToolHarness"));
 
         // Act
         var updated = container.WithClientTool(testState);
@@ -347,7 +347,7 @@ public class ClientToolStateDataTests
         // Assert
         Assert.NotSame(container, updated);
         Assert.NotNull(updated.ClientTool());
-        Assert.Single(updated.ClientTool().RegisteredHarnesses);
+        Assert.Single(updated.ClientTool().RegisteredToolHarnesses);
     }
 
     [Fact]
@@ -358,17 +358,17 @@ public class ClientToolStateDataTests
 
         // Act
         var updated = original
-            .WithRegisteredHarness(CreateTestHarness("Harness1"))
-            .WithExpandedHarness("Harness1")
+            .WithRegisteredToolHarness(CreateTestToolHarness("ToolHarness1"))
+            .WithExpandedToolHarness("ToolHarness1")
             .WithHiddenTool("Tool1");
 
         // Assert
-        Assert.Empty(original.RegisteredHarnesses);
-        Assert.Empty(original.ExpandedHarneses);
+        Assert.Empty(original.RegisteredToolHarnesses);
+        Assert.Empty(original.ExpandedToolHarnesses);
         Assert.Empty(original.HiddenTools);
 
-        Assert.Single(updated.RegisteredHarnesses);
-        Assert.Single(updated.ExpandedHarneses);
+        Assert.Single(updated.RegisteredToolHarnesses);
+        Assert.Single(updated.ExpandedToolHarnesses);
         Assert.Single(updated.HiddenTools);
     }
 
@@ -376,13 +376,13 @@ public class ClientToolStateDataTests
     // Helper Methods
     // ============================================
 
-    private static clientHarnessDefinition CreateTestHarness(
+    private static clientToolHarnessDefinition CreateTestToolHarness(
         string name,
         ClientToolDefinition[]? tools = null)
     {
-        return new clientHarnessDefinition(
+        return new clientToolHarnessDefinition(
             Name: name,
-            Description: $"Test Harness {name}",
+            Description: $"Test ToolHarness {name}",
             Tools: tools ?? new[] { CreateTestTool($"{name}_Tool") }
         );
     }

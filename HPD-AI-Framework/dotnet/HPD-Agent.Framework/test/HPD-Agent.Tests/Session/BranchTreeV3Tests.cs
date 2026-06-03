@@ -415,6 +415,56 @@ public class BranchTreeV3Tests : AgentTestBase
     }
 
     [Fact]
+    public async Task ForkBranchAsync_WithoutMessageId_ForksFromLatestMessage()
+    {
+        // Arrange
+        var store = new InMemorySessionStore();
+        var agent = await CreateAgentWithStore(store);
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+
+        var main = session.CreateBranch("main");
+        main.AddMessage(UserMessage("Message 1"));
+        main.AddMessage(AssistantMessage("Response 1"));
+        main.AddMessage(UserMessage("Message 2"));
+        await store.SaveInitialBranchAsync("test-session", main);
+
+        var expectedForkPoint = main.Messages.Last().MessageId;
+
+        // Act
+        var forkId = await agent.ForkBranchAsync("test-session", "main", "latest-fork");
+
+        // Assert
+        Assert.Equal("latest-fork", forkId);
+
+        var fork = await store.LoadBranchAsync("test-session", "latest-fork");
+        Assert.NotNull(fork);
+        Assert.Equal(expectedForkPoint, fork.ForkedAtMessageId);
+        Assert.Equal(main.Messages.Count, fork.Messages.Count);
+        Assert.Equal(main.Messages.Select(m => m.MessageId), fork.Messages.Select(m => m.MessageId));
+    }
+
+    [Fact]
+    public async Task ForkBranchAsync_WithoutMessageId_ThrowsWhenBranchHasNoMessages()
+    {
+        // Arrange
+        var store = new InMemorySessionStore();
+        var agent = await CreateAgentWithStore(store);
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+
+        var main = session.CreateBranch("main");
+        await store.SaveInitialBranchAsync("test-session", main);
+
+        // Act
+        var act = () => agent.ForkBranchAsync("test-session", "main", "empty-fork");
+
+        // Assert
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(act);
+        Assert.Contains("has no messages to fork from", ex.Message);
+    }
+
+    [Fact]
     public async Task ForkBranch_InvokesBeforeBranchForkCommit_WithPreparedTargetBranch()
     {
         // Arrange

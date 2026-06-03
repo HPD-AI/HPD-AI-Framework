@@ -6,7 +6,7 @@ namespace HPD.Agent.Tests.SubAgents;
 
 public class SubAgentCapabilityGenerationTests
 {
-    private static HarnessInfo MakeHarness(string name = "MyHarness") => new()
+    private static ToolHarnessInfo MakeToolHarness(string name = "MyToolHarness") => new()
     {
         ClassName = name,
         Namespace = "Test.Namespace"
@@ -18,7 +18,7 @@ public class SubAgentCapabilityGenerationTests
         SubAgentName = name,
         MethodName = $"Create{name}",
         Description = "A test sub-agent",
-        ParentHarnessName = "MyHarness",
+        ParentToolHarnessName = "MyToolHarness",
         IsStatic = true,
         RequiresPermission = true
     };
@@ -26,7 +26,7 @@ public class SubAgentCapabilityGenerationTests
     [Fact]
     public void GeneratedCode_ResolvesBranchNativeRoute()
     {
-        var code = MakeCapability().GenerateRegistrationCode(MakeHarness());
+        var code = MakeCapability().GenerateRegistrationCode(MakeToolHarness());
 
         code.Should().Contain("SubAgentRuntime.ResolveRouteAsync");
         code.Should().Contain("SessionId = route.SessionId");
@@ -38,7 +38,7 @@ public class SubAgentCapabilityGenerationTests
     [Fact]
     public void GeneratedCode_BuildsFromInlineConfigOrStoredAgentId()
     {
-        var code = MakeCapability().GenerateRegistrationCode(MakeHarness());
+        var code = MakeCapability().GenerateRegistrationCode(MakeToolHarness());
 
         code.Should().Contain("subAgentDef.SourceKind == SubAgentSourceKind.StoredAgent");
         code.Should().Contain("new AgentBuilder().WithAgentId(subAgentDef.AgentId)");
@@ -50,7 +50,7 @@ public class SubAgentCapabilityGenerationTests
     [Fact]
     public void GeneratedCode_AttachesParentSessionStoreBeforeBuildAsync()
     {
-        var code = MakeCapability().GenerateRegistrationCode(MakeHarness());
+        var code = MakeCapability().GenerateRegistrationCode(MakeToolHarness());
 
         var storeAttachIndex = code.IndexOf("WithSessionStore(parentStore)", StringComparison.Ordinal);
         var buildAsyncIndex = code.IndexOf("BuildAsync()", StringComparison.Ordinal);
@@ -63,7 +63,7 @@ public class SubAgentCapabilityGenerationTests
     [Fact]
     public void GeneratedCode_DoesNotContainOldSessionModeRouting()
     {
-        var code = MakeCapability().GenerateRegistrationCode(MakeHarness());
+        var code = MakeCapability().GenerateRegistrationCode(MakeToolHarness());
 
         code.Should().NotContain("SubAgentSessionMode");
         code.Should().NotContain("SessionMode");

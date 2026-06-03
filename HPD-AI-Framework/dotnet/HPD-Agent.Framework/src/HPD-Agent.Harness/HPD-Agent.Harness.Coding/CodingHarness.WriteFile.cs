@@ -5,10 +5,10 @@ using System.Text;
 using System.Text.RegularExpressions;
 using HPD.Agent;
 using HPD.Agent.Middleware;
-using HPDOS.Harneses.Middleware;
+using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 
-public partial class CodingHarness
+public partial class CodingToolHarness
 {
     [AIFunction]
     [RequiresPermission]
@@ -207,7 +207,7 @@ public partial class CodingHarness
     private static string FormatWriteResult(FileMutationResult result, FileWriteMode mode)
     {
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
         writer.WriteStartElement("write_file");
         writer.WriteAttributeString("path", result.Path);
         writer.WriteAttributeString("mode", FormatEnum(mode));
@@ -228,7 +228,7 @@ public partial class CodingHarness
     private static string FormatWriteError(WriteFileErrorKind kind, string? path, string message)
     {
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
         writer.WriteStartElement("error");
         writer.WriteAttributeString("tool", "WriteFile");
         writer.WriteAttributeString("kind", FormatEnum(kind));

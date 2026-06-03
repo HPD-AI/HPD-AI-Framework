@@ -4,7 +4,7 @@ using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 
-namespace HPD.Agent.Harness.Coding.SourceGenerator.Generators;
+namespace HPD.Agent.ToolHarness.Coding.SourceGenerator.Generators;
 
 internal static class RegistryGenerator
 {
@@ -27,9 +27,9 @@ internal static class RegistryGenerator
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
         sb.AppendLine("using System.Collections.Generic;");
-        sb.AppendLine("using HPDOS.Harneses.Middleware;");
+        sb.AppendLine("using HPDOS.ToolHarnesses.Middleware;");
         sb.AppendLine();
-        sb.AppendLine("namespace HPDOS.Harneses.Middleware.Generated;");
+        sb.AppendLine("namespace HPDOS.ToolHarnesses.Middleware.Generated;");
         sb.AppendLine();
         sb.AppendLine("internal sealed class GeneratedLanguageServerRegistryProvider : ILanguageServerRegistryProvider");
         sb.AppendLine("{");

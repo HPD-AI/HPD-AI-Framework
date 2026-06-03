@@ -25,7 +25,7 @@ public class FolderDiscoveryMiddleware : IAgentMiddleware
     private readonly IContentStore _store;
     private readonly string? _agentName;
     private FolderStructureSnapshot? _lastSnapshot;
-    private ContentStoreHarness? _harness; // Set via SetHarness for session ID threading
+    private ContentStoreToolHarness? _toolharness; // Set via SetToolHarness for session ID threading
 
     public FolderDiscoveryMiddleware(IContentStore store, string? agentName = null)
     {
@@ -34,12 +34,12 @@ public class FolderDiscoveryMiddleware : IAgentMiddleware
     }
 
     /// <summary>
-    /// Link the ContentStoreHarness so FolderDiscoveryMiddleware can share session ID state.
-    /// Called by AgentBuilder when registering both middleware and harness.
+    /// Link the ContentStoreToolHarness so FolderDiscoveryMiddleware can share session ID state.
+    /// Called by AgentBuilder when registering both middleware and toolharness.
     /// </summary>
-    internal void SetHarness(ContentStoreHarness harness)
+    internal void SetToolHarness(ContentStoreToolHarness toolharness)
     {
-        _harness = harness;
+        _toolharness = toolharness;
     }
 
     public async Task BeforeMessageTurnAsync(
@@ -47,8 +47,8 @@ public class FolderDiscoveryMiddleware : IAgentMiddleware
         CancellationToken ct)
     {
         var sessionId = context.Session?.Id;
-        // Propagate session ID to harness so session-scoped tools (/uploads, /artifacts) work
-        _harness?.SetSessionId(sessionId);
+        // Propagate session ID to toolharness so session-scoped tools (/uploads, /artifacts) work
+        _toolharness?.SetSessionId(sessionId);
         var current = await BuildSnapshotAsync(sessionId, ct);
 
         string? contextXml = null;
@@ -69,10 +69,10 @@ public class FolderDiscoveryMiddleware : IAgentMiddleware
         {
             // Insert after system messages but before conversation history
             var folderMessage = new ChatMessage(ChatRole.User, contextXml);
-            var insertIndex = context.ConversationHistory
+            var insertIndex = context.BranchHistory
                 .TakeWhile(m => m.Role == ChatRole.System)
                 .Count();
-            context.ConversationHistory.Insert(insertIndex, folderMessage);
+            context.BranchHistory.Insert(insertIndex, folderMessage);
         }
 
         _lastSnapshot = current;

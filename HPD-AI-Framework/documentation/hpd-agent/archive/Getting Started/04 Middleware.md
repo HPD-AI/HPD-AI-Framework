@@ -15,7 +15,7 @@ Add middleware via the `AgentBuilder`:
 ```csharp
 var agent = await new AgentBuilder()
     .WithProvider("openai", "gpt-4o")
-    .WithHarness<MyTools>()
+    .WithToolHarness<MyTools>()
     .WithMiddleware(new LoggingMiddleware())
     .WithMiddleware(new CircuitBreakerMiddleware())
     .BuildAsync();
@@ -105,7 +105,7 @@ Register it:
 ```csharp
 var agent = await new AgentBuilder()
     .WithProvider("openai", "gpt-4o")
-    .WithHarness<MyTools>()
+    .WithToolHarness<MyTools>()
     .WithMiddleware(new SimpleRetryMiddleware())
     .WithMiddleware(new CircuitBreakerMiddleware())
     .BuildAsync();

@@ -85,9 +85,9 @@ using System.Collections.Immutable;
 [JsonSerializable(typeof(HPD.Agent.ReasoningEffort))]
 [JsonSerializable(typeof(HPD.Agent.ReasoningOutput))]
 
-// --- Harness and Middleware reference types (Config Serialization) ---
-[JsonSerializable(typeof(HarnessReference))]
-[JsonSerializable(typeof(List<HarnessReference>))]
+// --- ToolHarness and Middleware reference types (Config Serialization) ---
+[JsonSerializable(typeof(ToolHarnessReference))]
+[JsonSerializable(typeof(List<ToolHarnessReference>))]
 [JsonSerializable(typeof(MiddlewareReference))]
 [JsonSerializable(typeof(List<MiddlewareReference>))]
 
@@ -139,14 +139,14 @@ using System.Collections.Immutable;
 [JsonSerializable(typeof(ContainerInstructionSet))]
 [JsonSerializable(typeof(RecoveryInfo))]
 [JsonSerializable(typeof(ImmutableHashSet<string>))]
-[JsonSerializable(typeof(ImmutableDictionary<string, clientHarnessDefinition>), TypeInfoPropertyName = "ImmutableDictionaryStringClientHarnessDefinition")]
+[JsonSerializable(typeof(ImmutableDictionary<string, clientToolHarnessDefinition>), TypeInfoPropertyName = "ImmutableDictionaryStringClientToolHarnessDefinition")]
 [JsonSerializable(typeof(ImmutableDictionary<string, ContextItem>), TypeInfoPropertyName = "ImmutableDictionaryStringContextItem")]
 [JsonSerializable(typeof(ImmutableDictionary<string, ContainerInstructionSet>), TypeInfoPropertyName = "ImmutableDictionaryStringContainerInstructionSet")]
 [JsonSerializable(typeof(ImmutableDictionary<string, RecoveryInfo>), TypeInfoPropertyName = "ImmutableDictionaryStringRecoveryInfo")]
 
 // --- Client Tools types ---
-[JsonSerializable(typeof(HPD.Agent.ClientTools.clientHarnessDefinition))]
-[JsonSerializable(typeof(HPD.Agent.ClientTools.clientHarnessDefinition[]))]
+[JsonSerializable(typeof(HPD.Agent.ClientTools.clientToolHarnessDefinition))]
+[JsonSerializable(typeof(HPD.Agent.ClientTools.clientToolHarnessDefinition[]))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolDefinition))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolDefinition[]))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientSkillDefinition))]
@@ -180,7 +180,7 @@ using System.Collections.Immutable;
 
 // --- Additional utility types for generic serialization ---
 [JsonSerializable(typeof(object[]))]  // For dynamic object arrays in logging
-[JsonSerializable(typeof(string[]))]  // For harness parameters that accept string arrays (e.g. glob patterns)
+[JsonSerializable(typeof(string[]))]  // For toolharness parameters that accept string arrays (e.g. glob patterns)
 
 public partial class HPDJsonContext : JsonSerializerContext
 {

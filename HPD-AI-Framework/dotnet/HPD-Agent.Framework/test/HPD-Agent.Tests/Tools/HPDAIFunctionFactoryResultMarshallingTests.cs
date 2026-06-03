@@ -257,7 +257,7 @@ public class HPDAIFunctionFactoryResultMarshallingTests
             callId,
             new Dictionary<string, object?>(),
             new AgentRunConfig(),
-            harnessName: null,
+            toolharnessName: null,
             skillName: null);
 
         return new FunctionExecutionContext(

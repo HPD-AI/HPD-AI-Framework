@@ -5,17 +5,17 @@ namespace HPD.Agent.SourceGenerator.Capabilities;
 
 /// <summary>
 /// Represents an OpenAPI spec capability — a method that returns OpenApiConfig
-/// to register an OpenAPI spec source when the harness is loaded.
+/// to register an OpenAPI spec source when the toolharness is loaded.
 /// Decorated with [OpenApi] attribute.
 ///
 /// Unlike MCPServer, OpenAPI capabilities are collected via a generated
 /// CollectOpenApiSources static method (not a static property) because
-/// the config is returned by calling the method on the harness instance.
+/// the config is returned by calling the method on the toolharness instance.
 /// </summary>
 internal class OpenApiCapability : BaseCapability
 {
     public override CapabilityType Type => CapabilityType.OpenApi;
-    public override bool IsContainer => false; // Container created at runtime if CollapseWithinHarness=true
+    public override bool IsContainer => false; // Container created at runtime if CollapseWithinToolHarness=true
     public override bool EmitsIntoCreateTools => false;  // OpenAPI sources collected via CollectOpenApiSources
     public override bool RequiresInstance => !IsStatic;
 
@@ -51,24 +51,24 @@ internal class OpenApiCapability : BaseCapability
     /// Unlike MCPServer (which emits a static property), OpenAPI sources are collected
     /// via a delegate passed to CollectOpenApiSources().
     ///
-    /// The generated code calls the [OpenApi] method on the harness instance
+    /// The generated code calls the [OpenApi] method on the toolharness instance
     /// and passes the result to the collector action.
     /// Signature: collector(name, config, parentContainer)
     /// </summary>
     public override string GenerateRegistrationCode(object parent)
     {
-        var harness = (HarnessInfo)parent;
+        var toolharness = (ToolHarnessInfo)parent;
 
         // Effective name: Prefix ?? MethodName
         var effectiveName = Prefix ?? MethodName;
 
         if (IsStatic)
         {
-            return $"__openApiCollector(\"{EscapeString(effectiveName)}\", {harness.Name}.{MethodName}(), \"{EscapeString(harness.Name)}\");";
+            return $"__openApiCollector(\"{EscapeString(effectiveName)}\", {toolharness.Name}.{MethodName}(), \"{EscapeString(toolharness.Name)}\");";
         }
         else
         {
-            return $"__openApiCollector(\"{EscapeString(effectiveName)}\", (({harness.Name})__instance).{MethodName}(), \"{EscapeString(harness.Name)}\");";
+            return $"__openApiCollector(\"{EscapeString(effectiveName)}\", (({toolharness.Name})__instance).{MethodName}(), \"{EscapeString(toolharness.Name)}\");";
         }
     }
 
@@ -85,7 +85,7 @@ internal class OpenApiCapability : BaseCapability
         var props = base.GetAdditionalProperties();
         props["IsOpenApi"] = true;
         props["IsContainer"] = false;
-        props["ParentHarness"] = ParentHarnessName;
+        props["ParentToolHarness"] = ParentToolHarnessName;
         if (Prefix != null)
             props["Prefix"] = Prefix;
         return props;

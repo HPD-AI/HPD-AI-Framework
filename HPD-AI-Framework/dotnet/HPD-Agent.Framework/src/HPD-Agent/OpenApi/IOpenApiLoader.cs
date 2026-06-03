@@ -41,7 +41,7 @@ internal interface IOpenApiLoader
 }
 
 /// <summary>
-/// A pending OpenAPI source registered via WithOpenApi() or [OpenApi] harness attribute.
+/// A pending OpenAPI source registered via WithOpenApi() or [OpenApi] toolharness attribute.
 /// Stored as a plain data record in core — no HPD.OpenApi.Core types referenced here.
 /// Config is stored as <see cref="object"/> and cast to OpenApiConfig inside HPD-Agent.OpenApi.
 /// </summary>
@@ -49,15 +49,15 @@ internal sealed record OpenApiSourceRegistration(
     /// <summary>Display name / prefix for the OpenAPI source.</summary>
     string Name,
 
-    /// <summary>Parent harness container name, or null for standalone WithOpenApi() sources.</summary>
+    /// <summary>Parent toolharness container name, or null for standalone WithOpenApi() sources.</summary>
     string? ParentContainer,
 
     /// <summary>
-    /// When true, functions are wrapped behind a nested container inside the parent harness.
-    /// When false (default), functions appear directly under the parent harness.
-    /// Read from OpenApiConfig.CollapseWithinHarness after casting.
+    /// When true, functions are wrapped behind a nested container inside the parent toolharness.
+    /// When false (default), functions appear directly under the parent toolharness.
+    /// Read from OpenApiConfig.CollapseWithinToolHarness after casting.
     /// </summary>
-    bool CollapseWithinHarness,
+    bool CollapseWithinToolHarness,
 
     /// <summary>
     /// The OpenApiConfig instance stored as object to avoid a dependency on HPD-Agent.OpenApi.

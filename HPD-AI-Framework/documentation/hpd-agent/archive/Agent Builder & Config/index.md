@@ -23,7 +23,7 @@ These are nested config classes on `AgentConfig`. Each has its own reference pag
 | [Error Handling](Error%20Handling.md) | `ErrorHandlingConfig` | Retries, backoff, timeouts, error formatting |
 | [Compaction](Compaction.md) | `CompactionConfig` | Trim or summarize conversation history |
 | [Caching](Caching.md) | `CachingConfig` | Distributed LLM response caching |
-| [Collapsing](Collapsing.md) | `CollapsingConfig` | Hierarchical harness organization |
+| [Collapsing](Collapsing.md) | `CollapsingConfig` | Hierarchical toolharness organization |
 | [Observability](Observability.md) | `ObservabilityConfig` | Event sampling and observer circuit breaker |
 | [Session Store](Session%20Store.md) | `ISessionStore` / `SessionStoreOptions` | Durable conversation persistence |
 | [Sandbox Config](Sandbox%20Config.md) | `SandboxConfig` | File system, network, and process sandboxing for tool execution |

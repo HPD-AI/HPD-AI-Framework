@@ -47,7 +47,7 @@
     <Project Path="src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero/HPD-Agent.Providers.Audio.Silero.csproj" />
     <Project Path="src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Meai/HPD-Agent.Providers.Audio.Meai.csproj" />
   </Folder>
-  <Folder Name="/Harneses/">
+  <Folder Name="/ToolHarnesses/">
     <Project Path="src/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/HPD-Agent.Harness.FileSystem.csproj" />
     <Project Path="src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj" />
     <Project Path="src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj" />

@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using HPDOS.Harneses.Middleware.Generated;
+using HPDOS.ToolHarnesses.Middleware.Generated;
 
-namespace HPDOS.Harneses.Middleware;
+namespace HPDOS.ToolHarnesses.Middleware;
 
 public sealed class LanguageServerService : ILanguageServerService
 {

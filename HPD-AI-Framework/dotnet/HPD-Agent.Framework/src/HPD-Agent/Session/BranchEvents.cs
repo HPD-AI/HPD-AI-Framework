@@ -285,10 +285,10 @@ public static class BranchEventFactory
         string callId,
         string name,
         string messageId,
-        string? harnessName,
+        string? toolharnessName,
         ToolCallType? callType,
         int iteration) =>
-        Scope(sessionId, branchId, new ToolCallStartEvent(callId, name, messageId, harnessName, callType)
+        Scope(sessionId, branchId, new ToolCallStartEvent(callId, name, messageId, toolharnessName, callType)
         {
             EventFlowId = messageTurnId
         });
@@ -312,10 +312,10 @@ public static class BranchEventFactory
         string callId,
         string? messageId,
         ToolResultPayload result,
-        string? harnessName,
+        string? toolharnessName,
         ToolCallType? callType,
         int iteration) =>
-        Scope(sessionId, branchId, new ToolCallResultEvent(callId, result, harnessName, callType)
+        Scope(sessionId, branchId, new ToolCallResultEvent(callId, result, toolharnessName, callType)
         {
             EventFlowId = messageTurnId,
             MessageId = messageId

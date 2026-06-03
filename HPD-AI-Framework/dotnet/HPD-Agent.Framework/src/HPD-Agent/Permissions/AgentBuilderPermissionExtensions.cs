@@ -45,14 +45,14 @@ public static class AgentBuilderPermissionExtensions
 
     /// <summary>
     /// Forces a specific function to require permission, overriding the [RequiresPermission] attribute.
-    /// Useful when using third-party Harneses that don't have permission checks on sensitive functions.
+    /// Useful when using third-party ToolHarnesses that don't have permission checks on sensitive functions.
     /// </summary>
     /// <param name="builder">The agent builder</param>
     /// <param name="functionName">The name of the function to require permission for</param>
     /// <returns>The agent builder for chaining</returns>
     /// <example>
     /// var agent = new AgentBuilder()
-    ///     .WithTools&lt;ThirdPartyDatabaseHarness&gt;()
+    ///     .WithTools&lt;ThirdPartyDatabaseToolHarness&gt;()
     ///     .RequirePermissionFor("DeleteAllData")  // Force permission even if attribute says no
     ///     .Build();
     /// </example>
@@ -71,7 +71,7 @@ public static class AgentBuilderPermissionExtensions
     /// <returns>The agent builder for chaining</returns>
     /// <example>
     /// var agent = new AgentBuilder()
-    ///     .WithTools&lt;FileSystemHarness&gt;()
+    ///     .WithTools&lt;FileSystemToolHarness&gt;()
     ///     .DisablePermissionFor("ReadFile")  // Remove permission requirement
     ///     .Build();
     /// </example>

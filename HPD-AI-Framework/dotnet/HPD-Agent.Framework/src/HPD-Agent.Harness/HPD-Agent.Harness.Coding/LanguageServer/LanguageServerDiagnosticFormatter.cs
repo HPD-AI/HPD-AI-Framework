@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Xml;
 
-namespace HPDOS.Harneses.Middleware;
+namespace HPDOS.ToolHarnesses.Middleware;
 
 public sealed class LanguageServerDiagnosticFormatter
 {

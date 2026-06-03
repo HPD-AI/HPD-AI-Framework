@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using HPD.Agent;
 
-namespace HPD.Agent.Harness.WebSearch;
+namespace HPD.Agent.ToolHarness.WebSearch;
 
 /// <summary>
-/// The complete and corrected context for the WebSearch Harness.
+/// The complete and corrected context for the WebSearch ToolHarness.
 /// </summary>
 public class WebSearchContext : IToolMetadata
 {

@@ -1,4 +1,4 @@
-namespace HPD.Agent.Harness.Coding.Ripgrep;
+namespace HPD.Agent.ToolHarness.Coding.Ripgrep;
 
 internal static partial class RipgrepBundledBinaries
 {

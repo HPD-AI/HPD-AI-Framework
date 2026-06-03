@@ -120,7 +120,7 @@ public enum AgentStopKind
 public sealed record ToolCallRecord(
     string CallId,
     string Name,
-    string? HarnessName,
+    string? ToolHarnessName,
     string ArgumentsJson,
     string Result,
     TimeSpan Duration,

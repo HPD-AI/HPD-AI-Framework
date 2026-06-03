@@ -281,13 +281,13 @@ export class AgentState {
 		// TODO: Automatically invoke registered client tool handlers
 	}
 
-	onclientHarnessesRegistered(
-		registeredHarnesses: string[],
+	onclientToolHarnessesRegistered(
+		registeredToolHarnesses: string[],
 		totalTools: number,
 		timestamp: string
 	) {
 		console.log(
-			`[AgentState] Registered ${totalTools} tools in ${registeredHarnesses.length} groups at ${timestamp}`
+			`[AgentState] Registered ${totalTools} tools in ${registeredToolHarnesses.length} groups at ${timestamp}`
 		);
 	}
 

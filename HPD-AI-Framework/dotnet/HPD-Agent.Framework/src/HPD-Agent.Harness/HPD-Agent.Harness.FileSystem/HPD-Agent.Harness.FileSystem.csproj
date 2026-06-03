@@ -3,7 +3,7 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
-    <RootNamespace>HPD.Agent.Harness.FileSystem</RootNamespace>
+    <RootNamespace>HPD.Agent.ToolHarness.FileSystem</RootNamespace>
 
     <!-- Native AOT Configuration -->
     <IsAotCompatible>true</IsAotCompatible>
@@ -11,9 +11,9 @@
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
 
     <!-- Package Metadata (inherits Version, Authors, License from Directory.Build.props) -->
-    <PackageId>HPD-Agent.Harness.FileSystem</PackageId>
-    <Description>File system harness for HPD-Agent. Provides AI functions for reading, writing, editing, searching, and discovering files.</Description>
-    <PackageTags>ai;agent;filesystem;harness;hpd-agent</PackageTags>
+    <PackageId>HPD-Agent.ToolHarness.FileSystem</PackageId>
+    <Description>File system toolharness for HPD-Agent. Provides AI functions for reading, writing, editing, searching, and discovering files.</Description>
+    <PackageTags>ai;agent;filesystem;toolharness;hpd-agent</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

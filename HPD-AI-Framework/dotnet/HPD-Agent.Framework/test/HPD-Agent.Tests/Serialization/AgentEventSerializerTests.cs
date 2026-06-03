@@ -325,17 +325,17 @@ public class AgentEventSerializerTests
         Assert.Contains("\"callId\":\"call-1\"", startJson);
         Assert.Contains("\"name\":\"Calculator\"", startJson);
         // Null optional fields omitted
-        Assert.DoesNotContain("\"harnessName\"", startJson);
+        Assert.DoesNotContain("\"toolharnessName\"", startJson);
         Assert.DoesNotContain("\"callType\"", startJson);
 
-        // ToolCallStartEvent — with harness and callType
-        var startEvtFull = new ToolCallStartEvent("call-2", "Add", "msg-1", "MathHarness", ToolCallType.Function);
+        // ToolCallStartEvent — with toolharness and callType
+        var startEvtFull = new ToolCallStartEvent("call-2", "Add", "msg-1", "MathToolHarness", ToolCallType.Function);
         var startJsonFull = AgentEventSerializer.ToJson(startEvtFull);
-        Assert.Contains("\"harnessName\":\"MathHarness\"", startJsonFull);
+        Assert.Contains("\"toolharnessName\":\"MathToolHarness\"", startJsonFull);
         Assert.Contains("\"callType\":\"Function\"", startJsonFull);
 
         // ToolCallStartEvent — SubAgent type
-        var subAgentEvt = new ToolCallStartEvent("call-3", "ResearchAgent", "msg-1", "AgentHarness", ToolCallType.SubAgent);
+        var subAgentEvt = new ToolCallStartEvent("call-3", "ResearchAgent", "msg-1", "AgentToolHarness", ToolCallType.SubAgent);
         var subAgentJson = AgentEventSerializer.ToJson(subAgentEvt);
         Assert.Contains("\"callType\":\"SubAgent\"", subAgentJson);
 
@@ -355,40 +355,40 @@ public class AgentEventSerializerTests
         Assert.Contains("\"type\":\"TOOL_CALL_RESULT\"", resultJson);
         Assert.Contains("\"result\":", resultJson);
         Assert.Contains("\"text\":\"3\"", resultJson);
-        Assert.DoesNotContain("\"harnessName\"", resultJson);
+        Assert.DoesNotContain("\"toolharnessName\"", resultJson);
         Assert.DoesNotContain("\"callType\"", resultJson);
 
-        // ToolCallResultEvent — with harness and callType
-        var resultEvtFull = new ToolCallResultEvent("call-2", new ToolResultPayload(Text: "42"), "MathHarness", ToolCallType.Function);
+        // ToolCallResultEvent — with toolharness and callType
+        var resultEvtFull = new ToolCallResultEvent("call-2", new ToolResultPayload(Text: "42"), "MathToolHarness", ToolCallType.Function);
         var resultJsonFull = AgentEventSerializer.ToJson(resultEvtFull);
-        Assert.Contains("\"harnessName\":\"MathHarness\"", resultJsonFull);
+        Assert.Contains("\"toolharnessName\":\"MathToolHarness\"", resultJsonFull);
         Assert.Contains("\"callType\":\"Function\"", resultJsonFull);
     }
 
     [Fact]
     public void ToolCallStartEvent_RoundTrip_PreservesAllFields()
     {
-        var evt = new ToolCallStartEvent("call-rt", "Add", "msg-rt", "MathHarness", ToolCallType.Function);
+        var evt = new ToolCallStartEvent("call-rt", "Add", "msg-rt", "MathToolHarness", ToolCallType.Function);
         var json = AgentEventSerializer.ToJson(evt);
         var result = Assert.IsType<ToolCallStartEvent>(AgentEventSerializer.FromJson(json));
 
         Assert.Equal("call-rt", result.CallId);
         Assert.Equal("Add", result.Name);
         Assert.Equal("msg-rt", result.MessageId);
-        Assert.Equal("MathHarness", result.HarnessName);
+        Assert.Equal("MathToolHarness", result.ToolHarnessName);
         Assert.Equal(ToolCallType.Function, result.CallType);
     }
 
     [Fact]
     public void ToolCallResultEvent_RoundTrip_PreservesAllFields()
     {
-        var evt = new ToolCallResultEvent("call-rt", new ToolResultPayload(Text: "42"), "MathHarness", ToolCallType.SubAgent);
+        var evt = new ToolCallResultEvent("call-rt", new ToolResultPayload(Text: "42"), "MathToolHarness", ToolCallType.SubAgent);
         var json = AgentEventSerializer.ToJson(evt);
         var result = Assert.IsType<ToolCallResultEvent>(AgentEventSerializer.FromJson(json));
 
         Assert.Equal("call-rt", result.CallId);
         Assert.Equal("42", result.Result.Text);
-        Assert.Equal("MathHarness", result.HarnessName);
+        Assert.Equal("MathToolHarness", result.ToolHarnessName);
         Assert.Equal(ToolCallType.SubAgent, result.CallType);
     }
 

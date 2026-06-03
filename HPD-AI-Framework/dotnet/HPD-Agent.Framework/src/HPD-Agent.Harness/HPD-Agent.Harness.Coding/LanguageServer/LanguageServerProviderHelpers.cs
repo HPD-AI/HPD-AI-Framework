@@ -1,4 +1,4 @@
-namespace HPDOS.Harneses.Middleware;
+namespace HPDOS.ToolHarnesses.Middleware;
 
 public sealed class StaticCommandLanguageServerProvider(
     IReadOnlyList<string> markers,

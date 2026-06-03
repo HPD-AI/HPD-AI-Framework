@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * MessageActions Test Harness
+	 * MessageActions Test ToolHarness
 	 *
 	 * Renders the full compound component with data-testid attributes
 	 * on everything so browser tests can assert against real DOM output.

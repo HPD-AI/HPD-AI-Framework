@@ -7,7 +7,7 @@ namespace HPD.Agent.Tests.Collapsing;
 
 /// <summary>
 /// Tests for skill Collapsing functionality in ToolVisibilityManager.
-/// Ensures skills work like Harness containers - hiding referenced functions until expanded.
+/// Ensures skills work like ToolHarness containers - hiding referenced functions until expanded.
 /// </summary>
 public class SkillCollapsingTests
 {
@@ -31,7 +31,7 @@ public class SkillCollapsingTests
             });
     }
 
-    private static AIFunction CreateFunction(string name, string? parentHarness = null)
+    private static AIFunction CreateFunction(string name, string? parentToolHarness = null)
     {
         var options = new AIFunctionFactoryOptions
         {
@@ -39,11 +39,11 @@ public class SkillCollapsingTests
             Description = $"{name} function"
         };
 
-        if (parentHarness != null)
+        if (parentToolHarness != null)
         {
             options.AdditionalProperties = new Dictionary<string, object>
             {
-                ["ParentHarness"] = parentHarness
+                ["ParentToolHarness"] = parentToolHarness
             };
         }
 
@@ -153,14 +153,14 @@ public class SkillCollapsingTests
     [Fact]
     public void SkillReferences_QualifiedNames_ExtractsCorrectly()
     {
-        // Arrange - skill references qualified names like "HarnessName.FunctionName"
+        // Arrange - skill references qualified names like "ToolHarnessName.FunctionName"
         var skill = CreateSkillContainer(
             "TestSkill", 
             "Test skill", 
-            "MyHarness.Function1", 
-            "MyHarness.Function2");
-        var func1 = CreateFunction("Function1", "MyHarness");
-        var func2 = CreateFunction("Function2", "MyHarness");
+            "MyToolHarness.Function1", 
+            "MyToolHarness.Function2");
+        var func1 = CreateFunction("Function1", "MyToolHarness");
+        var func2 = CreateFunction("Function2", "MyToolHarness");
 
         var allTools = new List<AIFunction> { skill, func1, func2 };
         var manager = new ToolVisibilityManager(allTools);
@@ -189,27 +189,27 @@ public class SkillCollapsingTests
     }
 
     [Fact]
-    public void MixedSkillsAndHarneses_BothWorkCorrectly()
+    public void MixedSkillsAndToolHarnesses_BothWorkCorrectly()
     {
         // Arrange
         var skill = CreateSkillContainer("TestSkill", "Test skill", "SkillFunc");
         var skillFunc = CreateFunction("SkillFunc");
         
-        var HarnessContainer = AIFunctionFactory.Create(
-            (object? args, CancellationToken ct) => Task.FromResult<object?>("Harness activated"),
+        var ToolHarnessContainer = AIFunctionFactory.Create(
+            (object? args, CancellationToken ct) => Task.FromResult<object?>("ToolHarness activated"),
             new AIFunctionFactoryOptions
             {
-                Name = "HarnessContainer",
-                Description = "Harness container",
+                Name = "ToolHarnessContainer",
+                Description = "ToolHarness container",
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["IsContainer"] = true,
-                    ["HarnessName"] = "TestHarness"
+                    ["ToolHarnessName"] = "TestToolHarness"
                 }
             });
-        var HarnessFunc = CreateFunction("HarnessFunc", "TestHarness");
+        var ToolHarnessFunc = CreateFunction("ToolHarnessFunc", "TestToolHarness");
 
-        var allTools = new List<AIFunction> { skill, skillFunc, HarnessContainer, HarnessFunc };
+        var allTools = new List<AIFunction> { skill, skillFunc, ToolHarnessContainer, ToolHarnessFunc };
         var manager = new ToolVisibilityManager(allTools);
 
         // Act - nothing expanded
@@ -220,20 +220,20 @@ public class SkillCollapsingTests
 
         // Assert - containers visible, functions hidden
         Assert.Contains(visibleInitial, f => f.Name == "TestSkill");
-        Assert.Contains(visibleInitial, f => f.Name == "HarnessContainer");
+        Assert.Contains(visibleInitial, f => f.Name == "ToolHarnessContainer");
         Assert.DoesNotContain(visibleInitial, f => f.Name == "SkillFunc");
-        Assert.DoesNotContain(visibleInitial, f => f.Name == "HarnessFunc");
+        Assert.DoesNotContain(visibleInitial, f => f.Name == "ToolHarnessFunc");
 
         // Act - expand both
         var visibleExpanded = manager.GetToolsForAgentTurn(
             allTools,
-            ImmutableHashSet.Create("TestHarness"),
+            ImmutableHashSet.Create("TestToolHarness"),
             ImmutableHashSet.Create("TestSkill"));
 
         // Assert - containers hidden, functions visible
         Assert.DoesNotContain(visibleExpanded, f => f.Name == "TestSkill");
-        Assert.DoesNotContain(visibleExpanded, f => f.Name == "HarnessContainer");
+        Assert.DoesNotContain(visibleExpanded, f => f.Name == "ToolHarnessContainer");
         Assert.Contains(visibleExpanded, f => f.Name == "SkillFunc");
-        Assert.Contains(visibleExpanded, f => f.Name == "HarnessFunc");
+        Assert.Contains(visibleExpanded, f => f.Name == "ToolHarnessFunc");
     }
 }

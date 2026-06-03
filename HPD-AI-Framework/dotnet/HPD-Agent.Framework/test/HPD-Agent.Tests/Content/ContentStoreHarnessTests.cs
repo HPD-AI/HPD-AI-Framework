@@ -5,16 +5,16 @@ using Xunit;
 namespace HPD.Agent.Tests.Content;
 
 /// <summary>
-/// Tests for ContentStoreHarness — the 7 filesystem-like agent tools.
+/// Tests for ContentStoreToolHarness — the 7 filesystem-like agent tools.
 /// Uses InMemoryContentStore to keep tests fast and self-contained.
 /// Session-scoped folders (/uploads, /artifacts) require SetSessionId() to be called first.
 /// </summary>
-public class ContentStoreHarnessTests
+public class ContentStoreToolHarnessTests
 {
     private const string AgentName = "test-agent";
     private const string SessionId = "session-abc";
 
-    private static (InMemoryContentStore store, ContentStoreHarness harness) CreateHarness(
+    private static (InMemoryContentStore store, ContentStoreToolHarness toolharness) CreateToolHarness(
         bool withSession = false)
     {
         var store = new InMemoryContentStore();
@@ -36,11 +36,11 @@ public class ContentStoreHarnessTests
             Permissions = ContentPermissions.Read
         });
 
-        var harness = new ContentStoreHarness(store, AgentName);
+        var toolharness = new ContentStoreToolHarness(store, AgentName);
         if (withSession)
-            harness.SetSessionId(SessionId);
+            toolharness.SetSessionId(SessionId);
 
-        return (store, harness);
+        return (store, toolharness);
     }
 
     private static Task<ContentInfo> SeedCanonicalMemoryAsync(
@@ -72,10 +72,10 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task ReadAsync_ReturnsTextContent()
     {
-        var (store, harness) = CreateHarness();
+        var (store, toolharness) = CreateToolHarness();
         await SeedCanonicalMemoryAsync(store, "notes.md", "# My notes\nLine 2");
 
-        var result = await harness.ReadAsync("/memory/notes.md");
+        var result = await toolharness.ReadAsync("/memory/notes.md");
 
         Assert.Contains("My notes", result);
         Assert.DoesNotContain("Error", result);
@@ -88,11 +88,11 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task ReadAsync_WithOffsetAndLimit_SlicesLines()
     {
-        var (store, harness) = CreateHarness();
+        var (store, toolharness) = CreateToolHarness();
         var content = "line0\nline1\nline2\nline3\nline4";
         await SeedCanonicalMemoryAsync(store, "file.txt", content);
 
-        var result = await harness.ReadAsync("/memory/file.txt", offset: 1, limit: 2);
+        var result = await toolharness.ReadAsync("/memory/file.txt", offset: 1, limit: 2);
 
         Assert.Contains("line1", result);
         Assert.Contains("line2", result);
@@ -107,7 +107,7 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task ReadAsync_BinaryContent_ReturnsInfoString()
     {
-        var (store, harness) = CreateHarness(withSession: true);
+        var (store, toolharness) = CreateToolHarness(withSession: true);
         var binaryData = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 }; // JPEG header
         await store.WriteBytesAsync(SessionId, binaryData, "image/jpeg",
             new ContentMetadata
@@ -116,7 +116,7 @@ public class ContentStoreHarnessTests
                 Tags = new Dictionary<string, string> { ["folder"] = "/uploads" }
             });
 
-        var result = await harness.ReadAsync("/uploads/photo.jpg");
+        var result = await toolharness.ReadAsync("/uploads/photo.jpg");
 
         Assert.Contains("Binary content", result);
         Assert.DoesNotContain("Error", result);
@@ -129,9 +129,9 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task ReadAsync_FileNotFound_ReturnsErrorString()
     {
-        var (_, harness) = CreateHarness();
+        var (_, toolharness) = CreateToolHarness();
 
-        var result = await harness.ReadAsync("/memory/does-not-exist.md");
+        var result = await toolharness.ReadAsync("/memory/does-not-exist.md");
 
         Assert.Contains("Error", result);
         Assert.Contains("not found", result, StringComparison.OrdinalIgnoreCase);
@@ -144,9 +144,9 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task ReadAsync_NoFilename_ReturnsHelpfulError()
     {
-        var (_, harness) = CreateHarness();
+        var (_, toolharness) = CreateToolHarness();
 
-        var result = await harness.ReadAsync("/memory/");
+        var result = await toolharness.ReadAsync("/memory/");
 
         Assert.Contains("Error", result);
         // Should suggest how to proceed
@@ -162,9 +162,9 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task WriteAsync_WritesToArtifactFolder()
     {
-        var (store, harness) = CreateHarness(withSession: true);
+        var (store, toolharness) = CreateToolHarness(withSession: true);
 
-        var writeResult = await harness.WriteAsync("/artifacts/prefs.md", "User prefers dark mode");
+        var writeResult = await toolharness.WriteAsync("/artifacts/prefs.md", "User prefers dark mode");
 
         Assert.DoesNotContain("Error", writeResult);
 
@@ -179,9 +179,9 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task WriteAsync_MemoryFolder_ReturnsReadOnlyError()
     {
-        var (_, harness) = CreateHarness();
+        var (_, toolharness) = CreateToolHarness();
 
-        var result = await harness.WriteAsync("/memory/prefs.md", "User prefers dark mode");
+        var result = await toolharness.WriteAsync("/memory/prefs.md", "User prefers dark mode");
 
         Assert.Contains("Error", result);
         Assert.Contains("read-only", result, StringComparison.OrdinalIgnoreCase);
@@ -194,10 +194,10 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task WriteAsync_ReadonlyFolder_ReturnsError()
     {
-        var (_, harness) = CreateHarness();
+        var (_, toolharness) = CreateToolHarness();
 
-        // /knowledge is Read-only per our CreateHarness helper
-        var result = await harness.WriteAsync("/knowledge/hacked.md", "should not be written");
+        // /knowledge is Read-only per our CreateToolHarness helper
+        var result = await toolharness.WriteAsync("/knowledge/hacked.md", "should not be written");
 
         Assert.Contains("Error", result);
         Assert.Contains("read-only", result, StringComparison.OrdinalIgnoreCase);
@@ -210,12 +210,12 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task WriteAsync_UpdatesExistingFile()
     {
-        var (_, harness) = CreateHarness(withSession: true);
+        var (_, toolharness) = CreateToolHarness(withSession: true);
 
-        await harness.WriteAsync("/artifacts/notes.md", "original content");
-        await harness.WriteAsync("/artifacts/notes.md", "updated content");
+        await toolharness.WriteAsync("/artifacts/notes.md", "original content");
+        await toolharness.WriteAsync("/artifacts/notes.md", "updated content");
 
-        var result = await harness.ReadAsync("/artifacts/notes.md");
+        var result = await toolharness.ReadAsync("/artifacts/notes.md");
         Assert.Contains("updated content", result);
         Assert.DoesNotContain("original content", result);
     }
@@ -227,9 +227,9 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task ListAsync_Root_ShowsAllFolders()
     {
-        var (_, harness) = CreateHarness();
+        var (_, toolharness) = CreateToolHarness();
 
-        var result = await harness.ListAsync("/");
+        var result = await toolharness.ListAsync("/");
 
         Assert.Contains("/knowledge", result);
         Assert.Contains("/memory", result);
@@ -243,9 +243,9 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task ListAsync_Root_WithSession_IncludesSessionFolders()
     {
-        var (_, harness) = CreateHarness(withSession: true);
+        var (_, toolharness) = CreateToolHarness(withSession: true);
 
-        var result = await harness.ListAsync("/");
+        var result = await toolharness.ListAsync("/");
 
         Assert.Contains("/uploads", result);
         Assert.Contains("/artifacts", result);
@@ -258,11 +258,11 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task ListAsync_Folder_ShowsFiles()
     {
-        var (store, harness) = CreateHarness();
+        var (store, toolharness) = CreateToolHarness();
         await SeedCanonicalMemoryAsync(store, "note-a.md", "note a");
         await SeedCanonicalMemoryAsync(store, "note-b.md", "note b");
 
-        var result = await harness.ListAsync("/memory");
+        var result = await toolharness.ListAsync("/memory");
 
         Assert.Contains("note-a.md", result);
         Assert.Contains("note-b.md", result);
@@ -275,9 +275,9 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task ListAsync_EmptyFolder_ReportsEmpty()
     {
-        var (_, harness) = CreateHarness();
+        var (_, toolharness) = CreateToolHarness();
 
-        var result = await harness.ListAsync("/memory");
+        var result = await toolharness.ListAsync("/memory");
 
         Assert.Contains("empty", result, StringComparison.OrdinalIgnoreCase);
     }
@@ -289,12 +289,12 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task GlobAsync_FindsMatchingFiles()
     {
-        var (store, harness) = CreateHarness();
+        var (store, toolharness) = CreateToolHarness();
         await SeedCanonicalMemoryAsync(store, "api-guide.md", "api guide");
         await SeedCanonicalMemoryAsync(store, "api-reference.md", "api reference");
         await SeedCanonicalMemoryAsync(store, "unrelated.md", "unrelated");
 
-        var result = await harness.GlobAsync("*api*");
+        var result = await toolharness.GlobAsync("*api*");
 
         Assert.Contains("api-guide.md", result);
         Assert.Contains("api-reference.md", result);
@@ -308,13 +308,13 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task GlobAsync_WithFolderFilter_ScopedToFolder()
     {
-        var (store, harness) = CreateHarness();
+        var (store, toolharness) = CreateToolHarness();
         await SeedCanonicalMemoryAsync(store, "api.md", "memory api doc");
         await store.UploadKnowledgeDocumentAsync(AgentName, "api.md",
             Encoding.UTF8.GetBytes("knowledge api doc"), "text/markdown");
 
         // Glob in /knowledge only
-        var result = await harness.GlobAsync("*api*", "/knowledge");
+        var result = await toolharness.GlobAsync("*api*", "/knowledge");
 
         Assert.Contains("/knowledge/api.md", result);
         Assert.DoesNotContain("/memory", result);
@@ -327,9 +327,9 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task GlobAsync_NoMatches_ReturnsMessage()
     {
-        var (_, harness) = CreateHarness();
+        var (_, toolharness) = CreateToolHarness();
 
-        var result = await harness.GlobAsync("*.xyz");
+        var result = await toolharness.GlobAsync("*.xyz");
 
         Assert.Contains("No files", result, StringComparison.OrdinalIgnoreCase);
     }
@@ -341,14 +341,14 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task DeleteAsync_RemovesFile()
     {
-        var (_, harness) = CreateHarness(withSession: true);
-        await harness.WriteAsync("/artifacts/old-note.md", "stale");
+        var (_, toolharness) = CreateToolHarness(withSession: true);
+        await toolharness.WriteAsync("/artifacts/old-note.md", "stale");
 
-        var deleteResult = await harness.DeleteAsync("/artifacts/old-note.md");
+        var deleteResult = await toolharness.DeleteAsync("/artifacts/old-note.md");
 
         Assert.DoesNotContain("Error", deleteResult);
 
-        var readResult = await harness.ReadAsync("/artifacts/old-note.md");
+        var readResult = await toolharness.ReadAsync("/artifacts/old-note.md");
         Assert.Contains("Error", readResult);
         Assert.Contains("not found", readResult, StringComparison.OrdinalIgnoreCase);
     }
@@ -366,7 +366,7 @@ public class ContentStoreHarnessTests
             Description = "Read-only docs",
             Permissions = ContentPermissions.Read // no Delete
         });
-        var harness = new ContentStoreHarness(store, AgentName);
+        var toolharness = new ContentStoreToolHarness(store, AgentName);
         await store.WriteBytesAsync(AgentName, Encoding.UTF8.GetBytes("content"), "text/plain",
             new ContentMetadata
             {
@@ -374,7 +374,7 @@ public class ContentStoreHarnessTests
                 Tags = new Dictionary<string, string> { ["folder"] = "/readonly-docs" }
             });
 
-        var result = await harness.DeleteAsync("/readonly-docs/file.md");
+        var result = await toolharness.DeleteAsync("/readonly-docs/file.md");
 
         Assert.Contains("Error", result, StringComparison.OrdinalIgnoreCase);
         Assert.True(
@@ -391,7 +391,7 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task StatAsync_ShowsCorrectMetadata()
     {
-        var (store, harness) = CreateHarness();
+        var (store, toolharness) = CreateToolHarness();
         var data = Encoding.UTF8.GetBytes("some content for stat");
         await store.WriteBytesAsync(AgentName, data, "text/markdown",
             new ContentMetadata
@@ -401,7 +401,7 @@ public class ContentStoreHarnessTests
                 Tags = new Dictionary<string, string> { ["folder"] = "/memory" }
             });
 
-        var result = await harness.StatAsync("/memory/stat-test.md");
+        var result = await toolharness.StatAsync("/memory/stat-test.md");
 
         Assert.Contains("stat-test.md", result);
         Assert.Contains("text/markdown", result);
@@ -416,13 +416,13 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task TreeAsync_ShowsFolderHierarchy()
     {
-        var (store, harness) = CreateHarness();
+        var (store, toolharness) = CreateToolHarness();
         await SeedCanonicalMemoryAsync(store, "note1.md", "note 1");
         await SeedCanonicalMemoryAsync(store, "note2.md", "note 2");
         await store.UploadKnowledgeDocumentAsync(AgentName, "guide.md",
             Encoding.UTF8.GetBytes("guide"), "text/markdown");
 
-        var result = await harness.TreeAsync();
+        var result = await toolharness.TreeAsync();
 
         Assert.Contains("/memory", result);
         Assert.Contains("/knowledge", result);
@@ -436,10 +436,10 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task ResolvePath_UploadsFolder_UsesSessionScope()
     {
-        var (store, harness) = CreateHarness(withSession: true);
+        var (store, toolharness) = CreateToolHarness(withSession: true);
 
-        // Write to /uploads via the harness (session-scoped)
-        await harness.WriteAsync("/artifacts/output.txt", "session output");
+        // Write to /uploads via the toolharness (session-scoped)
+        await toolharness.WriteAsync("/artifacts/output.txt", "session output");
 
         // Must be visible under sessionId scope
         var sessionItems = await store.QueryAsync(SessionId, new ContentQuery
@@ -463,7 +463,7 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task ResolvePath_KnowledgeFolder_UsesAgentScope()
     {
-        var (store, harness) = CreateHarness(withSession: true);
+        var (store, toolharness) = CreateToolHarness(withSession: true);
         await store.UploadKnowledgeDocumentAsync(AgentName, "guide.md",
             Encoding.UTF8.GetBytes("API guide"), "text/markdown");
 
@@ -489,12 +489,12 @@ public class ContentStoreHarnessTests
     [Fact]
     public async Task SetSessionId_PropagatesCorrectly()
     {
-        var (store, harness) = CreateHarness(withSession: false);
+        var (store, toolharness) = CreateToolHarness(withSession: false);
 
         // Before setting session ID, /artifacts write routes to null scope
-        harness.SetSessionId(SessionId);
+        toolharness.SetSessionId(SessionId);
 
-        await harness.WriteAsync("/artifacts/result.txt", "session result");
+        await toolharness.WriteAsync("/artifacts/result.txt", "session result");
 
         // Should be queryable under SessionId scope
         var items = await store.QueryAsync(SessionId, new ContentQuery

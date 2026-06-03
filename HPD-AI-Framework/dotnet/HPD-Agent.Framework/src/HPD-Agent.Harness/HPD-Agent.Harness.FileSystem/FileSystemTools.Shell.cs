@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using CliWrap;
 using CliWrap.Buffered;
 
-namespace HPD.Agent.Harness.FileSystem;
+namespace HPD.Agent.ToolHarness.FileSystem;
 
 /// <summary>
 /// Shell command execution functionality for FileSystemTools

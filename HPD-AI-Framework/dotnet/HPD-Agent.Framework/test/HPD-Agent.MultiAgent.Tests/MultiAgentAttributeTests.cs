@@ -3,7 +3,7 @@ using HPD.Agent;
 namespace HPD.MultiAgent.Tests;
 
 /// <summary>
-/// Tests for the [MultiAgent] attribute used to mark harness methods
+/// Tests for the [MultiAgent] attribute used to mark toolharness methods
 /// that return multi-agent workflows.
 /// </summary>
 public class MultiAgentAttributeTests
@@ -95,7 +95,7 @@ public class MultiAgentAttributeTests
     public void MultiAgentAttribute_CanBeAppliedToMethod()
     {
         // Arrange - Get a method with [MultiAgent] attribute
-        var methodInfo = typeof(SampleHarness).GetMethod(nameof(SampleHarness.TestWorkflow));
+        var methodInfo = typeof(SampleToolHarness).GetMethod(nameof(SampleToolHarness.TestWorkflow));
 
         // Act
         var attrs = methodInfo?.GetCustomAttributes(typeof(MultiAgentAttribute), false);
@@ -118,8 +118,8 @@ public class MultiAgentAttributeTests
         attr.Should().BeAssignableTo<Attribute>();
     }
 
-    // Sample harness class for testing attribute application
-    private class SampleHarness
+    // Sample toolharness class for testing attribute application
+    private class SampleToolHarness
     {
         [MultiAgent("Test multi-agent workflow")]
         public AgentWorkflowInstance TestWorkflow()

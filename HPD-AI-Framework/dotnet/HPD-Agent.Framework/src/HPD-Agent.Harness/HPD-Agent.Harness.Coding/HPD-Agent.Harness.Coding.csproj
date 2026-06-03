@@ -3,7 +3,7 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
-    <RootNamespace>HPD.Agent.Harness.Coding</RootNamespace>
+    <RootNamespace>HPD.Agent.ToolHarness.Coding</RootNamespace>
 
     <!-- Native AOT Configuration -->
     <IsAotCompatible>true</IsAotCompatible>
@@ -11,9 +11,9 @@
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
 
     <!-- Package Metadata (inherits Version, Authors, License from Directory.Build.props) -->
-    <PackageId>HPD-Agent.Harness.Coding</PackageId>
-    <Description>Coding harness for HPD-Agent. Provides AI functions for codebase inspection, symbol search, and implementation planning.</Description>
-    <PackageTags>ai;agent;coding;codebase;harness;hpd-agent</PackageTags>
+    <PackageId>HPD-Agent.ToolHarness.Coding</PackageId>
+    <Description>Coding toolharness for HPD-Agent. Provides AI functions for codebase inspection, symbol search, and implementation planning.</Description>
+    <PackageTags>ai;agent;coding;codebase;toolharness;hpd-agent</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,7 +33,7 @@
     <!-- Reference to core HPD-Agent project -->
     <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
     <ProjectReference Include="../../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="../HPD-Agent.Harness.Coding.SourceGenerator/HPD-Agent.Harness.Coding.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier" AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
+    <ProjectReference Include="../HPD-Agent.ToolHarness.Coding.SourceGenerator/HPD-Agent.ToolHarness.Coding.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier" AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
   </ItemGroup>
 
   <ItemGroup>
@@ -42,7 +42,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.ToolHarness.Coding.Tests" />
   </ItemGroup>
 
   <PropertyGroup>

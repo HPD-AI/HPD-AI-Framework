@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using System;
 
-namespace HPD.Agent.Harness.WebSearch;
+namespace HPD.Agent.ToolHarness.WebSearch;
 
 /// <summary>
 /// Fluent builder for configuring Tavily web search provider

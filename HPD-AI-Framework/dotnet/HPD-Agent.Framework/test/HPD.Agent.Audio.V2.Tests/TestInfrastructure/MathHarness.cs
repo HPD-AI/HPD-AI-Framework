@@ -3,7 +3,7 @@ using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Audio.V2.Tests.TestInfrastructure;
 
-public sealed class MathHarness
+public sealed class MathToolHarness
 {
     [AIFunction]
     [Description("Adds two integers.")]

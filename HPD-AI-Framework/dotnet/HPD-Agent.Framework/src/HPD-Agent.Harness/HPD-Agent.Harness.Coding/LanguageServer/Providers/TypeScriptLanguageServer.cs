@@ -1,4 +1,4 @@
-namespace HPDOS.Harneses.Middleware;
+namespace HPDOS.ToolHarnesses.Middleware;
 
 [HpdLanguageServer("typescript")]
 [LanguageServerExtensions(".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts")]

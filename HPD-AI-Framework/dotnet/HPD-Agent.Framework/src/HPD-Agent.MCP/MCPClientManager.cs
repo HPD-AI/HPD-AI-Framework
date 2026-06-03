@@ -27,7 +27,7 @@ public class MCPClientManager : IDisposable
     /// Loads MCP tools from the specified manifest file
     /// </summary>
     /// <param name="manifestPath">Path to the MCP manifest file</param>
-    /// <param name="enableCollapsing">Enable Harness Collapsing (groups tools by server behind containers)</param>
+    /// <param name="enableCollapsing">Enable ToolHarness Collapsing (groups tools by server behind containers)</param>
     /// <param name="maxFunctionNamesInDescription">Max function names to show in container descriptions</param>
     /// <param name="cancellationToken">Cancellation token</param>
     public async Task<List<AIFunction>> LoadToolsFromManifestAsync(
@@ -103,7 +103,7 @@ public class MCPClientManager : IDisposable
     /// Loads MCP tools from manifest content
     /// </summary>
     /// <param name="manifestContent">JSON content of the MCP manifest</param>
-    /// <param name="enableCollapsing">Enable Harness Collapsing (groups tools by server behind containers)</param>
+    /// <param name="enableCollapsing">Enable ToolHarness Collapsing (groups tools by server behind containers)</param>
     /// <param name="maxFunctionNamesInDescription">Max function names to show in container descriptions</param>
     /// <param name="cancellationToken">Cancellation token</param>
     public async Task<List<AIFunction>> LoadToolsFromManifestContentAsync(
@@ -277,7 +277,7 @@ public class MCPClientManager : IDisposable
                 // Note: Reflection-based schema extraction removed for Native AOT compatibility
                 // Tools should provide schema through standard AIFunction properties
 
-                // Create an adapted AIFunction via our factory so it's compatible with generated Harneses
+                // Create an adapted AIFunction via our factory so it's compatible with generated ToolHarnesses
                 var adapted = HPDAIFunctionFactory.Create(invocationWrapper, options);
                 adaptedTools.Add(adapted);
             }
@@ -328,20 +328,20 @@ public class MCPClientManager : IDisposable
     }
 
     /// <summary>
-    /// Loads tools from an MCP server defined via [MCPServer] attribute in a harness.
-    /// Handles both flat and nested collapsing modes based on config.CollapseWithinHarness.
+    /// Loads tools from an MCP server defined via [MCPServer] attribute in a toolharness.
+    /// Handles both flat and nested collapsing modes based on config.CollapseWithinToolHarness.
     /// </summary>
-    /// <param name="config">Server config with ParentHarness and CollapseWithinHarness set</param>
+    /// <param name="config">Server config with ParentToolHarness and CollapseWithinToolHarness set</param>
     /// <param name="maxFunctionNamesInDescription">Max function names to show in container descriptions</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>List of AIFunctions (flat tools or container + collapsed tools)</returns>
-    public async Task<List<AIFunction>> LoadToolsForHarnessAsync(
+    public async Task<List<AIFunction>> LoadToolsForToolHarnessAsync(
         MCPServerConfig config,
         int maxFunctionNamesInDescription = 10,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Loading MCP tools for harness-owned server '{ServerName}' (Parent: {ParentHarness}, Nested: {CollapseWithinHarness})",
-            config.Name, config.ParentHarness, config.CollapseWithinHarness);
+        _logger.LogInformation("Loading MCP tools for toolharness-owned server '{ServerName}' (Parent: {ParentToolHarness}, Nested: {CollapseWithinToolHarness})",
+            config.Name, config.ParentToolHarness, config.CollapseWithinToolHarness);
 
         var tools = await LoadServerToolsAsync(config, cancellationToken);
 
@@ -351,9 +351,9 @@ public class MCPClientManager : IDisposable
             return new List<AIFunction>();
         }
 
-        if (config.CollapseWithinHarness)
+        if (config.CollapseWithinToolHarness)
         {
-            // Nested mode: MCP tools behind their own MCP_* container, parented to the harness
+            // Nested mode: MCP tools behind their own MCP_* container, parented to the toolharness
             var (container, collapsedTools) = ExternalToolCollapsingWrapper.WrapMCPServerTools(
                 serverName: config.Name,
                 tools: tools,
@@ -361,13 +361,13 @@ public class MCPClientManager : IDisposable
                 FunctionResult: config.FunctionResult,
                 SystemPrompt: config.SystemPrompt,
                 customDescription: config.Description,
-                parentContainer: config.ParentHarness);
+                parentContainer: config.ParentToolHarness);
 
             var result = new List<AIFunction> { container };
             result.AddRange(collapsedTools);
 
-            _logger.LogInformation("Loaded {Count} tools from server '{ServerName}' (nested under {ParentHarness})",
-                tools.Count, config.Name, config.ParentHarness);
+            _logger.LogInformation("Loaded {Count} tools from server '{ServerName}' (nested under {ParentToolHarness})",
+                tools.Count, config.Name, config.ParentToolHarness);
 
             return result;
         }
@@ -376,11 +376,11 @@ public class MCPClientManager : IDisposable
             // Flat mode: stamp ParentContainer directly on each tool
             var flatTools = tools.Select(tool =>
                 ExternalToolCollapsingWrapper.AddParentToolMetadata(
-                    tool, config.ParentHarness ?? config.Name, "MCP", parentContainer: config.ParentHarness))
+                    tool, config.ParentToolHarness ?? config.Name, "MCP", parentContainer: config.ParentToolHarness))
                 .ToList();
 
-            _logger.LogInformation("Loaded {Count} tools from server '{ServerName}' (flat under {ParentHarness})",
-                tools.Count, config.Name, config.ParentHarness);
+            _logger.LogInformation("Loaded {Count} tools from server '{ServerName}' (flat under {ParentToolHarness})",
+                tools.Count, config.Name, config.ParentToolHarness);
 
             return flatTools;
         }

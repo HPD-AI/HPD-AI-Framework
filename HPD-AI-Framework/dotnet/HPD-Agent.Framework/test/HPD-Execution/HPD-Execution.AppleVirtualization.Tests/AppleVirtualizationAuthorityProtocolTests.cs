@@ -118,7 +118,7 @@ public sealed class AppleVirtualizationAuthorityProtocolTests
     [Fact]
     public async Task Fake_guest_agent_reports_bound_authority_with_lease_and_audit_correlation()
     {
-        var harness = new FakeAppleVirtualizationGuestAgentHarness();
+        var toolharness = new FakeAppleVirtualizationGuestAgentToolHarness();
         DateTimeOffset boundAt = DateTimeOffset.UtcNow;
         DateTimeOffset expiresAt = boundAt.AddMinutes(5);
         var request = AppleVirtualizationGuestAgentEnvelope.Request(
@@ -160,7 +160,7 @@ public sealed class AppleVirtualizationAuthorityProtocolTests
             },
         };
 
-        AppleVirtualizationGuestAgentEnvelope response = await harness.SendAsync(request);
+        AppleVirtualizationGuestAgentEnvelope response = await toolharness.SendAsync(request);
 
         response.AuthorityStatus.Should().NotBeNull();
         response.AuthorityStatus!.BindingPhase.Should().Be(AuthorityBindingPhase.Projected);

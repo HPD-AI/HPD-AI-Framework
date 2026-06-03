@@ -32,7 +32,7 @@ internal enum CapabilityType
     /// <summary>
     /// An MCP server capability that provides external tool connections.
     /// Decorated with [MCPServer] attribute. MCP servers are NOT containers themselves —
-    /// their tools are either stamped flat under the parent harness or wrapped in an MCP_* container at runtime.
+    /// their tools are either stamped flat under the parent toolharness or wrapped in an MCP_* container at runtime.
     /// </summary>
     MCPServer,
 
@@ -40,7 +40,7 @@ internal enum CapabilityType
     /// An OpenAPI spec capability that converts REST API operations into AIFunctions at build time.
     /// Decorated with [OpenApi] attribute. The method returns OpenApiConfig (from HPD-Agent.OpenApi).
     /// Functions are generated at Build() time by the loader, not at source-gen time.
-    /// OpenAPI is NOT a container at source-gen time — containers are created at runtime if CollapseWithinHarness=true.
+    /// OpenAPI is NOT a container at source-gen time — containers are created at runtime if CollapseWithinToolHarness=true.
     /// </summary>
     OpenApi
 }

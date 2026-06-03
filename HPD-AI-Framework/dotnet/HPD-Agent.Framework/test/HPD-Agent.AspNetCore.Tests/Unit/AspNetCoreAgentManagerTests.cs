@@ -1,6 +1,6 @@
 using FluentAssertions;
 using HPD.Agent.AspNetCore.Lifecycle;
-using HPD.Agent.Harness.Coding;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Hosting.Configuration;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
@@ -160,7 +160,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task BuildAgentAsync_UsesStoredHarnessConfig()
+    public async Task BuildAgentAsync_UsesStoredToolHarnessConfig()
     {
         _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
         var manager = MakeManager();
@@ -168,7 +168,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
         {
             Name = "Coding",
             Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } },
-            Harneses = [nameof(CodingHarness)]
+            ToolHarnesses = [nameof(CodingToolHarness)]
         }, "Coding");
 
         var agent = await manager.GetOrBuildAgentAsync(stored.Id);
@@ -189,13 +189,13 @@ public class AspNetCoreAgentManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task BuildAgentAsync_UsesStoredHarnessConfig_WithRuntimeProvider()
+    public async Task BuildAgentAsync_UsesStoredToolHarnessConfig_WithRuntimeProvider()
     {
         var manager = MakeManager();
         var stored = await manager.CreateDefinitionAsync(new AgentConfig
         {
             Name = "Coding",
-            Harneses = [nameof(CodingHarness)]
+            ToolHarnesses = [nameof(CodingToolHarness)]
         }, "Coding");
 
         var agent = await manager.GetOrBuildAgentAsync(stored.Id);

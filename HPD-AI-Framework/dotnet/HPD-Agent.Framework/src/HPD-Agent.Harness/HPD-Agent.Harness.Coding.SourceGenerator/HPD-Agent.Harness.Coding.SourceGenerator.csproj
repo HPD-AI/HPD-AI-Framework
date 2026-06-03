@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="PublishAot;SelfContained;RuntimeIdentifier">
 
   <PropertyGroup>
-    <PackageId>HPD-Agent.Harness.Coding.SourceGenerator</PackageId>
+    <PackageId>HPD-Agent.ToolHarness.Coding.SourceGenerator</PackageId>
     <TargetFramework>netstandard2.0</TargetFramework>
     <TargetFrameworks></TargetFrameworks>
-    <RootNamespace>HPD.Agent.Harness.Coding.SourceGenerator</RootNamespace>
+    <RootNamespace>HPD.Agent.ToolHarness.Coding.SourceGenerator</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>

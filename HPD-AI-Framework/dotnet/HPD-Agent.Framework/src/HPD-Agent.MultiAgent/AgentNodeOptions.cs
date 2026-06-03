@@ -99,8 +99,8 @@ public sealed class AgentNodeOptions
     public RetryPolicy? RetryPolicy { get; set; }
 
     /// <summary>
-    /// Context instances to inject into harnesses at runtime.
-    /// Key: harness name, Value: context instance.
+    /// Context instances to inject into toolharnesses at runtime.
+    /// Key: toolharness name, Value: context instance.
     /// </summary>
     public Dictionary<string, object>? ContextInstances { get; set; }
 
@@ -260,12 +260,12 @@ public sealed class AgentNodeOptions
     }
 
     /// <summary>
-    /// Add context instance for a harness.
+    /// Add context instance for a toolharness.
     /// </summary>
-    public AgentNodeOptions WithContext<TContext>(string harnessName, TContext context) where TContext : class
+    public AgentNodeOptions WithContext<TContext>(string toolharnessName, TContext context) where TContext : class
     {
         ContextInstances ??= new Dictionary<string, object>();
-        ContextInstances[harnessName] = context;
+        ContextInstances[toolharnessName] = context;
         return this;
     }
 

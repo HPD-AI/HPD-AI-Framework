@@ -71,9 +71,9 @@ public class WorkflowEventCoordinatorTests
     {
         var coordinator = new WorkflowEventCoordinator();
 
-        // Observer typed to WorkflowNodeCompletedEvent only
-        var typedObserver = new TypedRecordingObserver<WorkflowNodeCompletedEvent>();
-        using var subscription = coordinator.Subscribe<WorkflowNodeCompletedEvent>(typedObserver.HandleAsync);
+        // Observer typed to WorkflowAgentCompletedEvent only
+        var typedObserver = new TypedRecordingObserver<WorkflowAgentCompletedEvent>();
+        using var subscription = coordinator.Subscribe<WorkflowAgentCompletedEvent>(typedObserver.HandleAsync);
 
         // Emit a WorkflowStartedEvent — should NOT reach the typed observer
         coordinator.Emit(new WorkflowStartedEvent
@@ -84,20 +84,20 @@ public class WorkflowEventCoordinatorTests
         });
         await Task.Delay(50);
 
-        typedObserver.Received.Should().BeEmpty("observer is typed to WorkflowNodeCompletedEvent, not WorkflowStartedEvent");
+        typedObserver.Received.Should().BeEmpty("observer is typed to WorkflowAgentCompletedEvent, not WorkflowStartedEvent");
     }
 
     [Fact]
     public async Task Emit_Typed_Observer_Receives_Matching_Event()
     {
         var coordinator = new WorkflowEventCoordinator();
-        var typedObserver = new TypedRecordingObserver<WorkflowNodeCompletedEvent>();
-        using var subscription = coordinator.Subscribe<WorkflowNodeCompletedEvent>(typedObserver.HandleAsync);
+        var typedObserver = new TypedRecordingObserver<WorkflowAgentCompletedEvent>();
+        using var subscription = coordinator.Subscribe<WorkflowAgentCompletedEvent>(typedObserver.HandleAsync);
 
-        var nodeCompletedEvt = new WorkflowNodeCompletedEvent
+        var nodeCompletedEvt = new WorkflowAgentCompletedEvent
         {
             WorkflowName = "W",
-            NodeId = "node1",
+            AgentId = "agent1",
             Success = true,
             Duration = TimeSpan.FromSeconds(1),
             Metadata = new AgentMetadata { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
@@ -314,7 +314,7 @@ public class WorkflowEventCoordinatorTests
 
         public ValueTask HandleAsync(HPD.Events.Event evt)
         {
-            if (evt is WorkflowNodeCompletedEvent)
+            if (evt is WorkflowAgentCompletedEvent)
                 HandleCallCount++;
 
             return ValueTask.CompletedTask;

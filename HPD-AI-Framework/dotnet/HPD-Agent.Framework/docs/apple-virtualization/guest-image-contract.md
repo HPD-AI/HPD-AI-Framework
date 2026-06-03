@@ -39,7 +39,7 @@ The prepared macOS host supplies these files and values for real container accep
 | `HPD_APPLEVZ_GUEST_KERNEL_CMDLINE` | Optional | Additional Linux kernel command line. |
 | `HPD_APPLEVZ_VIRTIOFS_HOST_PATH` | Optional | Existing host path for explicit virtiofs smoke wiring when a test requires it. |
 | `HPD_APPLEVZ_VIRTIOFS_TAG` | Optional | Virtiofs tag corresponding to the host path. |
-| `HPD_APPLEVZ_ENGINE_PROVISIONING_ENABLED` | Optional | Boolean readiness gate only for this harness slice. Defaults to `false`; must be `true` or `false` when present. |
+| `HPD_APPLEVZ_ENGINE_PROVISIONING_ENABLED` | Optional | Boolean readiness gate only for this toolharness slice. Defaults to `false`; must be `true` or `false` when present. |
 | `HPD_APPLEVZ_ENGINE_PROVISIONING_ALLOW_PACKAGE_INSTALL` | Optional | Boolean readiness gate for later opt-in provisioning evidence. Defaults to `false`; must be `true` or `false` when present. |
 | `HPD_APPLEVZ_ENGINE_PROVISIONING_ALLOW_SERVICE_ENABLEMENT` | Optional | Boolean readiness gate for later opt-in provisioning evidence. Defaults to `false`; must be `true` or `false` when present. |
 
@@ -148,7 +148,7 @@ If protocol version, expected agent version, readiness, or required capability c
 
 ## User And systemd Assumptions
 
-Rootless mode assumes a non-root guest user with a stable numeric UID. The current acceptance harness uses UID `1000` unless configured otherwise by the prepared image contract. The rootless runtime directory must be:
+Rootless mode assumes a non-root guest user with a stable numeric UID. The current acceptance toolharness uses UID `1000` unless configured otherwise by the prepared image contract. The rootless runtime directory must be:
 
 ```text
 /run/user/1000
@@ -213,7 +213,7 @@ The engine status response must include:
 - bounded diagnostics and truncation flags when limits are reached;
 - sensitive engine socket endpoint metadata with `GuestVisibleOnly=true`.
 
-The engine socket is source authority only. HPD projects it to the smoke execution unit at one of these harness paths:
+The engine socket is source authority only. HPD projects it to the smoke execution unit at one of these toolharness paths:
 
 ```text
 /run/hpd/engine/docker.sock
@@ -224,7 +224,7 @@ The engine socket is source authority only. HPD projects it to the smoke executi
 /run/hpd/engine/buildkitd-rootful.sock
 ```
 
-The projected path is a test-harness socket path and does not make the engine a public endpoint.
+The projected path is a test-toolharness socket path and does not make the engine a public endpoint.
 
 ## Network Requirements
 
@@ -250,25 +250,25 @@ It must be executable by the HPD process identity used for the smoke run. It mus
 
 ### Invocation
 
-The current real acceptance harness invokes:
+The current real acceptance toolharness invokes:
 
 ```text
 /hpd/container-smoke run --rm --image <image-ref> --engine-socket /run/hpd/engine/docker.sock
 ```
 
-For containerd, the harness uses:
+For containerd, the toolharness uses:
 
 ```text
 /hpd/container-smoke run --rm --image <image-ref> --engine-socket /run/hpd/engine/containerd.sock
 ```
 
-For Podman, the harness uses `/run/hpd/engine/podman.sock` for rootless mode and `/run/hpd/engine/podman-rootful.sock` for rootful mode:
+For Podman, the toolharness uses `/run/hpd/engine/podman.sock` for rootless mode and `/run/hpd/engine/podman-rootful.sock` for rootful mode:
 
 ```text
 /hpd/container-smoke run --rm --image <image-ref> --engine-socket /run/hpd/engine/podman-rootful.sock
 ```
 
-For BuildKit, the harness uses `/run/hpd/engine/buildkitd.sock` for rootless mode and `/run/hpd/engine/buildkitd-rootful.sock` for rootful mode. The `<image-ref>` argument is still required by the common harness, but the BuildKit path performs a local scratch build and does not require pulling that image:
+For BuildKit, the toolharness uses `/run/hpd/engine/buildkitd.sock` for rootless mode and `/run/hpd/engine/buildkitd-rootful.sock` for rootful mode. The `<image-ref>` argument is still required by the common toolharness, but the BuildKit path performs a local scratch build and does not require pulling that image:
 
 ```text
 /hpd/container-smoke run --rm --image <image-ref> --engine-socket /run/hpd/engine/buildkitd-rootful.sock
@@ -284,7 +284,7 @@ Required arguments:
 Supported optional arguments:
 
 - `--timeout-ms <integer>`: internal command timeout. If omitted, the script must complete within the HPD process timeout.
-- `--label <key=value>`: may be used by future harnesses to tag transient smoke workload state.
+- `--label <key=value>`: may be used by future toolharnesses to tag transient smoke workload state.
 
 Unknown arguments must fail with exit code `64`.
 
@@ -333,7 +333,7 @@ The command must not print unbounded engine logs, image pull streams, container 
 | `6` | Cleanup failed or left known transient smoke state behind. |
 | `7` | Timeout while running or cleaning up. |
 | `64` | Command-line usage error. |
-| `70` | Internal smoke harness error. |
+| `70` | Internal smoke toolharness error. |
 
 HPD preserves the process exit code in `ProcessInvocationResult`. A nonzero exit code is not rewritten; HPD adds a bounded `AppleVirtualization.ContainerSmokeNonZeroExit` diagnostic around the existing process accounting.
 
@@ -347,8 +347,8 @@ The command must not remove unrelated user containers, images, volumes, BuildKit
 
 Prepared-host failures must be distinguishable without inspecting host Docker state:
 
-- missing env vars: harness skip diagnostics name the missing `HPD_APPLEVZ_*` variable;
-- missing files: harness skip diagnostics name the helper/kernel/initrd/disk variable;
+- missing env vars: toolharness skip diagnostics name the missing `HPD_APPLEVZ_*` variable;
+- missing files: toolharness skip diagnostics name the helper/kernel/initrd/disk variable;
 - host-locus socket: `AppleVirtualization.RealContainerHostEngineSocketPassthroughRejected`;
 - execution-unit-locus source socket: `AppleVirtualization.RealContainerEngineSocketLocusUnsupported`;
 - invalid socket path: `AppleVirtualization.RealContainerEngineSocketPathInvalid`;
@@ -359,11 +359,11 @@ Prepared-host failures must be distinguishable without inspecting host Docker st
 - authority missing/revoked: `AppleVirtualization.ContainerSmokeEngineAuthorityRequired` or `AppleVirtualization.ContainerSmokeEngineAuthorityRevoked`;
 - nonzero smoke command: `AppleVirtualization.ContainerSmokeNonZeroExit`.
 
-## Acceptance Harness Contract
+## Acceptance ToolHarness Contract
 
-The acceptance harness must fail closed or skip before real VM work when the contract is not satisfied. It must not infer readiness from host runtime environment variables.
+The acceptance toolharness must fail closed or skip before real VM work when the contract is not satisfied. It must not infer readiness from host runtime environment variables.
 
-Before booting a VM, the harness validates:
+Before booting a VM, the toolharness validates:
 
 - explicit env gate;
 - macOS Apple Virtualization host support;
@@ -373,7 +373,7 @@ Before booting a VM, the harness validates:
 - socket locus and socket path;
 - smoke image reference.
 
-After booting a VM, the harness validates:
+After booting a VM, the toolharness validates:
 
 - helper hello/preflight;
 - VM reaches running phase;

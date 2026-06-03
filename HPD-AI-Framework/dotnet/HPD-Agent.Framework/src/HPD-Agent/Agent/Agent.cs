@@ -177,7 +177,7 @@ public sealed class Agent
         AgentConfig config,
         IChatClient? baseClient,
         ChatOptions? mergedOptions,
-        IReadOnlyDictionary<string, string>? functionToHarnessMap = null,
+        IReadOnlyDictionary<string, string>? functionToToolHarnessMap = null,
         IReadOnlyDictionary<string, string>? functionToSkillMap = null,
         IReadOnlyList<IAgentMiddleware>? middlewares = null,
         IServiceProvider? serviceProvider = null,
@@ -913,7 +913,7 @@ public sealed class Agent
         return Task.CompletedTask;
     }
 
-    private async Task RunTextInputAsync(
+    private async Task<AgentTurnResult> RunTextInputAsync(
         UserTextInputEvent input,
         HPD.Events.IEventCoordinator eventCoordinator,
         CancellationToken cancellationToken)
@@ -927,10 +927,10 @@ public sealed class Agent
             RunConfig = input.RunConfig
         };
 
-        await RunMessagesInputAsync(messagesInput, eventCoordinator, cancellationToken).ConfigureAwait(false);
+        return await RunMessagesInputAsync(messagesInput, eventCoordinator, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task RunMessagesInputAsync(
+    private async Task<AgentTurnResult> RunMessagesInputAsync(
         UserMessagesInputEvent input,
         HPD.Events.IEventCoordinator eventCoordinator,
         CancellationToken cancellationToken)
@@ -940,7 +940,8 @@ public sealed class Agent
             if (input.Session is null || input.Branch is null)
                 throw new InvalidOperationException("UserMessagesInputEvent must provide both Session and Branch for process-local scoped runs.");
 
-            await foreach (var _ in RunTurnStreamAsync(
+            var result = new AgentTurnResultBuilder();
+            await foreach (var evt in RunTurnStreamAsync(
                 input.Messages,
                 input.Session,
                 input.Branch,
@@ -948,9 +949,10 @@ public sealed class Agent
                 eventCoordinator,
                 cancellationToken).ConfigureAwait(false))
             {
+                result.Add(evt);
             }
 
-            return;
+            return result.Build();
         }
 
         if (!string.IsNullOrWhiteSpace(input.SessionId))
@@ -960,7 +962,8 @@ public sealed class Agent
                 input.BranchId,
                 cancellationToken).ConfigureAwait(false);
 
-            await foreach (var _ in RunTurnStreamAsync(
+            var result = new AgentTurnResultBuilder();
+            await foreach (var evt in RunTurnStreamAsync(
                 input.Messages,
                 session,
                 branch,
@@ -968,17 +971,19 @@ public sealed class Agent
                 eventCoordinator,
                 cancellationToken).ConfigureAwait(false))
             {
+                result.Add(evt);
             }
 
-            if (Config.SessionStoreOptions?.PersistAfterTurn == true)
+            if (Config?.SessionStoreOptions?.PersistAfterTurn == true)
             {
                 await SaveSessionAndBranchAsync(session, branch, cancellationToken).ConfigureAwait(false);
             }
 
-            return;
+            return result.Build();
         }
 
-        await foreach (var _ in RunTurnStreamAsync(
+        var unsessionedResult = new AgentTurnResultBuilder();
+        await foreach (var evt in RunTurnStreamAsync(
             input.Messages,
             null,
             null,
@@ -986,7 +991,10 @@ public sealed class Agent
             eventCoordinator,
             cancellationToken).ConfigureAwait(false))
         {
+            unsessionedResult.Add(evt);
         }
+
+        return unsessionedResult.Build();
     }
 
     private static bool ShouldEnqueueToRuntime(AgentInputEvent input) => true;
@@ -1031,10 +1039,10 @@ public sealed class Agent
         }
     }
 
-    private async Task RunInputDirectAsync(AgentInputEvent input, CancellationToken cancellationToken)
+    private async Task<AgentTurnResult> RunInputDirectAsync(AgentInputEvent input, CancellationToken cancellationToken)
         => await RunInputDirectAsync(input, GetActiveEventCoordinator(), cancellationToken).ConfigureAwait(false);
 
-    private async Task RunInputDirectAsync(
+    private async Task<AgentTurnResult> RunInputDirectAsync(
         AgentInputEvent input,
         HPD.Events.IEventCoordinator eventCoordinator,
         CancellationToken cancellationToken)
@@ -1042,16 +1050,14 @@ public sealed class Agent
         switch (input)
         {
             case UserTextInputEvent text:
-                await RunTextInputAsync(text, eventCoordinator, cancellationToken).ConfigureAwait(false);
-                break;
+                return await RunTextInputAsync(text, eventCoordinator, cancellationToken).ConfigureAwait(false);
 
             case UserMessagesInputEvent messages:
-                await RunMessagesInputAsync(messages, eventCoordinator, cancellationToken).ConfigureAwait(false);
-                break;
+                return await RunMessagesInputAsync(messages, eventCoordinator, cancellationToken).ConfigureAwait(false);
 
             case InterruptionRequestEvent interruption:
                 await HandleInterruptionAsync(interruption, cancellationToken).ConfigureAwait(false);
-                break;
+                return AgentTurnResult.Empty;
 
             default:
                 throw new NotSupportedException(
@@ -1466,14 +1472,15 @@ public sealed class Agent
     /// <summary>
     /// Sends a semantic input event to the agent.
     /// </summary>
-    public async Task RunAsync(AgentInputEvent input, CancellationToken cancellationToken = default)
+    /// <returns>The completed turn result for direct runs, or an empty result when the input is queued to a running agent runtime.</returns>
+    public async Task<AgentTurnResult> RunAsync(AgentInputEvent input, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
 
         if (input is InterruptionRequestEvent interruption)
         {
             await HandleInterruptionAsync(interruption, cancellationToken).ConfigureAwait(false);
-            return;
+            return AgentTurnResult.Empty;
         }
 
         if (ShouldEnqueueToRuntime(input))
@@ -1496,7 +1503,7 @@ public sealed class Agent
                 try
                 {
                     await runtimeWriter.WriteAsync(input, cancellationToken).ConfigureAwait(false);
-                    return;
+                    return AgentTurnResult.Empty;
                 }
                 catch (ChannelClosedException ex)
                 {
@@ -1510,7 +1517,7 @@ public sealed class Agent
                 throw new InvalidOperationException("Agent runtime is starting or stopping and cannot accept user input.");
         }
 
-        await RunInputDirectAsync(input, cancellationToken).ConfigureAwait(false);
+        return await RunInputDirectAsync(input, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -1566,7 +1573,8 @@ public sealed class Agent
     /// <summary>
     /// Sends user text input to the agent.
     /// </summary>
-    public Task RunAsync(
+    /// <returns>The completed turn result, including final text, emitted events, and completion metadata.</returns>
+    public Task<AgentTurnResult> RunAsync(
         string userMessage,
         string? sessionId = null,
         string? branchId = "main",
@@ -2105,15 +2113,15 @@ public sealed class Agent
                     var CollapsedOptions = beforeIterationContext.Options;
 
 
-                    // Helper for harness name lookup in events
+                    // Helper for toolharness name lookup in events
                     // Try collapsed tools first, then fall back to original (pre-collapse) tools
-                    string? LookupHarness(string? functionName)
+                    string? LookupToolHarness(string? functionName)
                     {
-                        var result = functionCallProcessor.LookupHarnessName(functionName, CollapsedOptions?.Tools);
+                        var result = functionCallProcessor.LookupToolHarnessName(functionName, CollapsedOptions?.Tools);
                         if (result == null)
                         {
                             // Function not found in collapsed view - try original tools
-                            result = functionCallProcessor.LookupHarnessName(functionName, effectiveOptions?.Tools);
+                            result = functionCallProcessor.LookupToolHarnessName(functionName, effectiveOptions?.Tools);
                         }
                         return result;
                     }
@@ -2201,7 +2209,7 @@ public sealed class Agent
                                         functionCall.CallId,
                                         functionCall.Name ?? string.Empty,
                                         assistantMessageId,
-                                        LookupHarness(functionCall.Name),
+                                        LookupToolHarness(functionCall.Name),
                                         LookupCallType(functionCall.Name))
                                     {
                                         TraceId      = traceId,
@@ -2546,7 +2554,7 @@ public sealed class Agent
                                         functionCall.CallId,
                                         functionCall.Name ?? string.Empty,
                                         assistantMessageId,
-                                        LookupHarness(functionCall.Name),
+                                        LookupToolHarness(functionCall.Name),
                                         LookupCallType(functionCall.Name))
                                     {
                                         TraceId      = traceId,
@@ -2710,7 +2718,7 @@ public sealed class Agent
                                                 functionCall.CallId,
                                                 functionCall.Name ?? string.Empty,
                                                 assistantMessageId,
-                                                LookupHarness(functionCall.Name),
+                                                LookupToolHarness(functionCall.Name),
                                                 LookupCallType(functionCall.Name))
                                             {
                                                 TraceId      = traceId,
@@ -2966,10 +2974,10 @@ public sealed class Agent
                             state,
                             effectiveCancellationToken).ConfigureAwait(false);
 
-                        // Build callId → harnessName / callType mappings for result events
-                        var callIdToHarness = toolRequests.ToDictionary(
+                        // Build callId → toolharnessName / callType mappings for result events
+                        var callIdToToolHarness = toolRequests.ToDictionary(
                             tr => tr.CallId,
-                            tr => LookupHarness(tr.Name));
+                            tr => LookupToolHarness(tr.Name));
                         var callIdToCallType = toolRequests.ToDictionary(
                             tr => tr.CallId,
                             tr => LookupCallType(tr.Name));
@@ -2980,7 +2988,7 @@ public sealed class Agent
                             if (content is FunctionResultContent result)
                             {
                                 yield return new ToolCallEndEvent(result.CallId) { TraceId = traceId };
-                                callIdToHarness.TryGetValue(result.CallId, out var harnessName);
+                                callIdToToolHarness.TryGetValue(result.CallId, out var toolharnessName);
                                 callIdToCallType.TryGetValue(result.CallId, out var callType);
                                 if (!executionResult.ResultPayloads.TryGetValue(result.CallId, out var resultPayload))
                                 {
@@ -2988,7 +2996,7 @@ public sealed class Agent
                                         $"Missing normalized tool result payload for call '{result.CallId}'.");
                                 }
 
-                                yield return new ToolCallResultEvent(result.CallId, resultPayload, harnessName, callType) { TraceId = traceId };
+                                yield return new ToolCallResultEvent(result.CallId, resultPayload, toolharnessName, callType) { TraceId = traceId };
                             }
                         }
                         // Shared reference: state.CurrentMessages already sees the changes via MessagesRef
@@ -5656,6 +5664,76 @@ public sealed class Agent
     }
 
     /// <summary>
+    /// Fork a branch from its latest message (string-based API).
+    /// Creates a new branch with the full current source branch history, plus branch-scoped middleware state.
+    /// Returns the new branch ID.
+    /// </summary>
+    /// <param name="sessionId">Session identifier</param>
+    /// <param name="sourceBranchId">Source branch to fork from</param>
+    /// <param name="newBranchId">New branch identifier</param>
+    /// <param name="metadata">Optional metadata to attach to the new branch.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>The new branch ID (same as newBranchId parameter)</returns>
+    public async Task<string> ForkBranchAsync(
+        string sessionId,
+        string sourceBranchId,
+        string newBranchId,
+        Dictionary<string, object>? metadata = null,
+        CancellationToken cancellationToken = default)
+        => await ForkBranchAsync(
+            sessionId,
+            sourceBranchId,
+            newBranchId,
+            BranchForkOptions.FromMetadata(metadata),
+            cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Fork a branch from its latest message (string-based API).
+    /// Creates a new branch with the full current source branch history, plus branch-scoped middleware state.
+    /// Returns the new branch ID.
+    /// </summary>
+    /// <param name="sessionId">Session identifier</param>
+    /// <param name="sourceBranchId">Source branch to fork from</param>
+    /// <param name="newBranchId">New branch identifier</param>
+    /// <param name="forkOptions">Options for the fork operation.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>The new branch ID (same as newBranchId parameter)</returns>
+    public async Task<string> ForkBranchAsync(
+        string sessionId,
+        string sourceBranchId,
+        string newBranchId,
+        BranchForkOptions forkOptions,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(forkOptions);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceBranchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newBranchId);
+
+        var store = Config.SessionStore
+            ?? throw new InvalidOperationException(
+                "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
+
+        var sourceBranch = await store.LoadBranchAsync(sessionId, sourceBranchId, cancellationToken)
+            ?? throw new InvalidOperationException($"Branch '{sourceBranchId}' not found in session '{sessionId}'.");
+
+        var latestMessageId = sourceBranch.Messages.LastOrDefault()?.MessageId;
+        if (string.IsNullOrWhiteSpace(latestMessageId))
+        {
+            throw new InvalidOperationException(
+                $"Branch '{sourceBranchId}' in session '{sessionId}' has no messages to fork from.");
+        }
+
+        return await ForkBranchAsync(
+            sessionId,
+            sourceBranchId,
+            newBranchId,
+            latestMessageId,
+            forkOptions,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Fork a branch at a specific message id (string-based API).
     /// Creates a new branch with messages up to the fork point, plus branch-scoped middleware state.
     /// Returns the new branch ID.
@@ -6344,16 +6422,16 @@ public sealed class Agent
         var snapshots = new List<ToolContextSnapshot>(tools.Count);
         foreach (var tool in tools)
         {
-            string? harnessName = null;
+            string? toolharnessName = null;
             ToolCallType? callType = null;
             var isContainer = false;
 
             if (tool.AdditionalProperties is { } properties)
             {
-                if (properties.TryGetValue("HarnessName", out var harnessValue) && harnessValue is string h)
-                    harnessName = h;
-                else if (properties.TryGetValue("ParentHarness", out var parentValue) && parentValue is string p)
-                    harnessName = p;
+                if (properties.TryGetValue("ToolHarnessName", out var toolharnessValue) && toolharnessValue is string h)
+                    toolharnessName = h;
+                else if (properties.TryGetValue("ParentToolHarness", out var parentValue) && parentValue is string p)
+                    toolharnessName = p;
 
                 if (properties.TryGetValue("IsContainer", out var containerValue) && containerValue is bool container)
                     isContainer = container;
@@ -6376,7 +6454,7 @@ public sealed class Agent
             snapshots.Add(new ToolContextSnapshot(
                 Name: tool.Name,
                 Description: tool.Description,
-                HarnessName: harnessName,
+                ToolHarnessName: toolharnessName,
                 CallType: callType,
                 IsContainer: isContainer,
                 InputSchemaJson: tool is AIFunctionDeclaration function
@@ -7335,12 +7413,12 @@ internal class FunctionCallProcessor
     }
 
     /// <summary>
-    /// Gets the harness name for a function from its metadata.
+    /// Gets the toolharness name for a function from its metadata.
     /// Used by Agent class for event emission.
     /// </summary>
-    public string? LookupHarnessName(string? functionName, IList<AITool>? tools)
+    public string? LookupToolHarnessName(string? functionName, IList<AITool>? tools)
     {
-        return _functionExecutionCore.LookupHarnessName(functionName, tools);
+        return _functionExecutionCore.LookupToolHarnessName(functionName, tools);
     }
 
     /// <summary>

@@ -20,6 +20,7 @@ public class MultiAgent
     private readonly Dictionary<string, Agent.Agent> _agents = new();
     private readonly Dictionary<string, AgentConfig> _agentConfigs = new();
     private readonly Dictionary<string, AgentNodeOptions> _options = new();
+    private readonly HashSet<(string From, string To)> _declaredEdges = new();
 
     private readonly WorkflowSettingsConfig _settings;
     private string? _workflowName;
@@ -273,6 +274,8 @@ public class MultiAgent
             });
         }
 
+        AddInfrastructureEdges();
+
         // Build graph
         var graph = _graphBuilder.Build();
 
@@ -311,6 +314,8 @@ public class MultiAgent
     // Internal methods for EdgeBuilder
     internal void AddEdgeInternal(string from, string to, EdgeCondition? condition)
     {
+        _declaredEdges.Add((from, to));
+
         _graphBuilder.AddOrReplaceEdge(from, to, edge =>
         {
             if (condition != null)
@@ -327,6 +332,8 @@ public class MultiAgent
 
     internal void AddPredicateEdge(string from, string to, Func<EdgeConditionContext, bool> predicate)
     {
+        _declaredEdges.Add((from, to));
+
         _graphBuilder.AddOrReplaceEdge(from, to, edge =>
         {
             edge.When(ctx => predicate(new EdgeConditionContext(
@@ -344,6 +351,27 @@ public class MultiAgent
             _options[nodeId] = options;
         }
         return options;
+    }
+
+    private void AddInfrastructureEdges()
+    {
+        var agentIds = GetAllAgentIds().ToArray();
+        if (agentIds.Length == 0)
+        {
+            return;
+        }
+
+        foreach (var source in agentIds.Where(id => !_declaredEdges.Any(edge =>
+                     edge.To == id && edge.From != "START")))
+        {
+            _graphBuilder.AddOrReplaceEdge("START", source);
+        }
+
+        foreach (var sink in agentIds.Where(id => !_declaredEdges.Any(edge =>
+                     edge.From == id && edge.To != "END")))
+        {
+            _graphBuilder.AddOrReplaceEdge(sink, "END");
+        }
     }
 
     private IEnumerable<string> GetAllAgentIds()

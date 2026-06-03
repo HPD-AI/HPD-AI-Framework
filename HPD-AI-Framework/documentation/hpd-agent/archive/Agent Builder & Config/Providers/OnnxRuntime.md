@@ -148,12 +148,12 @@ config.Provider.SetTypedProviderConfig(onnxOpts);
 // Reuse with different runtime customizations
 var agent1 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithHarness<MathHarness>()
+    .WithToolHarness<MathToolHarness>()
     .BuildAsync();
 
 var agent2 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithHarness<FileHarness>()
+    .WithToolHarness<FileToolHarness>()
     .BuildAsync();
 ```
 
@@ -391,7 +391,7 @@ ONNX Runtime GenAI supports a wide range of model architectures:
 | Hardware | Provider | Notes |
 |----------|----------|-------|
 | **CPU** | `cpu` | Works on all platforms, slower than GPU |
-| **NVIDIA GPU** | `cuda` | Requires CUDA Harness 11.8+ |
+| **NVIDIA GPU** | `cuda` | Requires CUDA ToolHarness 11.8+ |
 | **AMD GPU** | `rocm` | Requires ROCm 5.4+ |
 | **Intel GPU** | `openvino` | Requires OpenVINO 2023.0+ |
 | **Windows GPU** | `dml` | DirectML, works with any GPU |
@@ -799,7 +799,7 @@ configure: opts =>
 
 // Option 2: Check CUDA installation
 // Verify: nvidia-smi command works
-// Install: CUDA Harness 11.8 or later
+// Install: CUDA ToolHarness 11.8 or later
 
 // Option 3: Use DirectML (Windows) instead
 configure: opts =>

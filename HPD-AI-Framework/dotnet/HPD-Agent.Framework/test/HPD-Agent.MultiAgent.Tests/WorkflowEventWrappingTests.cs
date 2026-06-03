@@ -53,19 +53,19 @@ public class WorkflowEventWrappingTests
                 Metadata = context
             },
 
-            NodeExecutionStartedEvent n => new WorkflowNodeStartedEvent
+            NodeExecutionStartedEvent n => new WorkflowAgentStartedEvent
             {
                 WorkflowName = workflowName,
-                NodeId = n.NodeId,
+                AgentId = n.NodeId,
                 AgentName = n.HandlerName,
                 LayerIndex = n.LayerIndex,
                 Metadata = context
             },
 
-            NodeExecutionCompletedEvent n => new WorkflowNodeCompletedEvent
+            NodeExecutionCompletedEvent n => new WorkflowAgentCompletedEvent
             {
                 WorkflowName = workflowName,
-                NodeId = n.NodeId,
+                AgentId = n.NodeId,
                 AgentName = n.HandlerName,
                 Success = n.Result is NodeExecutionResult.Success,
                 Duration = n.Duration,
@@ -75,10 +75,10 @@ public class WorkflowEventWrappingTests
                 Metadata = context
             },
 
-            NodeSkippedEvent n => new WorkflowNodeSkippedEvent
+            NodeSkippedEvent n => new WorkflowAgentSkippedEvent
             {
                 WorkflowName = workflowName,
-                NodeId = n.NodeId,
+                AgentId = n.NodeId,
                 Reason = n.Reason,
                 Metadata = context
             },
@@ -210,7 +210,7 @@ public class WorkflowEventWrappingTests
     #region NodeExecutionStartedEvent Tests
 
     [Fact]
-    public void WrapGraphEvent_NodeExecutionStarted_MapsToWorkflowNodeStarted()
+    public void WrapGraphEvent_NodeExecutionStarted_MapsToWorkflowAgentStarted()
     {
         var graphEvent = new NodeExecutionStartedEvent
         {
@@ -221,9 +221,9 @@ public class WorkflowEventWrappingTests
 
         var wrapped = WrapGraphEvent(graphEvent, _testContext);
 
-        var workflowEvent = wrapped.Should().BeOfType<WorkflowNodeStartedEvent>().Subject;
+        var workflowEvent = wrapped.Should().BeOfType<WorkflowAgentStartedEvent>().Subject;
         workflowEvent.WorkflowName.Should().Be("TestWorkflow");
-        workflowEvent.NodeId.Should().Be("solver1");
+        workflowEvent.AgentId.Should().Be("solver1");
         workflowEvent.AgentName.Should().Be("MathSolver");
         workflowEvent.LayerIndex.Should().Be(1);
     }
@@ -248,8 +248,8 @@ public class WorkflowEventWrappingTests
 
         var wrapped = WrapGraphEvent(graphEvent, _testContext);
 
-        var workflowEvent = wrapped.Should().BeOfType<WorkflowNodeCompletedEvent>().Subject;
-        workflowEvent.NodeId.Should().Be("solver1");
+        var workflowEvent = wrapped.Should().BeOfType<WorkflowAgentCompletedEvent>().Subject;
+        workflowEvent.AgentId.Should().Be("solver1");
         workflowEvent.AgentName.Should().Be("MathSolver");
         workflowEvent.Success.Should().BeTrue();
         workflowEvent.Duration.Should().Be(TimeSpan.FromSeconds(1.5));
@@ -277,7 +277,7 @@ public class WorkflowEventWrappingTests
 
         var wrapped = WrapGraphEvent(graphEvent, _testContext);
 
-        var workflowEvent = wrapped.Should().BeOfType<WorkflowNodeCompletedEvent>().Subject;
+        var workflowEvent = wrapped.Should().BeOfType<WorkflowAgentCompletedEvent>().Subject;
         workflowEvent.Success.Should().BeFalse();
         workflowEvent.ErrorMessage.Should().Be("Test error");
     }
@@ -287,7 +287,7 @@ public class WorkflowEventWrappingTests
     #region NodeSkippedEvent Tests
 
     [Fact]
-    public void WrapGraphEvent_NodeSkipped_MapsToWorkflowNodeSkipped()
+    public void WrapGraphEvent_NodeSkipped_MapsToWorkflowAgentSkipped()
     {
         var graphEvent = new NodeSkippedEvent
         {
@@ -297,8 +297,8 @@ public class WorkflowEventWrappingTests
 
         var wrapped = WrapGraphEvent(graphEvent, _testContext);
 
-        var workflowEvent = wrapped.Should().BeOfType<WorkflowNodeSkippedEvent>().Subject;
-        workflowEvent.NodeId.Should().Be("optional_node");
+        var workflowEvent = wrapped.Should().BeOfType<WorkflowAgentSkippedEvent>().Subject;
+        workflowEvent.AgentId.Should().Be("optional_node");
         workflowEvent.Reason.Should().Be("Condition not met");
     }
 

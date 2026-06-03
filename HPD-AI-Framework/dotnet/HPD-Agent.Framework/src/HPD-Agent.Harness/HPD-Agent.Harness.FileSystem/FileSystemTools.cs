@@ -9,10 +9,10 @@ using DiffPlex.DiffBuilder.Model;
 using Microsoft.Extensions.FileSystemGlobbing;
 using Ude;
 
-namespace HPD.Agent.Harness.FileSystem;
+namespace HPD.Agent.ToolHarness.FileSystem;
 
 /// <summary>
-/// File system operations Harness for HPD-Agent.
+/// File system operations ToolHarness for HPD-Agent.
 /// Provides AI functions for reading, writing, editing, searching, and discovering files.
 /// </summary>
 public partial class FileSystemTools

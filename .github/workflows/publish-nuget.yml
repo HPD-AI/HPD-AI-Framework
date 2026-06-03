@@ -83,7 +83,7 @@ jobs:
       - name: Prepare ripgrep binaries
         run: |
           dotnet run --file HPD-AI-Framework/dotnet/HPD-Agent.Framework/eng/ripgrep-pack/prepare-ripgrep-binaries.cs -- \
-            --project HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj
+            --project HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.Coding/HPD-Agent.ToolHarness.Coding.csproj
 
       - name: Pack packages
         run: |
@@ -102,10 +102,10 @@ jobs:
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj"
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj"
             "HPD-AI-Framework/dotnet/shared/src/HPD.OpenApi.Core/HPD.OpenApi.Core.csproj"
-            # Harneses
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/HPD-Agent.Harness.FileSystem.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj"
+            # ToolHarnesses
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.FileSystem/HPD-Agent.ToolHarness.FileSystem.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.WebSearch/HPD-Agent.ToolHarness.WebSearch.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.Coding/HPD-Agent.ToolHarness.Coding.csproj"
             # Audio (not ready for release)
             # "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj"
             # "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.AudioProviders.OpenAI/HPD-Agent.AudioProviders.OpenAI.csproj"

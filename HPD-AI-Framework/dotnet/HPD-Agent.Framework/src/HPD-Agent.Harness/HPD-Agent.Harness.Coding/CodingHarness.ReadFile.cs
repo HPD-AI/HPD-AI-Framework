@@ -3,12 +3,12 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using HPD.Agent;
-using HPD.Agent.Harness.Coding;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
-using HPDOS.Harneses.Middleware;
+using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 
-public partial class CodingHarness
+public partial class CodingToolHarness
 {
     private const int DefaultLineLimit = 2000;
     private const int MaxLineLimit = 2000;
@@ -332,7 +332,7 @@ public partial class CodingHarness
     private static string FormatReadResult(ReadFileTextResult result)
     {
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
 
         writer.WriteStartElement("file");
         writer.WriteAttributeString("path", result.Path);
@@ -387,7 +387,7 @@ public partial class CodingHarness
     private static string FormatFileUnchanged(ReadFileSnapshot snapshot)
     {
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
 
         writer.WriteStartElement("file_unchanged");
         writer.WriteAttributeString("path", snapshot.Path);
@@ -403,7 +403,7 @@ public partial class CodingHarness
     private static string FormatError(string path, string message)
     {
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
 
         writer.WriteStartElement("error");
         writer.WriteAttributeString("tool", "ReadFile");
@@ -459,7 +459,7 @@ public partial class CodingHarness
     }
 }
 
-namespace HPDOS.Harneses.Middleware
+namespace HPDOS.ToolHarnesses.Middleware
 {
 /// <summary>
 /// Provides live text for a path before `ReadFile` falls back to disk.

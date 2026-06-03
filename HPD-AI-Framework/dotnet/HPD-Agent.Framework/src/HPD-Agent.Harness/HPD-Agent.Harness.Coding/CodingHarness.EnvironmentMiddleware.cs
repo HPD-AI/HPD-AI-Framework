@@ -2,11 +2,11 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using HPD.Agent;
-using HPD.Agent.Harness.Coding;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
-namespace HPDOS.Harneses.Middleware;
+namespace HPDOS.ToolHarnesses.Middleware;
 
 /// <summary>
 /// Config for <see cref="EnvironmentContextMiddleware"/>.
@@ -21,9 +21,9 @@ public sealed class EnvironmentContextConfig
 }
 
 /// <summary>
-/// Harness-scoped middleware that tells the model where the coding harness is running.
+/// ToolHarness-scoped middleware that tells the model where the coding toolharness is running.
 /// </summary>
-public sealed class EnvironmentContextMiddleware : IHarnessMiddleware
+public sealed class EnvironmentContextMiddleware : IToolHarnessMiddleware
 {
     private readonly EnvironmentContextConfig _config;
 
@@ -182,7 +182,7 @@ public enum CodingFileMutationKind
 }
 
 /// <summary>
-/// Minimal environment snapshot for coding harness context.
+/// Minimal environment snapshot for coding toolharness context.
 /// </summary>
 public sealed record EnvironmentContext
 {

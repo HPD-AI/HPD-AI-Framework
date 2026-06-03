@@ -2,7 +2,7 @@ using System;
 
 /// <summary>
 /// Marks a function as conditionally available based on context properties.
-/// The function will only be included in the Harness when the condition evaluates to true.
+/// The function will only be included in the ToolHarness when the condition evaluates to true.
 /// The context type is determined by the AIFunction&lt;TMetadata&gt; attribute on the method.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]

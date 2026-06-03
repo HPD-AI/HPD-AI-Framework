@@ -2,7 +2,7 @@ using HPD.Agent;
 using HPD.Agent;
 
 /// <summary>
-/// Test Harness with various sub-agent patterns for validation
+/// Test ToolHarness with various sub-agent patterns for validation
 /// Mirrors Microsoft's AsAIFunction() but with HPD-Agent compile-time validation
 /// </summary>
 public class TestSubAgentTools
@@ -181,14 +181,14 @@ public class TestSubAgentTools
     {
         return SubAgent.FromConfig(
             "SubAgentWithToolss",
-            "Sub-agent with Harneses registered",
+            "Sub-agent with ToolHarnesses registered",
             new AgentConfig
             {
-                Name = "With Harneses",
-                SystemInstructions = "Test agent with Harness access",
+                Name = "With ToolHarnesses",
+                SystemInstructions = "Test agent with ToolHarness access",
                 Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
             },
             null,
-            typeof(HPD.Agent.Harness.FileSystem.FileSystemTools));
+            typeof(HPD.Agent.ToolHarness.FileSystem.FileSystemTools));
     }
 }

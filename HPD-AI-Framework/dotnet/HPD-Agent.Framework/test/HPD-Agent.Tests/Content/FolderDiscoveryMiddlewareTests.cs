@@ -54,7 +54,7 @@ public class FolderDiscoveryMiddlewareTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.Contains(context.ConversationHistory,
+        Assert.Contains(context.BranchHistory,
             m => m.Text?.Contains("<content_store>") == true);
     }
 
@@ -70,11 +70,11 @@ public class FolderDiscoveryMiddlewareTests
 
         var ctx1 = CreateContext();
         await middleware.BeforeMessageTurnAsync(ctx1, CancellationToken.None);
-        var injectionsAfterFirst = ctx1.ConversationHistory.Count(m => m.Text?.Contains("<content_store>") == true);
+        var injectionsAfterFirst = ctx1.BranchHistory.Count(m => m.Text?.Contains("<content_store>") == true);
 
         var ctx2 = CreateContext();
         await middleware.BeforeMessageTurnAsync(ctx2, CancellationToken.None);
-        var injectionsAfterSecond = ctx2.ConversationHistory.Count(m => m.Text?.Contains("<content_store>") == true);
+        var injectionsAfterSecond = ctx2.BranchHistory.Count(m => m.Text?.Contains("<content_store>") == true);
 
         // First turn injects once, second turn (same structure) should not inject again
         Assert.Equal(1, injectionsAfterFirst);
@@ -101,7 +101,7 @@ public class FolderDiscoveryMiddlewareTests
         await middleware.BeforeMessageTurnAsync(ctx2, CancellationToken.None);
 
         // Second turn should re-inject because structure changed
-        Assert.Contains(ctx2.ConversationHistory,
+        Assert.Contains(ctx2.BranchHistory,
             m => m.Text?.Contains("content_store") == true || m.Text?.Contains("artifacts") == true);
     }
 
@@ -118,7 +118,7 @@ public class FolderDiscoveryMiddlewareTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        var injectedMessage = context.ConversationHistory
+        var injectedMessage = context.BranchHistory
             .FirstOrDefault(m => m.Text?.Contains("<content_store>") == true);
 
         Assert.NotNull(injectedMessage);
@@ -139,7 +139,7 @@ public class FolderDiscoveryMiddlewareTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        var injectedMessage = context.ConversationHistory
+        var injectedMessage = context.BranchHistory
             .FirstOrDefault(m => m.Text?.Contains("<content_store>") == true);
 
         Assert.NotNull(injectedMessage);
@@ -172,23 +172,23 @@ public class FolderDiscoveryMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // Find where the content_store message was inserted
-        var insertIndex = context.ConversationHistory
+        var insertIndex = context.BranchHistory
             .FindIndex(m => m.Text?.Contains("<content_store>") == true);
 
         // It must come after both system messages (index >= 2)
         Assert.True(insertIndex >= 2, $"content_store was inserted at index {insertIndex}, expected >= 2");
 
         // System messages must still be at indexes 0 and 1
-        Assert.Equal(ChatRole.System, context.ConversationHistory[0].Role);
-        Assert.Equal(ChatRole.System, context.ConversationHistory[1].Role);
+        Assert.Equal(ChatRole.System, context.BranchHistory[0].Role);
+        Assert.Equal(ChatRole.System, context.BranchHistory[1].Role);
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // FDM-7: SetHarness → SetSessionId is called each turn
+    // FDM-7: SetToolHarness → SetSessionId is called each turn
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task SetHarness_PropagatesSessionIdEachTurn()
+    public async Task SetToolHarness_PropagatesSessionIdEachTurn()
     {
         var store = CreateStoreWithFolders();
         store.CreateFolder("artifacts", new FolderOptions
@@ -198,15 +198,15 @@ public class FolderDiscoveryMiddlewareTests
         });
 
         var middleware = new FolderDiscoveryMiddleware(store, AgentName);
-        var harness = new ContentStoreHarness(store, AgentName);
-        middleware.SetHarness(harness);
+        var toolharness = new ContentStoreToolHarness(store, AgentName);
+        middleware.SetToolHarness(toolharness);
 
         // First turn with session ID
         var ctx1 = CreateContext(sessionId: "session-001");
         await middleware.BeforeMessageTurnAsync(ctx1, CancellationToken.None);
 
-        // Write via harness — should use session-001 scope
-        await harness.WriteAsync("/artifacts/turn1.txt", "output from turn 1");
+        // Write via toolharness — should use session-001 scope
+        await toolharness.WriteAsync("/artifacts/turn1.txt", "output from turn 1");
 
         var items = await store.QueryAsync("session-001", new ContentQuery
         {
@@ -214,11 +214,11 @@ public class FolderDiscoveryMiddlewareTests
         });
         Assert.Single(items);
 
-        // Second turn with a different session — harness session ID updates
+        // Second turn with a different session — toolharness session ID updates
         var ctx2 = CreateContext(sessionId: "session-002");
         await middleware.BeforeMessageTurnAsync(ctx2, CancellationToken.None);
 
-        await harness.WriteAsync("/artifacts/turn2.txt", "output from turn 2");
+        await toolharness.WriteAsync("/artifacts/turn2.txt", "output from turn 2");
 
         var items2 = await store.QueryAsync("session-002", new ContentQuery
         {
@@ -247,7 +247,7 @@ public class FolderDiscoveryMiddlewareTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        var injectedMessage = context.ConversationHistory
+        var injectedMessage = context.BranchHistory
             .FirstOrDefault(m => m.Text?.Contains("<content_store>") == true);
 
         Assert.NotNull(injectedMessage);

@@ -1,7 +1,7 @@
 using System.Text;
 using Ude;
 
-public partial class CodingHarness
+public partial class CodingToolHarness
 {
     private const int BinarySniffBytes = 8192;
 

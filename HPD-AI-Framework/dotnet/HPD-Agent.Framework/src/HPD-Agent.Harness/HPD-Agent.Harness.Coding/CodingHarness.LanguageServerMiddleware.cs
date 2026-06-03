@@ -3,9 +3,9 @@ using System.Text;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
-namespace HPDOS.Harneses.Middleware;
+namespace HPDOS.ToolHarnesses.Middleware;
 
-public sealed class CodingLanguageServerMiddleware : IHarnessMiddleware, IAsyncDisposable
+public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAsyncDisposable
 {
     private const int MaxOpenDocumentBytes = 1024 * 1024;
     private static readonly HashSet<string> ObservedFunctionNames = new(StringComparer.Ordinal)
@@ -85,7 +85,7 @@ public sealed class CodingLanguageServerMiddleware : IHarnessMiddleware, IAsyncD
 
     public Task BeforeFunctionAsync(BeforeFunctionContext context, CancellationToken cancellationToken)
     {
-        if (!_options.Enabled || !IsObservedCodingFunction(context.HarnessName, context.Function?.Name))
+        if (!_options.Enabled || !IsObservedCodingFunction(context.ToolHarnessName, context.Function?.Name))
             return Task.CompletedTask;
 
         var path = TryGetPathArgument(context.Arguments);
@@ -610,8 +610,8 @@ public sealed class CodingLanguageServerMiddleware : IHarnessMiddleware, IAsyncD
         }
     }
 
-    private static bool IsObservedCodingFunction(string? harnessName, string? functionName)
-        => string.Equals(harnessName, nameof(CodingHarness), StringComparison.Ordinal) &&
+    private static bool IsObservedCodingFunction(string? toolharnessName, string? functionName)
+        => string.Equals(toolharnessName, nameof(CodingToolHarness), StringComparison.Ordinal) &&
            functionName is not null &&
            ObservedFunctionNames.Contains(functionName);
 

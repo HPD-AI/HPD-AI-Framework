@@ -78,11 +78,11 @@ internal class FunctionCapability : BaseCapability
     ///
     /// Phase 3: Full implementation migrated from HPDToolSourceGenerator.GenerateFunctionRegistration().
     /// </summary>
-    /// <param name="parent">The parent Harness that contains this function (HarnessInfo).</param>
+    /// <param name="parent">The parent ToolHarness that contains this function (ToolHarnessInfo).</param>
     /// <returns>The generated registration code as a string.</returns>
     public override string GenerateRegistrationCode(object parent)
     {
-        var Harness = (HarnessInfo)parent;
+        var ToolHarness = (ToolHarnessInfo)parent;
 
         var nameCode = $"\"{FunctionName}\"";
         var descriptionCode = HasDynamicDescription
@@ -110,33 +110,7 @@ internal class FunctionCapability : BaseCapability
         string returnType = "Task<object?>";
         string returnWrapper = IsAsync ? "" : "Task.FromResult";
 
-        string schemaProviderCode = "() => { ";
-        if (relevantParams.Any())
-        {
-            // Use the generated model-facing DTO as the schema source so runtime parameters stay hidden.
-            schemaProviderCode += $@"
-    var options = new global::Microsoft.Extensions.AI.AIJsonSchemaCreateOptions {{ IncludeSchemaKeyword = false }};
-    var serializerOptions = new global::System.Text.Json.JsonSerializerOptions(global::Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions);
-    serializerOptions.TypeInfoResolverChain.Add(global::HPDJsonContext.Default);
-    serializerOptions.MakeReadOnly();
-    return global::Microsoft.Extensions.AI.AIJsonUtilities.CreateJsonSchema(
-        typeof({dtoName}),
-        serializerOptions: serializerOptions,
-        inferenceOptions: options
-    );";
-        }
-        else
-        {
-            // Empty schema for functions with no parameters
-            schemaProviderCode += @"
-    var options = new global::Microsoft.Extensions.AI.AIJsonSchemaCreateOptions { IncludeSchemaKeyword = false };
-    return global::Microsoft.Extensions.AI.AIJsonUtilities.CreateJsonSchema(
-        null,
-        serializerOptions: global::Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions,
-        inferenceOptions: options
-    );";
-        }
-        schemaProviderCode += " }";
+        string schemaProviderCode = GenerateSchemaProviderCode(relevantParams);
 
         // Check if the return type is void (includes non-generic Task — await Task yields void)
         bool isVoidReturn = ReturnType == "void" || ReturnType == "System.Void"
@@ -207,12 +181,12 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         }
         options.AppendLine($"                ParameterDescriptions = {GenerateParameterDescriptions()},");
 
-        // ALWAYS add ParentHarness metadata (enables HarnessReferences to work with any Harness)
-        // Note: Harneses without [Collapse] remain "always visible" by default
-        // Skills can use HarnessReferences to Collapse them on-demand
+        // ALWAYS add ParentToolHarness metadata (enables ToolHarnessReferences to work with any ToolHarness)
+        // Note: ToolHarnesses without [Collapse] remain "always visible" by default
+        // Skills can use ToolHarnessReferences to Collapse them on-demand
         options.AppendLine("                AdditionalProperties = new Dictionary<string, object>");
         options.AppendLine("                {");
-        options.AppendLine($"                    [\"ParentHarness\"] = \"{Harness.Name}\",");
+        options.AppendLine($"                    [\"ParentToolHarness\"] = \"{ToolHarness.Name}\",");
 
         // Add Kind if it's an output tool (structured output)
         if (Kind == "Output")
@@ -257,6 +231,106 @@ $@"HPDAIFunctionFactory.Create(
 
         descriptions.Append("                }");
         return descriptions.ToString();
+    }
+
+    private string GenerateSchemaProviderCode(List<ParameterInfo> relevantParams)
+    {
+        var schemaJson = GenerateJsonSchema(relevantParams);
+        return $@"() =>
+                {{
+                    using var document = global::System.Text.Json.JsonDocument.Parse(""{EscapeStringLiteral(schemaJson)}"");
+                    return document.RootElement.Clone();
+                }}";
+    }
+
+    private string GenerateJsonSchema(List<ParameterInfo> relevantParams)
+    {
+        var sb = new StringBuilder();
+        sb.Append("{\"type\":\"object\",\"properties\":{");
+
+        for (var i = 0; i < relevantParams.Count; i++)
+        {
+            var param = relevantParams[i];
+            if (i > 0)
+                sb.Append(',');
+
+            sb.Append('"').Append(EscapeJsonString(param.Name)).Append("\":{");
+            AppendJsonSchemaForParameter(sb, param);
+            sb.Append('}');
+        }
+
+        sb.Append("}");
+
+        var requiredParams = relevantParams
+            .Where(param => !param.IsNullable && !param.HasDefaultValue)
+            .Select(param => param.Name)
+            .ToList();
+
+        if (requiredParams.Count > 0)
+        {
+            sb.Append(",\"required\":[");
+            for (var i = 0; i < requiredParams.Count; i++)
+            {
+                if (i > 0)
+                    sb.Append(',');
+
+                sb.Append('"').Append(EscapeJsonString(requiredParams[i])).Append('"');
+            }
+            sb.Append(']');
+        }
+
+        sb.Append(",\"additionalProperties\":false}");
+        return sb.ToString();
+    }
+
+    private static void AppendJsonSchemaForParameter(StringBuilder sb, ParameterInfo param)
+    {
+        sb.Append("\"type\":\"").Append(GetJsonSchemaType(param.Type)).Append('"');
+
+        if (!string.IsNullOrWhiteSpace(param.Description) && !param.HasDynamicDescription)
+        {
+            sb.Append(",\"description\":\"").Append(EscapeJsonString(param.Description)).Append('"');
+        }
+    }
+
+    private static string GetJsonSchemaType(string type)
+    {
+        var normalized = NormalizeTypeName(type);
+
+        if (normalized.EndsWith("[]", StringComparison.Ordinal) ||
+            normalized.StartsWith("System.Collections.Generic.IEnumerable<", StringComparison.Ordinal) ||
+            normalized.StartsWith("IEnumerable<", StringComparison.Ordinal) ||
+            normalized.StartsWith("System.Collections.Generic.IReadOnlyList<", StringComparison.Ordinal) ||
+            normalized.StartsWith("IReadOnlyList<", StringComparison.Ordinal) ||
+            normalized.StartsWith("System.Collections.Generic.List<", StringComparison.Ordinal) ||
+            normalized.StartsWith("List<", StringComparison.Ordinal))
+        {
+            return "array";
+        }
+
+        return normalized switch
+        {
+            "string" or "System.String" or "char" or "System.Char" or "System.Guid" or "System.DateTime" or "System.DateOnly" or "System.TimeOnly" => "string",
+            "bool" or "System.Boolean" => "boolean",
+            "byte" or "sbyte" or "short" or "ushort" or "int" or "uint" or "long" or "ulong"
+                or "System.Byte" or "System.SByte" or "System.Int16" or "System.UInt16" or "System.Int32" or "System.UInt32" or "System.Int64" or "System.UInt64" => "integer",
+            "float" or "double" or "decimal" or "System.Single" or "System.Double" or "System.Decimal" => "number",
+            _ => "object"
+        };
+    }
+
+    private static string NormalizeTypeName(string type)
+    {
+        var normalized = type.Trim();
+
+        if (normalized.EndsWith("?", StringComparison.Ordinal))
+            normalized = normalized.Substring(0, normalized.Length - 1);
+
+        const string nullablePrefix = "System.Nullable<";
+        if (normalized.StartsWith(nullablePrefix, StringComparison.Ordinal) && normalized.EndsWith(">", StringComparison.Ordinal))
+            normalized = normalized.Substring(nullablePrefix.Length, normalized.Length - nullablePrefix.Length - 1);
+
+        return normalized;
     }
 
     private static string GetDeclaredResultType(string returnType)
@@ -356,7 +430,20 @@ $@"HPDAIFunctionFactory.Create(
     }
 
     private static string EscapeStringLiteral(string value) =>
-        value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        value
+            .Replace("\\", "\\\\")
+            .Replace("\"", "\\\"")
+            .Replace("\r", "\\r")
+            .Replace("\n", "\\n")
+            .Replace("\t", "\\t");
+
+    private static string EscapeJsonString(string value) =>
+        value
+            .Replace("\\", "\\\\")
+            .Replace("\"", "\\\"")
+            .Replace("\r", "\\r")
+            .Replace("\n", "\\n")
+            .Replace("\t", "\\t");
 
     /// <summary>
     /// Gets additional metadata properties for this function.
@@ -452,7 +539,7 @@ $@"HPDAIFunctionFactory.Create(
 
 /// <summary>
 /// Information about a function parameter discovered during source generation.
-/// This is the same structure as in HarnessInfo.cs but duplicated here for Phase 1.
+/// This is the same structure as in ToolHarnessInfo.cs but duplicated here for Phase 1.
 /// In Phase 2, we'll consolidate to use a single shared ParameterInfo class.
 /// </summary>
 internal class ParameterInfo

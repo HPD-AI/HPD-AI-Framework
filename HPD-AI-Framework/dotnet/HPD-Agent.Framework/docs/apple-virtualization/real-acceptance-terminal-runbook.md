@@ -6,7 +6,7 @@ For first-time local setup, start with `docs/apple-virtualization/developer-setu
 
 ## Current Status
 
-The fake/helper protocol, provider mapping, engine-status, provisioning evidence, revocation evidence, real-harness gating, bounded virtio-socket guest-agent hello/ready handshake, and real guest process path are in place. The local Swift helper builds, launches a real Apple Virtualization Linux guest, and runs the real container smoke through guest-agent authority projection.
+The fake/helper protocol, provider mapping, engine-status, provisioning evidence, revocation evidence, real-toolharness gating, bounded virtio-socket guest-agent hello/ready handshake, and real guest process path are in place. The local Swift helper builds, launches a real Apple Virtualization Linux guest, and runs the real container smoke through guest-agent authority projection.
 
 The helper also owns explicit host-local TCP forwarding for ordinary `PublishedEndpoint` resources. This is not automatic listener discovery. HPD must create a `PublishedEndpoint`, and `hpd-vz` binds only a host loopback listener such as `127.0.0.1:<port>`. For Apple NAT guests, the accepted practical route is helper-owned host listener -> guest-agent bounded TCP proxy -> guest loopback/server; direct host routing to a guest NAT address is not assumed.
 
@@ -17,7 +17,7 @@ The prepared-image path has passed real acceptance for these engines on this hos
 - Podman rootful: `PodmanApi`, `/run/podman/podman.sock`;
 - BuildKit rootful: `BuildKitApi`, `/run/buildkit/buildkitd.sock`.
 
-The harness is still explicit opt-in. A skipped real test is not proof of real VM behavior.
+The toolharness is still explicit opt-in. A skipped real test is not proof of real VM behavior.
 
 `HPD-Execution.AppleVirtualization.DevKit` is the embeddable .NET surface for prepared-image discovery, env parsing, validation, matrix planning, image-prep command execution, real matrix execution, cleanup execution, and host platform diagnostics. `HPD-Execution.AppleVirtualization.Cli` is the thin developer/product command wrapper over that DevKit surface. The `.sh` files are current macOS backend helpers for QEMU/cloud-init/image-prep and remain useful terminal entry points, but product code should prefer the DevKit API or CLI wrapper over shelling out directly.
 

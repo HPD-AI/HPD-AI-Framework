@@ -93,7 +93,7 @@ internal sealed class EvalTurnCapture
                 break;
 
             case ToolCallStartEvent e:
-                buffer.RecordToolCallStarted(e.CallId, e.Name, e.HarnessName, e.Timestamp);
+                buffer.RecordToolCallStarted(e.CallId, e.Name, e.ToolHarnessName, e.Timestamp);
                 break;
 
             case ToolCallEndEvent e:

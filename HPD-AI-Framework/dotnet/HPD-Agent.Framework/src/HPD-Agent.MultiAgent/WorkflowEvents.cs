@@ -72,9 +72,9 @@ public sealed record WorkflowCompletedEvent : AgentEvent
 }
 
 /// <summary>
-/// Event emitted when an agent node in a workflow starts execution.
+/// Event emitted when an agent in a workflow starts execution.
 /// </summary>
-public sealed record WorkflowNodeStartedEvent : AgentEvent
+public sealed record WorkflowAgentStartedEvent : AgentEvent
 {
     /// <summary>
     /// Name of the parent workflow.
@@ -82,12 +82,12 @@ public sealed record WorkflowNodeStartedEvent : AgentEvent
     public required string WorkflowName { get; init; }
 
     /// <summary>
-    /// ID of the agent node that started.
+    /// ID of the workflow agent that started.
     /// </summary>
-    public required string NodeId { get; init; }
+    public required string AgentId { get; init; }
 
     /// <summary>
-    /// Name of the agent being executed at this node.
+    /// Name of the agent being executed.
     /// </summary>
     public string? AgentName { get; init; }
 
@@ -103,9 +103,9 @@ public sealed record WorkflowNodeStartedEvent : AgentEvent
 }
 
 /// <summary>
-/// Event emitted when an agent node in a workflow completes execution.
+/// Event emitted when an agent in a workflow completes execution.
 /// </summary>
-public sealed record WorkflowNodeCompletedEvent : AgentEvent
+public sealed record WorkflowAgentCompletedEvent : AgentEvent
 {
     /// <summary>
     /// Name of the parent workflow.
@@ -113,9 +113,9 @@ public sealed record WorkflowNodeCompletedEvent : AgentEvent
     public required string WorkflowName { get; init; }
 
     /// <summary>
-    /// ID of the agent node that completed.
+    /// ID of the workflow agent that completed.
     /// </summary>
-    public required string NodeId { get; init; }
+    public required string AgentId { get; init; }
 
     /// <summary>
     /// Name of the agent that executed at this node.
@@ -123,12 +123,12 @@ public sealed record WorkflowNodeCompletedEvent : AgentEvent
     public string? AgentName { get; init; }
 
     /// <summary>
-    /// Whether the node completed successfully.
+    /// Whether the agent completed successfully.
     /// </summary>
     public required bool Success { get; init; }
 
     /// <summary>
-    /// Time taken to execute the node.
+    /// Time taken to execute the agent.
     /// </summary>
     public required TimeSpan Duration { get; init; }
 
@@ -138,7 +138,7 @@ public sealed record WorkflowNodeCompletedEvent : AgentEvent
     public float Progress { get; init; }
 
     /// <summary>
-    /// Outputs from the completed node (if available).
+    /// Outputs from the completed agent, if available.
     /// </summary>
     public IReadOnlyDictionary<string, object>? Outputs { get; init; }
 
@@ -154,9 +154,9 @@ public sealed record WorkflowNodeCompletedEvent : AgentEvent
 }
 
 /// <summary>
-/// Event emitted when an agent node is skipped in a workflow.
+/// Event emitted when an agent in a workflow is skipped.
 /// </summary>
-public sealed record WorkflowNodeSkippedEvent : AgentEvent
+public sealed record WorkflowAgentSkippedEvent : AgentEvent
 {
     /// <summary>
     /// Name of the parent workflow.
@@ -164,9 +164,9 @@ public sealed record WorkflowNodeSkippedEvent : AgentEvent
     public required string WorkflowName { get; init; }
 
     /// <summary>
-    /// ID of the node that was skipped.
+    /// ID of the workflow agent that was skipped.
     /// </summary>
-    public required string NodeId { get; init; }
+    public required string AgentId { get; init; }
 
     /// <summary>
     /// Reason for skipping.

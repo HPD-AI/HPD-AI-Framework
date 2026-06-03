@@ -2,12 +2,12 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.AI;
 
-namespace HPD.Agent.Harneses.FileSystem.Examples;
+namespace HPD.Agent.ToolHarnesses.FileSystem.Examples;
 
 /// <summary>
-/// Example usage of the FileSystemHarness with HPD-Agent
+/// Example usage of the FileSystemToolHarness with HPD-Agent
 /// </summary>
-public static class FileSystemHarnessExamples
+public static class FileSystemToolHarnessExamples
 {
     /// <summary>
     /// Example 1: Basic setup and registration
@@ -23,12 +23,12 @@ public static class FileSystemHarnessExamples
             enableSearch: true
         );
 
-        // 2. Create Harness manager and register the Harness
-        var HarnessManager = new HarnessManager(context);
-        HarnessManager.RegisterHarness<FileSystemHarness>();
+        // 2. Create ToolHarness manager and register the ToolHarness
+        var ToolHarnessManager = new ToolHarnessManager(context);
+        ToolHarnessManager.RegisterToolHarness<FileSystemToolHarness>();
 
         // 3. Create AI functions
-        var functions = HarnessManager.CreateAllFunctions(context);
+        var functions = ToolHarnessManager.CreateAllFunctions(context);
 
         Console.WriteLine($"Registered {functions.Count} AI functions:");
         foreach (var func in functions)
@@ -47,21 +47,21 @@ public static class FileSystemHarnessExamples
     public static async Task CodeSearchExample()
     {
         var context = new FileSystemContext("/workspace");
-        var Harness = new FileSystemHarness(context);
+        var ToolHarness = new FileSystemToolHarness(context);
 
         // Find all C# files
         Console.WriteLine("Finding all C# files...");
-        var files = await Harness.FindFiles("**/*.cs");
+        var files = await ToolHarness.FindFiles("**/*.cs");
         Console.WriteLine(files);
 
         // Search for TODO comments
         Console.WriteLine("\nSearching for TODO comments...");
-        var todos = await Harness.SearchContent("TODO", filePattern: "*.cs");
+        var todos = await ToolHarness.SearchContent("TODO", filePattern: "*.cs");
         Console.WriteLine(todos);
 
         // Search for specific pattern with regex
         Console.WriteLine("\nSearching for class definitions...");
-        var classes = await Harness.SearchContent(@"public class \w+", filePattern: "**/*.cs");
+        var classes = await ToolHarness.SearchContent(@"public class \w+", filePattern: "**/*.cs");
         Console.WriteLine(classes);
     }
 
@@ -71,15 +71,15 @@ public static class FileSystemHarnessExamples
     public static async Task FileEditingExample()
     {
         var context = new FileSystemContext("/workspace");
-        var Harness = new FileSystemHarness(context);
+        var ToolHarness = new FileSystemToolHarness(context);
 
         // Read a file
-        var content = await Harness.ReadFile("/workspace/src/Program.cs");
+        var content = await ToolHarness.ReadFile("/workspace/src/Program.cs");
         Console.WriteLine("Original content:");
         Console.WriteLine(content);
 
         // Edit the file (requires permission)
-        var result = await Harness.EditFile(
+        var result = await ToolHarness.EditFile(
             filePath: "/workspace/src/Program.cs",
             oldString: "var oldVariable = 123;",
             newString: "var newVariable = 456;"
@@ -95,18 +95,18 @@ public static class FileSystemHarnessExamples
     public static async Task DirectoryBrowsingExample()
     {
         var context = new FileSystemContext("/workspace");
-        var Harness = new FileSystemHarness(context);
+        var ToolHarness = new FileSystemToolHarness(context);
 
         // List directory contents
-        var listing = await Harness.ListDirectory("/workspace/src", recursive: false);
+        var listing = await ToolHarness.ListDirectory("/workspace/src", recursive: false);
         Console.WriteLine(listing);
 
         // List recursively
-        var recursiveListing = await Harness.ListDirectory("/workspace", recursive: true);
+        var recursiveListing = await ToolHarness.ListDirectory("/workspace", recursive: true);
         Console.WriteLine(recursiveListing);
 
         // Read a file with line range (for large files)
-        var partialContent = await Harness.ReadFile(
+        var partialContent = await ToolHarness.ReadFile(
             absolutePath: "/workspace/logs/app.log",
             offset: 100,    // Start at line 100
             limit: 50       // Read 50 lines
@@ -120,10 +120,10 @@ public static class FileSystemHarnessExamples
     public static async Task DocumentationGeneratorExample(IChatClient chatClient)
     {
         var context = new FileSystemContext("/workspace");
-        var HarnessManager = new HarnessManager(context);
-        HarnessManager.RegisterHarness<FileSystemHarness>();
+        var ToolHarnessManager = new ToolHarnessManager(context);
+        ToolHarnessManager.RegisterToolHarness<FileSystemToolHarness>();
 
-        var functions = HarnessManager.CreateAllFunctions(context);
+        var functions = ToolHarnessManager.CreateAllFunctions(context);
 
         // Configure chat client with tools
         var chatOptions = new ChatOptions
@@ -149,7 +149,7 @@ public static class FileSystemHarnessExamples
     }
 
     /// <summary>
-    /// Example 6: Context-aware Harness (disable search for security)
+    /// Example 6: Context-aware ToolHarness (disable search for security)
     /// </summary>
     public static void ContextAwareExample()
     {
@@ -160,10 +160,10 @@ public static class FileSystemHarnessExamples
             enableSearch: false  // FindFiles and SearchContent won't be available
         );
 
-        var HarnessManager = new HarnessManager(prodContext);
-        HarnessManager.RegisterHarness<FileSystemHarness>();
+        var ToolHarnessManager = new ToolHarnessManager(prodContext);
+        ToolHarnessManager.RegisterToolHarness<FileSystemToolHarness>();
 
-        var functions = HarnessManager.CreateAllFunctions(prodContext);
+        var functions = ToolHarnessManager.CreateAllFunctions(prodContext);
 
         // FindFiles and SearchContent won't be in the function list
         Console.WriteLine($"Available functions: {string.Join(", ", functions.Select(f => f.Metadata.Name))}");
@@ -180,18 +180,18 @@ public static class FileSystemHarnessExamples
             allowOutsideWorkspace: false  // Enforce workspace boundaries
         );
 
-        var Harness = new FileSystemHarness(context);
+        var ToolHarness = new FileSystemToolHarness(context);
 
         //  Allowed: Inside workspace
-        var result1 = await Harness.ReadFile("/safe/workspace/file.txt");
+        var result1 = await ToolHarness.ReadFile("/safe/workspace/file.txt");
         Console.WriteLine(result1);
 
         //    Blocked: Outside workspace
-        var result2 = await Harness.ReadFile("/etc/passwd");
+        var result2 = await ToolHarness.ReadFile("/etc/passwd");
         Console.WriteLine(result2);  // Error: File path must be within workspace
 
         //    Blocked: Path traversal attempt
-        var result3 = await Harness.ReadFile("/safe/workspace/../../etc/passwd");
+        var result3 = await ToolHarness.ReadFile("/safe/workspace/../../etc/passwd");
         Console.WriteLine(result3);  // Error: File path must be within workspace
     }
 }
@@ -209,13 +209,13 @@ public class CompleteAgentExample
             enableSearch: true
         );
 
-        // 2. Register all Harneses
-        var HarnessManager = new HarnessManager(fsContext);
-        HarnessManager.RegisterHarness<FileSystemHarness>();
-        // HarnessManager.RegisterHarness<WebSearchHarness>(); // Add other Harneses
+        // 2. Register all ToolHarnesses
+        var ToolHarnessManager = new ToolHarnessManager(fsContext);
+        ToolHarnessManager.RegisterToolHarness<FileSystemToolHarness>();
+        // ToolHarnessManager.RegisterToolHarness<WebSearchToolHarness>(); // Add other ToolHarnesses
 
         // 3. Create functions
-        var tools = HarnessManager.CreateAllFunctions(fsContext);
+        var tools = ToolHarnessManager.CreateAllFunctions(fsContext);
 
         // 4. Setup AI client (example with your agent)
         // var chatClient = new YourChatClient(...);

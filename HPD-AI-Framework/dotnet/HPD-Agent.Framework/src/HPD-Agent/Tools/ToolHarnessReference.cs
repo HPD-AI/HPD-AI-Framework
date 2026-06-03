@@ -6,54 +6,54 @@ using System.Text.Json.Serialization;
 namespace HPD.Agent;
 
 /// <summary>
-/// Reference to a harness in config. Supports JSON shorthand (string) or full object.
+/// Reference to a toolharness in config. Supports JSON shorthand (string) or full object.
 /// </summary>
 /// <remarks>
 /// <para>
-/// HarnessReference enables flexible JSON configuration syntax:
+/// ToolHarnessReference enables flexible JSON configuration syntax:
 /// </para>
 /// <para>
 /// <b>Simple syntax (just name):</b>
 /// <code>
-/// { "harnesses": ["MathHarness", "SearchHarness"] }
+/// { "toolharnesses": ["MathToolHarness", "SearchToolHarness"] }
 /// </code>
 /// </para>
 /// <para>
 /// <b>Rich syntax (with configuration):</b>
 /// <code>
 /// {
-///   "harnesses": [
-///     "MathHarness",
-///     { "name": "FileHarness", "functions": ["ReadFile", "WriteFile"] },
-///     { "name": "ApiHarness", "config": { "apiKey": "${API_KEY}" } },
-///     { "name": "SearchHarness", "metadata": { "providerName": "Tavily" } }
+///   "toolharnesses": [
+///     "MathToolHarness",
+///     { "name": "FileToolHarness", "functions": ["ReadFile", "WriteFile"] },
+///     { "name": "ApiToolHarness", "config": { "apiKey": "${API_KEY}" } },
+///     { "name": "SearchToolHarness", "metadata": { "providerName": "Tavily" } }
 ///   ]
 /// }
 /// </code>
 /// </para>
 /// </remarks>
-[JsonConverter(typeof(HarnessReferenceConverter))]
-public class HarnessReference
+[JsonConverter(typeof(ToolHarnessReferenceConverter))]
+public class ToolHarnessReference
 {
     /// <summary>
-    /// Name of the harness (always the class name).
-    /// This is the lookup key in the source-generated harness registry.
+    /// Name of the toolharness (always the class name).
+    /// This is the lookup key in the source-generated toolharness registry.
     /// </summary>
     public string Name { get; set; } = "";
 
     /// <summary>
-    /// Specific functions to include from this harness.
+    /// Specific functions to include from this toolharness.
     /// Null = include all functions.
     /// </summary>
     /// <remarks>
     /// <para>
     /// Use this for selective function registration when you want to expose
-    /// only a subset of a harness's functions to the LLM.
+    /// only a subset of a toolharness's functions to the LLM.
     /// </para>
     /// <para>
     /// <b>Example:</b>
     /// <code>
-    /// { "name": "FileHarness", "functions": ["ReadFile", "ListFiles"] }
+    /// { "name": "FileToolHarness", "functions": ["ReadFile", "ListFiles"] }
     /// </code>
     /// This exposes only ReadFile and ListFiles, hiding WriteFile and DeleteFile.
     /// </para>
@@ -61,27 +61,27 @@ public class HarnessReference
     public List<string>? Functions { get; set; }
 
     /// <summary>
-    /// Harness-specific configuration (constructor parameters, API keys, etc.).
-    /// Deserialized using the harness's registered config type.
+    /// ToolHarness-specific configuration (constructor parameters, API keys, etc.).
+    /// Deserialized using the toolharness's registered config type.
     /// </summary>
     /// <remarks>
     /// <para>
     /// The source generator detects constructors with a single config parameter
-    /// and stores the config type in HarnessFactory.ConfigType. At resolution time,
+    /// and stores the config type in ToolHarnessFactory.ConfigType. At resolution time,
     /// this JsonElement is deserialized to that type and passed to the constructor.
     /// </para>
     /// <para>
     /// <b>Example:</b>
     /// <code>
-    /// { "name": "SearchHarness", "config": { "apiKey": "${SEARCH_API_KEY}", "maxResults": 10 } }
+    /// { "name": "SearchToolHarness", "config": { "apiKey": "${SEARCH_API_KEY}", "maxResults": 10 } }
     /// </code>
     /// </para>
     /// </remarks>
     public JsonElement? Config { get; set; }
 
     /// <summary>
-    /// Harness metadata for dynamic descriptions and conditional functions.
-    /// Deserialized to the harness's IToolMetadata type from [AIFunction&lt;TMetadata&gt;].
+    /// ToolHarness metadata for dynamic descriptions and conditional functions.
+    /// Deserialized to the toolharness's IToolMetadata type from [AIFunction&lt;TMetadata&gt;].
     /// </summary>
     /// <remarks>
     /// <para>
@@ -93,7 +93,7 @@ public class HarnessReference
     /// <b>Example:</b>
     /// <code>
     /// {
-    ///   "name": "SearchHarness",
+    ///   "name": "SearchToolHarness",
     ///   "metadata": {
     ///     "hasTavilyProvider": true,
     ///     "defaultProvider": "tavily"
@@ -105,16 +105,16 @@ public class HarnessReference
     public JsonElement? Metadata { get; set; }
 
     /// <summary>
-    /// Per-middleware config overrides for harness-scoped middleware with config-constructor factories
+    /// Per-middleware config overrides for toolharness-scoped middleware with config-constructor factories
     /// . Keys are middleware simple type names (e.g. <c>"DbRateLimitMiddleware"</c>);
     /// values are raw JSON objects passed to the generated config-constructor factory delegate.
-    /// Ignored when the harness has no matching <c>CollapseMiddlewareConfigFactories</c> entry.
+    /// Ignored when the toolharness has no matching <c>CollapseMiddlewareConfigFactories</c> entry.
     /// </summary>
     /// <remarks>
     /// <b>Example:</b>
     /// <code>
     /// {
-    ///   "name": "DatabaseHarness",
+    ///   "name": "DatabaseToolHarness",
     ///   "middlewareConfigs": {
     ///     "DbRateLimitMiddleware": { "requestsPerMinute": 20 }
     ///   }
@@ -126,43 +126,43 @@ public class HarnessReference
     /// <summary>
     /// Implicit conversion from string for simple syntax support.
     /// </summary>
-    /// <param name="name">The harness name.</param>
-    public static implicit operator HarnessReference(string name) => new() { Name = name };
+    /// <param name="name">The toolharness name.</param>
+    public static implicit operator ToolHarnessReference(string name) => new() { Name = name };
 
     /// <summary>
-    /// Returns the harness name for debugging.
+    /// Returns the toolharness name for debugging.
     /// </summary>
     public override string ToString() => Name;
 }
 
 /// <summary>
-/// JSON converter that supports both string and object syntax for HarnessReference.
+/// JSON converter that supports both string and object syntax for ToolHarnessReference.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Enables polymorphic JSON deserialization:
-/// - String value: "MathHarness" -> HarnessReference { Name = "MathHarness" }
-/// - Object value: { "name": "...", "config": {...} } -> Full HarnessReference
+/// - String value: "MathToolHarness" -> ToolHarnessReference { Name = "MathToolHarness" }
+/// - Object value: { "name": "...", "config": {...} } -> Full ToolHarnessReference
 /// </para>
 /// </remarks>
-public class HarnessReferenceConverter : JsonConverter<HarnessReference>
+public class ToolHarnessReferenceConverter : JsonConverter<ToolHarnessReference>
 {
     /// <summary>
-    /// Reads a HarnessReference from JSON.
+    /// Reads a ToolHarnessReference from JSON.
     /// </summary>
-    public override HarnessReference? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    public override ToolHarnessReference? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         if (reader.TokenType == JsonTokenType.String)
         {
-            // Simple syntax: "MathHarness"
+            // Simple syntax: "MathToolHarness"
             var name = reader.GetString();
-            return new HarnessReference { Name = name ?? "" };
+            return new ToolHarnessReference { Name = name ?? "" };
         }
 
         if (reader.TokenType == JsonTokenType.StartObject)
         {
             // Rich syntax: { "name": "...", ... }
-            var reference = new HarnessReference();
+            var reference = new ToolHarnessReference();
 
             while (reader.Read())
             {
@@ -202,14 +202,14 @@ public class HarnessReferenceConverter : JsonConverter<HarnessReference>
             return reference;
         }
 
-        throw new JsonException($"Unexpected token type {reader.TokenType} when reading HarnessReference");
+        throw new JsonException($"Unexpected token type {reader.TokenType} when reading ToolHarnessReference");
     }
 
     /// <summary>
-    /// Writes a HarnessReference to JSON.
+    /// Writes a ToolHarnessReference to JSON.
     /// Uses simple syntax when only name is set, object syntax otherwise.
     /// </summary>
-    public override void Write(Utf8JsonWriter writer, HarnessReference value, JsonSerializerOptions options)
+    public override void Write(Utf8JsonWriter writer, ToolHarnessReference value, JsonSerializerOptions options)
     {
         // Use simple syntax if only name is set
         if (value.Functions == null && !value.Config.HasValue && !value.Metadata.HasValue && value.MiddlewareConfigs == null)

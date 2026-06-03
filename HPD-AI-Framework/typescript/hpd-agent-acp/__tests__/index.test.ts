@@ -426,7 +426,7 @@ describe('createBridge — session/prompt', () => {
     expect(stream).toHaveBeenCalledOnce(); // still only one stream call
   });
 
-  it('passes clientHarnesses derived from stored clientCapabilities', async () => {
+  it('passes clientToolHarnesses derived from stored clientCapabilities', async () => {
     const stream = vi.fn().mockImplementation(
       (_sid: string, _bid: string, _msgs: unknown[], handlers: any) => {
         handlers.onComplete();
@@ -446,7 +446,7 @@ describe('createBridge — session/prompt', () => {
     await waitFor(3);
 
     const runCall = client.run.mock.calls[0];
-    const HARNESS = runCall[0].runConfig.clientToolInput.clientHarnesses;
+    const HARNESS = runCall[0].runConfig.clientToolInput.clientToolHarnesses;
     expect(HARNESS[0].tools.some((t: any) => t.name === 'editor_read_file')).toBe(true);
   });
 });

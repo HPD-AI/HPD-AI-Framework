@@ -116,31 +116,31 @@ public class AgentConfig
     public CollapsingConfig Collapsing { get; set; } = new CollapsingConfig { Enabled = true };
 
     /// <summary>
-    /// Harneses to include. Supports both simple string names and rich references.
+    /// ToolHarnesses to include. Supports both simple string names and rich references.
     /// Resolved via source-generated registry at Build() time.
     /// </summary>
     /// <remarks>
     /// <para>
     /// <b>Simple syntax:</b>
     /// <code>
-    /// { "harnesses": ["MathHarness", "SearchHarness"] }
+    /// { "toolharnesses": ["MathToolHarness", "SearchToolHarness"] }
     /// </code>
     /// </para>
     /// <para>
     /// <b>Rich syntax:</b>
     /// <code>
     /// {
-    ///   "harnesses": [
-    ///     "MathHarness",
-    ///     { "name": "FileHarness", "functions": ["ReadFile", "WriteFile"] },
-    ///     { "name": "ApiHarness", "config": { "apiKey": "${API_KEY}" } }
+    ///   "toolharnesses": [
+    ///     "MathToolHarness",
+    ///     { "name": "FileToolHarness", "functions": ["ReadFile", "WriteFile"] },
+    ///     { "name": "ApiToolHarness", "config": { "apiKey": "${API_KEY}" } }
     ///   ]
     /// }
     /// </code>
     /// </para>
     /// </remarks>
-    [JsonPropertyName("harnesses")]
-    public List<HarnessReference> Harneses { get; set; } = new();
+    [JsonPropertyName("toolharnesses")]
+    public List<ToolHarnessReference> ToolHarnesses { get; set; } = new();
 
     /// <summary>
     /// Middleware names to include (in order). Supports both simple string names and rich references.
@@ -172,11 +172,11 @@ public class AgentConfig
     public List<MiddlewareReference> Middlewares { get; set; } = new();
 
     /// <summary>
-    /// Internal: Set of explicitly registered Harness names (for Collapsing manager).
-    /// This is set by the builder and used to distinguish explicit vs implicit Harness registration.
+    /// Internal: Set of explicitly registered ToolHarness names (for Collapsing manager).
+    /// This is set by the builder and used to distinguish explicit vs implicit ToolHarness registration.
     /// </summary>
     [JsonIgnore]
-    public ImmutableHashSet<string> explicitlyRegisteredHarneses { get; set; } = ImmutableHashSet<string>.Empty;
+    public ImmutableHashSet<string> explicitlyRegisteredToolHarnesses { get; set; } = ImmutableHashSet<string>.Empty;
 
     /// <summary>
     /// Configuration for distributed caching of LLM responses.
@@ -1355,8 +1355,8 @@ public enum SkillInstructionMode
 public class CollapsingConfig
 {
     /// <summary>
-    /// Enable Collapsing for C# Harneses. When true, Harness functions are hidden behind container functions.
-    /// Default: true (enabled - Harneses with [Collapse] attribute are collapsed).
+    /// Enable Collapsing for C# ToolHarnesses. When true, ToolHarness functions are hidden behind container functions.
+    /// Default: true (enabled - ToolHarnesses with [Collapse] attribute are collapsed).
     /// </summary>
     public bool Enabled { get; set; } = true;
 
@@ -1416,10 +1416,10 @@ public class CollapsingConfig
     public string? ClientToolsInstructions { get; set; }
 
     /// <summary>
-    /// List of harness names that should never be collapsed, even if they have containers.
-    /// This is a runtime override that works even if the harness was compiled with collapse support.
-    /// Use this to force specific harnesses to always show their functions directly.
-    /// Example: new HashSet&lt;string&gt; { "MathHarness", "CoreTools" }
+    /// List of toolharness names that should never be collapsed, even if they have containers.
+    /// This is a runtime override that works even if the toolharness was compiled with collapse support.
+    /// Use this to force specific toolharnesses to always show their functions directly.
+    /// Example: new HashSet&lt;string&gt; { "MathToolHarness", "CoreTools" }
     /// </summary>
     public HashSet<string>? NeverCollapse { get; set; }
 

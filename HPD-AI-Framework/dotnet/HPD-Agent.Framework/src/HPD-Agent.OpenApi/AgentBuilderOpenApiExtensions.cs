@@ -5,7 +5,7 @@ namespace HPD.Agent.OpenApi;
 /// as agent tools at build time.
 ///
 /// Functions generated from OpenAPI specs participate in the full collapsing and permission
-/// infrastructure — they can be flat members of a harness, nested inside a harness's collapse
+/// infrastructure — they can be flat members of a toolharness, nested inside a toolharness's collapse
 /// container, or standalone top-level tools — with the same visibility rules as native
 /// <c>[AIFunction]</c> methods.
 /// </summary>
@@ -30,7 +30,7 @@ public static class AgentBuilderOpenApiExtensions
         builder.AddOpenApiSource(new OpenApiSourceRegistration(
             Name: name,
             ParentContainer: null,
-            CollapseWithinHarness: false,
+            CollapseWithinToolHarness: false,
             Config: config));
         return builder;
     }
@@ -54,7 +54,7 @@ public static class AgentBuilderOpenApiExtensions
         builder.AddOpenApiSource(new OpenApiSourceRegistration(
             Name: name,
             ParentContainer: null,
-            CollapseWithinHarness: false,
+            CollapseWithinToolHarness: false,
             Config: config));
         return builder;
     }
@@ -73,7 +73,7 @@ public static class AgentBuilderOpenApiExtensions
         builder.AddOpenApiSource(new OpenApiSourceRegistration(
             Name: name,
             ParentContainer: null,
-            CollapseWithinHarness: false,
+            CollapseWithinToolHarness: false,
             Config: config));
         return builder;
     }

@@ -1,11 +1,11 @@
 using HPD.Agent;
-using HPD.Agent.Harness.Coding;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
 using HPD.Events.Core;
-using HPDOS.Harneses.Middleware;
+using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 
-namespace HPD.Agent.Harness.Coding.Tests;
+namespace HPD.Agent.ToolHarness.Coding.Tests;
 
 [Collection(CurrentDirectoryCollection.Name)]
 public sealed class ListDirectoryTests : IDisposable
@@ -29,7 +29,7 @@ public sealed class ListDirectoryTests : IDisposable
     [Fact]
     public void ListDirectory_RequiresPermission()
     {
-        var method = typeof(CodingHarness).GetMethod(nameof(CodingHarness.ListDirectory));
+        var method = typeof(CodingToolHarness).GetMethod(nameof(CodingToolHarness.ListDirectory));
 
         method.Should().NotBeNull();
         method!.GetCustomAttributes(typeof(RequiresPermissionAttribute), inherit: false)
@@ -43,7 +43,7 @@ public sealed class ListDirectoryTests : IDisposable
         await File.WriteAllTextAsync("README.md", "# demo\n");
         await File.WriteAllTextAsync("Program.cs", "class Program {}\n");
 
-        var result = await new CodingHarness().ListDirectory(".");
+        var result = await new CodingToolHarness().ListDirectory(".");
 
         result.Should().Contain("<directory path=");
         result.Should().Contain("recursive=\"false\"");
@@ -61,8 +61,8 @@ public sealed class ListDirectoryTests : IDisposable
         Directory.CreateDirectory("src");
         await File.WriteAllTextAsync(Path.Combine("src", "A.cs"), "class A {}\n");
 
-        var relative = await new CodingHarness().ListDirectory("src");
-        var absolute = await new CodingHarness().ListDirectory(Path.Combine(_tempRoot, "src"));
+        var relative = await new CodingToolHarness().ListDirectory("src");
+        var absolute = await new CodingToolHarness().ListDirectory(Path.Combine(_tempRoot, "src"));
 
         relative.Should().Contain("path=\"A.cs\"");
         absolute.Should().Contain("path=\"A.cs\"");
@@ -76,7 +76,7 @@ public sealed class ListDirectoryTests : IDisposable
         Directory.CreateDirectory(docsRoot);
         await File.WriteAllTextAsync(Path.Combine(docsRoot, "notes.md"), "# docs\n");
 
-        var result = await new CodingHarness().ListDirectory(
+        var result = await new CodingToolHarness().ListDirectory(
             "@docs",
             context: CreateFunctionContext(CreateWorkspaceRunConfig(_tempRoot, docsRoot)));
 
@@ -91,7 +91,7 @@ public sealed class ListDirectoryTests : IDisposable
         Directory.CreateDirectory(outside);
         try
         {
-            var result = await new CodingHarness().ListDirectory(
+            var result = await new CodingToolHarness().ListDirectory(
                 outside,
                 context: CreateFunctionContext(CreateWorkspaceRunConfig(_tempRoot)));
 
@@ -108,15 +108,15 @@ public sealed class ListDirectoryTests : IDisposable
     [Fact]
     public async Task ListDirectory_RejectsInvalidArguments()
     {
-        var harness = new CodingHarness();
+        var toolharness = new CodingToolHarness();
 
-        (await harness.ListDirectory(null!)).Should().Contain("Path is required.");
-        (await harness.ListDirectory(".", offset: 0)).Should().Contain("Offset must be greater than or equal to 1.");
-        (await harness.ListDirectory(".", limit: 0)).Should().Contain("Limit must be between 1 and 1000.");
-        (await harness.ListDirectory(".", limit: 1001)).Should().Contain("Limit must be between 1 and 1000.");
-        (await harness.ListDirectory(".", maxDepth: -1, recursive: true)).Should().Contain("MaxDepth must be between 0 and 25.");
-        (await harness.ListDirectory(".", maxDepth: 26, recursive: true)).Should().Contain("MaxDepth must be between 0 and 25.");
-        (await harness.ListDirectory(".", maxDepth: 2)).Should().Contain("MaxDepth requires recursive mode.");
+        (await toolharness.ListDirectory(null!)).Should().Contain("Path is required.");
+        (await toolharness.ListDirectory(".", offset: 0)).Should().Contain("Offset must be greater than or equal to 1.");
+        (await toolharness.ListDirectory(".", limit: 0)).Should().Contain("Limit must be between 1 and 1000.");
+        (await toolharness.ListDirectory(".", limit: 1001)).Should().Contain("Limit must be between 1 and 1000.");
+        (await toolharness.ListDirectory(".", maxDepth: -1, recursive: true)).Should().Contain("MaxDepth must be between 0 and 25.");
+        (await toolharness.ListDirectory(".", maxDepth: 26, recursive: true)).Should().Contain("MaxDepth must be between 0 and 25.");
+        (await toolharness.ListDirectory(".", maxDepth: 2)).Should().Contain("MaxDepth requires recursive mode.");
     }
 
     [Fact]
@@ -124,7 +124,7 @@ public sealed class ListDirectoryTests : IDisposable
     {
         Directory.CreateDirectory("src");
 
-        var result = await new CodingHarness().ListDirectory("srcc");
+        var result = await new CodingToolHarness().ListDirectory("srcc");
 
         result.Should().Contain("<error tool=\"ListDirectory\"");
         result.Should().Contain("Directory does not exist. Did you mean");
@@ -136,7 +136,7 @@ public sealed class ListDirectoryTests : IDisposable
     {
         await File.WriteAllTextAsync("Program.cs", "class Program {}\n");
 
-        var result = await new CodingHarness().ListDirectory("Program.cs");
+        var result = await new CodingToolHarness().ListDirectory("Program.cs");
 
         result.Should().Contain("Path is a file. Use ReadFile instead.");
     }
@@ -147,8 +147,8 @@ public sealed class ListDirectoryTests : IDisposable
         Directory.CreateDirectory("empty");
         await File.WriteAllTextAsync("one.txt", "one\n");
 
-        var empty = await new CodingHarness().ListDirectory("empty");
-        var beyondEnd = await new CodingHarness().ListDirectory(".", offset: 50);
+        var empty = await new CodingToolHarness().ListDirectory("empty");
+        var beyondEnd = await new CodingToolHarness().ListDirectory(".", offset: 50);
 
         empty.Should().Contain("<empty_directory");
         beyondEnd.Should().Contain("<no_content reason=\"offset_beyond_end\"");
@@ -161,7 +161,7 @@ public sealed class ListDirectoryTests : IDisposable
         await File.WriteAllTextAsync("b.txt", "b\n");
         await File.WriteAllTextAsync("c.txt", "c\n");
 
-        var result = await new CodingHarness().ListDirectory(".", offset: 2, limit: 1);
+        var result = await new CodingToolHarness().ListDirectory(".", offset: 2, limit: 1);
 
         result.Should().Contain("entries_read=\"1\"");
         result.Should().Contain("truncated=\"true\"");
@@ -177,7 +177,7 @@ public sealed class ListDirectoryTests : IDisposable
         for (var i = 1; i <= 10; i++)
             await File.WriteAllTextAsync($"file-{i:D2}.txt", $"{i}\n");
 
-        var result = await new CodingHarness().ListDirectory(".", offset: 6, limit: 5);
+        var result = await new CodingToolHarness().ListDirectory(".", offset: 6, limit: 5);
 
         result.Should().Contain("entries_read=\"5\"");
         result.Should().Contain("truncated=\"false\"");
@@ -192,7 +192,7 @@ public sealed class ListDirectoryTests : IDisposable
     {
         await File.WriteAllTextAsync("a<&>.txt", "xml\n");
 
-        var result = await new CodingHarness().ListDirectory(".");
+        var result = await new CodingToolHarness().ListDirectory(".");
 
         result.Should().Contain("a&lt;&amp;&gt;.txt");
     }
@@ -203,8 +203,8 @@ public sealed class ListDirectoryTests : IDisposable
         await File.WriteAllTextAsync(".env", "secret\n");
         await File.WriteAllTextAsync("visible.txt", "visible\n");
 
-        var hiddenByDefault = await new CodingHarness().ListDirectory(".");
-        var included = await new CodingHarness().ListDirectory(".", includeHidden: true);
+        var hiddenByDefault = await new CodingToolHarness().ListDirectory(".");
+        var included = await new CodingToolHarness().ListDirectory(".", includeHidden: true);
 
         hiddenByDefault.Should().NotContain(".env");
         hiddenByDefault.Should().Contain("visible.txt");
@@ -220,8 +220,8 @@ public sealed class ListDirectoryTests : IDisposable
         Directory.CreateDirectory("ignored-dir");
         await File.WriteAllTextAsync(Path.Combine("ignored-dir", "nested.txt"), "nested\n");
 
-        var respected = await new CodingHarness().ListDirectory(".", includeHidden: true);
-        var ignoredDisabled = await new CodingHarness().ListDirectory(".", includeHidden: true, respectIgnoreFiles: false);
+        var respected = await new CodingToolHarness().ListDirectory(".", includeHidden: true);
+        var ignoredDisabled = await new CodingToolHarness().ListDirectory(".", includeHidden: true, respectIgnoreFiles: false);
 
         respected.Should().NotContain("ignored.txt");
         respected.Should().NotContain("ignored-dir/");
@@ -236,8 +236,8 @@ public sealed class ListDirectoryTests : IDisposable
         Directory.CreateDirectory("src");
         await File.WriteAllTextAsync("Program.cs", "class Program {}\n");
 
-        var files = await new CodingHarness().ListDirectory(".", kind: DirectoryEntryKindFilter.Files);
-        var directories = await new CodingHarness().ListDirectory(".", kind: DirectoryEntryKindFilter.Directories);
+        var files = await new CodingToolHarness().ListDirectory(".", kind: DirectoryEntryKindFilter.Files);
+        var directories = await new CodingToolHarness().ListDirectory(".", kind: DirectoryEntryKindFilter.Directories);
 
         files.Should().Contain("Program.cs");
         files.Should().NotContain("src/");
@@ -250,7 +250,7 @@ public sealed class ListDirectoryTests : IDisposable
     {
         await File.WriteAllTextAsync("Program.cs", "class Program {}\n");
 
-        var result = await new CodingHarness().ListDirectory(".", includeMetadata: true);
+        var result = await new CodingToolHarness().ListDirectory(".", includeMetadata: true);
 
         result.Should().Contain("path=\"Program.cs\"");
         result.Should().Contain("size=\"");
@@ -263,7 +263,7 @@ public sealed class ListDirectoryTests : IDisposable
         await File.WriteAllTextAsync("small.txt", "x\n");
         await File.WriteAllTextAsync("large.txt", new string('x', 100));
 
-        var result = await new CodingHarness().ListDirectory(
+        var result = await new CodingToolHarness().ListDirectory(
             ".",
             sortBy: DirectorySortBy.Size,
             sortDirection: SortDirection.Descending);
@@ -278,9 +278,9 @@ public sealed class ListDirectoryTests : IDisposable
         Directory.CreateDirectory(Path.Combine("src", "Controllers"));
         await File.WriteAllTextAsync(Path.Combine("src", "Controllers", "HomeController.cs"), "class HomeController {}\n");
 
-        var depthOne = await new CodingHarness().ListDirectory(".", recursive: true, maxDepth: 1);
-        var depthTwo = await new CodingHarness().ListDirectory(".", recursive: true, maxDepth: 2);
-        var depthThree = await new CodingHarness().ListDirectory(".", recursive: true, maxDepth: 3);
+        var depthOne = await new CodingToolHarness().ListDirectory(".", recursive: true, maxDepth: 1);
+        var depthTwo = await new CodingToolHarness().ListDirectory(".", recursive: true, maxDepth: 2);
+        var depthThree = await new CodingToolHarness().ListDirectory(".", recursive: true, maxDepth: 3);
 
         depthOne.Should().Contain("path=\"src/\"");
         depthOne.Should().NotContain("HomeController.cs");
@@ -297,7 +297,7 @@ public sealed class ListDirectoryTests : IDisposable
         Directory.CreateDirectory("src");
         await File.WriteAllTextAsync(Path.Combine("src", "App.cs"), "class App {}\n");
 
-        var result = await new CodingHarness().ListDirectory(".", recursive: true, maxDepth: 2);
+        var result = await new CodingToolHarness().ListDirectory(".", recursive: true, maxDepth: 2);
 
         result.Should().NotContain("node_modules");
         result.Should().Contain("src/App.cs");
@@ -322,7 +322,7 @@ public sealed class ListDirectoryTests : IDisposable
             return;
         }
 
-        var result = await new CodingHarness().ListDirectory(
+        var result = await new CodingToolHarness().ListDirectory(
             ".",
             recursive: true,
             maxDepth: 3,
@@ -352,7 +352,7 @@ public sealed class ListDirectoryTests : IDisposable
             return;
         }
 
-        var result = await new CodingHarness().ListDirectory(".", includeMetadata: true);
+        var result = await new CodingToolHarness().ListDirectory(".", includeMetadata: true);
 
         result.Should().Contain("path=\"linked.txt\"");
         result.Should().Contain("symlink=\"true\"");
@@ -365,7 +365,7 @@ public sealed class ListDirectoryTests : IDisposable
         if (OperatingSystem.IsWindows())
             return;
 
-        var result = await new CodingHarness().ListDirectory("/dev");
+        var result = await new CodingToolHarness().ListDirectory("/dev");
 
         result.Should().Contain("Cannot list blocked system path.");
     }
@@ -382,7 +382,7 @@ public sealed class ListDirectoryTests : IDisposable
         {
             File.SetUnixFileMode("restricted", UnixFileMode.UserWrite);
 
-            var result = await new CodingHarness().ListDirectory("restricted");
+            var result = await new CodingToolHarness().ListDirectory("restricted");
 
             result.Should().Contain("Unable to list directory:");
         }
@@ -407,7 +407,7 @@ public sealed class ListDirectoryTests : IDisposable
         {
             File.SetUnixFileMode("restricted-child", UnixFileMode.UserWrite);
 
-            var result = await new CodingHarness().ListDirectory(".", recursive: true, maxDepth: 2);
+            var result = await new CodingToolHarness().ListDirectory(".", recursive: true, maxDepth: 2);
 
             result.Should().Contain("good.txt");
             result.Should().Contain("restricted-child/");
@@ -427,7 +427,7 @@ public sealed class ListDirectoryTests : IDisposable
         await File.WriteAllTextAsync("disk.txt", "disk\n");
         var source = new FakeDirectoryListingSource("virtual.txt");
 
-        var result = await new CodingHarness(null, [source]).ListDirectory(".");
+        var result = await new CodingToolHarness(null, [source]).ListDirectory(".");
 
         result.Should().Contain("virtual.txt");
         result.Should().NotContain("disk.txt");
@@ -438,7 +438,7 @@ public sealed class ListDirectoryTests : IDisposable
     {
         var source = new FakeDirectoryListingSource("virtual.txt");
 
-        var result = await new CodingHarness(null, [source]).ListDirectory("virtual-folder");
+        var result = await new CodingToolHarness(null, [source]).ListDirectory("virtual-folder");
 
         result.Should().Contain("virtual.txt");
         result.Should().NotContain("Directory does not exist.");
@@ -467,7 +467,7 @@ public sealed class ListDirectoryTests : IDisposable
             "call-1",
             new Dictionary<string, object?>(),
             runConfig,
-            harnessName: "CodingHarness");
+            toolharnessName: "CodingToolHarness");
         var request = new FunctionRequest
         {
             Function = function,

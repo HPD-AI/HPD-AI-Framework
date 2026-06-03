@@ -34,9 +34,15 @@ var agent = await new AgentBuilder()
             opts.MaxOutputTokenCount = 4096;
             opts.Temperature = 0.7f;
         })
-    .Build();
+    .BuildAsync();
 
-var response = await agent.ChatAsync("Hello!");
+using var output = agent.Subscribe<TextDeltaEvent>(evt =>
+{
+    Console.Write(evt.Text);
+});
+
+await agent.RunAsync("Hello!");
+Console.WriteLine();
 ```
 
 ### Azure OpenAI
@@ -52,7 +58,7 @@ var agent = await new AgentBuilder()
             opts.MaxOutputTokenCount = 4096;
             opts.Temperature = 0.7f;
         })
-    .Build();
+    .BuildAsync();
 ```
 
 ## Configuration
@@ -99,7 +105,7 @@ var agent = await new AgentBuilder()
             opts.Seed = 12345;
             opts.ResponseFormat = "json_schema";
         })
-    .Build();
+    .BuildAsync();
 ```
 
 ## Supported Models

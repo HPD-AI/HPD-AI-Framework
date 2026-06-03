@@ -174,7 +174,7 @@ public sealed class AppleVirtualizationVerticalSliceAcceptanceTests : IDisposabl
     }
 
     [Fact]
-    public void Vertical_slice_harness_keeps_terminal_resize_and_deferred_lanes_out_of_scope()
+    public void Vertical_slice_toolharness_keeps_terminal_resize_and_deferred_lanes_out_of_scope()
     {
         var registry = new ExecutionProviderRegistry();
         registry.RegisterAppleVirtualizationProvider();

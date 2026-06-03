@@ -71,7 +71,7 @@ public class TelemetryEventObserver : IDisposable
 
         _containerExpansions = _meter.CreateCounter<int>(
             "agent.container_expansions",
-            description: "Number of Harness/skill container expansions");
+            description: "Number of ToolHarness/skill container expansions");
 
         _retryAttempts = _meter.CreateCounter<int>(
             "agent.retry_attempts",

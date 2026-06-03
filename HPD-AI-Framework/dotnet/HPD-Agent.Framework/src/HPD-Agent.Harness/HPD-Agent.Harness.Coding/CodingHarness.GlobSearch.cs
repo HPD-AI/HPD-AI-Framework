@@ -4,11 +4,11 @@ using System.Globalization;
 using System.Text;
 using System.Xml;
 using HPD.Agent.Middleware;
-using HPDOS.Harneses.Middleware;
+using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.FileSystemGlobbing;
 
-public partial class CodingHarness
+public partial class CodingToolHarness
 {
     private const int DefaultMatchLimit = 200;
     private const int MaxMatchLimit = 1000;
@@ -592,7 +592,7 @@ public partial class CodingHarness
     private static string FormatGlobSearchResult(GlobSearchResult result)
     {
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
 
         writer.WriteStartElement("glob");
         writer.WriteAttributeString("path", result.Path);
@@ -658,7 +658,7 @@ public partial class CodingHarness
     private static string FormatGlobSearchError(string path, string message)
     {
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
 
         writer.WriteStartElement("error");
         writer.WriteAttributeString("tool", "GlobSearch");
@@ -702,7 +702,7 @@ public partial class CodingHarness
 
 }
 
-namespace HPDOS.Harneses.Middleware
+namespace HPDOS.ToolHarnesses.Middleware
 {
 /// <summary>
 /// Allows hosts to resolve workspace-facing glob paths before local filesystem fallback.

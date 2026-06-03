@@ -1,10 +1,10 @@
 using HPD.Agent;
 using HPD.Agent.Middleware;
 using HPD.Events.Core;
-using HPDOS.Harneses.Middleware;
+using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 
-namespace HPD.Agent.Harness.Coding.Tests;
+namespace HPD.Agent.ToolHarness.Coding.Tests;
 
 [CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class CurrentDirectoryCollection
@@ -137,7 +137,7 @@ public sealed class EnvironmentContextMiddlewareTests
     public void CreateCurrent_TreatsGitFileAsRepositoryMarker()
     {
         var originalCwd = Directory.GetCurrentDirectory();
-        var tempRoot = Path.Combine(Path.GetTempPath(), $"hpd-coding-harness-gitfile-{Guid.NewGuid():N}");
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"hpd-coding-toolharness-gitfile-{Guid.NewGuid():N}");
         var child = Path.Combine(tempRoot, "src");
 
         Directory.CreateDirectory(child);
@@ -206,7 +206,7 @@ public sealed class EnvironmentContextMiddlewareTests
     public async Task BeforeIterationAsync_ReinjectsWhenCwdChanges()
     {
         var originalCwd = Directory.GetCurrentDirectory();
-        var tempRoot = Path.Combine(Path.GetTempPath(), $"hpd-coding-harness-tests-{Guid.NewGuid():N}");
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"hpd-coding-toolharness-tests-{Guid.NewGuid():N}");
         var firstDirectory = Path.Combine(tempRoot, "first");
         var secondDirectory = Path.Combine(tempRoot, "second");
 

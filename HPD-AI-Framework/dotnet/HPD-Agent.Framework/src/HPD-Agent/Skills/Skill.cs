@@ -31,9 +31,9 @@ public class Skill
     public string? SystemPrompt { get; internal set; }
 
     /// <summary>
-    /// String-based references to functions or skills in "HarnessName.FunctionName" format.
+    /// String-based references to functions or skills in "ToolHarnessName.FunctionName" format.
     /// Validated at compile-time by source generator, works with instance methods at runtime.
-    /// Example: "FileSystemHarness.ReadFile"
+    /// Example: "FileSystemToolHarness.ReadFile"
     /// </summary>
     public string[] References { get; internal set; } = Array.Empty<string>();
 
@@ -43,14 +43,14 @@ public class Skill
     // Internal - resolved by source generator during code generation
 
     /// <summary>
-    /// Resolved function references in "HarnessName.FunctionName" format
+    /// Resolved function references in "ToolHarnessName.FunctionName" format
     /// Set by source generator after flattening skill references
     /// </summary>
     internal string[] ResolvedFunctionReferences { get; set; } = Array.Empty<string>();
 
     /// <summary>
-    /// Resolved Harness types that need to be registered
+    /// Resolved ToolHarness types that need to be registered
     /// Set by source generator after analyzing all references
     /// </summary>
-    internal string[] ResolvedHarnessTypes { get; set; } = Array.Empty<string>();
+    internal string[] ResolvedToolHarnessTypes { get; set; } = Array.Empty<string>();
 }

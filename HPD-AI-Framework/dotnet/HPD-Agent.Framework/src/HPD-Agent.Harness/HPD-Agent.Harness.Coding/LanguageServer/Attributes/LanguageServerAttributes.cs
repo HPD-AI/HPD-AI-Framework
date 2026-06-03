@@ -1,4 +1,4 @@
-namespace HPDOS.Harneses.Middleware;
+namespace HPDOS.ToolHarnesses.Middleware;
 
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
 public sealed class HpdLanguageServerAttribute(string id) : Attribute

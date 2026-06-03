@@ -1,16 +1,16 @@
-import type { ClientToolInvokeRequestEvent, ClientToolInvokeResponse, ClientHarnessDefinition } from '@hpd/hpd-agent-client';
+import type { ClientToolInvokeRequestEvent, ClientToolInvokeResponse, ClientToolHarnessDefinition } from '@hpd/hpd-agent-client';
 import { createTextResult } from '@hpd/hpd-agent-client';
 import type { AcpSessionState, ClientToolResult } from './session.js';
 import type { AcpWriter } from '../acp/writer.js';
 import type { AcpClientCapabilities } from '../types/acp.js';
 
 /**
- * Builds the clientHarnesses array to pass into runConfig.clientToolInput,
+ * Builds the clientToolHarnesses array to pass into runConfig.clientToolInput,
  * based on what the editor declared during ACP initialize.
  * This is what tells the agent which client-side tools it can call.
  */
-export function capsToHarnesses(caps: AcpClientCapabilities): ClientHarnessDefinition[] {
-  const tools: ClientHarnessDefinition['tools'] = [];
+export function capsToToolHarnesses(caps: AcpClientCapabilities): ClientToolHarnessDefinition[] {
+  const tools: ClientToolHarnessDefinition['tools'] = [];
 
   if (caps.fs?.readTextFile) {
     tools.push({

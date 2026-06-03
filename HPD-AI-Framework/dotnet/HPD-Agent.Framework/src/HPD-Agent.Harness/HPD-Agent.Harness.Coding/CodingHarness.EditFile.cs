@@ -5,10 +5,10 @@ using System.Text;
 using System.Text.RegularExpressions;
 using HPD.Agent;
 using HPD.Agent.Middleware;
-using HPDOS.Harneses.Middleware;
+using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 
-public partial class CodingHarness
+public partial class CodingToolHarness
 {
     private const int MaxEditCount = 20;
     private const int MaxNormalizationNotes = 50;
@@ -1229,7 +1229,7 @@ public partial class CodingHarness
     private static string FormatEditResult(FileMutationResult result, EditApplicationResult application)
     {
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
         writer.WriteStartElement("edit_file");
         writer.WriteAttributeString("path", result.Path);
         writer.WriteAttributeString("edits", application.ResolvedReplacements.Count.ToString(CultureInfo.InvariantCulture));
@@ -1270,7 +1270,7 @@ public partial class CodingHarness
     private static string FormatEditError(EditFileErrorKind kind, string? path, string message, EditMatchStrategy? strategy = null)
     {
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
         writer.WriteStartElement("error");
         writer.WriteAttributeString("tool", "EditFile");
         writer.WriteAttributeString("kind", FormatEnum(kind));

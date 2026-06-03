@@ -18,14 +18,14 @@ public class ContainerInstructionLifecycleStressTests
     [Fact]
     public async Task Instructions_ClearedBetweenTurns_SingleContainer()
     {
-        // Scenario: Turn 1 expands CodingHarness, Turn 2 should have clean prompt
+        // Scenario: Turn 1 expands CodingToolHarness, Turn 2 should have clean prompt
         var middleware = CreateContainerMiddleware();
 
-        // Turn 1: Expand CodingHarness
+        // Turn 1: Expand CodingToolHarness
         var turn1State = new ContainerMiddlewareState()
-            .WithExpandedContainer("CodingHarness")
-            .WithContainerInstructions("CodingHarness", new ContainerInstructionSet(
-                FunctionResult: "CodingHarness expanded",
+            .WithExpandedContainer("CodingToolHarness")
+            .WithContainerInstructions("CodingToolHarness", new ContainerInstructionSet(
+                FunctionResult: "CodingToolHarness expanded",
                 SystemPrompt: "CODING RULES: Always validate paths"));
 
         var turn1Context = CreateBeforeIterationContext(turn1State, iteration: 0);
@@ -61,12 +61,12 @@ public class ContainerInstructionLifecycleStressTests
 
         // Turn 1: Expand multiple containers
         var turn1State = new ContainerMiddlewareState()
-            .WithExpandedContainer("CodingHarness")
-            .WithExpandedContainer("MathHarness")
-            .WithContainerInstructions("CodingHarness", new ContainerInstructionSet(
+            .WithExpandedContainer("CodingToolHarness")
+            .WithExpandedContainer("MathToolHarness")
+            .WithContainerInstructions("CodingToolHarness", new ContainerInstructionSet(
                 FunctionResult: null,
                 SystemPrompt: "CODING: Validate paths"))
-            .WithContainerInstructions("MathHarness", new ContainerInstructionSet(
+            .WithContainerInstructions("MathToolHarness", new ContainerInstructionSet(
                 FunctionResult: null,
                 SystemPrompt: "MATH: Always round to 2 decimals"));
 
@@ -109,7 +109,7 @@ public class ContainerInstructionLifecycleStressTests
              ACTIVE CONTAINER PROTOCOLS (Execute ALL steps completely)
             ═════════════════════════════════════════════════════════════════════════════════════════════════
 
-            ## CodingHarness:
+            ## CodingToolHarness:
 
             STALE INSTRUCTIONS: This should be removed
             """;
@@ -133,8 +133,8 @@ public class ContainerInstructionLifecycleStressTests
         var middleware = CreateContainerMiddleware();
 
         var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("MathHarness")
-            .WithContainerInstructions("MathHarness", new ContainerInstructionSet(
+            .WithExpandedContainer("MathToolHarness")
+            .WithContainerInstructions("MathToolHarness", new ContainerInstructionSet(
                 FunctionResult: null,
                 SystemPrompt: "MATH RULES: Use SI units"));
 
@@ -233,24 +233,24 @@ public class ContainerInstructionLifecycleStressTests
         var middleware = CreateContainerMiddleware();
 
         var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("ZebraHarness")
-            .WithExpandedContainer("AlphaHarness")
-            .WithExpandedContainer("MidHarness")
-            .WithContainerInstructions("ZebraHarness", new ContainerInstructionSet(null, "Zebra rules"))
-            .WithContainerInstructions("AlphaHarness", new ContainerInstructionSet(null, "Alpha rules"))
-            .WithContainerInstructions("MidHarness", new ContainerInstructionSet(null, "Mid rules"));
+            .WithExpandedContainer("ZebraToolHarness")
+            .WithExpandedContainer("AlphaToolHarness")
+            .WithExpandedContainer("MidToolHarness")
+            .WithContainerInstructions("ZebraToolHarness", new ContainerInstructionSet(null, "Zebra rules"))
+            .WithContainerInstructions("AlphaToolHarness", new ContainerInstructionSet(null, "Alpha rules"))
+            .WithContainerInstructions("MidToolHarness", new ContainerInstructionSet(null, "Mid rules"));
 
         var context = CreateBeforeIterationContext(state, iteration: 1);
         await middleware.BeforeIterationAsync(context, CancellationToken.None);
 
         var instructions = context.Options!.Instructions!;
-        var alphaIndex = instructions.IndexOf("## AlphaHarness:");
-        var midIndex = instructions.IndexOf("## MidHarness:");
-        var zebraIndex = instructions.IndexOf("## ZebraHarness:");
+        var alphaIndex = instructions.IndexOf("## AlphaToolHarness:");
+        var midIndex = instructions.IndexOf("## MidToolHarness:");
+        var zebraIndex = instructions.IndexOf("## ZebraToolHarness:");
 
         // Verify alphabetical order
-        Assert.True(alphaIndex < midIndex, "AlphaHarness should appear before MidHarness");
-        Assert.True(midIndex < zebraIndex, "MidHarness should appear before ZebraHarness");
+        Assert.True(alphaIndex < midIndex, "AlphaToolHarness should appear before MidToolHarness");
+        Assert.True(midIndex < zebraIndex, "MidToolHarness should appear before ZebraToolHarness");
     }
 
     #endregion
@@ -260,13 +260,13 @@ public class ContainerInstructionLifecycleStressTests
     [Fact]
     public async Task ThreeTurnsSequential_InstructionsClearedBetweenEach()
     {
-        // Scenario: Turn 1 → CodingHarness, Turn 2 → MathHarness, Turn 3 → Both cleared
+        // Scenario: Turn 1 → CodingToolHarness, Turn 2 → MathToolHarness, Turn 3 → Both cleared
         var middleware = CreateContainerMiddleware();
 
-        // Turn 1: CodingHarness
+        // Turn 1: CodingToolHarness
         var turn1State = new ContainerMiddlewareState()
-            .WithExpandedContainer("CodingHarness")
-            .WithContainerInstructions("CodingHarness", new ContainerInstructionSet(null, "CODING INSTRUCTIONS"));
+            .WithExpandedContainer("CodingToolHarness")
+            .WithContainerInstructions("CodingToolHarness", new ContainerInstructionSet(null, "CODING INSTRUCTIONS"));
 
         var turn1Context = CreateBeforeIterationContext(turn1State, iteration: 0);
         await middleware.BeforeIterationAsync(turn1Context, CancellationToken.None);
@@ -275,10 +275,10 @@ public class ContainerInstructionLifecycleStressTests
         var afterTurn1 = CreateAfterMessageTurnContext(turn1State);
         await middleware.AfterMessageTurnAsync(afterTurn1, CancellationToken.None);
 
-        // Turn 2: MathHarness (CodingHarness cleared)
+        // Turn 2: MathToolHarness (CodingToolHarness cleared)
         var turn2State = new ContainerMiddlewareState() // Fresh state
-            .WithExpandedContainer("MathHarness")
-            .WithContainerInstructions("MathHarness", new ContainerInstructionSet(null, "MATH INSTRUCTIONS"));
+            .WithExpandedContainer("MathToolHarness")
+            .WithContainerInstructions("MathToolHarness", new ContainerInstructionSet(null, "MATH INSTRUCTIONS"));
 
         var turn2Context = CreateBeforeIterationContext(turn2State, iteration: 0);
         turn2Context.Options!.Instructions = "You are a helpful AI assistant."; // Fresh options
@@ -322,8 +322,8 @@ public class ContainerInstructionLifecycleStressTests
     {
         var middleware = CreateContainerMiddleware();
         var state = new ContainerMiddlewareState()
-            .WithExpandedContainer("TestHarness")
-            .WithContainerInstructions("TestHarness", new ContainerInstructionSet(
+            .WithExpandedContainer("TestToolHarness")
+            .WithContainerInstructions("TestToolHarness", new ContainerInstructionSet(
                 FunctionResult: "Some result",
                 SystemPrompt: null)); // Null system prompt
 
@@ -332,7 +332,7 @@ public class ContainerInstructionLifecycleStressTests
 
         // Header present but no container content since SystemPrompt is null
         Assert.Contains(" ACTIVE CONTAINER PROTOCOLS", context.Options!.Instructions!);
-        Assert.DoesNotContain("TestHarness", context.Options.Instructions);
+        Assert.DoesNotContain("TestToolHarness", context.Options.Instructions);
     }
 
     [Fact]

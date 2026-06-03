@@ -5,7 +5,7 @@
 ```csharp
 var agent = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithHarness<MyHarness>()
+    .WithToolHarness<MyToolHarness>()
     .WithLogging(LogLevel.Information)
     .BuildAsync();
 ```
@@ -100,7 +100,7 @@ See [Providers](Providers/00%20Providers%20Overview.md) for full signatures and 
 ## Service Provider (Dependency Injection)
 
 ```csharp
-.WithServiceProvider(services)   // IServiceProvider — required for DI-based harnesses and middleware
+.WithServiceProvider(services)   // IServiceProvider — required for DI-based toolharnesses and middleware
 ```
 
 ---
@@ -108,23 +108,23 @@ See [Providers](Providers/00%20Providers%20Overview.md) for full signatures and 
 ## Tools
 
 ```csharp
-// Register a native C# harness by type (cannot be in JSON)
-.WithHarness<MyHarness>()
-.WithHarness<MyHarness>(contextMetadata)
+// Register a native C# toolharness by type (cannot be in JSON)
+.WithToolHarness<MyToolHarness>()
+.WithToolHarness<MyToolHarness>(contextMetadata)
 
-// Register a harness with an existing instance
-.WithHarness<MyHarness>(instance)
-.WithHarness<MyHarness>(instance, contextMetadata)
+// Register a toolharness with an existing instance
+.WithToolHarness<MyToolHarness>(instance)
+.WithToolHarness<MyToolHarness>(instance, contextMetadata)
 
 // Register by Type object (dynamic / reflection)
-.WithHarness(typeof(MyHarness))
+.WithToolHarness(typeof(MyToolHarness))
 
-// Aliases — identical behaviour to WithHarness
-.WithTools<MyHarness>()
-.WithTools<MyHarness>(instance)
-.WithTools(typeof(MyHarness))
+// Aliases — identical behaviour to WithToolHarness
+.WithTools<MyToolHarness>()
+.WithTools<MyToolHarness>(instance)
+.WithTools(typeof(MyToolHarness))
 
-// Register state assemblies (for state-machine harnesses)
+// Register state assemblies (for state-machine toolharnesses)
 .WithStateAssembly<TMarker>()
 .WithStateAssembly(assembly)
 ```
@@ -224,16 +224,16 @@ agent.OnAny(e => { /* forward to diagnostics or a websocket */ return ValueTask.
 
 ---
 
-## Collapsing (Harness Hierarchy)
+## Collapsing (ToolHarness Hierarchy)
 
 ```csharp
 // Enable collapsing with default config
-.WithToolCollapsing()
+.WithHarnessCollapsing()
 
 // Customise
-.WithToolCollapsing(cfg =>
+.WithHarnessCollapsing(cfg =>
 {
-    cfg.NeverCollapse = new HashSet<string> { "FileHarness" };
+    cfg.NeverCollapse = new HashSet<string> { "FileToolHarness" };
     cfg.MaxFunctionNamesInDescription = 5;
 })
 

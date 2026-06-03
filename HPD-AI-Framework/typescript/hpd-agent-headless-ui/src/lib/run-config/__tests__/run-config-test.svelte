@@ -1,8 +1,8 @@
 <script lang="ts">
 	/**
-	 * RunConfig Test Harness
+	 * RunConfig Test ToolHarness
 	 *
-	 * Renders every RunConfig component in a single harness so the browser tests
+	 * Renders every RunConfig component in a single toolharness so the browser tests
 	 * can verify data attributes, snippet props, and state mutation through the
 	 * DOM. Each component is wrapped in a div with a data-testid so locators are
 	 * stable regardless of how mergeProps reorders attributes.

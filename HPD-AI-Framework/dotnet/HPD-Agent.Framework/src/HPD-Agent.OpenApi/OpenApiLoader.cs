@@ -91,8 +91,8 @@ internal sealed class OpenApiLoader : IOpenApiLoader
 
         var runner = OpenApiSpecLoader.CreateRunner(config, httpClient);
 
-        // CollapseWithinHarness is read from config (authoritative) rather than from source.CollapseWithinHarness.
-        // source.CollapseWithinHarness is a placeholder for registrations created by AgentBuilder
+        // CollapseWithinToolHarness is read from config (authoritative) rather than from source.CollapseWithinToolHarness.
+        // source.CollapseWithinToolHarness is a placeholder for registrations created by AgentBuilder
         // (which cannot cast config to OpenApiConfig), so the value in config takes precedence.
         return OpenApiFunctionFactory.CreateFunctions(
             spec,
@@ -100,6 +100,6 @@ internal sealed class OpenApiLoader : IOpenApiLoader
             runner,
             namePrefix: source.Name,
             parentContainer: source.ParentContainer,
-            collapseWithinHarness: config.CollapseWithinHarness);
+            collapseWithinToolHarness: config.CollapseWithinToolHarness);
     }
 }

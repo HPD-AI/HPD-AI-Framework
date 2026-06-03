@@ -28,7 +28,7 @@ var config = new ClientProviderConfig
 
 var agent = new AgentBuilder()
     .WithProviderConfig(config)
-    .WithHarness<MyHarness>()
+    .WithToolHarness<MyToolHarness>()
     .Build();
 
 var response = await agent.ChatAsync("Your prompt here");

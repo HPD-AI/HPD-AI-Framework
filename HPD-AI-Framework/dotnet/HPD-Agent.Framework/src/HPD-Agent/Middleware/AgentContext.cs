@@ -194,7 +194,7 @@ public sealed class AgentContext
     /// </para>
     /// <para>
     /// Includes: ActiveSkillInstructions, CompletedFunctions, MiddlewareStates,
-    /// ExpandedSkillContainers, expandedCollapsedHarnessContainers, etc.
+    /// ExpandedSkillContainers, expandedCollapsedToolHarnessContainers, etc.
     /// </para>
     /// </remarks>
     public AgentLoopState State
@@ -512,10 +512,10 @@ public sealed class AgentContext
         string callId,
         IReadOnlyDictionary<string, object?> arguments,
         AgentRunConfig runConfig,
-        string? harnessName = null,
+        string? toolharnessName = null,
         string? skillName = null,
         ToolInvocationInfo? invocation = null)
-        => new(this, function, callId, arguments, harnessName, skillName, runConfig, invocation);
+        => new(this, function, callId, arguments, toolharnessName, skillName, runConfig, invocation);
 
     /// <summary>
     /// Creates a typed context for AfterFunction hook.
@@ -526,11 +526,11 @@ public sealed class AgentContext
         object? result,
         Exception? exception,
         AgentRunConfig runConfig,
-        string? harnessName = null,
+        string? toolharnessName = null,
         string? skillName = null,
         ToolInvocationInfo? invocation = null,
         ToolResultMetadata? resultMetadata = null)
-        => new(this, function, callId, result, exception, runConfig, harnessName, skillName, invocation, resultMetadata);
+        => new(this, function, callId, result, exception, runConfig, toolharnessName, skillName, invocation, resultMetadata);
 
     /// <summary>
     /// Creates a typed context for BeforeBranchForkCommit hook.

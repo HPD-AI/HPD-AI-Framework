@@ -1,8 +1,8 @@
 using System.Text.Json;
 using FluentAssertions;
-using HPD.Agent.Harness.Coding;
+using HPD.Agent.ToolHarness.Coding;
 
-namespace HPD.Agent.Harness.Coding.Tests.Workspace;
+namespace HPD.Agent.ToolHarness.Coding.Tests.Workspace;
 
 public sealed class AgentWorkspaceTests : IDisposable
 {

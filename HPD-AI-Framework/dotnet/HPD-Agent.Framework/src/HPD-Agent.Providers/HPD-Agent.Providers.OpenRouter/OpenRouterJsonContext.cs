@@ -33,7 +33,7 @@ namespace HPD.Agent.Providers.OpenRouter;
 [JsonSerializable(typeof(OpenRouterReasoningConfig))]
 [JsonSerializable(typeof(OpenRouterStreamOptions))]
 [JsonSerializable(typeof(OpenRouterError))]
-[JsonSerializable(typeof(OpenRouterHarness))]
+[JsonSerializable(typeof(OpenRouterToolHarness))]
 [JsonSerializable(typeof(OpenRouterPdfConfig))]
 [JsonSerializable(typeof(OpenRouterProviderPreferences))]
 [JsonSerializable(typeof(OpenRouterMaxPrice))]

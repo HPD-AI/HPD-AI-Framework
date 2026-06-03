@@ -13,6 +13,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="/Users/einsteinessibu/Documents/HPD-Agent/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/HPD-Agent.Harness.FileSystem.csproj" />
+    <ProjectReference Include="/Users/einsteinessibu/Documents/HPD-Agent/HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.FileSystem/HPD-Agent.ToolHarness.FileSystem.csproj" />
   </ItemGroup>
 </Project>

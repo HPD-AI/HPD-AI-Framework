@@ -1,19 +1,19 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent;
-using HPD.Agent.Harness.Coding;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Middleware;
 using HPD.Agent.Providers;
 using HPD.Events.Core;
 using Microsoft.Extensions.AI;
 
-namespace HPD.Agent.Harness.Coding.Tests;
+namespace HPD.Agent.ToolHarness.Coding.Tests;
 
-public class CodingHarnessAgentBuilderTests
+public class CodingToolHarnessAgentBuilderTests
 {
     [Fact]
-    public async Task AgentBuilder_CanCreateAgentWithCodingHarness()
+    public async Task AgentBuilder_CanCreateAgentWithCodingToolHarness()
     {
         using var chatClient = new TestChatClient();
         var config = new AgentConfig
@@ -26,8 +26,8 @@ public class CodingHarnessAgentBuilderTests
         };
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(chatClient))
-            .WithName("coding-harness-test-agent")
-            .WithHarness<CodingHarness>()
+            .WithName("coding-toolharness-test-agent")
+            .WithToolHarness<CodingToolHarness>()
             .BuildAsync();
 
         var toolNames = agent.DefaultOptions?.Tools?
@@ -46,18 +46,18 @@ public class CodingHarnessAgentBuilderTests
     }
 
     [Fact]
-    public void CodingHarnessPrompt_IncludesExecuteCommandGuidance()
+    public void CodingToolHarnessPrompt_IncludesExecuteCommandGuidance()
     {
-        CodingHarnessPrompts.SystemPrompt.Should().Contain("Use ExecuteCommand for builds, tests, project scripts");
-        CodingHarnessPrompts.SystemPrompt.Should().Contain("Prefer the workingDirectory argument over cd");
-        CodingHarnessPrompts.SystemPrompt.Should().Contain("Use runInBackground for long-running servers or watchers.");
-        CodingHarnessPrompts.SystemPrompt.Should().Contain("Use ListBackground if you need to recover ids");
-        CodingHarnessPrompts.SystemPrompt.Should().Contain("ReadOutput delayMilliseconds");
-        CodingHarnessPrompts.SystemPrompt.Should().Contain("content_list/content_read under /artifacts");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Use ExecuteCommand for builds, tests, project scripts");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Prefer the workingDirectory argument over cd");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Use runInBackground for long-running servers or watchers.");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Use ListBackground if you need to recover ids");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("ReadOutput delayMilliseconds");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("content_list/content_read under /artifacts");
     }
 
     [Fact]
-    public async Task GeneratedHarnessTools_ApplyDeclaredOptionalParameterDefaults()
+    public async Task GeneratedToolHarnessTools_ApplyDeclaredOptionalParameterDefaults()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"hpd-coding-defaults-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
@@ -79,12 +79,12 @@ public class CodingHarnessAgentBuilderTests
                         } }
                     },
                     new TestProviderRegistry(chatClient))
-                .WithName("coding-harness-test-agent")
-                .WithHarness<CodingHarness>()
+                .WithName("coding-toolharness-test-agent")
+                .WithToolHarness<CodingToolHarness>()
                 .BuildAsync();
 
             var tools = agent.DefaultOptions?.Tools?.OfType<AIFunction>().ToDictionary(tool => tool.Name)
-                ?? throw new InvalidOperationException("No coding harness tools were registered.");
+                ?? throw new InvalidOperationException("No coding toolharness tools were registered.");
 
             var listResult = await InvokeToolAsync(tools["ListDirectory"], new AIFunctionArguments
             {
@@ -172,7 +172,7 @@ public class CodingHarnessAgentBuilderTests
             "call-1",
             new Dictionary<string, object?>(),
             runConfig,
-            harnessName: null,
+            toolharnessName: null,
             skillName: null,
             invocation: null);
         var request = new FunctionRequest

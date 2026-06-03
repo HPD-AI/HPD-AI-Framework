@@ -52,7 +52,7 @@ client.tools.register('get_active_view', () => ({
   activeView: 'chat',
 }));
 
-client.tools.registerHarness(browserHarness, (request) => {
+client.tools.registerToolHarness(browserToolHarness, (request) => {
   return runBrowserTool(request.toolName, request.arguments);
 });
 ```

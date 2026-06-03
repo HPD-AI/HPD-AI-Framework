@@ -7,7 +7,7 @@ namespace HPD.Agent;
 /// <summary>
 /// Auto-discovers and loads HPD-Agent extension libraries and provider assemblies.
 /// This ModuleInitializer runs automatically in both JIT and AOT scenarios.
-/// Loads: HPD-Agent.MCP, HPD-Agent.Harness.*, and provider packages
+/// Loads: HPD-Agent.MCP, HPD-Agent.ToolHarness.*, and provider packages
 /// (HPD-Agent.Providers.* and HPD.Agent.Providers.Audio.*).
 /// </summary>
 internal static class AutoDiscovery
@@ -128,10 +128,10 @@ internal static class AutoDiscovery
             TryLoadExtensionLibrary(directory, "HPD-Agent.OpenApi.dll");
             TryLoadExtensionLibrary(directory, "HPD.Agent.Audio.AgentIntegration.dll");
 
-            // 2. Scan for harness assemblies so string-based AgentConfig harnesses can resolve.
-            foreach (var harnessFile in Directory.GetFiles(directory, "HPD-Agent.Harness.*.dll"))
+            // 2. Scan for toolharness assemblies so string-based AgentConfig toolharnesses can resolve.
+            foreach (var toolharnessFile in Directory.GetFiles(directory, "HPD-Agent.ToolHarness.*.dll"))
             {
-                TryLoadAssemblyAndRunModuleInitializer(harnessFile);
+                TryLoadAssemblyAndRunModuleInitializer(toolharnessFile);
             }
 
             // 3. Scan for provider assemblies.

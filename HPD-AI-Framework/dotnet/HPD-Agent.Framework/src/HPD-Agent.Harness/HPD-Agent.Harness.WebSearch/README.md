@@ -1,5 +1,5 @@
 
-The WebSearch Harness provides intelligent web search capabilities to HPD-Agent with support for multiple search providers, type-safe configuration, and AOT-compatible implementation.
+The WebSearch ToolHarness provides intelligent web search capabilities to HPD-Agent with support for multiple search providers, type-safe configuration, and AOT-compatible implementation.
 
 ## 🎯 Features
 
@@ -20,7 +20,7 @@ var agent = AgentBuilder.Create()
     .WithWebSearchProvider(tavily => tavily
         .WithApiKey("your-tavily-api-key")
         .ForResearchMode()) // AI answers + raw content
-    .WithWebSearchHarness()
+    .WithWebSearchToolHarness()
     .Build();
 ```
 
@@ -42,7 +42,7 @@ var agent = AgentBuilder.Create()
     .WithWebSearchProvider(bing => bing
         .WithApiKey("bing-key")
         .ForEnterpriseSearch())
-    .WithWebSearchHarness(defaultProvider: "tavily")
+    .WithWebSearchToolHarness(defaultProvider: "tavily")
     .Build();
 ```
 
@@ -132,7 +132,7 @@ WebSearch/
 ├── Models/
 │   └── SearchModels.cs             # SearchResult, AnswerResult models
 ├── Context/
-│   └── WebSearchContext.cs         # IHarnessMetadata implementation
+│   └── WebSearchContext.cs         # IToolHarnessMetadata implementation
 ├── Builders/
 │   ├── IWebSearchProviderBuilders.cs  # Type-safe builder interfaces
 │   ├── TavilyWebSearchBuilder.cs       # Tavily-specific builder
@@ -143,8 +143,8 @@ WebSearch/
 │   ├── TavilyJsonContext.cs            # AOT-compatible JSON context
 │   ├── BraveConnector.cs               # Brave API implementation (Phase 2)
 │   └── BingConnector.cs                # Bing wrapper (Phase 2)
-├── Harness/
-│   └── WebSearchHarness.cs              # Main Harness with conditional functions
+├── ToolHarness/
+│   └── WebSearchToolHarness.cs              # Main ToolHarness with conditional functions
 ├── Extensions/
 │   └── AgentBuilderExtensions.cs       # Fluent configuration API
 └── Examples/
@@ -153,7 +153,7 @@ WebSearch/
 
 ### Conditional Function System
 
-The Harness uses HPD-Agent's V2 conditional function system with type-safe expressions to generate only relevant AI functions:
+The ToolHarness uses HPD-Agent's V2 conditional function system with type-safe expressions to generate only relevant AI functions:
 
 ```csharp
 [ConditionalFunction<WebSearchContext>("HasTavilyProvider || HasBraveProvider || HasBingProvider")]
@@ -172,7 +172,7 @@ public async Task<string> WebSearchAsync(
 ### Provider Detection Logic
 
 ```csharp
-public class WebSearchContext : IHarnessMetadata
+public class WebSearchContext : IToolHarnessMetadata
 {
     public bool HasProvider(string providerName) =>
         _connectors.ContainsKey(providerName.ToLowerInvariant());
@@ -280,23 +280,23 @@ public interface IBingWebSearchBuilder
 
 ## 🔌 Integration with HPD-Agent
 
-### Harness Registration
+### ToolHarness Registration
 
-The WebSearch Harness integrates seamlessly with HPD-Agent's Harness system:
+The WebSearch ToolHarness integrates seamlessly with HPD-Agent's ToolHarness system:
 
 ```csharp
-.WithWebSearchHarness(defaultProvider: "tavily")
+.WithWebSearchToolHarness(defaultProvider: "tavily")
 ```
 
 This registration:
 1. Analyzes configured providers and their capabilities
 2. Generates appropriate conditional functions
 3. Creates dynamic function descriptions
-4. Registers the Harness with the agent
+4. Registers the ToolHarness with the agent
 
 ### Source Generator Integration
 
-The Harness works with HPD-Agent's source generator for:
+The ToolHarness works with HPD-Agent's source generator for:
 - Conditional function evaluation
 - DSL expression parsing
 - Function description generation
@@ -360,7 +360,7 @@ await agent.InvokeAsync("What are the main benefits of quantum computing?");
 ### Phase 1: Core Infrastructure  
 - [x] Base interfaces and models
 - [x] Tavily connector implementation
-- [x] Harness with conditional functions
+- [x] ToolHarness with conditional functions
 - [x] AgentBuilder extensions
 - [x] AOT compatibility
 
@@ -402,4 +402,4 @@ dotnet test
 
 ## 📄 License
 
-This WebSearch Harness is part of the HPD-Agent project and follows the same licensing terms.
+This WebSearch ToolHarness is part of the HPD-Agent project and follows the same licensing terms.

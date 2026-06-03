@@ -7,7 +7,7 @@ namespace HPD.Agent.Bots.Teams;
 
 /// <summary>
 /// Minimal Teams turn surface consumed by the HPD bridge. It keeps most bot
-/// logic testable without requiring a full Agents SDK turn test harness.
+/// logic testable without requiring a full Agents SDK turn test toolharness.
 /// </summary>
 public interface ITeamsTurn
 {

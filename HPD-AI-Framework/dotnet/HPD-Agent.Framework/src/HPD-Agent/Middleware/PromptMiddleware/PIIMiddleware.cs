@@ -103,7 +103,7 @@ public class PIIMiddleware : IAgentMiddleware
             return;
 
         await ProcessMessagesAsync(
-            context.ConversationHistory,
+            context.BranchHistory,
             ChatRole.User,
             context,
             cancellationToken).ConfigureAwait(false);

@@ -4,7 +4,7 @@ using System.Linq;
 using Microsoft.Extensions.Configuration;
 using HPD.Agent;
 
-namespace HPD.Agent.Harness.WebSearch;
+namespace HPD.Agent.ToolHarness.WebSearch;
 
 /// <summary>
 /// Extension methods for AgentBuilder to configure web search providers with type-safe fluent builders
@@ -34,7 +34,7 @@ public static class AgentBuilderWebSearchExtensions
 
         AddWebSearchConnector(builder, connector);
 
-        // Auto-finalize to register the Harness immediately
+        // Auto-finalize to register the ToolHarness immediately
         return FinalizeWebSearch(builder);
     }
 
@@ -55,7 +55,7 @@ public static class AgentBuilderWebSearchExtensions
             return ((IWebSearchProviderBuilder<ITavilyWebSearchBuilder>)tavilyBuilder).Build();
         });
 
-        // Auto-finalize to register the Harness immediately
+        // Auto-finalize to register the ToolHarness immediately
         return FinalizeWebSearch(builder);
     }
     
@@ -77,7 +77,7 @@ public static class AgentBuilderWebSearchExtensions
         
         AddWebSearchConnector(builder, connector);
         
-        // Auto-finalize to register the Harness immediately
+        // Auto-finalize to register the ToolHarness immediately
         return FinalizeWebSearch(builder);
     }
 
@@ -95,7 +95,7 @@ public static class AgentBuilderWebSearchExtensions
         
         AddWebSearchConnector(builder, connector);
         
-        // Auto-finalize to register the Harness immediately
+        // Auto-finalize to register the ToolHarness immediately
         return FinalizeWebSearch(builder);
     }
     
@@ -117,7 +117,7 @@ public static class AgentBuilderWebSearchExtensions
         
         AddWebSearchConnector(builder, connector);
         
-        // Auto-finalize to register the Harness immediately
+        // Auto-finalize to register the ToolHarness immediately
         return FinalizeWebSearch(builder);
     }
 
@@ -135,7 +135,7 @@ public static class AgentBuilderWebSearchExtensions
         
         AddWebSearchConnector(builder, connector);
         
-        // Auto-finalize to register the Harness immediately
+        // Auto-finalize to register the ToolHarness immediately
         return FinalizeWebSearch(builder);
     }
     
@@ -190,7 +190,7 @@ public static class AgentBuilderWebSearchExtensions
         // Store the default provider preference
         _defaultProviders[builder] = providerName.ToLowerInvariant();
         
-        // Note: Harness will be created when FinalizeWebSearch() is called
+        // Note: ToolHarness will be created when FinalizeWebSearch() is called
         
         return builder;
     }
@@ -236,8 +236,8 @@ public static class AgentBuilderWebSearchExtensions
         var context = new WebSearchContext(connectors, defaultProvider);
 
         // Register the WebSearchTools with the context
-        var Harness = new WebSearchTools(context);
-        builder.WithTools(Harness, context);
+        var ToolHarness = new WebSearchTools(context);
+        builder.WithTools(ToolHarness, context);
 
         // Clean up the temporary storage
         _pendingConnectors.Remove(builder);

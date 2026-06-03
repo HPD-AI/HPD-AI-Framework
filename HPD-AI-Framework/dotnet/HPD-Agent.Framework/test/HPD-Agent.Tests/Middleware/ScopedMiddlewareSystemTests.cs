@@ -53,7 +53,7 @@ public class CollapsedMiddlewareSystemTests
     {
         // Ensure Collapse values are in correct order for priority
         Assert.Equal(0, (int)MiddlewareScope.Global);
-        Assert.Equal(1, (int)MiddlewareScope.Harness);
+        Assert.Equal(1, (int)MiddlewareScope.ToolHarness);
         Assert.Equal(2, (int)MiddlewareScope.Skill);
         Assert.Equal(3, (int)MiddlewareScope.Function);
     }
@@ -70,20 +70,20 @@ public class CollapsedMiddlewareSystemTests
 
         // Act & Assert - should apply to any context
         Assert.True(middleware.ShouldExecute(CreateContext("AnyFunction")));
-        Assert.True(middleware.ShouldExecute(CreateContext("AnyFunction", toolName: "AnyHarness")));
-        Assert.True(middleware.ShouldExecute(CreateContext("AnyFunction", toolName: "AnyHarness", skillName: "AnySkill")));
+        Assert.True(middleware.ShouldExecute(CreateContext("AnyFunction", toolName: "AnyToolHarness")));
+        Assert.True(middleware.ShouldExecute(CreateContext("AnyFunction", toolName: "AnyToolHarness", skillName: "AnySkill")));
         Assert.True(middleware.ShouldExecute(CreateContext("AnyFunction", isSkillContainer: true)));
     }
 
     [Fact]
-    public void HarnessMiddleware_AppliesToHarnessFunctions()
+    public void ToolHarnessMiddleware_AppliesToToolHarnessFunctions()
     {
         // Arrange
-        var middleware = new TestMiddleware("Harness").ForHarness("FileSystemTools");
+        var middleware = new TestMiddleware("ToolHarness").ForToolHarness("FileSystemTools");
 
         // Act & Assert
         Assert.True(middleware.ShouldExecute(CreateContext("ReadFile", toolName: "FileSystemTools")));
-        Assert.False(middleware.ShouldExecute(CreateContext("ReadFile", toolName: "DatabaseHarness")));
+        Assert.False(middleware.ShouldExecute(CreateContext("ReadFile", toolName: "DatabaseToolHarness")));
         Assert.False(middleware.ShouldExecute(CreateContext("ReadFile", toolName: null)));
     }
 
@@ -179,19 +179,19 @@ public class CollapsedMiddlewareSystemTests
     {
         // Arrange
         var globalMiddleware = new TestMiddleware("Global");
-        var HarnessMiddleware = new TestMiddleware("Harness");
+        var ToolHarnessMiddleware = new TestMiddleware("ToolHarness");
         var skillMiddleware = new TestMiddleware("Skill");
         var functionMiddleware = new TestMiddleware("Function");
 
         globalMiddleware.AsGlobal();
-        HarnessMiddleware.ForHarness("FileSystemTools");
+        ToolHarnessMiddleware.ForToolHarness("FileSystemTools");
         skillMiddleware.ForSkill("analyze_codebase");
         functionMiddleware.ForFunction("ReadFile");
 
         var pipeline = new AgentMiddlewarePipeline(new IAgentMiddleware[]
         {
             globalMiddleware,
-            HarnessMiddleware,
+            ToolHarnessMiddleware,
             skillMiddleware,
             functionMiddleware
         });
@@ -208,7 +208,7 @@ public class CollapsedMiddlewareSystemTests
 
         // Assert - all 4 middlewares should have executed
         Assert.True(globalMiddleware.WasCalled);
-        Assert.True(HarnessMiddleware.WasCalled);
+        Assert.True(ToolHarnessMiddleware.WasCalled);
         Assert.True(skillMiddleware.WasCalled);
         Assert.True(functionMiddleware.WasCalled);
     }
@@ -218,19 +218,19 @@ public class CollapsedMiddlewareSystemTests
     {
         // Arrange
         var globalMiddleware = new TestMiddleware("Global");
-        var HarnessMiddleware = new TestMiddleware("Harness");
+        var ToolHarnessMiddleware = new TestMiddleware("ToolHarness");
         var skillMiddleware = new TestMiddleware("Skill");
         var functionMiddleware = new TestMiddleware("Function");
 
         globalMiddleware.AsGlobal();
-        HarnessMiddleware.ForHarness("DatabaseHarness"); // Wrong Harness
+        ToolHarnessMiddleware.ForToolHarness("DatabaseToolHarness"); // Wrong ToolHarness
         skillMiddleware.ForSkill("refactor_code"); // Wrong skill
         functionMiddleware.ForFunction("WriteFile"); // Wrong function
 
         var pipeline = new AgentMiddlewarePipeline(new IAgentMiddleware[]
         {
             globalMiddleware,
-            HarnessMiddleware,
+            ToolHarnessMiddleware,
             skillMiddleware,
             functionMiddleware
         });
@@ -247,7 +247,7 @@ public class CollapsedMiddlewareSystemTests
 
         // Assert - only global middleware should execute
         Assert.True(globalMiddleware.WasCalled);
-        Assert.False(HarnessMiddleware.WasCalled);
+        Assert.False(ToolHarnessMiddleware.WasCalled);
         Assert.False(skillMiddleware.WasCalled);
         Assert.False(functionMiddleware.WasCalled);
     }
@@ -326,19 +326,19 @@ public class CollapsedMiddlewareSystemTests
 
         // Act & Assert - should behave as global
         Assert.True(middleware.ShouldExecute(CreateContext("AnyFunction")));
-        Assert.True(middleware.ShouldExecute(CreateContext("AnyFunction", toolName: "AnyHarness")));
+        Assert.True(middleware.ShouldExecute(CreateContext("AnyFunction", toolName: "AnyToolHarness")));
     }
 
     [Fact]
-    public void ForHarness_ThrowsOnNullOrEmpty()
+    public void ForToolHarness_ThrowsOnNullOrEmpty()
     {
         // Arrange
         var middleware = new TestMiddleware("test");
 
         // Act & Assert
-        Assert.Throws<ArgumentException>(() => middleware.ForHarness(null!));
-        Assert.Throws<ArgumentException>(() => middleware.ForHarness(""));
-        Assert.Throws<ArgumentException>(() => middleware.ForHarness("   "));
+        Assert.Throws<ArgumentException>(() => middleware.ForToolHarness(null!));
+        Assert.Throws<ArgumentException>(() => middleware.ForToolHarness(""));
+        Assert.Throws<ArgumentException>(() => middleware.ForToolHarness("   "));
     }
 
     [Fact]
@@ -412,7 +412,7 @@ public class CollapsedMiddlewareSystemTests
             callId: "test-call",
             arguments: new Dictionary<string, object?>(),
             runConfig: new AgentRunConfig(),
-            harnessName: toolName,
+            toolharnessName: toolName,
             skillName: skillName);
     }
 

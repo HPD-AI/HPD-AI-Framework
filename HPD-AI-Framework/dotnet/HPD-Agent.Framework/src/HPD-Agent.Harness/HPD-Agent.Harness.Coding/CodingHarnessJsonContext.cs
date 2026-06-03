@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent;
 using HPD.Events;
-using HPDOS.Harneses.Middleware;
+using HPDOS.ToolHarnesses.Middleware;
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
@@ -66,6 +66,6 @@ using HPDOS.Harneses.Middleware;
 [JsonSerializable(typeof(EventKind))]
 [JsonSerializable(typeof(EventDirection))]
 [JsonSerializable(typeof(DateTimeOffset))]
-public partial class CodingHarnessJsonContext : JsonSerializerContext
+public partial class CodingToolHarnessJsonContext : JsonSerializerContext
 {
 }

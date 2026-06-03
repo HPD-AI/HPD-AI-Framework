@@ -3,7 +3,7 @@
 	"singleQuote": true,
 	"trailingComma": "none",
 	"printWidth": 100,
-	"Harneses": ["prettier-Harness-svelte"],
+	"ToolHarnesses": ["prettier-ToolHarness-svelte"],
 	"overrides": [
 		{
 			"files": "*.svelte",

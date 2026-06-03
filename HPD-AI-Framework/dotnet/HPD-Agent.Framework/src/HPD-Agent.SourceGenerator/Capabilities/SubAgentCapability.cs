@@ -47,11 +47,11 @@ internal class SubAgentCapability : BaseCapability
     ///
     /// Phase 3: Full implementation migrated from SubAgentCodeGenerator.GenerateSubAgentFunction().
     /// </summary>
-    /// <param name="parent">The parent Harness that contains this sub-agent (HarnessInfo).</param>
+    /// <param name="parent">The parent ToolHarness that contains this sub-agent (ToolHarnessInfo).</param>
     /// <returns>The generated registration code as a string.</returns>
     public override string GenerateRegistrationCode(object parent)
     {
-        var Harness = (HarnessInfo)parent;
+        var ToolHarness = (ToolHarnessInfo)parent;
         var sb = new StringBuilder();
 
         // PHASE 2A FIX: Return just the factory call (NO local function wrapper, NO functions.Add)
@@ -63,7 +63,7 @@ internal class SubAgentCapability : BaseCapability
 
         if (IsStatic)
         {
-            sb.AppendLine($"        var subAgentDef = {Harness.Name}.{MethodName}();");
+            sb.AppendLine($"        var subAgentDef = {ToolHarness.Name}.{MethodName}();");
         }
         else
         {
@@ -99,10 +99,10 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("            agentBuilder.WithChatClient(parentChatClient);");
         sb.AppendLine("        }");
         sb.AppendLine();
-        sb.AppendLine("        // Register Harneses if any are specified (uses AOT-compatible catalog)");
-        sb.AppendLine("        if (subAgentDef.HarnessTypes != null && subAgentDef.HarnessTypes.Length > 0)");
+        sb.AppendLine("        // Register ToolHarnesses if any are specified (uses AOT-compatible catalog)");
+        sb.AppendLine("        if (subAgentDef.ToolHarnessTypes != null && subAgentDef.ToolHarnessTypes.Length > 0)");
         sb.AppendLine("        {");
-        sb.AppendLine("            foreach (var toolType in subAgentDef.HarnessTypes)");
+        sb.AppendLine("            foreach (var toolType in subAgentDef.ToolHarnessTypes)");
         sb.AppendLine("            {");
         sb.AppendLine("                agentBuilder.WithTools(toolType);");
         sb.AppendLine("            }");
@@ -189,11 +189,11 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("        SchemaProvider = () =>");
         sb.AppendLine("        {");
         sb.AppendLine("            var options = new global::Microsoft.Extensions.AI.AIJsonSchemaCreateOptions { IncludeSchemaKeyword = false };");
-        sb.AppendLine($"            var method = typeof({ParentHarnessName}).GetMethod(\"{MethodName}\")");
+        sb.AppendLine($"            var method = typeof({ParentToolHarnessName}).GetMethod(\"{MethodName}\")");
         sb.AppendLine("                ?.GetCustomAttributes(typeof(SubAgentAttribute), false)");
         sb.AppendLine("                ?.FirstOrDefault();");
         sb.AppendLine("            return global::Microsoft.Extensions.AI.AIJsonUtilities.CreateJsonSchema(");
-        sb.AppendLine($"                typeof({Harness.Name}SubAgentQueryArgs),");
+        sb.AppendLine($"                typeof({ToolHarness.Name}SubAgentQueryArgs),");
         sb.AppendLine("                serializerOptions: global::Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions,");
         sb.AppendLine("                inferenceOptions: options");
         sb.AppendLine("            );");
@@ -202,7 +202,7 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("        {");
         sb.AppendLine("            [\"IsSubAgent\"] = true,");
         sb.AppendLine("            [\"ExecutionModel\"] = \"BranchNative\",");
-        sb.AppendLine($"            [\"ParentHarness\"] = \"{Harness.Name}\"");
+        sb.AppendLine($"            [\"ParentToolHarness\"] = \"{ToolHarness.Name}\"");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
         sb.AppendLine(")");
@@ -232,7 +232,7 @@ internal class SubAgentCapability : BaseCapability
         props["IsContainer"] = false;
         props["IsSubAgent"] = true;
         props["ExecutionModel"] = "BranchNative";
-        props["ParentHarness"] = ParentHarnessName;
+        props["ParentToolHarness"] = ParentToolHarnessName;
         props["RequiresPermission"] = RequiresPermission;
 
         return props;

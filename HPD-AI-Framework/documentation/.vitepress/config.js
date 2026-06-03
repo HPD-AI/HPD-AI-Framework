@@ -96,7 +96,7 @@ export default defineConfig({
             { text: 'Building Workflows', link: '/hpd-agent/Multi-Agent/06.2 Building Workflows' },
             { text: 'Node Options', link: '/hpd-agent/Multi-Agent/06.3 Node Options' },
             { text: 'Routing & Edges', link: '/hpd-agent/Multi-Agent/06.4 Routing & Edges' },
-            { text: 'As a Harness Capability', link: '/hpd-agent/Multi-Agent/06.5 As a Harness Capability' },
+            { text: 'As a ToolHarness Capability', link: '/hpd-agent/Multi-Agent/06.5 As a ToolHarness Capability' },
             { text: 'Workflow Events', link: '/hpd-agent/Multi-Agent/06.6 Workflow Events' },
             { text: 'Observability', link: '/hpd-agent/Multi-Agent/06.7 Observability' },
           ]
@@ -106,7 +106,7 @@ export default defineConfig({
           collapsed: false,
           items: [
             { text: 'Hello World: Chat Loop', link: '/hpd-agent/Cookbook/01 Hello World Chat Loop' },
-            { text: 'Building a Harness', link: '/hpd-agent/Cookbook/02 Building a Harness' },
+            { text: 'Building a ToolHarness', link: '/hpd-agent/Cookbook/02 Building a ToolHarness' },
             { text: 'Managing Context with Collapsing', link: '/hpd-agent/Cookbook/03 Managing Context with Collapsing' },
             { text: 'One Agent, Many Experts', link: '/hpd-agent/Cookbook/04 One Agent, Many Experts' },
             { text: 'Writing Middleware', link: '/hpd-agent/Cookbook/05 Writing Middleware' },

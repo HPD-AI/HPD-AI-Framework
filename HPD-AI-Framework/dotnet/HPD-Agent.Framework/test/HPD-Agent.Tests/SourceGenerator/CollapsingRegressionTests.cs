@@ -12,10 +12,10 @@ namespace HPD.Agent.Tests.SourceGenerator;
 /// Regression tests for collapsing system bugs discovered during v2.0 cleanup.
 /// These tests ensure that the following critical bugs don't reoccur:
 ///
-/// Bug 1: Container not generated for Harneses with [Collapse] + functions but no skills
-/// Bug 2: Skill code generation not called for collapse-only Harneses
+/// Bug 1: Container not generated for ToolHarnesses with [Collapse] + functions but no skills
+/// Bug 2: Skill code generation not called for collapse-only ToolHarnesses
 /// Bug 3: Container registration never called (critical)
-/// Bug 4: Explicitly registered Harneses with collapse containers bypass collapse rules
+/// Bug 4: Explicitly registered ToolHarnesses with collapse containers bypass collapse rules
 /// Bug 5:SystemPrompt not injected (missing metadata)
 /// </summary>
 public class CollapsingRegressionTests
@@ -53,35 +53,35 @@ public class CollapsingRegressionTests
 
     #endregion
 
-    #region Bug 1: Container Generation for Function-Only Collapsed Harneses
+    #region Bug 1: Container Generation for Function-Only Collapsed ToolHarnesses
 
     /// <summary>
-    /// Bug 1 Regression Test: Harneses with [Collapse] attribute + functions but NO skills
+    /// Bug 1 Regression Test: ToolHarnesses with [Collapse] attribute + functions but NO skills
     /// must generate a container function. Previously, container generation only happened
-    /// if the Harness had skills.
+    /// if the ToolHarness had skills.
     ///
-    /// Real-world example: FinancialAnalysisHarness had [Collapse] + 17 functions + 0 skills.
+    /// Real-world example: FinancialAnalysisToolHarness had [Collapse] + 17 functions + 0 skills.
     /// Container was never generated, causing all 17 functions to be visible instead of 1 container.
     ///
     /// Fix location: SkillCodeGenerator.cs:377-393 (GenerateAllSkillCode)
     /// Changed: return early ONLY if no skills AND no collapse attribute
     /// </summary>
     [Fact]
-    public void Bug1_HarnessWithCollapseAndFunctionsButNoSkills_GeneratesContainer()
+    public void Bug1_ToolHarnessWithCollapseAndFunctionsButNoSkills_GeneratesContainer()
     {
-        // Arrange: Harness with [Collapse] attribute (Collapsed=true), multiple functions, but NO skills
+        // Arrange: ToolHarness with [Collapse] attribute (Collapsed=true), multiple functions, but NO skills
         var HARNESSource = @"
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
     [Collapse(
-        ""Test Harness with only functions"",
+        ""Test ToolHarness with only functions"",
          
-        FunctionResult = ""Harness expanded. These functions are now available."",
+        FunctionResult = ""ToolHarness expanded. These functions are now available."",
         SystemPrompt = ""Use these functions carefully."")]
-    public partial class FunctionOnlyHarness
+    public partial class FunctionOnlyToolHarness
     {
         [AIFunction]
         public string Function1() => ""Result1"";
@@ -102,10 +102,10 @@ namespace TestHarneses
         Assert.NotNull(generatedCode);
 
         // Assert: Container creation method exists
-        Assert.Contains("CreateFunctionOnlyHarnessContainer", generatedCode);
+        Assert.Contains("CreateFunctionOnlyToolHarnessContainer", generatedCode);
 
-        // Assert: Container is registered in CreateHarness method
-        Assert.Contains("functions.Add(CreateFunctionOnlyHarnessContainer(instance, serialization));", generatedCode);
+        // Assert: Container is registered in CreateToolHarness method
+        Assert.Contains("functions.Add(CreateFunctionOnlyToolHarnessContainer(instance, serialization));", generatedCode);
 
         // Assert: Container metadata includes function names
         Assert.Contains("\"Function1\"", generatedCode);
@@ -115,29 +115,29 @@ namespace TestHarneses
 
     #endregion
 
-    #region Bug 2: Skill Code Generation Called for Collapse-Only Harneses
+    #region Bug 2: Skill Code Generation Called for Collapse-Only ToolHarnesses
 
     /// <summary>
     /// Bug 2 Regression Test: Source generator must call skill code generation
-    /// when Harness has [Collapse] attribute, even if it has no skills.
+    /// when ToolHarness has [Collapse] attribute, even if it has no skills.
     ///
     /// Previously: HPDToolSourceGenerator.cs:622 only called GenerateAllSkillCode()
-    /// if Harness.SkillCapabilities.Any() was true.
+    /// if ToolHarness.SkillCapabilities.Any() was true.
     ///
     /// Fix location: HPDToolSourceGenerator.cs:621-626
-    /// Changed: Call skill code generation if Harness has skills OR collapse attribute
+    /// Changed: Call skill code generation if ToolHarness has skills OR collapse attribute
     /// </summary>
     [Fact]
-    public void Bug2_CollapseOnlyHarness_TriggersSkillCodeGeneration()
+    public void Bug2_CollapseOnlyToolHarness_TriggersSkillCodeGeneration()
     {
-        // Arrange: Harness with [Collapse(Collapsed=true)] but no skills
+        // Arrange: ToolHarness with [Collapse(Collapsed=true)] but no skills
         var HARNESSource = @"
 using HPD.Agent;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    [Collapse(""Collapsed Harness without skills"", Collapsed = true)]
-    public partial class CollapseOnlyHarness
+    [Collapse(""Collapsed ToolHarness without skills"", Collapsed = true)]
+    public partial class CollapseOnlyToolHarness
     {
         [AIFunction]
         public string DoSomething() => ""Done"";
@@ -151,9 +151,9 @@ namespace TestHarneses
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
         Assert.NotNull(generatedCode);
 
-        // The presence of CreateCollapseOnlyHarnessContainer proves that
+        // The presence of CreateCollapseOnlyToolHarnessContainer proves that
         // GenerateAllSkillCode was called (which generates container methods)
-        Assert.Contains("CreateCollapseOnlyHarnessContainer", generatedCode);
+        Assert.Contains("CreateCollapseOnlyToolHarnessContainer", generatedCode);
     }
 
     #endregion
@@ -162,25 +162,25 @@ namespace TestHarneses
 
     /// <summary>
     /// Bug 3 Regression Test: The container registration code must actually be invoked
-    /// in the CreateHarness method. This was the CRITICAL bug - containers were being
+    /// in the CreateToolHarness method. This was the CRITICAL bug - containers were being
     /// generated but never registered.
     ///
     /// Previously: GenerateSkillRegistrations() existed but was never called.
     ///
     /// Fix location: HPDToolSourceGenerator.cs:479-484
-    /// Added: Call to SkillCodeGenerator.GenerateSkillRegistrations(Harness)
+    /// Added: Call to SkillCodeGenerator.GenerateSkillRegistrations(ToolHarness)
     /// </summary>
     [Fact]
-    public void Bug3_CollapsedHarness_ContainerIsRegistered()
+    public void Bug3_CollapsedToolHarness_ContainerIsRegistered()
     {
-        // Arrange: Collapsed Harness
+        // Arrange: Collapsed ToolHarness
         var HARNESSource = @"
 using HPD.Agent;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    [Collapse(""Test collapsed Harness"", Collapsed = true)]
-    public partial class TestHarness
+    [Collapse(""Test collapsed ToolHarness"", Collapsed = true)]
+    public partial class TestToolHarness
     {
         [AIFunction]
         public string TestFunction() => ""Test"";
@@ -195,18 +195,18 @@ namespace TestHarneses
         Assert.NotNull(generatedCode);
 
         // Assert: Container creation method exists
-        Assert.Contains("private static AIFunction CreateTestHarnessContainer", generatedCode);
+        Assert.Contains("private static AIFunction CreateTestToolHarnessContainer", generatedCode);
 
-        // Assert: Container is ACTUALLY REGISTERED in CreateHarness method
+        // Assert: Container is ACTUALLY REGISTERED in CreateToolHarness method
         // This is the key assertion - proves the registration code is called
-        Assert.Contains("functions.Add(CreateTestHarnessContainer(instance, serialization));", generatedCode);
+        Assert.Contains("functions.Add(CreateTestToolHarnessContainer(instance, serialization));", generatedCode);
 
         // Assert: Registration happens BEFORE individual capability registration
-        // Look for the CreateHarness method and verify container comes before individual functions
-        var createHarnessIndex = generatedCode.IndexOf("public static List<AIFunction> CreateHarness");
-        var containerRegistrationIndex = generatedCode.IndexOf("functions.Add(CreateTestHarnessContainer(instance, serialization));", createHarnessIndex);
+        // Look for the CreateToolHarness method and verify container comes before individual functions
+        var createToolHarnessIndex = generatedCode.IndexOf("public static List<AIFunction> CreateToolHarness");
+        var containerRegistrationIndex = generatedCode.IndexOf("functions.Add(CreateTestToolHarnessContainer(instance, serialization));", createToolHarnessIndex);
         var individualFunctionPattern = "HPDAIFunctionFactory.Create"; // First individual function registration
-        var firstIndividualFunctionIndex = generatedCode.IndexOf(individualFunctionPattern, createHarnessIndex);
+        var firstIndividualFunctionIndex = generatedCode.IndexOf(individualFunctionPattern, createToolHarnessIndex);
 
         Assert.True(containerRegistrationIndex > 0, "Container registration must exist");
         Assert.True(firstIndividualFunctionIndex > 0, "Individual function registration must exist");
@@ -216,21 +216,21 @@ namespace TestHarneses
 
     #endregion
 
-    #region Bug 4: Explicitly Registered Harneses Follow Collapse Rules
+    #region Bug 4: Explicitly Registered ToolHarnesses Follow Collapse Rules
 
     /// <summary>
     /// Bug 4 Regression Test: Runtime visibility manager must respect collapse rules
-    /// for explicitly registered Harneses if they have collapse containers.
+    /// for explicitly registered ToolHarnesses if they have collapse containers.
     ///
     /// Previously: ToolVisibilityManager.cs:461-468 showed ALL functions for explicitly
-    /// registered Harneses, even if they had [Collapse] attribute.
+    /// registered ToolHarnesses, even if they had [Collapse] attribute.
     ///
-    /// Fix: Added check - skip "always show" rule if Harness has collapse container
+    /// Fix: Added check - skip "always show" rule if ToolHarness has collapse container
     ///
     /// Note: This is tested in ToolVisibilityManagerTests.cs but included here for completeness
     /// </summary>
     [Fact]
-    public void Bug4_ExplicitlyRegisteredCollapsedHarness_HidesFunctionsUntilExpanded()
+    public void Bug4_ExplicitlyRegisteredCollapsedToolHarness_HidesFunctionsUntilExpanded()
     {
         // This test validates the source generator produces the right metadata
         // Runtime behavior is tested in ToolVisibilityManagerTests.cs
@@ -238,10 +238,10 @@ namespace TestHarneses
         var HARNESSource = @"
 using HPD.Agent;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    [Collapse(""Explicitly registered collapsed Harness"", Collapsed = true)]
-    public partial class ExplicitHarness
+    [Collapse(""Explicitly registered collapsed ToolHarness"", Collapsed = true)]
+    public partial class ExplicitToolHarness
     {
         [AIFunction]
         public string Func1() => ""1"";
@@ -260,11 +260,11 @@ namespace TestHarneses
 
         // Assert: Container has IsContainer metadata
         Assert.Contains("[\"IsContainer\"] = true", generatedCode);
-        Assert.Contains("[\"IsHarnessContainer\"] = true", generatedCode);
+        Assert.Contains("[\"IsToolHarnessContainer\"] = true", generatedCode);
 
-        // Assert: Individual functions have ParentHarness metadata linking to container
+        // Assert: Individual functions have ParentToolHarness metadata linking to container
         // This metadata is used by ToolVisibilityManager to respect collapse rules
-        Assert.Contains("CreateExplicitHarnessContainer", generatedCode);
+        Assert.Contains("CreateExplicitToolHarnessContainer", generatedCode);
     }
 
     #endregion
@@ -286,17 +286,17 @@ namespace TestHarneses
     [Fact]
     public void Bug5_ContainerMetadata_IncludesFunctionResult()
     {
-        // Arrange: Harness with FunctionResult
+        // Arrange: ToolHarness with FunctionResult
         var HARNESSource = @"
 using HPD.Agent;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
     [Collapse(
-        ""Harness with function result context"",
+        ""ToolHarness with function result context"",
          
         FunctionResult = ""This is ephemeral context returned in function result."")]
-    public partial class ContextHarness
+    public partial class ContextToolHarness
     {
         [AIFunction]
         public string TestFunc() => ""Test"";
@@ -318,17 +318,17 @@ namespace TestHarneses
     [Fact]
     public void Bug5_ContainerMetadata_IncludesSystemPrompt()
     {
-        // Arrange: Harness with SystemPrompt
+        // Arrange: ToolHarness with SystemPrompt
         var HARNESSource = @"
 using HPD.Agent;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
     [Collapse(
-        ""Harness with system prompt context"",
+        ""ToolHarness with system prompt context"",
          
         SystemPrompt = ""This is persistent context injected into system prompt."")]
-    public partial class SystemPromptHarness
+    public partial class SystemPromptToolHarness
     {
         [AIFunction]
         public string TestFunc() => ""Test"";
@@ -350,18 +350,18 @@ namespace TestHarneses
     [Fact]
     public void Bug5_ContainerMetadata_IncludesBothContextFields()
     {
-        // Arrange: Harness with BOTH context fields
+        // Arrange: ToolHarness with BOTH context fields
         var HARNESSource = @"
 using HPD.Agent;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
     [Collapse(
-        ""Harness with dual context"",
+        ""ToolHarness with dual context"",
          
         FunctionResult = ""Ephemeral instructions."",
         SystemPrompt = ""Persistent instructions."")]
-    public partial class DualContextHarness
+    public partial class DualContextToolHarness
     {
         [AIFunction]
         public string TestFunc() => ""Test"";
@@ -385,14 +385,14 @@ namespace TestHarneses
     [Fact]
     public void Bug5_ContainerMetadata_NullWhenContextNotProvided()
     {
-        // Arrange: Harness without context fields
+        // Arrange: ToolHarness without context fields
         var HARNESSource = @"
 using HPD.Agent;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    [Collapse(""Harness without contexts"", Collapsed = true)]
-    public partial class NoContextHarness
+    [Collapse(""ToolHarness without contexts"", Collapsed = true)]
+    public partial class NoContextToolHarness
     {
         [AIFunction]
         public string TestFunc() => ""Test"";
@@ -417,12 +417,12 @@ namespace TestHarneses
 
     /// <summary>
     /// Integration test that validates all 5 bugs are fixed in a single realistic scenario.
-    /// This mimics the FinancialAnalysisHarness that exposed all the bugs.
+    /// This mimics the FinancialAnalysisToolHarness that exposed all the bugs.
     /// </summary>
     [Fact]
     public void Integration_FinancialAnalysisHARNESScenario_AllBugsFixed()
     {
-        // Arrange: Realistic Harness similar to FinancialAnalysisHarness
+        // Arrange: Realistic ToolHarness similar to FinancialAnalysisToolHarness
         // - Has [Collapse(Collapsed=true)] attribute
         // - Has multiple functions (17 in real case, using 5 for test)
         // - Has NO skills
@@ -430,12 +430,12 @@ namespace TestHarneses
         var HARNESSource = @"
 using HPD.Agent;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
     [Collapse(
-        ""Financial Analysis Harness"",
+        ""Financial Analysis ToolHarness"",
          
-        FunctionResult = @""Financial Analysis Harness activated.
+        FunctionResult = @""Financial Analysis ToolHarness activated.
 Available capabilities:
 • Common-size analysis
 • Liquidity ratios
@@ -445,7 +445,7 @@ Available capabilities:
 - ALWAYS validate the accounting equation: Assets = Liabilities + Equity
 - Round percentages to 2 decimal places
 - Express currency values in USD unless specified otherwise"")]
-    public partial class FinancialAnalysisHarness
+    public partial class FinancialAnalysisToolHarness
     {
         [AIFunction]
         public string CalculateCommonSizePercentage(decimal value, decimal total) => ""Result"";
@@ -471,22 +471,22 @@ Available capabilities:
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
         Assert.NotNull(generatedCode);
 
-        // Bug 1: Container is generated (function-only collapsed Harness)
-        Assert.Contains("CreateFinancialAnalysisHarnessContainer", generatedCode);
+        // Bug 1: Container is generated (function-only collapsed ToolHarness)
+        Assert.Contains("CreateFinancialAnalysisToolHarnessContainer", generatedCode);
 
         // Bug 2: Skill code generation was called (proven by container creation)
         // (Already proven by Bug 1 assertion)
 
         // Bug 3: Container is registered
-        Assert.Contains("functions.Add(CreateFinancialAnalysisHarnessContainer(instance, serialization));", generatedCode);
+        Assert.Contains("functions.Add(CreateFinancialAnalysisToolHarnessContainer(instance, serialization));", generatedCode);
 
         // Bug 4: Metadata exists for runtime visibility manager
         Assert.Contains("[\"IsContainer\"] = true", generatedCode);
-        Assert.Contains("[\"IsHarnessContainer\"] = true", generatedCode);
+        Assert.Contains("[\"IsToolHarnessContainer\"] = true", generatedCode);
 
         // Bug 5: Both context fields are in metadata
         Assert.Contains("[\"FunctionResult\"]", generatedCode);
-        Assert.Contains("Financial Analysis Harness activated", generatedCode);
+        Assert.Contains("Financial Analysis ToolHarness activated", generatedCode);
         Assert.Contains("[\"SystemPrompt\"]", generatedCode);
         Assert.Contains("FINANCIAL ANALYSIS RULES", generatedCode);
 

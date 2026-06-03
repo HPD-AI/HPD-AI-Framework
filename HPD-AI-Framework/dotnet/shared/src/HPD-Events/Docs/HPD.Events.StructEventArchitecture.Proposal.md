@@ -755,7 +755,7 @@ The contract does not apply to:
 
 ### 9.1 Required Allocation Tests
 
-Add tests using `GC.GetAllocatedBytesForCurrentThread()` or a benchmark harness:
+Add tests using `GC.GetAllocatedBytesForCurrentThread()` or a benchmark toolharness:
 
 ```text
 CachedEmit_NoSubscribers_AllocatesZero

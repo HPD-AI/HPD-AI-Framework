@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Xunit;
 using Microsoft.Extensions.AI; // For AIFunction
-using HPD.Agent; // For HarnessAttribute
+using HPD.Agent; // For ToolHarnessAttribute
 
 
 namespace HPD.Agent.Tests.SourceGenerator;
@@ -51,7 +51,7 @@ public class HPDToolSourceGeneratorTests
     }
 
     [Fact]
-    public void GeneratedHarness_WithDynamicCollapseInstructions_ContainsCorrectCode()
+    public void GeneratedToolHarness_WithDynamicCollapseInstructions_ContainsCorrectCode()
     {
         // Arrange - Using an expression (method call) as attribute value
         // The source generator detects this as an expression rather than a literal string
@@ -59,18 +59,18 @@ public class HPDToolSourceGeneratorTests
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {{
     public static class DynamicInstructionsProvider
     {{
         public static string GetInstructions()
         {{
-            return ""Dynamic instructions for the collapsed Harness."";
+            return ""Dynamic instructions for the collapsed ToolHarness."";
         }}
     }}
 
-    [Collapse(""Test collapsed Harness"",   FunctionResult = DynamicInstructionsProvider.GetInstructions())]
-    public partial class CollapsedTestHarness
+    [Collapse(""Test collapsed ToolHarness"",   FunctionResult = DynamicInstructionsProvider.GetInstructions())]
+    public partial class CollapsedTestToolHarness
     {{
         [AIFunction]
         public string HelloWorld() => ""Hello!"";
@@ -89,17 +89,45 @@ namespace TestHarneses
     }
     
     [Fact]
-    public void GeneratedHarness_WithStaticCollapseInstructions_ContainsCorrectCode()
+    public void GeneratedToolHarness_WithCustomAIFunctionName_UsesCustomFunctionName()
+    {
+        var source = @"
+using HPD.Agent;
+using System;
+
+namespace TestToolHarnesses
+{
+    public partial class WeatherToolHarness
+    {
+        [AIFunction(Name = ""get_weather""), AIDescription(""Gets weather for a city"")]
+        public string GetWeather(string city) => city;
+    }
+}
+";
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+        Assert.NotNull(generatedCode);
+        Assert.Contains("FunctionNames: new string[] { \"get_weather\" }", generatedCode);
+        Assert.Contains("Name = \"get_weather\"", generatedCode);
+        Assert.Contains("JsonDocument.Parse", generatedCode);
+        Assert.Contains("\\\"city\\\":{\\\"type\\\":\\\"string\\\"", generatedCode);
+        Assert.DoesNotContain("CreateJsonSchema(\r\n        typeof(GetWeatherArgs)", generatedCode);
+    }
+
+    [Fact]
+    public void GeneratedToolHarness_WithStaticCollapseInstructions_ContainsCorrectCode()
     {
         // Arrange
         var HARNESSource = @$"
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {{
-    [Collapse(""Test static collapsed Harness"",   FunctionResult = ""Static instructions here."")]
-    public partial class StaticCollapsedTestHarness
+    [Collapse(""Test static collapsed ToolHarness"",   FunctionResult = ""Static instructions here."")]
+    public partial class StaticCollapsedTestToolHarness
     {{
         [AIFunction]
         public string HelloStatic() => ""Hello Static!"";
@@ -116,13 +144,13 @@ namespace TestHarneses
     }
 
     [Fact]
-    public void GeneratedHarness_WithEnumParameter_ParsesStringEnumArguments()
+    public void GeneratedToolHarness_WithEnumParameter_ParsesStringEnumArguments()
     {
         var source = @"
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
     public enum SearchMode
     {
@@ -130,8 +158,8 @@ namespace TestHarneses
         Content
     }
 
-    [Collapse(""Enum harness"", FunctionResult = ""ok"")]
-    public partial class EnumHarness
+    [Collapse(""Enum toolharness"", FunctionResult = ""ok"")]
+    public partial class EnumToolHarness
     {
         [AIFunction]
         public string Search(string pattern, SearchMode mode = SearchMode.Files) => mode.ToString();
@@ -165,14 +193,14 @@ namespace Ns
 {
     public class MyConfig { }
 
-    public class ConfigCtorMiddleware : IHarnessMiddleware
+    public class ConfigCtorMiddleware : IToolHarnessMiddleware
     {
         public ConfigCtorMiddleware(MyConfig config) { }
     }
 
-    [Collapse(""ConfigCtor harness"", FunctionResult = ""ok"",
+    [Collapse(""ConfigCtor toolharness"", FunctionResult = ""ok"",
         Middlewares = [typeof(ConfigCtorMiddleware)])]
-    public partial class ConfigCtorHarness
+    public partial class ConfigCtorToolHarness
     {
         [AIFunction]
         public string Ping() => ""pong"";
@@ -205,14 +233,14 @@ using System;
 
 namespace Ns
 {
-    public class ParamlessMiddleware : IHarnessMiddleware
+    public class ParamlessMiddleware : IToolHarnessMiddleware
     {
         public ParamlessMiddleware() { }
     }
 
-    [Collapse(""Paramless harness"", FunctionResult = ""ok"",
+    [Collapse(""Paramless toolharness"", FunctionResult = ""ok"",
         Middlewares = [typeof(ParamlessMiddleware)])]
-    public partial class ParamlessHarness
+    public partial class ParamlessToolHarness
     {
         [AIFunction]
         public string Ping() => ""pong"";
@@ -248,9 +276,9 @@ namespace Ns
         public MultiParamMiddleware(string a, int b) { }
     }
 
-    [Collapse(""MultiParam harness"", FunctionResult = ""ok"",
+    [Collapse(""MultiParam toolharness"", FunctionResult = ""ok"",
         Middlewares = [typeof(MultiParamMiddleware)])]
-    public partial class MultiParamHarness
+    public partial class MultiParamToolHarness
     {
         [AIFunction]
         public string Ping() => ""pong"";

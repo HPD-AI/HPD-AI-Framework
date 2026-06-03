@@ -4,9 +4,9 @@ using Microsoft.CodeAnalysis;
 using HPD.Agent.SourceGenerator.Capabilities;
 
 /// <summary>
-/// Information about a Harness discovered during source generation.
+/// Information about a ToolHarness discovered during source generation.
 /// </summary>
-internal class HarnessInfo
+internal class ToolHarnessInfo
 {
     /// <summary>
     /// The class name (always set from ClassDeclarationSyntax.Identifier).
@@ -21,12 +21,12 @@ internal class HarnessInfo
     public string EffectiveName => ClassName;
 
     /// <summary>
-    /// Description of the harness capabilities.
+    /// Description of the toolharness capabilities.
     /// </summary>
     public string Description { get; set; } = string.Empty;
 
     /// <summary>
-    /// Namespace where the harness is defined.
+    /// Namespace where the toolharness is defined.
     /// </summary>
     public string Namespace { get; set; } = string.Empty;
 
@@ -83,7 +83,7 @@ internal class HarnessInfo
     public int CapabilityCount => Capabilities.Count;
 
     /// <summary>
-    /// Whether this Harness requires an instance parameter in CreateHarness().
+    /// Whether this ToolHarness requires an instance parameter in CreateToolHarness().
     /// All capability types (Functions, Skills, SubAgents) can access instance state.
     /// This enables dynamic container instructions via instance methods.
     /// Phase 4: Uses only unified Capabilities list.
@@ -99,31 +99,31 @@ internal class HarnessInfo
         Capabilities.Any(c => c.IsConditional || c.HasDynamicDescription);
 
     /// <summary>
-    /// Whether this Harness has a parameterless constructor.
-    /// Only Harneses with parameterless constructors can be included in the HarnessRegistry.All catalog.
-    /// Harneses without parameterless constructors (e.g., those requiring DI) must be registered through
+    /// Whether this ToolHarness has a parameterless constructor.
+    /// Only ToolHarnesses with parameterless constructors can be included in the ToolHarnessRegistry.All catalog.
+    /// ToolHarnesses without parameterless constructors (e.g., those requiring DI) must be registered through
     /// special extension methods like WithDynamicMemory() or WithPlanMode().
     /// </summary>
     public bool HasParameterlessConstructor { get; set; } = true;
 
     /// <summary>
-    /// Whether this Harness has a constructor whose sole parameter is ISecretResolver.
+    /// Whether this ToolHarness has a constructor whose sole parameter is ISecretResolver.
     /// When true, the source generator emits a CreateWithSecrets delegate and includes
-    /// the harness in HarnessRegistry.All so AgentBuilder can instantiate it automatically.
-    /// Example: public StripeHarness(ISecretResolver secrets)
+    /// the toolharness in ToolHarnessRegistry.All so AgentBuilder can instantiate it automatically.
+    /// Example: public StripeToolHarness(ISecretResolver secrets)
     /// </summary>
     public bool HasSecretsConstructor { get; set; } = false;
 
     /// <summary>
-    /// Whether this Harness class is publicly accessible.
-    /// Only publicly accessible classes can be included in the HarnessRegistry.All catalog.
+    /// Whether this ToolHarness class is publicly accessible.
+    /// Only publicly accessible classes can be included in the ToolHarnessRegistry.All catalog.
     /// Private/internal classes (e.g., test fixtures) are still processed for individual Registration files
     /// but are excluded from the registry.
     /// </summary>
     public bool IsPubliclyAccessible { get; set; } = true;
 
     /// <summary>
-    /// Diagnostics collected during Harness analysis (e.g., dual-context validation errors).
+    /// Diagnostics collected during ToolHarness analysis (e.g., dual-context validation errors).
     /// These are reported during source generation in GenerateToolRegistrations.
     /// </summary>
     public List<Diagnostic> Diagnostics { get; set; } = new();
@@ -132,24 +132,24 @@ internal class HarnessInfo
 
     /// <summary>
     /// Fully qualified type name of the config constructor parameter, if detected.
-    /// Example: "MyApp.Config.SearchHarnessConfig" for SearchHarness(SearchHarnessConfig config).
-    /// Null if harness has no config constructor.
+    /// Example: "MyApp.Config.SearchToolHarnessConfig" for SearchToolHarness(SearchToolHarnessConfig config).
+    /// Null if toolharness has no config constructor.
     /// Used by source generator to emit CreateFromConfig delegate.
     /// </summary>
     public string? ConfigConstructorTypeName { get; set; }
 
     /// <summary>
-    /// Metadata type name from [AIFunction&lt;TMetadata&gt;] on harness methods.
+    /// Metadata type name from [AIFunction&lt;TMetadata&gt;] on toolharness methods.
     /// Example: "MyApp.Context.SearchContext" for [AIFunction&lt;SearchContext&gt;].
-    /// Null if harness methods don't use typed metadata.
-    /// Used by source generator to emit MetadataType in HarnessFactory.
+    /// Null if toolharness methods don't use typed metadata.
+    /// Used by source generator to emit MetadataType in ToolHarnessFactory.
     /// </summary>
     public string? MetadataTypeName { get; set; }
 
     /// <summary>
-    /// All function names in this harness.
+    /// All function names in this toolharness.
     /// Example: ["WebSearch", "ImageSearch", "NewsSearch"]
-    /// Used for selective function registration via HarnessReference.Functions.
+    /// Used for selective function registration via ToolHarnessReference.Functions.
     /// Populated during capability analysis.
     /// </summary>
     public List<string> FunctionNames { get; set; } = new();
@@ -157,7 +157,7 @@ internal class HarnessInfo
     // ========== HARNESS ATTRIBUTE PROPERTIES ==========
 
     /// <summary>
-    /// Whether this harness should be collapsed (has description).
+    /// Whether this toolharness should be collapsed (has description).
     /// When true, functions are hidden behind a container that must be expanded.
     /// Runtime override available via CollapsingConfig.NeverCollapse.
     /// </summary>
@@ -205,7 +205,7 @@ internal class HarnessInfo
     /// Fully-qualified type names of middleware declared in <c>[Collapse(Middlewares = [...])]</c>
     /// that have a public parameterless constructor.
     /// Example: ["MyApp.DbAuditMiddleware"]
-    /// Null/empty when harness has no parameterless-constructor scoped middlewares.
+    /// Null/empty when toolharness has no parameterless-constructor scoped middlewares.
     /// Source generator emits these as direct <c>static () =&gt; new T()</c> delegates in CollapseMiddlewareFactories.
     /// </summary>
     public List<string>? CollapseMiddlewareTypeNames { get; set; }
@@ -215,7 +215,7 @@ internal class HarnessInfo
     /// that have a single config-parameter constructor (§5A).
     /// Each entry carries the simple class name, the fully-qualified middleware type name,
     /// and the fully-qualified config parameter type name.
-    /// Null/empty when harness has no config-constructor scoped middlewares.
+    /// Null/empty when toolharness has no config-constructor scoped middlewares.
     /// Source generator emits these as <c>static json =&gt; new T(json.Deserialize&lt;TConfig&gt;()!)</c>
     /// delegates in CollapseMiddlewareConfigFactories.
     /// </summary>
@@ -255,6 +255,6 @@ internal sealed record CollapseMiddlewareConfigEntry(
 // - HPD.Agent.SourceGenerator.Capabilities.ParameterInfo (shared by all capabilities)
 // - HPD.Agent.SourceGenerator.Capabilities.ValidationData (part of FunctionCapability)
 
-// ========== RENAMED (Phase: Harness Consolidation) ==========
-// ToolInfo has been renamed to HarnessInfo.
+// ========== RENAMED (Phase: ToolHarness Consolidation) ==========
+// ToolInfo has been renamed to ToolHarnessInfo.
 // The Name property is now ClassName. CustomName support has been removed - always use ClassName.

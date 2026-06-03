@@ -2,7 +2,7 @@
 	/**
 	 * SessionList Test Component
 	 *
-	 * Test harness for the SessionList compound component.
+	 * Test toolharness for the SessionList compound component.
 	 * Renders Root + Item + Empty + CreateButton with data-testid attributes.
 	 */
 	import * as SessionList from '../exports.js';

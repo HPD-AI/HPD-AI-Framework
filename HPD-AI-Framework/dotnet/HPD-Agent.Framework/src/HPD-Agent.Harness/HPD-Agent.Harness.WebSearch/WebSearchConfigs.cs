@@ -1,6 +1,6 @@
 using System;
 
-namespace HPD.Agent.Harness.WebSearch;
+namespace HPD.Agent.ToolHarness.WebSearch;
 
 /// <summary>
 /// Configuration container for Tavily web search settings with comprehensive API support

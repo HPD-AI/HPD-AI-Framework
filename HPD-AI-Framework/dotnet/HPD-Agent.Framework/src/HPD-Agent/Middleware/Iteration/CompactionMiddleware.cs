@@ -31,7 +31,7 @@ public class CompactionMiddleware : IAgentMiddleware
             return;
         }
 
-        if (context.ConversationHistory == null || context.ConversationHistory.Count == 0)
+        if (context.BranchHistory == null || context.BranchHistory.Count == 0)
         {
             EmitCompactionEvent(context, CompactionStatus.Skipped,
                 reason: "No messages present", startTime: startTime);
@@ -52,18 +52,18 @@ public class CompactionMiddleware : IAgentMiddleware
             EmitCompactionEvent(context, CompactionStatus.Skipped,
                 reason: decision.Description ?? "Compaction threshold not met",
                 startTime: startTime,
-                originalMessageCount: context.ConversationHistory.Count);
+                originalMessageCount: context.BranchHistory.Count);
             return;
         }
 
-        var systemMessages = context.ConversationHistory.Where(m => m.Role == ChatRole.System).ToList();
-        var conversationMessages = context.ConversationHistory.Where(m => m.Role != ChatRole.System).ToList();
+        var systemMessages = context.BranchHistory.Where(m => m.Role == ChatRole.System).ToList();
+        var conversationMessages = context.BranchHistory.Where(m => m.Role != ChatRole.System).ToList();
 
         var result = await Strategy.ReduceAsync(conversationMessages, cancellationToken).ConfigureAwait(false);
 
-        context.ConversationHistory.Clear();
+        context.BranchHistory.Clear();
         foreach (var message in systemMessages.Concat(result.ModelVisibleMessages))
-            context.ConversationHistory.Add(message);
+            context.BranchHistory.Add(message);
 
         var snapshot = CompactionSnapshot.FromResult(result);
         context.UpdateMiddlewareState<CompactionStateData>(state =>
@@ -203,7 +203,7 @@ public class CompactionMiddleware : IAgentMiddleware
         var currentCount = trigger.CountingUnit switch
         {
             HistoryCountingUnit.MessageTurns => state?.MessageTurnCount ?? 0,
-            HistoryCountingUnit.Messages => context.ConversationHistory?.Count ?? 0,
+            HistoryCountingUnit.Messages => context.BranchHistory?.Count ?? 0,
             _ => state?.MessageTurnCount ?? 0
         };
 

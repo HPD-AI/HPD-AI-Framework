@@ -1,11 +1,11 @@
 <script lang="ts">
 	/**
-	 * MessageEdit Test Harness
+	 * MessageEdit Test ToolHarness
 	 *
 	 * Renders the full compound component with data-testid attributes
 	 * on everything so browser tests can assert against real DOM output.
 	 *
-	 * The harness can operate in both uncontrolled and controlled modes.
+	 * The toolharness can operate in both uncontrolled and controlled modes.
 	 * In controlled mode, pass `editing` + `onStartEdit`/`onSave`/`onCancel`.
 	 */
 	import * as MessageEdit from '../exports.js';

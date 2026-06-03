@@ -3,7 +3,7 @@
  *
  * Verifies that each RunConfig component renders the correct data attributes,
  * exposes the right snippet props through the DOM, and mutates RunConfigState
- * when setters are called via button clicks in the test harness.
+ * when setters are called via button clicks in the test toolharness.
  *
  * Test type: browser (chromium) — vitest-browser-svelte.
  */

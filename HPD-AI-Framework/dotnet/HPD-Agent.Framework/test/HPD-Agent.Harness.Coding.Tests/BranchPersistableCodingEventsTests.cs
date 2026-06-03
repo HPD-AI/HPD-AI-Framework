@@ -1,13 +1,13 @@
 using System.Text.Json;
 using HPD.Agent;
-using HPDOS.Harneses.Middleware;
+using HPDOS.ToolHarnesses.Middleware;
 
-namespace HPD.Agent.Harness.Coding.Tests;
+namespace HPD.Agent.ToolHarness.Coding.Tests;
 
 public sealed class BranchPersistableCodingEventsTests
 {
     [Fact]
-    public void CodingHarnessEvents_ProjectToBranchEvents()
+    public void CodingToolHarnessEvents_ProjectToBranchEvents()
     {
         var events = new AgentEvent[]
         {
@@ -41,7 +41,7 @@ public sealed class BranchPersistableCodingEventsTests
     }
 
     [Fact]
-    public void BranchEventDocument_RoundTripsCodingHarnessEvents()
+    public void BranchEventDocument_RoundTripsCodingToolHarnessEvents()
     {
         var document = new BranchEventDocument
         {

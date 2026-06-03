@@ -29,17 +29,17 @@ The real acceptance path currently proves:
 - `hpd-vz` forwards process start/wait/read-output to the guest agent.
 - The guest agent launches real guest processes and returns `ProcessInvocationResult`.
 - The real container smoke test runs `/hpd/container-smoke` inside the guest.
-- The provider, guest agent, smoke command, image-prep scripts, and real-acceptance harness model Docker through the same authority-bound pattern. The rootful prepared-image path uses `/var/run/docker.sock` and projects it to `/run/hpd/engine/docker.sock`.
-- The opt-in real container acceptance harness has passed against a prepared Docker guest using `DockerCompatible`, `docker run`, and `alpine:3.20`.
-- The provider and harness now model containerd as the same authority-bound engine pattern, using `/run/containerd/containerd.sock` and a projected `/run/hpd/engine/containerd.sock` socket when configured.
-- The opt-in real container acceptance harness has passed against a prepared containerd guest using `ContainerdApi`, `ctr`, and `docker.io/library/alpine:3.20`.
-- The provider, guest agent, smoke command, image-prep scripts, and real-acceptance harness now model Podman through the same authority-bound pattern. The rootful prepared-image path uses `/run/podman/podman.sock` and projects it to `/run/hpd/engine/podman-rootful.sock`.
-- The provider, guest agent, smoke command, image-prep scripts, and real-acceptance harness now model BuildKit through the same authority-bound pattern. The rootful prepared-image path uses `/run/buildkit/buildkitd.sock` and projects it to `/run/hpd/engine/buildkitd-rootful.sock`; the smoke command performs a local scratch build through `buildctl`.
-- The opt-in real container acceptance harness has passed against a prepared rootful BuildKit guest using `BuildKitApi`, `buildctl`, and a local scratch build.
+- The provider, guest agent, smoke command, image-prep scripts, and real-acceptance toolharness model Docker through the same authority-bound pattern. The rootful prepared-image path uses `/var/run/docker.sock` and projects it to `/run/hpd/engine/docker.sock`.
+- The opt-in real container acceptance toolharness has passed against a prepared Docker guest using `DockerCompatible`, `docker run`, and `alpine:3.20`.
+- The provider and toolharness now model containerd as the same authority-bound engine pattern, using `/run/containerd/containerd.sock` and a projected `/run/hpd/engine/containerd.sock` socket when configured.
+- The opt-in real container acceptance toolharness has passed against a prepared containerd guest using `ContainerdApi`, `ctr`, and `docker.io/library/alpine:3.20`.
+- The provider, guest agent, smoke command, image-prep scripts, and real-acceptance toolharness now model Podman through the same authority-bound pattern. The rootful prepared-image path uses `/run/podman/podman.sock` and projects it to `/run/hpd/engine/podman-rootful.sock`.
+- The provider, guest agent, smoke command, image-prep scripts, and real-acceptance toolharness now model BuildKit through the same authority-bound pattern. The rootful prepared-image path uses `/run/buildkit/buildkitd.sock` and projects it to `/run/hpd/engine/buildkitd-rootful.sock`; the smoke command performs a local scratch build through `buildctl`.
+- The opt-in real container acceptance toolharness has passed against a prepared rootful BuildKit guest using `BuildKitApi`, `buildctl`, and a local scratch build.
 - `run-real-container-acceptance-matrix.sh --keep-going` has passed against all prepared env files on this host: BuildKit, Docker, Podman, and containerd.
 - `HPD-Execution.AppleVirtualization.DevKit` provides an embeddable .NET surface for prepared-image discovery, env parsing, env validation, matrix planning, image-prep command execution, real matrix execution, cleanup execution, and host platform diagnostics.
 - `HPD-Execution.AppleVirtualization.Cli` provides a thin command wrapper over DevKit for host checks, env discovery/validation, image preparation, single-env runs, matrix runs, and cleanup.
-- The real acceptance harness uses a per-run scratch raw disk copied from the prepared base raw disk, so failed runs do not corrupt the reusable prepared image.
+- The real acceptance toolharness uses a per-run scratch raw disk copied from the prepared base raw disk, so failed runs do not corrupt the reusable prepared image.
 - Real VM configurations now include an Apple VZ NAT network device, and `hpd-vz` owns explicit host-local TCP endpoint forwarding for `PublishedEndpoint` resources. For real Apple NAT guests, endpoint publication does not assume a host-routable guest IP; the helper can route host-local HTTP-style traffic through the bounded guest-agent TCP proxy.
 
 ## Important Invariants
@@ -242,7 +242,7 @@ Run related non-real suites:
 ```bash
 dotnet test HPD-AI-Framework/dotnet/HPD-Agent.Framework/test/HPD-Execution/HPD-Execution.AppleVirtualization.Tests/HPD-Execution.AppleVirtualization.Tests.csproj \
   -f net10.0 \
-  --filter "FullyQualifiedName~AppleVirtualizationRealContainerAcceptanceHarnessTests|FullyQualifiedName~AppleVirtualizationProcessProviderTests|FullyQualifiedName~AppleVirtualizationContainerSmokeWorkflowTests|FullyQualifiedName~AppleVirtualizationHelperGoldenTests.DotNet_generated_process_control_operations_receive_swift_structured_results" \
+  --filter "FullyQualifiedName~AppleVirtualizationRealContainerAcceptanceToolHarnessTests|FullyQualifiedName~AppleVirtualizationProcessProviderTests|FullyQualifiedName~AppleVirtualizationContainerSmokeWorkflowTests|FullyQualifiedName~AppleVirtualizationHelperGoldenTests.DotNet_generated_process_control_operations_receive_swift_structured_results" \
   -v minimal
 ```
 

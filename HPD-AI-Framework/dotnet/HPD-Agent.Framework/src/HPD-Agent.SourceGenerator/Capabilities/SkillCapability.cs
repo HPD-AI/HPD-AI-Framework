@@ -40,19 +40,19 @@ internal class SkillCapability : BaseCapability
 
     /// <summary>
     /// Resolved function references (populated during resolution phase)
-    /// Format: "HarnessName.FunctionName"
+    /// Format: "ToolHarnessName.FunctionName"
     /// </summary>
     public List<string> ResolvedFunctionReferences { get; set; } = new();
 
     /// <summary>
-    /// Resolved Harness types (populated during resolution phase)
+    /// Resolved ToolHarness types (populated during resolution phase)
     /// </summary>
-    public List<string> ResolvedHarnessTypes { get; set; } = new();
+    public List<string> ResolvedToolHarnessTypes { get; set; } = new();
 
     /// <summary>
     /// Full name: "ClassName.MethodName"
     /// </summary>
-    public string FullQualifiedName => $"{ParentHarnessName}.{MethodName}";
+    public string FullQualifiedName => $"{ParentToolHarnessName}.{MethodName}";
 
     // ========== Code Generation ==========
 
@@ -61,7 +61,7 @@ internal class SkillCapability : BaseCapability
     /// This method exists for API completeness but is never called due to the hybrid registration pattern.
     /// See V2_ARCHITECTURAL_DECISIONS.md Decision 1 for rationale.
     /// </summary>
-    /// <param name="parent">The parent Harness that contains this skill (HarnessInfo).</param>
+    /// <param name="parent">The parent ToolHarness that contains this skill (ToolHarnessInfo).</param>
     /// <returns>The generated registration code as a string.</returns>
     /// <exception cref="NotImplementedException">
     /// Skills use helper method registration. This method should never be called.
@@ -95,9 +95,9 @@ internal class SkillCapability : BaseCapability
         var props = base.GetAdditionalProperties();
         props["IsContainer"] = true;
         props["IsSkill"] = true;
-        props["ParentContainer"] = ParentHarnessName;
+        props["ParentContainer"] = ParentToolHarnessName;
         props["ReferencedFunctions"] = ResolvedFunctionReferences.ToArray();
-        props["ReferencedHarneses"] = ResolvedHarnessTypes.ToArray();
+        props["ReferencedToolHarnesses"] = ResolvedToolHarnessTypes.ToArray();
         props["RequiresPermission"] = RequiresPermission;
 
         // Dual-context support (CRITICAL for runtime compatibility)
@@ -117,7 +117,7 @@ internal class SkillCapability : BaseCapability
     /// For Phase 1, this is a placeholder. Full implementation will delegate to SkillResolver
     /// in Phase 2-3, then be fully migrated in Phase 5.
     /// </summary>
-    /// <param name="allCapabilities">All capabilities from all Harneses in the compilation.</param>
+    /// <param name="allCapabilities">All capabilities from all ToolHarnesses in the compilation.</param>
     public override void ResolveReferences(List<ICapability> allCapabilities)
     {
         // TODO: For Phase 1, this is a placeholder
@@ -248,9 +248,9 @@ internal class ReferenceInfo
     public ReferenceType ReferenceType { get; set; }
 
     /// <summary>
-    /// Harness type name (e.g., "FileSystemHarness")
+    /// ToolHarness type name (e.g., "FileSystemToolHarness")
     /// </summary>
-    public string HarnessType { get; set; } = string.Empty;
+    public string ToolHarnessType { get; set; } = string.Empty;
 
     /// <summary>
     /// Method name (e.g., "ReadFile" or "FileDebugging")
@@ -258,7 +258,7 @@ internal class ReferenceInfo
     public string MethodName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Full name: "HarnessType.MethodName"
+    /// Full name: "ToolHarnessType.MethodName"
     /// </summary>
     public string FullName { get; set; } = string.Empty;
 

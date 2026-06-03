@@ -1,9 +1,9 @@
 using System.Runtime.CompilerServices;
 using System.Reflection;
-using HPD.Agent.Harness.Coding.Ripgrep;
+using HPD.Agent.ToolHarness.Coding.Ripgrep;
 using HPD.Agent.Middleware;
 
-namespace HPD.Agent.Harness.Coding.Tests;
+namespace HPD.Agent.ToolHarness.Coding.Tests;
 
 [Collection(CurrentDirectoryCollection.Name)]
 public sealed class GrepTests : IDisposable
@@ -27,7 +27,7 @@ public sealed class GrepTests : IDisposable
     [Fact]
     public void Grep_RequiresPermission()
     {
-        var method = typeof(CodingHarness).GetMethod(nameof(CodingHarness.Grep));
+        var method = typeof(CodingToolHarness).GetMethod(nameof(CodingToolHarness.Grep));
 
         method.Should().NotBeNull();
         method!.GetCustomAttributes(typeof(RequiresPermissionAttribute), inherit: false)
@@ -51,7 +51,7 @@ public sealed class GrepTests : IDisposable
             }
         };
 
-        var result = await CreateHarness(runner).Grep("TODO");
+        var result = await CreateToolHarness(runner).Grep("TODO");
 
         result.Should().Contain("output_mode=\"files_with_matches\"");
         result.Should().Contain("<file path=\"src/B.cs\" />");
@@ -83,7 +83,7 @@ public sealed class GrepTests : IDisposable
             ]
         };
 
-        var result = await CreateHarness(runner).Grep("TODO", path: "notes.txt", outputMode: GrepOutputMode.Content);
+        var result = await CreateToolHarness(runner).Grep("TODO", path: "notes.txt", outputMode: GrepOutputMode.Content);
 
         result.Should().Contain("output_mode=\"content\"");
         result.Should().Contain("<match path=\"notes.txt\" line=\"2\">2\tTODO here</match>");
@@ -108,7 +108,7 @@ public sealed class GrepTests : IDisposable
             }
         };
 
-        var result = await CreateHarness(runner).Grep("TODO", outputMode: GrepOutputMode.Count);
+        var result = await CreateToolHarness(runner).Grep("TODO", outputMode: GrepOutputMode.Count);
 
         result.Should().Contain("output_mode=\"count\"");
         result.Should().Contain("total_matches=\"2\"");
@@ -118,40 +118,40 @@ public sealed class GrepTests : IDisposable
     [Fact]
     public async Task Grep_RejectsInvalidArguments()
     {
-        var harness = CreateHarness(new FakeRipgrepRunner());
+        var toolharness = CreateToolHarness(new FakeRipgrepRunner());
 
-        (await harness.Grep(null!)).Should().Contain("Pattern is required.");
-        (await harness.Grep("TODO", path: null!)).Should().Contain("Path is required.");
-        (await harness.Grep("TODO", offset: 0)).Should().Contain("Offset must be greater than or equal to 1.");
-        (await harness.Grep("TODO", limit: 0)).Should().Contain("Limit must be between 1 and 1000.");
-        (await harness.Grep("TODO", limit: 1001)).Should().Contain("Limit must be between 1 and 1000.");
-        (await harness.Grep("TODO", contextLines: -1, outputMode: GrepOutputMode.Content))
+        (await toolharness.Grep(null!)).Should().Contain("Pattern is required.");
+        (await toolharness.Grep("TODO", path: null!)).Should().Contain("Path is required.");
+        (await toolharness.Grep("TODO", offset: 0)).Should().Contain("Offset must be greater than or equal to 1.");
+        (await toolharness.Grep("TODO", limit: 0)).Should().Contain("Limit must be between 1 and 1000.");
+        (await toolharness.Grep("TODO", limit: 1001)).Should().Contain("Limit must be between 1 and 1000.");
+        (await toolharness.Grep("TODO", contextLines: -1, outputMode: GrepOutputMode.Content))
             .Should().Contain("ContextLines must be between 0 and 20.");
-        (await harness.Grep("TODO", contextLines: 21, outputMode: GrepOutputMode.Content))
+        (await toolharness.Grep("TODO", contextLines: 21, outputMode: GrepOutputMode.Content))
             .Should().Contain("ContextLines must be between 0 and 20.");
-        (await harness.Grep("TODO", beforeContext: -1, outputMode: GrepOutputMode.Content))
+        (await toolharness.Grep("TODO", beforeContext: -1, outputMode: GrepOutputMode.Content))
             .Should().Contain("BeforeContext must be between 0 and 20.");
-        (await harness.Grep("TODO", outputMode: GrepOutputMode.Count, contextLines: 1))
+        (await toolharness.Grep("TODO", outputMode: GrepOutputMode.Count, contextLines: 1))
             .Should().Contain("Context parameters require outputMode Content.");
-        (await harness.Grep("TODO", beforeContext: 21, outputMode: GrepOutputMode.Content))
+        (await toolharness.Grep("TODO", beforeContext: 21, outputMode: GrepOutputMode.Content))
             .Should().Contain("BeforeContext must be between 0 and 20.");
-        (await harness.Grep("TODO", afterContext: -1, outputMode: GrepOutputMode.Content))
+        (await toolharness.Grep("TODO", afterContext: -1, outputMode: GrepOutputMode.Content))
             .Should().Contain("AfterContext must be between 0 and 20.");
-        (await harness.Grep("TODO", afterContext: 21, outputMode: GrepOutputMode.Content))
+        (await toolharness.Grep("TODO", afterContext: 21, outputMode: GrepOutputMode.Content))
             .Should().Contain("AfterContext must be between 0 and 20.");
-        (await harness.Grep("TODO", maxMatchesPerFile: 0))
+        (await toolharness.Grep("TODO", maxMatchesPerFile: 0))
             .Should().Contain("MaxMatchesPerFile must be between 1 and 1000.");
-        (await harness.Grep("TODO", maxMatchesPerFile: 1001))
+        (await toolharness.Grep("TODO", maxMatchesPerFile: 1001))
             .Should().Contain("MaxMatchesPerFile must be between 1 and 1000.");
-        (await harness.Grep("TODO", maxDepth: 0))
+        (await toolharness.Grep("TODO", maxDepth: 0))
             .Should().Contain("MaxDepth must be between 1 and 100.");
-        (await harness.Grep("TODO", maxDepth: 101))
+        (await toolharness.Grep("TODO", maxDepth: 101))
             .Should().Contain("MaxDepth must be between 1 and 100.");
-        (await harness.Grep("TODO", outputMode: (GrepOutputMode)999))
+        (await toolharness.Grep("TODO", outputMode: (GrepOutputMode)999))
             .Should().Contain("OutputMode must be a valid GrepOutputMode value.");
-        (await harness.Grep("TODO", caseMode: (GrepCaseMode)999))
+        (await toolharness.Grep("TODO", caseMode: (GrepCaseMode)999))
             .Should().Contain("CaseMode must be a valid GrepCaseMode value.");
-        (await harness.Grep("TODO", path: "missing"))
+        (await toolharness.Grep("TODO", path: "missing"))
             .Should().Contain("Path does not exist.");
     }
 
@@ -175,7 +175,7 @@ public sealed class GrepTests : IDisposable
             ]
         };
 
-        var result = await CreateHarness(runner).Grep(
+        var result = await CreateToolHarness(runner).Grep(
             "TODO",
             path: ".",
             outputMode: GrepOutputMode.Content,
@@ -226,7 +226,7 @@ public sealed class GrepTests : IDisposable
         var filesRunner = new FakeRipgrepRunner();
         var countRunner = new FakeRipgrepRunner();
 
-        await CreateHarness(filesRunner).Grep(
+        await CreateToolHarness(filesRunner).Grep(
             "TODO",
             includeGlobs: ["*.txt"],
             excludeGlobs: ["obj/**"],
@@ -239,7 +239,7 @@ public sealed class GrepTests : IDisposable
             includeHidden: true,
             respectIgnoreFiles: false);
 
-        await CreateHarness(countRunner).Grep(
+        await CreateToolHarness(countRunner).Grep(
             "TODO",
             outputMode: GrepOutputMode.Count,
             offset: 2,
@@ -322,7 +322,7 @@ public sealed class GrepTests : IDisposable
             ]
         };
 
-        var result = await CreateHarness(runner).Grep(
+        var result = await CreateToolHarness(runner).Grep(
             "TODO",
             path: "notes.txt",
             outputMode: GrepOutputMode.Content,
@@ -341,7 +341,7 @@ public sealed class GrepTests : IDisposable
     public async Task Grep_NoMatchesIncludesIgnoredFilesHint()
     {
         await File.WriteAllTextAsync("notes.txt", "hello\n");
-        var result = await CreateHarness(new FakeRipgrepRunner()).Grep("TODO");
+        var result = await CreateToolHarness(new FakeRipgrepRunner()).Grep("TODO");
 
         result.Should().Contain("<no_matches />");
         result.Should().Contain("<search_hint>");
@@ -356,7 +356,7 @@ public sealed class GrepTests : IDisposable
         await File.WriteAllTextAsync("notes.txt", "TODO\n");
         var runner = new FakeRipgrepRunner();
 
-        await CreateHarness(runner).Grep("TODO", caseMode: input);
+        await CreateToolHarness(runner).Grep("TODO", caseMode: input);
 
         runner.FilesWithMatchesOptions.Should().NotBeNull();
         runner.FilesWithMatchesOptions!.CaseMode.Should().Be(expected);
@@ -370,8 +370,8 @@ public sealed class GrepTests : IDisposable
         var directoryRunner = new FakeRipgrepRunner();
         var fileRunner = new FakeRipgrepRunner();
 
-        await CreateHarness(directoryRunner).Grep("TODO", path: "src");
-        await CreateHarness(fileRunner).Grep("TODO", path: Path.Combine("src", "notes.txt"));
+        await CreateToolHarness(directoryRunner).Grep("TODO", path: "src");
+        await CreateToolHarness(fileRunner).Grep("TODO", path: Path.Combine("src", "notes.txt"));
 
         directoryRunner.FilesWithMatchesOptions.Should().NotBeNull();
         directoryRunner.FilesWithMatchesOptions!.WorkingDirectory.Should().Be(Path.GetFullPath("src"));
@@ -388,7 +388,7 @@ public sealed class GrepTests : IDisposable
         var fullPath = Path.GetFullPath("notes.txt");
         var runner = new FakeRipgrepRunner();
 
-        var result = await CreateHarness(runner).Grep("TODO", path: fullPath);
+        var result = await CreateToolHarness(runner).Grep("TODO", path: fullPath);
 
         result.Should().Contain($"path=\"{fullPath}\"");
         runner.FilesWithMatchesOptions.Should().NotBeNull();
@@ -401,7 +401,7 @@ public sealed class GrepTests : IDisposable
         if (OperatingSystem.IsWindows())
             return;
 
-        var result = await CreateHarness(new FakeRipgrepRunner()).Grep("TODO", path: "/dev");
+        var result = await CreateToolHarness(new FakeRipgrepRunner()).Grep("TODO", path: "/dev");
 
         result.Should().Contain("Cannot search blocked system path.");
     }
@@ -421,7 +421,7 @@ public sealed class GrepTests : IDisposable
             }
         };
 
-        var result = await CreateHarness(runner).Grep("TODO", offset: 2, limit: 1);
+        var result = await CreateToolHarness(runner).Grep("TODO", offset: 2, limit: 1);
 
         result.Should().Contain("results_read=\"1\"");
         result.Should().Contain("<next_grep offset=\"3\" limit=\"1\" reason=\"more_matches_available\" />");
@@ -444,7 +444,7 @@ public sealed class GrepTests : IDisposable
             ]
         };
 
-        var result = await CreateHarness(runner).Grep(
+        var result = await CreateToolHarness(runner).Grep(
             "TODO",
             path: "notes.txt",
             outputMode: GrepOutputMode.Content,
@@ -495,9 +495,9 @@ public sealed class GrepTests : IDisposable
             ]
         };
 
-        var files = await CreateHarness(filesRunner).Grep("TODO", limit: 1);
-        var counts = await CreateHarness(countRunner).Grep("TODO", outputMode: GrepOutputMode.Count, limit: 1);
-        var content = await CreateHarness(contentRunner).Grep("TODO", outputMode: GrepOutputMode.Content, limit: 1);
+        var files = await CreateToolHarness(filesRunner).Grep("TODO", limit: 1);
+        var counts = await CreateToolHarness(countRunner).Grep("TODO", outputMode: GrepOutputMode.Count, limit: 1);
+        var content = await CreateToolHarness(contentRunner).Grep("TODO", outputMode: GrepOutputMode.Content, limit: 1);
 
         files.Should().Contain("total_results=\"unknown\"");
         files.Should().Contain("total_matches=\"unknown\"");
@@ -520,7 +520,7 @@ public sealed class GrepTests : IDisposable
             ]
         };
 
-        var result = await CreateHarness(runner).Grep("TODO", outputMode: GrepOutputMode.Content);
+        var result = await CreateToolHarness(runner).Grep("TODO", outputMode: GrepOutputMode.Content);
 
         result.Should().Contain("path=\"weird&lt;&amp;&gt;.txt\"");
         result.Should().Contain("TODO &lt;tag&gt; &amp; value");
@@ -540,7 +540,7 @@ public sealed class GrepTests : IDisposable
             ]
         };
 
-        var result = await CreateHarness(runner).Grep("TODO", outputMode: GrepOutputMode.Content);
+        var result = await CreateToolHarness(runner).Grep("TODO", outputMode: GrepOutputMode.Content);
 
         result.Should().Contain("[line truncated]");
         result.Should().Contain("truncated=\"true\"");
@@ -561,7 +561,7 @@ public sealed class GrepTests : IDisposable
             ]
         };
 
-        var result = await CreateHarness(runner).Grep("TODO", outputMode: GrepOutputMode.Content);
+        var result = await CreateToolHarness(runner).Grep("TODO", outputMode: GrepOutputMode.Content);
 
         result.Should().Contain("<match path=\"notes.txt\" line=\"1\">1\tTODO</match>");
         result.Should().Contain("status=\"timedout\"");
@@ -573,7 +573,7 @@ public sealed class GrepTests : IDisposable
     public async Task Grep_NoMatchesReportsZeroTotalMatches()
     {
         await File.WriteAllTextAsync("notes.txt", "hello\n");
-        var result = await CreateHarness(new FakeRipgrepRunner()).Grep("TODO");
+        var result = await CreateToolHarness(new FakeRipgrepRunner()).Grep("TODO");
 
         result.Should().Contain("total_matches=\"0\"");
     }
@@ -590,7 +590,7 @@ public sealed class GrepTests : IDisposable
             ]
         };
 
-        var result = await CreateHarness(runner).Grep("(", outputMode: GrepOutputMode.Content);
+        var result = await CreateToolHarness(runner).Grep("(", outputMode: GrepOutputMode.Content);
 
         result.Should().StartWith("<error");
         result.Should().Contain("Ripgrep search failed.");
@@ -609,7 +609,7 @@ public sealed class GrepTests : IDisposable
             ]
         };
 
-        var result = await CreateHarness(runner).Grep("TODO", outputMode: GrepOutputMode.Content);
+        var result = await CreateToolHarness(runner).Grep("TODO", outputMode: GrepOutputMode.Content);
 
         result.Should().Contain("<grep");
         result.Should().Contain("<match path=\"notes.txt\" line=\"1\">1\tTODO</match>");
@@ -630,7 +630,7 @@ public sealed class GrepTests : IDisposable
             ]
         };
 
-        var result = await CreateHarness(runner).Grep("TODO", outputMode: GrepOutputMode.Content);
+        var result = await CreateToolHarness(runner).Grep("TODO", outputMode: GrepOutputMode.Content);
 
         result.Should().Contain("<match path=\"notes.txt\" line=\"1\">1\tTODO</match>");
         result.Should().NotContain("path=\"./notes.txt\"");
@@ -643,8 +643,8 @@ public sealed class GrepTests : IDisposable
         var unavailable = new FakeRipgrepRunner { ExceptionToThrow = new InvalidOperationException("Ripgrep is unavailable.") };
         var failed = new FakeRipgrepRunner { ExceptionToThrow = new InvalidOperationException("Ripgrep search failed.") };
 
-        (await CreateHarness(unavailable).Grep("TODO")).Should().Contain("Ripgrep is unavailable.");
-        (await CreateHarness(failed).Grep("TODO")).Should().Contain("Ripgrep search failed.");
+        (await CreateToolHarness(unavailable).Grep("TODO")).Should().Contain("Ripgrep is unavailable.");
+        (await CreateToolHarness(failed).Grep("TODO")).Should().Contain("Ripgrep search failed.");
     }
 
     [Fact]
@@ -660,7 +660,7 @@ public sealed class GrepTests : IDisposable
             }
         };
 
-        var result = await CreateHarness(runner).Grep("TODO");
+        var result = await CreateToolHarness(runner).Grep("TODO");
 
         result.Should().Contain("<diagnostic>warning &lt;xml&gt;</diagnostic>");
     }
@@ -668,8 +668,8 @@ public sealed class GrepTests : IDisposable
     [Fact]
     public void Grep_DoesNotExposeRawRipgrepArgumentsOrCaches()
     {
-        var parameters = typeof(CodingHarness)
-            .GetMethod(nameof(CodingHarness.Grep))!
+        var parameters = typeof(CodingToolHarness)
+            .GetMethod(nameof(CodingToolHarness.Grep))!
             .GetParameters()
             .Select(parameter => parameter.Name)
             .ToArray();
@@ -677,9 +677,9 @@ public sealed class GrepTests : IDisposable
         parameters.Should().NotContain(name => name!.Contains("raw", StringComparison.OrdinalIgnoreCase));
         parameters.Should().NotContain(name => name!.Contains("argument", StringComparison.OrdinalIgnoreCase));
 
-        typeof(CodingHarness)
+        typeof(CodingToolHarness)
             .GetFields(BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)
-            .Where(field => field.DeclaringType == typeof(CodingHarness))
+            .Where(field => field.DeclaringType == typeof(CodingToolHarness))
             .Select(field => field.Name)
             .Should()
             .NotContain(name => name.Contains("grep", StringComparison.OrdinalIgnoreCase) &&
@@ -694,7 +694,7 @@ public sealed class GrepTests : IDisposable
 
         await File.WriteAllTextAsync("notes.txt", "hello\nTODO here\n");
 
-        var result = await new CodingHarness().Grep("TODO", outputMode: GrepOutputMode.Content);
+        var result = await new CodingToolHarness().Grep("TODO", outputMode: GrepOutputMode.Content);
 
         result.Should().Contain("line=\"2\"");
         result.Should().Contain("2\tTODO here");
@@ -708,7 +708,7 @@ public sealed class GrepTests : IDisposable
 
         await File.WriteAllTextAsync("notes.txt", "TODO here\n");
 
-        var result = await new CodingHarness().Grep("TODO", outputMode: GrepOutputMode.Content);
+        var result = await new CodingToolHarness().Grep("TODO", outputMode: GrepOutputMode.Content);
 
         result.Should().Contain("path=\"notes.txt\"");
         result.Should().NotContain("path=\"./notes.txt\"");
@@ -722,7 +722,7 @@ public sealed class GrepTests : IDisposable
 
         await File.WriteAllTextAsync("notes.txt", "TODO here\n");
 
-        var result = await new CodingHarness().Grep("[", outputMode: GrepOutputMode.Content);
+        var result = await new CodingToolHarness().Grep("[", outputMode: GrepOutputMode.Content);
 
         result.Should().StartWith("<error");
         result.Should().Contain("Ripgrep search failed.");
@@ -738,8 +738,8 @@ public sealed class GrepTests : IDisposable
         await File.WriteAllTextAsync(".gitignore", "ignored.txt\n");
         await File.WriteAllTextAsync("ignored.txt", "TODO ignored\n");
 
-        var respected = await new CodingHarness().Grep("TODO");
-        var bypassed = await new CodingHarness().Grep("TODO", respectIgnoreFiles: false);
+        var respected = await new CodingToolHarness().Grep("TODO");
+        var bypassed = await new CodingToolHarness().Grep("TODO", respectIgnoreFiles: false);
 
         respected.Should().NotContain("ignored.txt");
         bypassed.Should().Contain("ignored.txt");
@@ -755,7 +755,7 @@ public sealed class GrepTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(".git", "config"), "TODO in git metadata\n");
         await File.WriteAllTextAsync(".hidden.txt", "TODO in hidden file\n");
 
-        var result = await new CodingHarness().Grep(
+        var result = await new CodingToolHarness().Grep(
             "TODO",
             includeHidden: true,
             respectIgnoreFiles: false);
@@ -772,7 +772,7 @@ public sealed class GrepTests : IDisposable
 
         await File.WriteAllTextAsync("notes.txt", "alpha\nbeta\n");
 
-        var result = await new CodingHarness().Grep(
+        var result = await new CodingToolHarness().Grep(
             "alpha\\nbeta",
             outputMode: GrepOutputMode.Content,
             multiline: true);
@@ -781,7 +781,7 @@ public sealed class GrepTests : IDisposable
         result.Should().Contain("alpha");
     }
 
-    private static CodingHarness CreateHarness(IRipgrepRunner runner)
+    private static CodingToolHarness CreateToolHarness(IRipgrepRunner runner)
         => new(null, null, null, null, runner);
 
     private static RipgrepMatchEvent Match(string path, int lineNumber, string text)

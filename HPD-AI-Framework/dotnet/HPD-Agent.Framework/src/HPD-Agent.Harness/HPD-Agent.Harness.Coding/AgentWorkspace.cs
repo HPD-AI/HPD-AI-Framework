@@ -4,7 +4,7 @@
 using System.Text.Json;
 using HPD.Agent;
 
-namespace HPD.Agent.Harness.Coding;
+namespace HPD.Agent.ToolHarness.Coding;
 
 /// <summary>
 /// Per-run multi-root filesystem workspace selected by the host application.

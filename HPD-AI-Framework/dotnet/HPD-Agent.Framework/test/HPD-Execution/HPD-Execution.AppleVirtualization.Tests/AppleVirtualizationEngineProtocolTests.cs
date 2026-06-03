@@ -396,7 +396,7 @@ public sealed class AppleVirtualizationEngineProtocolTests
         bool ready,
         EngineControlPlanePhase expectedPhase)
     {
-        var guest = new FakeAppleVirtualizationGuestAgentHarness();
+        var guest = new FakeAppleVirtualizationGuestAgentToolHarness();
         AppleVirtualizationGuestAgentEnvelope request = AppleVirtualizationGuestAgentEnvelope.Request(
             AppleVirtualizationGuestAgentOperation.EngineStatus,
             "engine-status",
@@ -694,7 +694,7 @@ public sealed class AppleVirtualizationEngineProtocolTests
         EngineApiKind expectedApi,
         EngineAuthorityMode expectedAuthorityMode)
     {
-        var guest = new FakeAppleVirtualizationGuestAgentHarness().WithEngineProbe(
+        var guest = new FakeAppleVirtualizationGuestAgentToolHarness().WithEngineProbe(
             new FakeAppleVirtualizationGuestAgentEngineProbe(new AppleVirtualizationGuestAgentEngineProbeObservation
             {
                 Readiness = AppleVirtualizationGuestAgentEngineProbeReadiness.Ready,
@@ -751,7 +751,7 @@ public sealed class AppleVirtualizationEngineProtocolTests
     [Fact]
     public async Task Fake_guest_engine_probe_maps_not_installed_without_host_fallback()
     {
-        var guest = new FakeAppleVirtualizationGuestAgentHarness().WithEngineProbe(
+        var guest = new FakeAppleVirtualizationGuestAgentToolHarness().WithEngineProbe(
             new FakeAppleVirtualizationGuestAgentEngineProbe(new AppleVirtualizationGuestAgentEngineProbeObservation
             {
                 Readiness = AppleVirtualizationGuestAgentEngineProbeReadiness.NotInstalled,
@@ -775,7 +775,7 @@ public sealed class AppleVirtualizationEngineProtocolTests
     [Fact]
     public async Task Fake_guest_engine_probe_maps_permission_denied_to_degraded()
     {
-        var guest = new FakeAppleVirtualizationGuestAgentHarness().WithEngineProbe(
+        var guest = new FakeAppleVirtualizationGuestAgentToolHarness().WithEngineProbe(
             new FakeAppleVirtualizationGuestAgentEngineProbe(new AppleVirtualizationGuestAgentEngineProbeObservation
             {
                 Readiness = AppleVirtualizationGuestAgentEngineProbeReadiness.Degraded,
@@ -802,7 +802,7 @@ public sealed class AppleVirtualizationEngineProtocolTests
     [Fact]
     public async Task Fake_guest_engine_probe_maps_missing_systemd_to_degraded_with_bounded_status()
     {
-        var guest = new FakeAppleVirtualizationGuestAgentHarness().WithEngineProbe(
+        var guest = new FakeAppleVirtualizationGuestAgentToolHarness().WithEngineProbe(
             new FakeAppleVirtualizationGuestAgentEngineProbe(new AppleVirtualizationGuestAgentEngineProbeObservation
             {
                 Readiness = AppleVirtualizationGuestAgentEngineProbeReadiness.Degraded,
@@ -829,7 +829,7 @@ public sealed class AppleVirtualizationEngineProtocolTests
     [Fact]
     public async Task Fake_guest_engine_probe_maps_transport_error_to_unavailable_failure()
     {
-        var guest = new FakeAppleVirtualizationGuestAgentHarness().WithEngineProbe(
+        var guest = new FakeAppleVirtualizationGuestAgentToolHarness().WithEngineProbe(
             new FakeAppleVirtualizationGuestAgentEngineProbe(new AppleVirtualizationGuestAgentEngineProbeObservation
             {
                 Readiness = AppleVirtualizationGuestAgentEngineProbeReadiness.Unavailable,

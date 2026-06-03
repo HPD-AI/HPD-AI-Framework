@@ -11,12 +11,12 @@ namespace HPD.Agent.Tests.ClientTools;
 
 /// <summary>
 /// Unit tests for ClientToolMiddleware.
-/// Tests Harness registration, tool visibility, and tool invocation interception.
+/// Tests ToolHarness registration, tool visibility, and tool invocation interception.
 /// </summary>
 public class ClientToolMiddlewareTests
 {
     // ============================================
-    // BeforeMessageTurnAsync - Harness Registration Tests
+    // BeforeMessageTurnAsync - ToolHarness Registration Tests
     // ============================================
 
     [Fact]
@@ -34,17 +34,17 @@ public class ClientToolMiddlewareTests
     }
 
     [Fact]
-    public async Task BeforeMessageTurn_WithToolss_RegistersHarneses()
+    public async Task BeforeMessageTurn_WithToolss_RegistersToolHarnesses()
     {
         // Arrange
         var middleware = new ClientToolMiddleware();
         var context = CreateContext();
         var clientinput = new AgentClientInput
         {
-            clientHarnesses = new[]
+            clientToolHarnesses = new[]
             {
-                CreateTestHarness("Harness1", tools: new[] { CreateTestTool("Tool1") }),
-                CreateTestHarness("Harness2", tools: new[] { CreateTestTool("Tool2") })
+                CreateTestToolHarness("ToolHarness1", tools: new[] { CreateTestTool("Tool1") }),
+                CreateTestToolHarness("ToolHarness2", tools: new[] { CreateTestTool("Tool2") })
             }
         };
         context.RunConfig.ClientToolInput = clientinput;
@@ -55,9 +55,9 @@ public class ClientToolMiddlewareTests
         // Assert
         var state = context.Analyze(s => s.MiddlewareState.ClientTool());
         Assert.NotNull(state);
-        Assert.Equal(2, state.RegisteredHarnesses.Count);
-        Assert.True(state.RegisteredHarnesses.ContainsKey("Harness1"));
-        Assert.True(state.RegisteredHarnesses.ContainsKey("Harness2"));
+        Assert.Equal(2, state.RegisteredToolHarnesses.Count);
+        Assert.True(state.RegisteredToolHarnesses.ContainsKey("ToolHarness1"));
+        Assert.True(state.RegisteredToolHarnesses.ContainsKey("ToolHarness2"));
     }
 
     [Fact]
@@ -68,12 +68,12 @@ public class ClientToolMiddlewareTests
         var context = CreateContext();
         var clientinput = new AgentClientInput
         {
-            clientHarnesses = new[]
+            clientToolHarnesses = new[]
             {
-                CreateTestHarness("Harness1", startCollapsed: true),
-                CreateTestHarness("Harness2", startCollapsed: true)
+                CreateTestToolHarness("ToolHarness1", startCollapsed: true),
+                CreateTestToolHarness("ToolHarness2", startCollapsed: true)
             },
-            ExpandedContainers = new HashSet<string> { "Harness1" }
+            ExpandedContainers = new HashSet<string> { "ToolHarness1" }
         };
         context.RunConfig.ClientToolInput = clientinput;
 
@@ -83,8 +83,8 @@ public class ClientToolMiddlewareTests
         // Assert
         var state = context.Analyze(s => s.MiddlewareState.ClientTool());
         Assert.NotNull(state);
-        Assert.Contains("Harness1", state.ExpandedHarneses);
-        Assert.DoesNotContain("Harness2", state.ExpandedHarneses);
+        Assert.Contains("ToolHarness1", state.ExpandedToolHarnesses);
+        Assert.DoesNotContain("ToolHarness2", state.ExpandedToolHarnesses);
     }
 
     [Fact]
@@ -95,9 +95,9 @@ public class ClientToolMiddlewareTests
         var context = CreateContext();
         var clientinput = new AgentClientInput
         {
-            clientHarnesses = new[]
+            clientToolHarnesses = new[]
             {
-                CreateTestHarness("Harness1", tools: new[]
+                CreateTestToolHarness("ToolHarness1", tools: new[]
                 {
                     CreateTestTool("Tool1"),
                     CreateTestTool("Tool2")
@@ -125,7 +125,7 @@ public class ClientToolMiddlewareTests
         var context = CreateContext();
         var clientinput = new AgentClientInput
         {
-            clientHarnesses = new[] { CreateTestHarness("Harness1") },
+            clientToolHarnesses = new[] { CreateTestToolHarness("ToolHarness1") },
             Context = new[]
             {
                 new ContextItem("User preferences", "dark-theme", "prefs"),
@@ -158,7 +158,7 @@ public class ClientToolMiddlewareTests
         });
         var clientinput = new AgentClientInput
         {
-            clientHarnesses = new[] { CreateTestHarness("Harness1") },
+            clientToolHarnesses = new[] { CreateTestToolHarness("ToolHarness1") },
             Context = new[]
             {
                 new ContextItem("Active HPD-OS view", activeView, "hpdos.activeView")
@@ -217,7 +217,7 @@ public class ClientToolMiddlewareTests
         var appState = JsonSerializer.SerializeToElement(new { cartItems = 3, userId = "user123" });
         var clientinput = new AgentClientInput
         {
-            clientHarnesses = new[] { CreateTestHarness("Harness1") },
+            clientToolHarnesses = new[] { CreateTestToolHarness("ToolHarness1") },
             State = appState
         };
         context.RunConfig.ClientToolInput = clientinput;
@@ -237,11 +237,11 @@ public class ClientToolMiddlewareTests
         // Arrange
         var middleware = new ClientToolMiddleware();
 
-        // First call - register Harneses
+        // First call - register ToolHarnesses
         var context1 = CreateContext();
         var clientinput1 = new AgentClientInput
         {
-            clientHarnesses = new[] { CreateTestHarness("OldHarness") }
+            clientToolHarnesses = new[] { CreateTestToolHarness("OldToolHarness") }
         };
         context1.RunConfig.ClientToolInput = clientinput1;
         await middleware.BeforeMessageTurnAsync(context1, CancellationToken.None);
@@ -250,7 +250,7 @@ public class ClientToolMiddlewareTests
         var context2 = CreateContext(context1.State);
         var clientinput2 = new AgentClientInput
         {
-            clientHarnesses = new[] { CreateTestHarness("NewHarness") },
+            clientToolHarnesses = new[] { CreateTestToolHarness("NewToolHarness") },
             ResetClientState = true
         };
         context2.RunConfig.ClientToolInput = clientinput2;
@@ -258,12 +258,12 @@ public class ClientToolMiddlewareTests
         // Act
         await middleware.BeforeMessageTurnAsync(context2, CancellationToken.None);
 
-        // Assert - only new Harness registered
+        // Assert - only new ToolHarness registered
         var state = context2.State.MiddlewareState.ClientTool();
         Assert.NotNull(state);
-        Assert.Single(state.RegisteredHarnesses);
-        Assert.True(state.RegisteredHarnesses.ContainsKey("NewHarness"));
-        Assert.False(state.RegisteredHarnesses.ContainsKey("OldHarness"));
+        Assert.Single(state.RegisteredToolHarnesses);
+        Assert.True(state.RegisteredToolHarnesses.ContainsKey("NewToolHarness"));
+        Assert.False(state.RegisteredToolHarnesses.ContainsKey("OldToolHarness"));
     }
 
     // ============================================
@@ -285,19 +285,19 @@ public class ClientToolMiddlewareTests
     }
 
     [Fact]
-    public async Task BeforeIteration_WithExpandedHarness_AddsToolsToOptions()
+    public async Task BeforeIteration_WithExpandedToolHarness_AddsToolsToOptions()
     {
         // Arrange
         var middleware = new ClientToolMiddleware();
 
-        // Set up state with registered and expanded Harness
+        // Set up state with registered and expanded ToolHarness
         var state = new ClientToolStateData()
-            .WithRegisteredHarness(CreateTestHarness("Harness1", tools: new[]
+            .WithRegisteredToolHarness(CreateTestToolHarness("ToolHarness1", tools: new[]
             {
                 CreateTestTool("Tool1"),
                 CreateTestTool("Tool2")
             }))
-            .WithExpandedHarness("Harness1");
+            .WithExpandedToolHarness("ToolHarness1");
 
         var agentState = CreateEmptyState() with
         {
@@ -320,12 +320,12 @@ public class ClientToolMiddlewareTests
         var middleware = new ClientToolMiddleware();
 
         var state = new ClientToolStateData()
-            .WithRegisteredHarness(CreateTestHarness("Harness1", tools: new[]
+            .WithRegisteredToolHarness(CreateTestToolHarness("ToolHarness1", tools: new[]
             {
                 CreateTestTool("Tool1"),
                 CreateTestTool("Tool2")
             }))
-            .WithExpandedHarness("Harness1")
+            .WithExpandedToolHarness("ToolHarness1")
             .WithHiddenTool("Tool1");
 
         var agentState = CreateEmptyState() with
@@ -345,25 +345,25 @@ public class ClientToolMiddlewareTests
     }
 
     // ============================================
-    // Harness Validation Tests
+    // ToolHarness Validation Tests
     // ============================================
 
     [Fact]
-    public async Task BeforeMessageTurn_CollapsedHarnessWithoutDescription_ThrowsValidationError()
+    public async Task BeforeMessageTurn_CollapsedToolHarnessWithoutDescription_ThrowsValidationError()
     {
         // Arrange
         var middleware = new ClientToolMiddleware(new ClientToolConfig { ValidateSchemaOnRegistration = true });
         var context = CreateBeforeMessageTurnContext();
 
-        // Create Harness with startCollapsed=true but no description
-        var Harness = new clientHarnessDefinition(
-            Name: "BadHarness",
+        // Create ToolHarness with startCollapsed=true but no description
+        var ToolHarness = new clientToolHarnessDefinition(
+            Name: "BadToolHarness",
             Description: null, // No description!
             Tools: new[] { CreateTestTool("Tool1") },
             StartCollapsed: true
         );
 
-        var clientinput = new AgentClientInput { clientHarnesses = new[] { Harness } };
+        var clientinput = new AgentClientInput { clientToolHarnesses = new[] { ToolHarness } };
         context.RunConfig.ClientToolInput = clientinput;
 
         // Act & Assert
@@ -383,14 +383,14 @@ public class ClientToolMiddlewareTests
 
         var augmentation = new ClientToolAugmentation
         {
-            ExpandHarneses = new HashSet<string> { "Harness2" },
+            ExpandToolHarnesses = new HashSet<string> { "ToolHarness2" },
             HideTools = new HashSet<string> { "Tool1" }
         };
 
         var state = new ClientToolStateData()
-            .WithRegisteredHarness(CreateTestHarness("Harness1", tools: new[] { CreateTestTool("Tool1") }))
-            .WithRegisteredHarness(CreateTestHarness("Harness2", tools: new[] { CreateTestTool("Tool2") }))
-            .WithExpandedHarness("Harness1")
+            .WithRegisteredToolHarness(CreateTestToolHarness("ToolHarness1", tools: new[] { CreateTestTool("Tool1") }))
+            .WithRegisteredToolHarness(CreateTestToolHarness("ToolHarness2", tools: new[] { CreateTestTool("Tool2") }))
+            .WithExpandedToolHarness("ToolHarness1")
             .WithPendingAugmentation(augmentation);
 
         var agentState = CreateEmptyState() with
@@ -408,7 +408,7 @@ public class ClientToolMiddlewareTests
         Assert.NotNull(updatedState);
 
         // Augmentation should have been applied
-        Assert.Contains("Harness2", updatedState.ExpandedHarneses);
+        Assert.Contains("ToolHarness2", updatedState.ExpandedToolHarnesses);
         Assert.Contains("Tool1", updatedState.HiddenTools);
 
         // Augmentation should be cleared
@@ -433,7 +433,7 @@ public class ClientToolMiddlewareTests
             References: new[] { new ClientSkillReference("AddToCart") }
         );
 
-        var Harness = new clientHarnessDefinition(
+        var ToolHarness = new clientToolHarnessDefinition(
             Name: "ECommerce",
             Description: "E-commerce tools",
             Tools: new[] { CreateTestTool("AddToCart") },
@@ -441,7 +441,7 @@ public class ClientToolMiddlewareTests
             StartCollapsed: false
         );
 
-        var clientinput = new AgentClientInput { clientHarnesses = new[] { Harness } };
+        var clientinput = new AgentClientInput { clientToolHarnesses = new[] { ToolHarness } };
         context.RunConfig.ClientToolInput = clientinput;
 
         // Act
@@ -450,10 +450,10 @@ public class ClientToolMiddlewareTests
         // Assert
         var state = context.Analyze(s => s.MiddlewareState.ClientTool());
         Assert.NotNull(state);
-        Assert.Single(state.RegisteredHarnesses);
-        Assert.NotNull(state.RegisteredHarnesses["ECommerce"].Skills);
-        Assert.Single(state.RegisteredHarnesses["ECommerce"].Skills!);
-        Assert.Equal("CheckoutWorkflow", state.RegisteredHarnesses["ECommerce"].Skills![0].Name);
+        Assert.Single(state.RegisteredToolHarnesses);
+        Assert.NotNull(state.RegisteredToolHarnesses["ECommerce"].Skills);
+        Assert.Single(state.RegisteredToolHarnesses["ECommerce"].Skills!);
+        Assert.Equal("CheckoutWorkflow", state.RegisteredToolHarnesses["ECommerce"].Skills![0].Name);
     }
 
     [Fact]
@@ -468,7 +468,7 @@ public class ClientToolMiddlewareTests
             SystemPrompt: "1. Verify cart\n2. Get payment\n3. Confirm order"
         );
 
-        var Harness = new clientHarnessDefinition(
+        var ToolHarness = new clientToolHarnessDefinition(
             Name: "ECommerce",
             Description: "E-commerce tools",
             Tools: new[] { CreateTestTool("AddToCart") },
@@ -477,8 +477,8 @@ public class ClientToolMiddlewareTests
         );
 
         var state = new ClientToolStateData()
-            .WithRegisteredHarness(Harness)
-            .WithExpandedHarness("ECommerce");
+            .WithRegisteredToolHarness(ToolHarness)
+            .WithExpandedToolHarness("ECommerce");
 
         var agentState = CreateEmptyState() with
         {
@@ -513,7 +513,7 @@ public class ClientToolMiddlewareTests
             }
         );
 
-        var Harness = new clientHarnessDefinition(
+        var ToolHarness = new clientToolHarnessDefinition(
             Name: "ECommerce",
             Description: "E-commerce tools",
             Tools: new[] { CreateTestTool("AddToCart") },
@@ -522,8 +522,8 @@ public class ClientToolMiddlewareTests
         );
 
         var state = new ClientToolStateData()
-            .WithRegisteredHarness(Harness)
-            .WithExpandedHarness("ECommerce");
+            .WithRegisteredToolHarness(ToolHarness)
+            .WithExpandedToolHarness("ECommerce");
 
         var agentState = CreateEmptyState() with
         {
@@ -551,7 +551,7 @@ public class ClientToolMiddlewareTests
         var middleware = new ClientToolMiddleware();
         var context = CreateBeforeMessageTurnContext();
 
-        // Skill references a tool that doesn't exist in the Harness
+        // Skill references a tool that doesn't exist in the ToolHarness
         var skill = new ClientSkillDefinition(
             Name: "CheckoutWorkflow",
             Description: "Guides through checkout process",
@@ -559,7 +559,7 @@ public class ClientToolMiddlewareTests
             References: new[] { new ClientSkillReference("NonExistentTool") }
         );
 
-        var Harness = new clientHarnessDefinition(
+        var ToolHarness = new clientToolHarnessDefinition(
             Name: "ECommerce",
             Description: "E-commerce tools",
             Tools: new[] { CreateTestTool("AddToCart") },
@@ -567,7 +567,7 @@ public class ClientToolMiddlewareTests
             StartCollapsed: false
         );
 
-        var clientinput = new AgentClientInput { clientHarnesses = new[] { Harness } };
+        var clientinput = new AgentClientInput { clientToolHarnesses = new[] { ToolHarness } };
         context.RunConfig.ClientToolInput = clientinput;
 
         // Act & Assert - should throw because skill references non-existent tool
@@ -576,25 +576,25 @@ public class ClientToolMiddlewareTests
     }
 
     [Fact]
-    public async Task BeforeMessageTurn_SkillWithCrossHarnessReference_ValidatesCorrectly()
+    public async Task BeforeMessageTurn_SkillWithCrossToolHarnessReference_ValidatesCorrectly()
     {
         // Arrange
         var middleware = new ClientToolMiddleware();
         var context = CreateBeforeMessageTurnContext();
 
-        // Harness A has a skill that references a tool in Harness B
+        // ToolHarness A has a skill that references a tool in ToolHarness B
         var skillWithCrossRef = new ClientSkillDefinition(
             Name: "FullOrderWorkflow",
             Description: "Complete order workflow",
-            SystemPrompt: "Use tools from both Harneses",
+            SystemPrompt: "Use tools from both ToolHarnesses",
             References: new[]
             {
                 new ClientSkillReference("AddToCart"),  // Local tool
-                new ClientSkillReference("ProcessPayment", "PaymentHarness")  // Cross-Harness ref
+                new ClientSkillReference("ProcessPayment", "PaymentToolHarness")  // Cross-ToolHarness ref
             }
         );
 
-        var ecommerceHarness = new clientHarnessDefinition(
+        var ecommerceToolHarness = new clientToolHarnessDefinition(
             Name: "ECommerce",
             Description: "E-commerce tools",
             Tools: new[] { CreateTestTool("AddToCart") },
@@ -602,8 +602,8 @@ public class ClientToolMiddlewareTests
             StartCollapsed: false
         );
 
-        var paymentHarness = new clientHarnessDefinition(
-            Name: "PaymentHarness",
+        var paymentToolHarness = new clientToolHarnessDefinition(
+            Name: "PaymentToolHarness",
             Description: "Payment tools",
             Tools: new[] { CreateTestTool("ProcessPayment") },
             StartCollapsed: false
@@ -611,62 +611,62 @@ public class ClientToolMiddlewareTests
 
         var clientinput = new AgentClientInput
         {
-            clientHarnesses = new[] { ecommerceHarness, paymentHarness }
+            clientToolHarnesses = new[] { ecommerceToolHarness, paymentToolHarness }
         };
         context.RunConfig.ClientToolInput = clientinput;
 
-        // Act - should succeed because PaymentHarness.ProcessPayment exists
+        // Act - should succeed because PaymentToolHarness.ProcessPayment exists
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // Assert
         var state = context.Analyze(s => s.MiddlewareState.ClientTool());
         Assert.NotNull(state);
-        Assert.Equal(2, state.RegisteredHarnesses.Count);
+        Assert.Equal(2, state.RegisteredToolHarnesses.Count);
     }
 
     [Fact]
-    public async Task BeforeMessageTurn_SkillWithInvalidCrossHarnessReference_ThrowsValidationError()
+    public async Task BeforeMessageTurn_SkillWithInvalidCrossToolHarnessReference_ThrowsValidationError()
     {
         // Arrange
         var middleware = new ClientToolMiddleware();
         var context = CreateBeforeMessageTurnContext();
 
-        // Skill references a tool in a Harness that doesn't exist
+        // Skill references a tool in a ToolHarness that doesn't exist
         var skillWithBadRef = new ClientSkillDefinition(
             Name: "BadWorkflow",
             Description: "Workflow with invalid reference",
             SystemPrompt: "This will fail",
             References: new[]
             {
-                new ClientSkillReference("SomeTool", "NonExistentHarness")
+                new ClientSkillReference("SomeTool", "NonExistentToolHarness")
             }
         );
 
-        var Harness = new clientHarnessDefinition(
-            Name: "MyHarness",
+        var ToolHarness = new clientToolHarnessDefinition(
+            Name: "MyToolHarness",
             Description: "My tools",
             Tools: new[] { CreateTestTool("LocalTool") },
             Skills: new[] { skillWithBadRef },
             StartCollapsed: false
         );
 
-        var clientinput = new AgentClientInput { clientHarnesses = new[] { Harness } };
+        var clientinput = new AgentClientInput { clientToolHarnesses = new[] { ToolHarness } };
         context.RunConfig.ClientToolInput = clientinput;
 
-        // Act & Assert - should throw because referenced Harness doesn't exist
+        // Act & Assert - should throw because referenced ToolHarness doesn't exist
         await Assert.ThrowsAsync<ArgumentException>(
             async () => await middleware.BeforeMessageTurnAsync(context, CancellationToken.None));
     }
 
     [Fact]
-    public async Task BeforeIteration_CollapsedHarness_HasContainerAndSkills()
+    public async Task BeforeIteration_CollapsedToolHarness_HasContainerAndSkills()
     {
         // Arrange
         var middleware = new ClientToolMiddleware();
 
-        // When a Harness is collapsed:
+        // When a ToolHarness is collapsed:
         // - Container function (Client_ECommerce) is added
-        // - Collapsed tools (with ParentHarness metadata) are added for ToolCollapsingMiddleware
+        // - Collapsed tools (with ParentToolHarness metadata) are added for ToolCollapsingMiddleware
         // - Skills are ALWAYS added (they're entry points)
         var skill = new ClientSkillDefinition(
             Name: "QuickCheckout",
@@ -674,7 +674,7 @@ public class ClientToolMiddlewareTests
             SystemPrompt: "Use this for quick orders"
         );
 
-        var Harness = new clientHarnessDefinition(
+        var ToolHarness = new clientToolHarnessDefinition(
             Name: "ECommerce",
             Description: "E-commerce tools",
             Tools: new[] { CreateTestTool("AddToCart"), CreateTestTool("RemoveFromCart") },
@@ -682,10 +682,10 @@ public class ClientToolMiddlewareTests
             StartCollapsed: true
         );
 
-        // Harness is NOT expanded
+        // ToolHarness is NOT expanded
         var state = new ClientToolStateData()
-            .WithRegisteredHarness(Harness);
-        // Note: NOT calling .WithExpandedHarness()
+            .WithRegisteredToolHarness(ToolHarness);
+        // Note: NOT calling .WithExpandedToolHarness()
 
         var agentState = CreateEmptyState() with
         {
@@ -707,22 +707,22 @@ public class ClientToolMiddlewareTests
         // Skill is visible (skills are always available as entry points)
         Assert.Contains("QuickCheckout", functionNames);
 
-        // Tools exist (with ParentHarness metadata for ToolCollapsingMiddleware to filter)
+        // Tools exist (with ParentToolHarness metadata for ToolCollapsingMiddleware to filter)
         Assert.Contains("AddToCart", functionNames);
         Assert.Contains("RemoveFromCart", functionNames);
 
-        // Verify tools have ParentHarness metadata (for Collapsing middleware)
+        // Verify tools have ParentToolHarness metadata (for Collapsing middleware)
         var addToCart = functions.First(f => f.Name == "AddToCart");
-        Assert.True(addToCart.AdditionalProperties?.ContainsKey("ParentHarness") == true);
-        Assert.Equal("Client_ECommerce", addToCart.AdditionalProperties!["ParentHarness"]);
+        Assert.True(addToCart.AdditionalProperties?.ContainsKey("ParentToolHarness") == true);
+        Assert.Equal("Client_ECommerce", addToCart.AdditionalProperties!["ParentToolHarness"]);
     }
 
     [Fact]
-    public async Task BeforeIteration_CollapsedHarness_PreservesClientToolMetadata()
+    public async Task BeforeIteration_CollapsedToolHarness_PreservesClientToolMetadata()
     {
         // Arrange
         var middleware = new ClientToolMiddleware();
-        var Harness = new clientHarnessDefinition(
+        var ToolHarness = new clientToolHarnessDefinition(
             Name: "Browser",
             Description: "Browser artifact tools",
             Tools: new[] { CreateTestTool("write_artifact") },
@@ -730,7 +730,7 @@ public class ClientToolMiddlewareTests
         );
 
         var state = new ClientToolStateData()
-            .WithRegisteredHarness(Harness);
+            .WithRegisteredToolHarness(ToolHarness);
         var agentState = CreateEmptyState() with
         {
             MiddlewareState = new MiddlewareState().WithClientTool(state)
@@ -744,13 +744,13 @@ public class ClientToolMiddlewareTests
         var functions = context.Options.Tools.OfType<AIFunction>().ToList();
         var writeArtifact = functions.First(f => f.Name == "write_artifact");
 
-        Assert.True(writeArtifact.AdditionalProperties?.ContainsKey("ParentHarness") == true);
-        Assert.Equal("Client_Browser", writeArtifact.AdditionalProperties!["ParentHarness"]);
+        Assert.True(writeArtifact.AdditionalProperties?.ContainsKey("ParentToolHarness") == true);
+        Assert.Equal("Client_Browser", writeArtifact.AdditionalProperties!["ParentToolHarness"]);
         Assert.NotNull(writeArtifact.AdditionalProperties);
         Assert.True(writeArtifact.AdditionalProperties.TryGetValue("IsClientTool", out var isClientTool));
         Assert.True(isClientTool is true);
-        Assert.Equal("Browser", writeArtifact.AdditionalProperties!["clientHarnessName"]);
-        Assert.Equal("clientHarness", writeArtifact.AdditionalProperties!["SourceType"]);
+        Assert.Equal("Browser", writeArtifact.AdditionalProperties!["clientToolHarnessName"]);
+        Assert.Equal("clientToolHarness", writeArtifact.AdditionalProperties!["SourceType"]);
     }
 
     [Fact]
@@ -890,14 +890,14 @@ public class ClientToolMiddlewareTests
             agentName: "TestAgent");
     }
 
-    private static clientHarnessDefinition CreateTestHarness(
+    private static clientToolHarnessDefinition CreateTestToolHarness(
         string name,
         ClientToolDefinition[]? tools = null,
         bool startCollapsed = false)
     {
-        return new clientHarnessDefinition(
+        return new clientToolHarnessDefinition(
             Name: name,
-            Description: $"Test Harness {name}",
+            Description: $"Test ToolHarness {name}",
             Tools: tools ?? new[] { CreateTestTool($"{name}_DefaultTool") },
             StartCollapsed: startCollapsed
         );

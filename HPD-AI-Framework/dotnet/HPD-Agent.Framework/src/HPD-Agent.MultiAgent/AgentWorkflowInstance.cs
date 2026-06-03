@@ -131,6 +131,7 @@ public sealed class AgentWorkflowInstance
     private readonly IServiceProvider _serviceProvider;
     private readonly string _workflowName;
     private readonly WorkflowSettingsConfig _settings;
+    private readonly WorkflowEventCoordinator _eventCoordinator = new();
 
     // Cache of built agents (built lazily on first execution)
     private Dictionary<string, Agent.Agent>? _builtAgents;
@@ -166,6 +167,76 @@ public sealed class AgentWorkflowInstance
     /// The workflow name for identification in execution context.
     /// </summary>
     public string WorkflowName => _workflowName;
+
+    /// <summary>
+    /// Event coordinator used by this workflow instance for public workflow and child agent events.
+    /// </summary>
+    public WorkflowEventCoordinator Events => _eventCoordinator;
+
+    /// <summary>
+    /// Registers a removable typed subscriber for workflow or child agent events.
+    /// </summary>
+    public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler)
+        where TEvent : Event
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return _eventCoordinator.Subscribe(handler);
+    }
+
+    /// <summary>
+    /// Registers a removable typed subscriber for workflow or child agent events.
+    /// </summary>
+    public IDisposable Subscribe<TEvent>(Func<TEvent, Task> handler)
+        where TEvent : Event
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return Subscribe<TEvent>(evt => new ValueTask(handler(evt)));
+    }
+
+    /// <summary>
+    /// Registers a removable typed subscriber for workflow or child agent events.
+    /// </summary>
+    public IDisposable Subscribe<TEvent>(Action<TEvent> handler)
+        where TEvent : Event
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return Subscribe<TEvent>(evt =>
+        {
+            handler(evt);
+            return ValueTask.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    /// Registers a removable catch-all subscriber for workflow and child agent events.
+    /// </summary>
+    public IDisposable SubscribeAny(Func<Event, ValueTask> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return _eventCoordinator.SubscribeAny(handler);
+    }
+
+    /// <summary>
+    /// Registers a removable catch-all subscriber for workflow and child agent events.
+    /// </summary>
+    public IDisposable SubscribeAny(Func<Event, Task> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return SubscribeAny(evt => new ValueTask(handler(evt)));
+    }
+
+    /// <summary>
+    /// Registers a removable catch-all subscriber for workflow and child agent events.
+    /// </summary>
+    public IDisposable SubscribeAny(Action<Event> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return SubscribeAny(evt =>
+        {
+            handler(evt);
+            return ValueTask.CompletedTask;
+        });
+    }
 
     /// <summary>
     /// Build agents lazily, caching the result for subsequent executions.
@@ -219,18 +290,18 @@ public sealed class AgentWorkflowInstance
                     // For a proper implementation, we'd track the final node
                 }
 
-                // Capture node completion outputs (now using wrapped WorkflowNodeCompletedEvent)
-                if (evt is WorkflowNodeCompletedEvent nodeComplete)
+                // Capture workflow agent outputs.
+                if (evt is WorkflowAgentCompletedEvent agentComplete)
                 {
-                    if (nodeComplete.Outputs != null)
+                    if (agentComplete.Outputs != null)
                     {
-                        foreach (var kvp in nodeComplete.Outputs)
+                        foreach (var kvp in agentComplete.Outputs)
                         {
-                            outputs[$"{nodeComplete.NodeId}.{kvp.Key}"] = kvp.Value;
+                            outputs[$"{agentComplete.AgentId}.{kvp.Key}"] = kvp.Value;
                         }
 
                         // Check for answer in the outputs
-                        if (nodeComplete.Outputs.TryGetValue("answer", out var answer))
+                        if (agentComplete.Outputs.TryGetValue("answer", out var answer))
                         {
                             finalAnswer = answer?.ToString();
                         }
@@ -446,6 +517,12 @@ public sealed class AgentWorkflowInstance
             var wrappedEvent = WrapGraphEvent(evt, workflowContext);
             if (wrappedEvent != null)
             {
+                _eventCoordinator.Emit(wrappedEvent);
+                if (parentCoordinator is not null && !ReferenceEquals(parentCoordinator, _eventCoordinator.Inner))
+                {
+                    parentCoordinator.Emit(wrappedEvent);
+                }
+
                 yield return wrappedEvent;
             }
 
@@ -472,7 +549,7 @@ public sealed class AgentWorkflowInstance
             GraphExecutionStartedEvent g => new WorkflowStartedEvent
             {
                 WorkflowName = _workflowName,
-                NodeCount = g.NodeCount,
+                NodeCount = _agentFactories.Count,
                 LayerCount = g.LayerCount,
                 Metadata = workflowContext
             },
@@ -487,20 +564,20 @@ public sealed class AgentWorkflowInstance
                 Metadata = workflowContext
             },
 
-            // Node events → WorkflowNode events
-            NodeExecutionStartedEvent n => new WorkflowNodeStartedEvent
+            // Graph node events → public workflow agent events
+            NodeExecutionStartedEvent n => new WorkflowAgentStartedEvent
             {
                 WorkflowName = _workflowName,
-                NodeId = n.NodeId,
+                AgentId = n.NodeId,
                 AgentName = n.HandlerName,
                 LayerIndex = n.LayerIndex,
                 Metadata = workflowContext
             },
 
-            NodeExecutionCompletedEvent n => new WorkflowNodeCompletedEvent
+            NodeExecutionCompletedEvent n => new WorkflowAgentCompletedEvent
             {
                 WorkflowName = _workflowName,
-                NodeId = n.NodeId,
+                AgentId = n.NodeId,
                 AgentName = n.HandlerName,
                 Success = n.Result is NodeExecutionResult.Success,
                 Duration = n.Duration,
@@ -510,10 +587,10 @@ public sealed class AgentWorkflowInstance
                 Metadata = workflowContext
             },
 
-            NodeSkippedEvent n => new WorkflowNodeSkippedEvent
+            NodeSkippedEvent n => new WorkflowAgentSkippedEvent
             {
                 WorkflowName = _workflowName,
-                NodeId = n.NodeId,
+                AgentId = n.NodeId,
                 Reason = n.Reason,
                 Metadata = workflowContext
             },

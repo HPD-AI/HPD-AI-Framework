@@ -245,7 +245,7 @@ public class AgentRunConfig
 
     /// <summary>
     /// Client tool configuration for this run.
-    /// Allows dynamic Harness/tool registration without rebuilding agent.
+    /// Allows dynamic ToolHarness/tool registration without rebuilding agent.
     /// </summary>
     public ClientTools.AgentClientInput? ClientToolInput { get; set; }
 

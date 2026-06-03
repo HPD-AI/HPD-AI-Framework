@@ -8,42 +8,42 @@ namespace HPD.Agent.Tests.Collapsing;
 
 /// <summary>
 /// Comprehensive tests for ToolVisibilityManager to validate all Collapsing scenarios.
-/// These tests cover explicit/implicit Harness registration, [Collapse] attribute behavior,
+/// These tests cover explicit/implicit ToolHarness registration, [Collapse] attribute behavior,
 /// orphan function hiding, and skill parent Collapse detection.
 /// </summary>
 public class ToolVisibilityManagerTests
 {
-    #region Test Scenario 1: Both Harness and Skills with [Collapse], Both Explicit
+    #region Test Scenario 1: Both ToolHarness and Skills with [Collapse], Both Explicit
 
     [Fact]
     public void Scenario1_BothCollapsed_BothExplicit_ShowsOnlyContainers()
     {
-        // Arrange: Harness has [Collapse], Skills have [Collapse], both explicitly registered
+        // Arrange: ToolHarness has [Collapse], Skills have [Collapse], both explicitly registered
         var tools = CreateTestTools(
-            HarnessHasCollapse: true,
+            ToolHarnessHasCollapse: true,
             skillsHaveCollapse: true,
-            includeHarnessFunctions: true,
+            includeToolHarnessFunctions: true,
             includeSkills: true);
         
-        var explicitHarneses = ImmutableHashSet.Create(
+        var explicitToolHarnesses = ImmutableHashSet.Create(
             StringComparer.OrdinalIgnoreCase,
-            "FinancialAnalysisHarness",
+            "FinancialAnalysisToolHarness",
             "FinancialAnalysisSkills");
         
-        var manager = new ToolVisibilityManager(tools, explicitHarneses);
+        var manager = new ToolVisibilityManager(tools, explicitToolHarnesses);
 
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty, // No expanded Harneses
+            ImmutableHashSet<string>.Empty, // No expanded ToolHarnesses
             ImmutableHashSet<string>.Empty); // No expanded skills
 
         // Assert
         visibleTools.Should().HaveCount(2); // Only containers, no read_skill_document (no skills expanded)
-        visibleTools.Should().Contain(t => t.Name == "FinancialAnalysisHarness"); // Collapse container
+        visibleTools.Should().Contain(t => t.Name == "FinancialAnalysisToolHarness"); // Collapse container
         visibleTools.Should().Contain(t => t.Name == "FinancialAnalysisSkills"); // Collapse container
 
-        // Should NOT contain individual Harness functions
+        // Should NOT contain individual ToolHarness functions
         visibleTools.Should().NotContain(t => t.Name == "CalculateCurrentRatio");
         visibleTools.Should().NotContain(t => t.Name == "ComprehensiveBalanceSheetAnalysis");
 
@@ -56,24 +56,24 @@ public class ToolVisibilityManagerTests
 
     #endregion
 
-    #region Test Scenario 2: Harness Explicit WITHOUT [Collapse], Skills With [Collapse]
+    #region Test Scenario 2: ToolHarness Explicit WITHOUT [Collapse], Skills With [Collapse]
 
     [Fact]
-    public void Scenario2_HarnessNotCollapsed_SkillsCollapsed_ShowsAllHarnessFunctions()
+    public void Scenario2_ToolHarnessNotCollapsed_SkillsCollapsed_ShowsAllToolHarnessFunctions()
     {
-        // Arrange: Harness NO [Collapse] but explicit, Skills have [Collapse]
+        // Arrange: ToolHarness NO [Collapse] but explicit, Skills have [Collapse]
         var tools = CreateTestTools(
-            HarnessHasCollapse: false,
+            ToolHarnessHasCollapse: false,
             skillsHaveCollapse: true,
-            includeHarnessFunctions: true,
+            includeToolHarnessFunctions: true,
             includeSkills: true);
         
-        var explicitHarneses = ImmutableHashSet.Create(
+        var explicitToolHarnesses = ImmutableHashSet.Create(
             StringComparer.OrdinalIgnoreCase,
-            "FinancialAnalysisHarness",
+            "FinancialAnalysisToolHarness",
             "FinancialAnalysisSkills");
         
-        var manager = new ToolVisibilityManager(tools, explicitHarneses);
+        var manager = new ToolVisibilityManager(tools, explicitToolHarnesses);
 
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
@@ -81,7 +81,7 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty,
             ImmutableHashSet<string>.Empty);
 
-        // Assert - Should show all Harness functions (explicit, no Collapse)
+        // Assert - Should show all ToolHarness functions (explicit, no Collapse)
         visibleTools.Should().Contain(t => t.Name == "CalculateCurrentRatio");
         visibleTools.Should().Contain(t => t.Name == "CalculateQuickRatio");
         visibleTools.Should().Contain(t => t.Name == "ComprehensiveBalanceSheetAnalysis");
@@ -98,24 +98,24 @@ public class ToolVisibilityManagerTests
 
     #endregion
 
-    #region Test Scenario 3: Harness With [Collapse], Skills WITHOUT [Collapse], Both Explicit
+    #region Test Scenario 3: ToolHarness With [Collapse], Skills WITHOUT [Collapse], Both Explicit
 
     [Fact]
-    public void Scenario3_HarnessCollapsed_SkillsNotCollapsed_ShowsIndividualSkills()
+    public void Scenario3_ToolHarnessCollapsed_SkillsNotCollapsed_ShowsIndividualSkills()
     {
-        // Arrange: Harness has [Collapse], Skills NO [Collapse], both explicit
+        // Arrange: ToolHarness has [Collapse], Skills NO [Collapse], both explicit
         var tools = CreateTestTools(
-            HarnessHasCollapse: true,
+            ToolHarnessHasCollapse: true,
             skillsHaveCollapse: false,
-            includeHarnessFunctions: true,
+            includeToolHarnessFunctions: true,
             includeSkills: true);
         
-        var explicitHarneses = ImmutableHashSet.Create(
+        var explicitToolHarnesses = ImmutableHashSet.Create(
             StringComparer.OrdinalIgnoreCase,
-            "FinancialAnalysisHarness",
+            "FinancialAnalysisToolHarness",
             "FinancialAnalysisSkills");
         
-        var manager = new ToolVisibilityManager(tools, explicitHarneses);
+        var manager = new ToolVisibilityManager(tools, explicitToolHarnesses);
 
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
@@ -124,40 +124,40 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty);
 
         // Assert
-        visibleTools.Should().Contain(t => t.Name == "FinancialAnalysisHarness"); // Collapse container
+        visibleTools.Should().Contain(t => t.Name == "FinancialAnalysisToolHarness"); // Collapse container
         visibleTools.Should().Contain(t => t.Name == "QuickLiquidityAnalysis"); // Individual skill
         visibleTools.Should().Contain(t => t.Name == "CapitalStructureAnalysis"); // Individual skill
 
-        // Should NOT show Harness functions (Collapsed Harness not expanded)
+        // Should NOT show ToolHarness functions (Collapsed ToolHarness not expanded)
         visibleTools.Should().NotContain(t => t.Name == "CalculateCurrentRatio");
         visibleTools.Should().NotContain(t => t.Name == "ComprehensiveBalanceSheetAnalysis");
 
         // Should NOT contain read_skill_document (no skills expanded - only containers visible)
         visibleTools.Should().NotContain(t => t.Name == "ReadSkillDocument");
 
-        // Total: 1 Harness container + 5 skills = 6
+        // Total: 1 ToolHarness container + 5 skills = 6
         visibleTools.Should().HaveCount(6);
     }
 
     #endregion
 
-    #region Test Scenario 4: Only Skills Registered (No Explicit Harness), Skills WITHOUT [Collapse]
+    #region Test Scenario 4: Only Skills Registered (No Explicit ToolHarness), Skills WITHOUT [Collapse]
 
     [Fact]
     public void Scenario4_OnlySkillsExplicit_NoCollapse_HidesOrphanFunctions()
     {
-        // Arrange: Only skills registered (Harness auto-registered), skills NO [Collapse]
+        // Arrange: Only skills registered (ToolHarness auto-registered), skills NO [Collapse]
         var tools = CreateTestTools(
-            HarnessHasCollapse: false,
+            ToolHarnessHasCollapse: false,
             skillsHaveCollapse: false,
-            includeHarnessFunctions: true,
+            includeToolHarnessFunctions: true,
             includeSkills: true);
         
-        var explicitHarneses = ImmutableHashSet.Create(
+        var explicitToolHarnesses = ImmutableHashSet.Create(
             StringComparer.OrdinalIgnoreCase,
             "FinancialAnalysisSkills"); // Only skills explicit
         
-        var manager = new ToolVisibilityManager(tools, explicitHarneses);
+        var manager = new ToolVisibilityManager(tools, explicitToolHarnesses);
 
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
@@ -169,7 +169,7 @@ public class ToolVisibilityManagerTests
         visibleTools.Should().Contain(t => t.Name == "QuickLiquidityAnalysis");
         visibleTools.Should().Contain(t => t.Name == "CapitalStructureAnalysis");
 
-        // Orphan functions should be hidden (Harness auto-registered, not explicit)
+        // Orphan functions should be hidden (ToolHarness auto-registered, not explicit)
         visibleTools.Should().NotContain(t => t.Name == "ComprehensiveBalanceSheetAnalysis");
 
         // Should NOT contain read_skill_document (no skills expanded - only skill containers visible)
@@ -188,16 +188,16 @@ public class ToolVisibilityManagerTests
     {
         // Arrange: Only skills registered, skills HAVE [Collapse]
         var tools = CreateTestTools(
-            HarnessHasCollapse: false,
+            ToolHarnessHasCollapse: false,
             skillsHaveCollapse: true,
-            includeHarnessFunctions: true,
+            includeToolHarnessFunctions: true,
             includeSkills: true);
         
-        var explicitHarneses = ImmutableHashSet.Create(
+        var explicitToolHarnesses = ImmutableHashSet.Create(
             StringComparer.OrdinalIgnoreCase,
             "FinancialAnalysisSkills");
         
-        var manager = new ToolVisibilityManager(tools, explicitHarneses);
+        var manager = new ToolVisibilityManager(tools, explicitToolHarnesses);
 
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
@@ -214,7 +214,7 @@ public class ToolVisibilityManagerTests
         // Should NOT contain read_skill_document (no skills expanded)
         visibleTools.Should().NotContain(t => t.Name == "ReadSkillDocument");
 
-        // Harness functions hidden (orphans)
+        // ToolHarness functions hidden (orphans)
         visibleTools.Should().NotContain(t => t.Name == "ComprehensiveBalanceSheetAnalysis");
         visibleTools.Should().NotContain(t => t.Name == "CalculateCurrentRatio");
 
@@ -223,23 +223,23 @@ public class ToolVisibilityManagerTests
 
     #endregion
 
-    #region Test Scenario 6: Collapsed Harness Explicit, No Skills
+    #region Test Scenario 6: Collapsed ToolHarness Explicit, No Skills
 
     [Fact]
-    public void Scenario6_CollapsedHarnessExplicit_NoSkills_HidesFunctions()
+    public void Scenario6_CollapsedToolHarnessExplicit_NoSkills_HidesFunctions()
     {
-        // Arrange: Harness has [Collapse], explicit, no skills
+        // Arrange: ToolHarness has [Collapse], explicit, no skills
         var tools = CreateTestTools(
-            HarnessHasCollapse: true,
+            ToolHarnessHasCollapse: true,
             skillsHaveCollapse: false,
-            includeHarnessFunctions: true,
+            includeToolHarnessFunctions: true,
             includeSkills: false);
         
-        var explicitHarneses = ImmutableHashSet.Create(
+        var explicitToolHarnesses = ImmutableHashSet.Create(
             StringComparer.OrdinalIgnoreCase,
-            "FinancialAnalysisHarness");
+            "FinancialAnalysisToolHarness");
         
-        var manager = new ToolVisibilityManager(tools, explicitHarneses);
+        var manager = new ToolVisibilityManager(tools, explicitToolHarnesses);
 
         // Act - Not expanded
         var visibleToolsBeforeExpansion = manager.GetToolsForAgentTurn(
@@ -248,21 +248,21 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty);
 
         // Assert - Before expansion
-        visibleToolsBeforeExpansion.Should().Contain(t => t.Name == "FinancialAnalysisHarness");
+        visibleToolsBeforeExpansion.Should().Contain(t => t.Name == "FinancialAnalysisToolHarness");
         visibleToolsBeforeExpansion.Should().NotContain(t => t.Name == "CalculateCurrentRatio");
         visibleToolsBeforeExpansion.Should().NotContain(t => t.Name == "ReadSkillDocument"); // No skills expanded
-        visibleToolsBeforeExpansion.Should().HaveCount(1); // Only Harness container
+        visibleToolsBeforeExpansion.Should().HaveCount(1); // Only ToolHarness container
 
         // Act - After expansion
         var visibleToolsAfterExpansion = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "FinancialAnalysisHarness"), // Expanded
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "FinancialAnalysisToolHarness"), // Expanded
             ImmutableHashSet<string>.Empty);
 
         // Assert - After expansion, all functions visible
         visibleToolsAfterExpansion.Should().Contain(t => t.Name == "CalculateCurrentRatio");
         visibleToolsAfterExpansion.Should().Contain(t => t.Name == "ComprehensiveBalanceSheetAnalysis");
-        // Still no read_skill_document (no skills expanded, only Harness expanded)
+        // Still no read_skill_document (no skills expanded, only ToolHarness expanded)
         visibleToolsAfterExpansion.Should().NotContain(t => t.Name == "ReadSkillDocument");
     }
 
@@ -275,17 +275,17 @@ public class ToolVisibilityManagerTests
     {
         // Arrange
         var tools = CreateTestTools(
-            HarnessHasCollapse: true,
+            ToolHarnessHasCollapse: true,
             skillsHaveCollapse: true,
-            includeHarnessFunctions: true,
+            includeToolHarnessFunctions: true,
             includeSkills: true);
         
-        var explicitHarneses = ImmutableHashSet.Create(
+        var explicitToolHarnesses = ImmutableHashSet.Create(
             StringComparer.OrdinalIgnoreCase,
-            "FinancialAnalysisHarness",
+            "FinancialAnalysisToolHarness",
             "FinancialAnalysisSkills");
         
-        var manager = new ToolVisibilityManager(tools, explicitHarneses);
+        var manager = new ToolVisibilityManager(tools, explicitToolHarnesses);
 
         // Act - Expand FinancialAnalysisSkills Collapse
         var visibleTools = manager.GetToolsForAgentTurn(
@@ -306,22 +306,22 @@ public class ToolVisibilityManagerTests
     {
         // Arrange
         var tools = CreateTestTools(
-            HarnessHasCollapse: true,
+            ToolHarnessHasCollapse: true,
             skillsHaveCollapse: false,
-            includeHarnessFunctions: true,
+            includeToolHarnessFunctions: true,
             includeSkills: true);
         
-        var explicitHarneses = ImmutableHashSet.Create(
+        var explicitToolHarnesses = ImmutableHashSet.Create(
             StringComparer.OrdinalIgnoreCase,
-            "FinancialAnalysisHarness",
+            "FinancialAnalysisToolHarness",
             "FinancialAnalysisSkills");
         
-        var manager = new ToolVisibilityManager(tools, explicitHarneses);
+        var manager = new ToolVisibilityManager(tools, explicitToolHarnesses);
 
-        // Act - Expand both the Harness (so functions are available) AND the skill (so it references them)
+        // Act - Expand both the ToolHarness (so functions are available) AND the skill (so it references them)
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "FinancialAnalysisHarness"), // Expand Harness
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "FinancialAnalysisToolHarness"), // Expand ToolHarness
             ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "QuickLiquidityAnalysis")); // Expand skill
 
         // Assert - Functions referenced by QuickLiquidityAnalysis now visible
@@ -335,17 +335,17 @@ public class ToolVisibilityManagerTests
     #region Helper Methods
 
     private IEnumerable<AIFunction> CreateTestTools(
-        bool HarnessHasCollapse,
+        bool ToolHarnessHasCollapse,
         bool skillsHaveCollapse,
-        bool includeHarnessFunctions,
+        bool includeToolHarnessFunctions,
         bool includeSkills)
     {
         var tools = new List<AIFunction>();
 
-        // Add Harness container if Collapsed
-        if (HarnessHasCollapse)
+        // Add ToolHarness container if Collapsed
+        if (ToolHarnessHasCollapse)
         {
-            tools.Add(CreateHarnessContainer("FinancialAnalysisHarness"));
+            tools.Add(CreateToolHarnessContainer("FinancialAnalysisToolHarness"));
         }
 
         // Add skills Collapse container if Collapsed
@@ -354,10 +354,10 @@ public class ToolVisibilityManagerTests
             tools.Add(CreateCollapseContainer("FinancialAnalysisSkills"));
         }
 
-        // Add Harness functions
-        if (includeHarnessFunctions)
+        // Add ToolHarness functions
+        if (includeToolHarnessFunctions)
         {
-            tools.AddRange(CreateHarnessFunctions("FinancialAnalysisHarness"));
+            tools.AddRange(CreateToolHarnessFunctions("FinancialAnalysisToolHarness"));
         }
 
         // Add skills
@@ -369,7 +369,7 @@ public class ToolVisibilityManagerTests
         return tools;
     }
 
-    private AIFunction CreateHarnessContainer(string toolName)
+    private AIFunction CreateToolHarnessContainer(string toolName)
     {
         return AIFunctionFactory.Create(
             (object? args, CancellationToken ct) => Task.FromResult<object?>($"{toolName} expanded"),
@@ -380,7 +380,7 @@ public class ToolVisibilityManagerTests
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["IsContainer"] = true,
-                    ["HarnessName"] = toolName,
+                    ["ToolHarnessName"] = toolName,
                     ["FunctionNames"] = new[] { "CalculateCurrentRatio", "CalculateQuickRatio", "CalculateWorkingCapital", "CalculateDebtToEquityRatio", "CalculateDebtToAssetsRatio", "ComprehensiveBalanceSheetAnalysis" },
                     ["FunctionCount"] = 6
                 }
@@ -403,7 +403,7 @@ public class ToolVisibilityManagerTests
             });
     }
 
-    private IEnumerable<AIFunction> CreateHarnessFunctions(string parentHarness)
+    private IEnumerable<AIFunction> CreateToolHarnessFunctions(string parentToolHarness)
     {
         var functionNames = new[]
         {
@@ -423,7 +423,7 @@ public class ToolVisibilityManagerTests
                 Description = $"{name} function",
                 AdditionalProperties = new Dictionary<string, object>
                 {
-                    ["ParentHarness"] = parentHarness
+                    ["ParentToolHarness"] = parentToolHarness
                 }
             }));
     }
@@ -446,7 +446,7 @@ public class ToolVisibilityManagerTests
                 ["IsContainer"] = true,
                 ["IsSkill"] = true,
                 ["ReferencedFunctions"] = GetReferencedFunctionsForSkill(name),
-                ["ReferencedHarneses"] = new[] { "FinancialAnalysisHarness" }
+                ["ReferencedToolHarnesses"] = new[] { "FinancialAnalysisToolHarness" }
             };
 
             if (parentCollapse != null)
@@ -471,14 +471,14 @@ public class ToolVisibilityManagerTests
         {
             "QuickLiquidityAnalysis" => new[]
             {
-                "FinancialAnalysisHarness.CalculateCurrentRatio",
-                "FinancialAnalysisHarness.CalculateQuickRatio",
-                "FinancialAnalysisHarness.CalculateWorkingCapital"
+                "FinancialAnalysisToolHarness.CalculateCurrentRatio",
+                "FinancialAnalysisToolHarness.CalculateQuickRatio",
+                "FinancialAnalysisToolHarness.CalculateWorkingCapital"
             },
             "CapitalStructureAnalysis" => new[]
             {
-                "FinancialAnalysisHarness.CalculateDebtToEquityRatio",
-                "FinancialAnalysisHarness.CalculateDebtToAssetsRatio"
+                "FinancialAnalysisToolHarness.CalculateDebtToEquityRatio",
+                "FinancialAnalysisToolHarness.CalculateDebtToAssetsRatio"
             },
             _ => Array.Empty<string>()
         };
@@ -510,7 +510,7 @@ public class ToolVisibilityManagerTests
                 ["IsContainer"] = true,
                 ["IsSkill"] = true,
                 ["ReferencedFunctions"] = GetReferencedFunctionsForSkill(name),
-                ["ReferencedHarneses"] = new[] { "FinancialAnalysisHarness" }
+                ["ReferencedToolHarnesses"] = new[] { "FinancialAnalysisToolHarness" }
             };
 
             if (parentCollapse != null)
@@ -545,10 +545,10 @@ public class ToolVisibilityManagerTests
 
     #endregion
 
-    #region Collapsed Harness/Skill Expansion Tests
+    #region Collapsed ToolHarness/Skill Expansion Tests
 
     [Fact]
-    public void CollapsedHarness_HidesAfterExpansion()
+    public void CollapsedToolHarness_HidesAfterExpansion()
     {
         // Arrange: Create MathTools with [Collapse], containing functions and skills
         var tools = CreateMathToolsTools();
@@ -583,7 +583,7 @@ public class ToolVisibilityManagerTests
     }
 
     [Fact]
-    public void CollapsedHarness_ShowsFunctionsAfterExpansion()
+    public void CollapsedToolHarness_ShowsFunctionsAfterExpansion()
     {
         // Arrange
         var tools = CreateMathToolsTools();
@@ -609,7 +609,7 @@ public class ToolVisibilityManagerTests
     }
 
     [Fact]
-    public void CollapsedHarness_ShowsSkillsAfterExpansion_ExpandedSkillContainers()
+    public void CollapsedToolHarness_ShowsSkillsAfterExpansion_ExpandedSkillContainers()
     {
         // Arrange
         var tools = CreateMathToolsTools();
@@ -630,7 +630,7 @@ public class ToolVisibilityManagerTests
     }
 
     [Fact]
-    public void CollapsedHarness_ShowsSkillsAfterExpansion_ExpandedSkillsParameter()
+    public void CollapsedToolHarness_ShowsSkillsAfterExpansion_ExpandedSkillsParameter()
     {
         // Arrange
         var tools = CreateMathToolsTools();
@@ -651,12 +651,12 @@ public class ToolVisibilityManagerTests
     }
 
     [Fact]
-    public void CollapsedHarness_OnlyHidesItself_NotOtherContainers()
+    public void CollapsedToolHarness_OnlyHidesItself_NotOtherContainers()
     {
         // Arrange: Two separate Collapse containers
         var tools = new List<AIFunction>();
         tools.AddRange(CreateMathToolsTools());
-        tools.Add(CreateCollapseContainer("OtherHarness", "Other Harness for testing"));
+        tools.Add(CreateCollapseContainer("OtherToolHarness", "Other ToolHarness for testing"));
 
         var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
 
@@ -670,13 +670,13 @@ public class ToolVisibilityManagerTests
             ExpandedSkillContainers,
             ImmutableHashSet<string>.Empty);
 
-        // Assert: MathTools hidden, but OtherHarness still visible
+        // Assert: MathTools hidden, but OtherToolHarness still visible
         visibleTools.Should().NotContain(t => t.Name == "MathTools");
-        visibleTools.Should().Contain(t => t.Name == "OtherHarness");
+        visibleTools.Should().Contain(t => t.Name == "OtherToolHarness");
     }
 
     [Fact]
-    public void SkillContainer_VisibleWhenParentCollapseExpandedInHarneses()
+    public void SkillContainer_VisibleWhenParentCollapseExpandedInToolHarnesses()
     {
         // Arrange: Skill with parent Collapse
         var tools = CreateMathToolsTools();
@@ -712,12 +712,12 @@ public class ToolVisibilityManagerTests
             "Math Operations. Contains 7 functions: Add, Multiply, Abs, Square, Subtract, Min, SolveQuadratic"));
 
         // 2. AI Functions in MathTools
-        tools.Add(CreateHarnessFunction("Add", "MathTools", "Adds two numbers"));
-        tools.Add(CreateHarnessFunction("Multiply", "MathTools", "Multiplies two numbers"));
-        tools.Add(CreateHarnessFunction("Abs", "MathTools", "Returns absolute value"));
-        tools.Add(CreateHarnessFunction("Square", "MathTools", "Squares a number"));
-        tools.Add(CreateHarnessFunction("Subtract", "MathTools", "Subtracts b from a"));
-        tools.Add(CreateHarnessFunction("Min", "MathTools", "Returns minimum of two numbers"));
+        tools.Add(CreateToolHarnessFunction("Add", "MathTools", "Adds two numbers"));
+        tools.Add(CreateToolHarnessFunction("Multiply", "MathTools", "Multiplies two numbers"));
+        tools.Add(CreateToolHarnessFunction("Abs", "MathTools", "Returns absolute value"));
+        tools.Add(CreateToolHarnessFunction("Square", "MathTools", "Squares a number"));
+        tools.Add(CreateToolHarnessFunction("Subtract", "MathTools", "Subtracts b from a"));
+        tools.Add(CreateToolHarnessFunction("Min", "MathTools", "Returns minimum of two numbers"));
 
         // 3. Skill container in MathTools
         tools.Add(CreateSkillContainer(
@@ -748,7 +748,7 @@ public class ToolVisibilityManagerTests
             });
     }
 
-    private AIFunction CreateHarnessFunction(string name, string parentHarness, string description)
+    private AIFunction CreateToolHarnessFunction(string name, string parentToolHarness, string description)
     {
         return AIFunctionFactory.Create(
             async (AIFunctionArguments args, CancellationToken ct) => "Result",
@@ -758,7 +758,7 @@ public class ToolVisibilityManagerTests
                 Description = description,
                 AdditionalProperties = new Dictionary<string, object>
                 {
-                    ["ParentHarness"] = parentHarness,
+                    ["ParentToolHarness"] = parentToolHarness,
                     ["IsContainer"] = false
                 }
             });
@@ -769,7 +769,7 @@ public class ToolVisibilityManagerTests
         string description,
         string parentSkillContainer,
         string[] referencedFunctions,
-        string[] referencedHarneses)
+        string[] referencedToolHarnesses)
     {
         return AIFunctionFactory.Create(
             async (AIFunctionArguments args, CancellationToken ct) => name + " activated",
@@ -783,7 +783,7 @@ public class ToolVisibilityManagerTests
                     ["IsSkill"] = true,
                     ["ParentContainer"] = parentSkillContainer,
                     ["ReferencedFunctions"] = referencedFunctions,
-                    ["ReferencedHarneses"] = referencedHarneses
+                    ["ReferencedToolHarnesses"] = referencedToolHarnesses
                 }
             });
     }
@@ -793,14 +793,14 @@ public class ToolVisibilityManagerTests
         string description,
         string? parentCollapse,
         string[] referencedFunctions,
-        string[] referencedHarneses)
+        string[] referencedToolHarnesses)
     {
         var additionalProps = new Dictionary<string, object>
         {
             ["IsContainer"] = true,
             ["IsSkill"] = true,
             ["ReferencedFunctions"] = referencedFunctions,
-            ["ReferencedHarneses"] = referencedHarneses
+            ["ReferencedToolHarnesses"] = referencedToolHarnesses
         };
 
         if (parentCollapse != null)
@@ -820,36 +820,36 @@ public class ToolVisibilityManagerTests
 
     #endregion
 
-    #region Collapsed Harness Referenced by Skill Tests
+    #region Collapsed ToolHarness Referenced by Skill Tests
 
     [Fact]
-    public void CollapsedHarnessReferencedBySkill_HidesHarnessContainer_ShowsOnlySkill()
+    public void CollapsedToolHarnessReferencedBySkill_HidesToolHarnessContainer_ShowsOnlySkill()
     {
-        // Arrange: Collapsed Harness referenced by a skill (NOT explicitly registered)
+        // Arrange: Collapsed ToolHarness referenced by a skill (NOT explicitly registered)
         var tools = new List<AIFunction>();
 
-        // Add Collapsed Harness container
-        tools.Add(CreateHarnessContainer("FinancialAnalysisHarness"));
+        // Add Collapsed ToolHarness container
+        tools.Add(CreateToolHarnessContainer("FinancialAnalysisToolHarness"));
 
-        // Add Harness functions
-        tools.AddRange(CreateHarnessFunctions("FinancialAnalysisHarness"));
+        // Add ToolHarness functions
+        tools.AddRange(CreateToolHarnessFunctions("FinancialAnalysisToolHarness"));
 
-        // Add skill that references the Collapsed Harness
+        // Add skill that references the Collapsed ToolHarness
         tools.Add(CreateSkillWithReferences(
             "QuickLiquidityAnalysis",
             "Quick liquidity analysis skill",
             parentCollapse: null,
             referencedFunctions: new[]
             {
-                "FinancialAnalysisHarness.CalculateCurrentRatio",
-                "FinancialAnalysisHarness.CalculateQuickRatio"
+                "FinancialAnalysisToolHarness.CalculateCurrentRatio",
+                "FinancialAnalysisToolHarness.CalculateQuickRatio"
             },
-            referencedHarneses: new[] { "FinancialAnalysisHarness" }));
+            referencedToolHarnesses: new[] { "FinancialAnalysisToolHarness" }));
 
-        // Harness is NOT explicitly registered - only implicitly via skill reference
-        var explicitHarneses = ImmutableHashSet<string>.Empty;
+        // ToolHarness is NOT explicitly registered - only implicitly via skill reference
+        var explicitToolHarnesses = ImmutableHashSet<string>.Empty;
 
-        var manager = new ToolVisibilityManager(tools, explicitHarneses);
+        var manager = new ToolVisibilityManager(tools, explicitToolHarnesses);
 
         // Act: No expansions
         var visibleTools = manager.GetToolsForAgentTurn(
@@ -857,9 +857,9 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty,
             ImmutableHashSet<string>.Empty);
 
-        // Assert: Should show ONLY the skill container, NOT the Harness Collapse container
+        // Assert: Should show ONLY the skill container, NOT the ToolHarness Collapse container
         visibleTools.Should().Contain(t => t.Name == "QuickLiquidityAnalysis");
-        visibleTools.Should().NotContain(t => t.Name == "FinancialAnalysisHarness");
+        visibleTools.Should().NotContain(t => t.Name == "FinancialAnalysisToolHarness");
 
         // Functions should be hidden (skill not expanded yet)
         visibleTools.Should().NotContain(t => t.Name == "CalculateCurrentRatio");
@@ -867,13 +867,13 @@ public class ToolVisibilityManagerTests
     }
 
     [Fact]
-    public void CollapsedHarnessReferencedBySkill_ExpandSkill_ShowsReferencedFunctions()
+    public void CollapsedToolHarnessReferencedBySkill_ExpandSkill_ShowsReferencedFunctions()
     {
-        // Arrange: Collapsed Harness referenced by a skill
+        // Arrange: Collapsed ToolHarness referenced by a skill
         var tools = new List<AIFunction>();
 
-        tools.Add(CreateHarnessContainer("FinancialAnalysisHarness"));
-        tools.AddRange(CreateHarnessFunctions("FinancialAnalysisHarness"));
+        tools.Add(CreateToolHarnessContainer("FinancialAnalysisToolHarness"));
+        tools.AddRange(CreateToolHarnessFunctions("FinancialAnalysisToolHarness"));
 
         tools.Add(CreateSkillWithReferences(
             "QuickLiquidityAnalysis",
@@ -881,18 +881,18 @@ public class ToolVisibilityManagerTests
             parentCollapse: null,
             referencedFunctions: new[]
             {
-                "FinancialAnalysisHarness.CalculateCurrentRatio",
-                "FinancialAnalysisHarness.CalculateQuickRatio"
+                "FinancialAnalysisToolHarness.CalculateCurrentRatio",
+                "FinancialAnalysisToolHarness.CalculateQuickRatio"
             },
-            referencedHarneses: new[] { "FinancialAnalysisHarness" }));
+            referencedToolHarnesses: new[] { "FinancialAnalysisToolHarness" }));
 
-        var explicitHarneses = ImmutableHashSet<string>.Empty;
-        var manager = new ToolVisibilityManager(tools, explicitHarneses);
+        var explicitToolHarnesses = ImmutableHashSet<string>.Empty;
+        var manager = new ToolVisibilityManager(tools, explicitToolHarnesses);
 
-        // Act: Expand the skill (NOT the Harness)
+        // Act: Expand the skill (NOT the ToolHarness)
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty, // Harness Collapse NOT expanded
+            ImmutableHashSet<string>.Empty, // ToolHarness Collapse NOT expanded
             ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "QuickLiquidityAnalysis")); // Skill expanded
 
         // Assert: Skill bypass should make referenced functions visible
@@ -902,18 +902,18 @@ public class ToolVisibilityManagerTests
         // Skill container should be hidden (it's expanded)
         visibleTools.Should().NotContain(t => t.Name == "QuickLiquidityAnalysis");
 
-        // Harness Collapse container should still be hidden (implicitly registered)
-        visibleTools.Should().NotContain(t => t.Name == "FinancialAnalysisHarness");
+        // ToolHarness Collapse container should still be hidden (implicitly registered)
+        visibleTools.Should().NotContain(t => t.Name == "FinancialAnalysisToolHarness");
     }
 
     [Fact]
-    public void CollapsedHarnessReferencedBySkill_OrphanFunctions_StayHidden()
+    public void CollapsedToolHarnessReferencedBySkill_OrphanFunctions_StayHidden()
     {
-        // Arrange: Collapsed Harness with some functions referenced by skill, others are orphans
+        // Arrange: Collapsed ToolHarness with some functions referenced by skill, others are orphans
         var tools = new List<AIFunction>();
 
-        tools.Add(CreateHarnessContainer("FinancialAnalysisHarness"));
-        tools.AddRange(CreateHarnessFunctions("FinancialAnalysisHarness"));
+        tools.Add(CreateToolHarnessContainer("FinancialAnalysisToolHarness"));
+        tools.AddRange(CreateToolHarnessFunctions("FinancialAnalysisToolHarness"));
 
         // Skill only references 2 functions out of 6
         tools.Add(CreateSkillWithReferences(
@@ -922,13 +922,13 @@ public class ToolVisibilityManagerTests
             parentCollapse: null,
             referencedFunctions: new[]
             {
-                "FinancialAnalysisHarness.CalculateCurrentRatio",
-                "FinancialAnalysisHarness.CalculateQuickRatio"
+                "FinancialAnalysisToolHarness.CalculateCurrentRatio",
+                "FinancialAnalysisToolHarness.CalculateQuickRatio"
             },
-            referencedHarneses: new[] { "FinancialAnalysisHarness" }));
+            referencedToolHarnesses: new[] { "FinancialAnalysisToolHarness" }));
 
-        var explicitHarneses = ImmutableHashSet<string>.Empty;
-        var manager = new ToolVisibilityManager(tools, explicitHarneses);
+        var explicitToolHarnesses = ImmutableHashSet<string>.Empty;
+        var manager = new ToolVisibilityManager(tools, explicitToolHarnesses);
 
         // Act: Expand the skill
         var visibleTools = manager.GetToolsForAgentTurn(
@@ -948,13 +948,13 @@ public class ToolVisibilityManagerTests
     }
 
     [Fact]
-    public void CollapsedHarnessReferencedBySkill_ExpandHarness_ShowsAllFunctions()
+    public void CollapsedToolHarnessReferencedBySkill_ExpandToolHarness_ShowsAllFunctions()
     {
-        // Arrange: Collapsed Harness referenced by skill
+        // Arrange: Collapsed ToolHarness referenced by skill
         var tools = new List<AIFunction>();
 
-        tools.Add(CreateHarnessContainer("FinancialAnalysisHarness"));
-        tools.AddRange(CreateHarnessFunctions("FinancialAnalysisHarness"));
+        tools.Add(CreateToolHarnessContainer("FinancialAnalysisToolHarness"));
+        tools.AddRange(CreateToolHarnessFunctions("FinancialAnalysisToolHarness"));
 
         tools.Add(CreateSkillWithReferences(
             "QuickLiquidityAnalysis",
@@ -962,22 +962,22 @@ public class ToolVisibilityManagerTests
             parentCollapse: null,
             referencedFunctions: new[]
             {
-                "FinancialAnalysisHarness.CalculateCurrentRatio",
-                "FinancialAnalysisHarness.CalculateQuickRatio"
+                "FinancialAnalysisToolHarness.CalculateCurrentRatio",
+                "FinancialAnalysisToolHarness.CalculateQuickRatio"
             },
-            referencedHarneses: new[] { "FinancialAnalysisHarness" }));
+            referencedToolHarnesses: new[] { "FinancialAnalysisToolHarness" }));
 
-        var explicitHarneses = ImmutableHashSet<string>.Empty;
-        var manager = new ToolVisibilityManager(tools, explicitHarneses);
+        var explicitToolHarnesses = ImmutableHashSet<string>.Empty;
+        var manager = new ToolVisibilityManager(tools, explicitToolHarnesses);
 
-        // Act: Expand the Harness Collapse (not the skill)
-        // This is an edge case - user manually expands the Harness even though it was implicitly registered
+        // Act: Expand the ToolHarness Collapse (not the skill)
+        // This is an edge case - user manually expands the ToolHarness even though it was implicitly registered
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "FinancialAnalysisHarness"), // Harness expanded
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "FinancialAnalysisToolHarness"), // ToolHarness expanded
             ImmutableHashSet<string>.Empty);
 
-        // Assert: ALL Harness functions should be visible (Harness Collapse expanded)
+        // Assert: ALL ToolHarness functions should be visible (ToolHarness Collapse expanded)
         visibleTools.Should().Contain(t => t.Name == "CalculateCurrentRatio");
         visibleTools.Should().Contain(t => t.Name == "CalculateQuickRatio");
         visibleTools.Should().Contain(t => t.Name == "CalculateWorkingCapital");
@@ -985,8 +985,8 @@ public class ToolVisibilityManagerTests
         visibleTools.Should().Contain(t => t.Name == "CalculateDebtToAssetsRatio");
         visibleTools.Should().Contain(t => t.Name == "ComprehensiveBalanceSheetAnalysis");
 
-        // Harness container should be hidden (expanded)
-        visibleTools.Should().NotContain(t => t.Name == "FinancialAnalysisHarness");
+        // ToolHarness container should be hidden (expanded)
+        visibleTools.Should().NotContain(t => t.Name == "FinancialAnalysisToolHarness");
 
         // Skill container should still be visible
         visibleTools.Should().Contain(t => t.Name == "QuickLiquidityAnalysis");
@@ -994,38 +994,38 @@ public class ToolVisibilityManagerTests
 
     #endregion
 
-    #region Regression Tests: IsHarnessContainer Flag (Harness Attribute Migration)
+    #region Regression Tests: IsToolHarnessContainer Flag (ToolHarness Attribute Migration)
 
     /// <summary>
-    /// Regression test for the Harness attribute migration.
-    /// When a harness is marked with [Collapse(Collapsed=true)], the source generator sets
-    /// IsHarnessContainer=true (not the legacy IsCollapse flag).
-    /// ToolVisibilityManager must recognize both flags to properly hide skills inside collapsed harnesses.
+    /// Regression test for the ToolHarness attribute migration.
+    /// When a toolharness is marked with [Collapse(Collapsed=true)], the source generator sets
+    /// IsToolHarnessContainer=true (not the legacy IsCollapse flag).
+    /// ToolVisibilityManager must recognize both flags to properly hide skills inside collapsed toolharnesses.
     ///
     /// Bug fix: ToolVisibilityManager.GetContainerType() was only checking IsCollapse flag,
-    /// but the new [Collapse] attribute sets IsHarnessContainer flag.
+    /// but the new [Collapse] attribute sets IsToolHarnessContainer flag.
     /// </summary>
     [Fact]
-    public void CollapsedHarness_WithIsHarnessContainerFlag_HidesSkillsUntilExpanded()
+    public void CollapsedToolHarness_WithIsToolHarnessContainerFlag_HidesSkillsUntilExpanded()
     {
-        // Arrange: Create a collapsed harness using the NEW IsHarnessContainer flag
+        // Arrange: Create a collapsed toolharness using the NEW IsToolHarnessContainer flag
         // This simulates what the source generator produces for [Collapse("...", Collapsed = true)]
         var tools = new List<AIFunction>();
 
-        // Harness container with IsHarnessContainer=true (new flag from [Collapse] attribute)
-        tools.Add(CreateHarnessContainerWithNewFlag(
-            "MathHarness",
+        // ToolHarness container with IsToolHarnessContainer=true (new flag from [Collapse] attribute)
+        tools.Add(CreateToolHarnessContainerWithNewFlag(
+            "MathToolHarness",
             "Math Operations. Contains 3 functions: Add, Multiply, SolveQuadratic"));
 
-        // Functions in the harness
-        tools.Add(CreateHarnessFunction("Add", "MathHarness", "Adds two numbers"));
-        tools.Add(CreateHarnessFunction("Multiply", "MathHarness", "Multiplies two numbers"));
+        // Functions in the toolharness
+        tools.Add(CreateToolHarnessFunction("Add", "MathToolHarness", "Adds two numbers"));
+        tools.Add(CreateToolHarnessFunction("Multiply", "MathToolHarness", "Multiplies two numbers"));
 
-        // Skill inside the collapsed harness (should be hidden initially)
-        tools.Add(CreateSkillInsideCollapsedHarness(
+        // Skill inside the collapsed toolharness (should be hidden initially)
+        tools.Add(CreateSkillInsideCollapsedToolHarness(
             "SolveQuadratic",
             "Solves quadratic equations",
-            "MathHarness"));
+            "MathToolHarness"));
 
         var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
 
@@ -1035,70 +1035,70 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty,
             ImmutableHashSet<string>.Empty);
 
-        // Assert: Only the harness container should be visible initially
-        initialTools.Should().Contain(t => t.Name == "MathHarness",
-            "collapsed harness container should be visible");
+        // Assert: Only the toolharness container should be visible initially
+        initialTools.Should().Contain(t => t.Name == "MathToolHarness",
+            "collapsed toolharness container should be visible");
         initialTools.Should().NotContain(t => t.Name == "Add",
-            "functions inside collapsed harness should be hidden");
+            "functions inside collapsed toolharness should be hidden");
         initialTools.Should().NotContain(t => t.Name == "Multiply",
-            "functions inside collapsed harness should be hidden");
+            "functions inside collapsed toolharness should be hidden");
         initialTools.Should().NotContain(t => t.Name == "SolveQuadratic",
-            "REGRESSION: skill inside collapsed harness should be hidden until parent is expanded");
+            "REGRESSION: skill inside collapsed toolharness should be hidden until parent is expanded");
 
         // Verify we only have the container
-        initialTools.Should().HaveCount(1, "only the harness container should be visible");
+        initialTools.Should().HaveCount(1, "only the toolharness container should be visible");
     }
 
     [Fact]
-    public void CollapsedHarness_WithIsHarnessContainerFlag_ShowsSkillsAfterExpansion()
+    public void CollapsedToolHarness_WithIsToolHarnessContainerFlag_ShowsSkillsAfterExpansion()
     {
-        // Arrange: Create a collapsed harness using the NEW IsHarnessContainer flag
+        // Arrange: Create a collapsed toolharness using the NEW IsToolHarnessContainer flag
         var tools = new List<AIFunction>();
 
-        tools.Add(CreateHarnessContainerWithNewFlag(
-            "MathHarness",
+        tools.Add(CreateToolHarnessContainerWithNewFlag(
+            "MathToolHarness",
             "Math Operations. Contains 3 functions: Add, Multiply, SolveQuadratic"));
 
-        tools.Add(CreateHarnessFunction("Add", "MathHarness", "Adds two numbers"));
-        tools.Add(CreateHarnessFunction("Multiply", "MathHarness", "Multiplies two numbers"));
+        tools.Add(CreateToolHarnessFunction("Add", "MathToolHarness", "Adds two numbers"));
+        tools.Add(CreateToolHarnessFunction("Multiply", "MathToolHarness", "Multiplies two numbers"));
 
-        tools.Add(CreateSkillInsideCollapsedHarness(
+        tools.Add(CreateSkillInsideCollapsedToolHarness(
             "SolveQuadratic",
             "Solves quadratic equations",
-            "MathHarness"));
+            "MathToolHarness"));
 
         var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
 
-        // Act: Expand the harness
+        // Act: Expand the toolharness
         var expandedTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "MathHarness"),
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "MathToolHarness"),
             ImmutableHashSet<string>.Empty);
 
         // Assert: Container hidden, contents visible
-        expandedTools.Should().NotContain(t => t.Name == "MathHarness",
-            "expanded harness container should be hidden");
+        expandedTools.Should().NotContain(t => t.Name == "MathToolHarness",
+            "expanded toolharness container should be hidden");
         expandedTools.Should().Contain(t => t.Name == "Add",
-            "functions should be visible after harness expansion");
+            "functions should be visible after toolharness expansion");
         expandedTools.Should().Contain(t => t.Name == "Multiply",
-            "functions should be visible after harness expansion");
+            "functions should be visible after toolharness expansion");
         expandedTools.Should().Contain(t => t.Name == "SolveQuadratic",
-            "skill should be visible after parent harness is expanded");
+            "skill should be visible after parent toolharness is expanded");
     }
 
     [Fact]
-    public void CollapsedHarness_BothFlagsWork_LegacyIsCollapseAndNewIsHarnessContainer()
+    public void CollapsedToolHarness_BothFlagsWork_LegacyIsCollapseAndNewIsToolHarnessContainer()
     {
-        // Arrange: Test that both the legacy IsCollapse and new IsHarnessContainer flags work
+        // Arrange: Test that both the legacy IsCollapse and new IsToolHarnessContainer flags work
         var tools = new List<AIFunction>();
 
         // Legacy flag (IsCollapse=true)
-        tools.Add(CreateCollapseContainer("LegacyHarness", "Legacy harness using IsCollapse flag"));
-        tools.Add(CreateHarnessFunction("LegacyFunc", "LegacyHarness", "A legacy function"));
+        tools.Add(CreateCollapseContainer("LegacyToolHarness", "Legacy toolharness using IsCollapse flag"));
+        tools.Add(CreateToolHarnessFunction("LegacyFunc", "LegacyToolHarness", "A legacy function"));
 
-        // New flag (IsHarnessContainer=true)
-        tools.Add(CreateHarnessContainerWithNewFlag("NewHarness", "New harness using IsHarnessContainer flag"));
-        tools.Add(CreateHarnessFunction("NewFunc", "NewHarness", "A new function"));
+        // New flag (IsToolHarnessContainer=true)
+        tools.Add(CreateToolHarnessContainerWithNewFlag("NewToolHarness", "New toolharness using IsToolHarnessContainer flag"));
+        tools.Add(CreateToolHarnessFunction("NewFunc", "NewToolHarness", "A new function"));
 
         var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
 
@@ -1109,22 +1109,22 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty);
 
         // Assert: Both containers should be visible, both functions hidden
-        visibleTools.Should().Contain(t => t.Name == "LegacyHarness",
-            "legacy collapsed harness should be visible");
-        visibleTools.Should().Contain(t => t.Name == "NewHarness",
-            "new collapsed harness should be visible");
+        visibleTools.Should().Contain(t => t.Name == "LegacyToolHarness",
+            "legacy collapsed toolharness should be visible");
+        visibleTools.Should().Contain(t => t.Name == "NewToolHarness",
+            "new collapsed toolharness should be visible");
         visibleTools.Should().NotContain(t => t.Name == "LegacyFunc",
-            "function in legacy collapsed harness should be hidden");
+            "function in legacy collapsed toolharness should be hidden");
         visibleTools.Should().NotContain(t => t.Name == "NewFunc",
-            "function in new collapsed harness should be hidden");
-        visibleTools.Should().HaveCount(2, "only the two harness containers should be visible");
+            "function in new collapsed toolharness should be hidden");
+        visibleTools.Should().HaveCount(2, "only the two toolharness containers should be visible");
     }
 
     /// <summary>
-    /// Creates a harness container using the NEW IsHarnessContainer flag.
+    /// Creates a toolharness container using the NEW IsToolHarnessContainer flag.
     /// This simulates what the source generator produces for [Collapse("...", Collapsed = true)]
     /// </summary>
-    private AIFunction CreateHarnessContainerWithNewFlag(string name, string description)
+    private AIFunction CreateToolHarnessContainerWithNewFlag(string name, string description)
     {
         return AIFunctionFactory.Create(
             async (AIFunctionArguments args, CancellationToken ct) => name + " expanded",
@@ -1135,7 +1135,7 @@ public class ToolVisibilityManagerTests
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["IsContainer"] = true,
-                    ["IsHarnessContainer"] = true, // NEW flag from [Collapse] attribute
+                    ["IsToolHarnessContainer"] = true, // NEW flag from [Collapse] attribute
                     ["FunctionNames"] = new string[] { },
                     ["FunctionCount"] = 0
                 }
@@ -1143,10 +1143,10 @@ public class ToolVisibilityManagerTests
     }
 
     /// <summary>
-    /// Creates a skill that is inside a collapsed harness.
-    /// The ParentContainer property indicates the skill belongs to the parent harness.
+    /// Creates a skill that is inside a collapsed toolharness.
+    /// The ParentContainer property indicates the skill belongs to the parent toolharness.
     /// </summary>
-    private AIFunction CreateSkillInsideCollapsedHarness(string name, string description, string parentHarness)
+    private AIFunction CreateSkillInsideCollapsedToolHarness(string name, string description, string parentToolHarness)
     {
         return AIFunctionFactory.Create(
             async (AIFunctionArguments args, CancellationToken ct) => name + " activated",
@@ -1158,9 +1158,9 @@ public class ToolVisibilityManagerTests
                 {
                     ["IsContainer"] = true,
                     ["IsSkill"] = true,
-                    ["ParentContainer"] = parentHarness, // Links skill to parent harness
+                    ["ParentContainer"] = parentToolHarness, // Links skill to parent toolharness
                     ["ReferencedFunctions"] = Array.Empty<string>(),
-                    ["ReferencedHarneses"] = new[] { parentHarness }
+                    ["ReferencedToolHarnesses"] = new[] { parentToolHarness }
                 }
             });
     }
@@ -1171,24 +1171,24 @@ public class ToolVisibilityManagerTests
 
     /// <summary>
     /// Tests the NeverCollapse runtime config feature.
-    /// When a harness is in the NeverCollapse list, its functions should be visible directly
-    /// even if the harness has a container (description provided).
+    /// When a toolharness is in the NeverCollapse list, its functions should be visible directly
+    /// even if the toolharness has a container (description provided).
     /// </summary>
     [Fact]
-    public void NeverCollapse_HarnessInList_ShowsFunctionsDirectly()
+    public void NeverCollapse_ToolHarnessInList_ShowsFunctionsDirectly()
     {
-        // Arrange: Create a collapsed harness that would normally hide its functions
+        // Arrange: Create a collapsed toolharness that would normally hide its functions
         var tools = new List<AIFunction>();
 
-        tools.Add(CreateHarnessContainerWithNewFlag(
-            "FileHarness",
+        tools.Add(CreateToolHarnessContainerWithNewFlag(
+            "FileToolHarness",
             "File operations for reading and writing files"));
 
-        tools.Add(CreateHarnessFunction("ReadFile", "FileHarness", "Reads a file"));
-        tools.Add(CreateHarnessFunction("WriteFile", "FileHarness", "Writes a file"));
+        tools.Add(CreateToolHarnessFunction("ReadFile", "FileToolHarness", "Reads a file"));
+        tools.Add(CreateToolHarnessFunction("WriteFile", "FileToolHarness", "Writes a file"));
 
-        // Create manager with FileHarness in NeverCollapse list
-        var neverCollapse = new HashSet<string> { "FileHarness" };
+        // Create manager with FileToolHarness in NeverCollapse list
+        var neverCollapse = new HashSet<string> { "FileToolHarness" };
         var manager = new ToolVisibilityManager(
             tools,
             ImmutableHashSet<string>.Empty,
@@ -1201,8 +1201,8 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty);
 
         // Assert: Functions should be visible directly, container should be hidden
-        visibleTools.Should().NotContain(t => t.Name == "FileHarness",
-            "container should be hidden when harness is in NeverCollapse");
+        visibleTools.Should().NotContain(t => t.Name == "FileToolHarness",
+            "container should be hidden when toolharness is in NeverCollapse");
         visibleTools.Should().Contain(t => t.Name == "ReadFile",
             "functions should be visible directly");
         visibleTools.Should().Contain(t => t.Name == "WriteFile",
@@ -1211,20 +1211,20 @@ public class ToolVisibilityManagerTests
     }
 
     [Fact]
-    public void NeverCollapse_HarnessNotInList_CollapsesNormally()
+    public void NeverCollapse_ToolHarnessNotInList_CollapsesNormally()
     {
-        // Arrange: Create a collapsed harness
+        // Arrange: Create a collapsed toolharness
         var tools = new List<AIFunction>();
 
-        tools.Add(CreateHarnessContainerWithNewFlag(
-            "DatabaseHarness",
+        tools.Add(CreateToolHarnessContainerWithNewFlag(
+            "DatabaseToolHarness",
             "Database operations"));
 
-        tools.Add(CreateHarnessFunction("Query", "DatabaseHarness", "Executes a query"));
-        tools.Add(CreateHarnessFunction("Insert", "DatabaseHarness", "Inserts a record"));
+        tools.Add(CreateToolHarnessFunction("Query", "DatabaseToolHarness", "Executes a query"));
+        tools.Add(CreateToolHarnessFunction("Insert", "DatabaseToolHarness", "Inserts a record"));
 
-        // Create manager with a DIFFERENT harness in NeverCollapse (not DatabaseHarness)
-        var neverCollapse = new HashSet<string> { "FileHarness" };
+        // Create manager with a DIFFERENT toolharness in NeverCollapse (not DatabaseToolHarness)
+        var neverCollapse = new HashSet<string> { "FileToolHarness" };
         var manager = new ToolVisibilityManager(
             tools,
             ImmutableHashSet<string>.Empty,
@@ -1237,8 +1237,8 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty);
 
         // Assert: Should collapse normally - only container visible
-        visibleTools.Should().Contain(t => t.Name == "DatabaseHarness",
-            "container should be visible when harness is NOT in NeverCollapse");
+        visibleTools.Should().Contain(t => t.Name == "DatabaseToolHarness",
+            "container should be visible when toolharness is NOT in NeverCollapse");
         visibleTools.Should().NotContain(t => t.Name == "Query",
             "functions should be hidden behind container");
         visibleTools.Should().NotContain(t => t.Name == "Insert",
@@ -1247,25 +1247,25 @@ public class ToolVisibilityManagerTests
     }
 
     [Fact]
-    public void NeverCollapse_MixedHarneses_OnlyAffectsListedHarneses()
+    public void NeverCollapse_MixedToolHarnesses_OnlyAffectsListedToolHarnesses()
     {
-        // Arrange: Create two collapsed harnesses
+        // Arrange: Create two collapsed toolharnesses
         var tools = new List<AIFunction>();
 
-        // FileHarness - will be in NeverCollapse
-        tools.Add(CreateHarnessContainerWithNewFlag(
-            "FileHarness",
+        // FileToolHarness - will be in NeverCollapse
+        tools.Add(CreateToolHarnessContainerWithNewFlag(
+            "FileToolHarness",
             "File operations"));
-        tools.Add(CreateHarnessFunction("ReadFile", "FileHarness", "Reads a file"));
+        tools.Add(CreateToolHarnessFunction("ReadFile", "FileToolHarness", "Reads a file"));
 
-        // DatabaseHarness - will NOT be in NeverCollapse
-        tools.Add(CreateHarnessContainerWithNewFlag(
-            "DatabaseHarness",
+        // DatabaseToolHarness - will NOT be in NeverCollapse
+        tools.Add(CreateToolHarnessContainerWithNewFlag(
+            "DatabaseToolHarness",
             "Database operations"));
-        tools.Add(CreateHarnessFunction("Query", "DatabaseHarness", "Executes a query"));
+        tools.Add(CreateToolHarnessFunction("Query", "DatabaseToolHarness", "Executes a query"));
 
-        // Only FileHarness in NeverCollapse
-        var neverCollapse = new HashSet<string> { "FileHarness" };
+        // Only FileToolHarness in NeverCollapse
+        var neverCollapse = new HashSet<string> { "FileToolHarness" };
         var manager = new ToolVisibilityManager(
             tools,
             ImmutableHashSet<string>.Empty,
@@ -1277,18 +1277,18 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty,
             ImmutableHashSet<string>.Empty);
 
-        // Assert: FileHarness functions visible, DatabaseHarness collapsed
-        visibleTools.Should().NotContain(t => t.Name == "FileHarness",
-            "FileHarness container should be hidden (in NeverCollapse)");
+        // Assert: FileToolHarness functions visible, DatabaseToolHarness collapsed
+        visibleTools.Should().NotContain(t => t.Name == "FileToolHarness",
+            "FileToolHarness container should be hidden (in NeverCollapse)");
         visibleTools.Should().Contain(t => t.Name == "ReadFile",
-            "FileHarness functions should be visible directly");
+            "FileToolHarness functions should be visible directly");
 
-        visibleTools.Should().Contain(t => t.Name == "DatabaseHarness",
-            "DatabaseHarness container should be visible (not in NeverCollapse)");
+        visibleTools.Should().Contain(t => t.Name == "DatabaseToolHarness",
+            "DatabaseToolHarness container should be visible (not in NeverCollapse)");
         visibleTools.Should().NotContain(t => t.Name == "Query",
-            "DatabaseHarness functions should be hidden behind container");
+            "DatabaseToolHarness functions should be hidden behind container");
 
-        visibleTools.Should().HaveCount(2, "ReadFile + DatabaseHarness container");
+        visibleTools.Should().HaveCount(2, "ReadFile + DatabaseToolHarness container");
     }
 
     [Fact]
@@ -1297,13 +1297,13 @@ public class ToolVisibilityManagerTests
         // Arrange
         var tools = new List<AIFunction>();
 
-        tools.Add(CreateHarnessContainerWithNewFlag(
-            "FileHarness",  // PascalCase
+        tools.Add(CreateToolHarnessContainerWithNewFlag(
+            "FileToolHarness",  // PascalCase
             "File operations"));
-        tools.Add(CreateHarnessFunction("ReadFile", "FileHarness", "Reads a file"));
+        tools.Add(CreateToolHarnessFunction("ReadFile", "FileToolHarness", "Reads a file"));
 
         // NeverCollapse with different casing
-        var neverCollapse = new HashSet<string> { "fileharness" };  // lowercase
+        var neverCollapse = new HashSet<string> { "filetoolharness" };  // lowercase
         var manager = new ToolVisibilityManager(
             tools,
             ImmutableHashSet<string>.Empty,
@@ -1316,22 +1316,22 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty);
 
         // Assert: Should match case-insensitively
-        visibleTools.Should().NotContain(t => t.Name == "FileHarness",
+        visibleTools.Should().NotContain(t => t.Name == "FileToolHarness",
             "container should be hidden (case-insensitive match)");
         visibleTools.Should().Contain(t => t.Name == "ReadFile",
             "functions should be visible directly");
     }
 
     [Fact]
-    public void NeverCollapse_EmptyList_AllHarnesesCollapseNormally()
+    public void NeverCollapse_EmptyList_AllToolHarnessesCollapseNormally()
     {
         // Arrange
         var tools = new List<AIFunction>();
 
-        tools.Add(CreateHarnessContainerWithNewFlag(
-            "FileHarness",
+        tools.Add(CreateToolHarnessContainerWithNewFlag(
+            "FileToolHarness",
             "File operations"));
-        tools.Add(CreateHarnessFunction("ReadFile", "FileHarness", "Reads a file"));
+        tools.Add(CreateToolHarnessFunction("ReadFile", "FileToolHarness", "Reads a file"));
 
         // Empty NeverCollapse list
         var neverCollapse = new HashSet<string>();
@@ -1347,28 +1347,28 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty);
 
         // Assert: Should collapse normally
-        visibleTools.Should().Contain(t => t.Name == "FileHarness",
+        visibleTools.Should().Contain(t => t.Name == "FileToolHarness",
             "container should be visible");
         visibleTools.Should().NotContain(t => t.Name == "ReadFile",
             "functions should be hidden");
     }
 
     [Fact]
-    public void NeverCollapse_NullList_AllHarnesesCollapseNormally()
+    public void NeverCollapse_NullList_AllToolHarnessesCollapseNormally()
     {
         // Arrange
         var tools = new List<AIFunction>();
 
-        tools.Add(CreateHarnessContainerWithNewFlag(
-            "FileHarness",
+        tools.Add(CreateToolHarnessContainerWithNewFlag(
+            "FileToolHarness",
             "File operations"));
-        tools.Add(CreateHarnessFunction("ReadFile", "FileHarness", "Reads a file"));
+        tools.Add(CreateToolHarnessFunction("ReadFile", "FileToolHarness", "Reads a file"));
 
         // Null NeverCollapse list (uses constructor overload)
         var manager = new ToolVisibilityManager(
             tools,
             ImmutableHashSet<string>.Empty,
-            neverCollapseHarneses: null);
+            neverCollapseToolHarnesses: null);
 
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
@@ -1377,29 +1377,29 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty);
 
         // Assert: Should collapse normally
-        visibleTools.Should().Contain(t => t.Name == "FileHarness",
+        visibleTools.Should().Contain(t => t.Name == "FileToolHarness",
             "container should be visible");
         visibleTools.Should().NotContain(t => t.Name == "ReadFile",
             "functions should be hidden");
     }
 
     [Fact]
-    public void NeverCollapse_WithSkillsInsideHarness_ShowsSkillsDirectly()
+    public void NeverCollapse_WithSkillsInsideToolHarness_ShowsSkillsDirectly()
     {
-        // Arrange: Harness with both functions and skills
+        // Arrange: ToolHarness with both functions and skills
         var tools = new List<AIFunction>();
 
-        tools.Add(CreateHarnessContainerWithNewFlag(
-            "MathHarness",
+        tools.Add(CreateToolHarnessContainerWithNewFlag(
+            "MathToolHarness",
             "Math operations"));
-        tools.Add(CreateHarnessFunction("Add", "MathHarness", "Adds two numbers"));
-        tools.Add(CreateSkillInsideCollapsedHarness(
+        tools.Add(CreateToolHarnessFunction("Add", "MathToolHarness", "Adds two numbers"));
+        tools.Add(CreateSkillInsideCollapsedToolHarness(
             "SolveEquation",
             "Solves equations",
-            "MathHarness"));
+            "MathToolHarness"));
 
-        // MathHarness in NeverCollapse
-        var neverCollapse = new HashSet<string> { "MathHarness" };
+        // MathToolHarness in NeverCollapse
+        var neverCollapse = new HashSet<string> { "MathToolHarness" };
         var manager = new ToolVisibilityManager(
             tools,
             ImmutableHashSet<string>.Empty,
@@ -1412,7 +1412,7 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty);
 
         // Assert: Both functions and skills should be visible directly
-        visibleTools.Should().NotContain(t => t.Name == "MathHarness",
+        visibleTools.Should().NotContain(t => t.Name == "MathToolHarness",
             "container should be hidden");
         visibleTools.Should().Contain(t => t.Name == "Add",
             "functions should be visible directly");
@@ -1425,44 +1425,44 @@ public class ToolVisibilityManagerTests
     #region SubAgent Visibility Tests
 
     /// <summary>
-    /// Regression test: SubAgents should use ParentHarness metadata, not HarnessName.
+    /// Regression test: SubAgents should use ParentToolHarness metadata, not ToolHarnessName.
     /// This ensures SubAgents follow the same collapsing rules as Functions and Skills.
     /// </summary>
     [Fact]
-    public void SubAgent_UsesParentHarness_NotHarnessName()
+    public void SubAgent_UsesParentToolHarness_NotToolHarnessName()
     {
-        // Arrange: Create a SubAgent with ParentHarness metadata (correct)
+        // Arrange: Create a SubAgent with ParentToolHarness metadata (correct)
         var subAgent = CreateSubAgentFunction(
             "ResearchAgent",
             "Specialized research agent",
-            "MathHarness");
+            "MathToolHarness");
 
-        // Assert: Should have ParentHarness, not HarnessName
-        subAgent.AdditionalProperties.Should().ContainKey("ParentHarness");
-        subAgent.AdditionalProperties.Should().NotContainKey("HarnessName");
-        subAgent.AdditionalProperties?["ParentHarness"].Should().Be("MathHarness");
+        // Assert: Should have ParentToolHarness, not ToolHarnessName
+        subAgent.AdditionalProperties.Should().ContainKey("ParentToolHarness");
+        subAgent.AdditionalProperties.Should().NotContainKey("ToolHarnessName");
+        subAgent.AdditionalProperties?["ParentToolHarness"].Should().Be("MathToolHarness");
     }
 
     [Fact]
-    public void SubAgent_InsideCollapsedHarness_HiddenUntilHarnessExpanded()
+    public void SubAgent_InsideCollapsedToolHarness_HiddenUntilToolHarnessExpanded()
     {
-        // Arrange: Collapsed Harness with functions and a SubAgent
+        // Arrange: Collapsed ToolHarness with functions and a SubAgent
         var tools = new List<AIFunction>();
 
-        // Harness container (collapsed)
-        tools.Add(CreateHarnessContainerWithNewFlag(
-            "MathHarness",
+        // ToolHarness container (collapsed)
+        tools.Add(CreateToolHarnessContainerWithNewFlag(
+            "MathToolHarness",
             "Math operations with research capabilities"));
 
         // Regular functions
-        tools.Add(CreateHarnessFunction("Add", "MathHarness", "Adds two numbers"));
-        tools.Add(CreateHarnessFunction("Multiply", "MathHarness", "Multiplies two numbers"));
+        tools.Add(CreateToolHarnessFunction("Add", "MathToolHarness", "Adds two numbers"));
+        tools.Add(CreateToolHarnessFunction("Multiply", "MathToolHarness", "Multiplies two numbers"));
 
-        // SubAgent inside the harness
+        // SubAgent inside the toolharness
         tools.Add(CreateSubAgentFunction(
             "ResearchAgent",
             "Specialized research agent for math problems",
-            "MathHarness"));
+            "MathToolHarness"));
 
         var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
 
@@ -1473,62 +1473,62 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty);
 
         // Assert: Only container visible, SubAgent hidden
-        initialTools.Should().Contain(t => t.Name == "MathHarness");
+        initialTools.Should().Contain(t => t.Name == "MathToolHarness");
         initialTools.Should().NotContain(t => t.Name == "Add");
         initialTools.Should().NotContain(t => t.Name == "ResearchAgent",
-            "SubAgent should be hidden when parent harness is collapsed");
+            "SubAgent should be hidden when parent toolharness is collapsed");
         initialTools.Should().HaveCount(1);
     }
 
     [Fact]
-    public void SubAgent_InsideCollapsedHarness_VisibleAfterHarnessExpanded()
+    public void SubAgent_InsideCollapsedToolHarness_VisibleAfterToolHarnessExpanded()
     {
-        // Arrange: Collapsed Harness with SubAgent
+        // Arrange: Collapsed ToolHarness with SubAgent
         var tools = new List<AIFunction>();
 
-        tools.Add(CreateHarnessContainerWithNewFlag(
-            "MathHarness",
+        tools.Add(CreateToolHarnessContainerWithNewFlag(
+            "MathToolHarness",
             "Math operations with research capabilities"));
 
-        tools.Add(CreateHarnessFunction("Add", "MathHarness", "Adds two numbers"));
+        tools.Add(CreateToolHarnessFunction("Add", "MathToolHarness", "Adds two numbers"));
         tools.Add(CreateSubAgentFunction(
             "ResearchAgent",
             "Specialized research agent",
-            "MathHarness"));
+            "MathToolHarness"));
 
         var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
 
-        // Act: Expand the harness
+        // Act: Expand the toolharness
         var expandedTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "MathHarness"),
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "MathToolHarness"),
             ImmutableHashSet<string>.Empty);
 
         // Assert: Container hidden, contents visible (including SubAgent)
-        expandedTools.Should().NotContain(t => t.Name == "MathHarness");
+        expandedTools.Should().NotContain(t => t.Name == "MathToolHarness");
         expandedTools.Should().Contain(t => t.Name == "Add");
         expandedTools.Should().Contain(t => t.Name == "ResearchAgent",
-            "SubAgent should be visible when parent harness is expanded");
+            "SubAgent should be visible when parent toolharness is expanded");
     }
 
     [Fact]
-    public void SubAgent_WithoutParentHarness_AlwaysVisible()
+    public void SubAgent_WithoutParentToolHarness_AlwaysVisible()
     {
-        // Arrange: SubAgent without ParentHarness (standalone)
+        // Arrange: SubAgent without ParentToolHarness (standalone)
         var tools = new List<AIFunction>();
 
-        // SubAgent without ParentHarness
+        // SubAgent without ParentToolHarness
         var subAgent = AIFunctionFactory.Create(
             async (AIFunctionArguments args, CancellationToken ct) => "Result",
             new AIFunctionFactoryOptions
             {
                 Name = "StandaloneAgent",
-                Description = "Standalone agent not in a harness",
+                Description = "Standalone agent not in a toolharness",
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["IsSubAgent"] = true,
                     ["ExecutionModel"] = "BranchNative"
-                    // No ParentHarness!
+                    // No ParentToolHarness!
                 }
             });
 
@@ -1547,18 +1547,18 @@ public class ToolVisibilityManagerTests
     }
 
     [Fact]
-    public void SubAgent_MultipleInSameHarness_AllHiddenAndShownTogether()
+    public void SubAgent_MultipleInSameToolHarness_AllHiddenAndShownTogether()
     {
-        // Arrange: Multiple SubAgents in the same collapsed harness
+        // Arrange: Multiple SubAgents in the same collapsed toolharness
         var tools = new List<AIFunction>();
 
-        tools.Add(CreateHarnessContainerWithNewFlag(
-            "ResearchHarness",
-            "Research harness with multiple specialized agents"));
+        tools.Add(CreateToolHarnessContainerWithNewFlag(
+            "ResearchToolHarness",
+            "Research toolharness with multiple specialized agents"));
 
-        tools.Add(CreateSubAgentFunction("WebSearchAgent", "Web search specialist", "ResearchHarness"));
-        tools.Add(CreateSubAgentFunction("DataAnalysisAgent", "Data analysis specialist", "ResearchHarness"));
-        tools.Add(CreateSubAgentFunction("SummaryAgent", "Summary specialist", "ResearchHarness"));
+        tools.Add(CreateSubAgentFunction("WebSearchAgent", "Web search specialist", "ResearchToolHarness"));
+        tools.Add(CreateSubAgentFunction("DataAnalysisAgent", "Data analysis specialist", "ResearchToolHarness"));
+        tools.Add(CreateSubAgentFunction("SummaryAgent", "Summary specialist", "ResearchToolHarness"));
 
         var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
 
@@ -1569,7 +1569,7 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty);
 
         // Assert: All SubAgents hidden
-        beforeExpansion.Should().Contain(t => t.Name == "ResearchHarness");
+        beforeExpansion.Should().Contain(t => t.Name == "ResearchToolHarness");
         beforeExpansion.Should().NotContain(t => t.Name == "WebSearchAgent");
         beforeExpansion.Should().NotContain(t => t.Name == "DataAnalysisAgent");
         beforeExpansion.Should().NotContain(t => t.Name == "SummaryAgent");
@@ -1577,11 +1577,11 @@ public class ToolVisibilityManagerTests
         // Act: After expansion
         var afterExpansion = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "ResearchHarness"),
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "ResearchToolHarness"),
             ImmutableHashSet<string>.Empty);
 
         // Assert: All SubAgents visible
-        afterExpansion.Should().NotContain(t => t.Name == "ResearchHarness");
+        afterExpansion.Should().NotContain(t => t.Name == "ResearchToolHarness");
         afterExpansion.Should().Contain(t => t.Name == "WebSearchAgent");
         afterExpansion.Should().Contain(t => t.Name == "DataAnalysisAgent");
         afterExpansion.Should().Contain(t => t.Name == "SummaryAgent");
@@ -1590,27 +1590,27 @@ public class ToolVisibilityManagerTests
     [Fact]
     public void SubAgent_MixedWithFunctionsAndSkills_AllFollowSameCollapsingRules()
     {
-        // Arrange: Harness with functions, skills, AND SubAgents
+        // Arrange: ToolHarness with functions, skills, AND SubAgents
         var tools = new List<AIFunction>();
 
-        tools.Add(CreateHarnessContainerWithNewFlag(
-            "ComprehensiveHarness",
-            "Harness with functions, skills, and sub-agents"));
+        tools.Add(CreateToolHarnessContainerWithNewFlag(
+            "ComprehensiveToolHarness",
+            "ToolHarness with functions, skills, and sub-agents"));
 
         // Regular function
-        tools.Add(CreateHarnessFunction("Calculate", "ComprehensiveHarness", "Calculation function"));
+        tools.Add(CreateToolHarnessFunction("Calculate", "ComprehensiveToolHarness", "Calculation function"));
 
-        // Skill inside harness
-        tools.Add(CreateSkillInsideCollapsedHarness(
+        // Skill inside toolharness
+        tools.Add(CreateSkillInsideCollapsedToolHarness(
             "AnalysisSkill",
             "Analysis skill",
-            "ComprehensiveHarness"));
+            "ComprehensiveToolHarness"));
 
-        // SubAgent inside harness
+        // SubAgent inside toolharness
         tools.Add(CreateSubAgentFunction(
             "ExpertAgent",
             "Expert agent",
-            "ComprehensiveHarness"));
+            "ComprehensiveToolHarness"));
 
         var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
 
@@ -1621,7 +1621,7 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty);
 
         // Assert: Only container visible
-        beforeExpansion.Should().Contain(t => t.Name == "ComprehensiveHarness");
+        beforeExpansion.Should().Contain(t => t.Name == "ComprehensiveToolHarness");
         beforeExpansion.Should().NotContain(t => t.Name == "Calculate");
         beforeExpansion.Should().NotContain(t => t.Name == "AnalysisSkill");
         beforeExpansion.Should().NotContain(t => t.Name == "ExpertAgent");
@@ -1630,24 +1630,24 @@ public class ToolVisibilityManagerTests
         // Act: After expansion
         var afterExpansion = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "ComprehensiveHarness"),
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "ComprehensiveToolHarness"),
             ImmutableHashSet<string>.Empty);
 
         // Assert: All contents visible (function, skill, SubAgent)
-        afterExpansion.Should().NotContain(t => t.Name == "ComprehensiveHarness");
+        afterExpansion.Should().NotContain(t => t.Name == "ComprehensiveToolHarness");
         afterExpansion.Should().Contain(t => t.Name == "Calculate");
         afterExpansion.Should().Contain(t => t.Name == "AnalysisSkill");
         afterExpansion.Should().Contain(t => t.Name == "ExpertAgent");
     }
 
     /// <summary>
-    /// Creates a SubAgent AIFunction with correct ParentHarness metadata.
+    /// Creates a SubAgent AIFunction with correct ParentToolHarness metadata.
     /// This simulates what the source generator produces after the fix.
     /// </summary>
     private AIFunction CreateSubAgentFunction(
         string name,
         string description,
-        string parentHarness)
+        string parentToolHarness)
     {
         return AIFunctionFactory.Create(
             async (AIFunctionArguments args, CancellationToken ct) => $"{name} result",
@@ -1659,7 +1659,7 @@ public class ToolVisibilityManagerTests
                 {
                     ["IsSubAgent"] = true,
                     ["ExecutionModel"] = "BranchNative",
-                    ["ParentHarness"] = parentHarness  //  Correct key (not HarnessName)
+                    ["ParentToolHarness"] = parentToolHarness  //  Correct key (not ToolHarnessName)
                 }
             });
     }

@@ -91,7 +91,7 @@ public interface IAgentMiddleware
     /// Called BEFORE processing a user message turn.
     /// Use for: RAG injection, memory retrieval, context augmentation.
     /// </summary>
-    /// <param name="context">Typed context with UserMessage, ConversationHistory</param>
+    /// <param name="context">Typed context with UserMessage, BranchHistory</param>
     /// <param name="cancellationToken">Cancellation token</param>
     Task BeforeMessageTurnAsync(
         BeforeMessageTurnContext context,

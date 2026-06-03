@@ -70,7 +70,7 @@ public class CalculatorTool
 var agent = await new AgentBuilder()
     .WithProvider("openai", "gpt-4o")
     .WithInstructions("You are a helpful assistant with math capabilities.")
-    .WithHarness<CalculatorTool>()  // Register the tool
+    .WithToolHarness<CalculatorTool>()  // Register the tool
     .BuildAsync();
 ```
 
@@ -104,7 +104,7 @@ public class LoggingMiddleware : IAgentMiddleware
 var agent = await new AgentBuilder()
     .WithProvider("openai", "gpt-4o")
     .WithInstructions("You are a helpful assistant.")
-    .WithHarness<CalculatorTool>()
+    .WithToolHarness<CalculatorTool>()
     .WithMiddleware(new LoggingMiddleware())  // Add the middleware
     .BuildAsync();
 ```

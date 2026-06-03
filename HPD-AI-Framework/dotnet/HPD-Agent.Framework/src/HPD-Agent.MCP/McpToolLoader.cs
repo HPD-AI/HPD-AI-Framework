@@ -53,7 +53,7 @@ internal sealed class McpToolLoader : IMcpToolLoader
             string.Equals(server.Name, serverName, StringComparison.OrdinalIgnoreCase));
     }
 
-    public Task<List<AIFunction>> LoadForHarnessAsync(
+    public Task<List<AIFunction>> LoadForToolHarnessAsync(
         object manager,
         object config,
         McpServerSource source,
@@ -61,8 +61,8 @@ internal sealed class McpToolLoader : IMcpToolLoader
         CancellationToken cancellationToken)
     {
         var serverConfig = (MCPServerConfig)config;
-        serverConfig.ParentHarness = source.ParentHarness;
-        serverConfig.CollapseWithinHarness = source.CollapseWithinHarness;
+        serverConfig.ParentToolHarness = source.ParentToolHarness;
+        serverConfig.CollapseWithinToolHarness = source.CollapseWithinToolHarness;
 
         if (source.RequiresPermissionOverride.HasValue)
             serverConfig.RequiresPermission = source.RequiresPermissionOverride.Value;
@@ -70,7 +70,7 @@ internal sealed class McpToolLoader : IMcpToolLoader
         if (!string.IsNullOrWhiteSpace(source.Description) && string.IsNullOrWhiteSpace(serverConfig.Description))
             serverConfig.Description = source.Description;
 
-        return ((MCPClientManager)manager).LoadToolsForHarnessAsync(
+        return ((MCPClientManager)manager).LoadToolsForToolHarnessAsync(
             serverConfig,
             maxFunctionNames,
             cancellationToken);

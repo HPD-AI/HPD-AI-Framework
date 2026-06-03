@@ -129,7 +129,7 @@ function projectEvent(state: ProjectorState, event: ChatRuntimeEvent, index: num
       tool.messageId = stringProp(event, "messageId") ?? tool.messageId;
       tool.status = "running";
       tool.startedAt = timestamp(event) ?? tool.startedAt;
-      tool.harnessName = stringProp(event, "harnessName") ?? tool.harnessName;
+      tool.toolharnessName = stringProp(event, "toolharnessName") ?? tool.toolharnessName;
       tool.callType = stringProp(event, "callType") ?? tool.callType;
       pushToolEvent(tool, event, index);
       return;
@@ -160,7 +160,7 @@ function projectEvent(state: ProjectorState, event: ChatRuntimeEvent, index: num
       tool.result = objectProp<ToolResultPayload>(event, "result");
       tool.status = "completed";
       tool.completedAt = timestamp(event) ?? tool.completedAt;
-      tool.harnessName = stringProp(event, "harnessName") ?? tool.harnessName;
+      tool.toolharnessName = stringProp(event, "toolharnessName") ?? tool.toolharnessName;
       tool.callType = stringProp(event, "callType") ?? tool.callType;
       pushToolEvent(tool, event, index);
       return;

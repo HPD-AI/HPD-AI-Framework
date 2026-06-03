@@ -10,50 +10,50 @@ There's a middle path — and it uses three levels of the same architecture:
 
 ```
 Agent (generalist, minimal system prompt)
-  └── MathHarness              ← domain expert, persona activates on expansion
+  └── MathToolHarness              ← domain expert, persona activates on expansion
         ├── Add, Subtract, Multiply, Divide, SquareRoot   ← operations
         ├── SolveEquation      ← procedure: step-by-step equation solving
         ├── ProveTheorem       ← procedure: structured proof verification
         └── ConvertUnits       ← procedure: unit conversion workflow
-  └── WritingHarness           ← domain expert
+  └── WritingToolHarness           ← domain expert
         ├── AnalyseStructure, SuggestRewrite, CheckGrammar   ← operations
         ├── DeepEdit           ← procedure: full editorial pass
         └── ToneRework         ← procedure: systematic tone adjustment
-  └── CodeHarness              ← domain expert
+  └── CodeToolHarness              ← domain expert
         ├── ReviewCode, ScanDependencies, ExplainCode   ← operations
         ├── SecurityAudit      ← procedure: vulnerability review
         └── PerformanceReview  ← procedure: bottleneck analysis
 ```
 
-The harness makes the agent an expert. The skills inside give that expert multiple methodologies — one per type of task the domain handles. A harness can have as many skills as the domain warrants. Each level is a collapsed container — context only pays for what's open.
+The toolharness makes the agent an expert. The skills inside give that expert multiple methodologies — one per type of task the domain handles. A toolharness can have as many skills as the domain warrants. Each level is a collapsed container — context only pays for what's open.
 
 ---
 
 ## Step 1 — The base agent
 
-Two lines. Everything else lives in the harnesses:
+Two lines. Everything else lives in the toolharnesses:
 
 ```csharp
 var agent = await new AgentBuilder()
     .WithProvider("anthropic", "claude-sonnet-4-5")
     .WithInstructions("You are a helpful assistant. Use your tools to help the user.")
-    .WithHarness<MathHarness>()
-    .WithHarness<WritingHarness>()
-    .WithHarness<CodeHarness>()
+    .WithToolHarness<MathToolHarness>()
+    .WithToolHarness<WritingToolHarness>()
+    .WithToolHarness<CodeToolHarness>()
     .BuildAsync();
 ```
 
 ---
 
-## Step 2 — Harneses carry the domain persona
+## Step 2 — ToolHarnesses carry the domain persona
 
-Each harness defines who the agent becomes when that domain is active. The `SystemPrompt` on `[Collapse]` injects only when the harness is expanded — and clears automatically at the end of the turn:
+Each toolharness defines who the agent becomes when that domain is active. The `SystemPrompt` on `[Collapse]` injects only when the toolharness is expanded — and clears automatically at the end of the turn:
 
 ```csharp
 [Collapse(
     "Math tutoring — step-by-step problem solving, equation work, and proof checking",
-    SystemPrompt = MathHarness.Persona)]
-public partial class MathHarness
+    SystemPrompt = MathToolHarness.Persona)]
+public partial class MathToolHarness
 {
     private const string Persona = """
         You are now a math tutor. Rules:
@@ -91,8 +91,8 @@ public partial class MathHarness
 ```csharp
 [Collapse(
     "Writing assistance — drafting, editing, tone adjustment, and structure feedback",
-    SystemPrompt = WritingHarness.Persona)]
-public partial class WritingHarness
+    SystemPrompt = WritingToolHarness.Persona)]
+public partial class WritingToolHarness
 {
     private const string Persona = """
         You are now a writing coach. Rules:
@@ -123,8 +123,8 @@ public partial class WritingHarness
 ```csharp
 [Collapse(
     "Code review and debugging — analysis, fixes, and best practice guidance",
-    SystemPrompt = CodeHarness.Persona)]
-public partial class CodeHarness
+    SystemPrompt = CodeToolHarness.Persona)]
+public partial class CodeToolHarness
 {
     private const string Persona = """
         You are now a code reviewer. Rules:
@@ -156,10 +156,10 @@ public partial class CodeHarness
 
 ## Step 3 — Skills carry the domain procedures
 
-Each harness can have as many skills as the domain warrants — one per type of task the expert handles. Each skill is a collapsed container inside the already-collapsed harness, referencing the functions it needs and injecting its own workflow instructions when activated. Here's one skill per harness to show the pattern:
+Each toolharness can have as many skills as the domain warrants — one per type of task the expert handles. Each skill is a collapsed container inside the already-collapsed toolharness, referencing the functions it needs and injecting its own workflow instructions when activated. Here's one skill per toolharness to show the pattern:
 
 ```csharp
-public partial class MathHarness
+public partial class MathToolHarness
 {
     [Skill]
     public Skill SolveEquation() => SkillFactory.Create(
@@ -174,17 +174,17 @@ public partial class MathHarness
             4. Show the result of each step before moving to the next
             5. State the final answer and verify it by substituting back
             """,
-        "MathHarness.Add",
-        "MathHarness.Subtract",
-        "MathHarness.Multiply",
-        "MathHarness.Divide",
-        "MathHarness.SquareRoot"
+        "MathToolHarness.Add",
+        "MathToolHarness.Subtract",
+        "MathToolHarness.Multiply",
+        "MathToolHarness.Divide",
+        "MathToolHarness.SquareRoot"
     );
 }
 ```
 
 ```csharp
-public partial class WritingHarness
+public partial class WritingToolHarness
 {
     [Skill]
     public Skill DeepEdit() => SkillFactory.Create(
@@ -199,15 +199,15 @@ public partial class WritingHarness
             4. CheckGrammar last — only after the structure and prose are solid
             5. Present all suggestions together, grouped by type
             """,
-        "WritingHarness.AnalyseStructure",
-        "WritingHarness.SuggestRewrite",
-        "WritingHarness.CheckGrammar"
+        "WritingToolHarness.AnalyseStructure",
+        "WritingToolHarness.SuggestRewrite",
+        "WritingToolHarness.CheckGrammar"
     );
 }
 ```
 
 ```csharp
-public partial class CodeHarness
+public partial class CodeToolHarness
 {
     [Skill]
     public Skill SecurityAudit() => SkillFactory.Create(
@@ -222,9 +222,9 @@ public partial class CodeHarness
             4. Rate each finding: Critical / High / Medium / Low
             5. For each finding, show the vulnerable code and the corrected version
             """,
-        "CodeHarness.ScanDependencies",
-        "CodeHarness.ReviewCode",
-        "CodeHarness.ExplainCode"
+        "CodeToolHarness.ScanDependencies",
+        "CodeToolHarness.ReviewCode",
+        "CodeToolHarness.ExplainCode"
     );
 }
 ```
@@ -237,15 +237,15 @@ At rest, three entries:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ MathHarness    — Container MathHarness provides access to: Add,      │
+│ MathToolHarness    — Container MathToolHarness provides access to: Add,      │
 │                  Subtract, Multiply, Divide, SquareRoot,             │
 │                  Solve Equation. Math tutoring — step-by-step...     │
 ├──────────────────────────────────────────────────────────────────────┤
-│ WritingHarness — Container WritingHarness provides access to:        │
+│ WritingToolHarness — Container WritingToolHarness provides access to:        │
 │                  AnalyseStructure, SuggestRewrite, CheckGrammar,     │
 │                  Deep Edit. Writing assistance — drafting...         │
 ├──────────────────────────────────────────────────────────────────────┤
-│ CodeHarness    — Container CodeHarness provides access to:           │
+│ CodeToolHarness    — Container CodeToolHarness provides access to:           │
 │                  ReviewCode, ScanDependencies, ExplainCode,          │
 │                  Security Audit. Code review and debugging...        │
 └──────────────────────────────────────────────────────────────────────┘
@@ -253,10 +253,10 @@ At rest, three entries:
 
 User asks: **"Can you do a full security review of this function?"**
 
-Agent opens `CodeHarness`. Persona injects. Agent sees the individual tools plus the `Security Audit` skill as a single entry:
+Agent opens `CodeToolHarness`. Persona injects. Agent sees the individual tools plus the `Security Audit` skill as a single entry:
 
 ```
-[CodeHarness active — code reviewer persona in system prompt]
+[CodeToolHarness active — code reviewer persona in system prompt]
 
 Tools visible:
   ReviewCode       — Review code for bugs, security issues...
@@ -268,7 +268,7 @@ Tools visible:
 Agent activates `Security Audit`. Procedure injects. Now the agent has the persona *and* the step-by-step methodology:
 
 ```
-[CodeHarness active]
+[CodeToolHarness active]
   You are now a code reviewer. Flag security issues before style issues...
 
 [Security Audit active]
@@ -294,4 +294,4 @@ Use **MultiAgent** instead when:
 - Different domains need different models
 - Domain outputs feed into each other as a pipeline
 
-The rule of thumb: if the agent is *switching hats*, use harnesses and skills. If the domains are *separate jobs that coordinate*, use MultiAgent.
+The rule of thumb: if the agent is *switching hats*, use toolharnesses and skills. If the domains are *separate jobs that coordinate*, use MultiAgent.

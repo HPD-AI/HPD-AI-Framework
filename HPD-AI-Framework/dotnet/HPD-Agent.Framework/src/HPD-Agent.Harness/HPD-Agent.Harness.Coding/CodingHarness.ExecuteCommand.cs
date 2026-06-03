@@ -6,15 +6,15 @@ using System.Text;
 using System.Text.Json;
 using System.Xml;
 using HPD.Agent;
-using HPD.Agent.Harness.Coding;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
 using HPD.Execution.Contracts;
 using HPD.Events;
 using HPD.Events.Core;
-using HPDOS.Harneses.Middleware;
+using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 
-public partial class CodingHarness
+public partial class CodingToolHarness
 {
     private const int DefaultExecuteCommandTimeoutMilliseconds = 120_000;
     private const int MaxExecuteCommandTimeoutMilliseconds = 30 * 60 * 1000;
@@ -614,7 +614,7 @@ public partial class CodingHarness
         var stderr = BuildExecuteCommandStreamResult(result.Output.Stderr);
         var interpretation = InterpretCommandResult(request.Command, result.ExitCode, result.CompletionKind);
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
 
         writer.WriteStartElement("execute_command");
         writer.WriteAttributeString("command", request.Command);
@@ -660,7 +660,7 @@ public partial class CodingHarness
         bool autoBackgrounded = false)
     {
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
 
         writer.WriteStartElement("execute_command");
         writer.WriteAttributeString("command", request.Command);
@@ -760,7 +760,7 @@ public partial class CodingHarness
         });
 
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
 
         writer.WriteStartElement("execute_command_background");
         writer.WriteAttributeString("count", commands.Length.ToString(CultureInfo.InvariantCulture));
@@ -806,7 +806,7 @@ public partial class CodingHarness
         var metadata = background.OutputMetadata;
 
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
 
         writer.WriteStartElement("execute_command_output");
         writer.WriteAttributeString("background_task_id", background.CommandId);
@@ -858,7 +858,7 @@ public partial class CodingHarness
         var outputMetadata = background.OutputMetadata;
 
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
 
         writer.WriteStartElement("execute_command_stop");
         writer.WriteAttributeString("background_task_id", background.CommandId);
@@ -1211,7 +1211,7 @@ public partial class CodingHarness
     private static string FormatExecuteCommandError(ExecuteCommandError error)
     {
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
 
         writer.WriteStartElement("execute_command_error");
         writer.WriteAttributeString("kind", FormatEnum(error.Kind));
@@ -1355,46 +1355,46 @@ public enum ExecuteCommandAction
 public sealed record ExecuteCommandOptions
 {
     public TimeSpan DefaultTimeout { get; init; } =
-        TimeSpan.FromMilliseconds(CodingHarnessDefaultExecuteCommandOptions.DefaultTimeoutMilliseconds);
+        TimeSpan.FromMilliseconds(CodingToolHarnessDefaultExecuteCommandOptions.DefaultTimeoutMilliseconds);
 
     public TimeSpan MaxTimeout { get; init; } =
-        TimeSpan.FromMilliseconds(CodingHarnessDefaultExecuteCommandOptions.MaxTimeoutMilliseconds);
+        TimeSpan.FromMilliseconds(CodingToolHarnessDefaultExecuteCommandOptions.MaxTimeoutMilliseconds);
 
     public TimeSpan ProgressAfter { get; init; } =
-        TimeSpan.FromMilliseconds(CodingHarnessDefaultExecuteCommandOptions.ProgressAfterMilliseconds);
+        TimeSpan.FromMilliseconds(CodingToolHarnessDefaultExecuteCommandOptions.ProgressAfterMilliseconds);
 
     public TimeSpan MaxReadOutputDelay { get; init; } =
-        TimeSpan.FromMilliseconds(CodingHarnessDefaultExecuteCommandOptions.MaxReadOutputDelayMilliseconds);
+        TimeSpan.FromMilliseconds(CodingToolHarnessDefaultExecuteCommandOptions.MaxReadOutputDelayMilliseconds);
 
     public TimeSpan? AutoBackgroundAfter { get; init; } =
-        TimeSpan.FromMilliseconds(CodingHarnessDefaultExecuteCommandOptions.AutoBackgroundAfterMilliseconds);
+        TimeSpan.FromMilliseconds(CodingToolHarnessDefaultExecuteCommandOptions.AutoBackgroundAfterMilliseconds);
 
     public TimeSpan? InactivityTimeout { get; init; } =
-        TimeSpan.FromMilliseconds(CodingHarnessDefaultExecuteCommandOptions.InactivityTimeoutMilliseconds);
+        TimeSpan.FromMilliseconds(CodingToolHarnessDefaultExecuteCommandOptions.InactivityTimeoutMilliseconds);
 
     public int MaxInlineCommandOutputChars { get; init; } =
-        CodingHarnessDefaultExecuteCommandOptions.MaxInlineCommandOutputChars;
+        CodingToolHarnessDefaultExecuteCommandOptions.MaxInlineCommandOutputChars;
 
     public long MaxPersistedOutputBytes { get; init; } =
-        CodingHarnessDefaultExecuteCommandOptions.MaxPersistedOutputBytes;
+        CodingToolHarnessDefaultExecuteCommandOptions.MaxPersistedOutputBytes;
 
     public int MaxActiveBackgroundCommands { get; init; } = 8;
 
     public int MaxOutputChunkEventChars { get; init; } =
-        CodingHarnessDefaultExecuteCommandOptions.MaxOutputChunkEventChars;
+        CodingToolHarnessDefaultExecuteCommandOptions.MaxOutputChunkEventChars;
 
     public int MaxOutputChunkEventsPerSecond { get; init; } =
-        CodingHarnessDefaultExecuteCommandOptions.MaxOutputChunkEventsPerSecond;
+        CodingToolHarnessDefaultExecuteCommandOptions.MaxOutputChunkEventsPerSecond;
 
     public int MaxOutputChunkEventsPerCommand { get; init; } =
-        CodingHarnessDefaultExecuteCommandOptions.MaxOutputChunkEventsPerCommand;
+        CodingToolHarnessDefaultExecuteCommandOptions.MaxOutputChunkEventsPerCommand;
 
     public bool DisablePagers { get; init; } = true;
 
     public bool DisableInteractivePrompts { get; init; } = true;
 }
 
-internal static class CodingHarnessDefaultExecuteCommandOptions
+internal static class CodingToolHarnessDefaultExecuteCommandOptions
 {
     public const int DefaultTimeoutMilliseconds = 120_000;
     public const int MaxTimeoutMilliseconds = 30 * 60 * 1000;
@@ -1591,7 +1591,7 @@ internal sealed class ExecuteCommandBackgroundProcess
             var result = await Process.WaitAsync(cancellationToken).ConfigureAwait(false);
             CompletedAt = DateTimeOffset.UtcNow;
             ExitCode = result.ExitCode;
-            CompletionKind = CodingHarness.ToExecuteCommandCompletionKind(result.CompletionKind);
+            CompletionKind = CodingToolHarness.ToExecuteCommandCompletionKind(result.CompletionKind);
             Status = ToBackgroundStatus(result.CompletionKind);
             OutputMetadata = await OutputStore.CompleteAsync(result, Shell, cancellationToken).ConfigureAwait(false);
             await DisposeOwnedResourcesAsync().ConfigureAwait(false);
@@ -1632,7 +1632,7 @@ internal sealed class ExecuteCommandBackgroundProcess
             Category = Category,
             WorkingDirectory = Request.WorkingDirectory,
             ExitCode = result.ExitCode,
-            CompletionKind = CodingHarness.ToExecuteCommandCompletionKind(result.CompletionKind),
+            CompletionKind = CodingToolHarness.ToExecuteCommandCompletionKind(result.CompletionKind),
             DurationMilliseconds = Math.Max(0, (long)((CompletedAt ?? DateTimeOffset.UtcNow) - StartedAt).TotalMilliseconds),
             StdoutBytes = result.Output.Stdout.BytesObserved,
             StderrBytes = result.Output.Stderr.BytesObserved,
@@ -1801,7 +1801,7 @@ internal sealed class ExecuteCommandOutputSink(
             chunk.ObservedAt,
             cancellationToken).ConfigureAwait(false);
 
-        CodingHarness.EmitExecuteCommandOutputChunkEvent(
+        CodingToolHarness.EmitExecuteCommandOutputChunkEvent(
             context,
             request,
             baseCommand,
@@ -2092,8 +2092,8 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             return false;
 
         var capturedBytes = stream.CapturedBytes.ToArray();
-        var bomEncoding = CodingHarness.DetectBomEncoding(capturedBytes);
-        return CodingHarness.LooksBinary(capturedBytes, bomEncoding != null);
+        var bomEncoding = CodingToolHarness.DetectBomEncoding(capturedBytes);
+        return CodingToolHarness.LooksBinary(capturedBytes, bomEncoding != null);
     }
 
     internal static string ValidateLocalOutputPath(

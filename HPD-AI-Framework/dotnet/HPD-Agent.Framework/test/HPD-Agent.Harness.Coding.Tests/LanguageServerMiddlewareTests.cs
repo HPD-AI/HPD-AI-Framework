@@ -2,11 +2,11 @@ using HPD.Agent;
 using HPD.Agent.Middleware;
 using HPD.Events;
 using HPD.Events.Core;
-using HPDOS.Harneses.Middleware;
+using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 using System.Text.Json.Nodes;
 
-namespace HPD.Agent.Harness.Coding.Tests;
+namespace HPD.Agent.ToolHarness.Coding.Tests;
 
 [Collection(CurrentDirectoryCollection.Name)]
 public sealed class LanguageServerMiddlewareTests
@@ -324,7 +324,7 @@ public sealed class LanguageServerMiddlewareTests
             "call-read",
             new Dictionary<string, object?> { ["path"] = "/repo/A.cs" },
             new AgentRunConfig(),
-            harnessName: nameof(CodingHarness));
+            toolharnessName: nameof(CodingToolHarness));
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
 
@@ -1187,7 +1187,7 @@ public sealed class LanguageServerMiddlewareTests
             result: "<file />",
             exception: null,
             runConfig: new AgentRunConfig(),
-            harnessName: "CodingHarness",
+            toolharnessName: "CodingToolHarness",
             resultMetadata: metadata);
     }
 
@@ -1204,7 +1204,7 @@ public sealed class LanguageServerMiddlewareTests
             result: "<edit_result />",
             exception: null,
             runConfig: new AgentRunConfig(),
-            harnessName: "CodingHarness",
+            toolharnessName: "CodingToolHarness",
             resultMetadata: metadata);
     }
 

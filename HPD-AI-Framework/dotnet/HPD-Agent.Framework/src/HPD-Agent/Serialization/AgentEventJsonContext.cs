@@ -162,7 +162,7 @@ namespace HPD.Agent.Serialization;
 // Client Tool Events
 [JsonSerializable(typeof(ClientTools.ClientToolInvokeRequestEvent))]
 [JsonSerializable(typeof(ClientTools.ClientToolInvokeResponseEvent))]
-[JsonSerializable(typeof(ClientTools.clientHarnessesRegisteredEvent))]
+[JsonSerializable(typeof(ClientTools.clientToolHarnessesRegisteredEvent))]
 [JsonSerializable(typeof(ClientTools.IToolResultContent))]
 [JsonSerializable(typeof(ClientTools.TextContent))]
 [JsonSerializable(typeof(ClientTools.BinaryContent))]

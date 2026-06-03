@@ -135,7 +135,7 @@ export interface BaseEvent {
 }
 
 /**
- * Event emitted by a harness, middleware, or host extension that this client
+ * Event emitted by a toolharness, middleware, or host extension that this client
  * version does not model explicitly. The raw payload is preserved so
  * applications can opt into local custom-event handling via onAny().
  */
@@ -319,7 +319,7 @@ export interface ContextMessageSnapshot {
 export interface ToolContextSnapshot {
   name: string;
   description: string;
-  harnessName?: string;
+  toolharnessName?: string;
   callType?: ToolCallType;
   isContainer: boolean;
   inputSchemaJson?: string;
@@ -450,8 +450,8 @@ export interface ToolCallStartEvent extends BaseEvent {
   callId: string;
   name: string;
   messageId: string;
-  /** The harness that owns this tool, if any. */
-  harnessName?: string;
+  /** The toolharness that owns this tool, if any. */
+  toolharnessName?: string;
   /** The kind of capability (AIFunction, Skill, SubAgent, etc.). */
   callType?: ToolCallType;
 }
@@ -478,8 +478,8 @@ export interface ToolCallResultEvent extends BaseEvent {
   type: typeof EventTypes.TOOL_CALL_RESULT;
   callId: string;
   result: ToolResultPayload;
-  /** The harness that owns this tool, if any. */
-  harnessName?: string;
+  /** The toolharness that owns this tool, if any. */
+  toolharnessName?: string;
   /** The kind of capability (AIFunction, Skill, SubAgent, etc.). */
   callType?: ToolCallType;
 }
@@ -614,9 +614,9 @@ export interface InterruptionRequestEvent extends AgentInputEvent {
   source: InterruptionSource;
 }
 
-export interface clientHarnessesRegisteredEvent extends BaseEvent {
+export interface clientToolHarnessesRegisteredEvent extends BaseEvent {
   type: typeof EventTypes.CLIENT_TOOL_GROUPS_REGISTERED;
-  registeredHarnesses: string[];
+  registeredToolHarnesses: string[];
   totalTools: number;
   timestamp: string;
 }
@@ -686,7 +686,7 @@ export type KnownAgentEvent =
   // Client Tool Events
   | ClientToolInvokeRequestEvent
   | ClientToolInvokeResponseEvent
-  | clientHarnessesRegisteredEvent
+  | clientToolHarnessesRegisteredEvent
   // Control Events
   | InterruptionRequestEvent;
 
@@ -754,9 +754,9 @@ export function isClientToolInvokeRequestEvent(
   return event.type === EventTypes.CLIENT_TOOL_INVOKE_REQUEST;
 }
 
-export function isclientHarnessesRegisteredEvent(
+export function isclientToolHarnessesRegisteredEvent(
   event: BaseEvent
-): event is clientHarnessesRegisteredEvent {
+): event is clientToolHarnessesRegisteredEvent {
   return event.type === EventTypes.CLIENT_TOOL_GROUPS_REGISTERED;
 }
 

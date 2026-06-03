@@ -431,7 +431,7 @@ public class HPDAIFunctionFactoryOptions
 
     public Func<JsonElement>? SchemaProvider { get; set; }
 
-    // Additional metadata properties for Harness Collapsing and other features
+    // Additional metadata properties for ToolHarness Collapsing and other features
     public Dictionary<string, object?>? AdditionalProperties { get; set; }
 }
 

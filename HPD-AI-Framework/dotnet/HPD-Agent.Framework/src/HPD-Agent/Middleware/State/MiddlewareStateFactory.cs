@@ -8,7 +8,7 @@ namespace HPD.Agent;
 /// <para><b>Design Philosophy:</b></para>
 /// <para>
 /// This record enables cross-assembly middleware state discovery by following the
-/// HarnessRegistry pattern. Each assembly with [MiddlewareState] types generates
+/// ToolHarnessRegistry pattern. Each assembly with [MiddlewareState] types generates
 /// a MiddlewareStateRegistry.g.cs containing an array of these factories.
 /// </para>
 /// <list type="bullet">

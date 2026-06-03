@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * ChatInput Test Harness Component
+	 * ChatInput Test ToolHarness Component
 	 *
 	 * Provides a wrapper for testing ChatInput components in the browser.
 	 */
@@ -124,7 +124,7 @@
 </div>
 
 <style>
-	/* Minimal styling for test harness */
+	/* Minimal styling for test toolharness */
 	.input-row {
 		display: flex;
 		align-items: center;

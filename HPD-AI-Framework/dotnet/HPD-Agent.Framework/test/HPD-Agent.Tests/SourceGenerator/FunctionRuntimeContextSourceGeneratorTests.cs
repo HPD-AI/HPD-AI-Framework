@@ -64,7 +64,7 @@ public sealed class FunctionRuntimeContextSourceGeneratorTests
         var source = """
 using Microsoft.Extensions.AI;
 
-public partial class RuntimeHarness
+public partial class RuntimeToolHarness
 {
     [AIFunction]
     public string Search(string query, System.Threading.CancellationToken ct) => query;
@@ -85,7 +85,7 @@ public partial class RuntimeHarness
         var source = """
 using Microsoft.Extensions.AI;
 
-public partial class RuntimeHarness
+public partial class RuntimeToolHarness
 {
     [AIFunction]
     public string Search(string query, global::HPD.Agent.Middleware.FunctionExecutionContext context) => query;
@@ -107,7 +107,7 @@ public partial class RuntimeHarness
 using Microsoft.Extensions.AI;
 using RuntimeContext = HPD.Agent.Middleware.FunctionExecutionContext;
 
-public partial class RuntimeHarness
+public partial class RuntimeToolHarness
 {
     [AIFunction]
     public string Search(string query, RuntimeContext context) => query;
@@ -129,7 +129,7 @@ public partial class RuntimeHarness
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
 
-public partial class RuntimeHarness
+public partial class RuntimeToolHarness
 {
     [AIFunction]
     public string Search(string query, FunctionExecutionContext context, System.Threading.CancellationToken ct) => query;
@@ -155,7 +155,7 @@ public partial class RuntimeHarness
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
 
-public partial class RuntimeHarness
+public partial class RuntimeToolHarness
 {
     [AIFunction]
     public string Search(string query, {{runtimeParameter}}) => query;
@@ -178,7 +178,7 @@ public partial class RuntimeHarness
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
 
-public partial class RuntimeHarness
+public partial class RuntimeToolHarness
 {
     [AIFunction]
     public string Ping(FunctionExecutionContext context, System.Threading.CancellationToken ct) => "pong";
@@ -201,7 +201,7 @@ public partial class RuntimeHarness
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
 
-public partial class RuntimeHarness
+public partial class RuntimeToolHarness
 {
     [AIFunction]
     public string Search(string query, FunctionExecutionContext context, System.Threading.CancellationToken ct) => query;
@@ -224,7 +224,7 @@ public partial class RuntimeHarness
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
 
-public partial class RuntimeHarness
+public partial class RuntimeToolHarness
 {
     [AIFunction]
     public string Search(string query, FunctionExecutionContext context) => query;
@@ -247,7 +247,7 @@ using System.ComponentModel;
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
 
-public partial class RuntimeHarness
+public partial class RuntimeToolHarness
 {
     [AIFunction]
     public string Search([Description("The query to search for.")] string query, FunctionExecutionContext context) => query;
@@ -269,7 +269,7 @@ using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
 using HPD.Agent;
 
-public partial class RuntimeHarness
+public partial class RuntimeToolHarness
 {
     [AIFunction]
     public string Search(
@@ -293,7 +293,7 @@ public partial class RuntimeHarness
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
 
-public partial class RuntimeHarness
+public partial class RuntimeToolHarness
 {
     [AIFunction]
     public string Run(string a, FunctionExecutionContext context, int b, System.Threading.CancellationToken ct) => a + b;
@@ -335,7 +335,7 @@ public partial class RuntimeHarness
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
 
-public partial class RuntimeHarness
+public partial class RuntimeToolHarness
 {
     [AIFunction]
     public string Search(string query, HookContext context) => query;
@@ -362,7 +362,7 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 using HPD.Agent.Middleware;
 
-public partial class RuntimeHarness
+public partial class RuntimeToolHarness
 {
     [AIFunction]
     public string Search(string query, {{unsupportedParameter}}) => query;

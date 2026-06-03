@@ -54,7 +54,7 @@ internal interface ICapability
     /// Generates the registration code for this capability.
     /// This creates the HPDAIFunctionFactory.Create(...) call with all necessary metadata.
     /// </summary>
-    /// <param name="parent">The parent Harness that contains this capability.</param>
+    /// <param name="parent">The parent ToolHarness that contains this capability.</param>
     /// <returns>The generated registration code as a string.</returns>
     string GenerateRegistrationCode(object parent);
 
@@ -78,7 +78,7 @@ internal interface ICapability
     /// This is called after all capabilities have been analyzed to allow cross-capability and
     /// cross-assembly reference resolution.
     /// </summary>
-    /// <param name="allCapabilities">All capabilities from all Harneses in the compilation.</param>
+    /// <param name="allCapabilities">All capabilities from all ToolHarnesses in the compilation.</param>
     void ResolveReferences(List<ICapability> allCapabilities);
 
     /// <summary>

@@ -3,7 +3,7 @@ using System.IO;
 using System.Collections.Generic;
 using MAB.DotIgnore;
 
-namespace HPD.Agent.Harness.FileSystem;
+namespace HPD.Agent.ToolHarness.FileSystem;
 
 /// <summary>
 /// Checks if files/directories should be ignored based on .gitignore and .hpdignore patterns.

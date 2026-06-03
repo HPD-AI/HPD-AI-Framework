@@ -10,7 +10,7 @@ using DiffPlex.DiffBuilder.Model;
 using Microsoft.Extensions.FileSystemGlobbing;
 using Microsoft.Extensions.FileSystemGlobbing.Abstractions;
 
-namespace HPD.Agent.Harness.FileSystem;
+namespace HPD.Agent.ToolHarness.FileSystem;
 
 /// <summary>
 /// Advanced file operations: glob search, grep, and smart editing

@@ -630,7 +630,7 @@ describe("workspace context", () => {
     expect(isUnscopedSessionMetadata({ app: "hpd-os", workspaceId: "hpd-os" })).toBe(false);
   });
 
-  test("creates harness workspace context separately from model instructions", () => {
+  test("creates toolharness workspace context separately from model instructions", () => {
     expect(createRunWorkspace(workspace)).toEqual({
       version: 1,
       defaultRootId: "default",

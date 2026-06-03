@@ -41,9 +41,9 @@ The script tests these HPD-Agent packages individually:
 - HPD-Agent.MCP
 - HPD-Agent.Memory
 
-**Harneses:**
-- HPD-Agent.Harness.FileSystem
-- HPD-Agent.Harness.WebSearch
+**ToolHarnesses:**
+- HPD-Agent.ToolHarness.FileSystem
+- HPD-Agent.ToolHarness.WebSearch
 
 **AI Providers:**
 - HPD-Agent.Providers.Anthropic

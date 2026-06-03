@@ -1,8 +1,8 @@
 /// <summary>
-/// System prompts and instructions for the CodingHarness.
+/// System prompts and instructions for the CodingToolHarness.
 /// Separated for maintainability and clarity.
 /// </summary>
-internal static class CodingHarnessPrompts
+internal static class CodingToolHarnessPrompts
 {
     public const string SystemPrompt = @"
 You are an interactive CLI coding agent specializing in software engineering tasks. Your primary goal is to help users safely and efficiently, adhering strictly to the following instructions and utilizing your available tools.

@@ -12,10 +12,10 @@ namespace HPD.Agent;
 /// Description is auto-fetched from the MCP server's ServerInfo metadata at connection time.
 /// You can optionally override it via the Description property for collapsing purposes.
 ///
-/// Two collapsing modes (controlled via CollapseWithinHarness):
-/// 1. **Flat** (default): MCP tools appear directly under the parent harness when expanded
-/// 2. **Nested** (CollapseWithinHarness = true): MCP tools sit behind their own container
-///    inside the parent harness — two-level expand required
+/// Two collapsing modes (controlled via CollapseWithinToolHarness):
+/// 1. **Flat** (default): MCP tools appear directly under the parent toolharness when expanded
+/// 2. **Nested** (CollapseWithinToolHarness = true): MCP tools sit behind their own container
+///    inside the parent toolharness — two-level expand required
 ///
 /// To require user permission for MCP tools, add [RequiresPermission] to the method
 /// (same as [AIFunction] and [Skill]).
@@ -54,13 +54,13 @@ public class MCPServerAttribute : Attribute
 
     /// <summary>
     /// When true, MCP tools are grouped behind their own container (e.g., MCP_wolfram)
-    /// nested inside the parent harness container. Two expansions required: first the
-    /// harness, then the MCP server container.
+    /// nested inside the parent toolharness container. Two expansions required: first the
+    /// toolharness, then the MCP server container.
     ///
-    /// When false (default), MCP tools appear directly under the parent harness
+    /// When false (default), MCP tools appear directly under the parent toolharness
     /// when it is expanded — single expansion required.
     /// </summary>
-    public bool CollapseWithinHarness { get; set; } = false;
+    public bool CollapseWithinToolHarness { get; set; } = false;
 
     public MCPServerAttribute() { }
     public MCPServerAttribute(string serverName) => ServerName = serverName;
@@ -77,7 +77,7 @@ public sealed class MCPServerAttribute<TMetadata> : Attribute where TMetadata : 
     public string? Name { get; set; }
     public string? Description { get; set; }
     public string? FromManifest { get; set; }
-    public bool CollapseWithinHarness { get; set; } = false;
+    public bool CollapseWithinToolHarness { get; set; } = false;
 
     public MCPServerAttribute() { }
     public MCPServerAttribute(string serverName) => ServerName = serverName;

@@ -119,13 +119,13 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
         {
             new ChatMessage(ChatRole.System, planPrompt)
         };
-        messagesWithPlan.AddRange(context.ConversationHistory);
+        messagesWithPlan.AddRange(context.BranchHistory);
 
-        // V2: ConversationHistory is mutable - replace content
-        context.ConversationHistory.Clear();
+        // V2: BranchHistory is mutable - replace content
+        context.BranchHistory.Clear();
         foreach (var msg in messagesWithPlan)
         {
-            context.ConversationHistory.Add(msg);
+            context.BranchHistory.Add(msg);
         }
 
         _logger?.LogDebug(

@@ -3,7 +3,7 @@ using Rhodium.Primitives;
 
 namespace Rhodium.Platform.Tests;
 
-public sealed class StrategyTestHarnessTests
+public sealed class StrategyTestToolHarnessTests
 {
     [Fact]
     public void Run_CanExerciseGeneratedStrategyWithoutManualKernelSetup()

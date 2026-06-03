@@ -13,7 +13,7 @@
  *
  * ALTERNATIVE TESTING APPROACH:
  * Property-based testing should be done through component integration tests:
- * 1. Create a test harness component that renders SplitPanel
+ * 1. Create a test toolharness component that renders SplitPanel
  * 2. Use vitest-browser-svelte to render the component
  * 3. Use fast-check to generate operation sequences
  * 4. Apply operations through component interaction (clicks, drags, etc.)

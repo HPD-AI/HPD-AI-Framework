@@ -2,17 +2,17 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 using HPD.Agent;
-using HPD.Agent.Harness.Coding.Ripgrep;
-using HPDOS.Harneses.Middleware;
+using HPD.Agent.ToolHarness.Coding.Ripgrep;
+using HPDOS.ToolHarnesses.Middleware;
 
 /// <summary>
-/// Shared partial class for coding harness functions.
+/// Shared partial class for coding toolharness functions.
 /// </summary>
 [Collapse(
     "Contains tools for coding operations: file operations, code search, shell execution, and code analysis.",
-    SystemPrompt = CodingHarnessPrompts.SystemPrompt,
+    SystemPrompt = CodingToolHarnessPrompts.SystemPrompt,
     Middlewares = [typeof(EnvironmentContextMiddleware), typeof(CodingLanguageServerMiddleware)])]
-public partial class CodingHarness
+public partial class CodingToolHarness
 {
     private static readonly HashSet<string> BuiltInRecursiveSkips = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -41,31 +41,31 @@ public partial class CodingHarness
     private readonly IReadOnlyList<IFileMutationHistorySink> _fileMutationHistorySinks;
     private readonly ExecuteCommandOptions _executeCommandOptions;
 
-    static CodingHarness()
+    static CodingToolHarness()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
     }
 
     /// <summary>
-    /// Creates a coding harness with filesystem-backed sources.
+    /// Creates a coding toolharness with filesystem-backed sources.
     /// </summary>
-    public CodingHarness()
+    public CodingToolHarness()
         : this([])
     {
     }
 
     /// <summary>
-    /// Creates a coding harness with optional host-provided text sources.
+    /// Creates a coding toolharness with optional host-provided text sources.
     /// </summary>
-    public CodingHarness(IEnumerable<IReadFileTextSource>? readFileTextSources)
+    public CodingToolHarness(IEnumerable<IReadFileTextSource>? readFileTextSources)
         : this(readFileTextSources, null)
     {
     }
 
     /// <summary>
-    /// Creates a coding harness with optional host-provided sources.
+    /// Creates a coding toolharness with optional host-provided sources.
     /// </summary>
-    public CodingHarness(
+    public CodingToolHarness(
         IEnumerable<IReadFileTextSource>? readFileTextSources,
         IEnumerable<IDirectoryListingSource>? directoryListingSources,
         IEnumerable<IGlobSearchPathResolver>? globSearchPathResolvers = null,
@@ -235,7 +235,7 @@ public partial class CodingHarness
         return new HpdIgnoreMatcher(orderedRules);
     }
 
-    private static XmlWriter CreateCodingHarnessXmlWriter(StringBuilder builder)
+    private static XmlWriter CreateCodingToolHarnessXmlWriter(StringBuilder builder)
     {
         var settings = new XmlWriterSettings
         {

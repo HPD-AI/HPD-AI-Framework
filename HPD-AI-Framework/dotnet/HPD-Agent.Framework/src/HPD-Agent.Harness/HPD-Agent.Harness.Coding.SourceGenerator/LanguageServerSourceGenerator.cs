@@ -1,12 +1,12 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
-using HPD.Agent.Harness.Coding.SourceGenerator.Diagnostics;
-using HPD.Agent.Harness.Coding.SourceGenerator.Generators;
+using HPD.Agent.ToolHarness.Coding.SourceGenerator.Diagnostics;
+using HPD.Agent.ToolHarness.Coding.SourceGenerator.Generators;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
-namespace HPD.Agent.Harness.Coding.SourceGenerator;
+namespace HPD.Agent.ToolHarness.Coding.SourceGenerator;
 
 internal sealed record LanguageServerProviderInfo(
     string Id,
@@ -25,16 +25,16 @@ internal sealed record LanguageServerProviderInfo(
 [Generator]
 public sealed class LanguageServerSourceGenerator : IIncrementalGenerator
 {
-    private const string HpdLanguageServerAttribute = "HPDOS.Harneses.Middleware.HpdLanguageServerAttribute";
-    private const string ExtensionsAttribute = "HPDOS.Harneses.Middleware.LanguageServerExtensionsAttribute";
-    private const string LanguageIdsAttribute = "HPDOS.Harneses.Middleware.LanguageServerLanguageIdsAttribute";
-    private const string RootMarkersAttribute = "HPDOS.Harneses.Middleware.LanguageServerRootMarkersAttribute";
-    private const string ExcludeRootMarkersAttribute = "HPDOS.Harneses.Middleware.LanguageServerExcludeRootMarkersAttribute";
-    private const string ExecutableAttribute = "HPDOS.Harneses.Middleware.LanguageServerExecutableAttribute";
-    private const string ArgumentsAttribute = "HPDOS.Harneses.Middleware.LanguageServerArgumentsAttribute";
-    private const string ExperimentalAttribute = "HPDOS.Harneses.Middleware.LanguageServerExperimentalAttribute";
-    private const string DisabledByDefaultAttribute = "HPDOS.Harneses.Middleware.LanguageServerDisabledByDefaultAttribute";
-    private const string ProviderInterface = "HPDOS.Harneses.Middleware.ILanguageServerProvider";
+    private const string HpdLanguageServerAttribute = "HPDOS.ToolHarnesses.Middleware.HpdLanguageServerAttribute";
+    private const string ExtensionsAttribute = "HPDOS.ToolHarnesses.Middleware.LanguageServerExtensionsAttribute";
+    private const string LanguageIdsAttribute = "HPDOS.ToolHarnesses.Middleware.LanguageServerLanguageIdsAttribute";
+    private const string RootMarkersAttribute = "HPDOS.ToolHarnesses.Middleware.LanguageServerRootMarkersAttribute";
+    private const string ExcludeRootMarkersAttribute = "HPDOS.ToolHarnesses.Middleware.LanguageServerExcludeRootMarkersAttribute";
+    private const string ExecutableAttribute = "HPDOS.ToolHarnesses.Middleware.LanguageServerExecutableAttribute";
+    private const string ArgumentsAttribute = "HPDOS.ToolHarnesses.Middleware.LanguageServerArgumentsAttribute";
+    private const string ExperimentalAttribute = "HPDOS.ToolHarnesses.Middleware.LanguageServerExperimentalAttribute";
+    private const string DisabledByDefaultAttribute = "HPDOS.ToolHarnesses.Middleware.LanguageServerDisabledByDefaultAttribute";
+    private const string ProviderInterface = "HPDOS.ToolHarnesses.Middleware.ILanguageServerProvider";
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {

@@ -152,12 +152,12 @@ config.Provider.SetTypedProviderConfig(hfOpts);
 // Reuse with different runtime customizations
 var agent1 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithHarness<MathHarness>()
+    .WithToolHarness<MathToolHarness>()
     .BuildAsync();
 
 var agent2 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithHarness<FileHarness>()
+    .WithToolHarness<FileToolHarness>()
     .BuildAsync();
 ```
 

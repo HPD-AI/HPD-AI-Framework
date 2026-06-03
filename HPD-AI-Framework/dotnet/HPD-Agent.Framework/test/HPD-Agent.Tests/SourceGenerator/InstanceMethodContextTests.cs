@@ -52,17 +52,17 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Dynamic Harness"",
+    ""Dynamic ToolHarness"",
      
     FunctionResult = GetActivationMessage()
 )]
-public class DynamicHarness
+public class DynamicToolHarness
 {
     private int _version = 1;
 
     public string GetActivationMessage()
     {
-        return $""Harness v{_version} activated"";
+        return $""ToolHarness v{_version} activated"";
     }
 
     [AIFunction]
@@ -78,7 +78,7 @@ public class DynamicHarness
 
         // Should generate instance.GetActivationMessage() since it's an instance method
         Assert.Contains("instance.GetActivationMessage()", generatedCode!);
-        Assert.DoesNotContain("DynamicHarness.GetActivationMessage()", generatedCode);
+        Assert.DoesNotContain("DynamicToolHarness.GetActivationMessage()", generatedCode);
     }
 
     [Fact]
@@ -90,11 +90,11 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Static Harness"",
+    ""Static ToolHarness"",
      
     FunctionResult = GetStaticMessage()
 )]
-public class StaticHarness
+public class StaticToolHarness
 {
     public static string GetStaticMessage()
     {
@@ -126,11 +126,11 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Property Harness"",
+    ""Property ToolHarness"",
      
     SystemPrompt = Rules
 )]
-public class PropertyHarness
+public class PropertyToolHarness
 {
     public string Rules => ""Instance-specific rules"";
 
@@ -158,11 +158,11 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Static Property Harness"",
+    ""Static Property ToolHarness"",
      
     SystemPrompt = StaticRules
 )]
-public class StaticPropertyHarness
+public class StaticPropertyToolHarness
 {
     public static string StaticRules => ""Static rules for all instances"";
 
@@ -191,14 +191,14 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Mixed Harness"",
+    ""Mixed ToolHarness"",
      
     FunctionResult = GetInstanceMessage(),
     SystemPrompt = StaticRules
 )]
-public class MixedHarness
+public class MixedToolHarness
 {
-    private string _name = ""MixedHarness"";
+    private string _name = ""MixedToolHarness"";
 
     public string GetInstanceMessage()
     {
@@ -240,11 +240,11 @@ public static class MessageBuilder
 }
 
 [Collapse(
-    ""External Harness"",
+    ""External ToolHarness"",
      
     FunctionResult = MessageBuilder.BuildMessage()
 )]
-public class ExternalHarness
+public class ExternalToolHarness
 {
     [AIFunction]
     public string TestFunction() => ""result"";
@@ -271,16 +271,16 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Complex Harness"",
+    ""Complex ToolHarness"",
      
     FunctionResult = BuildActivationMessage()
 )]
-public class ComplexHarness
+public class ComplexToolHarness
 {
     private readonly string _environment;
     private readonly int _version;
 
-    public ComplexHarness()
+    public ComplexToolHarness()
     {
         _environment = ""Production"";
         _version = 2;
@@ -288,7 +288,7 @@ public class ComplexHarness
 
     public string BuildActivationMessage()
     {
-        return $""Harness v{_version} in {_environment} activated"";
+        return $""ToolHarness v{_version} in {_environment} activated"";
     }
 
     [AIFunction]
@@ -315,11 +315,11 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Chained Harness"",
+    ""Chained ToolHarness"",
      
     SystemPrompt = GetRules().Trim()
 )]
-public class ChainedHarness
+public class ChainedToolHarness
 {
     public string GetRules()
     {
@@ -350,11 +350,11 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Legacy Harness"",
+    ""Legacy ToolHarness"",
      
     FunctionResult = GetLegacyInstructions()
 )]
-public class LegacyHarness
+public class LegacyToolHarness
 {
     public string GetLegacyInstructions()
     {
@@ -385,12 +385,12 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Literal Harness"",
+    ""Literal ToolHarness"",
      
     FunctionResult = ""Literal activation message"",
     SystemPrompt = ""Literal rules""
 )]
-public class LiteralHarness
+public class LiteralToolHarness
 {
     [AIFunction]
     public string TestFunction() => ""result"";
@@ -421,17 +421,17 @@ using HPD.Agent;
 using System;
 
 [Collapse(
-    ""Time-based Harness"",
+    ""Time-based ToolHarness"",
      
     FunctionResult = GetTimeBasedMessage()
 )]
-public class TimeBasedHarness
+public class TimeBasedToolHarness
 {
     private DateTime _createdAt = DateTime.UtcNow;
 
     public string GetTimeBasedMessage()
     {
-        return $""Harness created at {_createdAt:yyyy-MM-dd HH:mm:ss} UTC"";
+        return $""ToolHarness created at {_createdAt:yyyy-MM-dd HH:mm:ss} UTC"";
     }
 
     [AIFunction]
@@ -458,11 +458,11 @@ using Microsoft.Extensions.AI;
 using HPD.Agent;
 
 [Collapse(
-    ""Metadata Harness"",
+    ""Metadata ToolHarness"",
      
     SystemPrompt = GetDynamicRules()
 )]
-public class MetadataHarness
+public class MetadataToolHarness
 {
     public string GetDynamicRules() => ""Dynamic rules"";
 

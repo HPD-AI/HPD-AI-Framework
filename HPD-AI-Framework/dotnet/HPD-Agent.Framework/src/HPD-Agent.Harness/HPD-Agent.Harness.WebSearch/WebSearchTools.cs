@@ -4,11 +4,11 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.AI;
 
-namespace HPD.Agent.Harness.WebSearch;
+namespace HPD.Agent.ToolHarness.WebSearch;
 
 /// <summary>
-/// Web search Harness that provides intelligent search capabilities with provider-aware functions.
-/// This Harness automatically adapts its available functions and descriptions based on configured providers.
+/// Web search ToolHarness that provides intelligent search capabilities with provider-aware functions.
+/// This ToolHarness automatically adapts its available functions and descriptions based on configured providers.
 /// </summary>
 public class WebSearchTools
 {

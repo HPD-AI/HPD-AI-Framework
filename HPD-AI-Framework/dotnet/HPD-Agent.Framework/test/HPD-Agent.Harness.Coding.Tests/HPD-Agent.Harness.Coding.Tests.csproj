@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
-    <RootNamespace>HPD.Agent.Harness.Coding.Tests</RootNamespace>
+    <RootNamespace>HPD.Agent.ToolHarness.Coding.Tests</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -23,7 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.Coding/HPD-Agent.ToolHarness.Coding.csproj" />
   </ItemGroup>
 
 </Project>

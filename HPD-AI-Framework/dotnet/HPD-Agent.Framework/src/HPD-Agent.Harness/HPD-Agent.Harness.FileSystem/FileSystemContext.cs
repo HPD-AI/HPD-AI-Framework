@@ -1,10 +1,10 @@
 using System.Collections.Generic;
 using HPD.Agent;
 
-namespace HPD.Agent.Harness.FileSystem;
+namespace HPD.Agent.ToolHarness.FileSystem;
 
 /// <summary>
-/// Context for FileSystem Harness operations with workspace validation.
+/// Context for FileSystem ToolHarness operations with workspace validation.
 /// </summary>
 public class FileSystemContext : IToolMetadata
 {

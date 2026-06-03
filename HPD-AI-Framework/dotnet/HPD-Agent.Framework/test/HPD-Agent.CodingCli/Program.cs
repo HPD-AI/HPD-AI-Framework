@@ -15,8 +15,8 @@ var agentBuilder = new AgentBuilder()
     .WithAPIConfiguration(appsettingsPath ?? "appsettings.json", optional: true)
     .WithName("Coding CLI Test Agent")
     .WithLocalExecution()
-    .WithToolCollapsing()
-    .WithHarness<CodingHarness>();
+    .WithHarnessCollapsing()
+    .WithToolHarness<CodingToolHarness>();
 
 if (!TryConfigureProvider(agentBuilder, options, appsettingsPath, out var providerError))
 {
@@ -30,7 +30,7 @@ var tools = agent.DefaultOptions?.Tools?.OfType<AIFunction>().Select(tool => too
 if (options.ListTools)
 {
     Console.WriteLine($"Agent: {agent.Name}");
-    Console.WriteLine("Coding harness tools:");
+    Console.WriteLine("Coding toolharness tools:");
     foreach (var tool in tools)
         Console.WriteLine($"- {tool}");
 
@@ -67,7 +67,7 @@ using var turnStartedSubscription = agent.Subscribe<MessageTurnStartedEvent>(evt
 //     {
 //         CliConsole.WriteErrorLine(
 //             ConsoleColor.DarkCyan,
-//             $"[context:tool] {tool.Name} harness={tool.HarnessName ?? "-"} type={tool.CallType?.ToString() ?? "-"} container={tool.IsContainer} schema={Preview(tool.InputSchemaJson)}");
+//             $"[context:tool] {tool.Name} toolharness={tool.ToolHarnessName ?? "-"} type={tool.CallType?.ToString() ?? "-"} container={tool.IsContainer} schema={Preview(tool.InputSchemaJson)}");
 //     }
 // });
 // using var middlewareStateSnapshotSubscription = agent.Subscribe<MiddlewareStateSnapshotEvent>(evt =>
@@ -115,7 +115,7 @@ using var toolStartSubscription = agent.Subscribe<ToolCallStartEvent>(evt =>
 {
     CliConsole.WriteErrorLine(
         ConsoleColor.Cyan,
-        $"[tool:start] {evt.Name} call_id={evt.CallId} harness={evt.HarnessName ?? "-"} type={evt.CallType?.ToString() ?? "-"}");
+        $"[tool:start] {evt.Name} call_id={evt.CallId} toolharness={evt.ToolHarnessName ?? "-"} type={evt.CallType?.ToString() ?? "-"}");
 });
 using var toolArgsSubscription = agent.Subscribe<ToolCallArgsEvent>(evt =>
 {
@@ -127,7 +127,7 @@ using var toolResultSubscription = agent.Subscribe<ToolCallResultEvent>(evt =>
 {
     CliConsole.WriteErrorLine(
         ConsoleColor.Green,
-        $"[tool:result] call_id={evt.CallId} harness={evt.HarnessName ?? "-"} type={evt.CallType?.ToString() ?? "-"}");
+        $"[tool:result] call_id={evt.CallId} toolharness={evt.ToolHarnessName ?? "-"} type={evt.CallType?.ToString() ?? "-"}");
     CliConsole.WriteErrorLine(ConsoleColor.DarkGreen, FormatToolResult(evt.Result));
 });
 using var toolEndSubscription = agent.Subscribe<ToolCallEndEvent>(evt =>
@@ -324,14 +324,14 @@ static bool TryGetProperty(JsonElement element, string name, out JsonElement val
 static void PrintUsage()
 {
     Console.WriteLine("""
-    HPD coding harness test CLI
+    HPD coding toolharness test CLI
 
     Usage:
       dotnet run --project test/HPD-Agent.CodingCli -- --model deepseek/deepseek-v4-pro "Read README.md"
       dotnet run --project test/HPD-Agent.CodingCli
 
     Options:
-      --list-tools       Print registered coding harness tool names.
+      --list-tools       Print registered coding toolharness tool names.
       --model VALUE      OpenRouter model id. Defaults to OPENROUTER_MODEL or deepseek/deepseek-v4-pro.
       --session VALUE    Session id. Defaults to coding-cli-session.
       --branch VALUE     Branch id. Defaults to main.

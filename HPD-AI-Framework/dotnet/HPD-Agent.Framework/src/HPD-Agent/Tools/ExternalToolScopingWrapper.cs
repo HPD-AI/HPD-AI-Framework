@@ -4,9 +4,9 @@ using HPD.Agent;
 using HPD.Agent.Middleware;
 
 /// <summary>
-/// Wraps external tools (MCP, Client) with Harness Collapsing metadata at runtime.
-/// Unlike C# Harneses which get metadata from the source generator, external tools
-/// need runtime wrapping to support the Harness Collapsing architecture.
+/// Wraps external tools (MCP, Client) with ToolHarness Collapsing metadata at runtime.
+/// Unlike C# ToolHarnesses which get metadata from the source generator, external tools
+/// need runtime wrapping to support the ToolHarness Collapsing architecture.
 /// </summary>
 public static class ExternalToolCollapsingWrapper
 {
@@ -85,8 +85,8 @@ public static class ExternalToolCollapsingWrapper
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
-                    ["HarnessName"] = containerName,
-                    ["ParentContainer"] = parentContainer, // null for standalone WithMCP(), harness name for [MCPServer]
+                    ["ToolHarnessName"] = containerName,
+                    ["ParentContainer"] = parentContainer, // null for standalone WithMCP(), toolharness name for [MCPServer]
                     ["FunctionNames"] = allFunctionNames.ToArray(),
                     ["FunctionCount"] = allFunctionNames.Count,
                     ["SourceType"] = "MCP",
@@ -159,7 +159,7 @@ public static class ExternalToolCollapsingWrapper
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
-                    ["HarnessName"] = containerName,
+                    ["ToolHarnessName"] = containerName,
                     ["FunctionNames"] = allFunctionNames.ToArray(),
                     ["FunctionCount"] = allFunctionNames.Count,
                     ["SourceType"] = "Client"
@@ -173,18 +173,18 @@ public static class ExternalToolCollapsingWrapper
     }
 
     /// <summary>
-    /// Wraps a group of Client tools from one Harness with a container function.
-    /// Uses "Client_" prefix to distinguish from other Harness types.
-    /// Requires a description (since collapsed Harneses need to tell the LLM what they contain).
+    /// Wraps a group of Client tools from one ToolHarness with a container function.
+    /// Uses "Client_" prefix to distinguish from other ToolHarness types.
+    /// Requires a description (since collapsed ToolHarnesses need to tell the LLM what they contain).
     /// </summary>
-    /// <param name="toolName">Name of the Client Harness (e.g., "ECommerce", "Settings")</param>
-    /// <param name="description">Description of the Harness (REQUIRED - tells LLM when to expand)</param>
-    /// <param name="tools">Tools in this Harness</param>
+    /// <param name="toolName">Name of the Client ToolHarness (e.g., "ECommerce", "Settings")</param>
+    /// <param name="description">Description of the ToolHarness (REQUIRED - tells LLM when to expand)</param>
+    /// <param name="tools">Tools in this ToolHarness</param>
     /// <param name="maxFunctionNamesInDescription">Maximum number of function names to include in description (default: 10)</param>
     /// <param name="FunctionResult">Ephemeral instructions returned in function result after expansion</param>
     /// <param name="SystemPrompt">Persistent instructions injected into system prompt after expansion</param>
     /// <returns>Container function and Collapsed tools with metadata</returns>
-    public static (AIFunction container, List<AIFunction> CollapsedTools) WrapclientHarness(
+    public static (AIFunction container, List<AIFunction> CollapsedTools) WrapclientToolHarness(
         string toolName,
         string description,
         List<AIFunction> tools,
@@ -193,11 +193,11 @@ public static class ExternalToolCollapsingWrapper
         string?SystemPrompt = null)
     {
         if (string.IsNullOrEmpty(toolName))
-            throw new ArgumentException("Harness name cannot be null or empty", nameof(toolName));
+            throw new ArgumentException("ToolHarness name cannot be null or empty", nameof(toolName));
 
         if (string.IsNullOrEmpty(description))
             throw new ArgumentException(
-                "Description is required for Client Harneses so the LLM knows when to expand them",
+                "Description is required for Client ToolHarnesses so the LLM knows when to expand them",
                 nameof(description));
 
         if (tools == null || tools.Count == 0)
@@ -219,7 +219,7 @@ public static class ExternalToolCollapsingWrapper
         var fullFunctionList = string.Join(", ", allFunctionNames);
 
         // Build return message with optional ephemeral context (function result)
-        var returnMessage = $"{toolName} Harness expanded. Available functions: {fullFunctionList}";
+        var returnMessage = $"{toolName} ToolHarness expanded. Available functions: {fullFunctionList}";
         if (!string.IsNullOrEmpty(FunctionResult))
         {
             returnMessage += $"\n\n{FunctionResult}";
@@ -241,11 +241,11 @@ public static class ExternalToolCollapsingWrapper
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
-                    ["HarnessName"] = containerName,
-                    ["clientHarnessName"] = toolName, // Original name without prefix
+                    ["ToolHarnessName"] = containerName,
+                    ["clientToolHarnessName"] = toolName, // Original name without prefix
                     ["FunctionNames"] = allFunctionNames.ToArray(),
                     ["FunctionCount"] = allFunctionNames.Count,
-                    ["SourceType"] = "clientHarness",
+                    ["SourceType"] = "clientToolHarness",
                     // Dual-context architecture: FunctionResult for ephemeral, SystemPrompt for persistent
                     ["FunctionResult"] = FunctionResult,
                     ["SystemPrompt"] = SystemPrompt,
@@ -255,14 +255,14 @@ public static class ExternalToolCollapsingWrapper
             });
 
         // Add metadata to individual tools
-        var CollapsedTools = tools.Select(tool => AddParentToolMetadata(tool, containerName, "clientHarness")).ToList();
+        var CollapsedTools = tools.Select(tool => AddParentToolMetadata(tool, containerName, "clientToolHarness")).ToList();
 
         return (container, CollapsedTools);
     }
 
     /// <summary>
-    /// Wraps OpenAPI functions behind a container nested inside a parent harness.
-    /// Used when <c>CollapseWithinHarness = true</c> on <c>OpenApiConfig</c>.
+    /// Wraps OpenAPI functions behind a container nested inside a parent toolharness.
+    /// Used when <c>CollapseWithinToolHarness = true</c> on <c>OpenApiConfig</c>.
     /// The container gets <c>["ParentContainer"] = parentContainer</c> so
     /// <c>IsCollapseContainerVisible()</c> enforces parent-first visibility.
     /// </summary>
@@ -313,7 +313,7 @@ public static class ExternalToolCollapsingWrapper
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
-                    ["HarnessName"] = containerName,
+                    ["ToolHarnessName"] = containerName,
                     ["ParentContainer"] = parentContainer,
                     ["FunctionNames"] = allFunctionNames.ToArray(),
                     ["FunctionCount"] = allFunctionNames.Count,
@@ -331,28 +331,28 @@ public static class ExternalToolCollapsingWrapper
     }
 
     /// <summary>
-    /// Adds ParentHarness metadata to an existing AIFunction by wrapping it.
+    /// Adds ParentToolHarness metadata to an existing AIFunction by wrapping it.
     /// This is necessary because AIFunction.AdditionalProperties is read-only,
     /// so we create a new function that delegates to the original.
     /// </summary>
     /// <param name="tool">Original tool to wrap</param>
-    /// <param name="parentHarnessName">Parent container name</param>
-    /// <param name="sourceType">Source type (MCP, Client, clientHarness)</param>
-    /// <param name="parentContainer">Optional parent container for nested visibility (e.g., parent harness name for flat MCP tools)</param>
+    /// <param name="parentToolHarnessName">Parent container name</param>
+    /// <param name="sourceType">Source type (MCP, Client, clientToolHarness)</param>
+    /// <param name="parentContainer">Optional parent container for nested visibility (e.g., parent toolharness name for flat MCP tools)</param>
     /// <returns>New AIFunction with metadata</returns>
-    internal static AIFunction AddParentToolMetadata(AIFunction tool, string parentHarnessName, string sourceType, string? parentContainer = null)
+    internal static AIFunction AddParentToolMetadata(AIFunction tool, string parentToolHarnessName, string sourceType, string? parentContainer = null)
     {
         // Check if tool already has Collapsing metadata (avoid double-wrapping)
-        if (tool.AdditionalProperties?.ContainsKey("ParentHarness") == true)
+        if (tool.AdditionalProperties?.ContainsKey("ParentToolHarness") == true)
         {
             return tool;
         }
 
         var additionalProperties = tool.AdditionalProperties?.ToDictionary(kvp => kvp.Key, kvp => kvp.Value)
             ?? new Dictionary<string, object?>();
-        additionalProperties["ParentHarness"] = parentHarnessName;
-        additionalProperties["ParentContainer"] = parentContainer; // For nested visibility (flat MCP tools under a harness)
-        additionalProperties["HarnessName"] = parentHarnessName;
+        additionalProperties["ParentToolHarness"] = parentToolHarnessName;
+        additionalProperties["ParentContainer"] = parentContainer; // For nested visibility (flat MCP tools under a toolharness)
+        additionalProperties["ToolHarnessName"] = parentToolHarnessName;
         additionalProperties["IsContainer"] = false;
         additionalProperties["SourceType"] = sourceType;
 

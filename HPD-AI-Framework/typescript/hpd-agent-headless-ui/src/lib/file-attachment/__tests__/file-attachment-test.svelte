@@ -1,12 +1,12 @@
 <script lang="ts">
 	/**
-	 * FileAttachment Test Harness
+	 * FileAttachment Test ToolHarness
 	 *
 	 * Renders the FileAttachment component in two modes:
 	 *   1. External state (pre-constructed FileAttachmentState passed via `state` prop)
 	 *   2. Internal state (client + sessionId props, state built inside component)
 	 *
-	 * The harness exposes DOM elements with data-testid for every relevant piece
+	 * The toolharness exposes DOM elements with data-testid for every relevant piece
 	 * of state so the browser tests can make pure DOM assertions.
 	 */
 	import * as FileAttachment from '../exports.js';
@@ -16,7 +16,7 @@
 	import type { AgentClientLike } from '$lib/workspace/types.js';
 
 	interface Props {
-		// Controls which mode the harness uses
+		// Controls which mode the toolharness uses
 		mode?: 'external' | 'internal';
 		sessionId?: string | null;
 		disabled?: boolean;

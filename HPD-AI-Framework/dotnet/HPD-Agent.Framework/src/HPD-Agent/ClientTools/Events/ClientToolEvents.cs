@@ -78,14 +78,14 @@ public record ClientToolInvokeResponseEvent(
 }
 
 /// <summary>
-/// Emitted after Client Harneses are successfully registered.
+/// Emitted after Client ToolHarnesses are successfully registered.
 /// Useful for debugging and observability.
 /// </summary>
-/// <param name="RegisteredHarnesses">Names of all registered tool groups</param>
+/// <param name="RegisteredToolHarnesses">Names of all registered tool groups</param>
 /// <param name="TotalTools">Total number of tools across all tool groups</param>
 /// <param name="Timestamp">When registration completed</param>
-public record clientHarnessesRegisteredEvent(
-    IReadOnlyList<string>RegisteredHarnesses,
+public record clientToolHarnessesRegisteredEvent(
+    IReadOnlyList<string>RegisteredToolHarnesses,
     int TotalTools,
     DateTimeOffset Timestamp
 ) : AgentEvent

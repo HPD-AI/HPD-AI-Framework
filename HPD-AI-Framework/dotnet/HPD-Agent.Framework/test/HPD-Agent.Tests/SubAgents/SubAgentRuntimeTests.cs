@@ -210,7 +210,7 @@ public class SubAgentRuntimeTests
             "tool-call-1",
             new Dictionary<string, object?>(),
             new AgentRunConfig(),
-            harnessName: null,
+            toolharnessName: null,
             skillName: null);
 
         return new FunctionExecutionContext(

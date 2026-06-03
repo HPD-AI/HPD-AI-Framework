@@ -3,9 +3,9 @@ using System.Text.Json;
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
 using HPD.Agent.Serialization;
-using HPDOS.Harneses.Middleware;
+using HPDOS.ToolHarnesses.Middleware;
 
-namespace HPD.Agent.Harness.Coding.Tests;
+namespace HPD.Agent.ToolHarness.Coding.Tests;
 
 public sealed class FileMutationEventTests
 {

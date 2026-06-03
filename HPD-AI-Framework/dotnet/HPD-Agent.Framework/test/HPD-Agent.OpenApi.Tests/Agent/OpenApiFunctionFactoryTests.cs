@@ -74,7 +74,7 @@ public class OpenApiFunctionFactoryTests
             callId,
             new Dictionary<string, object?>(),
             new AgentRunConfig(),
-            harnessName: null,
+            toolharnessName: null,
             skillName: null);
 
         return new FunctionExecutionContext(
@@ -160,10 +160,10 @@ public class OpenApiFunctionFactoryTests
     {
         var spec = MakeSpec(MakeOp("listPets"), MakeOp("createPet", method: HttpMethod.Post));
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, new OpenApiConfig(), MakeRunner(),
-            namePrefix: "pet", parentContainer: "PetHarness", collapseWithinHarness: false);
+            namePrefix: "pet", parentContainer: "PetToolHarness", collapseWithinToolHarness: false);
 
         functions.Should().AllSatisfy(f =>
-            ReadProp(f.AdditionalProperties, "ParentContainer").Should().Be("PetHarness"));
+            ReadProp(f.AdditionalProperties, "ParentContainer").Should().Be("PetToolHarness"));
     }
 
     [Fact]
@@ -232,15 +232,15 @@ public class OpenApiFunctionFactoryTests
     }
 
     // ────────────────────────────────────────────────────────────
-    // CollapseWithinHarness
+    // CollapseWithinToolHarness
     // ────────────────────────────────────────────────────────────
 
     [Fact]
-    public void CreateFunctions_CollapseWithinHarnessFalse_NoContainerFunction()
+    public void CreateFunctions_CollapseWithinToolHarnessFalse_NoContainerFunction()
     {
         var spec = MakeSpec(MakeOp("a"), MakeOp("b", "/b"));
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, new OpenApiConfig(), MakeRunner(),
-            namePrefix: "api", parentContainer: "MyHarness", collapseWithinHarness: false);
+            namePrefix: "api", parentContainer: "MyToolHarness", collapseWithinToolHarness: false);
 
         // All functions, none are containers
         functions.Should().HaveCount(2);
@@ -249,11 +249,11 @@ public class OpenApiFunctionFactoryTests
     }
 
     [Fact]
-    public void CreateFunctions_CollapseWithinHarnessTrue_ContainerFunctionEmitted()
+    public void CreateFunctions_CollapseWithinToolHarnessTrue_ContainerFunctionEmitted()
     {
         var spec = MakeSpec(MakeOp("a"), MakeOp("b", "/b"));
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, new OpenApiConfig(), MakeRunner(),
-            namePrefix: "api", parentContainer: "MyHarness", collapseWithinHarness: true);
+            namePrefix: "api", parentContainer: "MyToolHarness", collapseWithinToolHarness: true);
 
         // Should have container + 2 collapsed functions
         functions.Should().HaveCount(3);
@@ -263,21 +263,21 @@ public class OpenApiFunctionFactoryTests
     }
 
     [Fact]
-    public void CreateFunctions_CollapseWithinHarnessTrue_ContainerHasHarnessParentAndIndividualFunctionsHaveContainerParentHarness()
+    public void CreateFunctions_CollapseWithinToolHarnessTrue_ContainerHasToolHarnessParentAndIndividualFunctionsHaveContainerParentToolHarness()
     {
         var spec = MakeSpec(MakeOp("a"), MakeOp("b", "/b"));
         var functions = OpenApiFunctionFactory.CreateFunctions(spec, new OpenApiConfig(), MakeRunner(),
-            namePrefix: "api", parentContainer: "MyHarness", collapseWithinHarness: true);
+            namePrefix: "api", parentContainer: "MyToolHarness", collapseWithinToolHarness: true);
 
-        // The container gets ParentContainer = "MyHarness" (the harness name)
+        // The container gets ParentContainer = "MyToolHarness" (the toolharness name)
         var container = functions.Single(f => ReadProp(f.AdditionalProperties, "IsContainer") is true);
-        ReadProp(container.AdditionalProperties, "ParentContainer").Should().Be("MyHarness");
+        ReadProp(container.AdditionalProperties, "ParentContainer").Should().Be("MyToolHarness");
 
-        // Individual collapsed functions get ParentHarness = container name, ParentContainer = null
+        // Individual collapsed functions get ParentToolHarness = container name, ParentContainer = null
         var nonContainers = functions.Where(f =>
             ReadProp(f.AdditionalProperties, "IsContainer") is not true).ToList();
         nonContainers.Should().AllSatisfy(f =>
-            ReadProp(f.AdditionalProperties, "ParentHarness").Should().NotBeNull());
+            ReadProp(f.AdditionalProperties, "ParentToolHarness").Should().NotBeNull());
     }
 
     // ────────────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace HPD.Agent.Harness.Coding.Ripgrep;
+namespace HPD.Agent.ToolHarness.Coding.Ripgrep;
 
 /// <summary>
 /// Resolves the ripgrep binary used by HPD's ripgrep wrapper.

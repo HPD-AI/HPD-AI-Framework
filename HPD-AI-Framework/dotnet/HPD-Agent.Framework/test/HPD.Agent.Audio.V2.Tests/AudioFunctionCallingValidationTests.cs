@@ -12,7 +12,7 @@ namespace HPD.Agent.Audio.V2.Tests;
 public sealed class AudioFunctionCallingValidationTests
 {
     [Fact]
-    public async Task AgentIterations_MathHarness_ExecutesMultipleToolCallsAndPersistsHarnessEvents()
+    public async Task AgentIterations_MathToolHarness_ExecutesMultipleToolCallsAndPersistsToolHarnessEvents()
     {
         var store = new InMemorySessionStore();
         var chatClient = new ScriptedToolLoopChatClient();
@@ -30,7 +30,7 @@ public sealed class AudioFunctionCallingValidationTests
 
         var agent = await new AgentBuilder(CreateConfig(store), new TestProviderRegistry(chatClient))
             .WithName("audio-function-validation-agent")
-            .WithHarness<MathHarness>()
+            .WithToolHarness<MathToolHarness>()
             .BuildAsync();
 
         await agent.CreateSessionAsync("audio-function-session");
@@ -54,13 +54,13 @@ public sealed class AudioFunctionCallingValidationTests
             {
                 Assert.Equal("call-add", start.CallId);
                 Assert.Equal("Add", start.Name);
-                Assert.Equal(nameof(MathHarness), start.HarnessName);
+                Assert.Equal(nameof(MathToolHarness), start.ToolHarnessName);
             },
             start =>
             {
                 Assert.Equal("call-multiply", start.CallId);
                 Assert.Equal("Multiply", start.Name);
-                Assert.Equal(nameof(MathHarness), start.HarnessName);
+                Assert.Equal(nameof(MathToolHarness), start.ToolHarnessName);
             });
 
         Assert.Collection(
@@ -88,13 +88,13 @@ public sealed class AudioFunctionCallingValidationTests
             result =>
             {
                 Assert.Equal("call-add", result.CallId);
-                Assert.Equal(nameof(MathHarness), result.HarnessName);
+                Assert.Equal(nameof(MathToolHarness), result.ToolHarnessName);
                 Assert.Contains("5", result.Result.Text ?? string.Empty);
             },
             result =>
             {
                 Assert.Equal("call-multiply", result.CallId);
-                Assert.Equal(nameof(MathHarness), result.HarnessName);
+                Assert.Equal(nameof(MathToolHarness), result.ToolHarnessName);
                 Assert.Contains("20", result.Result.Text ?? string.Empty);
             });
 

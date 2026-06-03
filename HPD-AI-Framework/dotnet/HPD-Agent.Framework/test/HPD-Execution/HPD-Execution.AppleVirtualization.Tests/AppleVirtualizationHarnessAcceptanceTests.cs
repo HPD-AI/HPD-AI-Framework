@@ -11,7 +11,7 @@ using HPD.Execution.AppleVirtualization.Tests.TestDoubles;
 using HPD.Execution.Contracts;
 using Xunit;
 
-public sealed class AppleVirtualizationHarnessAcceptanceTests
+public sealed class AppleVirtualizationToolHarnessAcceptanceTests
 {
     private static readonly TimeSpan RealBootTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan RealGuestReadyTimeout = TimeSpan.FromMinutes(1);
@@ -196,7 +196,7 @@ public sealed class AppleVirtualizationHarnessAcceptanceTests
     }
 
     [Fact]
-    public void Real_vertical_slice_harness_uses_bounded_timeout_and_cleanup_operations()
+    public void Real_vertical_slice_toolharness_uses_bounded_timeout_and_cleanup_operations()
     {
         RealBootTimeout.Should().BePositive();
         RealBootTimeout.Should().BeLessThan(TimeSpan.FromMinutes(5));

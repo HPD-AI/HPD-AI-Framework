@@ -30,7 +30,7 @@ public class AgentClientInputRenameTests
     {
         var input = new AgentClientInput
         {
-            clientHarnesses = Array.Empty<clientHarnessDefinition>()
+            clientToolHarnesses = Array.Empty<clientToolHarnessDefinition>()
         };
 
         var config = new AgentRunConfig

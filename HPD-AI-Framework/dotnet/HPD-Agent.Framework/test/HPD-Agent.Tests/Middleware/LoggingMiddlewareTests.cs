@@ -513,7 +513,7 @@ public class LoggingMiddlewareTests
     //
 
     [Fact]
-    public async Task BeforeFunction_ContainerCollapse_LogsHarnessExpand()
+    public async Task BeforeFunction_ContainerCollapse_LogsToolHarnessExpand()
     {
         // Arrange
         var logOutput = new List<string>();
@@ -521,19 +521,19 @@ public class LoggingMiddlewareTests
         var middleware = new LoggingMiddleware(loggerFactory, new LoggingMiddlewareOptions
         {
             LogFunction = false,
-            LogHarnessExpansion = true
+            LogToolHarnessExpansion = true
         });
 
         var containerFunc = HPDAIFunctionFactory.Create(
             (AIFunctionArguments _, FunctionExecutionContext __, CancellationToken ___) => Task.FromResult<object?>("expanded"),
             new HPDAIFunctionFactoryOptions
             {
-                Name = "CodingHarness",
+                Name = "CodingToolHarness",
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
                     ["IsCollapse"] = true,
-                    ["HarnessName"] = "CodingHarness",
+                    ["ToolHarnessName"] = "CodingToolHarness",
                     ["FunctionNames"] = new List<string> { "ReadFile", "WriteFile" }
                 }
             });
@@ -546,7 +546,7 @@ public class LoggingMiddlewareTests
         // Assert
         Assert.NotEmpty(logOutput);
         Assert.Contains(logOutput, s => s.Contains("[HARNESS EXPAND]"));
-        Assert.Contains(logOutput, s => s.Contains("CodingHarness"));
+        Assert.Contains(logOutput, s => s.Contains("CodingToolHarness"));
     }
 
     [Fact]
@@ -558,19 +558,19 @@ public class LoggingMiddlewareTests
         var middleware = new LoggingMiddleware(loggerFactory, new LoggingMiddlewareOptions
         {
             LogFunction = false,
-            LogHarnessExpansion = false
+            LogToolHarnessExpansion = false
         });
 
         var containerFunc = HPDAIFunctionFactory.Create(
             (AIFunctionArguments _, FunctionExecutionContext __, CancellationToken ___) => Task.FromResult<object?>("expanded"),
             new HPDAIFunctionFactoryOptions
             {
-                Name = "CodingHarness",
+                Name = "CodingToolHarness",
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
                     ["IsCollapse"] = true,
-                    ["HarnessName"] = "CodingHarness"
+                    ["ToolHarnessName"] = "CodingToolHarness"
                 }
             });
 
@@ -584,7 +584,7 @@ public class LoggingMiddlewareTests
     }
 
     [Fact]
-    public async Task AfterFunction_ContainerCollapse_LogsHarnessCollapse()
+    public async Task AfterFunction_ContainerCollapse_LogsToolHarnessCollapse()
     {
         // Arrange
         var logOutput = new List<string>();
@@ -592,19 +592,19 @@ public class LoggingMiddlewareTests
         var middleware = new LoggingMiddleware(loggerFactory, new LoggingMiddlewareOptions
         {
             LogFunction = false,
-            LogHarnessExpansion = true
+            LogToolHarnessExpansion = true
         });
 
         var containerFunc = HPDAIFunctionFactory.Create(
             (AIFunctionArguments _, FunctionExecutionContext __, CancellationToken ___) => Task.FromResult<object?>("expanded"),
             new HPDAIFunctionFactoryOptions
             {
-                Name = "CodingHarness",
+                Name = "CodingToolHarness",
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
                     ["IsCollapse"] = true,
-                    ["HarnessName"] = "CodingHarness"
+                    ["ToolHarnessName"] = "CodingToolHarness"
                 }
             });
 
@@ -616,7 +616,7 @@ public class LoggingMiddlewareTests
         // Assert
         Assert.NotEmpty(logOutput);
         Assert.Contains(logOutput, s => s.Contains("[HARNESS COLLAPSE]"));
-        Assert.Contains(logOutput, s => s.Contains("CodingHarness"));
+        Assert.Contains(logOutput, s => s.Contains("CodingToolHarness"));
     }
 
     [Fact]
@@ -628,27 +628,27 @@ public class LoggingMiddlewareTests
         var middleware = new LoggingMiddleware(loggerFactory, new LoggingMiddlewareOptions
         {
             LogFunction = false,
-            LogHarnessExpansion = true
+            LogToolHarnessExpansion = true
         });
 
         var containerFunc = HPDAIFunctionFactory.Create(
             (AIFunctionArguments _, FunctionExecutionContext __, CancellationToken ___) => Task.FromResult<object?>("expanded"),
             new HPDAIFunctionFactoryOptions
             {
-                Name = "CodingHarness",
+                Name = "CodingToolHarness",
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
                     ["IsCollapse"] = true,
-                    ["HarnessName"] = "CodingHarness"
+                    ["ToolHarnessName"] = "CodingToolHarness"
                 }
             });
 
-        // Seed ContainerMiddlewareState with a harness pipeline containing a scoped middleware
+        // Seed ContainerMiddlewareState with a toolharness pipeline containing a scoped middleware
         var scopedMiddleware = new TestScopedMiddleware();
         var pipeline = new AgentMiddlewarePipeline([scopedMiddleware]);
         var containerState = new ContainerMiddlewareState()
-            .WithHarnessPipeline("CodingHarness", pipeline);
+            .WithToolHarnessPipeline("CodingToolHarness", pipeline);
 
         var agentContext = CreateAgentContextWithState(containerState);
         var context = agentContext.AsAfterFunction(
@@ -675,19 +675,19 @@ public class LoggingMiddlewareTests
         var loggerFactory = CreateTestLoggerFactory(logOutput);
         var middleware = new LoggingMiddleware(loggerFactory, new LoggingMiddlewareOptions
         {
-            LogHarnessExpansion = true
+            LogToolHarnessExpansion = true
         });
 
         var containerFunc = HPDAIFunctionFactory.Create(
             (AIFunctionArguments _, FunctionExecutionContext __, CancellationToken ___) => Task.FromResult<object?>("expanded"),
             new HPDAIFunctionFactoryOptions
             {
-                Name = "CodingHarness",
+                Name = "CodingToolHarness",
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
                     ["IsCollapse"] = true,
-                    ["HarnessName"] = "CodingHarness"
+                    ["ToolHarnessName"] = "CodingToolHarness"
                 }
             });
 
@@ -704,10 +704,10 @@ public class LoggingMiddlewareTests
     }
 
     [Fact]
-    public async Task DefaultOptions_LogHarnessExpansion_IsTrue()
+    public async Task DefaultOptions_LogToolHarnessExpansion_IsTrue()
     {
         var options = LoggingMiddlewareOptions.Default;
-        Assert.True(options.LogHarnessExpansion);
+        Assert.True(options.LogToolHarnessExpansion);
     }
 
     //

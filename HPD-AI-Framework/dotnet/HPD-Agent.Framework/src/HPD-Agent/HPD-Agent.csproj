@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <NoWarn>HPDAUDIO001;MEAI001;IL2026;IL3050;CS8600;CS8601;CS8602;CS8604;CS0628</NoWarn>
+    <NoWarn>HPDAUDIO001;MEAI001;IL2026;IL3050;CS8600;CS8601;CS8602;CS8604;CS0628;CS1591</NoWarn>
     <!-- Native AOT Configuration -->
     <PublishAot>true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>
@@ -34,7 +34,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.5" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.5" />
-    <!-- Used by ContentStoreHarness for glob pattern matching on content names -->
+    <!-- Used by ContentStoreToolHarness for glob pattern matching on content names -->
     <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.5" />
     <PackageReference Include="NLayer" Version="1.16.0" />
 
@@ -62,7 +62,7 @@
     <InternalsVisibleTo Include="HPD-Agent.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Hosting.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Evaluations.Tests" />
-    <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.ToolHarness.Coding.Tests" />
   </ItemGroup>
 
 </Project>

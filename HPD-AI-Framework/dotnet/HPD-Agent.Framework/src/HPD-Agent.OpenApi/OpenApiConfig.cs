@@ -18,12 +18,12 @@ public class OpenApiConfig : OpenApiCoreConfig
 
     /// <summary>
     /// When true, generated functions are grouped behind their own container nested
-    /// inside the parent harness container (two-level expand required).
+    /// inside the parent toolharness container (two-level expand required).
     /// When false (default), generated functions appear directly under the parent
-    /// harness when it is expanded (single expand required).
-    /// Only relevant when used inside a harness class with [Collapse].
+    /// toolharness when it is expanded (single expand required).
+    /// Only relevant when used inside a toolharness class with [Collapse].
     /// </summary>
-    public bool CollapseWithinHarness { get; set; } = false;
+    public bool CollapseWithinToolHarness { get; set; } = false;
 
     /// <summary>
     /// Optional schema transform options applied to generated parameter schemas

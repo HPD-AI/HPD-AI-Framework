@@ -158,7 +158,7 @@ describe('FileAttachment.Root — remove and clear', () => {
 		await expect.element(page.getByTestId('attachment-count')).toHaveTextContent('1');
 
 		// resolved-content contains the content — extract localId from the remove button testid
-		// The harness renders <button data-testid="remove-{localId}">
+		// The toolharness renders <button data-testid="remove-{localId}">
 		const removeBtn = page.getByRole('button', { name: 'Remove' });
 		await removeBtn.click();
 

@@ -2,11 +2,11 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using System.Xml;
-using HPD.Agent.Harness.Coding.Ripgrep;
+using HPD.Agent.ToolHarness.Coding.Ripgrep;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
-public partial class CodingHarness
+public partial class CodingToolHarness
 {
     private const int DefaultGrepLimit = 200;
     private const int MaxGrepLimit = 1000;

@@ -76,7 +76,7 @@ public class Phase5DocumentLinkingTests
 
         await store.UploadSkillDocumentAsync("oauth-guide", "# OAuth", "OAuth protocol reference");
         await store.LinkSkillDocumentAsync("oauth-guide", "SecuritySkill", "Token validation and expiry rules");
-        await store.LinkSkillDocumentAsync("oauth-guide", "AuthHarness", "OAuth flow for login integration");
+        await store.LinkSkillDocumentAsync("oauth-guide", "AuthToolHarness", "OAuth flow for login integration");
 
         // Only one document in the store — not duplicated
         var all = await store.QueryAsync(null, new ContentQuery

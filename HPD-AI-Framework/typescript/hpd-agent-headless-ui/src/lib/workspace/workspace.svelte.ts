@@ -419,8 +419,8 @@ class WorkspaceImpl implements Workspace {
 		});
 
 		this.#client.on(EventTypes.CLIENT_TOOL_GROUPS_REGISTERED, (event) => {
-			this.#activeState()?.onclientHarnessesRegistered(
-				event.registeredHarnesses,
+			this.#activeState()?.onclientToolHarnessesRegistered(
+				event.registeredToolHarnesses,
 				event.totalTools,
 				event.timestamp
 			);

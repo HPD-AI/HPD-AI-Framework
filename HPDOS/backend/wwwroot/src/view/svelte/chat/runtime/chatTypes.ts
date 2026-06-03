@@ -61,7 +61,7 @@ export type ToolCallItem = ChatTimelineItemBase & {
   status: ToolCallStatus;
   startedAt?: string;
   completedAt?: string;
-  harnessName?: string;
+  toolharnessName?: string;
   callType?: string;
   command?: CommandProjection;
   fileMutation?: FileMutationProjection;

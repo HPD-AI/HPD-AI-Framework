@@ -73,9 +73,9 @@ public class Phase3SourceGeneratorTests
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    public partial class TestHarness
+    public partial class TestToolHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -119,9 +119,9 @@ namespace TestHarneses
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    public partial class TestHarness
+    public partial class TestToolHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -164,9 +164,9 @@ namespace TestHarneses
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    public partial class TestHarness
+    public partial class TestToolHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -212,9 +212,9 @@ namespace TestHarneses
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    public partial class TestHarness
+    public partial class TestToolHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -260,9 +260,9 @@ namespace TestHarneses
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    public partial class TestHarness
+    public partial class TestToolHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -307,9 +307,9 @@ namespace TestHarneses
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    public partial class TestHarness
+    public partial class TestToolHarness
     {
         [Skill]
         public Skill FinancialAnalysis()
@@ -373,9 +373,9 @@ namespace TestHarneses
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    public partial class TestHarness
+    public partial class TestToolHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -423,9 +423,9 @@ namespace TestHarneses
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    public partial class TestHarness
+    public partial class TestToolHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -469,9 +469,9 @@ namespace TestHarneses
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    public partial class TestHarness
+    public partial class TestToolHarness
     {
         [Skill]
         public Skill TestSkill()
@@ -513,9 +513,9 @@ namespace TestHarneses
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    public partial class TestHarness
+    public partial class TestToolHarness
     {
         [Skill]
         public Skill ComplexSkill()
@@ -568,9 +568,9 @@ namespace TestHarneses
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    public partial class TestHarness
+    public partial class TestToolHarness
     {
         [Skill]
         [AIDescription(""Enhanced debugging skill with advanced features"")]
@@ -598,7 +598,7 @@ namespace TestHarneses
         Assert.Contains("Enhanced debugging skill with advanced features", generatedCode);
 
         // Assert: Skill container accepts context parameter
-        Assert.Contains("private static AIFunction CreateFileDebuggingSkill(TestHarness instance, IToolMetadata? context, HPDToolSerializationOptions? serialization)", generatedCode);
+        Assert.Contains("private static AIFunction CreateFileDebuggingSkill(TestToolHarness instance, IToolMetadata? context, HPDToolSerializationOptions? serialization)", generatedCode);
     }
 
     /// <summary>
@@ -612,9 +612,9 @@ namespace TestHarneses
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
-    public partial class TestHarness
+    public partial class TestToolHarness
     {
         [Skill]
         public Skill BasicSkill()
@@ -638,7 +638,7 @@ namespace TestHarneses
         Assert.Contains("Description = \"A basic skill without dynamic description.", generatedCode);
 
         // Assert: Still accepts context for consistency
-        Assert.Contains("private static AIFunction CreateBasicSkillSkill(TestHarness instance, IToolMetadata? context, HPDToolSerializationOptions? serialization)", generatedCode);
+        Assert.Contains("private static AIFunction CreateBasicSkillSkill(TestToolHarness instance, IToolMetadata? context, HPDToolSerializationOptions? serialization)", generatedCode);
 
         // Assert: No resolver method generated
         Assert.DoesNotContain("ResolveBasicSkillDescription", generatedCode);
@@ -656,7 +656,7 @@ namespace TestHarneses
     /// This is a test infrastructure limitation, not a source generator bug.
     ///
     /// To verify this feature works:
-    /// 1. Add a [Skill&lt;TMetadata&gt;] to test/AgentConsoleTest/FinancialAnalysisHarness.cs
+    /// 1. Add a [Skill&lt;TMetadata&gt;] to test/AgentConsoleTest/FinancialAnalysisToolHarness.cs
     /// 2. Run: dotnet build test/AgentConsoleTest/AgentConsoleTest.csproj
     /// 3. Check the generated code for resolver methods
     /// </summary>
@@ -668,7 +668,7 @@ namespace TestHarneses
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
     public class TestMetadata : IToolMetadata
     {
@@ -676,7 +676,7 @@ namespace TestHarneses
         public string UserRole { get; set; } = ""admin"";
     }
 
-    public partial class TestHarness
+    public partial class TestToolHarness
     {
         [Skill<TestMetadata>]
         [AIDescription(""Debug files in {metadata.Environment} environment with {metadata.UserRole} access"")]
@@ -746,7 +746,7 @@ namespace TestHarneses
     /// This is a test infrastructure limitation, not a source generator bug.
     ///
     /// To verify this feature works:
-    /// 1. Add a [Skill&lt;TMetadata&gt;] with [ConditionalSkill] to test/AgentConsoleTest/FinancialAnalysisHarness.cs
+    /// 1. Add a [Skill&lt;TMetadata&gt;] with [ConditionalSkill] to test/AgentConsoleTest/FinancialAnalysisToolHarness.cs
     /// 2. Run: dotnet build test/AgentConsoleTest/AgentConsoleTest.csproj
     /// 3. Check the generated code for conditional evaluator methods
     /// </summary>
@@ -758,14 +758,14 @@ namespace TestHarneses
 using HPD.Agent;
 using System;
 
-namespace TestHarneses
+namespace TestToolHarnesses
 {
     public class TestMetadata : IToolMetadata
     {
         public bool HasFileSystemAccess { get; set; } = true;
     }
 
-    public partial class TestHarness
+    public partial class TestToolHarness
     {
         [Skill<TestMetadata>]
         [ConditionalSkill(""HasFileSystemAccess"")]

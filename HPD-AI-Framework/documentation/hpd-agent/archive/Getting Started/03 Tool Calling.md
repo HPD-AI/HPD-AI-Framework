@@ -1,14 +1,14 @@
 # Tool Calling
 
-Harness are functions that the agent can call to interact with the world. HPD-Agent supports multiple sources of Harness, all unified under a common system with shared features like collapsing and instructions.
+ToolHarness are functions that the agent can call to interact with the world. HPD-Agent supports multiple sources of ToolHarness, all unified under a common system with shared features like collapsing and instructions.
 
 ## Tool Sources
 
 | Source | Description | Defined By |
 |--------|-------------|------------|
-| **C# Harness** | Native Harness with full feature support | Developer (code) |
-| **MCP Servers** | External Harness via Model Context Protocol | MCP server configs |
-| **Client Harness** | Harness provided by the client/UI | Client application |
+| **C# ToolHarness** | Native ToolHarness with full feature support | Developer (code) |
+| **MCP Servers** | External ToolHarness via Model Context Protocol | MCP server configs |
+| **Client ToolHarness** | ToolHarness provided by the client/UI | Client application |
 | **OpenAPI** | Auto-generated from API specs | OpenAPI/Swagger files |
 
 ```
@@ -16,7 +16,7 @@ Harness are functions that the agent can call to interact with the world. HPD-Ag
                         │
         ┌───────────────┼───────────────┐───────────────┐
         ▼               ▼               ▼               ▼
-   C# Harness      MCP Servers    Client Harness      OpenAPI
+   C# ToolHarness      MCP Servers    Client ToolHarness      OpenAPI
    [AIFunction]    filesystem      OpenFile         GET /users
    [Skill]         github          ShowDialog       POST /orders
    [SubAgent]      database        GetSelection     ...
@@ -24,9 +24,9 @@ Harness are functions that the agent can call to interact with the world. HPD-Ag
 
 ---
 
-## C# Harness
+## C# ToolHarness
 
-The most powerful option. Define Harness directly in C# with full access to:
+The most powerful option. Define ToolHarness directly in C# with full access to:
 - **AIFunctions** - Single operations
 - **Skills** - Multi-function workflows with instructions
 - **SubAgents** - Delegated child agents
@@ -35,7 +35,7 @@ The most powerful option. Define Harness directly in C# with full access to:
 
 ```csharp
 [Collapse("File operations")]
-public class FileHarness
+public class FileToolHarness
 {
     [AIFunction]
     [AIDescription("Read a file")]
@@ -53,7 +53,7 @@ public class FileHarness
 
 ## MCP Servers
 
-Connect external tool servers using the Model Context Protocol. MCP servers run as separate processes and expose Harness over a standardized protocol.
+Connect external tool servers using the Model Context Protocol. MCP servers run as separate processes and expose ToolHarness over a standardized protocol.
 
 ```csharp
 var agent = await new AgentBuilder()
@@ -62,7 +62,7 @@ var agent = await new AgentBuilder()
     .BuildAsync();
 ```
 
-MCP Harness support:
+MCP ToolHarness support:
 - Collapsing (grouped by server)
 - Custom instructions per server
 - Automatic tool discovery
@@ -71,11 +71,11 @@ MCP Harness support:
 
 ---
 
-## Client Harness
+## Client ToolHarness
 
-Harness provided by the client application (IDE extension, web UI, etc.). These are injected at runtime and allow the agent to interact with the user's environment.
+ToolHarness provided by the client application (IDE extension, web UI, etc.). These are injected at runtime and allow the agent to interact with the user's environment.
 
-Common client Harness:
+Common client ToolHarness:
 - `OpenFile` - Open a file in the editor
 - `ShowDialog` - Display a dialog to the user
 - `GetSelection` - Get the user's current selection
@@ -91,13 +91,13 @@ var config = new AgentConfig
 };
 ```
 
-→ See [02.3 Client Harness.md](../Tools/02.3%20Client%20Tools.md) for integration details.
+→ See [02.3 Client ToolHarness.md](../Tools/02.3%20Client%20Tools.md) for integration details.
 
 ---
 
 ## OpenAPI (Coming Soon)
 
-Auto-generate Harness from OpenAPI/Swagger specifications. Point to an API spec and get Harness for each endpoint.
+Auto-generate ToolHarness from OpenAPI/Swagger specifications. Point to an API spec and get ToolHarness for each endpoint.
 
 ```csharp
 // Future API
@@ -114,15 +114,15 @@ All tool sources share these capabilities:
 
 ### Collapsing
 
-Group Harness into expandable containers to reduce context clutter:
+Group ToolHarness into expandable containers to reduce context clutter:
 
 ```csharp
 var config = new AgentConfig
 {
     Collapsing = new CollapsingConfig
     {
-        Enabled = true,                    // C# Harness
-        CollapseClientTools = true,           // Client Harness
+        Enabled = true,                    // C# ToolHarness
+        CollapseClientTools = true,           // Client ToolHarness
         // MCP servers are collapsed by server name automatically
     }
 };
@@ -144,13 +144,13 @@ var config = new AgentConfig
             ["github"] = "Prefer GraphQL API for bulk operations."
         },
 
-        // Client Harness instructions
+        // Client ToolHarness instructions
         ClientToolsInstructions = "These tools interact with the user's IDE."
     }
 };
 ```
 
-For C# Harness, instructions are defined via `[Collapse]` attributes and skill instructions.
+For C# ToolHarness, instructions are defined via `[Collapse]` attributes and skill instructions.
 
 ---
 
@@ -158,15 +158,15 @@ For C# Harness, instructions are defined via `[Collapse]` attributes and skill i
 
 | Need | Best Choice |
 |------|-------------|
-| Full control, type safety, compile-time validation | C# Harness |
+| Full control, type safety, compile-time validation | C# ToolHarness |
 | Use existing MCP-compatible servers | MCP Servers |
-| Interact with user's environment (IDE, UI) | Client Harness |
+| Interact with user's environment (IDE, UI) | Client ToolHarness |
 | Integrate with REST APIs quickly | OpenAPI |
 
 Most applications use a combination:
-- **C# Harness** for core business logic
+- **C# ToolHarness** for core business logic
 - **MCP Servers** for standard capabilities (filesystem, git, etc.)
-- **Client Harness** for UI interaction
+- **Client ToolHarness** for UI interaction
 
 ---
 
@@ -174,4 +174,4 @@ Most applications use a combination:
 
 - [C# Tools Overview](../Tools/02.1%20CSharp%20Tools%20Overview.md) - Native tool development
 - [02.2 MCP Servers.md](../Tools/02.2%20MCP%20Servers.md) - Model Context Protocol integration
-- [02.3 Client Harness.md](../Tools/02.3%20Client%20Tools.md) - Client-provided Harness
+- [02.3 Client ToolHarness.md](../Tools/02.3%20Client%20Tools.md) - Client-provided ToolHarness

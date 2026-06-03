@@ -38,9 +38,9 @@ public class SubAgent
     public SubAgentExecutionPolicy ExecutionPolicy { get; init; } = SubAgentExecutionPolicy.Default;
 
     /// <summary>
-    /// Harness types to register with the sub-agent.
+    /// ToolHarness types to register with the sub-agent.
     /// </summary>
-    public Type[] HarnessTypes { get; init; } = Array.Empty<Type>();
+    public Type[] ToolHarnessTypes { get; init; } = Array.Empty<Type>();
 
     /// <summary>
     /// Optional branch metadata defaults applied to subagent-created branches.
@@ -52,8 +52,8 @@ public class SubAgent
         string description,
         AgentConfig agentConfig,
         SubAgentExecutionPolicy? executionPolicy = null,
-        params Type[] harnessTypes)
-        => FromConfig(name, description, agentConfig, executionPolicy, metadata: null, harnessTypes);
+        params Type[] toolharnessTypes)
+        => FromConfig(name, description, agentConfig, executionPolicy, metadata: null, toolharnessTypes);
 
     public static SubAgent FromConfig(
         string name,
@@ -61,7 +61,7 @@ public class SubAgent
         AgentConfig agentConfig,
         SubAgentExecutionPolicy? executionPolicy,
         Dictionary<string, object>? metadata,
-        params Type[] harnessTypes)
+        params Type[] toolharnessTypes)
     {
         ValidateNameAndDescription(name, description);
         ArgumentNullException.ThrowIfNull(agentConfig);
@@ -77,7 +77,7 @@ public class SubAgent
             AgentConfig = agentConfig,
             AgentId = null,
             ExecutionPolicy = policy,
-            HarnessTypes = harnessTypes ?? Array.Empty<Type>(),
+            ToolHarnessTypes = toolharnessTypes ?? Array.Empty<Type>(),
             Metadata = metadata
         };
     }
@@ -87,8 +87,8 @@ public class SubAgent
         string description,
         string agentId,
         SubAgentExecutionPolicy? executionPolicy = null,
-        params Type[] harnessTypes)
-        => FromAgentId(name, description, agentId, executionPolicy, metadata: null, harnessTypes);
+        params Type[] toolharnessTypes)
+        => FromAgentId(name, description, agentId, executionPolicy, metadata: null, toolharnessTypes);
 
     public static SubAgent FromAgentId(
         string name,
@@ -96,7 +96,7 @@ public class SubAgent
         string agentId,
         SubAgentExecutionPolicy? executionPolicy,
         Dictionary<string, object>? metadata,
-        params Type[] harnessTypes)
+        params Type[] toolharnessTypes)
     {
         ValidateNameAndDescription(name, description);
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
@@ -112,7 +112,7 @@ public class SubAgent
             AgentConfig = null,
             AgentId = agentId,
             ExecutionPolicy = policy,
-            HarnessTypes = harnessTypes ?? Array.Empty<Type>(),
+            ToolHarnessTypes = toolharnessTypes ?? Array.Empty<Type>(),
             Metadata = metadata
         };
     }

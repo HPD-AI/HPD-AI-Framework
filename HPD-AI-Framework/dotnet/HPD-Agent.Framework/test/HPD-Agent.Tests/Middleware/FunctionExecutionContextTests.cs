@@ -243,7 +243,7 @@ public sealed class FunctionExecutionContextTests
             callId,
             new Dictionary<string, object?>(),
             runConfig,
-            harnessName: null,
+            toolharnessName: null,
             skillName: null,
             invocation: invocation);
         var request = new FunctionRequest

@@ -84,23 +84,23 @@ public class MCPServerConfig
     [JsonPropertyName("environment")]
     public Dictionary<string, string>? Environment { get; set; }
 
-    // ========== Harness-Awareness Fields (set at runtime, not serialized from JSON) ==========
+    // ========== ToolHarness-Awareness Fields (set at runtime, not serialized from JSON) ==========
 
     /// <summary>
-    /// Name of the parent harness that owns this MCP server (set via [MCPServer] attribute).
+    /// Name of the parent toolharness that owns this MCP server (set via [MCPServer] attribute).
     /// Used at runtime to stamp ParentContainer on MCP tools for visibility management.
     /// Null for standalone MCP servers registered via WithMCP().
     /// </summary>
     [JsonIgnore]
-    public string? ParentHarness { get; set; }
+    public string? ParentToolHarness { get; set; }
 
     /// <summary>
-    /// When true, MCP tools sit behind their own MCP_* container nested inside the parent harness.
-    /// When false (default), tools appear directly under the parent harness on expansion.
-    /// Only meaningful when ParentHarness is set.
+    /// When true, MCP tools sit behind their own MCP_* container nested inside the parent toolharness.
+    /// When false (default), tools appear directly under the parent toolharness on expansion.
+    /// Only meaningful when ParentToolHarness is set.
     /// </summary>
     [JsonIgnore]
-    public bool CollapseWithinHarness { get; set; }
+    public bool CollapseWithinToolHarness { get; set; }
 
     /// <summary>
     /// Validates the server configuration

@@ -404,7 +404,7 @@ internal static class CapabilityAnalyzer
             Description = description,
             FunctionResult = functionResult,
             SystemPrompt = systemPrompt,
-            ParentHarnessName = className,
+            ParentToolHarnessName = className,
             ParentNamespace = namespaceName,
             Options = options ?? new SkillOptionsInfo(),
             UnresolvedReferences = references,
@@ -414,7 +414,7 @@ internal static class CapabilityAnalyzer
             ContextTypeName = contextTypeName,
             ConditionalExpression = conditionalExpression,
 
-            // Note: ResolvedFunctionReferences and ResolvedHarnessTypes will be populated
+            // Note: ResolvedFunctionReferences and ResolvedToolHarnessTypes will be populated
             // during the resolution phase in HPDToolSourceGenerator
         };
     }
@@ -471,7 +471,7 @@ internal static class CapabilityAnalyzer
             MethodName = methodName,
             SubAgentName = name,
             Description = description ?? GetDescription(attrs) ?? $"Sub-agent: {name}",
-            ParentHarnessName = className,
+            ParentToolHarnessName = className,
             ParentNamespace = namespaceName,
             IsStatic = isStatic,
             RequiresPermission = requiresPermission,
@@ -674,7 +674,7 @@ internal static class CapabilityAnalyzer
             Name = customName ?? methodName,
             MethodName = methodName,
             Description = description ?? $"Execute {methodName} multi-agent workflow",
-            ParentHarnessName = className,
+            ParentToolHarnessName = className,
             ParentNamespace = namespaceName,
             IsStatic = isStatic,
             IsAsync = isAsync,
@@ -741,7 +741,7 @@ internal static class CapabilityAnalyzer
         string? customName = null;
         string? description = null;
         string? fromManifest = null;
-        bool collapseWithinHarness = false;
+        bool collapseWithinToolHarness = false;
 
         if (mcpAttr?.ArgumentList != null)
         {
@@ -770,9 +770,9 @@ internal static class CapabilityAnalyzer
                         case "FromManifest":
                             fromManifest = ExtractStringLiteral(arg.Expression, semanticModel);
                             break;
-                        case "CollapseWithinHarness":
+                        case "CollapseWithinToolHarness":
                             if (arg.Expression is LiteralExpressionSyntax collapseLit)
-                                collapseWithinHarness = collapseLit.IsKind(SyntaxKind.TrueLiteralExpression);
+                                collapseWithinToolHarness = collapseLit.IsKind(SyntaxKind.TrueLiteralExpression);
                             break;
                     }
                 }
@@ -795,19 +795,19 @@ internal static class CapabilityAnalyzer
         // Use standalone [RequiresPermission] attribute (same pattern as AIFunction/Skill)
         var requiresPermission = HasAttribute(attrs, "RequiresPermission");
 
-        System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Analyzed MCPServer: {methodName}, Name={effectiveName}, FromManifest={fromManifest}, CollapseWithinHarness={collapseWithinHarness}");
+        System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Analyzed MCPServer: {methodName}, Name={effectiveName}, FromManifest={fromManifest}, CollapseWithinToolHarness={collapseWithinToolHarness}");
 
         return new MCPServerCapability
         {
             Name = effectiveName,
             MethodName = methodName,
             Description = description ?? string.Empty,
-            ParentHarnessName = className,
+            ParentToolHarnessName = className,
             ParentNamespace = namespaceName,
             IsStatic = isStatic,
             FromManifest = fromManifest,
             ManifestServerName = serverName,
-            CollapseWithinHarness = collapseWithinHarness,
+            CollapseWithinToolHarness = collapseWithinToolHarness,
             RequiresPermission = requiresPermission,
 
             // Context and conditionals (feature parity!)
@@ -883,7 +883,7 @@ internal static class CapabilityAnalyzer
             Name = methodName,
             MethodName = methodName,
             Description = string.Empty,    // OpenAPI — descriptions come from spec operations
-            ParentHarnessName = className,
+            ParentToolHarnessName = className,
             ParentNamespace = namespaceName,
             IsStatic = isStatic,
             Prefix = prefix,
@@ -914,7 +914,7 @@ internal static class CapabilityAnalyzer
 
         // Extract function metadata
         var description = GetDescription(attrs);
-        var customName = GetCustomName(attrs);
+        var customName = GetCustomName(attrs, semanticModel);
         var conditionalExpression = GetConditionalExpression(attrs);
         var contextTypeName = GetMetadataTypeName(method, semanticModel);
 
@@ -936,7 +936,7 @@ internal static class CapabilityAnalyzer
             Name = methodName,
             CustomName = customName,
             Description = description ?? $"Function: {methodName}",
-            ParentHarnessName = className,
+            ParentToolHarnessName = className,
             ParentNamespace = namespaceName,
 
             // Context and conditionals (feature parity!)
@@ -1086,11 +1086,17 @@ internal static class CapabilityAnalyzer
     /// <summary>
     /// Extracts custom name from [AIFunction(Name = "...")] attribute.
     /// </summary>
-    private static string? GetCustomName(List<AttributeSyntax> attrs)
+    private static string? GetCustomName(List<AttributeSyntax> attrs, SemanticModel semanticModel)
     {
-        // For now, return null (use method name)
-        // TODO Phase 2: Extract from AIFunction attribute arguments
-        return null;
+        var aiFunctionAttr = attrs.FirstOrDefault(a =>
+            a.Name.ToString().Contains("AIFunction"));
+
+        var nameArg = aiFunctionAttr?.ArgumentList?.Arguments
+            .FirstOrDefault(a => a.NameEquals?.Name.Identifier.ValueText == "Name");
+
+        return nameArg == null
+            ? null
+            : ExtractStringLiteral(nameArg.Expression, semanticModel);
     }
 
     /// <summary>
@@ -1212,7 +1218,7 @@ internal static class CapabilityAnalyzer
         ExpressionSyntax expression,
         SemanticModel semanticModel)
     {
-        // Extract string literal: "FileSystemHarness.ReadFile"
+        // Extract string literal: "FileSystemToolHarness.ReadFile"
         var reference = ExtractStringLiteral(expression, semanticModel);
 
         if (string.IsNullOrWhiteSpace(reference))
@@ -1220,7 +1226,7 @@ internal static class CapabilityAnalyzer
             return null;
         }
 
-        // Parse "HarnessName.FunctionName" format
+        // Parse "ToolHarnessName.FunctionName" format
         var parts = reference!.Split('.');
 
         if (parts.Length != 2)
@@ -1239,7 +1245,7 @@ internal static class CapabilityAnalyzer
         return new ReferenceInfo
         {
             ReferenceType = ReferenceType.Function,
-            HarnessType = toolName,
+            ToolHarnessType = toolName,
             MethodName = methodName,
             FullName = reference,
             Location = expression.GetLocation()

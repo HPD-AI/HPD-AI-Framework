@@ -15,7 +15,7 @@ using HPD.Execution.AppleVirtualization.Tests.Fixtures;
 using HPD.Execution.Contracts;
 using Xunit;
 
-public sealed class AppleVirtualizationRealContainerAcceptanceHarnessTests
+public sealed class AppleVirtualizationRealContainerAcceptanceToolHarnessTests
 {
     private static readonly TimeSpan RealBootTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan RealGuestReadyTimeout = TimeSpan.FromMinutes(1);
@@ -263,7 +263,7 @@ public sealed class AppleVirtualizationRealContainerAcceptanceHarnessTests
     }
 
     [Fact]
-    public void Host_container_runtime_environment_variables_cannot_satisfy_real_container_harness()
+    public void Host_container_runtime_environment_variables_cannot_satisfy_real_container_toolharness()
     {
         var hostRuntimeEnvironment = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -290,7 +290,7 @@ public sealed class AppleVirtualizationRealContainerAcceptanceHarnessTests
     }
 
     [Fact]
-    public void Host_locus_engine_socket_is_rejected_before_real_container_harness_can_run()
+    public void Host_locus_engine_socket_is_rejected_before_real_container_toolharness_can_run()
     {
         using RealContainerAcceptanceFiles files = RealContainerAcceptanceFiles.Create(socketLocus: "host");
 
@@ -300,11 +300,11 @@ public sealed class AppleVirtualizationRealContainerAcceptanceHarnessTests
         environment.CanAttemptRealContainerSmoke.Should().BeFalse();
         environment.Diagnostics.Should().ContainSingle(diagnostic =>
             diagnostic.Code == "AppleVirtualization.RealContainerHostEngineSocketPassthroughRejected");
-        environment.SkipReason.Should().Contain("host Docker, Podman, containerd, or BuildKit socket cannot satisfy the Apple Virtualization real container harness");
+        environment.SkipReason.Should().Contain("host Docker, Podman, containerd, or BuildKit socket cannot satisfy the Apple Virtualization real container toolharness");
     }
 
     [Fact]
-    public void Execution_unit_locus_engine_socket_is_rejected_before_real_container_harness_can_run()
+    public void Execution_unit_locus_engine_socket_is_rejected_before_real_container_toolharness_can_run()
     {
         using RealContainerAcceptanceFiles files = RealContainerAcceptanceFiles.Create(socketLocus: "execution-unit");
 
@@ -492,7 +492,7 @@ public sealed class AppleVirtualizationRealContainerAcceptanceHarnessTests
     }
 
     [Fact]
-    public void Real_container_harness_builds_vm_readiness_engine_and_smoke_request_shape()
+    public void Real_container_toolharness_builds_vm_readiness_engine_and_smoke_request_shape()
     {
         using RealContainerAcceptanceFiles files = RealContainerAcceptanceFiles.Create();
         RealContainerAcceptanceEnvironment environment =
@@ -526,7 +526,7 @@ public sealed class AppleVirtualizationRealContainerAcceptanceHarnessTests
     }
 
     [Fact]
-    public void Real_container_harness_builds_containerd_smoke_request_with_containerd_projection()
+    public void Real_container_toolharness_builds_containerd_smoke_request_with_containerd_projection()
     {
         using RealContainerAcceptanceFiles files = RealContainerAcceptanceFiles.Create(
             engineKind: EngineControlPlaneKind.Containerd.ToString(),
@@ -547,7 +547,7 @@ public sealed class AppleVirtualizationRealContainerAcceptanceHarnessTests
     }
 
     [Fact]
-    public void Real_container_harness_builds_podman_smoke_request_with_rootful_podman_projection()
+    public void Real_container_toolharness_builds_podman_smoke_request_with_rootful_podman_projection()
     {
         using RealContainerAcceptanceFiles files = RealContainerAcceptanceFiles.Create(
             engineKind: EngineControlPlaneKind.Podman.ToString(),
@@ -569,7 +569,7 @@ public sealed class AppleVirtualizationRealContainerAcceptanceHarnessTests
     }
 
     [Fact]
-    public void Real_container_harness_builds_buildkit_smoke_request_with_rootful_buildkit_projection()
+    public void Real_container_toolharness_builds_buildkit_smoke_request_with_rootful_buildkit_projection()
     {
         using RealContainerAcceptanceFiles files = RealContainerAcceptanceFiles.Create(
             engineKind: EngineControlPlaneKind.BuildKit.ToString(),
@@ -592,7 +592,7 @@ public sealed class AppleVirtualizationRealContainerAcceptanceHarnessTests
     }
 
     [Fact]
-    public void Real_container_harness_does_not_publish_engine_sockets_as_endpoints()
+    public void Real_container_toolharness_does_not_publish_engine_sockets_as_endpoints()
     {
         using RealContainerAcceptanceFiles files = RealContainerAcceptanceFiles.Create();
         RealContainerAcceptanceEnvironment environment =
@@ -607,7 +607,7 @@ public sealed class AppleVirtualizationRealContainerAcceptanceHarnessTests
     }
 
     [Fact]
-    public void Real_container_harness_evidence_capture_bounds_serial_events_cleanup_revocation_and_output()
+    public void Real_container_toolharness_evidence_capture_bounds_serial_events_cleanup_revocation_and_output()
     {
         var evidence = new RealContainerAcceptanceRunEvidence(maxHelperEvents: 2, maxSerialTailBytes: 8);
         evidence.AddHelperEvent(HelperEvent(AppleVirtualizationHelperEventKind.HelperStarted, 1));
@@ -716,7 +716,7 @@ public sealed class AppleVirtualizationRealContainerAcceptanceHarnessTests
                 RealEngineStatusRequest(hostId, environment, sequenceNumber: 40),
                 RealEngineStatusTimeout).ConfigureAwait(false);
             engine.Error.Should().BeNull("engine status must be observed from the guest or helper-mediated guest state");
-            engine.EngineStatusResponse!.Ready.Should().BeTrue("the real container smoke harness requires an in-guest engine before later smoke execution wiring");
+            engine.EngineStatusResponse!.Ready.Should().BeTrue("the real container smoke toolharness requires an in-guest engine before later smoke execution wiring");
             engine.EngineStatusResponse.Endpoints.Should().NotBeEmpty();
             engine.EngineStatusResponse.Endpoints.All(endpoint =>
                 endpoint.SensitivePolicy.Kind == SensitiveEndpointKind.EngineSocket &&
@@ -1369,7 +1369,7 @@ public sealed class AppleVirtualizationRealContainerAcceptanceHarnessTests
                 diagnostics.Add(new RealContainerAcceptanceDiagnostic(
                     "AppleVirtualization.RealContainerHostEngineSocketPassthroughRejected",
                     "HPD_APPLEVZ_CONTAINER_ENGINE_SOCKET_LOCUS",
-                    "A host Docker, Podman, containerd, or BuildKit socket cannot satisfy the Apple Virtualization real container harness; the engine socket must originate inside the runtime host/guest boundary."));
+                    "A host Docker, Podman, containerd, or BuildKit socket cannot satisfy the Apple Virtualization real container toolharness; the engine socket must originate inside the runtime host/guest boundary."));
             }
             else if (socketLocus == BoundaryLocus.ExecutionUnit)
             {

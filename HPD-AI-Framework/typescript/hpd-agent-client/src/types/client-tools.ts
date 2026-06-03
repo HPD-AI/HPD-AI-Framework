@@ -34,7 +34,7 @@ export interface ClientToolDefinition {
  * A tool group is a container for related tools and skills.
  * All client tools must be registered inside a tool group.
  */
-export interface ClientHarnessDefinition {
+export interface ClientToolHarnessDefinition {
   /** Unique name of the tool group */
   name: string;
 
@@ -74,7 +74,7 @@ export interface ClientHarnessDefinition {
  */
 export interface AgentClientInput {
   /** Tool groups available to this run */
-  clientHarnesses?: ClientHarnessDefinition[];
+  clientToolHarnesses?: ClientToolHarnessDefinition[];
 
   /** Tool groups that should start expanded */
   expandedContainers?: string[];
@@ -153,7 +153,7 @@ export interface ClientSkillReference {
   toolName: string;
 
   /** Tool group containing the tool (optional, defaults to same tool group) */
-  HarnessName?: string;
+  ToolHarnessName?: string;
 }
 
 /**
@@ -251,16 +251,16 @@ export type ToolResultContent = TextContent | BinaryContent | JsonContent;
  */
 export interface ClientToolAugmentation {
   /** New tool groups to inject */
-  injectHarnesses?: ClientHarnessDefinition[];
+  injectToolHarnesses?: ClientToolHarnessDefinition[];
 
   /** Tool groups to remove */
-  removeHarnesses?: string[];
+  removeToolHarnesses?: string[];
 
   /** Tool groups to expand (show their tools) */
-  expandHarnesses?: string[];
+  expandToolHarnesses?: string[];
 
   /** Tool groups to collapse (hide their tools) */
-  collapseHarnesses?: string[];
+  collapseToolHarnesses?: string[];
 
   /** Tools to hide */
   hideTools?: string[];
@@ -333,7 +333,7 @@ export interface ClientToolInvokeResponse {
  * Creates a collapsed tool group definition.
  * Collapsed tool groups hide their tools behind an expandable container.
  */
-export function createCollapsedHarness(
+export function createCollapsedToolHarness(
   name: string,
   description: string,
   tools: ClientToolDefinition[],
@@ -344,7 +344,7 @@ export function createCollapsedHarness(
     /** Persistent instructions injected into system prompt after expansion (every iteration) */
     systemPrompt?: string;
   }
-): ClientHarnessDefinition {
+): ClientToolHarnessDefinition {
   return {
     name,
     description,
@@ -360,7 +360,7 @@ export function createCollapsedHarness(
  * Creates an expanded tool group definition.
  * Expanded tool groups show all their tools immediately.
  */
-export function createExpandedHarness(
+export function createExpandedToolHarness(
   name: string,
   tools: ClientToolDefinition[],
   options?: {
@@ -371,7 +371,7 @@ export function createExpandedHarness(
     /** Persistent instructions injected into system prompt after expansion (every iteration) */
     systemPrompt?: string;
   }
-): ClientHarnessDefinition {
+): ClientToolHarnessDefinition {
   return {
     name,
     description: options?.description,

@@ -91,10 +91,10 @@ public static class AgentBuilderEvalExtensions
 
     /// <summary>
     /// Builds and registers a dedicated judge agent for LLM-as-judge evaluators.
-    /// The judge agent defaults to a single function-calling turn and no harnesses;
+    /// The judge agent defaults to a single function-calling turn and no toolharnesses;
     /// callers provide the chat client/provider and any required safety middleware.
     /// </summary>
-    [RequiresUnreferencedCode("Agent building may use Harness registration methods that require reflection.")]
+    [RequiresUnreferencedCode("Agent building may use ToolHarness registration methods that require reflection.")]
     public static async Task<AgentBuilder> UseEvalJudgeAgentAsync(
         this AgentBuilder builder,
         Action<AgentBuilder> configureJudge,

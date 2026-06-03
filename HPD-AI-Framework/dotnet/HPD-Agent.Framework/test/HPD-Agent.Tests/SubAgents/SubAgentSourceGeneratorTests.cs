@@ -31,10 +31,10 @@ public class SubAgentSourceGeneratorTests
     public void SubAgentAttribute_OnMethod_CompilesSuccessfully()
     {
         // Arrange
-        var Harness = new TestSubAgentTools();
+        var ToolHarness = new TestSubAgentTools();
 
         // Act - Call sub-agent method
-        var subAgent = Harness.CategorizedSubAgent();
+        var subAgent = ToolHarness.CategorizedSubAgent();
 
         // Assert
         Assert.NotNull(subAgent);
@@ -48,10 +48,10 @@ public class SubAgentSourceGeneratorTests
     public void SubAgent_FromConfig_GeneratesDefaultBranchNativeSubAgent()
     {
         // Arrange
-        var Harness = new TestSubAgentTools();
+        var ToolHarness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.DefaultBranchNativeSubAgent();
+        var subAgent = ToolHarness.DefaultBranchNativeSubAgent();
 
         // Assert
         Assert.NotNull(subAgent);
@@ -66,10 +66,10 @@ public class SubAgentSourceGeneratorTests
     public void SubAgent_SharedSessionPolicy_GeneratesSharedSessionSubAgent()
     {
         // Arrange
-        var Harness = new TestSubAgentTools();
+        var ToolHarness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.SharedSessionSubAgent();
+        var subAgent = ToolHarness.SharedSessionSubAgent();
 
         // Assert
         Assert.NotNull(subAgent);
@@ -83,10 +83,10 @@ public class SubAgentSourceGeneratorTests
     public void SubAgent_ParentBranchPolicy_GeneratesParentBranchSubAgent()
     {
         // Arrange
-        var Harness = new TestSubAgentTools();
+        var ToolHarness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.ParentBranchSubAgent();
+        var subAgent = ToolHarness.ParentBranchSubAgent();
 
         // Assert
         Assert.NotNull(subAgent);
@@ -101,10 +101,10 @@ public class SubAgentSourceGeneratorTests
     public void SourceGenerator_ExtractsAgentConfig_WithProvider()
     {
         // Arrange
-        var Harness = new TestSubAgentTools();
+        var ToolHarness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.SubAgentWithProvider();
+        var subAgent = ToolHarness.SubAgentWithProvider();
 
         // Assert
         Assert.NotNull(subAgent);
@@ -118,10 +118,10 @@ public class SubAgentSourceGeneratorTests
     public void SourceGenerator_ExtractsAgentConfig_WithInstructions()
     {
         // Arrange
-        var Harness = new TestSubAgentTools();
+        var ToolHarness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.SubAgentWithInstructions();
+        var subAgent = ToolHarness.SubAgentWithInstructions();
 
         // Assert
         Assert.NotNull(subAgent);
@@ -134,10 +134,10 @@ public class SubAgentSourceGeneratorTests
     public void SourceGenerator_ExtractsAgentConfig_WithIterationLimit()
     {
         // Arrange
-        var Harness = new TestSubAgentTools();
+        var ToolHarness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.SubAgentWithIterationLimit();
+        var subAgent = ToolHarness.SubAgentWithIterationLimit();
 
         // Assert
         Assert.NotNull(subAgent);
@@ -151,10 +151,10 @@ public class SubAgentSourceGeneratorTests
     public void SubAgent_HasRequiredMetadata_NameAndDescription()
     {
         // Arrange
-        var Harness = new TestSubAgentTools();
+        var ToolHarness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.ValidSubAgent();
+        var subAgent = ToolHarness.ValidSubAgent();
 
         // Assert
         Assert.NotNull(subAgent);
@@ -166,10 +166,10 @@ public class SubAgentSourceGeneratorTests
     public void SubAgent_Description_IsExtractedFromFactory()
     {
         // Arrange
-        var Harness = new TestSubAgentTools();
+        var ToolHarness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.ValidSubAgent();
+        var subAgent = ToolHarness.ValidSubAgent();
 
         // Assert
         Assert.Equal("A valid test sub-agent", subAgent.Description);
@@ -181,10 +181,10 @@ public class SubAgentSourceGeneratorTests
     public void SubAgent_DefaultExecutionPolicy_IsParentSessionForkedBranch()
     {
         // Arrange
-        var Harness = new TestSubAgentTools();
+        var ToolHarness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.DefaultBranchNativeSubAgent();
+        var subAgent = ToolHarness.DefaultBranchNativeSubAgent();
 
         // Assert
         Assert.Equal(SubAgentExecutionPolicy.Default, subAgent.ExecutionPolicy);
@@ -194,10 +194,10 @@ public class SubAgentSourceGeneratorTests
     public void SubAgent_SharedSessionId_IsOnExecutionPolicyForSharedSessionFreshBranch()
     {
         // Arrange
-        var Harness = new TestSubAgentTools();
+        var ToolHarness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.SharedSessionSubAgent();
+        var subAgent = ToolHarness.SharedSessionSubAgent();
 
         // Assert
         Assert.NotNull(subAgent.ExecutionPolicy.SharedSessionId);
@@ -209,10 +209,10 @@ public class SubAgentSourceGeneratorTests
     public void SubAgent_WithFullConfiguration_CompilesSuccessfully()
     {
         // Arrange
-        var Harness = new TestSubAgentTools();
+        var ToolHarness = new TestSubAgentTools();
 
         // Act
-        var subAgent = Harness.ComplexSubAgent();
+        var subAgent = ToolHarness.ComplexSubAgent();
 
         // Assert
         Assert.NotNull(subAgent);

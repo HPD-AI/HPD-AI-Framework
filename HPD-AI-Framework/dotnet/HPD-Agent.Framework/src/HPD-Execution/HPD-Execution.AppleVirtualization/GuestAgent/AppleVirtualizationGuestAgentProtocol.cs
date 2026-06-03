@@ -1831,7 +1831,7 @@ public static class AppleVirtualizationGuestAgentJsonCodec
         };
 }
 
-public sealed class FakeAppleVirtualizationGuestAgentHarness
+public sealed class FakeAppleVirtualizationGuestAgentToolHarness
 {
     private readonly ConcurrentQueue<AppleVirtualizationGuestAgentEnvelope> _responses = new();
     private readonly ConcurrentQueue<AppleVirtualizationGuestAgentEnvelope> _events = new();
@@ -1844,7 +1844,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
     private long _sequence;
     private bool _ptyResizeSupported;
 
-    public FakeAppleVirtualizationGuestAgentHarness(int maxEvents = 128)
+    public FakeAppleVirtualizationGuestAgentToolHarness(int maxEvents = 128)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxEvents);
         _maxEvents = maxEvents;
@@ -1853,20 +1853,20 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
     public IReadOnlyList<AppleVirtualizationGuestAgentEnvelope> Requests => _requests;
     private readonly List<AppleVirtualizationGuestAgentEnvelope> _requests = [];
 
-    public FakeAppleVirtualizationGuestAgentHarness WithEngineProbe(IAppleVirtualizationGuestAgentEngineProbe probe)
+    public FakeAppleVirtualizationGuestAgentToolHarness WithEngineProbe(IAppleVirtualizationGuestAgentEngineProbe probe)
     {
         _engineProbe = probe ?? throw new ArgumentNullException(nameof(probe));
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithEngineProvisioner(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithEngineProvisioner(
         IAppleVirtualizationGuestAgentEngineProvisioner provisioner)
     {
         _engineProvisioner = provisioner ?? throw new ArgumentNullException(nameof(provisioner));
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithHandshake(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithHandshake(
         string guestBootId = "guest-boot-1",
         ulong guestBootGeneration = 1,
         ulong guestAgentGeneration = 1,
@@ -1907,19 +1907,19 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithWrongProtocolVersion(string protocolVersion = "0.0")
+    public FakeAppleVirtualizationGuestAgentToolHarness WithWrongProtocolVersion(string protocolVersion = "0.0")
     {
         WithHandshake(protocolVersion: protocolVersion);
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithWrongAgentVersion(string agentVersion = "wrong-version")
+    public FakeAppleVirtualizationGuestAgentToolHarness WithWrongAgentVersion(string agentVersion = "wrong-version")
     {
         WithHandshake(agentVersion: agentVersion);
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithMissingCapability(string capability = "process.start")
+    public FakeAppleVirtualizationGuestAgentToolHarness WithMissingCapability(string capability = "process.start")
     {
         EnqueueResponse(Response(AppleVirtualizationGuestAgentOperation.Capabilities) with
         {
@@ -1935,7 +1935,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithGuestAgentError(string code = "AppleVirtualization.GuestAgentScriptedError")
+    public FakeAppleVirtualizationGuestAgentToolHarness WithGuestAgentError(string code = "AppleVirtualization.GuestAgentScriptedError")
     {
         EnqueueResponse(Response(AppleVirtualizationGuestAgentOperation.Ready) with
         {
@@ -1953,7 +1953,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithDisconnectDuringHandshake()
+    public FakeAppleVirtualizationGuestAgentToolHarness WithDisconnectDuringHandshake()
     {
         EnqueueResponse(Response(AppleVirtualizationGuestAgentOperation.Health) with
         {
@@ -1971,7 +1971,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithReady(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithReady(
         bool ready = true,
         string guestBootId = "guest-boot-1",
         ulong guestBootGeneration = 1,
@@ -1998,7 +1998,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithProjectionMount(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithProjectionMount(
         string projectionId,
         string tag,
         string guestPath,
@@ -2018,7 +2018,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithProjectionStatus(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithProjectionStatus(
         string projectionId,
         string tag,
         string guestPath,
@@ -2034,7 +2034,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithProjectionSync(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithProjectionSync(
         string projectionId,
         ContentProjectionChangeSummary? changeSummary = null,
         IReadOnlyList<AppleVirtualizationGuestAgentProjectionChange>? changes = null,
@@ -2066,7 +2066,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithProjectionFinalization(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithProjectionFinalization(
         string projectionId,
         Digest? manifestDigest = null,
         IReadOnlyList<FinalizedContentRef>? content = null,
@@ -2097,7 +2097,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithProjectionConfiguredOnly(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithProjectionConfiguredOnly(
         string projectionId,
         string tag,
         string guestPath)
@@ -2118,7 +2118,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithProjectionAccessMismatch(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithProjectionAccessMismatch(
         string projectionId,
         string tag,
         string guestPath,
@@ -2149,7 +2149,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithProjectionCoherence(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithProjectionCoherence(
         string projectionId,
         string tag,
         string guestPath,
@@ -2181,7 +2181,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithProjectionUnmount(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithProjectionUnmount(
         string projectionId,
         bool unmounted,
         bool wasMounted)
@@ -2195,7 +2195,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithProcessStarted(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithProcessStarted(
         string processId,
         string unitId,
         bool pty = false)
@@ -2216,7 +2216,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
                 {
                     PtyState = pty ? AppleVirtualizationGuestAgentPtyState.Allocated : AppleVirtualizationGuestAgentPtyState.NotRequested,
                     ResizeSupported = pty && _ptyResizeSupported,
-                    ResizeUnsupportedReason = pty && _ptyResizeSupported ? null : "PTY resize is not enabled in this fake harness.",
+                    ResizeUnsupportedReason = pty && _ptyResizeSupported ? null : "PTY resize is not enabled in this fake toolharness.",
                 },
                 IoState = ProcessIoState.Open,
                 StartedAt = startedAt,
@@ -2226,7 +2226,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithProcessStatus(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithProcessStatus(
         string processId,
         ProcessInvocationPhase phase,
         ProcessIoState ioState = ProcessIoState.Open)
@@ -2247,7 +2247,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithProcessFailed(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithProcessFailed(
         string processId,
         ProcessCompletionKind completionKind = ProcessCompletionKind.Faulted,
         string code = "AppleVirtualization.GuestProcessFailed")
@@ -2262,7 +2262,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithProcessControlResult(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithProcessControlResult(
         AppleVirtualizationGuestAgentOperation operation,
         string processId,
         bool accepted = true)
@@ -2280,7 +2280,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithProcessOutput(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithProcessOutput(
         string processId,
         ProcessOutputStream stream,
         ReadOnlyMemory<byte> bytes,
@@ -2310,7 +2310,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithProcessExited(string processId, int exitCode)
+    public FakeAppleVirtualizationGuestAgentToolHarness WithProcessExited(string processId, int exitCode)
     {
         DateTimeOffset exitedAt = DateTimeOffset.UtcNow;
         EnqueueResponse(Response(AppleVirtualizationGuestAgentOperation.ProcessWait) with
@@ -2341,7 +2341,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithNetworkStatus(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithNetworkStatus(
         string hostId = "host-network",
         string interfaceName = "en0",
         ushort mtu = 1500)
@@ -2399,7 +2399,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithEngineStatus(
+    public FakeAppleVirtualizationGuestAgentToolHarness WithEngineStatus(
         string hostId = "host-engine",
         string engineId = "engine-docker",
         AppleVirtualizationEngineObservationState state = AppleVirtualizationEngineObservationState.Ready,
@@ -2433,7 +2433,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
         return this;
     }
 
-    public FakeAppleVirtualizationGuestAgentHarness WithMalformedFrame(ReadOnlyMemory<byte> frame)
+    public FakeAppleVirtualizationGuestAgentToolHarness WithMalformedFrame(ReadOnlyMemory<byte> frame)
     {
         AppleVirtualizationGuestAgentFrameResult result = AppleVirtualizationGuestAgentJsonCodec.DecodeFrame(frame.Span);
         EnqueueResponse(Response(AppleVirtualizationGuestAgentOperation.Health) with
@@ -2443,7 +2443,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
             Error = result.Error ?? new AppleVirtualizationGuestAgentError
             {
                 Code = "AppleVirtualization.GuestAgentMalformedFrame",
-                Message = "Guest-agent frame was marked malformed by the scripted harness.",
+                Message = "Guest-agent frame was marked malformed by the scripted toolharness.",
                 Operation = "guest-agent.frame.decode",
                 FailedPhase = "Decode",
                 Retryable = true,
@@ -2465,7 +2465,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
                 Interlocked.Increment(ref _sequence),
                 AppleVirtualizationGuestAgentJsonCodec.Unsupported(
                     "process.resize",
-                    "Guest-agent process resize requires scripted PTY support in this fake harness.")));
+                    "Guest-agent process resize requires scripted PTY support in this fake toolharness.")));
         }
 
         if (request.Operation == AppleVirtualizationGuestAgentOperation.ProjectionSync)
@@ -2641,7 +2641,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
                     Succeeded = false,
                     DryRun = sync.DryRun,
                     UnsupportedReason = unsupported.ToString(),
-                    Conditions = [Condition("AppleVirtualization.ProjectionSyncUnsupported", ConditionStatus.True, unsupported.ToString(), "Projection sync mode is not supported by the fake guest-agent contract harness.", DiagnosticSeverity.Warning)],
+                    Conditions = [Condition("AppleVirtualization.ProjectionSyncUnsupported", ConditionStatus.True, unsupported.ToString(), "Projection sync mode is not supported by the fake guest-agent contract toolharness.", DiagnosticSeverity.Warning)],
                 },
             };
         }
@@ -2662,7 +2662,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
                 Succeeded = true,
                 DryRun = sync.DryRun,
                 CheckpointVersion = sync.DryRun ? 0 : Interlocked.Increment(ref _sequence),
-                Conditions = [Condition("AppleVirtualization.ProjectionSyncCompleted", ConditionStatus.True, "Completed", "Projection sync completed in fake guest-agent harness.", DiagnosticSeverity.Info)],
+                Conditions = [Condition("AppleVirtualization.ProjectionSyncCompleted", ConditionStatus.True, "Completed", "Projection sync completed in fake guest-agent toolharness.", DiagnosticSeverity.Info)],
             },
         };
     }
@@ -2715,7 +2715,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
                 AuditEvents = [audit],
                 Conditions =
                 [
-                    Condition("AppleVirtualization.AuthorityProjected", ConditionStatus.True, "Projected", "Authority binding was accepted by the fake guest-agent harness.", DiagnosticSeverity.Info),
+                    Condition("AppleVirtualization.AuthorityProjected", ConditionStatus.True, "Projected", "Authority binding was accepted by the fake guest-agent toolharness.", DiagnosticSeverity.Info),
                 ],
             },
         };
@@ -2738,7 +2738,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
                 BindingPhase = AuthorityBindingPhase.Projected,
                 Conditions =
                 [
-                    Condition("AppleVirtualization.AuthorityStatusObserved", ConditionStatus.True, "Observed", "Authority binding status was observed by the fake guest-agent harness.", DiagnosticSeverity.Info),
+                    Condition("AppleVirtualization.AuthorityStatusObserved", ConditionStatus.True, "Observed", "Authority binding status was observed by the fake guest-agent toolharness.", DiagnosticSeverity.Info),
                 ],
             },
         };
@@ -2774,7 +2774,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
                 AuditEvents = [audit],
                 Conditions =
                 [
-                    Condition("AppleVirtualization.AuthorityRevoked", ConditionStatus.True, "Revoked", "Authority binding revocation was accepted by the fake guest-agent harness.", DiagnosticSeverity.Info),
+                    Condition("AppleVirtualization.AuthorityRevoked", ConditionStatus.True, "Revoked", "Authority binding revocation was accepted by the fake guest-agent toolharness.", DiagnosticSeverity.Info),
                 ],
             },
         };
@@ -2883,7 +2883,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
                     State = AppleVirtualizationGuestAgentProjectionFinalizationState.UnsupportedKind,
                     Succeeded = false,
                     UnsupportedReason = finalization.Kind.ToString(),
-                    Conditions = [Condition("AppleVirtualization.ProjectionFinalizationUnsupported", ConditionStatus.True, "UnsupportedKind", "Projection finalization kind is not supported by the fake guest-agent contract harness.", DiagnosticSeverity.Warning)],
+                    Conditions = [Condition("AppleVirtualization.ProjectionFinalizationUnsupported", ConditionStatus.True, "UnsupportedKind", "Projection finalization kind is not supported by the fake guest-agent contract toolharness.", DiagnosticSeverity.Warning)],
                 },
             };
         }
@@ -2903,7 +2903,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
                 State = AppleVirtualizationGuestAgentProjectionFinalizationState.Succeeded,
                 Succeeded = true,
                 ManifestDigest = new Digest("sha256", "fake-manifest"),
-                Conditions = [Condition("AppleVirtualization.ProjectionFinalized", ConditionStatus.True, "Completed", "Projection finalization completed in fake guest-agent harness.", DiagnosticSeverity.Info)],
+                Conditions = [Condition("AppleVirtualization.ProjectionFinalized", ConditionStatus.True, "Completed", "Projection finalization completed in fake guest-agent toolharness.", DiagnosticSeverity.Info)],
             },
         };
     }
@@ -2960,7 +2960,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
                     Succeeded = false,
                     DryRun = promotion.DryRun,
                     UnsupportedReason = promotion.ConflictPolicy.ToString(),
-                    Conditions = [Condition("AppleVirtualization.ProjectionPromotionUnsupported", ConditionStatus.True, "UnsupportedConflictPolicy", "Projection promotion requires explicit promotion policy in the fake guest-agent harness.", DiagnosticSeverity.Warning)],
+                    Conditions = [Condition("AppleVirtualization.ProjectionPromotionUnsupported", ConditionStatus.True, "UnsupportedConflictPolicy", "Projection promotion requires explicit promotion policy in the fake guest-agent toolharness.", DiagnosticSeverity.Warning)],
                 },
             };
         }
@@ -3082,7 +3082,7 @@ public sealed class FakeAppleVirtualizationGuestAgentHarness
             {
                 PtyState = pty ? AppleVirtualizationGuestAgentPtyState.Allocated : AppleVirtualizationGuestAgentPtyState.NotRequested,
                 ResizeSupported = false,
-                ResizeUnsupportedReason = "PTY resize is not enabled in this fake harness.",
+                ResizeUnsupportedReason = "PTY resize is not enabled in this fake toolharness.",
             },
         };
 

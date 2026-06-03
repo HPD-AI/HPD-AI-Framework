@@ -153,12 +153,12 @@ config.Provider.SetTypedProviderConfig(googleOpts);
 // Reuse with different runtime customizations
 var agent1 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithHarness<MathHarness>()
+    .WithToolHarness<MathToolHarness>()
     .BuildAsync();
 
 var agent2 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithHarness<FileHarness>()
+    .WithToolHarness<FileToolHarness>()
     .BuildAsync();
 ```
 
@@ -650,7 +650,7 @@ var response = await agent.RunAsync("Generate an image of a sunset over mountain
 Enable the model to call functions/tools:
 
 ```csharp
-public class WeatherHarness
+public class WeatherToolHarness
 {
     [Function("Get current weather for a location")]
     public string GetWeather(
@@ -669,7 +669,7 @@ var agent = await new AgentBuilder()
         {
             opts.FunctionCallingMode = "AUTO"; // Model decides when to call
         })
-    .WithHarness<WeatherHarness>()
+    .WithToolHarness<WeatherToolHarness>()
     .BuildAsync();
 
 var response = await agent.RunAsync("What's the weather in San Francisco?");
@@ -786,7 +786,7 @@ var response = await agent.RunAsync("Extract the person's details: John Smith, j
 ### Example 3: Function Calling
 
 ```csharp
-public class DatabaseHarness
+public class DatabaseToolHarness
 {
     [Function("Query database for user information")]
     public string QueryUser([Parameter("User ID")] int userId)
@@ -808,7 +808,7 @@ var agent = await new AgentBuilder()
         apiKey: "your-api-key",
         model: "gemini-2.0-flash",
         configure: opts => opts.FunctionCallingMode = "AUTO")
-    .WithHarness<DatabaseHarness>()
+    .WithToolHarness<DatabaseToolHarness>()
     .BuildAsync();
 
 var response = await agent.RunAsync("Get information for user ID 123 and update their email to newemail@example.com");

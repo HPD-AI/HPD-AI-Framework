@@ -10,7 +10,7 @@ namespace HPD.Agent.Tests.Planning;
 /// Tests for the Plan Mode system:
 /// - PlanModePersistentStateData (immutable state model)
 /// - AgentPlanData / PlanStepData (plan domain model)
-/// - AgentPlanHarness (agent-callable functions)
+/// - AgentPlanToolHarness (agent-callable functions)
 /// - AgentPlanAgentMiddleware (context injection)
 /// - PlanModeBuilderExtensions (builder integration)
 /// </summary>
@@ -215,7 +215,7 @@ public class PlanModeTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // No plan in state → nothing injected
-        Assert.DoesNotContain(context.ConversationHistory,
+        Assert.DoesNotContain(context.BranchHistory,
             m => m.Text?.Contains("[CURRENT_PLAN]") == true);
     }
 
@@ -229,7 +229,7 @@ public class PlanModeTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.Contains(context.ConversationHistory,
+        Assert.Contains(context.BranchHistory,
             m => m.Role == ChatRole.System && m.Text?.Contains("[CURRENT_PLAN]") == true);
     }
 

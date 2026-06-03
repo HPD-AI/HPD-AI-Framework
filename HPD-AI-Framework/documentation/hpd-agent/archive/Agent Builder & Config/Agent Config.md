@@ -66,33 +66,33 @@ See [Providers](Providers/00%20Providers%20Overview.md) for per-provider configu
 
 ---
 
-## Harneses
+## ToolHarnesses
 
-Register harnesses by class name (string shorthand) or rich reference object:
+Register toolharnesses by class name (string shorthand) or rich reference object:
 
 ```csharp
 // String shorthand
-Harneses = ["CalculatorHarness", "FileHarness"]
+ToolHarnesses = ["CalculatorToolHarness", "FileToolHarness"]
 
-// Rich reference — restrict which functions are exposed, or pass harness config
-Harneses =
+// Rich reference — restrict which functions are exposed, or pass toolharness config
+ToolHarnesses =
 [
-    new HarnessReference { Name = "FileHarness", Functions = ["ReadFile", "WriteFile"] },
-    new HarnessReference { Name = "SearchHarness", Config = mySearchConfig }
+    new ToolHarnessReference { Name = "FileToolHarness", Functions = ["ReadFile", "WriteFile"] },
+    new ToolHarnessReference { Name = "SearchToolHarness", Config = mySearchConfig }
 ]
 ```
 
 In JSON:
 ```json
 {
-    "Harneses": [
-        "CalculatorHarness",
-        { "Name": "FileHarness", "Functions": ["ReadFile", "WriteFile"] }
+    "ToolHarnesses": [
+        "CalculatorToolHarness",
+        { "Name": "FileToolHarness", "Functions": ["ReadFile", "WriteFile"] }
     ]
 }
 ```
 
-Native C# harnesses (type references) must be registered via `.WithHarness<T>()` on the builder.
+Native C# toolharnesses (type references) must be registered via `.WithToolHarness<T>()` on the builder.
 
 ---
 
@@ -118,7 +118,7 @@ Each section is an optional nullable config class. All default to `null` (framew
 | `Compaction` | `CompactionConfig?` | Conversation history summarization/trimming |
 | `AgenticLoop` | `AgenticLoopConfig?` | Turn duration limits and parallel function caps |
 | `Caching` | `CachingConfig?` | LLM response caching |
-| `Collapsing` | `CollapsingConfig` | Harness hierarchical collapse/expand (default: `new CollapsingConfig { Enabled = true }`) |
+| `Collapsing` | `CollapsingConfig` | ToolHarness hierarchical collapse/expand (default: `new CollapsingConfig { Enabled = true }`) |
 | `Observability` | `ObservabilityConfig?` | Event sampling and circuit breaker |
 | `BackgroundResponses` | `BackgroundResponsesConfig?` | Long-running / async provider support |
 | `DocumentHandling` | `DocumentHandlingConfig?` | File attachment extraction settings |
@@ -203,7 +203,7 @@ var agent = await AgentConfig.BuildFromFileAsync("agent-config.json");
 // Or use the builder for runtime additions
 var agent = await new AgentBuilder("agent-config.json")
     .WithServiceProvider(services)
-    .WithHarness<MyHarness>()
+    .WithToolHarness<MyToolHarness>()
     .BuildAsync();
 ```
 

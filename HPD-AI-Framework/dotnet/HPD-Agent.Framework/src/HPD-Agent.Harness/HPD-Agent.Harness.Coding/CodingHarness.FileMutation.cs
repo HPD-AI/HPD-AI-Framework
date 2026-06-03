@@ -8,9 +8,9 @@ using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
 using HPD.Agent;
 using HPD.Agent.Middleware;
-using HPDOS.Harneses.Middleware;
+using HPDOS.ToolHarnesses.Middleware;
 
-public partial class CodingHarness
+public partial class CodingToolHarness
 {
     private const long MaxMutableFileBytes = 50 * 1024 * 1024;
     private const int MaxEventSnapshotChars = 500_000;
@@ -601,7 +601,7 @@ public partial class CodingHarness
     private static string FormatMutationError(string toolName, FileMutationErrorKind kind, string? path, string message)
     {
         var builder = new StringBuilder();
-        using var writer = CreateCodingHarnessXmlWriter(builder);
+        using var writer = CreateCodingToolHarnessXmlWriter(builder);
         writer.WriteStartElement("error");
         writer.WriteAttributeString("tool", toolName);
         writer.WriteAttributeString("kind", FormatEnum(kind));

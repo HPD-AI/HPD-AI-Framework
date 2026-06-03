@@ -88,10 +88,10 @@ public sealed record FunctionRequest
     public ToolResultMetadata ResultMetadata { get; init; } = new();
 
     /// <summary>
-    /// Name of the Harness that contains this function, if any.
-    /// May be NULL if function is not part of a Harness.
+    /// Name of the ToolHarness that contains this function, if any.
+    /// May be NULL if function is not part of a ToolHarness.
     /// </summary>
-    public string? HarnessName { get; init; }
+    public string? ToolHarnessName { get; init; }
 
     /// <summary>
     /// Name of the skill that referenced this function, if any.
@@ -183,9 +183,9 @@ public sealed record FunctionRequest
     public string FunctionName => Function.Name;
 
     /// <summary>
-    /// True if this function is part of a Harness.
+    /// True if this function is part of a ToolHarness.
     /// </summary>
-    public bool IsHarnessFunction => HarnessName != null;
+    public bool IsToolHarnessFunction => ToolHarnessName != null;
 
     /// <summary>
     /// True if this function is part of a skill.

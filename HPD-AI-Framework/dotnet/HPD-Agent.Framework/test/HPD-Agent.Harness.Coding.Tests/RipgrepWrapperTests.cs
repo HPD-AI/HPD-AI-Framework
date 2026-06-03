@@ -1,9 +1,9 @@
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
-using HPD.Agent.Harness.Coding.Ripgrep;
+using HPD.Agent.ToolHarness.Coding.Ripgrep;
 
-namespace HPD.Agent.Harness.Coding.Tests;
+namespace HPD.Agent.ToolHarness.Coding.Tests;
 
 public sealed class RipgrepWrapperTests
 {
@@ -1320,8 +1320,8 @@ public sealed class RipgrepWrapperTests
             var candidate = Path.Combine(
                 directory.FullName,
                 "src",
-                "HPD-Agent.Harness",
-                "HPD-Agent.Harness.Coding",
+                "HPD-Agent.ToolHarness",
+                "HPD-Agent.ToolHarness.Coding",
                 "Ripgrep",
                 "RipgrepWrapper.cs");
 

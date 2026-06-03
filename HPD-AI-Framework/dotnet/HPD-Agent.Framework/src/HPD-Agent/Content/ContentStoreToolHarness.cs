@@ -22,10 +22,10 @@ namespace HPD.Agent;
 /// /uploads and /artifacts use scope=sessionId; all other folders use scope=agentName.
 ///
 /// <para><b>Session ID Threading:</b></para>
-/// FolderDiscoveryMiddleware calls SetSessionId() before each turn via the SetHarness link
+/// FolderDiscoveryMiddleware calls SetSessionId() before each turn via the SetToolHarness link
 /// established by AgentBuilder — required for session-scoped folder access.
 /// </remarks>
-public class ContentStoreHarness
+public class ContentStoreToolHarness
 {
     private readonly IContentStore _store;
     private readonly string _agentName;
@@ -35,7 +35,7 @@ public class ContentStoreHarness
     private static readonly HashSet<string> SessionScopedFolders =
         new(StringComparer.OrdinalIgnoreCase) { "uploads", "artifacts" };
 
-    public ContentStoreHarness(IContentStore store, string agentName)
+    public ContentStoreToolHarness(IContentStore store, string agentName)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _agentName = agentName ?? throw new ArgumentNullException(nameof(agentName));

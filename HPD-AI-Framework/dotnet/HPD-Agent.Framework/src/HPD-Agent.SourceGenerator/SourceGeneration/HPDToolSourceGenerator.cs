@@ -10,7 +10,7 @@ using System.Threading;
 using HPD.Agent.SourceGenerator.Capabilities;
 
 /// <summary>
-/// Source generator for HPD-Agent AI Harneses. Generates AOT-compatible Harness registration code.
+/// Source generator for HPD-Agent AI ToolHarnesses. Generates AOT-compatible ToolHarness registration code.
 /// </summary>
 [Generator]
 public class HPDToolSourceGenerator : IIncrementalGenerator
@@ -25,12 +25,12 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
     /// <param name="context">The generator initialization context.</param>
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        // Harness detection (classes with [AIFunction], [Skill], or [SubAgent] methods)
+        // ToolHarness detection (classes with [AIFunction], [Skill], or [SubAgent] methods)
         var toolClasses = context.SyntaxProvider
             .CreateSyntaxProvider(
                 predicate: static (node, ct) => IsToolClass(node, ct),
                 transform: static (ctx, ct) => GetToolDeclaration(ctx, ct))
-            .Where(static Harness => Harness is not null)
+            .Where(static ToolHarness => ToolHarness is not null)
             .Collect();
 
         context.RegisterSourceOutput(toolClasses, GenerateToolRegistrations);
@@ -86,7 +86,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
                 .SelectMany(attrList => attrList.Attributes)
                 .Select(attr => attr.Name.ToString());
 
-            // A Harness class has methods with any of these attributes
+            // A ToolHarness class has methods with any of these attributes
             return attrs.Any(name =>
                 name.Contains("AIFunction") ||
                 name.Contains("Skill") ||
@@ -103,7 +103,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         return hasCapabilityMethods;
     }
     
-    private static HarnessInfo? GetToolDeclaration(GeneratorSyntaxContext context, CancellationToken cancellationToken)
+    private static ToolHarnessInfo? GetToolDeclaration(GeneratorSyntaxContext context, CancellationToken cancellationToken)
     {
         var classDecl = (ClassDeclarationSyntax)context.Node;
         var semanticModel = context.SemanticModel;
@@ -135,21 +135,21 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         var (isCollapsed, containerDescription, FunctionResult, FunctionResultExpression, FunctionResultIsStatic, SystemPrompt, SystemPromptExpression, SystemPromptIsStatic, diagnostics, customName) = GetCollapseAttribute(classDecl, semanticModel);
 
         // Must have at least one capability or collapse metadata.
-        // Partial harnesses commonly put [Collapse] on one partial declaration and
+        // Partial toolharnesses commonly put [Collapse] on one partial declaration and
         // [AIFunction] methods on other partial declarations. Keep the metadata-only
         // part so the partial merge can generate the container.
         if (!capabilities.Any() && !isCollapsed)
             return null;
 
-        // Merge capability diagnostics with harness diagnostics
+        // Merge capability diagnostics with toolharness diagnostics
         diagnostics.AddRange(capabilityDiagnostics);
 
-        // Diagnostics will be stored in HarnessInfo and reported in GenerateToolRegistrations
+        // Diagnostics will be stored in ToolHarnessInfo and reported in GenerateToolRegistrations
 
         // Check if the class has a parameterless constructor (either explicit or implicit)
         var hasParameterlessConstructor = HasParameterlessConstructor(classDecl);
 
-        // Check if the class is publicly accessible (for HarnessRegistry.All inclusion)
+        // Check if the class is publicly accessible (for ToolHarnessRegistry.All inclusion)
         // A class is publicly accessible if it's public and not nested inside a non-public class
         var isPubliclyAccessible = IsClassPubliclyAccessible(classDecl);
 
@@ -159,7 +159,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         var subAgentCount = capabilities.OfType<HPD.Agent.SourceGenerator.Capabilities.SubAgentCapability>().Count();
         var mcpServerCount = capabilities.OfType<HPD.Agent.SourceGenerator.Capabilities.MCPServerCapability>().Count();
         var openApiCount = capabilities.OfType<HPD.Agent.SourceGenerator.Capabilities.OpenApiCapability>().Count();
-        var description = BuildHarnessDescription(functionCount, skillCount, subAgentCount, mcpServerCount, openApiCount);
+        var description = BuildToolHarnessDescription(functionCount, skillCount, subAgentCount, mcpServerCount, openApiCount);
 
         // NEW: Extract function names for selective registration
         var functionNames = capabilities
@@ -180,7 +180,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             .Select(c => c.ContextTypeName)
             .FirstOrDefault();
 
-        // Harness-scoped middleware (015): extract [Collapse(Middlewares = [...])] type names
+        // ToolHarness-scoped middleware (015): extract [Collapse(Middlewares = [...])] type names
         List<string>? collapseMiddlewareTypeNames = null;
         List<CollapseMiddlewareConfigEntry>? collapseMiddlewareConfigTypeNames = null;
         if (isCollapsed)
@@ -190,7 +190,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             collapseMiddlewareConfigTypeNames = middlewareResult.ConfigConstructor;
         }
 
-        return new HarnessInfo
+        return new ToolHarnessInfo
         {
             // ClassName is always the class identifier
             ClassName = classDecl.Identifier.ValueText,
@@ -220,14 +220,14 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
             ConfigConstructorTypeName = configConstructorTypeName,
             MetadataTypeName = metadataTypeName,
 
-            // Harness-scoped middleware (015)
+            // ToolHarness-scoped middleware (015)
             CollapseMiddlewareTypeNames = collapseMiddlewareTypeNames,
             CollapseMiddlewareConfigTypeNames = collapseMiddlewareConfigTypeNames
         };
     }
 
     /// <summary>
-    /// Detects if the harness class has a constructor that accepts a single *Config parameter.
+    /// Detects if the toolharness class has a constructor that accepts a single *Config parameter.
     /// This enables config-based instantiation from JSON.
     /// </summary>
     private static string? GetConfigConstructorTypeName(ClassDeclarationSyntax classDecl, SemanticModel semanticModel)
@@ -281,9 +281,9 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
     }
 
     /// <summary>
-    /// Detects if the harness has a constructor whose sole parameter is ISecretResolver.
+    /// Detects if the toolharness has a constructor whose sole parameter is ISecretResolver.
     /// Also handles primary constructors (parameter lists on the class declaration itself).
-    /// Example: public class StripeHarness(ISecretResolver secrets) { ... }
+    /// Example: public class StripeToolHarness(ISecretResolver secrets) { ... }
     /// </summary>
     private static bool HasSecretsOnlyConstructor(ClassDeclarationSyntax classDecl)
     {
@@ -336,7 +336,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         return true;
     }
 
-    private static string BuildHarnessDescription(int functionCount, int skillCount, int subAgentCount, int mcpServerCount = 0, int openApiCount = 0)
+    private static string BuildToolHarnessDescription(int functionCount, int skillCount, int subAgentCount, int mcpServerCount = 0, int openApiCount = 0)
     {
         var parts = new List<string>();
         if (functionCount > 0) parts.Add($"{functionCount} AI functions");
@@ -346,27 +346,27 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         if (openApiCount > 0) parts.Add($"{openApiCount} OpenAPI source(s)");
 
         if (parts.Count == 0)
-            return "Empty Harness container.";
+            return "Empty ToolHarness container.";
         else if (parts.Count == 1)
-            return $"Harness containing {parts[0]}.";
+            return $"ToolHarness containing {parts[0]}.";
         else
         {
             var last = parts[parts.Count - 1];
             var rest = string.Join(", ", parts.Take(parts.Count - 1));
-            return $"Harness containing {rest}, and {last}.";
+            return $"ToolHarness containing {rest}, and {last}.";
         }
     }
     
-    private static void GenerateToolRegistrations(SourceProductionContext context, ImmutableArray<HarnessInfo?> Harneses)
+    private static void GenerateToolRegistrations(SourceProductionContext context, ImmutableArray<ToolHarnessInfo?> ToolHarnesses)
     {
-        // Group Harneses by name+namespace to handle partial classes FIRST
+        // Group ToolHarnesses by name+namespace to handle partial classes FIRST
         // This prevents duplicate generation by merging partial classes before validation
-        var HarnessGroups = Harneses
+        var ToolHarnessGroups = ToolHarnesses
             .Where(p => p != null)
             .GroupBy(p => $"{p!.Namespace}.{p.Name}")
             .Select(group =>
             {
-                // Merge all partial class parts into one Harness
+                // Merge all partial class parts into one ToolHarness
                 var first = group.First()!;
 
                 // PHASE 5: Merge unified Capabilities list (all capability types)
@@ -383,14 +383,14 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
                 var isCollapsed = group.Any(p => p!.IsCollapsed);
                 var containerDescription = group.FirstOrDefault(p => p!.IsCollapsed)?.ContainerDescription;
 
-                // All partial class parts must have parameterless constructor for the Harness to be AOT-instantiable
+                // All partial class parts must have parameterless constructor for the ToolHarness to be AOT-instantiable
                 // (If any part declares a constructor with parameters, no implicit parameterless constructor is generated)
                 var hasParameterlessConstructor = group.All(p => p!.HasParameterlessConstructor);
 
                 // Detect ISecretResolver-only constructor (from any partial part)
                 var hasSecretsConstructor = group.Any(p => p!.HasSecretsConstructor);
 
-                // All partial class parts must be publicly accessible for the Harness to be in the registry
+                // All partial class parts must be publicly accessible for the ToolHarness to be in the registry
                 var isPubliclyAccessible = group.All(p => p!.IsPubliclyAccessible);
 
                 // Merge diagnostics from all partial class parts
@@ -405,10 +405,10 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
                     // Use first metadata type found
                 var metadataTypeName = group.FirstOrDefault(p => !string.IsNullOrEmpty(p!.MetadataTypeName))?.MetadataTypeName;
 
-                return new HarnessInfo
+                return new ToolHarnessInfo
                 {
                     Name = first.Name,
-                    Description = BuildHarnessDescription(functionCount, skillCount, subAgentCount, mcpServerCount, openApiCount),
+                    Description = BuildToolHarnessDescription(functionCount, skillCount, subAgentCount, mcpServerCount, openApiCount),
                     Namespace = first.Namespace,
 
                     // PHASE 5: Unified Capabilities list (all capability types)
@@ -431,17 +431,17 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
                     FunctionNames = allFunctionNames,
                     ConfigConstructorTypeName = configConstructorTypeName,
                     MetadataTypeName = metadataTypeName,
-                    // Harness-scoped middleware (015): merge from any partial part that has them
+                    // ToolHarness-scoped middleware (015): merge from any partial part that has them
                     CollapseMiddlewareTypeNames = group.FirstOrDefault(p => p?.CollapseMiddlewareTypeNames != null)?.CollapseMiddlewareTypeNames,
                     CollapseMiddlewareConfigTypeNames = group.FirstOrDefault(p => p?.CollapseMiddlewareConfigTypeNames != null)?.CollapseMiddlewareConfigTypeNames
                 };
             })
             .ToList();
 
-        // Report diagnostics for all Harneses
-        foreach (var Harness in HarnessGroups)
+        // Report diagnostics for all ToolHarnesses
+        foreach (var ToolHarness in ToolHarnessGroups)
         {
-            foreach (var diagnostic in Harness.Diagnostics)
+            foreach (var diagnostic in ToolHarness.Diagnostics)
             {
                 context.ReportDiagnostic(diagnostic);
             }
@@ -452,7 +452,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         var diagnosticCode = $@"
 // HPD Source Generator Diagnostic Report
 // Generated at: {DateTime.Now}
-// Harneses found: {Harneses.Length} raw, {HarnessGroups.Count} after merging
+// ToolHarnesses found: {ToolHarnesses.Length} raw, {ToolHarnessGroups.Count} after merging
 
 #pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
 
@@ -467,9 +467,9 @@ namespace HPD.Agent.Diagnostics {{
         public const string Message = ""Source generator executed successfully"";
 
         /// <summary>
-        /// Gets the number of harnesses found during source generation.
+        /// Gets the number of toolharnesses found during source generation.
         /// </summary>
-        public const int HarnesesFound = {HarnessGroups.Count};
+        public const int ToolHarnessesFound = {ToolHarnessGroups.Count};
 
         /// <summary>
         /// Gets the detailed diagnostic report from source generation.
@@ -486,17 +486,17 @@ namespace HPD.Agent.Diagnostics {{
         _diagnosticMessages.Clear();
 
         var debugInfo = new StringBuilder();
-        debugInfo.AppendLine($"// Found {Harneses.Length} Harness parts total");
-        debugInfo.AppendLine($"// Merged into {HarnessGroups.Count} unique Harneses");
-        foreach (var Harness in HarnessGroups)
+        debugInfo.AppendLine($"// Found {ToolHarnesses.Length} ToolHarness parts total");
+        debugInfo.AppendLine($"// Merged into {ToolHarnessGroups.Count} unique ToolHarnesses");
+        foreach (var ToolHarness in ToolHarnessGroups)
         {
-            debugInfo.AppendLine($"// Harness: {Harness.Namespace}.{Harness.Name} with {Harness.FunctionCapabilities.Count()} functions, {Harness.SkillCapabilities.Count()} skills, and {Harness.SubAgentCapabilities.Count()} sub-agents");
+            debugInfo.AppendLine($"// ToolHarness: {ToolHarness.Namespace}.{ToolHarness.Name} with {ToolHarness.FunctionCapabilities.Count()} functions, {ToolHarness.SkillCapabilities.Count()} skills, and {ToolHarness.SubAgentCapabilities.Count()} sub-agents");
         }
         context.AddSource("HPD.Agent.Generated.SourceGeneratorDebug.g.cs", debugInfo.ToString());
 
         // Resolve skill references before validation and code generation
         // PHASE 5: Use unified SkillCapabilities from Capabilities list
-        var allSkillCapabilities = HarnessGroups
+        var allSkillCapabilities = ToolHarnessGroups
             .SelectMany(p => p.SkillCapabilities)
             .ToList();
         if (allSkillCapabilities.Any())
@@ -504,11 +504,11 @@ namespace HPD.Agent.Diagnostics {{
             ResolveSkillCapabilities(allSkillCapabilities);
         }
 
-        foreach (var Harness in HarnessGroups)
+        foreach (var ToolHarness in ToolHarnessGroups)
         {
-            if (Harness == null) continue;
+            if (ToolHarness == null) continue;
 
-            foreach (var function in Harness.FunctionCapabilities)
+            foreach (var function in ToolHarness.FunctionCapabilities)
             {
                 if (function.ValidationData?.NeedsValidation == true)
                 {
@@ -537,33 +537,33 @@ namespace HPD.Agent.Diagnostics {{
                 }
             }
 
-            var source = GenerateHarnessRegistration(Harness);
+            var source = GenerateToolHarnessRegistration(ToolHarness);
             // Use fully qualified name as hint to prevent duplicates
-            var hintName = string.IsNullOrEmpty(Harness.Namespace)
-                ? $"{Harness.Name}Registration.g.cs"
-                : $"{Harness.Namespace}.{Harness.Name}Registration.g.cs";
+            var hintName = string.IsNullOrEmpty(ToolHarness.Namespace)
+                ? $"{ToolHarness.Name}Registration.g.cs"
+                : $"{ToolHarness.Namespace}.{ToolHarness.Name}Registration.g.cs";
             context.AddSource(hintName, source);
         }
 
-        // NEW: Generate Harness registry catalog for AOT-compatible Harness discovery
-        if (HarnessGroups.Any())
+        // NEW: Generate ToolHarness registry catalog for AOT-compatible ToolHarness discovery
+        if (ToolHarnessGroups.Any())
         {
-            var registrySource = GenerateHarnessRegistry(HarnessGroups);
-            context.AddSource("HPD.Agent.Generated.HarnessRegistry.g.cs", registrySource);
+            var registrySource = GenerateToolHarnessRegistry(ToolHarnessGroups);
+            context.AddSource("HPD.Agent.Generated.ToolHarnessRegistry.g.cs", registrySource);
         }
     }
 
     /// <summary>
-    /// Generates the HarnessRegistry.All array that serves as a catalog of all Harneses in the assembly.
+    /// Generates the ToolHarnessRegistry.All array that serves as a catalog of all ToolHarnesses in the assembly.
     /// This eliminates reflection in hot paths by providing direct delegate references.
-    /// Only Harneses with parameterless constructors and public accessibility are included.
+    /// Only ToolHarnesses with parameterless constructors and public accessibility are included.
     /// </summary>
-    private static string GenerateHarnessRegistry(List<HarnessInfo> Harneses)
+    private static string GenerateToolHarnessRegistry(List<ToolHarnessInfo> ToolHarnesses)
     {
-        // Filter to only include Harneses that can be instantiated via the registry:
+        // Filter to only include ToolHarnesses that can be instantiated via the registry:
         // 1. Must have parameterless constructor OR ISecretResolver-only constructor
         // 2. Must be publicly accessible (private/internal test classes are excluded)
-        var instantiableHarneses = Harneses
+        var instantiableToolHarnesses = ToolHarnesses
             .Where(p => (p.HasParameterlessConstructor || p.HasSecretsConstructor) && p.IsPubliclyAccessible)
             .OrderBy(p => p.Name)
             .ToList();
@@ -577,83 +577,83 @@ namespace HPD.Agent.Diagnostics {{
         sb.AppendLine("using System.Runtime.CompilerServices;");
         sb.AppendLine("using System.Text.Json;");
         sb.AppendLine("using Microsoft.Extensions.AI;");
-        sb.AppendLine("using HPD.Agent;  // For HarnessFactory and IToolMetadata types");
+        sb.AppendLine("using HPD.Agent;  // For ToolHarnessFactory and IToolMetadata types");
         sb.AppendLine();
         sb.AppendLine("namespace HPD.Agent.Generated");
         sb.AppendLine("{");
         sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// AOT-compatible catalog of all Harneses in this assembly.");
+        sb.AppendLine("    /// AOT-compatible catalog of all ToolHarnesses in this assembly.");
         sb.AppendLine("    /// Generated by HPDToolSourceGenerator.");
         sb.AppendLine("    /// Provides direct delegate references eliminating reflection in hot paths.");
-        sb.AppendLine($"    /// Contains {instantiableHarneses.Count} Harneses (pure DI-only harnesses excluded).");
+        sb.AppendLine($"    /// Contains {instantiableToolHarnesses.Count} ToolHarnesses (pure DI-only toolharnesses excluded).");
         sb.AppendLine("    /// </summary>");
         sb.AppendLine("    [System.CodeDom.Compiler.GeneratedCodeAttribute(\"HPDToolSourceGenerator\", \"1.0.0.0\")]");
-        sb.AppendLine("    public static class HarnessRegistry");
+        sb.AppendLine("    public static class ToolHarnessRegistry");
         sb.AppendLine("    {");
         sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// Catalog of all Harneses in this assembly with parameterless or ISecretResolver-only constructors.");
+        sb.AppendLine("        /// Catalog of all ToolHarnesses in this assembly with parameterless or ISecretResolver-only constructors.");
         sb.AppendLine("        /// AgentBuilder automatically discovers and uses this at construction time.");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static readonly HarnessFactory[] All = new HarnessFactory[]");
+        sb.AppendLine("        public static readonly ToolHarnessFactory[] All = new ToolHarnessFactory[]");
         sb.AppendLine("        {");
 
-        foreach (var Harness in instantiableHarneses)
+        foreach (var ToolHarness in instantiableToolHarnesses)
         {
-            var ns = string.IsNullOrEmpty(Harness.Namespace) ? "" : $"{Harness.Namespace}.";
-            var fullTypeName = $"{ns}{Harness.ClassName}";
+            var ns = string.IsNullOrEmpty(ToolHarness.Namespace) ? "" : $"{ToolHarness.Namespace}.";
+            var fullTypeName = $"{ns}{ToolHarness.ClassName}";
 
-            sb.AppendLine($"            new HarnessFactory(");
+            sb.AppendLine($"            new ToolHarnessFactory(");
             sb.AppendLine($"                // ========== EXISTING FIELDS ==========");
             // Use EffectiveName for registry lookup (always ClassName now)
-            sb.AppendLine($"                Name: \"{Harness.EffectiveName}\",");
-            sb.AppendLine($"                HarnessType: typeof({fullTypeName}),");
-            if (Harness.HasParameterlessConstructor)
+            sb.AppendLine($"                Name: \"{ToolHarness.EffectiveName}\",");
+            sb.AppendLine($"                ToolHarnessType: typeof({fullTypeName}),");
+            if (ToolHarness.HasParameterlessConstructor)
                 sb.AppendLine($"                CreateInstance: () => new {fullTypeName}(),  // Direct instantiation (AOT-safe)");
             else
                 sb.AppendLine($"                CreateInstance: () => throw new InvalidOperationException(\"{fullTypeName} requires ISecretResolver — use CreateWithSecrets\"),");
 
             // ========== SECRETS-BASED INSTANTIATION ==========
             sb.AppendLine($"                // ========== SECRETS-BASED INSTANTIATION ==========");
-            if (Harness.HasSecretsConstructor)
+            if (ToolHarness.HasSecretsConstructor)
                 sb.AppendLine($"                CreateWithSecrets: secrets => new {fullTypeName}(secrets),");
             else
                 sb.AppendLine($"                CreateWithSecrets: null,");
 
             // Handle skill-only containers (no instance parameter)
-            if (!Harness.RequiresInstance)
+            if (!ToolHarness.RequiresInstance)
             {
-                sb.AppendLine($"                CreateFunctions: (_, ctx, serialization) => {Harness.Name}Registration.CreateHarness(ctx, serialization),");
+                sb.AppendLine($"                CreateFunctions: (_, ctx, serialization) => {ToolHarness.Name}Registration.CreateToolHarness(ctx, serialization),");
             }
             else
             {
-                sb.AppendLine($"                CreateFunctions: (instance, ctx, serialization) => {Harness.Name}Registration.CreateHarness(({fullTypeName})instance, ctx, serialization),");
+                sb.AppendLine($"                CreateFunctions: (instance, ctx, serialization) => {ToolHarness.Name}Registration.CreateToolHarness(({fullTypeName})instance, ctx, serialization),");
             }
 
-            // Add GetReferencedHarneses if Harness has skills
-            if (Harness.SkillCapabilities.Any())
+            // Add GetReferencedToolHarnesses if ToolHarness has skills
+            if (ToolHarness.SkillCapabilities.Any())
             {
-                sb.AppendLine($"                GetReferencedHarneses: {Harness.Name}Registration.GetReferencedHarneses,");
-                sb.AppendLine($"                GetReferencedFunctions: {Harness.Name}Registration.GetReferencedFunctions,");
+                sb.AppendLine($"                GetReferencedToolHarnesses: {ToolHarness.Name}Registration.GetReferencedToolHarnesses,");
+                sb.AppendLine($"                GetReferencedFunctions: {ToolHarness.Name}Registration.GetReferencedFunctions,");
             }
             else
             {
-                sb.AppendLine($"                GetReferencedHarneses: () => Array.Empty<string>(),");
+                sb.AppendLine($"                GetReferencedToolHarnesses: () => Array.Empty<string>(),");
                 sb.AppendLine($"                GetReferencedFunctions: () => new Dictionary<string, string[]>(),");
             }
 
             // NEW: Collapsing metadata (from [Collapse] attribute)
             sb.AppendLine($"                // ========== COLLAPSING METADATA ==========");
-            sb.AppendLine($"                HasDescription: {Harness.IsCollapsed.ToString().ToLower()},");
-            sb.AppendLine($"                Description: {(string.IsNullOrEmpty(Harness.ContainerDescription) ? "null" : $"@\"{EscapeForVerbatim(Harness.ContainerDescription)}\"")},");
-            sb.AppendLine($"                FunctionResult: {(string.IsNullOrEmpty(Harness.FunctionResult) ? "null" : $"@\"{EscapeForVerbatim(Harness.FunctionResult)}\"")},");
-            sb.AppendLine($"                SystemPrompt: {(string.IsNullOrEmpty(Harness.SystemPrompt) ? "null" : $"@\"{EscapeForVerbatim(Harness.SystemPrompt)}\"")},");
+            sb.AppendLine($"                HasDescription: {ToolHarness.IsCollapsed.ToString().ToLower()},");
+            sb.AppendLine($"                Description: {(string.IsNullOrEmpty(ToolHarness.ContainerDescription) ? "null" : $"@\"{EscapeForVerbatim(ToolHarness.ContainerDescription)}\"")},");
+            sb.AppendLine($"                FunctionResult: {(string.IsNullOrEmpty(ToolHarness.FunctionResult) ? "null" : $"@\"{EscapeForVerbatim(ToolHarness.FunctionResult)}\"")},");
+            sb.AppendLine($"                SystemPrompt: {(string.IsNullOrEmpty(ToolHarness.SystemPrompt) ? "null" : $"@\"{EscapeForVerbatim(ToolHarness.SystemPrompt)}\"")},");
 
             // NEW: Config-based instantiation
             sb.AppendLine($"                // ========== CONFIG INSTANTIATION ==========");
-            if (!string.IsNullOrEmpty(Harness.ConfigConstructorTypeName))
+            if (!string.IsNullOrEmpty(ToolHarness.ConfigConstructorTypeName))
             {
-                sb.AppendLine($"                ConfigType: typeof({Harness.ConfigConstructorTypeName}),");
-                sb.AppendLine($"                CreateFromConfig: json => new {fullTypeName}(System.Text.Json.JsonSerializer.Deserialize<{Harness.ConfigConstructorTypeName}>(json.GetRawText())!),");
+                sb.AppendLine($"                ConfigType: typeof({ToolHarness.ConfigConstructorTypeName}),");
+                sb.AppendLine($"                CreateFromConfig: json => new {fullTypeName}(System.Text.Json.JsonSerializer.Deserialize<{ToolHarness.ConfigConstructorTypeName}>(json.GetRawText())!),");
             }
             else
             {
@@ -663,10 +663,10 @@ namespace HPD.Agent.Diagnostics {{
 
             // NEW: Metadata type
             sb.AppendLine($"                // ========== METADATA ==========");
-            if (!string.IsNullOrEmpty(Harness.MetadataTypeName))
+            if (!string.IsNullOrEmpty(ToolHarness.MetadataTypeName))
             {
-                sb.AppendLine($"                MetadataType: typeof({Harness.MetadataTypeName}),");
-                sb.AppendLine($"                DeserializeMetadata: json => System.Text.Json.JsonSerializer.Deserialize<{Harness.MetadataTypeName}>(json.GetRawText()),");
+                sb.AppendLine($"                MetadataType: typeof({ToolHarness.MetadataTypeName}),");
+                sb.AppendLine($"                DeserializeMetadata: json => System.Text.Json.JsonSerializer.Deserialize<{ToolHarness.MetadataTypeName}>(json.GetRawText()),");
             }
             else
             {
@@ -675,17 +675,17 @@ namespace HPD.Agent.Diagnostics {{
             }
 
             // NEW: Function names for selective registration
-            var functionNamesArray = Harness.FunctionNames.Any()
-                ? $"new string[] {{ {string.Join(", ", Harness.FunctionNames.Select(n => $"\"{n}\""))} }}"
+            var functionNamesArray = ToolHarness.FunctionNames.Any()
+                ? $"new string[] {{ {string.Join(", ", ToolHarness.FunctionNames.Select(n => $"\"{n}\""))} }}"
                 : "Array.Empty<string>()";
             sb.AppendLine($"                FunctionNames: {functionNamesArray},");
 
             // NEW: MCP Server support
             sb.AppendLine($"                // ========== MCP SERVERS ==========");
-            sb.AppendLine($"                HasMCPServers: {Harness.MCPServerCapabilities.Any().ToString().ToLower()},");
-            if (Harness.MCPServerCapabilities.Any())
+            sb.AppendLine($"                HasMCPServers: {ToolHarness.MCPServerCapabilities.Any().ToString().ToLower()},");
+            if (ToolHarness.MCPServerCapabilities.Any())
             {
-                sb.AppendLine($"                CollectMcpServers: {Harness.Name}Registration.CollectMcpServers,");
+                sb.AppendLine($"                CollectMcpServers: {ToolHarness.Name}Registration.CollectMcpServers,");
             }
             else
             {
@@ -694,9 +694,9 @@ namespace HPD.Agent.Diagnostics {{
 
             // NEW: OpenAPI support
             sb.AppendLine($"                // ========== OPENAPI SOURCES ==========");
-            if (Harness.OpenApiCapabilities.Any())
+            if (ToolHarness.OpenApiCapabilities.Any())
             {
-                sb.AppendLine($"                CollectOpenApiSources: {Harness.Name}Registration.CollectOpenApiSources,");
+                sb.AppendLine($"                CollectOpenApiSources: {ToolHarness.Name}Registration.CollectOpenApiSources,");
             }
             else
             {
@@ -705,24 +705,24 @@ namespace HPD.Agent.Diagnostics {{
 
             //  Content store document initialization
             sb.AppendLine($"                // ========== V3 CONTENT STORE DOCUMENTS ==========");
-            var hasSkillDocs = Harness.SkillCapabilities.Any(s =>
+            var hasSkillDocs = ToolHarness.SkillCapabilities.Any(s =>
                 s.Options.DocumentUploads.Any() || s.Options.DocumentReferences.Any());
             if (hasSkillDocs)
             {
-                sb.AppendLine($"                InitializeDocumentsAsync: {Harness.Name}Registration.InitializeDocumentsAsync,");
+                sb.AppendLine($"                InitializeDocumentsAsync: {ToolHarness.Name}Registration.InitializeDocumentsAsync,");
             }
             else
             {
                 sb.AppendLine($"                InitializeDocumentsAsync: null,");
             }
 
-            // Harness-scoped middleware (015): emit CollapseMiddlewareFactories (parameterless ctors)
+            // ToolHarness-scoped middleware (015): emit CollapseMiddlewareFactories (parameterless ctors)
             sb.AppendLine($"                // ========== HARNESS-SCOPED MIDDLEWARE (015) ==========");
-            if (Harness.CollapseMiddlewareTypeNames != null && Harness.CollapseMiddlewareTypeNames.Count > 0)
+            if (ToolHarness.CollapseMiddlewareTypeNames != null && ToolHarness.CollapseMiddlewareTypeNames.Count > 0)
             {
                 sb.AppendLine($"                CollapseMiddlewareFactories: new global::System.Func<global::HPD.Agent.Middleware.IAgentMiddleware>[]");
                 sb.AppendLine($"                {{");
-                foreach (var typeName in Harness.CollapseMiddlewareTypeNames)
+                foreach (var typeName in ToolHarness.CollapseMiddlewareTypeNames)
                 {
                     sb.AppendLine($"                    static () => new {typeName}(),");
                 }
@@ -733,12 +733,12 @@ namespace HPD.Agent.Diagnostics {{
                 sb.AppendLine($"                CollapseMiddlewareFactories: null,");
             }
 
-            // Harness-scoped middleware (015 §5A): emit CollapseMiddlewareConfigFactories (config-ctor middlewares)
-            if (Harness.CollapseMiddlewareConfigTypeNames != null && Harness.CollapseMiddlewareConfigTypeNames.Count > 0)
+            // ToolHarness-scoped middleware (015 §5A): emit CollapseMiddlewareConfigFactories (config-ctor middlewares)
+            if (ToolHarness.CollapseMiddlewareConfigTypeNames != null && ToolHarness.CollapseMiddlewareConfigTypeNames.Count > 0)
             {
                 sb.AppendLine($"                CollapseMiddlewareConfigFactories: new global::HPD.Agent.CollapseMiddlewareConfigFactory[]");
                 sb.AppendLine($"                {{");
-                foreach (var entry in Harness.CollapseMiddlewareConfigTypeNames)
+                foreach (var entry in ToolHarness.CollapseMiddlewareConfigTypeNames)
                 {
                     sb.AppendLine($"                    new global::HPD.Agent.CollapseMiddlewareConfigFactory(");
                     sb.AppendLine($"                        MiddlewareTypeName: \"{entry.SimpleName}\",");
@@ -762,7 +762,7 @@ namespace HPD.Agent.Diagnostics {{
         sb.AppendLine("        internal static void RegisterGeneratedCatalog()");
         sb.AppendLine("#pragma warning restore CA2255");
         sb.AppendLine("        {");
-        sb.AppendLine("            AgentGeneratedRegistry.Register(harneses: All);");
+        sb.AppendLine("            AgentGeneratedRegistry.Register(toolharnesses: All);");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
         sb.AppendLine("}");
@@ -962,27 +962,27 @@ namespace HPD.Agent.Diagnostics {{
     // ========== END MIDDLEWARE SOURCE GENERATION ==========
 
     /// <summary>
-    /// Generates the CreateHarness method using unified polymorphic ICapability iteration.
+    /// Generates the CreateToolHarness method using unified polymorphic ICapability iteration.
     /// Phase 4: Now the single unified generation path (old path removed).
     /// </summary>
-    private static string GenerateCreateHarnessMethod(HarnessInfo Harness)
+    private static string GenerateCreateToolHarnessMethod(ToolHarnessInfo ToolHarness)
     {
         var sb = new StringBuilder();
         sb.AppendLine("    /// <summary>");
-        sb.AppendLine($"    /// Creates an AIFunction list for the {Harness.Name} Harness.");
+        sb.AppendLine($"    /// Creates an AIFunction list for the {ToolHarness.Name} ToolHarness.");
         sb.AppendLine("    /// </summary>");
 
-        // Only include instance parameter if Harness has capabilities that need it
-        if (!Harness.RequiresInstance)
+        // Only include instance parameter if ToolHarness has capabilities that need it
+        if (!ToolHarness.RequiresInstance)
         {
             sb.AppendLine($"    /// <param name=\"context\">The execution context (optional)</param>");
-            sb.AppendLine($"    public static List<AIFunction> CreateHarness(IToolMetadata? context = null, HPDToolSerializationOptions? serialization = null)");
+            sb.AppendLine($"    public static List<AIFunction> CreateToolHarness(IToolMetadata? context = null, HPDToolSerializationOptions? serialization = null)");
         }
         else
         {
-            sb.AppendLine($"    /// <param name=\"instance\">The Harness instance</param>");
+            sb.AppendLine($"    /// <param name=\"instance\">The ToolHarness instance</param>");
             sb.AppendLine($"    /// <param name=\"context\">The execution context (optional)</param>");
-            sb.AppendLine($"    public static List<AIFunction> CreateHarness({Harness.Name} instance, IToolMetadata? context = null, HPDToolSerializationOptions? serialization = null)");
+            sb.AppendLine($"    public static List<AIFunction> CreateToolHarness({ToolHarness.Name} instance, IToolMetadata? context = null, HPDToolSerializationOptions? serialization = null)");
         }
 
         sb.AppendLine("    {");
@@ -990,7 +990,7 @@ namespace HPD.Agent.Diagnostics {{
         sb.AppendLine();
 
         // Add collapse container registration if needed (BEFORE individual capabilities)
-        var skillRegistrations = SkillCodeGenerator.GenerateSkillRegistrations(Harness);
+        var skillRegistrations = SkillCodeGenerator.GenerateSkillRegistrations(ToolHarness);
         if (!string.IsNullOrEmpty(skillRegistrations))
         {
             sb.Append(skillRegistrations);
@@ -999,7 +999,7 @@ namespace HPD.Agent.Diagnostics {{
         // PHASE 2A: POLYMORPHIC DISPATCH
         // Each capability declares via EmitsIntoCreateTools whether it belongs in the functions list.
         // Capabilities with their own registration paths (Skills, MCPServers, etc.) return false.
-        var createToolsCapabilities = Harness.Capabilities.Where(c => c.EmitsIntoCreateTools);
+        var createToolsCapabilities = ToolHarness.Capabilities.Where(c => c.EmitsIntoCreateTools);
 
         if (createToolsCapabilities.Any())
         {
@@ -1017,12 +1017,12 @@ namespace HPD.Agent.Diagnostics {{
                 {
                     sb.AppendLine($"        if (Evaluate{capability.Name}Condition(context))");
                     sb.AppendLine("        {");
-                    sb.AppendLine($"            functions.Add({capability.GenerateRegistrationCode(Harness)});");
+                    sb.AppendLine($"            functions.Add({capability.GenerateRegistrationCode(ToolHarness)});");
                     sb.AppendLine("        }");
                 }
                 else
                 {
-                    sb.AppendLine($"        functions.Add({capability.GenerateRegistrationCode(Harness)});");
+                    sb.AppendLine($"        functions.Add({capability.GenerateRegistrationCode(ToolHarness)});");
                 }
                 sb.AppendLine();
             }
@@ -1034,7 +1034,7 @@ namespace HPD.Agent.Diagnostics {{
     }
 
 
-    private static string GenerateHarnessRegistration(HarnessInfo Harness)
+    private static string GenerateToolHarnessRegistration(ToolHarnessInfo ToolHarness)
     {
         var sb = new StringBuilder();
 
@@ -1056,73 +1056,73 @@ namespace HPD.Agent.Diagnostics {{
         sb.AppendLine("using HPD.Agent;");
         sb.AppendLine("using HPD.Agent.Middleware;");
 
-        // Add using directive for the Harness's namespace if it's not empty
-        if (!string.IsNullOrEmpty(Harness.Namespace))
+        // Add using directive for the ToolHarness's namespace if it's not empty
+        if (!string.IsNullOrEmpty(ToolHarness.Namespace))
         {
-            sb.AppendLine($"using {Harness.Namespace};");
+            sb.AppendLine($"using {ToolHarness.Namespace};");
         }
 
         sb.AppendLine();
 
-        sb.AppendLine(GenerateArgumentsDtoAndContext(Harness));
+        sb.AppendLine(GenerateArgumentsDtoAndContext(ToolHarness));
 
         sb.AppendLine("/// <summary>");
-        sb.AppendLine($"/// Generated registration code for {Harness.Name} Harness.");
+        sb.AppendLine($"/// Generated registration code for {ToolHarness.Name} ToolHarness.");
         sb.AppendLine("/// </summary>");
         sb.AppendLine($"[System.CodeDom.Compiler.GeneratedCodeAttribute(\"HPDToolSourceGenerator\", \"1.0.0.0\")]");
-        sb.AppendLine($"public static partial class {Harness.Name}Registration");
+        sb.AppendLine($"public static partial class {ToolHarness.Name}Registration");
         sb.AppendLine("    {");
 
-        // Generate GetReferencedHarneses() and GetReferencedFunctions() if there are skills
+        // Generate GetReferencedToolHarnesses() and GetReferencedFunctions() if there are skills
         // PHASE 5: Use SkillCapabilities (fully populated with resolved references)
-        if (Harness.SkillCapabilities.Any())
+        if (ToolHarness.SkillCapabilities.Any())
         {
-            sb.AppendLine(SkillCodeGenerator.GenerateGetReferencedHarnesesMethod(Harness));
+            sb.AppendLine(SkillCodeGenerator.GenerateGetReferencedToolHarnessesMethod(ToolHarness));
             sb.AppendLine();
-            sb.AppendLine(SkillCodeGenerator.GenerateGetReferencedFunctionsMethod(Harness));
+            sb.AppendLine(SkillCodeGenerator.GenerateGetReferencedFunctionsMethod(ToolHarness));
             sb.AppendLine();
         }
 
-        // Generate Harness metadata accessor (always generated for consistency)
+        // Generate ToolHarness metadata accessor (always generated for consistency)
         // PHASE 5: Use SkillCapabilities instead of Skills
-        if (Harness.SkillCapabilities.Any())
+        if (ToolHarness.SkillCapabilities.Any())
         {
-            sb.AppendLine(SkillCodeGenerator.UpdateToolMetadataWithSkills(Harness, ""));
+            sb.AppendLine(SkillCodeGenerator.UpdateToolMetadataWithSkills(ToolHarness, ""));
         }
         else
         {
-            sb.AppendLine(GenerateToolMetadataMethod(Harness));
+            sb.AppendLine(GenerateToolMetadataMethod(ToolHarness));
         }
         sb.AppendLine();
 
-        // Generate empty schema helper if Harness is collapsed OR has skills
+        // Generate empty schema helper if ToolHarness is collapsed OR has skills
         // Note: Container function is generated in SkillCodeGenerator.GenerateAllSkillCode
-        if (Harness.IsCollapsed || Harness.SkillCapabilities.Any())
+        if (ToolHarness.IsCollapsed || ToolHarness.SkillCapabilities.Any())
         {
             sb.AppendLine(GenerateEmptySchemaMethod());
             sb.AppendLine();
         }
 
-        sb.AppendLine(GenerateCreateHarnessMethod(Harness));
+        sb.AppendLine(GenerateCreateToolHarnessMethod(ToolHarness));
 
-        foreach (var function in Harness.FunctionCapabilities)
+        foreach (var function in ToolHarness.FunctionCapabilities)
         {
             sb.AppendLine();
-            sb.AppendLine(GenerateSchemaValidator(function, Harness));
+            sb.AppendLine(GenerateSchemaValidator(function, ToolHarness));
             
             // Generate manual JSON parser for AOT compatibility
             var relevantParams = function.Parameters.Where(p => p.IsModelFacing).ToList();
             if (relevantParams.Any())
             {
                 sb.AppendLine();
-                sb.AppendLine(GenerateJsonParser(function, Harness));
+                sb.AppendLine(GenerateJsonParser(function, ToolHarness));
             }
         }
 
         // PHASE 2B: Generate context resolvers for ALL capabilities (Functions, Skills, SubAgents)
         // This enables Skills and SubAgents to use dynamic descriptions and conditionals (feature parity!)
         // Replaces the old DSL-based GenerateContextResolutionMethods() which only worked for Functions
-        foreach (var capability in Harness.Capabilities)
+        foreach (var capability in ToolHarness.Capabilities)
         {
             var resolvers = capability.GenerateContextResolvers();
             if (!string.IsNullOrEmpty(resolvers))
@@ -1132,46 +1132,46 @@ namespace HPD.Agent.Diagnostics {{
             }
         }
 
-        // Generate skill code AND harness container (if Harness is collapsed)
-        // NOTE: Container can exist even if there are no skills (e.g., collapsed Harness with only functions)
-        if (Harness.SkillCapabilities.Any() || Harness.IsCollapsed)
+        // Generate skill code AND toolharness container (if ToolHarness is collapsed)
+        // NOTE: Container can exist even if there are no skills (e.g., collapsed ToolHarness with only functions)
+        if (ToolHarness.SkillCapabilities.Any() || ToolHarness.IsCollapsed)
         {
-            sb.AppendLine(SkillCodeGenerator.GenerateAllSkillCode(Harness));
+            sb.AppendLine(SkillCodeGenerator.GenerateAllSkillCode(ToolHarness));
         }
 
         // Generate MCP Server registrations
-        if (Harness.MCPServerCapabilities.Any())
+        if (ToolHarness.MCPServerCapabilities.Any())
         {
             sb.AppendLine();
             sb.AppendLine("        // MCP Server configurations");
             sb.AppendLine("        public static void CollectMcpServers(object __instance, System.Action<HPD.Agent.McpServerSource> __mcpCollector)");
             sb.AppendLine("        {");
 
-            foreach (var mcp in Harness.MCPServerCapabilities)
+            foreach (var mcp in ToolHarness.MCPServerCapabilities)
             {
-                sb.AppendLine($"            {mcp.GenerateSourceCode(Harness)}");
+                sb.AppendLine($"            {mcp.GenerateSourceCode(ToolHarness)}");
             }
 
             sb.AppendLine("        }");
         }
 
         // Generate CollectOpenApiSources method
-        if (Harness.OpenApiCapabilities.Any())
+        if (ToolHarness.OpenApiCapabilities.Any())
         {
             sb.AppendLine();
             sb.AppendLine("        // OpenAPI source collection");
             sb.AppendLine("        /// <summary>");
             sb.AppendLine("        /// Collects OpenAPI source registrations from [OpenApi] methods.");
-            sb.AppendLine("        /// Called by AgentBuilder.CreateFunctionsFromCatalog() via HarnessFactory.CollectOpenApiSources.");
-            sb.AppendLine("        /// Config is passed as object so HarnessFactory has no compile-time dep on HPD-Agent.OpenApi.");
+            sb.AppendLine("        /// Called by AgentBuilder.CreateFunctionsFromCatalog() via ToolHarnessFactory.CollectOpenApiSources.");
+            sb.AppendLine("        /// Config is passed as object so ToolHarnessFactory has no compile-time dep on HPD-Agent.OpenApi.");
             sb.AppendLine("        /// Cast to OpenApiConfig happens inside OpenApiLoader.LoadAllAsync.");
             sb.AppendLine("        /// </summary>");
             sb.AppendLine($"        public static void CollectOpenApiSources(object __instance, System.Action<string, object, string> __openApiCollector)");
             sb.AppendLine("        {");
 
-            foreach (var openApi in Harness.OpenApiCapabilities)
+            foreach (var openApi in ToolHarness.OpenApiCapabilities)
             {
-                sb.AppendLine($"            {openApi.GenerateRegistrationCode(Harness)}");
+                sb.AppendLine($"            {openApi.GenerateRegistrationCode(ToolHarness)}");
             }
 
             sb.AppendLine("        }");
@@ -1182,20 +1182,20 @@ namespace HPD.Agent.Diagnostics {{
         return sb.ToString();
     }
 
-    private static string GenerateArgumentsDtoAndContext(HarnessInfo Harness)
+    private static string GenerateArgumentsDtoAndContext(ToolHarnessInfo ToolHarness)
     {
         var sb = new StringBuilder();
         var contextSerializableTypes = new List<string>();
 
-        // Generate SubAgentQueryArgs if there are sub-agents (Collapsed per Harness to avoid conflicts)
-        if (Harness.SubAgentCapabilities.Any())
+        // Generate SubAgentQueryArgs if there are sub-agents (Collapsed per ToolHarness to avoid conflicts)
+        if (ToolHarness.SubAgentCapabilities.Any())
         {
             sb.AppendLine(
 $@"    /// <summary>
     /// Represents the arguments for sub-agent invocations, generated at compile-time.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCodeAttribute(""HPDToolSourceGenerator"", ""1.0.0.0"")]
-    public class {Harness.Name}SubAgentQueryArgs
+    public class {ToolHarness.Name}SubAgentQueryArgs
     {{
         [System.Text.Json.Serialization.JsonPropertyName(""query"")]
         [System.ComponentModel.Description(""Query for the sub-agent"")]
@@ -1204,15 +1204,15 @@ $@"    /// <summary>
 ");
         }
 
-        // Generate MultiAgentInputArgs if there are multi-agents (Collapsed per Harness to avoid conflicts)
-        if (Harness.MultiAgentCapabilities.Any())
+        // Generate MultiAgentInputArgs if there are multi-agents (Collapsed per ToolHarness to avoid conflicts)
+        if (ToolHarness.MultiAgentCapabilities.Any())
         {
             sb.AppendLine(
 $@"    /// <summary>
     /// Represents the arguments for multi-agent workflow invocations, generated at compile-time.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCodeAttribute(""HPDToolSourceGenerator"", ""1.0.0.0"")]
-    public class {Harness.Name}MultiAgentInputArgs
+    public class {ToolHarness.Name}MultiAgentInputArgs
     {{
         [System.Text.Json.Serialization.JsonPropertyName(""input"")]
         [System.ComponentModel.Description(""The user's question or task to process through the multi-agent workflow. Pass the full user message here."")]
@@ -1221,7 +1221,7 @@ $@"    /// <summary>
 ");
         }
 
-        foreach (var function in Harness.FunctionCapabilities)
+        foreach (var function in ToolHarness.FunctionCapabilities)
         {
             if (!function.Parameters.Any(p => p.IsModelFacing)) continue;
 
@@ -1252,12 +1252,12 @@ $@"    /// <summary>
 
         // Note: We cannot generate JsonSerializerContext here because the System.Text.Json source generator
         // doesn't process attributes from other source generators in the same compilation.
-        // Instead, we'll use JsonSerializerOptions with TypeInfoResolver for AOT compatibility.
+        // Function schemas are emitted directly from parameter metadata to keep generated tools AOT-friendly.
 
         return sb.ToString();
     }
 
-    private static string GenerateSchemaValidator(HPD.Agent.SourceGenerator.Capabilities.FunctionCapability function, HarnessInfo Harness)
+    private static string GenerateSchemaValidator(HPD.Agent.SourceGenerator.Capabilities.FunctionCapability function, ToolHarnessInfo ToolHarness)
     {
         var relevantParams = function.Parameters.Where(p => p.IsModelFacing).ToList();
 
@@ -1921,7 +1921,7 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
                     new DiagnosticDescriptor(
                         "HPDAG0201",
                         "Invalid Middlewares element",
-                        "Harness '{0}': Middlewares array must contain only typeof() expressions.",
+                        "ToolHarness '{0}': Middlewares array must contain only typeof() expressions.",
                         "HPDAgent.SourceGenerator",
                         DiagnosticSeverity.Error,
                         isEnabledByDefault: true),
@@ -1949,7 +1949,7 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
                     new DiagnosticDescriptor(
                         "HPDAG0202",
                         "Middleware type does not implement IAgentMiddleware",
-                        "Harness '{0}': Type '{1}' in Middlewares does not implement IAgentMiddleware.",
+                        "ToolHarness '{0}': Type '{1}' in Middlewares does not implement IAgentMiddleware.",
                         "HPDAgent.SourceGenerator",
                         DiagnosticSeverity.Error,
                         isEnabledByDefault: true),
@@ -1959,18 +1959,18 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
                 continue;
             }
 
-            // Warn if not marked with IHarnessMiddleware
-            bool implementsHarnessMarker = typeInfo.Type.AllInterfaces.Any(i =>
-                i.Name == "IHarnessMiddleware" || i.ToDisplayString().EndsWith(".IHarnessMiddleware"));
+            // Warn if not marked with IToolHarnessMiddleware
+            bool implementsToolHarnessMarker = typeInfo.Type.AllInterfaces.Any(i =>
+                i.Name == "IToolHarnessMiddleware" || i.ToDisplayString().EndsWith(".IToolHarnessMiddleware"));
 
-            if (!implementsHarnessMarker)
+            if (!implementsToolHarnessMarker)
             {
                 diagnostics.Add(Diagnostic.Create(
                     new DiagnosticDescriptor(
                         "HPDAG0203",
-                        "Middleware type does not implement IHarnessMiddleware",
-                        "Harness '{0}': Type '{1}' is registered as scoped middleware but does not implement IHarnessMiddleware. " +
-                        "Implement IHarnessMiddleware to signal harness-scoped intent. This is a warning only.",
+                        "Middleware type does not implement IToolHarnessMiddleware",
+                        "ToolHarness '{0}': Type '{1}' is registered as scoped middleware but does not implement IToolHarnessMiddleware. " +
+                        "Implement IToolHarnessMiddleware to signal toolharness-scoped intent. This is a warning only.",
                         "HPDAgent.SourceGenerator",
                         DiagnosticSeverity.Warning,
                         isEnabledByDefault: true),
@@ -2016,8 +2016,8 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
                 new DiagnosticDescriptor(
                     "HPDAG0204",
                     "Scoped middleware requires a parameterless or single-config-parameter constructor",
-                    "Harness '{0}': Type '{1}' has no public parameterless constructor and no single-Config/Options-parameter constructor. " +
-                    "Use WithHarness<T>(opts => opts.AddScopedMiddleware(...)) to supply instances requiring DI.",
+                    "ToolHarness '{0}': Type '{1}' has no public parameterless constructor and no single-Config/Options-parameter constructor. " +
+                    "Use WithToolHarness<T>(opts => opts.AddScopedMiddleware(...)) to supply instances requiring DI.",
                     "HPDAgent.SourceGenerator",
                     DiagnosticSeverity.Error,
                     isEnabledByDefault: true),
@@ -2051,7 +2051,7 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
                 new DiagnosticDescriptor(
                     "HPDAG0101",
                     "Conflicting FunctionResult configuration",
-                    "Harness '{0}' specifies both FunctionResult literal and expression. Use one or the other, not both.",
+                    "ToolHarness '{0}' specifies both FunctionResult literal and expression. Use one or the other, not both.",
                     "HPDAgent.SourceGenerator",
                     DiagnosticSeverity.Error,
                     isEnabledByDefault: true,
@@ -2070,7 +2070,7 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
                 new DiagnosticDescriptor(
                     "HPDAG0102",
                     "ConflictingSystemPrompt configuration",
-                    "Harness '{0}' specifies bothSystemPrompt literal and expression. Use one or the other, not both.",
+                    "ToolHarness '{0}' specifies bothSystemPrompt literal and expression. Use one or the other, not both.",
                     "HPDAgent.SourceGenerator",
                     DiagnosticSeverity.Error,
                     isEnabledByDefault: true,
@@ -2125,7 +2125,7 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
                 new DiagnosticDescriptor(
                     "HPDAG0103",
                     $"Invalid {propertyName} expression syntax",
-                    "Harness '{0}' uses a string literal for {1} expression. Use the literal parameter instead, or provide a method/property reference.",
+                    "ToolHarness '{0}' uses a string literal for {1} expression. Use the literal parameter instead, or provide a method/property reference.",
                     "HPDAgent.SourceGenerator",
                     DiagnosticSeverity.Warning,
                     isEnabledByDefault: true,
@@ -2230,7 +2230,7 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
     /// <summary>
     /// Generates an argument parser that delegates conversion to the shared AOT-safe binder.
     /// </summary>
-    private static string GenerateJsonParser(HPD.Agent.SourceGenerator.Capabilities.FunctionCapability function, HarnessInfo Harness)
+    private static string GenerateJsonParser(HPD.Agent.SourceGenerator.Capabilities.FunctionCapability function, ToolHarnessInfo ToolHarness)
     {
         var dtoName = $"{function.Name}Args";
         var relevantParams = function.Parameters.Where(p => p.IsModelFacing).ToList();
@@ -2263,32 +2263,32 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
     }
 
     /// <summary>
-    /// Generates the GetToolMetadata() method for Harness Collapsing support.
+    /// Generates the GetToolMetadata() method for ToolHarness Collapsing support.
     /// </summary>
-    private static string GenerateToolMetadataMethod(HarnessInfo Harness)
+    private static string GenerateToolMetadataMethod(ToolHarnessInfo ToolHarness)
     {
         var sb = new StringBuilder();
 
-        var functionNamesArray = string.Join(", ", Harness.FunctionCapabilities.Select(f => $"\"{f.FunctionName}\""));
-        var description = Harness.IsCollapsed && !string.IsNullOrEmpty(Harness.ContainerDescription)
-            ? Harness.ContainerDescription
-            : Harness.Description;
+        var functionNamesArray = string.Join(", ", ToolHarness.FunctionCapabilities.Select(f => $"\"{f.FunctionName}\""));
+        var description = ToolHarness.IsCollapsed && !string.IsNullOrEmpty(ToolHarness.ContainerDescription)
+            ? ToolHarness.ContainerDescription
+            : ToolHarness.Description;
 
         sb.AppendLine("        private static ToolMetadata? _cachedMetadata;");
         sb.AppendLine();
         sb.AppendLine("        /// <summary>");
-        sb.AppendLine($"        /// Gets metadata for the {Harness.ClassName} Harness (used for Collapsing).");
+        sb.AppendLine($"        /// Gets metadata for the {ToolHarness.ClassName} ToolHarness (used for Collapsing).");
         sb.AppendLine("        /// </summary>");
         sb.AppendLine("        public static ToolMetadata GetToolMetadata()");
         sb.AppendLine("        {");
         sb.AppendLine("            return _cachedMetadata ??= new ToolMetadata");
         sb.AppendLine("            {");
         // Use EffectiveName for LLM-visible name (always ClassName now)
-        sb.AppendLine($"                Name = \"{Harness.EffectiveName}\",");
+        sb.AppendLine($"                Name = \"{ToolHarness.EffectiveName}\",");
         sb.AppendLine($"                Description = \"{description}\",");
         sb.AppendLine($"                FunctionNames = new string[] {{ {functionNamesArray} }},");
-        sb.AppendLine($"                FunctionCount = {Harness.FunctionCapabilities.Count()},");
-        sb.AppendLine($"                IsCollapsed = {Harness.IsCollapsed.ToString().ToLower()}");
+        sb.AppendLine($"                FunctionCount = {ToolHarness.FunctionCapabilities.Count()},");
+        sb.AppendLine($"                IsCollapsed = {ToolHarness.IsCollapsed.ToString().ToLower()}");
         sb.AppendLine("            };");
         sb.AppendLine("        }");
 
@@ -2296,53 +2296,53 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
     }
 
     /// <summary>
-    /// Generates the container function for a Collapsed Harness.
+    /// Generates the container function for a Collapsed ToolHarness.
     /// </summary>
-    private static string GenerateContainerFunction(HarnessInfo Harness)
+    private static string GenerateContainerFunction(ToolHarnessInfo ToolHarness)
     {
         var sb = new StringBuilder();
 
         // Combine both AI functions and skills
-        var allCapabilities = Harness.FunctionCapabilities.Select(f => f.FunctionName)
-            .Concat(Harness.SkillCapabilities.Select(s => s.Name))
+        var allCapabilities = ToolHarness.FunctionCapabilities.Select(f => f.FunctionName)
+            .Concat(ToolHarness.SkillCapabilities.Select(s => s.Name))
             .ToList();
         var capabilitiesList = string.Join(", ", allCapabilities);
-        var totalCount = Harness.FunctionCapabilities.Count() + Harness.SkillCapabilities.Count();
+        var totalCount = ToolHarness.FunctionCapabilities.Count() + ToolHarness.SkillCapabilities.Count();
 
-        var description = !string.IsNullOrEmpty(Harness.ContainerDescription)
-            ? Harness.ContainerDescription
-            : Harness.Description ?? string.Empty;
+        var description = !string.IsNullOrEmpty(ToolHarness.ContainerDescription)
+            ? ToolHarness.ContainerDescription
+            : ToolHarness.Description ?? string.Empty;
 
         // Use shared helper to generate description and return message
         // Use EffectiveName for LLM-visible container name
-        var fullDescription = HarnessContainerHelper.GenerateContainerDescription(description, Harness.EffectiveName, allCapabilities);
+        var fullDescription = ToolHarnessContainerHelper.GenerateContainerDescription(description, ToolHarness.EffectiveName, allCapabilities);
 
         sb.AppendLine("        /// <summary>");
-        sb.AppendLine($"        /// Container function for {Harness.ClassName} Harness.");
+        sb.AppendLine($"        /// Container function for {ToolHarness.ClassName} ToolHarness.");
         sb.AppendLine("        /// </summary>");
         // Method signature uses ClassName for type reference
-        sb.AppendLine($"        private static AIFunction Create{Harness.ClassName}Container({Harness.ClassName} instance, HPDToolSerializationOptions? serialization)");
+        sb.AppendLine($"        private static AIFunction Create{ToolHarness.ClassName}Container({ToolHarness.ClassName} instance, HPDToolSerializationOptions? serialization)");
         sb.AppendLine("        {");
         sb.AppendLine("            return HPDAIFunctionFactory.Create(");
         sb.AppendLine("                async (arguments, functionContext, cancellationToken) =>");
         sb.AppendLine("                {");
 
-        // Use the ContainerDescription (or Harness description as fallback) in the return message
-        var returnMessage = HarnessContainerHelper.GenerateReturnMessage(description, allCapabilities, Harness.FunctionResult);
+        // Use the ContainerDescription (or ToolHarness description as fallback) in the return message
+        var returnMessage = ToolHarnessContainerHelper.GenerateReturnMessage(description, allCapabilities, ToolHarness.FunctionResult);
 
-        if (!string.IsNullOrEmpty(Harness.FunctionResultExpression))
+        if (!string.IsNullOrEmpty(ToolHarness.FunctionResultExpression))
         {
             // Using an interpolated string to combine the base message and the dynamic instructions
-            var baseMessage = HarnessContainerHelper.GenerateReturnMessage(description, allCapabilities, null);
+            var baseMessage = ToolHarnessContainerHelper.GenerateReturnMessage(description, allCapabilities, null);
             // Escape special characters for the interpolated string - we need to convert \n\n to \\n\\n in source code
             baseMessage = baseMessage.Replace("\\", "\\\\").Replace("\n", "\\n").Replace("\"", "\\\"");
             // Add separator between capabilities list and dynamic instructions
             var separator = "\\n\\n";  // This will be two backslash-n sequences in the source code
 
             // Use instance. prefix for instance methods, nothing for static
-            var expressionCall = Harness.FunctionResultIsStatic
-                ? Harness.FunctionResultExpression
-                : $"instance.{Harness.FunctionResultExpression}";
+            var expressionCall = ToolHarness.FunctionResultIsStatic
+                ? ToolHarness.FunctionResultExpression
+                : $"instance.{ToolHarness.FunctionResultExpression}";
 
             sb.AppendLine($"                    var dynamicInstructions = {expressionCall};");
             sb.AppendLine($"                    return $\"{baseMessage}{separator}{{dynamicInstructions}}\";");
@@ -2362,7 +2362,7 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
         sb.AppendLine("                new HPDAIFunctionFactoryOptions");
         sb.AppendLine("                {");
         // Use EffectiveName for LLM-visible container function name
-        sb.AppendLine($"                    Name = \"{Harness.EffectiveName}\",");
+        sb.AppendLine($"                    Name = \"{ToolHarness.EffectiveName}\",");
         sb.AppendLine($"                    Description = \"{fullDescription}\",");
         sb.AppendLine("                    SchemaProvider = () => CreateEmptyContainerSchema(),");
         sb.AppendLine("                    SerializerOptions = serialization?.SerializerOptions,");
@@ -2370,40 +2370,40 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
         sb.AppendLine("                    AdditionalProperties = new Dictionary<string, object>");
         sb.AppendLine("                    {");
         sb.AppendLine("                        [\"IsContainer\"] = true,");
-        // Use EffectiveName for HarnessName metadata (always ClassName now)
-        sb.AppendLine($"                        [\"HarnessName\"] = \"{Harness.EffectiveName}\",");
+        // Use EffectiveName for ToolHarnessName metadata (always ClassName now)
+        sb.AppendLine($"                        [\"ToolHarnessName\"] = \"{ToolHarness.EffectiveName}\",");
         sb.AppendLine($"                        [\"FunctionNames\"] = new string[] {{ {string.Join(", ", allCapabilities.Select(c => $"\"{c}\""))} }},");
         sb.AppendLine($"                        [\"FunctionCount\"] = {totalCount},");
 
         // AddSystemPrompt to metadata (for middleware injection)
-        if (!string.IsNullOrEmpty(Harness.SystemPrompt))
+        if (!string.IsNullOrEmpty(ToolHarness.SystemPrompt))
         {
             // Use verbatim string literal - only escape quotes (double them), NOT newlines
-            var escapedSysPrompt = Harness.SystemPrompt.Replace("\"", "\"\"");
+            var escapedSysPrompt = ToolHarness.SystemPrompt.Replace("\"", "\"\"");
             sb.AppendLine($"                        [\"SystemPrompt\"] = @\"{escapedSysPrompt}\",");
         }
-        else if (!string.IsNullOrEmpty(Harness.SystemPromptExpression))
+        else if (!string.IsNullOrEmpty(ToolHarness.SystemPromptExpression))
         {
             // Expression - evaluate at container creation time
             // Use instance. prefix for instance methods, nothing for static
-            var expressionCall = Harness.SystemPromptIsStatic
-                ? Harness.SystemPromptExpression
-                : $"instance.{Harness.SystemPromptExpression}";
+            var expressionCall = ToolHarness.SystemPromptIsStatic
+                ? ToolHarness.SystemPromptExpression
+                : $"instance.{ToolHarness.SystemPromptExpression}";
 
             sb.AppendLine($"                        [\"SystemPrompt\"] = {expressionCall},");
         }
 
         // Optionally store FunctionResult for introspection
-        if (!string.IsNullOrEmpty(Harness.FunctionResult))
+        if (!string.IsNullOrEmpty(ToolHarness.FunctionResult))
         {
             // Use verbatim string literal - only escape quotes (double them), NOT newlines
-            var escapedFuncResult = Harness.FunctionResult.Replace("\"", "\"\"");
+            var escapedFuncResult = ToolHarness.FunctionResult.Replace("\"", "\"\"");
             sb.AppendLine($"                        [\"FunctionResult\"] = @\"{escapedFuncResult}\"");
         }
-        else if (!string.IsNullOrEmpty(Harness.FunctionResultExpression))
+        else if (!string.IsNullOrEmpty(ToolHarness.FunctionResultExpression))
         {
             // Don't store expression in metadata (it's already executed in return statement)
-            sb.AppendLine($"                        // FunctionResult is dynamic: {Harness.FunctionResultExpression}");
+            sb.AppendLine($"                        // FunctionResult is dynamic: {ToolHarness.FunctionResultExpression}");
         }
         else
         {
@@ -2443,7 +2443,7 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
 
     /// <summary>
     /// Resolves SkillCapability references recursively (Phase 5 migration).
-    /// Populates ResolvedFunctionReferences and ResolvedHarnessTypes from UnresolvedReferences.
+    /// Populates ResolvedFunctionReferences and ResolvedToolHarnessTypes from UnresolvedReferences.
     /// </summary>
     private static void ResolveSkillCapabilities(List<HPD.Agent.SourceGenerator.Capabilities.SkillCapability> skills)
     {
@@ -2493,7 +2493,7 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
             if (reference.ReferenceType == HPD.Agent.SourceGenerator.Capabilities.ReferenceType.Skill)
             {
                 // It's a skill reference - resolve it recursively
-                var referencedSkillName = $"{reference.HarnessType}.{reference.MethodName}";
+                var referencedSkillName = $"{reference.ToolHarnessType}.{reference.MethodName}";
                 if (skillLookup.TryGetValue(referencedSkillName, out var referencedSkill))
                 {
                     // Recursively resolve the referenced skill first
@@ -2501,7 +2501,7 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
 
                     // Add all its function references to our list
                     functionRefs.AddRange(referencedSkill.ResolvedFunctionReferences);
-                    foreach (var pt in referencedSkill.ResolvedHarnessTypes)
+                    foreach (var pt in referencedSkill.ResolvedToolHarnessTypes)
                     {
                         toolTypes.Add(pt);
                     }
@@ -2511,13 +2511,13 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
             {
                 // It's a function reference - add directly
                 functionRefs.Add(reference.FullName);
-                toolTypes.Add(reference.HarnessType);
+                toolTypes.Add(reference.ToolHarnessType);
             }
         }
 
         // Update the skill with resolved references
         skill.ResolvedFunctionReferences = functionRefs.Distinct().OrderBy(f => f).ToList();
-        skill.ResolvedHarnessTypes = toolTypes.OrderBy(p => p).ToList();
+        skill.ResolvedToolHarnessTypes = toolTypes.OrderBy(p => p).ToList();
 
         stack.Pop();
     }

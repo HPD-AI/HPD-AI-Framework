@@ -2,7 +2,7 @@ using System;
 
 /// <summary>
 /// Marks a sub-agent as conditionally available based on metadata properties.
-/// The sub-agent will only be included in the Harness when the condition evaluates to true.
+/// The sub-agent will only be included in the ToolHarness when the condition evaluates to true.
 /// The metadata type is determined by the SubAgent&lt;TMetadata&gt; attribute on the method.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]

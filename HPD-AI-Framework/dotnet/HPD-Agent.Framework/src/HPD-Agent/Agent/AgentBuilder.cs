@@ -75,16 +75,16 @@ public class AgentBuilder
     internal bool _deferredProvider; // Skip provider validation - chat client will be provided at runtime
 
     /// <summary>
-    /// Instance-based registrations for DI-required Harneses (e.g., AgentPlanHarness, DynamicMemoryHarness).
-    /// These Harneses cannot be instantiated via the catalog because they require constructor parameters.
+    /// Instance-based registrations for DI-required ToolHarnesses (e.g., AgentPlanToolHarness, DynamicMemoryToolHarness).
+    /// These ToolHarnesses cannot be instantiated via the catalog because they require constructor parameters.
     /// </summary>
     public readonly List<ToolInstanceRegistration> _instanceRegistrations = new();
-    // store individual Harness contexts
-    internal readonly Dictionary<string, IToolMetadata?> _harnessContexts = new();
+    // store individual ToolHarness contexts
+    internal readonly Dictionary<string, IToolMetadata?> _toolharnessContexts = new();
     //  Unified content store for all agent content (skills, knowledge, memory, uploads, artifacts)
     internal IContentStore? _contentStore;
-    // Track explicitly registered Harneses (for Collapsing manager)
-    internal readonly HashSet<string> _explicitlyRegisteredHarneses = new(StringComparer.OrdinalIgnoreCase);
+    // Track explicitly registered ToolHarnesses (for Collapsing manager)
+    internal readonly HashSet<string> _explicitlyRegisteredToolHarnesses = new(StringComparer.OrdinalIgnoreCase);
     internal readonly List<Middleware.IAgentMiddleware> _middlewares = new(); // Unified middleware list
     internal readonly HPD.Agent.Permissions.PermissionOverrideRegistry _permissionOverrides = new(); // Permission overrides
 
@@ -92,7 +92,7 @@ public class AgentBuilder
     private LoggingMiddlewareOptions? _loggingOptions = null;
 
     // Function Collapse tracking for middleware Collapsing
-    internal readonly Dictionary<string, string> _functionToHarnessMap = new(); // functionName -> toolTypeName
+    internal readonly Dictionary<string, string> _functionToToolHarnessMap = new(); // functionName -> toolTypeName
     internal readonly Dictionary<string, string> _functionToSkillMap = new(); // functionName -> skillName
 
     // Internal subscriptions for agent-level observability (developer-only, hidden from users)
@@ -113,20 +113,20 @@ public class AgentBuilder
     public HPD.Agent.TextExtraction.TextExtractionUtility? _textExtractor;
 
     //     
-    // AOT-COMPATIBLE Harness REGISTRY (Phase: AOT Harness Registry Hybrid)
+    // AOT-COMPATIBLE ToolHarness REGISTRY (Phase: AOT ToolHarness Registry Hybrid)
     //     
-    // These fields enable reflection-free Harness instantiation in hot paths.
+    // These fields enable reflection-free ToolHarness instantiation in hot paths.
     // The source generator creates a ToolRegistry.All array with direct delegates.
 
     /// <summary>
-    /// Harness catalog loaded from generated HarnessRegistry.All.
+    /// ToolHarness catalog loaded from generated ToolHarnessRegistry.All.
     /// Starts with the calling assembly's registry and lazily loads additional assemblies
-    /// when Harneses from other assemblies are requested via WithHarness&lt;T&gt;().
+    /// when ToolHarnesses from other assemblies are requested via WithToolHarness&lt;T&gt;().
     /// </summary>
-    internal readonly Dictionary<string, HarnessFactory> _availableHarneses = new(StringComparer.OrdinalIgnoreCase);
+    internal readonly Dictionary<string, ToolHarnessFactory> _availableToolHarnesses = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Tracks which assemblies have already been scanned for Harness registries.
+    /// Tracks which assemblies have already been scanned for ToolHarness registries.
     /// Used to avoid repeated reflection calls for the same assembly.
     /// </summary>
     internal readonly HashSet<Assembly> _loadedAssemblies = new();
@@ -136,28 +136,28 @@ public class AgentBuilder
     private readonly List<ISecretResolver> _additionalResolvers = new();
 
     /// <summary>
-    /// Selected Harneses for this agent (from WithHarness calls).
-    /// Only Harneses in this list will have their functions created during Build().
+    /// Selected ToolHarnesses for this agent (from WithToolHarness calls).
+    /// Only ToolHarnesses in this list will have their functions created during Build().
     /// </summary>
-    internal readonly List<HarnessFactory> _selectedHarnessFactories = new();
+    internal readonly List<ToolHarnessFactory> _selectedToolHarnessFactories = new();
 
     /// <summary>
-    /// Harness overrides from builder calls (takes precedence over config).
-    /// Maps harness name -> HarnessReference with updated config/metadata.
+    /// ToolHarness overrides from builder calls (takes precedence over config).
+    /// Maps toolharness name -> ToolHarnessReference with updated config/metadata.
     /// Used for Config = Base, Builder = Override/Extend pattern.
     /// </summary>
-    internal readonly Dictionary<string, HarnessReference> _harnessOverrides = new(StringComparer.OrdinalIgnoreCase);
+    internal readonly Dictionary<string, ToolHarnessReference> _toolharnessOverrides = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Tracks which harnesses were added via builder (not config).
+    /// Tracks which toolharnesses were added via builder (not config).
     /// Used to determine what's an override vs extension.
     /// </summary>
-    internal readonly HashSet<string> _builderAddedHarneses = new(StringComparer.OrdinalIgnoreCase);
+    internal readonly HashSet<string> _builderAddedToolHarnesses = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Builder-time DI middleware instances for harness-scoped middleware .
-    /// Maps harness name -> list of middleware instances supplied via
-    /// <c>WithHarness&lt;T&gt;(opts => opts.AddScopedMiddleware(...))</c>.
+    /// Builder-time DI middleware instances for toolharness-scoped middleware .
+    /// Maps toolharness name -> list of middleware instances supplied via
+    /// <c>WithToolHarness&lt;T&gt;(opts => opts.AddScopedMiddleware(...))</c>.
     /// Merged with attribute-declared factory middlewares at container expansion time.
     /// </summary>
     internal readonly Dictionary<string, List<Middleware.IAgentMiddleware>> _HARNESScopedMiddlewares
@@ -178,8 +178,8 @@ public class AgentBuilder
 
     /// <summary>
     /// Function filters for Phase 4.5 selective registration.
-    /// Maps Harness name -> array of function names to include.
-    /// When a Harness is auto-registered as a skill dependency, only these functions are included.
+    /// Maps ToolHarness name -> array of function names to include.
+    /// When a ToolHarness is auto-registered as a skill dependency, only these functions are included.
     /// </summary>
     internal readonly Dictionary<string, string[]> _toolFunctionFilters = new(StringComparer.OrdinalIgnoreCase);
 
@@ -198,13 +198,13 @@ public class AgentBuilder
     //
     // AOT-COMPATIBLE MIDDLEWARE STATE REGISTRY (Phase: Cross-Assembly State Discovery)
     //
-    // These fields enable cross-assembly middleware state discovery following the HarnessRegistry pattern.
+    // These fields enable cross-assembly middleware state discovery following the ToolHarnessRegistry pattern.
     // Each assembly generates a MiddlewareStateRegistry.All array with factories for [MiddlewareState] types.
 
     /// <summary>
     /// Middleware state catalog loaded from generated MiddlewareStateRegistry.All.
     /// Starts with the calling assembly's registry and lazily loads additional assemblies
-    /// when harnesses from other assemblies are registered via WithHarness&lt;T&gt;().
+    /// when toolharnesses from other assemblies are registered via WithToolHarness&lt;T&gt;().
     /// </summary>
     internal readonly Dictionary<string, MiddlewareStateFactory> _stateFactories = new(StringComparer.Ordinal);
 
@@ -215,17 +215,17 @@ public class AgentBuilder
     internal readonly HashSet<Assembly> _loadedStateAssemblies = new();
 
     /// <summary>
-    /// Harness configs from config Harneses list.
-    /// Maps harness name -> JsonElement config for CreateFromConfig delegate.
+    /// ToolHarness configs from config ToolHarnesses list.
+    /// Maps toolharness name -> JsonElement config for CreateFromConfig delegate.
     /// </summary>
-    internal readonly Dictionary<string, System.Text.Json.JsonElement> _harnessConfigs = new(StringComparer.OrdinalIgnoreCase);
+    internal readonly Dictionary<string, System.Text.Json.JsonElement> _toolharnessConfigs = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Per-harness middleware config overrides from <c>HarnessReference.MiddlewareConfigs</c> .
-    /// Maps harness name -> (middleware simple type name -> JsonElement config).
+    /// Per-toolharness middleware config overrides from <c>ToolHarnessReference.MiddlewareConfigs</c> .
+    /// Maps toolharness name -> (middleware simple type name -> JsonElement config).
     /// Passed to <see cref="ContainerMiddleware"/> at build time for config-constructor middleware instantiation.
     /// </summary>
-    internal readonly Dictionary<string, Dictionary<string, System.Text.Json.JsonElement>> _harnessMiddlewareConfigs
+    internal readonly Dictionary<string, Dictionary<string, System.Text.Json.JsonElement>> _toolharnessMiddlewareConfigs
         = new(StringComparer.OrdinalIgnoreCase);
 
     // ==========  OpenAPI Support  ==========
@@ -238,7 +238,7 @@ public class AgentBuilder
     private static IMcpToolLoader? s_mcpToolLoader;
 
     /// <summary>
-    /// OpenAPI sources registered via WithOpenApi() or [OpenApi] harness attribute.
+    /// OpenAPI sources registered via WithOpenApi() or [OpenApi] toolharness attribute.
     /// Resolved and loaded in BuildDependenciesAsync() after MCP tool loading.
     /// </summary>
     internal readonly List<OpenApiSourceRegistration> _openApiSources = new();
@@ -262,7 +262,7 @@ public class AgentBuilder
 
     /// <summary>
     /// Adds a pending OpenAPI source registration. Called by WithOpenApi() and
-    /// CreateFunctionsFromCatalog() when a harness has [OpenApi] methods.
+    /// CreateFunctionsFromCatalog() when a toolharness has [OpenApi] methods.
     /// </summary>
     internal void AddOpenApiSource(OpenApiSourceRegistration registration)
     {
@@ -297,7 +297,7 @@ public class AgentBuilder
 
     /// <summary>
     /// Creates a builder with custom provider registry (for testing).
-    /// Optionally accepts an assembly hint for Harness registry discovery.
+    /// Optionally accepts an assembly hint for ToolHarness registry discovery.
     /// </summary>
     public AgentBuilder(AgentConfig config, IProviderRegistry providerRegistry)
     {
@@ -309,10 +309,10 @@ public class AgentBuilder
 
     internal void LoadGeneratedRegistries()
     {
-        var (harneses, middlewares, states) = AgentGeneratedRegistry.Snapshot();
+        var (toolharnesses, middlewares, states) = AgentGeneratedRegistry.Snapshot();
 
-        foreach (var factory in harneses)
-            _availableHarneses.TryAdd(factory.Name, factory);
+        foreach (var factory in toolharnesses)
+            _availableToolHarnesses.TryAdd(factory.Name, factory);
 
         foreach (var factory in middlewares)
             _availableMiddlewares.TryAdd(factory.Name, factory);
@@ -394,14 +394,14 @@ public class AgentBuilder
 
 
     /// <summary>
-    /// Loads Harneses, Middlewares, and Middleware States from the generated registries in the specified assembly
-    /// and merges them into the _availableHarneses, _availableMiddlewares, and _stateFactories dictionaries.
+    /// Loads ToolHarnesses, Middlewares, and Middleware States from the generated registries in the specified assembly
+    /// and merges them into the _availableToolHarnesses, _availableMiddlewares, and _stateFactories dictionaries.
     /// Uses minimal reflection (GetType calls per assembly) to discover the catalogs.
     /// Thread-safe: tracks loaded assemblies to avoid duplicate processing.
     /// WARNING: Requires source-generated registry types to be preserved in AOT.
     /// </summary>
     /// <param name="assembly">The assembly to search for the generated registries</param>
-    [RequiresUnreferencedCode("Registry lookup via Assembly.GetType requires HarnessRegistry, MiddlewareRegistry, and MiddlewareStateRegistry types to be preserved during AOT compilation.")]
+    [RequiresUnreferencedCode("Registry lookup via Assembly.GetType requires ToolHarnessRegistry, MiddlewareRegistry, and MiddlewareStateRegistry types to be preserved during AOT compilation.")]
     internal void LoadToolRegistryFromAssembly(Assembly assembly)
     {
         // Skip if already loaded
@@ -410,8 +410,8 @@ public class AgentBuilder
             return;
         }
 
-        // Load Harness registry
-        LoadHarnessRegistryFromAssembly(assembly);
+        // Load ToolHarness registry
+        LoadToolHarnessRegistryFromAssembly(assembly);
 
         // Load Middleware registry
         LoadMiddlewareRegistryFromAssembly(assembly);
@@ -421,20 +421,20 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Loads Harneses from the generated HarnessRegistry.All in the specified assembly.
+    /// Loads ToolHarnesses from the generated ToolHarnessRegistry.All in the specified assembly.
     /// </summary>
-    [RequiresUnreferencedCode("Harness registry lookup via Assembly.GetType requires HarnessRegistry type to be preserved during AOT compilation.")]
-    private void LoadHarnessRegistryFromAssembly(Assembly assembly)
+    [RequiresUnreferencedCode("ToolHarness registry lookup via Assembly.GetType requires ToolHarnessRegistry type to be preserved during AOT compilation.")]
+    private void LoadToolHarnessRegistryFromAssembly(Assembly assembly)
     {
         try
         {
             // ONE reflection call: Look for generated registry in the specified assembly
             // This type name is a constant known at compile time, making it AOT-safe
-            var registryType = assembly.GetType("HPD.Agent.Generated.HarnessRegistry");
+            var registryType = assembly.GetType("HPD.Agent.Generated.ToolHarnessRegistry");
 
             if (registryType == null)
             {
-                // No registry found - no Harneses available from this assembly
+                // No registry found - no ToolHarnesses available from this assembly
                 return;
             }
 
@@ -445,25 +445,25 @@ public class AgentBuilder
                 return;
             }
 
-            // Get the HarnessFactory array
-            var factories = allField.GetValue(null) as HarnessFactory[];
+            // Get the ToolHarnessFactory array
+            var factories = allField.GetValue(null) as ToolHarnessFactory[];
             if (factories == null || factories.Length == 0)
             {
                 return;
             }
 
-            // Add to dictionary (new Harneses from this assembly)
+            // Add to dictionary (new ToolHarnesses from this assembly)
             foreach (var factory in factories)
             {
-                // Use TryAdd to avoid overwriting if Harness with same name already exists
-                _availableHarneses.TryAdd(factory.Name, factory);
+                // Use TryAdd to avoid overwriting if ToolHarness with same name already exists
+                _availableToolHarnesses.TryAdd(factory.Name, factory);
             }
         }
         catch (Exception ex)
         {
-            // Log warning but don't crash - no Harneses from this assembly
+            // Log warning but don't crash - no ToolHarnesses from this assembly
             _logger?.CreateLogger<AgentBuilder>()
-                .LogWarning(ex, "Failed to load HarnessRegistry.All from assembly {Assembly}", assembly.FullName);
+                .LogWarning(ex, "Failed to load ToolHarnessRegistry.All from assembly {Assembly}", assembly.FullName);
         }
     }
 
@@ -515,7 +515,7 @@ public class AgentBuilder
 
     /// <summary>
     /// Loads middleware state factories from the generated MiddlewareStateRegistry.All in the specified assembly.
-    /// This enables cross-assembly state discovery following the HarnessRegistry pattern.
+    /// This enables cross-assembly state discovery following the ToolHarnessRegistry pattern.
     /// </summary>
     [RequiresUnreferencedCode("State registry lookup via Assembly.GetType requires MiddlewareStateRegistry type to be preserved during AOT compilation.")]
     internal void LoadStateRegistryFromAssembly(Assembly assembly)
@@ -565,23 +565,23 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Creates AIFunctions from selected Harneses using the catalog (zero reflection in hot path).
-    /// Also handles instance-based registrations for DI Harneses.
+    /// Creates AIFunctions from selected ToolHarnesses using the catalog (zero reflection in hot path).
+    /// Also handles instance-based registrations for DI ToolHarnesses.
     /// Phase 4.5: Applies function filters for selective registration.
     /// </summary>
-    /// <returns>List of AIFunctions from all selected Harneses</returns>
+    /// <returns>List of AIFunctions from all selected ToolHarnesses</returns>
     private List<AIFunction> CreateFunctionsFromCatalog()
     {
         var allFunctions = new List<AIFunction>();
 
-        // Process catalog-based Harneses (zero reflection in hot path)
-        foreach (var factory in _selectedHarnessFactories)
+        // Process catalog-based ToolHarnesses (zero reflection in hot path)
+        foreach (var factory in _selectedToolHarnessFactories)
         {
             try
             {
-                _harnessContexts.TryGetValue(factory.Name, out var ctx);
+                _toolharnessContexts.TryGetValue(factory.Name, out var ctx);
 
-                // Create Harness instance using AOT-safe resolution:
+                // Create ToolHarness instance using AOT-safe resolution:
                 // 1. Try DI first (if ServiceProvider available)
                 // 2. Try config-based instantiation (if config provided)
                 // 3. Try ISecretResolver-only constructor (auto-injected from builder)
@@ -591,7 +591,7 @@ public class AgentBuilder
                 // 1. Try DI first
                 if (_serviceProvider != null)
                 {
-                    var diInstance = _serviceProvider.GetService(factory.HarnessType);
+                    var diInstance = _serviceProvider.GetService(factory.ToolHarnessType);
                     if (diInstance != null)
                     {
                         instance = diInstance;
@@ -600,7 +600,7 @@ public class AgentBuilder
                 }
 
                 // 2. Try config-based instantiation
-                if (_harnessConfigs.TryGetValue(factory.Name, out var config) && factory.CreateFromConfig != null)
+                if (_toolharnessConfigs.TryGetValue(factory.Name, out var config) && factory.CreateFromConfig != null)
                 {
                     instance = factory.CreateFromConfig(config);
                     goto HaveInstance;
@@ -617,9 +617,9 @@ public class AgentBuilder
                 instance = factory.CreateInstance();
 
             HaveInstance:
-                // Collect OpenAPI sources from [OpenApi] harness methods (ZERO REFLECTION!)
+                // Collect OpenAPI sources from [OpenApi] toolharness methods (ZERO REFLECTION!)
                 // Config is stored as object; cast to OpenApiConfig happens in OpenApiLoader.
-                // CollapseWithinHarness placeholder is false — loader reads it from config directly.
+                // CollapseWithinToolHarness placeholder is false — loader reads it from config directly.
                 if (factory.CollectOpenApiSources != null)
                 {
                     factory.CollectOpenApiSources(instance, (name, config, parentContainer) =>
@@ -627,7 +627,7 @@ public class AgentBuilder
                         _openApiSources.Add(new OpenApiSourceRegistration(
                             Name: name,
                             ParentContainer: parentContainer,
-                            CollapseWithinHarness: false,   // placeholder — loader reads from config
+                            CollapseWithinToolHarness: false,   // placeholder — loader reads from config
                             Config: config));
                     });
                 }
@@ -635,7 +635,7 @@ public class AgentBuilder
                 // Call CreateFunctions delegate (ZERO REFLECTION!)
                 var functions = factory.CreateFunctions(instance, ctx ?? _defaulTMetadata, CreateToolSerializationOptions());
 
-                // Phase 4.5: Apply function filter if this Harness has selective registration
+                // Phase 4.5: Apply function filter if this ToolHarness has selective registration
                 if (_toolFunctionFilters.TryGetValue(factory.Name, out var functionFilter))
                 {
                     // Only include functions that are in the filter
@@ -649,23 +649,23 @@ public class AgentBuilder
             catch (Exception ex)
             {
                 _logger?.CreateLogger<AgentBuilder>()
-                    .LogWarning(ex, "Failed to create functions for Harness {HarnessName}", factory.Name);
+                    .LogWarning(ex, "Failed to create functions for ToolHarness {ToolHarnessName}", factory.Name);
             }
         }
 
-        // Process instance-based registrations (for DI Harneses like AgentPlanHarness, DynamicMemoryHarness)
+        // Process instance-based registrations (for DI ToolHarnesses like AgentPlanToolHarness, DynamicMemoryToolHarness)
         foreach (var registration in _instanceRegistrations)
         {
             try
             {
-                if (!_availableHarneses.TryGetValue(registration.ToolTypeName, out var factory))
+                if (!_availableToolHarnesses.TryGetValue(registration.ToolTypeName, out var factory))
                 {
                     throw new InvalidOperationException(
-                        $"Harness '{registration.ToolTypeName}' not found in HarnessRegistry.All. " +
-                        $"Ensure the harness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
+                        $"ToolHarness '{registration.ToolTypeName}' not found in ToolHarnessRegistry.All. " +
+                        $"Ensure the toolharness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
                 }
 
-                _harnessContexts.TryGetValue(registration.ToolTypeName, out var ctx);
+                _toolharnessContexts.TryGetValue(registration.ToolTypeName, out var ctx);
 
                 if (factory.CollectOpenApiSources != null)
                 {
@@ -674,7 +674,7 @@ public class AgentBuilder
                         _openApiSources.Add(new OpenApiSourceRegistration(
                             Name: name,
                             ParentContainer: parentContainer,
-                            CollapseWithinHarness: false,
+                            CollapseWithinToolHarness: false,
                             Config: config));
                     });
                 }
@@ -694,7 +694,7 @@ public class AgentBuilder
             catch (Exception ex)
             {
                 _logger?.CreateLogger<AgentBuilder>()
-                    .LogWarning(ex, "Failed to create functions for instance Harness {HarnessName}", registration.ToolTypeName);
+                    .LogWarning(ex, "Failed to create functions for instance ToolHarness {ToolHarnessName}", registration.ToolTypeName);
             }
         }
 
@@ -709,56 +709,56 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Resolves harnesses from config Harneses list and adds them to _selectedHarnessFactories.
+    /// Resolves toolharnesses from config ToolHarnesses list and adds them to _selectedToolHarnessFactories.
     /// Implements Config = Base, Builder = Override/Extend pattern:
-    /// - Config harnesses are registered first (in order)
+    /// - Config toolharnesses are registered first (in order)
     /// - Builder calls can override (replace same name) or extend (add new)
     /// - DI-first resolution: try ServiceProvider first, fall back to CreateInstance
     /// </summary>
-    private void ResolveConfigHarneses()
+    private void ResolveConfigToolHarnesses()
     {
-        if (_config.Harneses == null || _config.Harneses.Count == 0)
+        if (_config.ToolHarnesses == null || _config.ToolHarnesses.Count == 0)
             return;
 
         LoadGeneratedRegistries();
 
         var logger = _logger?.CreateLogger<AgentBuilder>();
-        logger?.LogDebug("Resolving {Count} harnesses from config", _config.Harneses.Count);
+        logger?.LogDebug("Resolving {Count} toolharnesses from config", _config.ToolHarnesses.Count);
 
-        foreach (var harnessRef in _config.Harneses)
+        foreach (var toolharnessRef in _config.ToolHarnesses)
         {
-            // Check if builder has an override for this harness
-            var effectiveRef = _harnessOverrides.TryGetValue(harnessRef.Name, out var ovr)
+            // Check if builder has an override for this toolharness
+            var effectiveRef = _toolharnessOverrides.TryGetValue(toolharnessRef.Name, out var ovr)
                 ? ovr
-                : harnessRef;
+                : toolharnessRef;
 
-            // Skip if already added via builder (it will be in _selectedHarnessFactories already)
-            if (_builderAddedHarneses.Contains(effectiveRef.Name))
+            // Skip if already added via builder (it will be in _selectedToolHarnessFactories already)
+            if (_builderAddedToolHarnesses.Contains(effectiveRef.Name))
             {
-                logger?.LogDebug("Harness '{Name}' already registered via builder, skipping config", effectiveRef.Name);
+                logger?.LogDebug("ToolHarness '{Name}' already registered via builder, skipping config", effectiveRef.Name);
                 continue;
             }
 
-            // Look up in available harnesses
-            if (!_availableHarneses.TryGetValue(effectiveRef.Name, out var factory))
+            // Look up in available toolharnesses
+            if (!_availableToolHarnesses.TryGetValue(effectiveRef.Name, out var factory))
             {
                 logger?.LogWarning(
-                    "Harness '{Name}' referenced in config not found in registry. " +
+                    "ToolHarness '{Name}' referenced in config not found in registry. " +
                     "Ensure the class has [AIFunction], [Skill], or [SubAgent] methods and a parameterless constructor.",
                     effectiveRef.Name);
                 continue;
             }
 
             // Check if already selected (avoid duplicates)
-            if (_selectedHarnessFactories.Any(f => f.Name.Equals(factory.Name, StringComparison.OrdinalIgnoreCase)))
+            if (_selectedToolHarnessFactories.Any(f => f.Name.Equals(factory.Name, StringComparison.OrdinalIgnoreCase)))
             {
-                logger?.LogDebug("Harness '{Name}' already selected, skipping duplicate", effectiveRef.Name);
+                logger?.LogDebug("ToolHarness '{Name}' already selected, skipping duplicate", effectiveRef.Name);
                 continue;
             }
 
             // Add to selected factories
-            _selectedHarnessFactories.Add(factory);
-            _explicitlyRegisteredHarneses.Add(factory.Name);
+            _selectedToolHarnessFactories.Add(factory);
+            _explicitlyRegisteredToolHarnesses.Add(factory.Name);
 
             // Handle function filtering from config
             if (effectiveRef.Functions != null && effectiveRef.Functions.Count > 0)
@@ -769,7 +769,7 @@ public class AgentBuilder
             // Handle config-based instantiation (store config for CreateFunctionsFromCatalog)
             if (effectiveRef.Config.HasValue && factory.CreateFromConfig != null)
             {
-                _harnessConfigs[factory.Name] = effectiveRef.Config.Value;
+                _toolharnessConfigs[factory.Name] = effectiveRef.Config.Value;
             }
 
             // Handle metadata from config
@@ -780,13 +780,13 @@ public class AgentBuilder
                     var metadata = factory.DeserializeMetadata(effectiveRef.Metadata.Value);
                     if (metadata != null)
                     {
-                        _harnessContexts[factory.Name] = metadata;
+                        _toolharnessContexts[factory.Name] = metadata;
                     }
                 }
                 catch (JsonException ex)
                 {
                     logger?.LogWarning(ex,
-                        "Failed to deserialize metadata for harness '{Name}' to type {MetadataType}",
+                        "Failed to deserialize metadata for toolharness '{Name}' to type {MetadataType}",
                         effectiveRef.Name, factory.MetadataType?.Name ?? "unknown");
                 }
             }
@@ -795,20 +795,20 @@ public class AgentBuilder
             if (effectiveRef.MiddlewareConfigs != null && effectiveRef.MiddlewareConfigs.Count > 0
                 && factory.CollapseMiddlewareConfigFactories != null)
             {
-                _harnessMiddlewareConfigs[factory.Name] = effectiveRef.MiddlewareConfigs;
+                _toolharnessMiddlewareConfigs[factory.Name] = effectiveRef.MiddlewareConfigs;
             }
 
-            logger?.LogDebug("Resolved harness '{Name}' from config", effectiveRef.Name);
+            logger?.LogDebug("Resolved toolharness '{Name}' from config", effectiveRef.Name);
         }
     }
 
     /// <summary>
-    /// Registers a harness override from builder.
-    /// Called by WithHarness extension methods when using config + builder pattern.
+    /// Registers a toolharness override from builder.
+    /// Called by WithToolHarness extension methods when using config + builder pattern.
     /// </summary>
-    public AgentBuilder WithHarnessOverride(HarnessReference reference)
+    public AgentBuilder WithToolHarnessOverride(ToolHarnessReference reference)
     {
-        _harnessOverrides[reference.Name] = reference;
+        _toolharnessOverrides[reference.Name] = reference;
         return this;
     }
 
@@ -1057,7 +1057,7 @@ public class AgentBuilder
 
     /// <summary>
     /// Configure the content store with default folders (/skills, /knowledge, /memory)
-    /// and auto-register FolderDiscoveryMiddleware and ContentStoreHarness.
+    /// and auto-register FolderDiscoveryMiddleware and ContentStoreToolHarness.
     /// This is the recommended one-liner for enabling the V3 content store system.
     /// </summary>
     /// <param name="store">
@@ -1085,17 +1085,17 @@ public class AgentBuilder
             Description = "Agent working memory and context"
         });
 
-        // Auto-register FolderDiscoveryMiddleware and ContentStoreHarness
-        var harness = new ContentStoreHarness(_contentStore, AgentName ?? "agent");
+        // Auto-register FolderDiscoveryMiddleware and ContentStoreToolHarness
+        var toolharness = new ContentStoreToolHarness(_contentStore, AgentName ?? "agent");
         var discoveryMiddleware = new Middleware.FolderDiscoveryMiddleware(_contentStore, AgentName);
-        discoveryMiddleware.SetHarness(harness);
+        discoveryMiddleware.SetToolHarness(toolharness);
 
         _middlewares.Add(discoveryMiddleware);
-        // FolderDiscoveryMiddleware propagates session ID to the harness via SetHarness link.
+        // FolderDiscoveryMiddleware propagates session ID to the toolharness via SetToolHarness link.
 
-        // Register harness for AI function exposure
-        _instanceRegistrations.Add(new ToolInstanceRegistration(harness, nameof(ContentStoreHarness)));
-        _harnessContexts[nameof(ContentStoreHarness)] = null;
+        // Register toolharness for AI function exposure
+        _instanceRegistrations.Add(new ToolInstanceRegistration(toolharness, nameof(ContentStoreToolHarness)));
+        _toolharnessContexts[nameof(ContentStoreToolHarness)] = null;
 
         return this;
     }
@@ -1135,7 +1135,7 @@ public class AgentBuilder
 
     /// <summary>
     /// Gets the configured secret resolver (available after Build).
-    /// Exposed so harnesses and connectors can resolve secrets.
+    /// Exposed so toolharnesses and connectors can resolve secrets.
     /// </summary>
     public ISecretResolver? SecretResolver => _secretResolver;
 
@@ -1299,11 +1299,11 @@ public class AgentBuilder
     /// </remarks>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// var agent = await new AgentBuilder()
     ///     .WithServiceProvider(services)  // ILoggerFactory required
     ///     .WithTelemetry(sourceName: "MyApp.Agent", enableSensitiveData: false)
-    ///     .WithOpenAI(apiKey, "gpt-4")
-    ///     .Build();
+    ///     .WithOpenAI(model: "gpt-4", apiKey: apiKey)
+    ///     .BuildAsync();
     ///
     /// // Automatically instruments:
     /// // - LLM token usage, duration, traces (Microsoft)
@@ -1411,24 +1411,24 @@ public class AgentBuilder
     /// <example>
     /// <code>
     /// // Default logging (message turns + functions)
-    /// var agent = new AgentBuilder()
+    /// var agent = await new AgentBuilder()
     ///     .WithServiceProvider(services)
     ///     .WithLogging()
-    ///     .WithOpenAI(apiKey, "gpt-4")
-    ///     .Build();
+    ///     .WithOpenAI(model: "gpt-4", apiKey: apiKey)
+    ///     .BuildAsync();
     ///
     /// // Minimal logging (just function names with timing)
-    /// var agent = new AgentBuilder()
+    /// var agent = await new AgentBuilder()
     ///     .WithLogging(options: LoggingMiddlewareOptions.Minimal)
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// // Verbose logging (everything)
-    /// var agent = new AgentBuilder()
+    /// var agent = await new AgentBuilder()
     ///     .WithLogging(options: LoggingMiddlewareOptions.Verbose)
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// // Custom configuration
-    /// var agent = new AgentBuilder()
+    /// var agent = await new AgentBuilder()
     ///     .WithLogging(options: new LoggingMiddlewareOptions
     ///     {
     ///         LogFunction = true,
@@ -1436,7 +1436,7 @@ public class AgentBuilder
     ///         IncludeArguments = false,
     ///         MaxStringLength = 500
     ///     })
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public AgentBuilder WithLogging(
@@ -1494,10 +1494,10 @@ public class AgentBuilder
     /// <example>
     /// <code>
     /// var loggerFactory = LoggerFactory.Create(b => b.AddConsole());
-    /// var agent = new AgentBuilder()
+    /// var agent = await new AgentBuilder()
     ///     .WithLogging(loggerFactory)
     ///     .WithProvider("openai", "gpt-4", apiKey)
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public AgentBuilder WithLogging(
@@ -1552,13 +1552,13 @@ public class AgentBuilder
     /// // Setup in your DI container:
     /// services.AddDistributedMemoryCache();  // Or Redis, SQL, etc.
     ///
-    /// var agent = new AgentBuilder()
+    /// var agent = await new AgentBuilder()
     ///     .WithServiceProvider(services)  // IDistributedCache required
     ///     .WithCaching(
     ///         cacheExpiration: TimeSpan.FromHours(1),
     ///         cacheStatefulConversations: false)  // Don't cache with ConversationId
-    ///     .WithOpenAI(apiKey, "gpt-4")
-    ///     .Build();
+    ///     .WithOpenAI(model: "gpt-4", apiKey: apiKey)
+    ///     .BuildAsync();
     ///
     /// // First call: Cache miss → LLM call → Store in cache
     /// await agent.RunAsync("What is 2+2?");
@@ -1626,7 +1626,7 @@ public class AgentBuilder
     /// <returns>The builder for chaining.</returns>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// var agent = await new AgentBuilder()
     ///     .WithBackgroundResponses(config =>
     ///     {
     ///         config.DefaultAllow = true;
@@ -1634,7 +1634,7 @@ public class AgentBuilder
     ///         config.DefaultPollingInterval = TimeSpan.FromSeconds(3);
     ///         config.DefaultTimeout = TimeSpan.FromMinutes(10);
     ///     })
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public AgentBuilder WithBackgroundResponses(Action<BackgroundResponsesConfig> configure)
@@ -2042,8 +2042,8 @@ public class AgentBuilder
     /// </summary>
     private void RegisterAutoMiddleware(AgentBuildDependencies buildData)
     {
-        // Set explicitly registered Harneses in config for Collapsing manager
-        _config.explicitlyRegisteredHarneses = _explicitlyRegisteredHarneses
+        // Set explicitly registered ToolHarnesses in config for Collapsing manager
+        _config.explicitlyRegisteredToolHarnesses = _explicitlyRegisteredToolHarnesses
             .ToImmutableHashSet(StringComparer.OrdinalIgnoreCase);
 
         // Set global config for source-generated code to access (sync path sets this, harmless when called from async)
@@ -2119,10 +2119,10 @@ public class AgentBuilder
             var containerLogger = _logger?.CreateLogger<ContainerMiddleware>();
             var containerMiddleware = new ContainerMiddleware(
                 buildData.MergedOptions.Tools,
-                _explicitlyRegisteredHarneses.ToImmutableHashSet(StringComparer.OrdinalIgnoreCase),
-                _availableHarneses,           // harness factory registry for scoped middleware 
+                _explicitlyRegisteredToolHarnesses.ToImmutableHashSet(StringComparer.OrdinalIgnoreCase),
+                _availableToolHarnesses,           // toolharness factory registry for scoped middleware 
                 _HARNESScopedMiddlewares,    // builder-time DI instances 
-                _harnessMiddlewareConfigs,    // config-ctor middleware configs from HarnessReference 
+                _toolharnessMiddlewareConfigs,    // config-ctor middleware configs from ToolHarnessReference 
                 _config.Collapsing,
                 containerLogger);
             _middlewares.Add(containerMiddleware);
@@ -2134,7 +2134,7 @@ public class AgentBuilder
 
         // Register ClientToolMiddleware automatically
         // This enables Client-defined tools without explicit configuration.
-        // It's a no-op if no Client Harneses are registered via AgentClientInput.
+        // It's a no-op if no Client ToolHarnesses are registered via AgentClientInput.
         // Users can override with WithClientTools() to customize config.
         if (!_middlewares.Any(m => m is ClientTools.ClientToolMiddleware))
         {
@@ -2160,7 +2160,7 @@ public class AgentBuilder
             _config!,
             buildData.ClientToUse,
             buildData.MergedOptions,
-            _functionToHarnessMap,
+            _functionToToolHarnessMap,
             _functionToSkillMap,
             _middlewares,
             _serviceProvider,
@@ -2181,23 +2181,23 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Loads MCP tools from harness-owned [MCPServer] methods.
+    /// Loads MCP tools from toolharness-owned [MCPServer] methods.
     /// Generated registration code collects MCP server sources directly; HPD-Agent.MCP owns concrete config handling.
     /// </summary>
-    private async Task<List<AIFunction>> LoadHarnessMCPServersAsync(CancellationToken cancellationToken)
+    private async Task<List<AIFunction>> LoadToolHarnessMCPServersAsync(CancellationToken cancellationToken)
     {
         var allTools = new List<AIFunction>();
 
-        var harnessesWithMcp = _selectedHarnessFactories
+        var toolharnessesWithMcp = _selectedToolHarnessFactories
             .Where(f => f.HasMCPServers && f.CollectMcpServers != null)
             .ToList();
-        if (harnessesWithMcp.Count == 0)
+        if (toolharnessesWithMcp.Count == 0)
             return allTools;
 
         if (s_mcpToolLoader == null)
         {
             _logger?.CreateLogger<AgentBuilder>().LogWarning(
-                "Harnesses have [MCPServer] attributes but HPD-Agent.MCP is not loaded. Skipping MCP server loading.");
+                "ToolHarnesses have [MCPServer] attributes but HPD-Agent.MCP is not loaded. Skipping MCP server loading.");
             return allTools;
         }
 
@@ -2210,23 +2210,23 @@ public class AgentBuilder
 
         var maxFunctionNames = _config.Collapsing?.MaxFunctionNamesInDescription ?? 10;
 
-        foreach (var factory in harnessesWithMcp)
+        foreach (var factory in toolharnessesWithMcp)
         {
             try
             {
-                object? harnessInstance = null;
+                object? toolharnessInstance = null;
                 if (_serviceProvider != null)
                 {
-                    harnessInstance = _serviceProvider.GetService(factory.HarnessType);
+                    toolharnessInstance = _serviceProvider.GetService(factory.ToolHarnessType);
                 }
-                if (harnessInstance == null && factory.CreateWithSecrets != null && _secretResolver != null)
+                if (toolharnessInstance == null && factory.CreateWithSecrets != null && _secretResolver != null)
                 {
-                    harnessInstance = factory.CreateWithSecrets(_secretResolver);
+                    toolharnessInstance = factory.CreateWithSecrets(_secretResolver);
                 }
-                harnessInstance ??= factory.CreateInstance();
+                toolharnessInstance ??= factory.CreateInstance();
 
                 var sources = new List<McpServerSource>();
-                factory.CollectMcpServers!(harnessInstance, sources.Add);
+                factory.CollectMcpServers!(toolharnessInstance, sources.Add);
 
                 foreach (var source in sources)
                 {
@@ -2241,18 +2241,18 @@ public class AgentBuilder
                     }
                     else if (source.ConfigProvider != null)
                     {
-                        config = source.ConfigProvider(harnessInstance);
+                        config = source.ConfigProvider(toolharnessInstance);
                     }
 
                     if (config == null)
                     {
                         _logger?.CreateLogger<AgentBuilder>().LogDebug(
-                            "MCP server '{ServerName}' in harness '{HarnessName}' returned null config, skipping",
+                            "MCP server '{ServerName}' in toolharness '{ToolHarnessName}' returned null config, skipping",
                             source.Name, factory.Name);
                         continue;
                     }
 
-                    var tools = await s_mcpToolLoader.LoadForHarnessAsync(
+                    var tools = await s_mcpToolLoader.LoadForToolHarnessAsync(
                         McpClientManager!,
                         config,
                         source,
@@ -2264,7 +2264,7 @@ public class AgentBuilder
             catch (Exception ex)
             {
                 _logger?.CreateLogger<AgentBuilder>().LogWarning(ex,
-                    "Failed to load MCP servers for harness '{HarnessName}': {Error}",
+                    "Failed to load MCP servers for toolharness '{ToolHarnessName}': {Error}",
                     factory.Name, ex.Message);
             }
         }
@@ -2277,15 +2277,15 @@ public class AgentBuilder
         //
         // RESOLVE CONFIG HARNESS (Phase: Config Serialization)
         //
-        // Resolve harnesses from config before creating functions.
+        // Resolve toolharnesses from config before creating functions.
         // This enables the Config = Base, Builder = Override/Extend pattern.
-        ResolveConfigHarneses();
+        ResolveConfigToolHarnesses();
 
         //
-        // CREATE Harness FUNCTIONS (AOT-Compatible - Zero Reflection in Hot Path)
+        // CREATE ToolHarness FUNCTIONS (AOT-Compatible - Zero Reflection in Hot Path)
         //
-        // All Harneses are registered via the catalog (ToolRegistry.All) using direct delegate calls.
-        // Instance-based Harneses (requiring DI) use their own direct delegate calls.
+        // All ToolHarnesses are registered via the catalog (ToolRegistry.All) using direct delegate calls.
+        // Instance-based ToolHarnesses (requiring DI) use their own direct delegate calls.
         // No reflection fallback - the catalog is required.
         var toolFunctions = CreateFunctionsFromCatalog();
 
@@ -2346,18 +2346,18 @@ public class AgentBuilder
             }
         }
 
-        // Load harness-owned MCP servers (from [MCPServer] attributes).
-        var harnessMcpTools = await LoadHarnessMCPServersAsync(cancellationToken);
-        if (harnessMcpTools.Count > 0)
+        // Load toolharness-owned MCP servers (from [MCPServer] attributes).
+        var toolharnessMcpTools = await LoadToolHarnessMCPServersAsync(cancellationToken);
+        if (toolharnessMcpTools.Count > 0)
         {
-            toolFunctions.AddRange(harnessMcpTools);
-            _logger?.CreateLogger<AgentBuilder>().LogInformation("Successfully integrated {Count} harness-owned MCP tools into agent", harnessMcpTools.Count);
+            toolFunctions.AddRange(toolharnessMcpTools);
+            _logger?.CreateLogger<AgentBuilder>().LogInformation("Successfully integrated {Count} toolharness-owned MCP tools into agent", toolharnessMcpTools.Count);
         }
 
         // Note: Old SkillDefinition-based skills have been removed in favor of type-safe Skill class.
-        // Skills are now registered via Harneses and auto-discovered by the source generator.
+        // Skills are now registered via ToolHarnesses and auto-discovered by the source generator.
 
-        // Load OpenAPI sources (from WithOpenApi() or [OpenApi] harness attributes).
+        // Load OpenAPI sources (from WithOpenApi() or [OpenApi] toolharness attributes).
         OpenApiLoadResult? openApiResult = null;
         if (_openApiSources.Count > 0)
         {
@@ -2589,16 +2589,16 @@ public class AgentBuilder
     private async Task<AgentBuildDependencies> BuildDependenciesAsync(CancellationToken cancellationToken)
     {
         // ===  INITIALIZE SKILL DOCUMENTS VIA CONTENT STORE ===
-        // Each harness registration class with skill documents generates InitializeDocumentsAsync.
+        // Each toolharness registration class with skill documents generates InitializeDocumentsAsync.
         // Idempotent: same document ID + same content hash = no-op (startup-safe).
         if (_contentStore != null)
         {
             var docLogger = _logger?.CreateLogger<AgentBuilder>();
-            foreach (var factory in _selectedHarnessFactories)
+            foreach (var factory in _selectedToolHarnessFactories)
             {
                 if (factory.InitializeDocumentsAsync != null)
                 {
-                    docLogger?.LogDebug("Initializing skill documents for harness {Harness}", factory.Name);
+                    docLogger?.LogDebug("Initializing skill documents for toolharness {ToolHarness}", factory.Name);
                     await factory.InitializeDocumentsAsync(_contentStore, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -2862,7 +2862,7 @@ public class AgentBuilder
         var clientToUse = _baseClient;
 
         // Dynamic Memory registration is handled by WithDynamicMemory() extension method
-        // No need to register here in Build() - the extension already adds Middleware and Harness
+        // No need to register here in Build() - the extension already adds Middleware and ToolHarness
 
         var builtTools = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
 
@@ -2893,7 +2893,7 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Merges Harness functions into chat options.
+    /// Merges ToolHarness functions into chat options.
     /// </summary>
     private ChatOptions? MergeToolFunctions(ChatOptions? defaultOptions, List<AIFunction> toolFunctions)
     {
@@ -2902,7 +2902,7 @@ public class AgentBuilder
 
         var options = defaultOptions ?? new ChatOptions();
 
-        // Add Harness functions to existing tools
+        // Add ToolHarness functions to existing tools
         var allTools = new List<AITool>(options.Tools ?? []);
         allTools.AddRange(toolFunctions);
 
@@ -2964,7 +2964,7 @@ public class AgentBuilder
 
     /// <summary>
     /// Gets the configuration instance for this builder (if provided).
-    /// Used by extension methods and Harneses to access configuration values.
+    /// Used by extension methods and ToolHarnesses to access configuration values.
     /// </summary>
     public IConfiguration? Configuration => _configuration;
 
@@ -3012,7 +3012,7 @@ public class AgentBuilder
     /// </summary>
 
     /// <summary>
-    /// Internal access to default Harness context for extension methods
+    /// Internal access to default ToolHarness context for extension methods
     /// </summary>
     internal IToolMetadata? DefaulTMetadata
     {
@@ -3021,9 +3021,9 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Public access to Harness contexts for extension methods and external configuration
+    /// Public access to ToolHarness contexts for extension methods and external configuration
     /// </summary>
-    public Dictionary<string, IToolMetadata?> HarnessContexts => _harnessContexts;
+    public Dictionary<string, IToolMetadata?> ToolHarnessContexts => _toolharnessContexts;
 
     /// <summary>
     /// Configures serializer options used to marshal tool return values into event-safe JSON payloads.
@@ -3062,7 +3062,7 @@ public class AgentBuilder
 
     /// <summary>
     /// Adds a native function to the agent (used by FFI layer for Rust, C++, etc.)
-    /// This method is intended primarily for FFI integration with native Harneses.
+    /// This method is intended primarily for FFI integration with native ToolHarnesses.
     /// </summary>
     public AgentBuilder WithNativeFunction(AIFunction function)
     {
@@ -3179,7 +3179,7 @@ public static class AgentBuilderMiddlewareExtensions
 {
     /// <summary>
     /// Adds a unified agent middleware instance.
-    /// Supports Collapsing via extension methods (.AsGlobal(), .ForHarness(), .ForSkill(), .ForFunction()).
+    /// Supports Collapsing via extension methods (.AsGlobal(), .ForToolHarness(), .ForSkill(), .ForFunction()).
     /// </summary>
     /// <param name="builder">The agent builder</param>
     /// <param name="middleware">The unified middleware to add</param>
@@ -3886,8 +3886,8 @@ public static class AgentBuilderMiddlewareExtensions
     //      
 
     /// <summary>
-    /// Enables tool Collapsing middleware for Harness collapsing and skills architecture.
-    /// When enabled, Harneses and skills are hidden behind container functions,
+    /// Enables tool Collapsing middleware for ToolHarness collapsing and skills architecture.
+    /// When enabled, ToolHarnesses and skills are hidden behind container functions,
     /// reducing the initial tool list and cognitive load on the LLM.
     /// </summary>
     /// <param name="builder">The agent builder</param>
@@ -3895,7 +3895,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// <remarks>
     /// <para>
     /// Tool Collapsing allows you to organize functions hierarchically:
-    /// - Harness containers: Hide member functions until Harness is expanded
+    /// - ToolHarness containers: Hide member functions until ToolHarness is expanded
     /// - Skill containers: Hide skill-specific functions until skill is activated
     /// </para>
     /// <para>
@@ -3910,12 +3910,12 @@ public static class AgentBuilderMiddlewareExtensions
     /// <example>
     /// <code>
     /// var agent = new AgentBuilder()
-    ///     .WithTools&lt;FinancialHarness&gt;()
-    ///     .WithToolCollapsing()  // Enable tool Collapsing
+    ///     .WithTools&lt;FinancialToolHarness&gt;()
+    ///     .WithHarnessCollapsing()  // Enable tool Collapsing
     ///     .Build();
     /// </code>
     /// </example>
-    public static AgentBuilder WithToolCollapsing(this AgentBuilder builder)
+    public static AgentBuilder WithHarnessCollapsing(this AgentBuilder builder)
     {
         // Enable Collapsing in config
         builder.Config.Collapsing ??= new CollapsingConfig();
@@ -3937,8 +3937,8 @@ public static class AgentBuilderMiddlewareExtensions
     /// <example>
     /// <code>
     /// var agent = new AgentBuilder()
-    ///     .WithTools&lt;FinancialHarness&gt;()
-    ///     .WithToolCollapsing(config =>
+    ///     .WithTools&lt;FinancialToolHarness&gt;()
+    ///     .WithHarnessCollapsing(config =>
     ///     {
     ///         config.CollapseClientTools = true;
     ///         config.MaxFunctionNamesInDescription = 5;
@@ -3946,7 +3946,7 @@ public static class AgentBuilderMiddlewareExtensions
     ///     .Build();
     /// </code>
     /// </example>
-    public static AgentBuilder WithToolCollapsing(this AgentBuilder builder, Action<CollapsingConfig> configure)
+    public static AgentBuilder WithHarnessCollapsing(this AgentBuilder builder, Action<CollapsingConfig> configure)
     {
         builder.Config.Collapsing ??= new CollapsingConfig();
         builder.Config.Collapsing.Enabled = true;
@@ -3971,7 +3971,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// <example>
     /// <code>
     /// var agent = new AgentBuilder()
-    ///     .WithTools&lt;FinancialHarness&gt;()
+    ///     .WithTools&lt;FinancialToolHarness&gt;()
     ///     .WithoutToolCollapsing()  // All tools always visible
     ///     .Build();
     /// </code>
@@ -4026,43 +4026,106 @@ public static class AgentBuilderMemoryExtensions
 }
 #endregion
 
-#region Harness Extensions
+#region ToolHarness Extensions
 
 
 /// <summary>
-/// Extension methods for configuring Harneses for the AgentBuilder.
+/// Extension methods for configuring ToolHarnesses for the AgentBuilder.
 /// </summary>
-public static class AgentBuilderHarnessExtensions
+public static class AgentBuilderToolHarnessExtensions
 {
     /// <summary>
-    /// Registers a harness by type with optional execution context.
-    /// AOT-Compatible: Uses generated HarnessRegistry.All catalog (zero reflection in hot path).
-    /// Automatically loads harness registry from the assembly where T is defined if not already loaded.
-    /// Auto-registers referenced harnesses from skills via GetReferencedHarneses().
+    /// Registers one generated function from the specified toolharness.
+    /// AOT-Compatible: Uses generated ToolHarnessRegistry.All catalog and filters by generated function name.
     /// </summary>
-    /// <exception cref="InvalidOperationException">Thrown if harness is not found in any loaded registry.</exception>
-    public static AgentBuilder WithHarness<T>(this AgentBuilder builder, IToolMetadata? context = null) where T : class, new()
+    /// <exception cref="ArgumentException">Thrown when the function name is empty or the qualified toolharness name does not match <typeparamref name="T"/>.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the toolharness or generated function is not found.</exception>
+    public static AgentBuilder WithTool<T>(this AgentBuilder builder, string functionName, IToolMetadata? context = null) where T : class, new()
     {
         RuntimeHelpers.RunModuleConstructor(typeof(T).Assembly.ManifestModule.ModuleHandle);
+        builder.LoadToolRegistryFromAssembly(typeof(T).Assembly);
         builder.LoadGeneratedRegistries();
-        var harnessName = typeof(T).Name;
 
-        // Try to find in already loaded harnesses
-        if (!builder._availableHarneses.TryGetValue(harnessName, out var factory))
+        var toolharnessName = typeof(T).Name;
+        var (qualifiedToolHarnessName, toolName) = ParseToolReference(functionName, toolharnessName);
+
+        if (!string.Equals(qualifiedToolHarnessName, toolharnessName, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException(
-                $"Harness '{harnessName}' not found in HarnessRegistry.All. " +
-                $"Ensure the harness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
+            throw new ArgumentException(
+                $"Tool reference '{functionName}' targets toolharness '{qualifiedToolHarnessName}', but the generic type is '{toolharnessName}'.",
+                nameof(functionName));
         }
 
+        return builder.WithTool(typeof(T), toolName, context);
+    }
+
+    /// <summary>
+    /// Registers one generated function from the specified toolharness type.
+    /// AOT-Compatible: Uses generated ToolHarnessRegistry.All catalog and filters by generated function name.
+    /// </summary>
+    /// <exception cref="ArgumentException">Thrown when the function name is empty or the qualified toolharness name does not match <paramref name="toolharnessType"/>.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the toolharness or generated function is not found.</exception>
+    public static AgentBuilder WithTool(this AgentBuilder builder, Type toolharnessType, string functionName, IToolMetadata? context = null)
+    {
+        RuntimeHelpers.RunModuleConstructor(toolharnessType.Assembly.ManifestModule.ModuleHandle);
+        builder.LoadToolRegistryFromAssembly(toolharnessType.Assembly);
+        builder.LoadGeneratedRegistries();
+
+        var toolharnessName = toolharnessType.Name;
+        var (qualifiedToolHarnessName, toolName) = ParseToolReference(functionName, toolharnessName);
+
+        if (!string.Equals(qualifiedToolHarnessName, toolharnessName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                $"Tool reference '{functionName}' targets toolharness '{qualifiedToolHarnessName}', but the toolharness type is '{toolharnessName}'.",
+                nameof(functionName));
+        }
+
+        var factory = GetToolHarnessFactory(builder, toolharnessType, toolharnessName);
+        RegisterGeneratedTool(builder, factory, toolName, context);
+        return builder;
+    }
+
+    /// <summary>
+    /// Registers one generated function using a qualified "ToolHarnessName.FunctionName" reference.
+    /// AOT-Compatible: Uses generated ToolHarnessRegistry.All catalog and filters by generated function name.
+    /// </summary>
+    /// <exception cref="ArgumentException">Thrown when the tool reference is not in "ToolHarnessName.FunctionName" format.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the toolharness or generated function is not found.</exception>
+    public static AgentBuilder WithTool(this AgentBuilder builder, string toolReference, IToolMetadata? context = null)
+    {
+        builder.LoadGeneratedRegistries();
+
+        var (toolharnessName, toolName) = ParseQualifiedToolReference(toolReference);
+        var factory = GetToolHarnessFactory(builder, toolharnessName);
+        RegisterGeneratedTool(builder, factory, toolName, context);
+        return builder;
+    }
+
+    /// <summary>
+    /// Registers a toolharness by type with optional execution context.
+    /// AOT-Compatible: Uses generated ToolHarnessRegistry.All catalog (zero reflection in hot path).
+    /// Automatically loads toolharness registry from the assembly where T is defined if not already loaded.
+    /// Auto-registers referenced toolharnesses from skills via GetReferencedToolHarnesses().
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown if toolharness is not found in any loaded registry.</exception>
+    public static AgentBuilder WithToolHarness<T>(this AgentBuilder builder, IToolMetadata? context = null) where T : class, new()
+    {
+        RuntimeHelpers.RunModuleConstructor(typeof(T).Assembly.ManifestModule.ModuleHandle);
+        builder.LoadToolRegistryFromAssembly(typeof(T).Assembly);
+        builder.LoadGeneratedRegistries();
+        var toolharnessName = typeof(T).Name;
+
+        var factory = GetToolHarnessFactory(builder, typeof(T), toolharnessName);
+
         // AOT-compatible path: Use catalog
-        builder._selectedHarnessFactories.Add(factory);
+        builder._selectedToolHarnessFactories.Add(factory);
 
         // Track as explicitly registered (for ToolVisibilityManager)
-        builder._explicitlyRegisteredHarneses.Add(harnessName);
+        builder._explicitlyRegisteredToolHarnesses.Add(toolharnessName);
 
         // Store context
-        builder.HarnessContexts[harnessName] = context;
+        builder.ToolHarnessContexts[toolharnessName] = context;
 
         // Auto-discover skill dependencies using catalog (zero reflection)
         AutoRegisterDependenciesFromFactory(builder, factory);
@@ -4070,34 +4133,127 @@ public static class AgentBuilderHarnessExtensions
         return builder;
     }
 
+    private static ToolHarnessFactory GetToolHarnessFactory(AgentBuilder builder, string toolharnessName)
+    {
+        if (!builder._availableToolHarnesses.TryGetValue(toolharnessName, out var factory))
+        {
+            throw new InvalidOperationException(
+                $"ToolHarness '{toolharnessName}' not found in ToolHarnessRegistry.All. " +
+                $"Ensure the toolharness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
+        }
+
+        return factory;
+    }
+
+    private static ToolHarnessFactory GetToolHarnessFactory(AgentBuilder builder, Type toolharnessType, string toolharnessName)
+    {
+        if (builder._availableToolHarnesses.TryGetValue(toolharnessName, out var factory))
+        {
+            return factory;
+        }
+
+        if (ReflectionToolFactory.TryCreateToolHarnessFactory(toolharnessType, out var reflectionFactory, out var reflectionError))
+        {
+            builder._availableToolHarnesses[toolharnessName] = reflectionFactory;
+            return reflectionFactory;
+        }
+
+        throw new InvalidOperationException(
+            reflectionError ??
+            $"ToolHarness '{toolharnessName}' not found in ToolHarnessRegistry.All. Ensure the toolharness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
+    }
+
+    private static void RegisterGeneratedTool(AgentBuilder builder, ToolHarnessFactory factory, string functionName, IToolMetadata? context)
+    {
+        var availableFunctions = factory.FunctionNames ?? Array.Empty<string>();
+        if (!availableFunctions.Contains(functionName, StringComparer.Ordinal))
+        {
+            var availableList = availableFunctions.Length == 0
+                ? "(none)"
+                : string.Join(", ", availableFunctions);
+
+            throw new InvalidOperationException(
+                $"Function '{functionName}' was not found on toolharness '{factory.Name}'. " +
+                $"Available generated functions: {availableList}.");
+        }
+
+        if (!builder._selectedToolHarnessFactories.Any(f => f.Name.Equals(factory.Name, StringComparison.OrdinalIgnoreCase)))
+        {
+            builder._selectedToolHarnessFactories.Add(factory);
+        }
+
+        builder._explicitlyRegisteredToolHarnesses.Add(factory.Name);
+        builder.ToolHarnessContexts[factory.Name] = context;
+
+        if (builder._toolFunctionFilters.TryGetValue(factory.Name, out var existingFilter))
+        {
+            builder._toolFunctionFilters[factory.Name] = existingFilter
+                .Concat(new[] { functionName })
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+        }
+        else
+        {
+            builder._toolFunctionFilters[factory.Name] = new[] { functionName };
+        }
+
+        AutoRegisterDependenciesFromFactory(builder, factory);
+    }
+
+    private static (string ToolHarnessName, string FunctionName) ParseToolReference(string functionName, string defaultToolHarnessName)
+    {
+        if (string.IsNullOrWhiteSpace(functionName))
+            throw new ArgumentException("Function name cannot be empty.", nameof(functionName));
+
+        return functionName.Contains('.')
+            ? ParseQualifiedToolReference(functionName)
+            : (defaultToolHarnessName, functionName);
+    }
+
+    private static (string ToolHarnessName, string FunctionName) ParseQualifiedToolReference(string toolReference)
+    {
+        if (string.IsNullOrWhiteSpace(toolReference))
+            throw new ArgumentException("Tool reference cannot be empty.", nameof(toolReference));
+
+        var parts = toolReference.Split('.');
+        if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]) || string.IsNullOrWhiteSpace(parts[1]))
+        {
+            throw new ArgumentException(
+                $"Tool reference '{toolReference}' must use 'ToolHarnessName.FunctionName' format.",
+                nameof(toolReference));
+        }
+
+        return (parts[0], parts[1]);
+    }
+
     /// <summary>
-    /// Registers a harness and configures per-harness options such as DI-provided scoped middleware
-    /// . Use this overload when your harness-scoped middleware requires constructor
+    /// Registers a toolharness and configures per-toolharness options such as DI-provided scoped middleware
+    /// . Use this overload when your toolharness-scoped middleware requires constructor
     /// parameters that cannot be expressed via a parameterless constructor in
     /// <c>[Collapse(Middlewares = [typeof(T)])]</c>.
     /// </summary>
     /// <example>
     /// <code>
-    /// builder.WithHarness&lt;DatabaseHarness&gt;(opts =>
+    /// builder.WithToolHarness&lt;DatabaseToolHarness&gt;(opts =>
     ///     opts.AddScopedMiddleware(new DbAuditMiddleware(sp.GetRequiredService&lt;IAuditLog&gt;())));
     /// </code>
     /// </example>
-    public static AgentBuilder WithHarness<T>(this AgentBuilder builder, Action<HarnessOptions> configure, IToolMetadata? context = null) where T : class, new()
+    public static AgentBuilder WithToolHarness<T>(this AgentBuilder builder, Action<ToolHarnessOptions> configure, IToolMetadata? context = null) where T : class, new()
     {
-        // Register the harness normally first
-        builder.WithHarness<T>(context);
+        // Register the toolharness normally first
+        builder.WithToolHarness<T>(context);
 
-        // Apply per-harness options
-        var options = new HarnessOptions();
+        // Apply per-toolharness options
+        var options = new ToolHarnessOptions();
         configure(options);
 
         if (options.ScopedMiddlewares.Count > 0)
         {
-            var harnessName = typeof(T).Name;
-            if (!builder._HARNESScopedMiddlewares.TryGetValue(harnessName, out var list))
+            var toolharnessName = typeof(T).Name;
+            if (!builder._HARNESScopedMiddlewares.TryGetValue(toolharnessName, out var list))
             {
                 list = new List<Middleware.IAgentMiddleware>();
-                builder._HARNESScopedMiddlewares[harnessName] = list;
+                builder._HARNESScopedMiddlewares[toolharnessName] = list;
             }
             list.AddRange(options.ScopedMiddlewares);
         }
@@ -4106,29 +4262,30 @@ public static class AgentBuilderHarnessExtensions
     }
 
     /// <summary>
-    /// Registers a harness using a pre-created instance with optional execution context.
-    /// Used for DI-required harnesses (e.g., AgentPlanHarness, DynamicMemoryHarness).
-    /// The generated HarnessFactory delegate is used for function creation (AOT-compatible).
+    /// Registers a toolharness using a pre-created instance with optional execution context.
+    /// Used for DI-required toolharnesses (e.g., AgentPlanToolHarness, DynamicMemoryToolHarness).
+    /// The generated ToolHarnessFactory delegate is used for function creation (AOT-compatible).
     /// </summary>
-    public static AgentBuilder WithHarness<T>(this AgentBuilder builder, T instance, IToolMetadata? context = null) where T : class
+    public static AgentBuilder WithToolHarness<T>(this AgentBuilder builder, T instance, IToolMetadata? context = null) where T : class
     {
         RuntimeHelpers.RunModuleConstructor(typeof(T).Assembly.ManifestModule.ModuleHandle);
+        builder.LoadToolRegistryFromAssembly(typeof(T).Assembly);
         builder.LoadGeneratedRegistries();
-        var harnessName = typeof(T).Name;
+        var toolharnessName = typeof(T).Name;
 
-        if (!builder._availableHarneses.TryGetValue(harnessName, out var factory))
+        if (!builder._availableToolHarnesses.TryGetValue(toolharnessName, out var factory))
         {
             throw new InvalidOperationException(
-                $"Harness '{harnessName}' not found in HarnessRegistry.All. " +
-                $"Ensure the harness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
+                $"ToolHarness '{toolharnessName}' not found in ToolHarnessRegistry.All. " +
+                $"Ensure the toolharness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
         }
 
-        // Register as instance registration (will use the generated HarnessFactory delegate for function creation)
-        builder._instanceRegistrations.Add(new ToolInstanceRegistration(instance, harnessName));
-        builder.HarnessContexts[harnessName] = context;
+        // Register as instance registration (will use the generated ToolHarnessFactory delegate for function creation)
+        builder._instanceRegistrations.Add(new ToolInstanceRegistration(instance, toolharnessName));
+        builder.ToolHarnessContexts[toolharnessName] = context;
 
         // Track this as explicitly registered
-        builder._explicitlyRegisteredHarneses.Add(harnessName);
+        builder._explicitlyRegisteredToolHarnesses.Add(toolharnessName);
 
         AutoRegisterDependenciesFromFactory(builder, factory);
 
@@ -4136,34 +4293,29 @@ public static class AgentBuilderHarnessExtensions
     }
 
     /// <summary>
-    /// Registers a harness by Type with optional execution context.
-    /// AOT-Compatible: Uses generated HarnessRegistry.All catalog (zero reflection in hot path).
-    /// Automatically loads harness registry from the assembly where harnessType is defined if not already loaded.
-    /// Auto-registers referenced harnesses from skills via GetReferencedHarneses().
+    /// Registers a toolharness by Type with optional execution context.
+    /// AOT-Compatible: Uses generated ToolHarnessRegistry.All catalog (zero reflection in hot path).
+    /// Automatically loads toolharness registry from the assembly where toolharnessType is defined if not already loaded.
+    /// Auto-registers referenced toolharnesses from skills via GetReferencedToolHarnesses().
     /// </summary>
-    /// <exception cref="InvalidOperationException">Thrown if harness is not found in any loaded registry.</exception>
-    public static AgentBuilder WithHarness(this AgentBuilder builder, Type harnessType, IToolMetadata? context = null)
+    /// <exception cref="InvalidOperationException">Thrown if toolharness is not found in any loaded registry.</exception>
+    public static AgentBuilder WithToolHarness(this AgentBuilder builder, Type toolharnessType, IToolMetadata? context = null)
     {
-        RuntimeHelpers.RunModuleConstructor(harnessType.Assembly.ManifestModule.ModuleHandle);
+        RuntimeHelpers.RunModuleConstructor(toolharnessType.Assembly.ManifestModule.ModuleHandle);
+        builder.LoadToolRegistryFromAssembly(toolharnessType.Assembly);
         builder.LoadGeneratedRegistries();
-        var harnessName = harnessType.Name;
+        var toolharnessName = toolharnessType.Name;
 
-        // Try to find in already loaded harnesses
-        if (!builder._availableHarneses.TryGetValue(harnessName, out var factory))
-        {
-            throw new InvalidOperationException(
-                $"Harness '{harnessName}' not found in HarnessRegistry.All. " +
-                $"Ensure the harness class has [AIFunction], [Skill], or [SubAgent] attributes and the source generator ran successfully.");
-        }
+        var factory = GetToolHarnessFactory(builder, toolharnessType, toolharnessName);
 
         // AOT-compatible path: Use catalog
-        builder._selectedHarnessFactories.Add(factory);
+        builder._selectedToolHarnessFactories.Add(factory);
 
         // Track as explicitly registered (for ToolVisibilityManager)
-        builder._explicitlyRegisteredHarneses.Add(harnessName);
+        builder._explicitlyRegisteredToolHarnesses.Add(toolharnessName);
 
         // Store context
-        builder.HarnessContexts[harnessName] = context;
+        builder.ToolHarnessContexts[toolharnessName] = context;
 
         // Auto-discover skill dependencies using catalog (zero reflection)
         AutoRegisterDependenciesFromFactory(builder, factory);
@@ -4177,8 +4329,8 @@ public static class AgentBuilderHarnessExtensions
 
     /// <summary>
     /// Explicitly loads middleware state factories from the assembly containing the specified marker type.
-    /// Use this for assemblies that have [MiddlewareState] types but no harnesses.
-    /// For assemblies with harnesses, state registries are loaded automatically via WithHarness&lt;T&gt;().
+    /// Use this for assemblies that have [MiddlewareState] types but no toolharnesses.
+    /// For assemblies with toolharnesses, state registries are loaded automatically via WithToolHarness&lt;T&gt;().
     /// </summary>
     /// <typeparam name="TMarker">Any type from the assembly to load states from.</typeparam>
     /// <returns>The builder for chaining.</returns>
@@ -4192,8 +4344,8 @@ public static class AgentBuilderHarnessExtensions
 
     /// <summary>
     /// Explicitly loads middleware state factories from the specified assembly.
-    /// Use this for assemblies that have [MiddlewareState] types but no harnesses.
-    /// For assemblies with harnesses, state registries are loaded automatically via WithHarness&lt;T&gt;().
+    /// Use this for assemblies that have [MiddlewareState] types but no toolharnesses.
+    /// For assemblies with toolharnesses, state registries are loaded automatically via WithToolHarness&lt;T&gt;().
     /// </summary>
     /// <param name="builder">The agent builder.</param>
     /// <param name="assembly">The assembly to load states from.</param>
@@ -4207,31 +4359,31 @@ public static class AgentBuilderHarnessExtensions
     }
 
     // ============================================
-    // DEPRECATED: WithTools methods (use WithHarness instead)
+    // DEPRECATED: WithTools methods (use WithToolHarness instead)
     // ============================================
 
-    /// <inheritdoc cref="WithHarness{T}(AgentBuilder, IToolMetadata?)"/>
-    [Obsolete("Use WithHarness<T>() instead. WithTools will be removed in a future version.")]
+    /// <inheritdoc cref="WithToolHarness{T}(AgentBuilder, IToolMetadata?)"/>
+    [Obsolete("Use WithToolHarness<T>() instead. WithTools will be removed in a future version.")]
     public static AgentBuilder WithTools<T>(this AgentBuilder builder, IToolMetadata? context = null) where T : class, new()
-        => builder.WithHarness<T>(context);
+        => builder.WithToolHarness<T>(context);
 
-    /// <inheritdoc cref="WithHarness{T}(AgentBuilder, T, IToolMetadata?)"/>
-    [Obsolete("Use WithHarness<T>() instead. WithTools will be removed in a future version.")]
+    /// <inheritdoc cref="WithToolHarness{T}(AgentBuilder, T, IToolMetadata?)"/>
+    [Obsolete("Use WithToolHarness<T>() instead. WithTools will be removed in a future version.")]
     public static AgentBuilder WithTools<T>(this AgentBuilder builder, T instance, IToolMetadata? context = null) where T : class
-        => builder.WithHarness(instance, context);
+        => builder.WithToolHarness(instance, context);
 
-    /// <inheritdoc cref="WithHarness(AgentBuilder, Type, IToolMetadata?)"/>
-    [Obsolete("Use WithHarness() instead. WithTools will be removed in a future version.")]
-    public static AgentBuilder WithTools(this AgentBuilder builder, Type harnessType, IToolMetadata? context = null)
-        => builder.WithHarness(harnessType, context);
+    /// <inheritdoc cref="WithToolHarness(AgentBuilder, Type, IToolMetadata?)"/>
+    [Obsolete("Use WithToolHarness() instead. WithTools will be removed in a future version.")]
+    public static AgentBuilder WithTools(this AgentBuilder builder, Type toolharnessType, IToolMetadata? context = null)
+        => builder.WithToolHarness(toolharnessType, context);
 
     /// <summary>
-    /// Auto-registers Harneses referenced by skills using the Harness catalog (zero reflection).
+    /// Auto-registers ToolHarnesses referenced by skills using the ToolHarness catalog (zero reflection).
     /// Phase 4.5: Also stores function filters for selective registration.
     /// </summary>
-    private static void AutoRegisterDependenciesFromFactory(AgentBuilder builder, HarnessFactory factory)
+    private static void AutoRegisterDependenciesFromFactory(AgentBuilder builder, ToolHarnessFactory factory)
     {
-        var dependencies = factory.GetReferencedHarneses();
+        var dependencies = factory.GetReferencedToolHarnesses();
 
         // Phase 4.5: Get function-specific references for selective registration
         var referencedFunctions = factory.GetReferencedFunctions();
@@ -4239,14 +4391,14 @@ public static class AgentBuilderHarnessExtensions
         foreach (var depName in dependencies)
         {
             // Check if already selected
-            if (builder._selectedHarnessFactories.Any(f => f.Name.Equals(depName, StringComparison.OrdinalIgnoreCase)))
+            if (builder._selectedToolHarnessFactories.Any(f => f.Name.Equals(depName, StringComparison.OrdinalIgnoreCase)))
                 continue;
 
             // Look up in catalog
-            if (builder._availableHarneses!.TryGetValue(depName, out var depFactory))
+            if (builder._availableToolHarnesses!.TryGetValue(depName, out var depFactory))
             {
-                builder._selectedHarnessFactories.Add(depFactory);
-                // Note: Dependencies are NOT added to _explicitlyRegisteredHarneses
+                builder._selectedToolHarnessFactories.Add(depFactory);
+                // Note: Dependencies are NOT added to _explicitlyRegisteredToolHarnesses
                 // This distinction matters for ToolVisibilityManager
 
                 // Phase 4.5: Store function filter if specific functions are referenced

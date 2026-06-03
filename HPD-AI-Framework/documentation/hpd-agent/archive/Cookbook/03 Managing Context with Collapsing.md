@@ -4,13 +4,13 @@
 
 Every tool you register costs tokens — even when it's irrelevant. An agent with 50+ tools exposed on every turn is paying to describe Wolfram Alpha's integral solver when the user just asked "what's 2 + 2". Collapsing fixes this by making capabilities available on demand rather than always visible.
 
-This entry builds on the `MathHarness` from [Building a Harness](./02%20Building%20a%20Harness.md). By the end, a harness that exposes 50+ entries flat will be reduced to a single entry in the agent's view — with full capability intact.
+This entry builds on the `MathToolHarness` from [Building a ToolHarness](./02%20Building%20a%20ToolHarness.md). By the end, a toolharness that exposes 50+ entries flat will be reduced to a single entry in the agent's view — with full capability intact.
 
 ---
 
 ## Step 1 — The problem: everything is always visible
 
-Without collapsing, the full `MathHarness` floods the agent's context on every turn:
+Without collapsing, the full `MathToolHarness` floods the agent's context on every turn:
 
 ```
 Agent's tool list (every turn, every message):
@@ -35,13 +35,13 @@ Every one of those lines is tokens. The agent reads all of them before deciding 
 
 ---
 
-## Step 2 — Collapse the harness
+## Step 2 — Collapse the toolharness
 
 Add `[Collapse]` with a description. That's it:
 
 ```csharp
 [Collapse("Math operations — arithmetic, equation solving, proof checking, and symbolic computation")]
-public partial class MathHarness(ISecretResolver secrets)
+public partial class MathToolHarness(ISecretResolver secrets)
 {
     // everything inside stays exactly the same
 }
@@ -52,32 +52,32 @@ The agent's tool list goes from 50+ entries to one:
 ```
 Agent's tool list (every turn):
 ┌─────────────────────────────────────────────────────────────────────┐
-│ MathHarness — Container MathHarness provides access to: Add,        │
+│ MathToolHarness — Container MathToolHarness provides access to: Add,        │
 │ Subtract, Multiply, Divide, SquareRoot, Solve Equation, Check Proof,│
 │ MCP_brave-search, OpenApi_wolfram. Math operations — arithmetic,    │
 │ equation solving, proof checking, and symbolic computation.         │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-The system automatically prepends the function names so the agent knows what's inside before deciding to expand. Your description comes after, adding context about when to use this harness. The agent pays for one entry instead of 50+ — and it has enough information to make the decision without opening it.
+The system automatically prepends the function names so the agent knows what's inside before deciding to expand. Your description comes after, adding context about when to use this toolharness. The agent pays for one entry instead of 50+ — and it has enough information to make the decision without opening it.
 
-When the agent decides the task is math-related, it expands the harness and sees everything inside. When the task isn't math, it never touches it — and pays zero tokens for any of those 50 entries.
+When the agent decides the task is math-related, it expands the toolharness and sees everything inside. When the task isn't math, it never touches it — and pays zero tokens for any of those 50 entries.
 
-This is also how **Skills** work internally. When the agent activates the `Solve Equation` skill, it's expanding a container — the referenced functions appear in context, the workflow instructions inject, and then it gets to work. Collapsing is the same architecture applied to the whole harness.
+This is also how **Skills** work internally. When the agent activates the `Solve Equation` skill, it's expanding a container — the referenced functions appear in context, the workflow instructions inject, and then it gets to work. Collapsing is the same architecture applied to the whole toolharness.
 
 ---
 
-## Step 3 — Put the persona in the harness
+## Step 3 — Put the persona in the toolharness
 
-Here's the deeper insight: `SystemPrompt` on `[Collapse]` injects into the system prompt *only while the harness is active*. That means you can describe how the agent should behave when doing math — right next to the math tools — and it won't pollute the context during non-math turns.
+Here's the deeper insight: `SystemPrompt` on `[Collapse]` injects into the system prompt *only while the toolharness is active*. That means you can describe how the agent should behave when doing math — right next to the math tools — and it won't pollute the context during non-math turns.
 
 Since `[Collapse]` takes compile-time string constants, define long prompts as `private const` fields inside the class and reference them from the attribute:
 
 ```csharp
 [Collapse(
     "Math operations — arithmetic, equation solving, proof checking, and symbolic computation",
-    SystemPrompt = MathHarness.MathSystemPrompt)]
-public partial class MathHarness(ISecretResolver secrets)
+    SystemPrompt = MathToolHarness.MathSystemPrompt)]
+public partial class MathToolHarness(ISecretResolver secrets)
 {
     private const string MathSystemPrompt = """
         You are operating in math mode. Follow these rules:
@@ -88,13 +88,13 @@ public partial class MathHarness(ISecretResolver secrets)
         - If a proof is provided, use the Check Proof subagent rather than verifying manually
         """;
 
-    // ... rest of harness
+    // ... rest of toolharness
 }
 ```
 
 `ISecretResolver` is declared as a primary constructor parameter — the source generator detects it and wires the resolved instance automatically. No DI registration needed.
 
-The agent's base `WithInstructions` stays short and domain-agnostic — something like "You are a helpful assistant." The math-specific behavior only exists in context during math turns. An agent with ten harnesses effectively has ten domain personas, each loading only when relevant.
+The agent's base `WithInstructions` stays short and domain-agnostic — something like "You are a helpful assistant." The math-specific behavior only exists in context during math turns. An agent with ten toolharnesses effectively has ten domain personas, each loading only when relevant.
 
 **`FunctionResult` vs `SystemPrompt`:**
 
@@ -108,36 +108,36 @@ The agent's base `WithInstructions` stays short and domain-agnostic — somethin
 
 ## Step 4 — Nested collapsing for large API surfaces
 
-The MCP and OpenAPI entries bring in many tools — Wolfram Alpha alone exposes 40+ operations. Even inside an already-collapsed `MathHarness`, that's a lot to dump into context when the harness expands.
+The MCP and OpenAPI entries bring in many tools — Wolfram Alpha alone exposes 40+ operations. Even inside an already-collapsed `MathToolHarness`, that's a lot to dump into context when the toolharness expands.
 
-Add `CollapseWithinHarness = true` to keep them behind their own sub-container:
+Add `CollapseWithinToolHarness = true` to keep them behind their own sub-container:
 
 ```csharp
 [Collapse(
     "Math operations — arithmetic, equation solving, proof checking, and symbolic computation",
-    SystemPrompt = MathHarness.MathSystemPrompt)]
-public partial class MathHarness(ISecretResolver secrets)
+    SystemPrompt = MathToolHarness.MathSystemPrompt)]
+public partial class MathToolHarness(ISecretResolver secrets)
 {
     private const string MathSystemPrompt = """
         You are operating in math mode. Always show your working.
         Use tools for every calculation. State the final answer clearly.
         """;
 
-    // AIFunctions — always visible when harness expands
+    // AIFunctions — always visible when toolharness expands
     [AIFunction] public double Add(...) => ...;
     [AIFunction] public double Subtract(...) => ...;
     [AIFunction] public double Multiply(...) => ...;
     [AIFunction] public string Divide(...) => ...;
     [AIFunction] public string SquareRoot(...) => ...;
 
-    // Skill — visible as a single entry when harness expands
+    // Skill — visible as a single entry when toolharness expands
     [Skill] public Skill SolveEquation() => ...;
 
-    // SubAgent — visible as a single entry when harness expands
+    // SubAgent — visible as a single entry when toolharness expands
     [SubAgent] public SubAgent ProofChecker() => ...;
 
-    // MCP — stays collapsed inside the harness (one more expand required)
-    [MCPServer(CollapseWithinHarness = true)]
+    // MCP — stays collapsed inside the toolharness (one more expand required)
+    [MCPServer(CollapseWithinToolHarness = true)]
     public MCPServerConfig BraveSearch() => new()
     {
         Name = "brave-search",
@@ -148,8 +148,8 @@ public partial class MathHarness(ISecretResolver secrets)
         Environment = new() { ["BRAVE_API_KEY"] = secrets.Require("brave:ApiKey") }
     };
 
-    // OpenAPI — stays collapsed inside the harness (one more expand required)
-    [OpenApi(Prefix = "wolfram", CollapseWithinHarness = true)]
+    // OpenAPI — stays collapsed inside the toolharness (one more expand required)
+    [OpenApi(Prefix = "wolfram", CollapseWithinToolHarness = true)]
     public OpenApiConfig WolframAlpha() => new()
     {
         SpecUri = new Uri("https://products.wolframalpha.com/api/v2/openapi.json"),
@@ -171,13 +171,13 @@ Now the agent expands in layers:
 ```
 Level 0 — always visible:
 ┌──────────────────────────────────────────────────────────────────────┐
-│ MathHarness — Container MathHarness provides access to: Add,         │
+│ MathToolHarness — Container MathToolHarness provides access to: Add,         │
 │ Subtract, Multiply, Divide, SquareRoot, Solve Equation, Check Proof, │
 │ MCP_brave-search, OpenApi_wolfram. Math operations — arithmetic,     │
 │ equation solving, proof checking, and symbolic computation.          │
 └──────────────────────────────────────────────────────────────────────┘
 
-Level 1 — after expanding MathHarness:
+Level 1 — after expanding MathToolHarness:
 ┌──────────────────────────────────────────────────────────┐
 │ Add              — Add two numbers                       │
 │ Subtract         — Subtract b from a                     │

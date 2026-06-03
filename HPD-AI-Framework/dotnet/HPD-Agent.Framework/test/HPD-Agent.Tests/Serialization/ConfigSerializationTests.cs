@@ -8,47 +8,47 @@ namespace HPD.Agent.Tests.Serialization;
 
 /// <summary>
 /// Tests for config serialization.
-/// Verifies that AgentConfig with Harneses and Middlewares can be
+/// Verifies that AgentConfig with ToolHarnesses and Middlewares can be
 /// serialized to JSON and deserialized back.
 /// </summary>
 public class ConfigSerializationTests
 {
     [Fact]
-    public void HarnessReference_SimpleString_RoundTrip()
+    public void ToolHarnessReference_SimpleString_RoundTrip()
     {
         // Arrange
-        var reference = new HarnessReference { Name = "MathHarness" };
+        var reference = new ToolHarnessReference { Name = "MathToolHarness" };
         var options = new JsonSerializerOptions { WriteIndented = true };
 
         // Act
         var json = JsonSerializer.Serialize(reference, options);
-        var deserialized = JsonSerializer.Deserialize<HarnessReference>(json);
+        var deserialized = JsonSerializer.Deserialize<ToolHarnessReference>(json);
 
         // Assert
         Assert.NotNull(deserialized);
-        Assert.Equal("MathHarness", deserialized.Name);
+        Assert.Equal("MathToolHarness", deserialized.Name);
         Assert.Null(deserialized.Functions);
         Assert.Null(deserialized.Config);
         Assert.Null(deserialized.Metadata);
     }
 
     [Fact]
-    public void HarnessReference_ImplicitConversion_FromString()
+    public void ToolHarnessReference_ImplicitConversion_FromString()
     {
         // Arrange & Act
-        HarnessReference reference = "SearchHarness";
+        ToolHarnessReference reference = "SearchToolHarness";
 
         // Assert
-        Assert.Equal("SearchHarness", reference.Name);
+        Assert.Equal("SearchToolHarness", reference.Name);
     }
 
     [Fact]
-    public void HarnessReference_RichSyntax_RoundTrip()
+    public void ToolHarnessReference_RichSyntax_RoundTrip()
     {
         // Arrange
         var json = """
             {
-              "name": "FileHarness",
+              "name": "FileToolHarness",
               "functions": ["ReadFile", "WriteFile"],
               "config": { "basePath": "/tmp" },
               "metadata": { "allowDelete": false }
@@ -56,13 +56,13 @@ public class ConfigSerializationTests
             """;
 
         // Act
-        var reference = JsonSerializer.Deserialize<HarnessReference>(json);
+        var reference = JsonSerializer.Deserialize<ToolHarnessReference>(json);
         var serialized = JsonSerializer.Serialize(reference);
-        var roundTripped = JsonSerializer.Deserialize<HarnessReference>(serialized);
+        var roundTripped = JsonSerializer.Deserialize<ToolHarnessReference>(serialized);
 
         // Assert
         Assert.NotNull(reference);
-        Assert.Equal("FileHarness", reference.Name);
+        Assert.Equal("FileToolHarness", reference.Name);
         Assert.NotNull(reference.Functions);
         Assert.Equal(2, reference.Functions.Count);
         Assert.Contains("ReadFile", reference.Functions);
@@ -71,7 +71,7 @@ public class ConfigSerializationTests
         Assert.True(reference.Metadata.HasValue);
 
         Assert.NotNull(roundTripped);
-        Assert.Equal("FileHarness", roundTripped.Name);
+        Assert.Equal("FileToolHarness", roundTripped.Name);
     }
 
     [Fact]
@@ -127,19 +127,19 @@ public class ConfigSerializationTests
     }
 
     [Fact]
-    public void AgentConfig_WithHarneses_RoundTrip()
+    public void AgentConfig_WithToolHarnesses_RoundTrip()
     {
         // Arrange
         var config = new AgentConfig
         {
             Name = "TestAgent",
             SystemInstructions = "You are a helpful assistant.",
-            Harneses = new List<HarnessReference>
+            ToolHarnesses = new List<ToolHarnessReference>
             {
-                "MathHarness",
-                new HarnessReference
+                "MathToolHarness",
+                new ToolHarnessReference
                 {
-                    Name = "SearchHarness",
+                    Name = "SearchToolHarness",
                     Functions = new List<string> { "WebSearch" }
                 }
             }
@@ -152,9 +152,9 @@ public class ConfigSerializationTests
         // Assert
         Assert.NotNull(deserialized);
         Assert.Equal("TestAgent", deserialized.Name);
-        Assert.Equal(2, deserialized.Harneses.Count);
-        Assert.Equal("MathHarness", deserialized.Harneses[0].Name);
-        Assert.Equal("SearchHarness", deserialized.Harneses[1].Name);
+        Assert.Equal(2, deserialized.ToolHarnesses.Count);
+        Assert.Equal("MathToolHarness", deserialized.ToolHarnesses[0].Name);
+        Assert.Equal("SearchToolHarness", deserialized.ToolHarnesses[1].Name);
     }
 
     [Fact]
@@ -338,10 +338,10 @@ public class ConfigSerializationTests
             {
               "name": "ResearchAgent",
               "systemInstructions": "You are a research assistant.",
-              "harnesses": [
-                "MathHarness",
-                { "name": "SearchHarness" },
-                { "name": "FileHarness", "functions": ["ReadFile"] }
+              "toolharnesses": [
+                "MathToolHarness",
+                { "name": "SearchToolHarness" },
+                { "name": "FileToolHarness", "functions": ["ReadFile"] }
               ],
               "middlewares": [
                 "LoggingMiddleware",
@@ -349,7 +349,7 @@ public class ConfigSerializationTests
               ],
               "collapsing": {
                 "enabled": true,
-                "neverCollapse": ["MathHarness"]
+                "neverCollapse": ["MathToolHarness"]
               }
             }
             """;
@@ -362,13 +362,13 @@ public class ConfigSerializationTests
         Assert.Equal("ResearchAgent", config.Name);
         Assert.Equal("You are a research assistant.", config.SystemInstructions);
 
-        // Harneses
-        Assert.Equal(3, config.Harneses.Count);
-        Assert.Equal("MathHarness", config.Harneses[0].Name);
-        Assert.Equal("SearchHarness", config.Harneses[1].Name);
-        Assert.Equal("FileHarness", config.Harneses[2].Name);
-        Assert.Single(config.Harneses[2].Functions!);
-        Assert.Equal("ReadFile", config.Harneses[2].Functions![0]);
+        // ToolHarnesses
+        Assert.Equal(3, config.ToolHarnesses.Count);
+        Assert.Equal("MathToolHarness", config.ToolHarnesses[0].Name);
+        Assert.Equal("SearchToolHarness", config.ToolHarnesses[1].Name);
+        Assert.Equal("FileToolHarness", config.ToolHarnesses[2].Name);
+        Assert.Single(config.ToolHarnesses[2].Functions!);
+        Assert.Equal("ReadFile", config.ToolHarnesses[2].Functions![0]);
 
         // Middlewares
         Assert.Equal(2, config.Middlewares.Count);
@@ -377,29 +377,29 @@ public class ConfigSerializationTests
 
         // Collapsing
         Assert.True(config.Collapsing.Enabled);
-        Assert.Contains("MathHarness", config.Collapsing.NeverCollapse);
+        Assert.Contains("MathToolHarness", config.Collapsing.NeverCollapse);
     }
 
     [Fact]
-    public void HarnessReference_StringSyntax_Serialization()
+    public void ToolHarnessReference_StringSyntax_Serialization()
     {
         // Arrange - simple reference should serialize as string
-        var reference = new HarnessReference { Name = "MathHarness" };
+        var reference = new ToolHarnessReference { Name = "MathToolHarness" };
 
         // Act
         var json = JsonSerializer.Serialize(reference);
 
         // Assert - should be serialized as simple string
-        Assert.Equal("\"MathHarness\"", json);
+        Assert.Equal("\"MathToolHarness\"", json);
     }
 
     [Fact]
-    public void HarnessReference_RichSyntax_Serialization()
+    public void ToolHarnessReference_RichSyntax_Serialization()
     {
         // Arrange - reference with config should serialize as object
-        var reference = new HarnessReference
+        var reference = new ToolHarnessReference
         {
-            Name = "SearchHarness",
+            Name = "SearchToolHarness",
             Functions = new List<string> { "WebSearch" }
         };
 
@@ -409,7 +409,7 @@ public class ConfigSerializationTests
 
         // Assert - should be serialized as object
         Assert.Equal(JsonValueKind.Object, parsed.RootElement.ValueKind);
-        Assert.Equal("SearchHarness", parsed.RootElement.GetProperty("name").GetString());
+        Assert.Equal("SearchToolHarness", parsed.RootElement.GetProperty("name").GetString());
     }
 
     [Fact]

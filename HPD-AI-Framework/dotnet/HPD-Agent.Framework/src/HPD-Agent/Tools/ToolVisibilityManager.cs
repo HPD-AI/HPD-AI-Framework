@@ -8,8 +8,8 @@ public class ToolVisibilityManager
 {
     private readonly ILogger<ToolVisibilityManager>? _logger;
     private readonly Dictionary<string, AIFunction> _allFunctionsByReference;
-    private readonly ImmutableHashSet<string> _explicitlyRegisteredHarneses;
-    private readonly ImmutableHashSet<string> _neverCollapseHarneses;
+    private readonly ImmutableHashSet<string> _explicitlyRegisteredToolHarnesses;
+    private readonly ImmutableHashSet<string> _neverCollapseToolHarnesses;
 
     public ToolVisibilityManager(
         IEnumerable<AIFunction> allFunctions,
@@ -20,70 +20,70 @@ public class ToolVisibilityManager
 
     public ToolVisibilityManager(
         IEnumerable<AIFunction> allFunctions,
-        ImmutableHashSet<string> explicitlyRegisteredHarneses,
+        ImmutableHashSet<string> explicitlyRegisteredToolHarnesses,
         ILogger<ToolVisibilityManager>? logger = null)
-        : this(allFunctions, explicitlyRegisteredHarneses, null, logger)
+        : this(allFunctions, explicitlyRegisteredToolHarnesses, null, logger)
     {
     }
 
     public ToolVisibilityManager(
         IEnumerable<AIFunction> allFunctions,
-        ImmutableHashSet<string> explicitlyRegisteredHarneses,
-        HashSet<string>? neverCollapseHarneses,
+        ImmutableHashSet<string> explicitlyRegisteredToolHarnesses,
+        HashSet<string>? neverCollapseToolHarnesses,
         ILogger<ToolVisibilityManager>? logger = null)
     {
         _logger = logger;
-        _explicitlyRegisteredHarneses = explicitlyRegisteredHarneses ?? ImmutableHashSet<string>.Empty;
-        _neverCollapseHarneses = neverCollapseHarneses != null
-            ? ImmutableHashSet.CreateRange(StringComparer.OrdinalIgnoreCase, neverCollapseHarneses)
+        _explicitlyRegisteredToolHarnesses = explicitlyRegisteredToolHarnesses ?? ImmutableHashSet<string>.Empty;
+        _neverCollapseToolHarnesses = neverCollapseToolHarnesses != null
+            ? ImmutableHashSet.CreateRange(StringComparer.OrdinalIgnoreCase, neverCollapseToolHarnesses)
             : ImmutableHashSet<string>.Empty;
         _allFunctionsByReference = BuildFunctionLookup(allFunctions);
     }
 
     /// <summary>
     /// Gets tools visible for the current agent turn based on expansion state.
-    /// Handles Harness containers and type-safe Skill containers.
+    /// Handles ToolHarness containers and type-safe Skill containers.
     ///
     /// Ordering strategy:
     /// 1. Collapse containers (skill class containers with [Collapse])
-    /// 2. Harness containers (Collapse Harneses with [Collapse])
+    /// 2. ToolHarness containers (Collapse ToolHarnesses with [Collapse])
     /// 3. Skill containers (type-safe Skills with IsContainer=true)
     /// 4. Non-Collapsed functions (always visible)
-    /// 5. Expanded Harness functions
+    /// 5. Expanded ToolHarness functions
     /// 6. Expanded skill functions
     ///
-    /// Key insight: Functions in Harneses that are ONLY referenced by Collapsed skills
+    /// Key insight: Functions in ToolHarnesses that are ONLY referenced by Collapsed skills
     /// are hidden until their parent skill is expanded. This prevents "orphan" functions
     /// from appearing when the skill class Collapse is not expanded.
     /// </summary>
     /// <param name="allTools">All available tools</param>
-    /// <param name="expandedContainers">Unified set of expanded containers (both Harneses and skills)</param>
+    /// <param name="expandedContainers">Unified set of expanded containers (both ToolHarnesses and skills)</param>
     public List<AIFunction> GetToolsForAgentTurn(
         List<AIFunction> allTools,
         ImmutableHashSet<string> expandedContainers)
     {
-        // Use the same set for both Harneses and skills (unified container tracking)
+        // Use the same set for both ToolHarnesses and skills (unified container tracking)
         return GetToolsForAgentTurn(allTools, expandedContainers, expandedContainers);
     }
 
     /// <summary>
     /// Gets tools visible for the current agent turn based on expansion state.
-    /// Handles Harness containers and type-safe Skill containers.
+    /// Handles ToolHarness containers and type-safe Skill containers.
     ///
     /// Ordering strategy:
     /// 1. Collapse containers (skill class containers with [Collapse])
-    /// 2. Harness containers (Collapse Harneses with [Collapse])
+    /// 2. ToolHarness containers (Collapse ToolHarnesses with [Collapse])
     /// 3. Skill containers (type-safe Skills with IsContainer=true)
     /// 4. Non-Collapsed functions (always visible)
-    /// 5. Expanded Harness functions
+    /// 5. Expanded ToolHarness functions
     /// 6. Expanded skill functions
     ///
-    /// Key insight: Functions in Harneses that are ONLY referenced by Collapsed skills
+    /// Key insight: Functions in ToolHarnesses that are ONLY referenced by Collapsed skills
     /// are hidden until their parent skill is expanded. This prevents "orphan" functions
     /// from appearing when the skill class Collapse is not expanded.
     /// </summary>
     /// <param name="allTools">All available tools</param>
-    /// <param name="expandedCollapsedHarnessContainers">Set of expanded Harness containers</param>
+    /// <param name="expandedCollapsedToolHarnessContainers">Set of expanded ToolHarness containers</param>
     /// <param name="expandedSkillContainers">Set of expanded skill containers</param>
     /// <remarks>
     /// This overload is maintained for backward compatibility. Prefer using the single-parameter
@@ -91,16 +91,16 @@ public class ToolVisibilityManager
     /// </remarks>
     public List<AIFunction> GetToolsForAgentTurn(
         List<AIFunction> allTools,
-        ImmutableHashSet<string> expandedCollapsedHarnessContainers,
+        ImmutableHashSet<string> expandedCollapsedToolHarnessContainers,
         ImmutableHashSet<string> expandedSkillContainers)
     {
         //  Build context (first pass - identify relationships)
-        var context = BuildVisibilityContext(allTools, expandedCollapsedHarnessContainers, expandedSkillContainers);
+        var context = BuildVisibilityContext(allTools, expandedCollapsedToolHarnessContainers, expandedSkillContainers);
 
         var CollapseContainers = new List<AIFunction>();
         var skillContainers = new List<AIFunction>();
         var nonCollapsedFunctions = new List<AIFunction>();
-        var expandedHarnessFunctions = new List<AIFunction>();
+        var expandedToolHarnessFunctions = new List<AIFunction>();
         var expandedSkillFunctions = new List<AIFunction>();
 
         // Phase 2: Categorize tools using visibility rules (second pass)
@@ -111,8 +111,8 @@ public class ToolVisibilityManager
             switch (containerType)
             {
                 case ContainerType.CollapseAttributeContainer:
-                case ContainerType.CollapsedHarnessContainer:
-                    // Both types are Collapse/Harness containers - treat identically
+                case ContainerType.CollapsedToolHarnessContainer:
+                    // Both types are Collapse/ToolHarness containers - treat identically
                     if (IsCollapseContainerVisible(tool, context))
                     {
                         CollapseContainers.Add(tool);
@@ -155,8 +155,8 @@ public class ToolVisibilityManager
                                 nonCollapsedFunctions.Add(tool);
                                 break;
 
-                            case FunctionVisibility.ExpandedHarness:
-                                expandedHarnessFunctions.Add(tool);
+                            case FunctionVisibility.ExpandedToolHarness:
+                                expandedToolHarnessFunctions.Add(tool);
                                 break;
 
                             case FunctionVisibility.ExpandedSkill:
@@ -177,7 +177,7 @@ public class ToolVisibilityManager
         var result = CollapseContainers.OrderBy(c => c.Name)
             .Concat(skillContainers.OrderBy(c => c.Name))
             .Concat(nonCollapsedFunctions.OrderBy(f => f.Name))
-            .Concat(expandedHarnessFunctions.OrderBy(f => f.Name))
+            .Concat(expandedToolHarnessFunctions.OrderBy(f => f.Name))
             .Concat(expandedSkillFunctions.OrderBy(f => f.Name))
             .DistinctBy(f => f.Name)
             .ToList();
@@ -200,11 +200,11 @@ public class ToolVisibilityManager
             // Add by function name
             lookup[function.Name] = function;
 
-            // Add by qualified name if parent Harness exists
-            var parentHarness = GetParentHarness(function);
-            if (!string.IsNullOrEmpty(parentHarness))
+            // Add by qualified name if parent ToolHarness exists
+            var parentToolHarness = GetParentToolHarness(function);
+            if (!string.IsNullOrEmpty(parentToolHarness))
             {
-                var qualifiedName = $"{parentHarness}.{function.Name}";
+                var qualifiedName = $"{parentToolHarness}.{function.Name}";
                 lookup[qualifiedName] = function;
             }
         }
@@ -221,14 +221,14 @@ public class ToolVisibilityManager
         function.AdditionalProperties?.TryGetValue("IsSkill", out var v) == true && v is bool b && b &&
         !IsContainer(function);
 
-    private string GetHarnessName(AIFunction function) =>
-        function.AdditionalProperties?.TryGetValue("HarnessName", out var v) == true && v is string s ? s : function.Name ?? string.Empty;
+    private string GetToolHarnessName(AIFunction function) =>
+        function.AdditionalProperties?.TryGetValue("ToolHarnessName", out var v) == true && v is string s ? s : function.Name ?? string.Empty;
 
     private string GetSkillName(AIFunction function) =>
         function.Name ?? string.Empty;
 
-    private string? GetParentHarness(AIFunction function) =>
-        function.AdditionalProperties?.TryGetValue("ParentHarness", out var v) == true && v is string s ? s : null;
+    private string? GetParentToolHarness(AIFunction function) =>
+        function.AdditionalProperties?.TryGetValue("ParentToolHarness", out var v) == true && v is string s ? s : null;
 
     private string? GetParentContainer(AIFunction function) =>
         function.AdditionalProperties?.TryGetValue("ParentContainer", out var v) == true && v is string s ? s : null;
@@ -242,14 +242,14 @@ public class ToolVisibilityManager
 
     private string[] GetReferencedTools(AIFunction skillContainer)
     {
-        if (skillContainer.AdditionalProperties?.TryGetValue("ReferencedHarneses", out var v) == true && v is string[] Harneses)
-            return Harneses;
+        if (skillContainer.AdditionalProperties?.TryGetValue("ReferencedToolHarnesses", out var v) == true && v is string[] ToolHarnesses)
+            return ToolHarnesses;
         return Array.Empty<string>();
     }
 
     private string ExtractFunctionName(string reference)
     {
-        // "HarnessName.FunctionName" -> "FunctionName"
+        // "ToolHarnessName.FunctionName" -> "FunctionName"
         var lastDot = reference.LastIndexOf('.');
         return lastDot >= 0 ? reference.Substring(lastDot + 1) : reference;
     }
@@ -263,14 +263,14 @@ public class ToolVisibilityManager
         if (!IsContainer(function))
             return ContainerType.NotAContainer;
 
-        // Check if this harness is in the NeverCollapse list (runtime override)
+        // Check if this toolharness is in the NeverCollapse list (runtime override)
         // If so, treat it as not a container - functions will be visible directly
-        if (_neverCollapseHarneses.Contains(function.Name))
+        if (_neverCollapseToolHarnesses.Contains(function.Name))
             return ContainerType.NotAContainer;
 
-        // Check for IsHarnessContainer flag (from [Collapse] attribute) or IsCollapse flag (legacy compatibility)
-        if ((function.AdditionalProperties?.TryGetValue("IsHarnessContainer", out var harnessVal) == true &&
-            harnessVal is bool harnessFlag && harnessFlag) ||
+        // Check for IsToolHarnessContainer flag (from [Collapse] attribute) or IsCollapse flag (legacy compatibility)
+        if ((function.AdditionalProperties?.TryGetValue("IsToolHarnessContainer", out var toolharnessVal) == true &&
+            toolharnessVal is bool toolharnessFlag && toolharnessFlag) ||
             (function.AdditionalProperties?.TryGetValue("IsCollapse", out var CollapseVal) == true &&
             CollapseVal is bool CollapseFlag && CollapseFlag))
         {
@@ -284,8 +284,8 @@ public class ToolVisibilityManager
             return ContainerType.SkillMethodContainer;
         }
 
-        // Container with no special flags = legacy collapsed harness
-        return ContainerType.CollapsedHarnessContainer;
+        // Container with no special flags = legacy collapsed toolharness
+        return ContainerType.CollapsedToolHarnessContainer;
     }
 
     // ============================================
@@ -309,13 +309,13 @@ public class ToolVisibilityManager
         CollapseAttributeContainer,
 
         /// <summary>
-        /// Container for a Collapsed Harness WITHOUT skills (Harness-level Collapsing only).
-        /// Example: [Collapse("Math")] on MathHarness class with only [AIFunction] methods
+        /// Container for a Collapsed ToolHarness WITHOUT skills (ToolHarness-level Collapsing only).
+        /// Example: [Collapse("Math")] on MathToolHarness class with only [AIFunction] methods
         /// Metadata: IsContainer=true, no IsSkill/IsCollapse flags
-        /// Generated by HPDHARNESSourceGenerator.GenerateHarnessContainer()
-        /// Note: Both CollapseAttributeContainer and CollapsedHarnessContainer are treated identically at runtime.
+        /// Generated by HPDHARNESSourceGenerator.GenerateToolHarnessContainer()
+        /// Note: Both CollapseAttributeContainer and CollapsedToolHarnessContainer are treated identically at runtime.
         /// </summary>
-        CollapsedHarnessContainer,
+        CollapsedToolHarnessContainer,
 
         /// <summary>
         /// Container created by [Skill] method.
@@ -333,7 +333,7 @@ public class ToolVisibilityManager
     {
         Hidden,           // Not visible
         NonCollapsed,        // Always visible (goes into nonCollapsedFunctions list)
-        ExpandedHarness,   // Visible because parent Harness expanded (goes into expandedHarnessFunctions list)
+        ExpandedToolHarness,   // Visible because parent ToolHarness expanded (goes into expandedToolHarnessFunctions list)
         ExpandedSkill     // Visible because skill expanded (goes into expandedSkillFunctions list)
     }
 
@@ -341,33 +341,33 @@ public class ToolVisibilityManager
     /// Rule: Collapse container is visible IFF:
     /// 1. It is NOT expanded, AND
     /// 2. It is NOT implicitly registered via skills (unless explicitly registered)
-    /// Collapse containers can be tracked in either expandedCollapsedHarnessContainers or ExpandedSkillContainers.
+    /// Collapse containers can be tracked in either expandedCollapsedToolHarnessContainers or ExpandedSkillContainers.
     /// </summary>
     private bool IsCollapseContainerVisible(AIFunction container, VisibilityContext context)
     {
-        // For CollapsedHarnessContainer, use HarnessName. For CollapseAttributeContainer, use Name.
+        // For CollapsedToolHarnessContainer, use ToolHarnessName. For CollapseAttributeContainer, use Name.
         // Both should work with the same string since they represent the same Collapse.
-        var CollapseName = GetHarnessName(container);
+        var CollapseName = GetToolHarnessName(container);
         if (string.IsNullOrEmpty(CollapseName))
         {
             CollapseName = container.Name ?? string.Empty;
         }
 
-        // Hide Collapse containers for Harneses that were ONLY implicitly registered via skills
+        // Hide Collapse containers for ToolHarnesses that were ONLY implicitly registered via skills
         // (i.e., referenced by skills but NOT explicitly registered by the user)
-        if (context.HarnesesWithCollapsedSkills.Contains(CollapseName) &&
-            !_explicitlyRegisteredHarneses.Contains(CollapseName))
+        if (context.ToolHarnessesWithCollapsedSkills.Contains(CollapseName) &&
+            !_explicitlyRegisteredToolHarnesses.Contains(CollapseName))
         {
             _logger?.LogDebug($"[VISIBILITY] Collapse container {CollapseName}: HIDDEN (implicitly registered via skills)");
             return false;
         }
 
         // Hide if parent container exists but is not yet expanded
-        // This enables nested containers (e.g., MCP_wolfram inside SearchHarness)
+        // This enables nested containers (e.g., MCP_wolfram inside SearchToolHarness)
         var parentContainerName = GetParentContainer(container);
         if (!string.IsNullOrEmpty(parentContainerName))
         {
-            if (!context.ExpandedCollapsedHarnessContainers.Contains(parentContainerName) &&
+            if (!context.ExpandedCollapsedToolHarnessContainers.Contains(parentContainerName) &&
                 !context.ExpandedSkillContainers.Contains(parentContainerName))
             {
                 _logger?.LogDebug($"[VISIBILITY] Collapse container {CollapseName}: HIDDEN (parent {parentContainerName} not expanded)");
@@ -376,7 +376,7 @@ public class ToolVisibilityManager
         }
 
         // Hide if expanded (in either set)
-        if (context.ExpandedCollapsedHarnessContainers.Contains(CollapseName) ||
+        if (context.ExpandedCollapsedToolHarnessContainers.Contains(CollapseName) ||
             context.ExpandedSkillContainers.Contains(CollapseName))
         {
             _logger?.LogDebug($"[VISIBILITY] Collapse container {CollapseName}: HIDDEN (expanded)");
@@ -421,7 +421,7 @@ public class ToolVisibilityManager
 
         // Case 3: Parent Collapse exists - must be expanded
         if (context.ExpandedSkillContainers.Contains(parentCollapse) ||
-            context.ExpandedCollapsedHarnessContainers.Contains(parentCollapse))
+            context.ExpandedCollapsedToolHarnessContainers.Contains(parentCollapse))
         {
             _logger?.LogDebug($"[VISIBILITY] Skill container {skillName}: VISIBLE (parent Collapse {parentCollapse} expanded)");
             return true;
@@ -460,31 +460,31 @@ public class ToolVisibilityManager
     /// Determines visibility and categorization for a function.
     /// Returns the visibility reason, which determines which list the function goes into.
     ///
-    /// PRIORITY 1: Parent Harness Collapse check with skill bypass
-    ///   - If Harness has [Collapse] container AND function is referenced by an expanded skill → VISIBLE (skill bypass)
-    ///   - If Harness has [Collapse] container AND parent Harness is expanded → VISIBLE
-    ///   - If Harness has [Collapse] container AND not expanded → HIDDEN
+    /// PRIORITY 1: Parent ToolHarness Collapse check with skill bypass
+    ///   - If ToolHarness has [Collapse] container AND function is referenced by an expanded skill → VISIBLE (skill bypass)
+    ///   - If ToolHarness has [Collapse] container AND parent ToolHarness is expanded → VISIBLE
+    ///   - If ToolHarness has [Collapse] container AND not expanded → HIDDEN
     /// PRIORITY 2: Explicit registration check (always show if explicitly registered)
     /// PRIORITY 3: Skill reference check (show if any referencing skill is expanded)
-    /// PRIORITY 4: Orphan check (hide functions in implicitly-registered Harneses that aren't referenced)
+    /// PRIORITY 4: Orphan check (hide functions in implicitly-registered ToolHarnesses that aren't referenced)
     /// DEFAULT: Non-Collapsed, non-referenced, non-orphan functions are always visible
     /// </summary>
     private FunctionVisibility GetFunctionVisibility(AIFunction function, VisibilityContext context)
     {
         var functionName = function.Name ?? string.Empty;
-        var parentHarness = GetParentHarness(function);
+        var parentToolHarness = GetParentToolHarness(function);
 
-        // PRIORITY 0: If Harness is in NeverCollapse, treat as non-collapsed
-        if (parentHarness != null && _neverCollapseHarneses.Contains(parentHarness))
+        // PRIORITY 0: If ToolHarness is in NeverCollapse, treat as non-collapsed
+        if (parentToolHarness != null && _neverCollapseToolHarnesses.Contains(parentToolHarness))
         {
-            _logger?.LogDebug($"[VISIBILITY] Function {functionName}: VISIBLE (parent {parentHarness} in NeverCollapse)");
+            _logger?.LogDebug($"[VISIBILITY] Function {functionName}: VISIBLE (parent {parentToolHarness} in NeverCollapse)");
             return FunctionVisibility.NonCollapsed;
         }
 
-        // PRIORITY 1: If Harness has [Collapse] container, check skill bypass first
-        if (parentHarness != null && context.HarnesesWithContainers.Contains(parentHarness))
+        // PRIORITY 1: If ToolHarness has [Collapse] container, check skill bypass first
+        if (parentToolHarness != null && context.ToolHarnessesWithContainers.Contains(parentToolHarness))
         {
-            // Check if this function is referenced by an expanded skill (skill bypass for Collapsed Harneses)
+            // Check if this function is referenced by an expanded skill (skill bypass for Collapsed ToolHarnesses)
             if (context.FunctionsReferencedBySkills.Contains(functionName))
             {
                 var referencingSkills = context.SkillsReferencingFunction.GetValueOrDefault(functionName, new List<string>());
@@ -492,28 +492,28 @@ public class ToolVisibilityManager
 
                 if (anySkillExpanded)
                 {
-                    _logger?.LogDebug($"[VISIBILITY] Function {functionName}: VISIBLE (skill bypass for Collapsed Harness {parentHarness})");
+                    _logger?.LogDebug($"[VISIBILITY] Function {functionName}: VISIBLE (skill bypass for Collapsed ToolHarness {parentToolHarness})");
                     return FunctionVisibility.ExpandedSkill;
                 }
             }
 
-            // Otherwise, Collapsed Harness function - only show if parent expanded
-            if (context.ExpandedCollapsedHarnessContainers.Contains(parentHarness))
+            // Otherwise, Collapsed ToolHarness function - only show if parent expanded
+            if (context.ExpandedCollapsedToolHarnessContainers.Contains(parentToolHarness))
             {
-                _logger?.LogDebug($"[VISIBILITY] Function {functionName}: VISIBLE (Collapsed parent {parentHarness} expanded)");
-                return FunctionVisibility.ExpandedHarness;
+                _logger?.LogDebug($"[VISIBILITY] Function {functionName}: VISIBLE (Collapsed parent {parentToolHarness} expanded)");
+                return FunctionVisibility.ExpandedToolHarness;
             }
 
-            _logger?.LogDebug($"[VISIBILITY] Function {functionName}: HIDDEN (Collapsed parent {parentHarness} not expanded)");
+            _logger?.LogDebug($"[VISIBILITY] Function {functionName}: HIDDEN (Collapsed parent {parentToolHarness} not expanded)");
             return FunctionVisibility.Hidden;
         }
 
-        // PRIORITY 2: If Harness is explicitly registered (and NOT Collapsed), show all its functions
+        // PRIORITY 2: If ToolHarness is explicitly registered (and NOT Collapsed), show all its functions
         // (Explicit registration takes precedence over skill references)
-        if (parentHarness != null && _explicitlyRegisteredHarneses.Contains(parentHarness))
+        if (parentToolHarness != null && _explicitlyRegisteredToolHarnesses.Contains(parentToolHarness))
         {
-            // Explicitly registered Harness - always show functions
-            _logger?.LogDebug($"[VISIBILITY] Function {functionName}: VISIBLE (explicitly registered Harness)");
+            // Explicitly registered ToolHarness - always show functions
+            _logger?.LogDebug($"[VISIBILITY] Function {functionName}: VISIBLE (explicitly registered ToolHarness)");
             return FunctionVisibility.NonCollapsed;
         }
 
@@ -537,12 +537,12 @@ public class ToolVisibilityManager
         }
 
         // PRIORITY 4: Orphan check
-        if (parentHarness != null && context.HarnesesWithCollapsedSkills.Contains(parentHarness))
+        if (parentToolHarness != null && context.ToolHarnessesWithCollapsedSkills.Contains(parentToolHarness))
         {
-            // This function is in a Harness that was auto-registered via Collapsed skills
+            // This function is in a ToolHarness that was auto-registered via Collapsed skills
             // BUT this function is NOT referenced by any skill (it's an orphan)
             // Hide it - don't add to any list
-            _logger?.LogDebug($"[VISIBILITY] Function {functionName}: HIDDEN (orphan in implicitly-registered Harness {parentHarness})");
+            _logger?.LogDebug($"[VISIBILITY] Function {functionName}: HIDDEN (orphan in implicitly-registered ToolHarness {parentToolHarness})");
             return FunctionVisibility.Hidden;
         }
 
@@ -557,19 +557,19 @@ public class ToolVisibilityManager
     /// </summary>
     private VisibilityContext BuildVisibilityContext(
         List<AIFunction> allTools,
-        ImmutableHashSet<string> expandedCollapsedHarnessContainers,
+        ImmutableHashSet<string> expandedCollapsedToolHarnessContainers,
         ImmutableHashSet<string> expandedSkillContainers)
     {
         var context = new VisibilityContext
         {
             AllTools = allTools,
-            ExpandedCollapsedHarnessContainers = expandedCollapsedHarnessContainers,
+            ExpandedCollapsedToolHarnessContainers = expandedCollapsedToolHarnessContainers,
             ExpandedSkillContainers = expandedSkillContainers,
-            HarnesesWithContainers = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            ToolHarnessesWithContainers = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             SkillClassesWithCollapse = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             FunctionsReferencedBySkills = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             SkillsReferencingFunction = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase),
-            HarnesesWithCollapsedSkills = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            ToolHarnessesWithCollapsedSkills = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         };
 
         foreach (var tool in allTools)
@@ -579,39 +579,39 @@ public class ToolVisibilityManager
             switch (containerType)
             {
                 case ContainerType.CollapseAttributeContainer:
-                    // Collapse container (can be class-level or Harness-level)
+                    // Collapse container (can be class-level or ToolHarness-level)
                     var CollapseName = tool.Name ?? string.Empty;
                     context.SkillClassesWithCollapse.Add(CollapseName);
-                    // Also track as a Harness with container so functions get hidden/shown properly
-                    context.HarnesesWithContainers.Add(CollapseName);
+                    // Also track as a ToolHarness with container so functions get hidden/shown properly
+                    context.ToolHarnessesWithContainers.Add(CollapseName);
                     break;
 
-                case ContainerType.CollapsedHarnessContainer:
-                    var toolName = GetHarnessName(tool);
-                    context.HarnesesWithContainers.Add(toolName);
+                case ContainerType.CollapsedToolHarnessContainer:
+                    var toolName = GetToolHarnessName(tool);
+                    context.ToolHarnessesWithContainers.Add(toolName);
                     break;
 
                 case ContainerType.SkillMethodContainer:
                     // Track which functions this skill references
                     var skillName = GetSkillName(tool);
                     var referencedFunctions = GetReferencedFunctions(tool);
-                    var referencedHarneses = GetReferencedTools(tool);
+                    var referencedToolHarnesses = GetReferencedTools(tool);
                     var parentSkillContainer = GetParentContainer(tool);
 
-                    // Mark Harneses as having Collapsed skills ONLY if they are from a DIFFERENT Harness
-                    // (i.e., skills referencing functions from external Harneses)
-                    foreach (var referencedHarness in referencedHarneses)
+                    // Mark ToolHarnesses as having Collapsed skills ONLY if they are from a DIFFERENT ToolHarness
+                    // (i.e., skills referencing functions from external ToolHarnesses)
+                    foreach (var referencedToolHarness in referencedToolHarnesses)
                     {
-                        // Only add if the referenced Harness is different from the skill's parent container
-                        if (!string.Equals(referencedHarness, parentSkillContainer, StringComparison.OrdinalIgnoreCase))
+                        // Only add if the referenced ToolHarness is different from the skill's parent container
+                        if (!string.Equals(referencedToolHarness, parentSkillContainer, StringComparison.OrdinalIgnoreCase))
                         {
-                            context.HarnesesWithCollapsedSkills.Add(referencedHarness);
+                            context.ToolHarnessesWithCollapsedSkills.Add(referencedToolHarness);
                         }
                     }
 
                     foreach (var funcRef in referencedFunctions)
                     {
-                        // Extract function name from "HarnessName.FunctionName" format
+                        // Extract function name from "ToolHarnessName.FunctionName" format
                         var funcName = ExtractFunctionName(funcRef);
                         context.FunctionsReferencedBySkills.Add(funcName);
 
@@ -638,12 +638,12 @@ public class ToolVisibilityManager
     private class VisibilityContext
     {
         public required List<AIFunction> AllTools { get; init; }
-        public required ImmutableHashSet<string> ExpandedCollapsedHarnessContainers { get; init; }
+        public required ImmutableHashSet<string> ExpandedCollapsedToolHarnessContainers { get; init; }
         public required ImmutableHashSet<string> ExpandedSkillContainers { get; init; }
-        public required HashSet<string> HarnesesWithContainers { get; init; }
+        public required HashSet<string> ToolHarnessesWithContainers { get; init; }
         public required HashSet<string> SkillClassesWithCollapse { get; init; }
         public required HashSet<string> FunctionsReferencedBySkills { get; init; }
         public required Dictionary<string, List<string>> SkillsReferencingFunction { get; init; }
-        public required HashSet<string> HarnesesWithCollapsedSkills { get; init; }
+        public required HashSet<string> ToolHarnessesWithCollapsedSkills { get; init; }
     }
 }

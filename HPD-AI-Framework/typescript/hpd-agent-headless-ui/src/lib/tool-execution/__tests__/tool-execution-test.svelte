@@ -2,7 +2,7 @@
 	/**
 	 * ToolExecution Test Component
 	 *
-	 * Test harness for the ToolExecution component
+	 * Test toolharness for the ToolExecution component
 	 */
 	import * as ToolExecution from '../exports.js';
 	import type { ToolCall } from '../../agent/types.js';

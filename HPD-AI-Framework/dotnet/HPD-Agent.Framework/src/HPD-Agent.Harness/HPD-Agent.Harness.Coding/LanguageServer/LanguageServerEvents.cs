@@ -1,7 +1,7 @@
 using HPD.Agent;
 using HPD.Events;
 
-namespace HPDOS.Harneses.Middleware;
+namespace HPDOS.ToolHarnesses.Middleware;
 
 public abstract record LanguageServerEvent : AgentEvent
 {

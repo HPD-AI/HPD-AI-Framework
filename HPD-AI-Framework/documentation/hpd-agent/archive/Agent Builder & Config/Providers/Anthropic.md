@@ -149,12 +149,12 @@ config.Provider.SetTypedProviderConfig(anthropicOpts);
 // Reuse with different runtime customizations
 var agent1 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithHarness<MathHarness>()
+    .WithToolHarness<MathToolHarness>()
     .BuildAsync();
 
 var agent2 = await new AgentBuilder(config)
     .WithServiceProvider(services)
-    .WithHarness<FileHarness>()
+    .WithToolHarness<FileToolHarness>()
     .BuildAsync();
 ```
 
@@ -607,7 +607,7 @@ Console.WriteLine(response);
 ### Example 2: Function Calling with Tools
 
 ```csharp
-public class WeatherHarness
+public class WeatherToolHarness
 {
     [Function("Get current weather for a location")]
     public string GetWeather(string location)
@@ -624,7 +624,7 @@ public class WeatherHarness
 
 var agent = await new AgentBuilder()
     .WithAnthropic(model: "claude-sonnet-4-5-20250929")
-    .WithHarness<WeatherHarness>()
+    .WithToolHarness<WeatherToolHarness>()
     .BuildAsync();
 
 var response = await agent.RunAsync("What's the weather in Seattle and what's the forecast?");

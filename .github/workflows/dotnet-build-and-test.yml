@@ -270,8 +270,8 @@ jobs:
 
     - name: Prepare ripgrep binaries
       run: |
-        dotnet run --file HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/Ripgrep/pack/prepare-ripgrep-binaries.cs -- \
-          --project HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj
+        dotnet run --file HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.Coding/Ripgrep/pack/prepare-ripgrep-binaries.cs -- \
+          --project HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.Coding/HPD-Agent.ToolHarness.Coding.csproj
 
     - name: Pack NuGet packages
       run: dotnet pack HPD-AI-Framework/dotnet/HPD-Agent.Framework/HPD-Agent.slnx -c Release --output ./artifacts

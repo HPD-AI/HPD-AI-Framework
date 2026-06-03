@@ -3,13 +3,13 @@ using Microsoft.Extensions.AI;
 namespace HPD.Agent.Tests.Infrastructure;
 
 /// <summary>
-/// Helper for creating Collapsed Harneses and testing container expansion.
-/// Provides utilities for building test Harneses with container functions using HPDAIFunctionFactory.
+/// Helper for creating Collapsed ToolHarnesses and testing container expansion.
+/// Provides utilities for building test ToolHarnesses with container functions using HPDAIFunctionFactory.
 /// </summary>
-public static class CollapsedHarnessTestHelper
+public static class CollapsedToolHarnessTestHelper
 {
     /// <summary>
-    /// Creates a container function for a Collapsed Harness.
+    /// Creates a container function for a Collapsed ToolHarness.
     /// This simulates what the source generator creates for [Collapse] attributes.
     /// </summary>
     public static AIFunction CreateContainerFunction(
@@ -28,7 +28,7 @@ public static class CollapsedHarnessTestHelper
             AdditionalProperties = new Dictionary<string, object?>
             {
                 ["IsContainer"] = true,
-                ["HarnessName"] = toolName,
+                ["ToolHarnessName"] = toolName,
                 ["FunctionNames"] = functionNames,
                 ["FunctionCount"] = functionCount,
                 ["SourceType"] = "CSharp"
@@ -40,16 +40,16 @@ public static class CollapsedHarnessTestHelper
             {
                 var funcs = string.Join(", ", functionNames);
                 var instructions = postExpansionInstructions ?? "";
-                return $"Harness '{toolName}' expanded. Available functions: {funcs}. {instructions}";
+                return $"ToolHarness '{toolName}' expanded. Available functions: {funcs}. {instructions}";
             },
             options);
     }
 
     /// <summary>
-    /// Creates a function that belongs to a Collapsed Harness.
-    /// Adds the necessary metadata to mark it as a Harness member.
+    /// Creates a function that belongs to a Collapsed ToolHarness.
+    /// Adds the necessary metadata to mark it as a ToolHarness member.
     /// </summary>
-    public static AIFunction CreateHarnessMemberFunction(
+    public static AIFunction CreateToolHarnessMemberFunction(
         string name,
         string description,
         Func<AIFunctionArguments, CancellationToken, Task<object?>> invocation,
@@ -61,8 +61,8 @@ public static class CollapsedHarnessTestHelper
             Description = description,
             AdditionalProperties = new Dictionary<string, object?>
             {
-                ["ParentHarness"] = toolName,
-                ["HarnessName"] = toolName
+                ["ParentToolHarness"] = toolName,
+                ["ToolHarnessName"] = toolName
             }
         };
 
@@ -72,17 +72,17 @@ public static class CollapsedHarnessTestHelper
     }
 
     /// <summary>
-    /// Creates a complete Collapsed Harness with container and member functions.
+    /// Creates a complete Collapsed ToolHarness with container and member functions.
     /// Returns (containerFunction, memberFunctions[]).
     /// </summary>
-    public static (AIFunction Container, AIFunction[] Members) CreateCollapsedHarness(
+    public static (AIFunction Container, AIFunction[] Members) CreateCollapsedToolHarness(
         string toolName,
         string description,
         params (string name, string desc, Func<AIFunctionArguments, CancellationToken, Task<object?>> func)[] functions)
     {
         // Create member functions
         var memberFunctions = functions.Select(f =>
-            CreateHarnessMemberFunction(f.name, f.desc, f.func, toolName)
+            CreateToolHarnessMemberFunction(f.name, f.desc, f.func, toolName)
         ).ToArray();
 
         // Create container
@@ -120,11 +120,11 @@ public static class CollapsedHarnessTestHelper
     }
 
     /// <summary>
-    /// Gets the Harness name from a function's metadata.
+    /// Gets the ToolHarness name from a function's metadata.
     /// </summary>
-    public static string? GetHarnessName(AIFunction function)
+    public static string? GetToolHarnessName(AIFunction function)
     {
-        if (function.AdditionalProperties?.TryGetValue("HarnessName", out var value) == true)
+        if (function.AdditionalProperties?.TryGetValue("ToolHarnessName", out var value) == true)
         {
             return value as string;
         }
@@ -132,7 +132,7 @@ public static class CollapsedHarnessTestHelper
     }
 
     /// <summary>
-    /// Creates a non-Collapsed function (regular function without Harness Collapsing).
+    /// Creates a non-Collapsed function (regular function without ToolHarness Collapsing).
     /// </summary>
     public static AIFunction CreateNonCollapsedFunction(
         string name,
@@ -181,9 +181,9 @@ public static class CollapsedHarnessTestHelper
 }
 
 /// <summary>
-/// Extension methods for working with Collapsed Harneses in tests.
+/// Extension methods for working with Collapsed ToolHarnesses in tests.
 /// </summary>
-public static class CollapsedHarnessExtensions
+public static class CollapsedToolHarnessExtensions
 {
     /// <summary>
     /// Converts a list of AIFunctions to their names for easy assertion.
@@ -198,7 +198,7 @@ public static class CollapsedHarnessExtensions
     /// </summary>
     public static IEnumerable<AIFunction> OnlyContainers(this IEnumerable<AIFunction> functions)
     {
-        return functions.Where(CollapsedHarnessTestHelper.IsContainer);
+        return functions.Where(CollapsedToolHarnessTestHelper.IsContainer);
     }
 
     /// <summary>
@@ -206,14 +206,14 @@ public static class CollapsedHarnessExtensions
     /// </summary>
     public static IEnumerable<AIFunction> ExcludeContainers(this IEnumerable<AIFunction> functions)
     {
-        return functions.Where(f => !CollapsedHarnessTestHelper.IsContainer(f));
+        return functions.Where(f => !CollapsedToolHarnessTestHelper.IsContainer(f));
     }
 
     /// <summary>
-    /// Filters functions by Harness name.
+    /// Filters functions by ToolHarness name.
     /// </summary>
-    public static IEnumerable<AIFunction> FromHarness(this IEnumerable<AIFunction> functions, string toolName)
+    public static IEnumerable<AIFunction> FromToolHarness(this IEnumerable<AIFunction> functions, string toolName)
     {
-        return functions.Where(f => CollapsedHarnessTestHelper.GetHarnessName(f) == toolName);
+        return functions.Where(f => CollapsedToolHarnessTestHelper.GetToolHarnessName(f) == toolName);
     }
 }

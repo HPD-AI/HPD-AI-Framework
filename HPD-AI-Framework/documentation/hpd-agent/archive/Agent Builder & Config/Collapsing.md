@@ -1,10 +1,10 @@
 # Collapsing
 
-Collapsing is the system that organizes harnesses into a hierarchical structure. Instead of exposing every function to the model simultaneously, harnesses are grouped and presented as high-level "skill" containers. The model first selects a container, then the functions inside it expand for use.
+Collapsing is the system that organizes toolharnesses into a hierarchical structure. Instead of exposing every function to the model simultaneously, toolharnesses are grouped and presented as high-level "skill" containers. The model first selects a container, then the functions inside it expand for use.
 
 This reduces prompt length and helps models with large tool sets navigate functions more effectively.
 
-Collapsing is **enabled by default** for all C# harnesses registered via `AgentBuilder`.
+Collapsing is **enabled by default** for all C# toolharnesses registered via `AgentBuilder`.
 
 ---
 
@@ -27,13 +27,13 @@ var config = new AgentConfig
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `Enabled` | `bool` | `true` | Enable collapsing for C# harnesses |
+| `Enabled` | `bool` | `true` | Enable collapsing for C# toolharnesses |
 | `CollapseClientTools` | `bool` | `false` | Also collapse client-side tools (browser/remote) |
 | `MaxFunctionNamesInDescription` | `int` | `10` | Max function names to list in the auto-generated container description |
 | `SkillInstructionMode` | `SkillInstructionMode` | `Both` | Where to inject skill expansion instructions |
 | `PersistSystemPromptInjections` | `bool` | `false` | Keep injected skill instructions across turns (not just the current one) |
-| `EnableErrorRecovery` | `bool` | `true` | Auto-expand a collapsed harness if the model calls a function that should be inside it |
-| `NeverCollapse` | `HashSet<string>?` | `null` | Harness names that should never be collapsed — always fully expanded |
+| `EnableErrorRecovery` | `bool` | `true` | Auto-expand a collapsed toolharness if the model calls a function that should be inside it |
+| `NeverCollapse` | `HashSet<string>?` | `null` | ToolHarness names that should never be collapsed — always fully expanded |
 | `MCPServerInstructions` | `Dictionary<string, string>?` | `null` | Custom instructions to inject after a specific MCP server container expands |
 | `ClientToolsInstructions` | `string?` | `null` | Instructions to inject after the ClientTools container expands |
 
@@ -50,16 +50,16 @@ var config = new AgentConfig
 
 ## Examples
 
-### Disable collapsing for a specific harness
+### Disable collapsing for a specific toolharness
 
 ```csharp
 Collapsing = new CollapsingConfig
 {
-    NeverCollapse = new HashSet<string> { "FileHarness", "CalculatorHarness" }
+    NeverCollapse = new HashSet<string> { "FileToolHarness", "CalculatorToolHarness" }
 }
 ```
 
-These harnesses will always have all their functions directly visible to the model.
+These toolharnesses will always have all their functions directly visible to the model.
 
 ### Per-server MCP instructions
 
@@ -95,7 +95,7 @@ All functions are exposed to the model at all times. Suitable for agents with a 
         "SkillInstructionMode": "Both",
         "PersistSystemPromptInjections": false,
         "EnableErrorRecovery": true,
-        "NeverCollapse": ["CalculatorHarness"],
+        "NeverCollapse": ["CalculatorToolHarness"],
         "ClientToolsInstructions": null
     }
 }

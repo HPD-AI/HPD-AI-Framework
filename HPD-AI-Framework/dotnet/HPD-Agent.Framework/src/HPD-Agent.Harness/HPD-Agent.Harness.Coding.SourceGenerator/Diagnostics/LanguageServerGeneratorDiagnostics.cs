@@ -1,6 +1,6 @@
 using Microsoft.CodeAnalysis;
 
-namespace HPD.Agent.Harness.Coding.SourceGenerator.Diagnostics;
+namespace HPD.Agent.ToolHarness.Coding.SourceGenerator.Diagnostics;
 
 internal static class LanguageServerGeneratorDiagnostics
 {

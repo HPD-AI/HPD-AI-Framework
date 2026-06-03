@@ -8,28 +8,28 @@ using System.Text;
 internal static class SkillCodeGenerator
 {
     /// <summary>
-    /// Generates the GetReferencedHarneses() method for auto-registration
+    /// Generates the GetReferencedToolHarnesses() method for auto-registration
     /// PHASE 5: Now uses SkillCapabilities (fully populated with resolved references)
     /// </summary>
-    public static string GenerateGetReferencedHarnesesMethod(HarnessInfo Harness)
+    public static string GenerateGetReferencedToolHarnessesMethod(ToolHarnessInfo ToolHarness)
     {
-        if (!Harness.SkillCapabilities.Any())
+        if (!ToolHarness.SkillCapabilities.Any())
             return string.Empty;
 
-        var allReferencedHarneses = Harness.SkillCapabilities
-            .SelectMany(s => s.ResolvedHarnessTypes)
+        var allReferencedToolHarnesses = ToolHarness.SkillCapabilities
+            .SelectMany(s => s.ResolvedToolHarnessTypes)
             .Distinct()
             .OrderBy(p => p)
             .ToList();
 
         var sb = new StringBuilder();
         sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// Gets the list of Harneses referenced by skills in this class");
+        sb.AppendLine("        /// Gets the list of ToolHarnesses referenced by skills in this class");
         sb.AppendLine("        /// Used by AgentBuilder for auto-registration");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static string[] GetReferencedHarneses()");
+        sb.AppendLine("        public static string[] GetReferencedToolHarnesses()");
 
-        if (!allReferencedHarneses.Any())
+        if (!allReferencedToolHarnesses.Any())
         {
             sb.AppendLine("            => Array.Empty<string>();");
             return sb.ToString();
@@ -38,10 +38,10 @@ internal static class SkillCodeGenerator
         sb.AppendLine("            return new string[]");
         sb.AppendLine("            {");
 
-        for (int i = 0; i < allReferencedHarneses.Count; i++)
+        for (int i = 0; i < allReferencedToolHarnesses.Count; i++)
         {
-            var comma = i < allReferencedHarneses.Count - 1 ? "," : "";
-            sb.AppendLine($"                \"{allReferencedHarneses[i]}\"{comma}");
+            var comma = i < allReferencedToolHarnesses.Count - 1 ? "," : "";
+            sb.AppendLine($"                \"{allReferencedToolHarnesses[i]}\"{comma}");
         }
 
         sb.AppendLine("            };");
@@ -54,19 +54,19 @@ internal static class SkillCodeGenerator
     /// Generates the GetReferencedFunctions() method for selective function registration
     /// PHASE 5: Now uses SkillCapabilities (fully populated with resolved references)
     /// </summary>
-    public static string GenerateGetReferencedFunctionsMethod(HarnessInfo Harness)
+    public static string GenerateGetReferencedFunctionsMethod(ToolHarnessInfo ToolHarness)
     {
-        if (!Harness.SkillCapabilities.Any())
+        if (!ToolHarness.SkillCapabilities.Any())
             return string.Empty;
 
-        // Build dictionary: HarnessName -> HashSet<FunctionName>
+        // Build dictionary: ToolHarnessName -> HashSet<FunctionName>
         var toolFunctions = new Dictionary<string, HashSet<string>>();
 
-        foreach (var skill in Harness.SkillCapabilities)
+        foreach (var skill in ToolHarness.SkillCapabilities)
         {
             foreach (var funcRef in skill.ResolvedFunctionReferences)
             {
-                // "FileSystemHarness.ReadFile" -> ("FileSystemHarness", "ReadFile")
+                // "FileSystemToolHarness.ReadFile" -> ("FileSystemToolHarness", "ReadFile")
                 var parts = funcRef.Split('.');
                 if (parts.Length == 2)
                 {
@@ -84,7 +84,7 @@ internal static class SkillCodeGenerator
         var sb = new StringBuilder();
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// Gets the specific functions referenced by skills (for selective registration)");
-        sb.AppendLine("        /// Used by AgentBuilder to register only needed functions from each Harness");
+        sb.AppendLine("        /// Used by AgentBuilder to register only needed functions from each ToolHarness");
         sb.AppendLine("        /// </summary>");
         sb.AppendLine("        public static Dictionary<string, string[]> GetReferencedFunctions()");
 
@@ -112,35 +112,35 @@ internal static class SkillCodeGenerator
     }
 
     /// <summary>
-    /// Generates skill registration code to be added to CreateHarness() method
-    /// Handles both class-level collapsing (if [Harness] on class with Collapsed=true) and individual skill containers
+    /// Generates skill registration code to be added to CreateToolHarness() method
+    /// Handles both class-level collapsing (if [ToolHarness] on class with Collapsed=true) and individual skill containers
     /// </summary>
-    public static string GenerateSkillRegistrations(HarnessInfo Harness)
+    public static string GenerateSkillRegistrations(ToolHarnessInfo ToolHarness)
     {
         // Early exit ONLY if no skills AND not collapsed
-        // If Harness is collapsed, we need to register the container even without skills
-        if (!Harness.SkillCapabilities.Any() && !Harness.IsCollapsed)
+        // If ToolHarness is collapsed, we need to register the container even without skills
+        if (!ToolHarness.SkillCapabilities.Any() && !ToolHarness.IsCollapsed)
             return string.Empty;
 
         var sb = new StringBuilder();
         sb.AppendLine();
 
-        // If the Harness is collapsed, create a class-level container first
-        if (Harness.IsCollapsed)
+        // If the ToolHarness is collapsed, create a class-level container first
+        if (ToolHarness.IsCollapsed)
         {
-            sb.AppendLine("        // Register harness container");
+            sb.AppendLine("        // Register toolharness container");
             // Method name uses ClassName; the container's Name property uses EffectiveName
-            sb.AppendLine($"        functions.Add(Create{Harness.ClassName}Container(instance, serialization));");
+            sb.AppendLine($"        functions.Add(Create{ToolHarness.ClassName}Container(instance, serialization));");
             sb.AppendLine();
         }
 
         // Early exit if no skills to register (but after registering collapse container if needed)
-        if (!Harness.SkillCapabilities.Any())
+        if (!ToolHarness.SkillCapabilities.Any())
             return sb.ToString();
 
         sb.AppendLine("        // Register skill containers");
 
-        foreach (var skill in Harness.SkillCapabilities)
+        foreach (var skill in ToolHarness.SkillCapabilities)
         {
             // Check if skill has conditional registration (same pattern as Functions/SubAgents)
             var hasConditionalEvaluator = skill.IsConditional &&
@@ -168,7 +168,7 @@ internal static class SkillCodeGenerator
     /// Skills ARE containers - there's only one function per skill.
     /// PHASE 5: Now accepts SkillCapability instead of SkillInfo
     /// </summary>
-    public static string GenerateSkillContainerFunction(HPD.Agent.SourceGenerator.Capabilities.SkillCapability skill, HarnessInfo Harness)
+    public static string GenerateSkillContainerFunction(HPD.Agent.SourceGenerator.Capabilities.SkillCapability skill, ToolHarnessInfo ToolHarness)
     {
         var sb = new StringBuilder();
 
@@ -186,7 +186,7 @@ internal static class SkillCodeGenerator
 
         var escapedReturnMessage = returnMessage.Replace("\"", "\"\"");
 
-        // Build description like Harness Collapsing: append function list
+        // Build description like ToolHarness Collapsing: append function list
         var functionNames = string.Join(", ", skill.ResolvedFunctionReferences);
 
         // Support dynamic descriptions (like Functions)
@@ -199,9 +199,9 @@ internal static class SkillCodeGenerator
         sb.AppendLine($"        /// <summary>");
         sb.AppendLine($"        /// Container function for {skill.Name} skill.");
         sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        /// <param name=\"instance\">Harness instance</param>");
+        sb.AppendLine($"        /// <param name=\"instance\">ToolHarness instance</param>");
         sb.AppendLine($"        /// <param name=\"context\">Execution context for dynamic descriptions</param>");
-        sb.AppendLine($"        private static AIFunction Create{skill.MethodName}Skill({Harness.Name} instance, IToolMetadata? context, HPDToolSerializationOptions? serialization)");
+        sb.AppendLine($"        private static AIFunction Create{skill.MethodName}Skill({ToolHarness.Name} instance, IToolMetadata? context, HPDToolSerializationOptions? serialization)");
         sb.AppendLine("        {");
 
         // Generate runtime function body that checks configuration
@@ -293,10 +293,10 @@ internal static class SkillCodeGenerator
         sb.AppendLine("                    {");
         sb.AppendLine("                        [\"IsContainer\"] = true,");
         sb.AppendLine("                        [\"IsSkill\"] = true,");
-        // PHASE 5: SkillCapability uses ParentHarnessName instead of ContainingClass
-        sb.AppendLine($"                        [\"ParentContainer\"] = \"{skill.ParentHarnessName}\",");
+        // PHASE 5: SkillCapability uses ParentToolHarnessName instead of ContainingClass
+        sb.AppendLine($"                        [\"ParentContainer\"] = \"{skill.ParentToolHarnessName}\",");
         sb.AppendLine($"                        [\"ReferencedFunctions\"] = new string[] {{ {string.Join(", ", skill.ResolvedFunctionReferences.Select(f => $"\"{f}\""))} }},");
-        sb.AppendLine($"                        [\"ReferencedHarneses\"] = new string[] {{ {string.Join(", ", skill.ResolvedHarnessTypes.Select(p => $"\"{p}\""))} }},");
+        sb.AppendLine($"                        [\"ReferencedToolHarnesses\"] = new string[] {{ {string.Join(", ", skill.ResolvedToolHarnessTypes.Select(p => $"\"{p}\""))} }},");
 
         // Store instructions separately for prompt Middleware to use
         // Middleware will build complete context from metadata (functions + documents + instructions)
@@ -331,67 +331,67 @@ internal static class SkillCodeGenerator
     }
 
     /// <summary>
-    /// Generates the container function for a collapsed harness marked with [Harness("...")].
+    /// Generates the container function for a collapsed toolharness marked with [ToolHarness("...")].
     /// This groups all functions/skills in the class under a single container.
     /// </summary>
-    public static string GenerateHarnessContainer(HarnessInfo Harness)
+    public static string GenerateToolHarnessContainer(ToolHarnessInfo ToolHarness)
     {
-        if (!Harness.IsCollapsed)
+        if (!ToolHarness.IsCollapsed)
             return string.Empty;
 
         // Must have at least one capability of any type to collapse
-        if (!Harness.FunctionCapabilities.Any() && !Harness.SkillCapabilities.Any()
-            && !Harness.SubAgentCapabilities.Any() && !Harness.MultiAgentCapabilities.Any()
-            && !Harness.MCPServerCapabilities.Any() && !Harness.OpenApiCapabilities.Any())
+        if (!ToolHarness.FunctionCapabilities.Any() && !ToolHarness.SkillCapabilities.Any()
+            && !ToolHarness.SubAgentCapabilities.Any() && !ToolHarness.MultiAgentCapabilities.Any()
+            && !ToolHarness.MCPServerCapabilities.Any() && !ToolHarness.OpenApiCapabilities.Any())
             return string.Empty;
 
         var sb = new StringBuilder();
 
         // Combine all capability types
-        var allCapabilities = Harness.FunctionCapabilities.Select(f => f.FunctionName)
-            .Concat(Harness.SkillCapabilities.Select(s => s.Name))
-            .Concat(Harness.SubAgentCapabilities.Select(s => s.Name))
-            .Concat(Harness.MultiAgentCapabilities.Select(m => m.Name))
-            .Concat(Harness.MCPServerCapabilities.Select(m => m.Name))
-            .Concat(Harness.OpenApiCapabilities.Select(o => o.Prefix ?? o.Name))
+        var allCapabilities = ToolHarness.FunctionCapabilities.Select(f => f.FunctionName)
+            .Concat(ToolHarness.SkillCapabilities.Select(s => s.Name))
+            .Concat(ToolHarness.SubAgentCapabilities.Select(s => s.Name))
+            .Concat(ToolHarness.MultiAgentCapabilities.Select(m => m.Name))
+            .Concat(ToolHarness.MCPServerCapabilities.Select(m => m.Name))
+            .Concat(ToolHarness.OpenApiCapabilities.Select(o => o.Prefix ?? o.Name))
             .ToList();
         var capabilitiesList = string.Join(", ", allCapabilities);
         var totalCount = allCapabilities.Count;
 
-        var description = !string.IsNullOrEmpty(Harness.ContainerDescription)
-            ? Harness.ContainerDescription
-            : Harness.Description ?? string.Empty;
+        var description = !string.IsNullOrEmpty(ToolHarness.ContainerDescription)
+            ? ToolHarness.ContainerDescription
+            : ToolHarness.Description ?? string.Empty;
 
         // Use shared helper to generate description and return message
         // Use EffectiveName for LLM-visible container name
-        var fullDescription = HarnessContainerHelper.GenerateContainerDescription(description, Harness.EffectiveName, allCapabilities);
-        var returnMessage = HarnessContainerHelper.GenerateReturnMessage(description, allCapabilities, Harness.FunctionResult);
+        var fullDescription = ToolHarnessContainerHelper.GenerateContainerDescription(description, ToolHarness.EffectiveName, allCapabilities);
+        var returnMessage = ToolHarnessContainerHelper.GenerateReturnMessage(description, allCapabilities, ToolHarness.FunctionResult);
 
         sb.AppendLine("        /// <summary>");
-        sb.AppendLine($"        /// Container function for {Harness.ClassName} harness.");
+        sb.AppendLine($"        /// Container function for {ToolHarness.ClassName} toolharness.");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine($"        /// <param name=\"instance\">Harness instance</param>");
+        sb.AppendLine($"        /// <param name=\"instance\">ToolHarness instance</param>");
         // Method signature uses ClassName for type references
-        sb.AppendLine($"        private static AIFunction Create{Harness.ClassName}Container({Harness.ClassName} instance, HPDToolSerializationOptions? serialization)");
+        sb.AppendLine($"        private static AIFunction Create{ToolHarness.ClassName}Container({ToolHarness.ClassName} instance, HPDToolSerializationOptions? serialization)");
         sb.AppendLine("        {");
         sb.AppendLine("            return HPDAIFunctionFactory.Create(");
         sb.AppendLine("                async (arguments, functionContext, cancellationToken) =>");
         sb.AppendLine("                {");
 
         // Handle FunctionResult - either static literal or dynamic expression
-        if (!string.IsNullOrEmpty(Harness.FunctionResultExpression))
+        if (!string.IsNullOrEmpty(ToolHarness.FunctionResultExpression))
         {
             // Using an interpolated string to combine the base message and the dynamic instructions
-            var baseMessage = HarnessContainerHelper.GenerateReturnMessage(description, allCapabilities, null);
+            var baseMessage = ToolHarnessContainerHelper.GenerateReturnMessage(description, allCapabilities, null);
             // Escape special characters for the interpolated string - we need to convert \n\n to \\n\\n in source code
             baseMessage = baseMessage.Replace("\\", "\\\\").Replace("\n", "\\n").Replace("\"", "\\\"");
             // Add separator between capabilities list and dynamic instructions
             var separator = "\\n\\n";  // This will be two backslash-n sequences in the source code
 
             // Use instance. prefix for instance methods, nothing for static
-            var expressionCall = Harness.FunctionResultIsStatic
-                ? Harness.FunctionResultExpression
-                : $"instance.{Harness.FunctionResultExpression}";
+            var expressionCall = ToolHarness.FunctionResultIsStatic
+                ? ToolHarness.FunctionResultExpression
+                : $"instance.{ToolHarness.FunctionResultExpression}";
 
             sb.AppendLine($"                    var dynamicInstructions = {expressionCall};");
             sb.AppendLine($"                    return $\"{baseMessage}{separator}{{dynamicInstructions}}\";");
@@ -411,7 +411,7 @@ internal static class SkillCodeGenerator
         sb.AppendLine("                new HPDAIFunctionFactoryOptions");
         sb.AppendLine("                {");
         // Use EffectiveName for LLM-visible container function name
-        sb.AppendLine($"                    Name = \"{Harness.EffectiveName}\",");
+        sb.AppendLine($"                    Name = \"{ToolHarness.EffectiveName}\",");
         sb.AppendLine($"                    Description = \"{fullDescription}\",");
         sb.AppendLine("                    SchemaProvider = () => CreateEmptyContainerSchema(),");
         sb.AppendLine("                    SerializerOptions = serialization?.SerializerOptions,");
@@ -419,23 +419,23 @@ internal static class SkillCodeGenerator
         sb.AppendLine("                    AdditionalProperties = new Dictionary<string, object?>");
         sb.AppendLine("                    {");
         sb.AppendLine("                        [\"IsContainer\"] = true,");
-        sb.AppendLine("                        [\"IsHarnessContainer\"] = true,");
+        sb.AppendLine("                        [\"IsToolHarnessContainer\"] = true,");
         sb.AppendLine($"                        [\"FunctionNames\"] = new string[] {{ {string.Join(", ", allCapabilities.Select(c => $"\"{c}\""))} }},");
         sb.AppendLine($"                        [\"FunctionCount\"] = {totalCount},");
 
         // Add FunctionResult if present
-        if (!string.IsNullOrEmpty(Harness.FunctionResult))
+        if (!string.IsNullOrEmpty(ToolHarness.FunctionResult))
         {
-            var escapedFuncCtx = Harness.FunctionResult.Replace("\"", "\"\"");
+            var escapedFuncCtx = ToolHarness.FunctionResult.Replace("\"", "\"\"");
             sb.AppendLine($"                        [\"FunctionResult\"] = @\"{escapedFuncCtx}\",");
         }
-        else if (!string.IsNullOrEmpty(Harness.FunctionResultExpression))
+        else if (!string.IsNullOrEmpty(ToolHarness.FunctionResultExpression))
         {
             // Expression - evaluate at container creation time
             // Use instance. prefix for instance methods, nothing for static
-            var expressionCall = Harness.FunctionResultIsStatic
-                ? Harness.FunctionResultExpression
-                : $"instance.{Harness.FunctionResultExpression}";
+            var expressionCall = ToolHarness.FunctionResultIsStatic
+                ? ToolHarness.FunctionResultExpression
+                : $"instance.{ToolHarness.FunctionResultExpression}";
 
             sb.AppendLine($"                        [\"FunctionResult\"] = {expressionCall},");
         }
@@ -445,18 +445,18 @@ internal static class SkillCodeGenerator
         }
 
         // AddSystemPrompt if present
-        if (!string.IsNullOrEmpty(Harness.SystemPrompt))
+        if (!string.IsNullOrEmpty(ToolHarness.SystemPrompt))
         {
-            var escapedSysCtx = Harness.SystemPrompt.Replace("\"", "\"\"");
+            var escapedSysCtx = ToolHarness.SystemPrompt.Replace("\"", "\"\"");
             sb.AppendLine($"                        [\"SystemPrompt\"] = @\"{escapedSysCtx}\"");
         }
-        else if (!string.IsNullOrEmpty(Harness.SystemPromptExpression))
+        else if (!string.IsNullOrEmpty(ToolHarness.SystemPromptExpression))
         {
             // Expression - evaluate at container creation time
             // Use instance. prefix for instance methods, nothing for static
-            var expressionCall = Harness. SystemPromptIsStatic
-                ? Harness.SystemPromptExpression
-                : $"instance.{Harness.SystemPromptExpression}";
+            var expressionCall = ToolHarness. SystemPromptIsStatic
+                ? ToolHarness.SystemPromptExpression
+                : $"instance.{ToolHarness.SystemPromptExpression}";
 
             sb.AppendLine($"                        [\"SystemPrompt\"] = {expressionCall}");
         }
@@ -473,30 +473,30 @@ internal static class SkillCodeGenerator
     }
 
     /// <summary>
-    /// Generates all skill-related code for a Harness
+    /// Generates all skill-related code for a ToolHarness
     /// </summary>
-    public static string GenerateAllSkillCode(HarnessInfo Harness)
+    public static string GenerateAllSkillCode(ToolHarnessInfo ToolHarness)
     {
         // Early exit ONLY if no skills AND not collapsed
-        // If Harness is collapsed, we need to generate the container even without skills
-        if (!Harness.SkillCapabilities.Any() && !Harness.IsCollapsed)
+        // If ToolHarness is collapsed, we need to generate the container even without skills
+        if (!ToolHarness.SkillCapabilities.Any() && !ToolHarness.IsCollapsed)
             return string.Empty;
 
         var sb = new StringBuilder();
 
-        // Generate harness container if collapsed (class-level collapsing)
-        if (Harness.IsCollapsed)
+        // Generate toolharness container if collapsed (class-level collapsing)
+        if (ToolHarness.IsCollapsed)
         {
-            sb.AppendLine(GenerateHarnessContainer(Harness));
+            sb.AppendLine(GenerateToolHarnessContainer(ToolHarness));
             sb.AppendLine();
         }
 
         // Early exit if no skills to generate (but after generating container if needed)
-        if (!Harness.SkillCapabilities.Any())
+        if (!ToolHarness.SkillCapabilities.Any())
             return sb.ToString();
 
         // Generate context resolvers for skills (description and conditional)
-        foreach (var skill in Harness.SkillCapabilities)
+        foreach (var skill in ToolHarness.SkillCapabilities)
         {
             var resolvers = skill.GenerateContextResolvers();
             if (!string.IsNullOrEmpty(resolvers))
@@ -507,15 +507,15 @@ internal static class SkillCodeGenerator
 
         // Generate skill functions
         // PHASE 5: Now uses SkillCapabilities
-        foreach (var skill in Harness.SkillCapabilities)
+        foreach (var skill in ToolHarness.SkillCapabilities)
         {
             sb.AppendLine();
             // Skills ARE containers - only one function per skill
-            sb.AppendLine(GenerateSkillContainerFunction(skill, Harness));
+            sb.AppendLine(GenerateSkillContainerFunction(skill, ToolHarness));
         }
 
         // Generate InitializeDocumentsAsync if any skill has document uploads or references
-        var initDocsCode = GenerateInitializeDocumentsAsync(Harness);
+        var initDocsCode = GenerateInitializeDocumentsAsync(ToolHarness);
         if (!string.IsNullOrEmpty(initDocsCode))
         {
             sb.AppendLine();
@@ -528,15 +528,15 @@ internal static class SkillCodeGenerator
     /// <summary>
     /// Generates the InitializeDocumentsAsync(IContentStore) method for the registration class.
     /// Called by AgentBuilder.Build() to upload skill documents to the V3 content store at startup.
-    /// Only generated when the harness has skills with document uploads or references.
+    /// Only generated when the toolharness has skills with document uploads or references.
     /// Versioned write semantics: same document ID + same content = no-op (startup-safe).
     /// </summary>
-    public static string GenerateInitializeDocumentsAsync(HarnessInfo Harness)
+    public static string GenerateInitializeDocumentsAsync(ToolHarnessInfo ToolHarness)
     {
-        var allUploads = Harness.SkillCapabilities
+        var allUploads = ToolHarness.SkillCapabilities
             .SelectMany(s => s.Options.DocumentUploads)
             .ToList();
-        var allReferences = Harness.SkillCapabilities
+        var allReferences = ToolHarness.SkillCapabilities
             .SelectMany(s => s.Options.DocumentReferences)
             .ToList();
 
@@ -599,9 +599,9 @@ internal static class SkillCodeGenerator
         foreach (var docRef in allReferences)
         {
             // Find which skill owns this reference for skill name
-            var owningSkill = Harness.SkillCapabilities
+            var owningSkill = ToolHarness.SkillCapabilities
                 .FirstOrDefault(s => s.Options.DocumentReferences.Contains(docRef));
-            var skillName = owningSkill?.Name ?? Harness.ClassName;
+            var skillName = owningSkill?.Name ?? ToolHarness.ClassName;
 
             var escapedDesc = string.IsNullOrEmpty(docRef.DescriptionOverride)
                 ? string.Empty
@@ -621,7 +621,7 @@ internal static class SkillCodeGenerator
 
         sb.AppendLine("        }");
         sb.AppendLine();
-        sb.AppendLine("        /// <summary>True when this harness has skill documents to initialize.</summary>");
+        sb.AppendLine("        /// <summary>True when this toolharness has skill documents to initialize.</summary>");
         sb.AppendLine("        public static bool HasDocumentsToInitialize => true;");
 
         return sb.ToString();
@@ -642,11 +642,11 @@ internal static class SkillCodeGenerator
     }
 
     /// <summary>
-    /// Updates the Harness metadata to include skills
+    /// Updates the ToolHarness metadata to include skills
     /// </summary>
-    public static string UpdateToolMetadataWithSkills(HarnessInfo Harness, string originalMetadataCode)
+    public static string UpdateToolMetadataWithSkills(ToolHarnessInfo ToolHarness, string originalMetadataCode)
     {
-        if (!Harness.SkillCapabilities.Any())
+        if (!ToolHarness.SkillCapabilities.Any())
             return originalMetadataCode;
 
         // Add skill information to metadata
@@ -654,33 +654,33 @@ internal static class SkillCodeGenerator
         sb.AppendLine("        private static ToolMetadata? _cachedMetadata;");
         sb.AppendLine();
         sb.AppendLine("        /// <summary>");
-        sb.AppendLine($"        /// Gets metadata for the {Harness.ClassName} Harness (used for Collapsing).");
+        sb.AppendLine($"        /// Gets metadata for the {ToolHarness.ClassName} ToolHarness (used for Collapsing).");
         sb.AppendLine("        /// </summary>");
         sb.AppendLine("        public static ToolMetadata GetToolMetadata()");
         sb.AppendLine("        {");
         sb.AppendLine("            return _cachedMetadata ??= new ToolMetadata");
         sb.AppendLine("            {");
         // Use EffectiveName for LLM-visible metadata name
-        sb.AppendLine($"                Name = \"{Harness.EffectiveName}\",");
+        sb.AppendLine($"                Name = \"{ToolHarness.EffectiveName}\",");
 
-        var description = Harness.IsCollapsed && !string.IsNullOrEmpty(Harness.ContainerDescription)
-            ? Harness.ContainerDescription
-            : Harness.Description;
+        var description = ToolHarness.IsCollapsed && !string.IsNullOrEmpty(ToolHarness.ContainerDescription)
+            ? ToolHarness.ContainerDescription
+            : ToolHarness.Description;
         sb.AppendLine($"                Description = \"{description}\",");
 
         // Include all capability types
-        var allFunctionNames = Harness.FunctionCapabilities.Select(f => f.FunctionName)
-            .Concat(Harness.SkillCapabilities.Select(s => s.Name))
-            .Concat(Harness.SubAgentCapabilities.Select(s => s.Name))
-            .Concat(Harness.MultiAgentCapabilities.Select(m => m.Name))
-            .Concat(Harness.MCPServerCapabilities.Select(m => m.Name))
-            .Concat(Harness.OpenApiCapabilities.Select(o => o.Prefix ?? o.Name))
+        var allFunctionNames = ToolHarness.FunctionCapabilities.Select(f => f.FunctionName)
+            .Concat(ToolHarness.SkillCapabilities.Select(s => s.Name))
+            .Concat(ToolHarness.SubAgentCapabilities.Select(s => s.Name))
+            .Concat(ToolHarness.MultiAgentCapabilities.Select(m => m.Name))
+            .Concat(ToolHarness.MCPServerCapabilities.Select(m => m.Name))
+            .Concat(ToolHarness.OpenApiCapabilities.Select(o => o.Prefix ?? o.Name))
             .ToList();
         var functionNamesArray = string.Join(", ", allFunctionNames.Select(n => $"\"{n}\""));
 
         sb.AppendLine($"                FunctionNames = new string[] {{ {functionNamesArray} }},");
         sb.AppendLine($"                FunctionCount = {allFunctionNames.Count},");
-        sb.AppendLine($"                IsCollapsed = {Harness.IsCollapsed.ToString().ToLower()}");
+        sb.AppendLine($"                IsCollapsed = {ToolHarness.IsCollapsed.ToString().ToLower()}");
         sb.AppendLine("            };");
         sb.AppendLine("        }");
 

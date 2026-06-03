@@ -157,7 +157,7 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
     [Fact]
     public async Task Fake_guest_agent_network_status_bounds_results_without_claiming_publication()
     {
-        var harness = new FakeAppleVirtualizationGuestAgentHarness();
+        var toolharness = new FakeAppleVirtualizationGuestAgentToolHarness();
         var request = AppleVirtualizationGuestAgentEnvelope.Request(
             AppleVirtualizationGuestAgentOperation.NetworkStatus,
             "guest-network-fake",
@@ -175,7 +175,7 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
             },
         };
 
-        AppleVirtualizationGuestAgentEnvelope response = await harness.SendAsync(request);
+        AppleVirtualizationGuestAgentEnvelope response = await toolharness.SendAsync(request);
 
         response.NetworkStatus.Should().NotBeNull();
         response.NetworkStatus!.Interfaces.Should().ContainSingle();
@@ -466,7 +466,7 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
     [Fact]
     public async Task Fake_guest_agent_sync_and_finalization_require_verified_projection_and_current_generation()
     {
-        var missing = new FakeAppleVirtualizationGuestAgentHarness();
+        var missing = new FakeAppleVirtualizationGuestAgentToolHarness();
         AppleVirtualizationGuestAgentEnvelope missingProjection = await missing.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionSync) with
         {
             ProjectionSyncRequest = SyncRequest("projection-missing", generation: 0),
@@ -474,7 +474,7 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
         missingProjection.ResponseStatus.Should().Be(AppleVirtualizationGuestAgentResponseStatus.Error);
         missingProjection.Error!.Code.Should().Be("AppleVirtualization.ProjectionNotVerified");
 
-        var stale = new FakeAppleVirtualizationGuestAgentHarness()
+        var stale = new FakeAppleVirtualizationGuestAgentToolHarness()
             .WithProjectionMount("projection-stale", "hpdstale", "/workspace", verified: true);
         _ = await stale.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionMount));
         AppleVirtualizationGuestAgentEnvelope staleProjection = await stale.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionSync) with
@@ -488,11 +488,11 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
     [Fact]
     public async Task Fake_guest_agent_returns_structured_unsupported_sync_mode_and_finalization_kind()
     {
-        var harness = new FakeAppleVirtualizationGuestAgentHarness()
+        var toolharness = new FakeAppleVirtualizationGuestAgentToolHarness()
             .WithProjectionMount("projection-unsupported", "hpdu", "/workspace", verified: true);
-        _ = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionMount));
+        _ = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionMount));
 
-        AppleVirtualizationGuestAgentEnvelope unsupportedSync = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionSync) with
+        AppleVirtualizationGuestAgentEnvelope unsupportedSync = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionSync) with
         {
             ProjectionSyncRequest = SyncRequest("projection-unsupported", generation: 1) with
             {
@@ -503,7 +503,7 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
         unsupportedSync.ProjectionSyncResult!.Succeeded.Should().BeFalse();
         unsupportedSync.ProjectionSyncResult.State.Should().Be(AppleVirtualizationGuestAgentProjectionSyncState.UnsupportedMode);
 
-        AppleVirtualizationGuestAgentEnvelope unsupportedFinalization = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionFinalize) with
+        AppleVirtualizationGuestAgentEnvelope unsupportedFinalization = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionFinalize) with
         {
             ProjectionFinalizationRequest = new AppleVirtualizationGuestAgentProjectionFinalizationRequest
             {
@@ -519,7 +519,7 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
     }
 
     [Fact]
-    public async Task Fake_guest_agent_sync_finalization_harness_round_trips_bounded_results()
+    public async Task Fake_guest_agent_sync_finalization_toolharness_round_trips_bounded_results()
     {
         AppleVirtualizationGuestAgentProjectionChange[] changes =
         [
@@ -538,7 +538,7 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
             new("/workspace/b.txt", "content-b", null, new ByteSize(2), ContentProjectionRole.Workspace),
         ];
 
-        var harness = new FakeAppleVirtualizationGuestAgentHarness()
+        var toolharness = new FakeAppleVirtualizationGuestAgentToolHarness()
             .WithProjectionMount("projection-bounded", "hpdbounded", "/workspace", verified: true)
             .WithProjectionSync(
                 "projection-bounded",
@@ -554,13 +554,13 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
                 conflicts,
                 maxContentRefs: 1,
                 maxConflicts: 1);
-        _ = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionMount));
+        _ = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionMount));
 
-        AppleVirtualizationGuestAgentEnvelope sync = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionSync) with
+        AppleVirtualizationGuestAgentEnvelope sync = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionSync) with
         {
             ProjectionSyncRequest = SyncRequest("projection-bounded", generation: 1),
         });
-        AppleVirtualizationGuestAgentEnvelope finalization = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionFinalize) with
+        AppleVirtualizationGuestAgentEnvelope finalization = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionFinalize) with
         {
             ProjectionFinalizationRequest = new AppleVirtualizationGuestAgentProjectionFinalizationRequest
             {
@@ -825,9 +825,9 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
     }
 
     [Fact]
-    public async Task Fake_guest_agent_harness_scripts_readiness_projection_and_process_output_deterministically()
+    public async Task Fake_guest_agent_toolharness_scripts_readiness_projection_and_process_output_deterministically()
     {
-        var harness = new FakeAppleVirtualizationGuestAgentHarness()
+        var toolharness = new FakeAppleVirtualizationGuestAgentToolHarness()
             .WithHandshake()
             .WithReady()
             .WithProjectionMount("projection-1", "hpdprojection1", "/workspace", verified: true)
@@ -836,13 +836,13 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
             .WithProcessOutput("process-1", ProcessOutputStream.Stdout, new byte[] { 4, 5 }, final: true, maxCapturedBytes: 4)
             .WithProcessExited("process-1", exitCode: 0);
 
-        AppleVirtualizationGuestAgentEnvelope hello = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.Hello));
-        AppleVirtualizationGuestAgentEnvelope ready = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.Ready));
-        AppleVirtualizationGuestAgentEnvelope projection = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionMount));
-        AppleVirtualizationGuestAgentEnvelope started = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProcessStart));
-        AppleVirtualizationGuestAgentEnvelope result = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProcessWait));
+        AppleVirtualizationGuestAgentEnvelope hello = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.Hello));
+        AppleVirtualizationGuestAgentEnvelope ready = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.Ready));
+        AppleVirtualizationGuestAgentEnvelope projection = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionMount));
+        AppleVirtualizationGuestAgentEnvelope started = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProcessStart));
+        AppleVirtualizationGuestAgentEnvelope result = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProcessWait));
         List<AppleVirtualizationGuestAgentEnvelope> events = [];
-        await foreach (AppleVirtualizationGuestAgentEnvelope guestEvent in harness.ReadEventsAsync())
+        await foreach (AppleVirtualizationGuestAgentEnvelope guestEvent in toolharness.ReadEventsAsync())
         {
             events.Add(guestEvent);
         }
@@ -860,16 +860,16 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
     }
 
     [Fact]
-    public async Task Fake_guest_agent_harness_scripts_projection_visibility_access_and_coherence_states()
+    public async Task Fake_guest_agent_toolharness_scripts_projection_visibility_access_and_coherence_states()
     {
-        var harness = new FakeAppleVirtualizationGuestAgentHarness()
+        var toolharness = new FakeAppleVirtualizationGuestAgentToolHarness()
             .WithProjectionConfiguredOnly("projection-configured", "hpdconfigured", "/workspace")
             .WithProjectionAccessMismatch("projection-access", "hpdaccess", "/workspace", AccessMode.ReadWrite, AccessMode.ReadOnly)
             .WithProjectionCoherence("projection-coherence", "hpdcoherence", "/workspace", CoherenceClass.Unknown);
 
-        AppleVirtualizationGuestAgentEnvelope configured = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionStatus));
-        AppleVirtualizationGuestAgentEnvelope access = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionStatus));
-        AppleVirtualizationGuestAgentEnvelope coherence = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionStatus));
+        AppleVirtualizationGuestAgentEnvelope configured = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionStatus));
+        AppleVirtualizationGuestAgentEnvelope access = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionStatus));
+        AppleVirtualizationGuestAgentEnvelope coherence = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProjectionStatus));
 
         configured.ProjectionStatus!.HostShareState.Should().Be(AppleVirtualizationGuestAgentProjectionHostShareState.HostShareConfigured);
         configured.ProjectionStatus.FrameworkShareState.Should().Be(AppleVirtualizationGuestAgentProjectionFrameworkShareState.Unknown);
@@ -889,18 +889,18 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
     }
 
     [Fact]
-    public async Task Fake_guest_agent_harness_scripts_process_status_failed_and_control_results()
+    public async Task Fake_guest_agent_toolharness_scripts_process_status_failed_and_control_results()
     {
-        var harness = new FakeAppleVirtualizationGuestAgentHarness()
+        var toolharness = new FakeAppleVirtualizationGuestAgentToolHarness()
             .WithProcessStatus("process-status", ProcessInvocationPhase.Running)
             .WithProcessControlResult(AppleVirtualizationGuestAgentOperation.ProcessSignal, "process-status")
             .WithProcessControlResult(AppleVirtualizationGuestAgentOperation.ProcessCloseStdin, "process-status")
             .WithProcessFailed("process-status", ProcessCompletionKind.Faulted);
 
-        AppleVirtualizationGuestAgentEnvelope status = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProcessStatus));
-        AppleVirtualizationGuestAgentEnvelope signal = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProcessSignal));
-        AppleVirtualizationGuestAgentEnvelope closeStdin = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProcessCloseStdin));
-        AppleVirtualizationGuestAgentEnvelope failed = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProcessWait));
+        AppleVirtualizationGuestAgentEnvelope status = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProcessStatus));
+        AppleVirtualizationGuestAgentEnvelope signal = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProcessSignal));
+        AppleVirtualizationGuestAgentEnvelope closeStdin = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProcessCloseStdin));
+        AppleVirtualizationGuestAgentEnvelope failed = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProcessWait));
 
         status.ProcessStatus!.ProcessPhase.Should().Be(ProcessInvocationPhase.Running);
         signal.ProcessControlResult!.Accepted.Should().BeTrue();
@@ -917,12 +917,12 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
         malformed.IsMalformed.Should().BeTrue();
         malformed.Error!.Code.Should().Be("AppleVirtualization.GuestAgentMalformedFrame");
 
-        var harness = new FakeAppleVirtualizationGuestAgentHarness()
+        var toolharness = new FakeAppleVirtualizationGuestAgentToolHarness()
             .WithMalformedFrame("not-json"u8.ToArray())
             .WithReady();
 
-        AppleVirtualizationGuestAgentEnvelope error = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.Health));
-        AppleVirtualizationGuestAgentEnvelope ready = await harness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.Ready));
+        AppleVirtualizationGuestAgentEnvelope error = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.Health));
+        AppleVirtualizationGuestAgentEnvelope ready = await toolharness.SendAsync(Request(AppleVirtualizationGuestAgentOperation.Ready));
 
         error.ResponseStatus.Should().Be(AppleVirtualizationGuestAgentResponseStatus.Error);
         error.Error!.Code.Should().Be("AppleVirtualization.GuestAgentMalformedFrame");
@@ -932,13 +932,13 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
     [Fact]
     public async Task Fake_guest_agent_resize_is_structured_unsupported_unless_pty_support_is_scripted()
     {
-        var unsupported = new FakeAppleVirtualizationGuestAgentHarness().WithHandshake(ptyResizeSupported: false);
+        var unsupported = new FakeAppleVirtualizationGuestAgentToolHarness().WithHandshake(ptyResizeSupported: false);
         AppleVirtualizationGuestAgentEnvelope response = await unsupported.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProcessResize));
 
         response.ResponseStatus.Should().Be(AppleVirtualizationGuestAgentResponseStatus.Error);
         response.Error!.Code.Should().Be("AppleVirtualization.GuestAgentUnsupported");
 
-        var supported = new FakeAppleVirtualizationGuestAgentHarness().WithHandshake(ptyResizeSupported: true);
+        var supported = new FakeAppleVirtualizationGuestAgentToolHarness().WithHandshake(ptyResizeSupported: true);
         AppleVirtualizationGuestAgentEnvelope ok = await supported.SendAsync(Request(AppleVirtualizationGuestAgentOperation.ProcessResize));
 
         ok.ResponseStatus.Should().NotBe(AppleVirtualizationGuestAgentResponseStatus.Error);

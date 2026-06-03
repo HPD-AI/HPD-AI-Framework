@@ -4,13 +4,13 @@ using Microsoft.Extensions.Logging;
 namespace HPD.Agent;
 
 /// <summary>
-/// Neutral MCP server source captured by generated harness registration code.
+/// Neutral MCP server source captured by generated toolharness registration code.
 /// </summary>
 public sealed record McpServerSource(
     string Name,
     string? Description,
-    string ParentHarness,
-    bool CollapseWithinHarness,
+    string ParentToolHarness,
+    bool CollapseWithinToolHarness,
     string? FromManifest,
     string? ManifestServerName,
     bool? RequiresPermissionOverride,
@@ -41,7 +41,7 @@ internal interface IMcpToolLoader
         string serverName,
         CancellationToken cancellationToken);
 
-    Task<List<AIFunction>> LoadForHarnessAsync(
+    Task<List<AIFunction>> LoadForToolHarnessAsync(
         object manager,
         object config,
         McpServerSource source,

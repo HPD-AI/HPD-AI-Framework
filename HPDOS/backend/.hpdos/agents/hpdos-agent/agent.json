@@ -24,8 +24,8 @@
       "persistSystemPromptInjections": false,
       "enableErrorRecovery": true
     },
-    "harnesses": [
-      "CodingHarness"
+    "toolharnesses": [
+      "CodingToolHarness"
     ],
     "middlewares": [],
     "includeReasoningInModelHistory": false,

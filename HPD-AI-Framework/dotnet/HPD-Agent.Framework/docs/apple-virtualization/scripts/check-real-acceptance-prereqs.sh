@@ -7,7 +7,7 @@ Usage:
   check-real-acceptance-prereqs.sh [env-file]
 
 Checks host tools and, when an env file is supplied, validates the required
-HPD_APPLEVZ_* paths/values used by the real-container acceptance harness.
+HPD_APPLEVZ_* paths/values used by the real-container acceptance toolharness.
 USAGE
 }
 

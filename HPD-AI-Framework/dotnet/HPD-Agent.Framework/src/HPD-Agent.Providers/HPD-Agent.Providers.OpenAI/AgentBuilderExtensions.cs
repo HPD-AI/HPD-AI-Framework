@@ -47,14 +47,14 @@ public static class AgentBuilderExtensions
     /// <example>
     /// <code>
     /// // Option 1: Simple usage with API key
-    /// var agent = new AgentBuilder()
+    /// var agent = await new AgentBuilder()
     ///     .WithOpenAI(
     ///         model: "gpt-4o",
     ///         apiKey: "sk-...")
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// // Option 2: With configuration options
-    /// var agent = new AgentBuilder()
+    /// var agent = await new AgentBuilder()
     ///     .WithOpenAI(
     ///         model: "gpt-4o",
     ///         apiKey: "sk-...",
@@ -64,10 +64,10 @@ public static class AgentBuilderExtensions
     ///             opts.Temperature = 0.7f;
     ///             opts.TopP = 0.95f;
     ///         })
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// // Option 3: With structured JSON output
-    /// var agent = new AgentBuilder()
+    /// var agent = await new AgentBuilder()
     ///     .WithOpenAI(
     ///         model: "gpt-4o",
     ///         apiKey: "sk-...",
@@ -84,10 +84,10 @@ public static class AgentBuilderExtensions
     ///             }";
     ///             opts.JsonSchemaIsStrict = true;
     ///         })
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// // Option 4: With reasoning model (o1)
-    /// var agent = new AgentBuilder()
+    /// var agent = await new AgentBuilder()
     ///     .WithOpenAI(
     ///         model: "o1-preview",
     ///         apiKey: "sk-...",
@@ -95,10 +95,10 @@ public static class AgentBuilderExtensions
     ///         {
     ///             opts.ReasoningEffortLevel = "high";
     ///         })
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// // Option 5: With audio output (gpt-4o-audio-preview)
-    /// var agent = new AgentBuilder()
+    /// var agent = await new AgentBuilder()
     ///     .WithOpenAI(
     ///         model: "gpt-4o-audio-preview",
     ///         apiKey: "sk-...",
@@ -108,13 +108,13 @@ public static class AgentBuilderExtensions
     ///             opts.AudioVoice = "alloy";
     ///             opts.AudioFormat = "mp3";
     ///         })
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// // Option 6: Auto-resolve from environment variables
     /// // Set OPENAI_API_KEY environment variable
-    /// var agent = new AgentBuilder()
+    /// var agent = await new AgentBuilder()
     ///     .WithOpenAI(model: "gpt-4o")
-    ///     .Build();
+    ///     .BuildAsync();
     ///
     /// </code>
     /// </example>
@@ -170,7 +170,7 @@ public static class AgentBuilderExtensions
     /// <returns>The builder for method chaining</returns>
     /// <example>
     /// <code>
-    /// var agent = new AgentBuilder()
+    /// var agent = await new AgentBuilder()
     ///     .WithAzureOpenAI(
     ///         endpoint: "https://my-resource.openai.azure.com",
     ///         model: "gpt-4",
@@ -180,7 +180,7 @@ public static class AgentBuilderExtensions
     ///             opts.MaxOutputTokenCount = 4096;
     ///             opts.Temperature = 0.7f;
     ///         })
-    ///     .Build();
+    ///     .BuildAsync();
     /// </code>
     /// </example>
     public static AgentBuilder WithAzureOpenAI(

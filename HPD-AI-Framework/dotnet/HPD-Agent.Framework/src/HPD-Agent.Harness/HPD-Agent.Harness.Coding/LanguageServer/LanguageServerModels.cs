@@ -1,6 +1,6 @@
 using HPD.Agent;
 
-namespace HPDOS.Harneses.Middleware;
+namespace HPDOS.ToolHarnesses.Middleware;
 
 public interface ILanguageServerService : IAsyncDisposable
 {

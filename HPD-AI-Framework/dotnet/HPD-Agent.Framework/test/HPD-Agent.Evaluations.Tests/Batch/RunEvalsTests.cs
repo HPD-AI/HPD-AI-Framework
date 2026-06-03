@@ -717,7 +717,7 @@ public sealed class RunEvalsTests
         var toolCall = new ToolCallRecord(
             CallId: "call-read",
             Name: "ReadFile",
-            HarnessName: "FileSystem",
+            ToolHarnessName: "FileSystem",
             ArgumentsJson: """{"path":"/tmp/a.txt"}""",
             Result: "contents",
             Duration: TimeSpan.FromMilliseconds(12),

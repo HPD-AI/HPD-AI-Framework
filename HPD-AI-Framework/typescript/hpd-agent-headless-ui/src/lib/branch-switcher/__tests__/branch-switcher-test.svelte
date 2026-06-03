@@ -2,7 +2,7 @@
 	/**
 	 * BranchSwitcher Test Component
 	 *
-	 * Test harness for the BranchSwitcher compound component.
+	 * Test toolharness for the BranchSwitcher compound component.
 	 * Renders Root + Prev + Position + Next with data-testid attributes.
 	 */
 	import * as BranchSwitcher from '../exports.js';

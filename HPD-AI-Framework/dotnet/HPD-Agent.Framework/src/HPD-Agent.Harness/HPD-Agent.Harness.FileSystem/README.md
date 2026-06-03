@@ -1,4 +1,4 @@
-# HPD-Agent FileSystem Harness
+# HPD-Agent FileSystem ToolHarness
 
 
 ## 🚀 Features
@@ -24,13 +24,13 @@
 
 ### Via NuGet (when published)
 ```bash
-dotnet add package HPD.Agent.Harneses.FileSystem
+dotnet add package HPD.Agent.ToolHarnesses.FileSystem
 ```
 
 ### Via Project Reference
 ```xml
 <ItemGroup>
-  <ProjectReference Include="path/to/HPD-Agent.Harneses/HPD-Agent.Harneses.FileSystem/HPD-Agent.Harneses.FileSystem.csproj" />
+  <ProjectReference Include="path/to/HPD-Agent.ToolHarnesses/HPD-Agent.ToolHarnesses.FileSystem/HPD-Agent.ToolHarnesses.FileSystem.csproj" />
 </ItemGroup>
 ```
 
@@ -39,11 +39,11 @@ dotnet add package HPD.Agent.Harneses.FileSystem
 ### Option 1: Simple Usage (Default Settings)
 
 ```csharp
-using HPD.Agent.Harneses.FileSystem;
+using HPD.Agent.ToolHarnesses.FileSystem;
 
-// Just add the Harness - uses current directory with safe defaults
+// Just add the ToolHarness - uses current directory with safe defaults
 var agent = new AgentBuilder()
-     .WithHarness<FileSystemHarness>()  // ← That's it!
+     .WithToolHarness<FileSystemToolHarness>()  // ← That's it!
     .Build();
 
 // Default context:
@@ -56,7 +56,7 @@ var agent = new AgentBuilder()
 ### Option 2: Custom Context (Full Control)
 
 ```csharp
-using HPD.Agent.Harneses.FileSystem;
+using HPD.Agent.ToolHarnesses.FileSystem;
 
 // 1. Create a custom context
 var context = new FileSystemContext(
@@ -68,24 +68,24 @@ var context = new FileSystemContext(
     enableSearch: true                  // Enable glob/grep operations
 );
 
-// 2. Create Harness instance with context
-var fileSystemHarness = new FileSystemHarness(context);
+// 2. Create ToolHarness instance with context
+var fileSystemToolHarness = new FileSystemToolHarness(context);
 
 // 3. Register with AgentBuilder
 var agent = new AgentBuilder()
-     .WithTool(fileSystemHarness, context)  // ← Pass instance + context
+     .WithTool(fileSystemToolHarness, context)  // ← Pass instance + context
     .Build();
 ```
 
-### Option 3: Using HarnessManager Directly
+### Option 3: Using ToolHarnessManager Directly
 
 ```csharp
 var context = new FileSystemContext("/workspace");
-var HarnessManager = new HarnessManager();
+var ToolHarnessManager = new ToolHarnessManager();
 
 // Register and create functions
-HarnessManager.RegisterHarness<FileSystemHarness>();
-var functions = HarnessManager.CreateAllFunctions(context);
+ToolHarnessManager.RegisterToolHarness<FileSystemToolHarness>();
+var functions = ToolHarnessManager.CreateAllFunctions(context);
 
 // Add to your AI client
 chatClient.Tools = functions;
@@ -362,7 +362,7 @@ var context = new FileSystemContext(
 | Source generation | HPD-Agent.SourceGenerator | Compile-time code generation |
 
 ### AOT Compatibility
-This Harness is fully AOT-compatible:
+This ToolHarness is fully AOT-compatible:
 - No reflection at runtime
 - All metadata generated at compile-time
 - Manual JSON parsing for parameters
@@ -425,7 +425,7 @@ var recentLogs = await ReadFile(
 
 ## 🤝 Contributing
 
-This Harness is part of the HPD-Agent Harness ecosystem. Contributions are welcome!
+This ToolHarness is part of the HPD-Agent ToolHarness ecosystem. Contributions are welcome!
 
 ## 📄 License
 
@@ -435,7 +435,7 @@ MIT License - See LICENSE file for details
 
 - [HPD-Agent Core](../../HPD-Agent/)
 - [HPD-Agent Source Generator](../../HPD-Agent.SourceGenerator/)
-- [Gemini CLI](https://github.com/google-gemini/gemini-cli) - Inspiration for this Harness
+- [Gemini CLI](https://github.com/google-gemini/gemini-cli) - Inspiration for this ToolHarness
 
 ---
 
