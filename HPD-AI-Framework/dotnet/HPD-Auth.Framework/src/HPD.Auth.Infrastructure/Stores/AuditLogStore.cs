@@ -179,7 +179,20 @@ public sealed class AuditLogStore : IAuditLogger
                     HPDAuthInfrastructureJsonSerializerContext.Default.DictionaryStringString);
             }
 
-            return "{}";
+            var serialized = JsonSerializer.Serialize(metadata, metadata.GetType());
+            if (!string.IsNullOrWhiteSpace(serialized))
+                return serialized;
+
+            var propertyDictionary = metadata.GetType()
+                .GetProperties()
+                .Where(property => property.GetIndexParameters().Length == 0)
+                .ToDictionary(
+                    property => property.Name,
+                    property => property.GetValue(metadata)?.ToString());
+
+            return JsonSerializer.Serialize(
+                propertyDictionary,
+                HPDAuthInfrastructureJsonSerializerContext.Default.DictionaryStringString);
         }
         catch
         {

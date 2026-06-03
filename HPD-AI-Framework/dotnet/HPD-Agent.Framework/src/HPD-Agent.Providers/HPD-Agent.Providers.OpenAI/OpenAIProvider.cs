@@ -59,7 +59,7 @@ internal class OpenAIProvider :
         // Create the OpenAI client and get the ResponsesClient
         var openAIClient = CreateOpenAIClient(config, secrets);
         var responsesClient = openAIClient.GetResponsesClient();
-        client = responsesClient.AsIChatClient();
+        client = responsesClient.AsIChatClient(modelName);
 
         return client;
     }
@@ -355,7 +355,7 @@ internal class AzureOpenAIProvider :
         var azureClient = CreateAzureOpenAIClient(config, GetSecretResolver(services));
 
         var responsesClient = azureClient.GetResponsesClient();
-        IChatClient client = responsesClient.AsIChatClient();
+        IChatClient client = responsesClient.AsIChatClient(modelName);
 
         return client;
     }

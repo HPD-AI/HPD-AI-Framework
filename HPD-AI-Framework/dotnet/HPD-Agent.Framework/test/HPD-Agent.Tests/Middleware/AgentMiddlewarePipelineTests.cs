@@ -552,9 +552,9 @@ public class AgentMiddlewarePipelineTests
     //
 
     [Fact]
-    public async Task ExecuteModelCallStreamingAsync_WithNullStreamingImplementation_PassesThroughStream()
+    public async Task ExecuteModelTurnStreamingAsync_WithNullStreamingImplementation_PassesThroughStream()
     {
-        // Regression test for: Middleware that returns null for WrapModelCallStreamingAsync
+        // Regression test for: Middleware that returns null for WrapModelTurnStreamingAsync
         // should pass through the stream unchanged (not buffer it)
 
         // Arrange
@@ -568,9 +568,10 @@ public class AgentMiddlewarePipelineTests
             conversationId: "test-conversation",
             agentName: "TestAgent");
 
-        var request = new ModelRequest
+        var request = new AgentModelTurnRequest
         {
-            Model = mockChatClient,
+            Transport = AgentModelTransport.Chat,
+            ChatModel = mockChatClient,
             Messages = new List<ChatMessage>(),
             Options = new ChatOptions(),
             State = agentState,
@@ -584,19 +585,19 @@ public class AgentMiddlewarePipelineTests
             new ChatResponseUpdate { Contents = new List<AIContent> { new TextContent("!") } }
         };
 
-        async IAsyncEnumerable<ChatResponseUpdate> StreamingHandler(ModelRequest req)
+        async IAsyncEnumerable<AgentModelUpdate> StreamingHandler(AgentModelTurnRequest req)
         {
             foreach (var update in expectedUpdates)
             {
-                yield return update;
+                yield return new AgentChatModelUpdate(update);
             }
         }
 
         // Act
         var actualUpdates = new List<ChatResponseUpdate>();
-        await foreach (var update in pipeline.ExecuteModelCallStreamingAsync(request, StreamingHandler, CancellationToken.None))
+        await foreach (var update in pipeline.ExecuteModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None))
         {
-            actualUpdates.Add(update);
+            actualUpdates.Add(update.ChatUpdate!);
         }
 
         // Assert - Should receive ALL individual updates (not buffered into one)
@@ -607,7 +608,7 @@ public class AgentMiddlewarePipelineTests
     }
 
     [Fact]
-    public async Task ExecuteModelCallStreamingAsync_WithMultipleNullMiddlewares_PassesThroughStream()
+    public async Task ExecuteModelTurnStreamingAsync_WithMultipleNullMiddlewares_PassesThroughStream()
     {
         // Regression test: Multiple middlewares returning null should all pass through
 
@@ -624,26 +625,27 @@ public class AgentMiddlewarePipelineTests
             conversationId: "test-conversation",
             agentName: "TestAgent");
 
-        var request = new ModelRequest
+        var request = new AgentModelTurnRequest
         {
-            Model = mockChatClient,
+            Transport = AgentModelTransport.Chat,
+            ChatModel = mockChatClient,
             Messages = new List<ChatMessage>(),
             Options = new ChatOptions(),
             State = agentState,
             Iteration = 0
         };
 
-        async IAsyncEnumerable<ChatResponseUpdate> StreamingHandler(ModelRequest req)
+        async IAsyncEnumerable<AgentModelUpdate> StreamingHandler(AgentModelTurnRequest req)
         {
-            yield return new ChatResponseUpdate { Contents = new List<AIContent> { new TextContent("A") } };
-            yield return new ChatResponseUpdate { Contents = new List<AIContent> { new TextContent("B") } };
+            yield return new AgentChatModelUpdate(new ChatResponseUpdate { Contents = new List<AIContent> { new TextContent("A") } });
+            yield return new AgentChatModelUpdate(new ChatResponseUpdate { Contents = new List<AIContent> { new TextContent("B") } });
         }
 
         // Act
         var actualUpdates = new List<ChatResponseUpdate>();
-        await foreach (var update in pipeline.ExecuteModelCallStreamingAsync(request, StreamingHandler, CancellationToken.None))
+        await foreach (var update in pipeline.ExecuteModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None))
         {
-            actualUpdates.Add(update);
+            actualUpdates.Add(update.ChatUpdate!);
         }
 
         // Assert - Should receive individual updates (not buffered)
@@ -657,7 +659,7 @@ public class AgentMiddlewarePipelineTests
     public class NoOpMiddleware : IAgentMiddleware
     {
         // All hooks use default implementation (no-op)
-        // WrapModelCallStreamingAsync returns null by default
+        // WrapModelTurnStreamingAsync returns null by default
     }
 
 }

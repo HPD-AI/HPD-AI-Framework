@@ -15,6 +15,7 @@
   <ItemGroup>
     <!-- Core dependencies -->
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../HPD-Agent.Audio/HPD.Agent.Audio.Abstractions/HPD.Agent.Audio.Abstractions.csproj" />
     <ProjectReference Include="../../../shared/src/HPD-Graph/HPD-Graph.Core/HPD-Graph.Core.csproj" />
     <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
   </ItemGroup>

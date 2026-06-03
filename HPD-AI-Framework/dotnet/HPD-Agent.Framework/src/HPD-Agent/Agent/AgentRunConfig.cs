@@ -4,11 +4,33 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using HPD.Agent.Audio.Output;
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
 using HPD.Agent.StructuredOutput;
 
 namespace HPD.Agent;
+
+/// <summary>
+/// Selects the model transport used for an agent run.
+/// </summary>
+public enum AgentModelTransportMode
+{
+    /// <summary>
+    /// Use the agent's default model transport.
+    /// </summary>
+    Auto = 0,
+
+    /// <summary>
+    /// Use the normal chat client model turn.
+    /// </summary>
+    Chat = 1,
+
+    /// <summary>
+    /// Use the native realtime client model turn.
+    /// </summary>
+    Realtime = 2
+}
 
 /// <summary>
 /// Per-invocation options for agent runs.
@@ -40,6 +62,11 @@ public class AgentRunConfig
     /// JSON-serializable, no Microsoft.Extensions.AI dependency.
     /// </summary>
     public ChatRunConfig? Chat { get; set; }
+
+    /// <summary>
+    /// Model transport to use for the agent turn.
+    /// </summary>
+    public AgentModelTransportMode ModelTransport { get; set; } = AgentModelTransportMode.Auto;
 
     /// <summary>
     /// Provider-created client-family overrides for this run.
@@ -115,6 +142,20 @@ public class AgentRunConfig
     /// </summary>
     [JsonIgnore]
     public IChatClient? OverrideChatClient { get; set; }
+
+    /// <summary>
+    /// Override the realtime client for this specific run.
+    /// Highest priority when <see cref="ModelTransport"/> resolves to realtime.
+    /// </summary>
+    [JsonIgnore]
+    public IRealtimeClient? OverrideRealtimeClient { get; set; }
+
+    /// <summary>
+    /// Realtime input transcription options for native realtime turns.
+    /// When set, providers that support realtime transcription can emit readable user transcripts.
+    /// </summary>
+    [JsonIgnore]
+    public TranscriptionOptions? RealtimeTranscriptionOptions { get; set; }
 
     [JsonIgnore]
     public IImageGenerator? OverrideImageGenerator { get; set; }
@@ -305,8 +346,8 @@ public class AgentRunConfig
     /// <summary>
     /// User message text for this run.
     /// Combined with Attachments to form the user ChatMessage.
-    /// If only Attachments are provided (no UserMessage), middleware handles
-    /// the content transformation (e.g., AudioAttachmentTranscriptionMiddleware transcribes audio).
+    /// If only Attachments are provided (no UserMessage), runtime integrations handle
+    /// the content transformation (for example, audio may be transcribed before the model call).
     /// </summary>
     public string? UserMessage { get; set; }
 
@@ -319,7 +360,7 @@ public class AgentRunConfig
     /// <remarks>
     /// <para>
     /// Attachments can be sent without a UserMessage. For example:
-    /// - Audio-only: AudioAttachmentTranscriptionMiddleware transcribes → becomes the message
+    /// - Audio-only: Audio runtime integration transcribes → becomes the message
     /// - Image-only: Sent to vision model for description
     /// - Document-only: DocumentHandlingMiddleware extracts text
     /// </para>
@@ -386,55 +427,10 @@ public class AgentRunConfig
     #region Audio
 
     /// <summary>
-    /// Audio configuration for this run.
-    /// When set, enables voice input/output capabilities.
-    /// Overrides AudioPipelineMiddleware defaults when set.
+    /// Per-run overrides for HPD-owned audio behavior. Provider switching stays in
+    /// <see cref="Clients"/> using the SpeechToText, TextToSpeech, and Realtime families.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Audio options control how voice is processed for this specific run:
-    /// - Voice switching: Change TTS voice per-request
-    /// - Provider switching: Switch TTS/STT providers dynamically
-    /// - I/O mode: What input/output modalities to use
-    /// - Language: Override language for multilingual conversations
-    /// </para>
-    /// <para>
-    /// <b>Example - Voice Switching:</b>
-    /// <code>
-    /// var options = new AgentRunConfig
-    /// {
-    ///     Audio = new AudioRunConfig { Voice = "alloy" }
-    /// };
-    /// await agent.RunAsync("Use the configured voice for this turn.", runConfig: options);
-    /// </code>
-    /// </para>
-    /// <para>
-    /// <b>Example - Provider Switching:</b>
-    /// <code>
-    /// var options = new AgentRunConfig
-    /// {
-    ///     Audio = new AudioRunConfig
-    ///     {
-    ///         Tts = new TtsConfig { Provider = "elevenlabs", Voice = "Rachel" }
-    ///     }
-    /// };
-    /// </code>
-    /// </para>
-    /// <para>
-    /// <b>Example - Extension Methods:</b>
-    /// <code>
-    /// var options = new AgentRunConfig()
-    ///     .WithVoice("nova")
-    ///     .WithTtsSpeed(1.2f);
-    /// </code>
-    /// </para>
-    /// <para>
-    /// Supports both AudioRunConfig (slim runtime API) and AudioConfig (legacy full API).
-    /// AudioRunConfig is recommended for runtime customization as it exposes only
-    /// commonly-changed settings (voice, provider, language, I/O mode).
-    /// </para>
-    /// </remarks>
-    public object? Audio { get; set; }
+    public AudioRunConfig? Audio { get; set; }
 
     #endregion
 
@@ -626,6 +622,37 @@ public class AgentRunConfig
     public object? EvalJudgeConfigOverride { get; set; }
 
     #endregion
+}
+
+public sealed class AudioRunConfig
+{
+    public bool? Enabled { get; set; }
+
+    public AudioInputMode? InputMode { get; set; }
+
+    public AudioOutputMode? OutputMode { get; set; }
+
+    public AssistantOutputSynthesisMode? AssistantOutputMode { get; set; }
+
+    public TextToSpeechPacingOptions? Pacing { get; set; }
+
+    public ProgressiveTextToSpeechRouteMode? ProgressiveRouteMode { get; set; }
+
+    public PushTextInputAggregationMode? PushTextAggregationMode { get; set; }
+
+    public AssistantAudioArtifactCapturePolicy? ArtifactCapturePolicy { get; set; }
+
+    public string? VoiceId { get; set; }
+
+    public string? Language { get; set; }
+
+    public string? OutputFormat { get; set; }
+
+    public string? ContentType { get; set; }
+
+    public float? Speed { get; set; }
+
+    public bool? EnablePlayback { get; set; }
 }
 
 /// <summary>

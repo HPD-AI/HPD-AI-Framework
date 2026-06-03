@@ -22,7 +22,6 @@
   </Folder>
   <Folder Name="/Helium/">
     <Project Path="src/Helium/src/Helium.Primitives/Helium.Primitives.csproj" />
-    <Project Path="src/Helium/src/Helium.Native/Helium.Native.csproj" />
     <Project Path="src/Helium/src/Helium.Algebra/Helium.Algebra.csproj" />
     <Project Path="src/Helium/src/Helium.Algorithms/Helium.Algorithms.csproj" />
     <Project Path="src/Helium/src/Helium.Validated/Helium.Validated.csproj" />

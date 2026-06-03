@@ -149,7 +149,7 @@ The V2 middleware architecture is **production-ready and deployed** as the defau
 | `ExecuteFunctionPipelineTests.cs` | 384 | ~18 | 🟡 Med | Medium |
 | `IterationFilterTestHelpers.cs` | 45 | 3 | 🔴 High | Low |
 | `ClientToolMiddlewareTests.cs` | ~200 | ~10 | 🟢 Low | Low |
-| `AudioPipelineMiddlewareTests.cs` | ~300 | ~15 | 🟡 Med | High |
+| Audio runtime tests | Moved to `HPD.Agent.Audio.V2.Tests` | 0 | ✅ Complete | High |
 | `ErrorHandlingConvenienceMethodTest.cs` | 120 | ~8 | 🟢 Low | Low |
 | `PriorityStreamingTests.cs` | ~800 | ~12 | 🟢 Low | Medium |
 
@@ -211,7 +211,6 @@ The V2 middleware architecture is **production-ready and deployed** as the defau
 
 8. **Migrate specialized tests**:
    - ClientToolMiddlewareTests.cs
-   - AudioPipelineMiddlewareTests.cs
    - PriorityStreamingTests.cs
 
 ---

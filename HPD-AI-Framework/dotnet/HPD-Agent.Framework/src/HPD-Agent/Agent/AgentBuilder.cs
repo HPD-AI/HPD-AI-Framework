@@ -365,7 +365,12 @@ public class AgentBuilder
             "HPD-Agent.Providers.HuggingFace",
             "HPD-Agent.Providers.Bedrock",
             "HPD-Agent.Providers.Mistral",
-            "HPD-Agent.Providers.OnnxRuntime"
+            "HPD-Agent.Providers.OnnxRuntime",
+            "HPD.Agent.Audio.AgentIntegration",
+            "HPD-Agent.Providers.Audio.OpenAI",
+            "HPD-Agent.Providers.Audio.ElevenLabs",
+            "HPD-Agent.Providers.Audio.Meai",
+            "HPD-Agent.Providers.Audio.Silero"
         };
 
         foreach (var providerName in knownProviders)
@@ -1917,6 +1922,7 @@ public class AgentBuilder
         // This enables Config = Base, Builder = Override/Extend pattern
         ResolveConfigMiddlewares();
 
+        ActivateRegisteredFeatures();
         RegisterAutoMiddleware(buildData);
         return CreateAgent(buildData);
     }
@@ -2164,6 +2170,14 @@ public class AgentBuilder
             _stateFactories,
             buildData.OwnedHttpClients,
             buildData.ClientSet);
+    }
+
+    private void ActivateRegisteredFeatures()
+    {
+        foreach (var activate in AgentFeatureActivatorRegistry.Snapshot())
+        {
+            activate(this);
+        }
     }
 
     /// <summary>

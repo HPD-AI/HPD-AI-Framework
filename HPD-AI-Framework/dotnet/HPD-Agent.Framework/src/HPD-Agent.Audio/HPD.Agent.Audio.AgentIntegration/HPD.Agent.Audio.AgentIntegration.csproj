@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Agent.Audio.AgentIntegration</RootNamespace>
+    <AssemblyName>HPD.Agent.Audio.AgentIntegration</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.Audio.AgentIntegration</PackageId>
+    <Description>HPD Agent-facing integration seam for HPD Audio content-input runtime ownership.</Description>
+    <PackageTags>ai;agent;audio;middleware;content-input</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <OutputType>Library</OutputType>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD.Agent.Audio.Abstractions/HPD.Agent.Audio.Abstractions.csproj" />
+    <ProjectReference Include="../HPD.Agent.Audio.Runtime/HPD.Agent.Audio.Runtime.csproj" />
+    <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.AI;
+﻿ using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
 using System.Runtime.CompilerServices;
 using System.Diagnostics;
@@ -41,8 +41,11 @@ public sealed class Agent
 
     // Specialized component fields for delegation
     private readonly MessageProcessor _messageProcessor;
+    private readonly FunctionExecutionCore _functionExecutionCore;
     private readonly FunctionCallProcessor _functionCallProcessor;
     private readonly AgentTurn _agentTurn;
+    private readonly ChatModelTurnExecutor _chatModelTurnExecutor;
+    private readonly RealtimeModelTurnExecutor _realtimeModelTurnExecutor;
     private readonly HPD.Events.IEventCoordinator _eventCoordinator;
     private readonly StructEventHub _structEvents = new();
     private readonly IReadOnlyList<IDisposable> _eventSubscriptions;
@@ -220,9 +223,16 @@ public sealed class Agent
         _messageProcessor = new MessageProcessor(
             config.SystemInstructions, // Use base instructions; middleware adds plan mode guidance
             mergedOptions ?? chatConfig?.DefaultChatOptions);
+        _functionExecutionCore = new FunctionExecutionCore(
+            _middlewarePipeline,
+            config.ErrorHandling,
+            config.ServerConfiguredTools,
+            config.AgenticLoop,
+            GetCurrentRuntimeBackgroundTaskRegistry);
         _functionCallProcessor = new FunctionCallProcessor(
             _eventCoordinator, // Pass IEventCoordinator for decoupled event emission
             _middlewarePipeline, // Pass unified middleware pipeline for permission checks
+            _functionExecutionCore,
             config.MaxAgenticIterations,
             config.ErrorHandling,
             config.ServerConfiguredTools,
@@ -235,6 +245,8 @@ public sealed class Agent
             config.ConfigureOptions,
             config.ClientMiddleware?.Chat,
             serviceProvider);  
+        _chatModelTurnExecutor = new ChatModelTurnExecutor(_agentTurn);
+        _realtimeModelTurnExecutor = new RealtimeModelTurnExecutor();
 
         // Resolve optional dependencies from service provider
         var loggerFactory = serviceProvider?.GetService(typeof(ILoggerFactory))
@@ -301,6 +313,32 @@ public sealed class Agent
         middlewares.AddRange(runConfig.RuntimeMiddleware);
         middlewares.AddRange(_middlewarePipeline.Middlewares);
         return new AgentMiddlewarePipeline(middlewares);
+    }
+
+    private FunctionCallProcessor CreateFunctionCallProcessorForPipeline(
+        HPD.Events.IEventCoordinator eventCoordinator,
+        AgentMiddlewarePipeline pipeline)
+    {
+        var functionExecutionCore = ReferenceEquals(pipeline, _middlewarePipeline)
+            ? _functionExecutionCore
+            : new FunctionExecutionCore(
+                pipeline,
+                Config?.ErrorHandling,
+                Config?.ServerConfiguredTools,
+                Config?.AgenticLoop,
+                GetCurrentRuntimeBackgroundTaskRegistry);
+
+        return new FunctionCallProcessor(
+            eventCoordinator,
+            pipeline,
+            functionExecutionCore,
+            Config?.MaxAgenticIterations ?? 10,
+            Config?.ErrorHandling,
+            Config?.ServerConfiguredTools,
+            Config?.AgenticLoop,
+            _name,
+            _stateFactories,
+            GetCurrentRuntimeBackgroundTaskRegistry);
     }
 
     private sealed class RuntimeStructHandlerSubscription(
@@ -1168,7 +1206,7 @@ public sealed class Agent
                     _serviceProvider,
                     Config,
                     _messageProcessor,
-                    _functionCallProcessor,
+                    _functionExecutionCore,
                     runtimeContext,
                     runtimeCoordinator));
 
@@ -1764,7 +1802,8 @@ public sealed class Agent
 
             // Resolve override client from AgentRunConfig (if any)
             // This enables runtime provider switching without rebuilding the agent
-            var overrideClient = ResolveClientForOptions(runConfig);
+            var overrideChatClient = ResolveClientForOptions(runConfig);
+            var overrideRealtimeClient = ResolveRealtimeClientForOptions(runConfig);
 
             // Resolve background responses settings from AgentRunConfig → Config → false
             var allowBackgroundResponses = runConfig?.AllowBackgroundResponses
@@ -1816,16 +1855,9 @@ public sealed class Agent
             var turnPipeline = BuildTurnMiddlewarePipeline(effectiveRunConfig);
             var functionCallProcessor = ReferenceEquals(turnPipeline, _middlewarePipeline)
                 ? _functionCallProcessor
-                : new FunctionCallProcessor(
+                : CreateFunctionCallProcessorForPipeline(
                     eventCoordinator ?? _eventCoordinator,
-                    turnPipeline,
-                    Config?.MaxAgenticIterations ?? 10,
-                    Config?.ErrorHandling,
-                    Config?.ServerConfiguredTools,
-                    Config?.AgenticLoop,
-                    _name,
-                    _stateFactories,
-                    GetCurrentRuntimeBackgroundTaskRegistry);
+                    turnPipeline);
 
             // MIDDLEWARE: BeforeMessageTurnAsync (turn-level hook)
             // Pass shared message list - middleware mutations are visible to all immediately
@@ -1886,6 +1918,9 @@ public sealed class Agent
                 branch,
                 turnHistory,
                 effectiveCancellationToken).ConfigureAwait(false);
+
+            var realtimeTranscriptTargetMessageId = beforeTurnContext.UserMessage?.MessageId
+                ?? ResolveRealtimeTranscriptTargetMessageId(turnHistory);
 
             // Shared reference architecture: No sync needed!
             // state.CurrentMessages already sees middleware changes via MessagesRef
@@ -2098,6 +2133,8 @@ public sealed class Agent
                     bool reasoningMessageStarted = false;
                     bool backgroundOperationEventEmitted = false;
                     ResponseContinuationToken? lastContinuationToken = null;
+                    Middleware.AgentModelTurnRequest? currentModelRequest = null;
+                    Middleware.IAgentModelTurnExecutor? currentModelTurnExecutor = null;
 
                     // Execute LLM call (unless skipped by Middleware)
 
@@ -2200,20 +2237,35 @@ public sealed class Agent
                     else
                     {
                         // CREATE MODEL REQUEST (V2 - immutable request pattern)
-                        var model = overrideClient ?? _baseClient;
-                        if (model == null)
+                        var selectedTransport = ResolveModelTransport(effectiveRunConfig);
+                        var chatModel = selectedTransport is Middleware.AgentModelTransport.Chat
+                            ? overrideChatClient ?? _baseClient
+                            : null;
+                        var realtimeModel = selectedTransport is Middleware.AgentModelTransport.Realtime
+                            ? overrideRealtimeClient ?? _clientSet?.Realtime
+                            : null;
+
+                        if (selectedTransport is Middleware.AgentModelTransport.Chat && chatModel is null)
                         {
                             throw new InvalidOperationException(
                                 "No chat model is configured for this agent run. Configure Provider/ModelName on AgentConfig or pass ProviderKey/ModelId or OverrideChatClient in AgentRunConfig.");
+                        }
+
+                        if (selectedTransport is Middleware.AgentModelTransport.Realtime && realtimeModel is null)
+                        {
+                            throw new InvalidOperationException(
+                                "No realtime model is configured for this agent run. Configure Clients.Realtime on AgentConfig, pass AgentRunConfig.Clients.Realtime, or pass OverrideRealtimeClient.");
                         }
 
                         var modelMessages = ProjectMessagesForModelHistory(
                             messagesToSend,
                             Config?.IncludeReasoningInModelHistory == true);
 
-                        var modelRequest = new Middleware.ModelRequest
+                        var modelRequest = new Middleware.AgentModelTurnRequest
                         {
-                            Model = model,
+                            Transport = selectedTransport,
+                            ChatModel = chatModel,
+                            RealtimeModel = realtimeModel,
                             Messages = modelMessages,
                             Options = CollapsedOptions,
                             State = agentContext.State,
@@ -2223,8 +2275,15 @@ public sealed class Agent
                             EventCoordinator = eventCoordinator,
                             StructEvents = GetActiveStructEvents(),
                             Session = agentContext.Session,
-                            ContentStore = _contentStore
+                            ContentStore = _contentStore,
+                            ClientSet = _clientSet
                         };
+
+                        var modelTurnExecutor = selectedTransport is Middleware.AgentModelTransport.Realtime
+                            ? (Middleware.IAgentModelTurnExecutor)_realtimeModelTurnExecutor
+                            : _chatModelTurnExecutor;
+                        currentModelRequest = modelRequest;
+                        currentModelTurnExecutor = modelTurnExecutor;
 
                         var contextMessages = BuildContextMessageSnapshots(
                             modelRequest.Messages,
@@ -2287,14 +2346,96 @@ public sealed class Agent
                         // Check if we should coalesce deltas (run options override config default)
                         bool coalesceDeltas = effectiveRunConfig.CoalesceDeltas ?? Config?.CoalesceDeltas ?? false;
 
+                        static ChatResponseUpdate? ToChatResponseUpdate(Middleware.AgentModelUpdate modelUpdate)
+                        {
+                            if (modelUpdate.ChatUpdate is { } chatUpdate)
+                                return chatUpdate;
+
+                            return modelUpdate switch
+                            {
+                                Middleware.AgentTextDeltaUpdate text when !string.IsNullOrEmpty(text.Text) =>
+                                    new ChatResponseUpdate
+                                    {
+                                        Contents = [new TextContent(text.Text)],
+                                        FinishReason = text.IsFinal ? ChatFinishReason.Stop : null
+                                    },
+                                Middleware.AgentReasoningDeltaUpdate reasoning when !string.IsNullOrEmpty(reasoning.Text) =>
+                                    new ChatResponseUpdate
+                                    {
+                                        Contents = [new TextReasoningContent(reasoning.Text)],
+                                        FinishReason = reasoning.IsFinal ? ChatFinishReason.Stop : null
+                                    },
+                                Middleware.AgentToolCallUpdate toolCall when toolCall.IsFinal =>
+                                    new ChatResponseUpdate
+                                    {
+                                        Contents = [toolCall.Call]
+                                    },
+                                Middleware.AgentResponseLifecycleUpdate lifecycle
+                                    when lifecycle.State is Middleware.AgentModelResponseState.Failed =>
+                                    throw lifecycle.Error ?? new InvalidOperationException("Realtime model response failed."),
+                                Middleware.AgentResponseLifecycleUpdate lifecycle
+                                    when lifecycle.State is Middleware.AgentModelResponseState.Cancelled =>
+                                    throw lifecycle.Error ?? new OperationCanceledException("Realtime model response was cancelled."),
+                                Middleware.AgentResponseLifecycleUpdate lifecycle
+                                    when lifecycle.State is Middleware.AgentModelResponseState.Completed =>
+                                    new ChatResponseUpdate { FinishReason = ChatFinishReason.Stop },
+                                Middleware.AgentAudioDeltaUpdate => null,
+                                Middleware.AgentUsageUpdate => null,
+                                _ => null
+                            };
+                        }
+
                         if (coalesceDeltas)
                         {
                             // COALESCE MODE: Buffer all updates, then emit coalesced events
-                            await foreach (var update in turnPipeline.ExecuteModelCallStreamingAsync(
+                            await foreach (var modelUpdate in turnPipeline.ExecuteModelTurnStreamingAsync(
                                 modelRequest,
-                                (req) => _agentTurn.RunAsync(req.Messages, req.Options, req.Model as IChatClient, effectiveCancellationToken),
+                                (req) => modelTurnExecutor.RunAsync(req, effectiveCancellationToken),
                                 effectiveCancellationToken))
                             {
+                                if (modelUpdate is AgentInputTranscriptUpdate transcriptUpdate &&
+                                    realtimeTranscriptTargetMessageId is { } transcriptMessageId)
+                                {
+                                    var transcriptEvent = CreateRealtimeTranscriptEvent(
+                                        transcriptUpdate,
+                                        transcriptMessageId,
+                                        traceId);
+                                    if (transcriptEvent != null)
+                                    {
+                                        yield return transcriptEvent;
+                                    }
+
+                                    if (transcriptUpdate.Stage is AgentInputTranscriptStage.Final &&
+                                        !string.IsNullOrWhiteSpace(transcriptUpdate.Text))
+                                    {
+                                        if (ProjectRealtimeTranscriptIntoMessages(
+                                            transcriptMessageId,
+                                            transcriptUpdate.Text,
+                                            turnHistory,
+                                            sharedMessages) &&
+                                            branch is not null)
+                                        {
+                                            await AppendBranchRuntimeEventAsync(
+                                                session,
+                                                branch,
+                                                BranchEventFactory.TextDelta(
+                                                    branch.SessionId,
+                                                    branch.Id,
+                                                    messageTurnId,
+                                                    transcriptMessageId,
+                                                    transcriptUpdate.Text.Trim(),
+                                                    state.Iteration),
+                                                effectiveCancellationToken).ConfigureAwait(false);
+                                        }
+                                    }
+
+                                    continue;
+                                }
+
+                                var update = ToChatResponseUpdate(modelUpdate);
+                                if (update is null)
+                                    continue;
+
                                 // Store update for building final history
                                 responseUpdates.Add(update);
 
@@ -2435,11 +2576,54 @@ public sealed class Agent
                         else
                         {
                             // STREAMING MODE: Emit immediately (existing behavior)
-                            await foreach (var update in turnPipeline.ExecuteModelCallStreamingAsync(
+                            await foreach (var modelUpdate in turnPipeline.ExecuteModelTurnStreamingAsync(
                                 modelRequest,
-                                (req) => _agentTurn.RunAsync(req.Messages, req.Options, req.Model as IChatClient, effectiveCancellationToken),
+                                (req) => modelTurnExecutor.RunAsync(req, effectiveCancellationToken),
                                 effectiveCancellationToken))
                             {
+                                if (modelUpdate is AgentInputTranscriptUpdate transcriptUpdate &&
+                                    realtimeTranscriptTargetMessageId is { } transcriptMessageId)
+                                {
+                                    var transcriptEvent = CreateRealtimeTranscriptEvent(
+                                        transcriptUpdate,
+                                        transcriptMessageId,
+                                        traceId);
+                                    if (transcriptEvent != null)
+                                    {
+                                        yield return transcriptEvent;
+                                    }
+
+                                    if (transcriptUpdate.Stage is AgentInputTranscriptStage.Final &&
+                                        !string.IsNullOrWhiteSpace(transcriptUpdate.Text))
+                                    {
+                                        if (ProjectRealtimeTranscriptIntoMessages(
+                                            transcriptMessageId,
+                                            transcriptUpdate.Text,
+                                            turnHistory,
+                                            sharedMessages) &&
+                                            branch is not null)
+                                        {
+                                            await AppendBranchRuntimeEventAsync(
+                                                session,
+                                                branch,
+                                                BranchEventFactory.TextDelta(
+                                                    branch.SessionId,
+                                                    branch.Id,
+                                                    messageTurnId,
+                                                    transcriptMessageId,
+                                                    transcriptUpdate.Text.Trim(),
+                                                    state.Iteration),
+                                                effectiveCancellationToken).ConfigureAwait(false);
+                                        }
+                                    }
+
+                                    continue;
+                                }
+
+                                var update = ToChatResponseUpdate(modelUpdate);
+                                if (update is null)
+                                    continue;
+
                                 // Store update for building final history
                                 responseUpdates.Add(update);
 
@@ -2629,7 +2813,7 @@ public sealed class Agent
                         }
 
                         // Commit the full observed assistant message. Model-history filtering happens
-                        // only when projecting branch/shared messages into ModelRequest.Messages.
+                        // only when projecting branch/shared messages into the model turn request.
                         var historyContents = coalescedContents.ToList();
 
                         // Add to history if there's ANY content (text OR tool calls)
@@ -2716,6 +2900,19 @@ public sealed class Agent
                             }
                             state = state.Terminate("Output tool called - structured output complete");
                             break;
+                        }
+
+                        if (currentModelRequest?.Transport is Middleware.AgentModelTransport.Realtime &&
+                            currentModelTurnExecutor is Middleware.IAgentInteractiveModelTurnExecutor interactiveModelTurnExecutor)
+                        {
+                            await interactiveModelTurnExecutor.SubmitToolResultsAsync(
+                                    toolResultMessage.Contents
+                                        .OfType<FunctionResultContent>()
+                                        .ToList()
+                                        .AsReadOnly(),
+                                    currentModelRequest,
+                                    effectiveCancellationToken)
+                                .ConfigureAwait(false);
                         }
 
                         // SYNC STATE: Get any updates from middleware (e.g., error tracking)
@@ -3208,6 +3405,7 @@ public sealed class Agent
             _clientSet.Dispose();
         else
             _baseClient?.Dispose();
+        _realtimeModelTurnExecutor.DisposeAsync().AsTask().GetAwaiter().GetResult();
         (_eventCoordinator as IDisposable)?.Dispose();
         if (_ownedHttpClients != null)
             foreach (var client in _ownedHttpClients)
@@ -3420,8 +3618,8 @@ public sealed class Agent
     /// - Document analysis: User sends only documents
     /// </para>
     /// <para>
-    /// The middleware pipeline handles content transformation before the LLM call.
-    /// For example, AudioAttachmentTranscriptionMiddleware transcribes audio → text.
+    /// The runtime pipeline handles content transformation before the LLM call.
+    /// For example, audio runtime integration can transcribe audio → text.
     /// </para>
     /// <para>
     /// <b>Example - Text + Attachments:</b>
@@ -4552,6 +4750,50 @@ public sealed class Agent
         return null;
     }
 
+    private IRealtimeClient? ResolveRealtimeClientForOptions(AgentRunConfig? options)
+    {
+        if (options?.OverrideRealtimeClient != null)
+            return options.OverrideRealtimeClient;
+
+        var hasRunClientOverride =
+            options?.Clients?.GetFamilyConfig(Providers.ProviderClientFamily.Realtime) != null;
+
+        if (!hasRunClientOverride)
+            return null;
+
+        var effectiveConfig = Config?.ResolveClientConfig(
+            Providers.ProviderClientFamily.Realtime,
+            options?.Clients);
+
+        var requestedProviderKey = effectiveConfig?.ProviderKey;
+        if (string.IsNullOrEmpty(requestedProviderKey))
+            return null;
+
+        if (_providerRegistry == null)
+        {
+            throw new InvalidOperationException(
+                $"Cannot switch to realtime provider '{requestedProviderKey}' - no provider registry available. " +
+                "Ensure the agent was built with a provider registry.");
+        }
+
+        var provider = _providerRegistry.GetRequiredProvider<Providers.IRealtimeClientProvider>(requestedProviderKey);
+        if (string.IsNullOrEmpty(effectiveConfig?.ModelName))
+        {
+            throw new InvalidOperationException(
+                $"No realtime model is configured for provider '{requestedProviderKey}'. Configure AgentConfig.Clients.Realtime.ModelName or pass AgentRunConfig.Clients.Realtime.ModelName.");
+        }
+
+        return provider.CreateRealtimeClient(effectiveConfig!, _serviceProvider);
+    }
+
+    private static Middleware.AgentModelTransport ResolveModelTransport(AgentRunConfig runConfig)
+        => runConfig.ModelTransport switch
+        {
+            AgentModelTransportMode.Chat or AgentModelTransportMode.Auto => Middleware.AgentModelTransport.Chat,
+            AgentModelTransportMode.Realtime => Middleware.AgentModelTransport.Realtime,
+            _ => throw new InvalidOperationException($"Unsupported model transport '{runConfig.ModelTransport}'.")
+        };
+
     /// <summary>
     /// Resolves system instructions considering AgentRunConfig overrides.
     /// Priority: AgentRunConfig.SystemInstructions > Config.SystemInstructions
@@ -5536,6 +5778,148 @@ public sealed class Agent
         };
 
         return clone;
+    }
+
+    private static AgentEvent? CreateRealtimeTranscriptEvent(
+        AgentInputTranscriptUpdate update,
+        string messageId,
+        string? traceId)
+    {
+        AgentEvent? evt = update.Stage switch
+        {
+            AgentInputTranscriptStage.Partial when !string.IsNullOrWhiteSpace(update.Text) =>
+                new UserAudioTranscriptDeltaEvent(
+                    update.Text,
+                    messageId,
+                    update.ItemId,
+                    update.ContentIndex),
+            AgentInputTranscriptStage.Final when !string.IsNullOrWhiteSpace(update.Text) =>
+                new UserAudioTranscriptCompletedEvent(
+                    update.Text,
+                    messageId,
+                    update.ItemId,
+                    update.ContentIndex),
+            AgentInputTranscriptStage.Failed =>
+                new UserAudioTranscriptFailedEvent(
+                    messageId,
+                    update.Error?.Message ?? "Realtime user input transcription failed.",
+                    update.ItemId,
+                    update.ContentIndex),
+            _ => null
+        };
+
+        return evt is null
+            ? null
+            : evt with { TraceId = traceId };
+    }
+
+    private static string? ResolveRealtimeTranscriptTargetMessageId(
+        IReadOnlyList<ChatMessage> newInputMessages)
+    {
+        foreach (var message in newInputMessages)
+        {
+            if (message.Contents.Any(IsRealtimeTranscriptTargetContent))
+            {
+                return message.MessageId;
+            }
+        }
+
+        return newInputMessages.Count == 1
+            ? newInputMessages[0].MessageId
+            : null;
+    }
+
+    private static bool IsRealtimeTranscriptTargetContent(AIContent content) => content switch
+    {
+        AudioContent audio => AudioContent.IsAudioMediaType(audio.MediaType),
+        DataContent data => AudioContent.IsAudioMediaType(data.MediaType),
+        UriContent uri => uri.HasTopLevelMediaType("audio"),
+        HostedFileContent hosted => hosted.HasTopLevelMediaType("audio"),
+        _ => false
+    };
+
+    private static bool ProjectRealtimeTranscriptIntoMessages(
+        string messageId,
+        string transcript,
+        IList<ChatMessage> turnHistory,
+        IList<ChatMessage> sharedMessages)
+    {
+        if (string.IsNullOrWhiteSpace(transcript))
+            return false;
+
+        ChatMessage? replacement = null;
+
+        for (var i = 0; i < turnHistory.Count; i++)
+        {
+            var message = turnHistory[i];
+            if (!string.Equals(message.MessageId, messageId, StringComparison.Ordinal))
+                continue;
+
+            replacement = AppendTranscriptToMessage(message, transcript);
+            if (!ReferenceEquals(replacement, message))
+            {
+                turnHistory[i] = replacement;
+            }
+            else
+            {
+                return false;
+            }
+
+            break;
+        }
+
+        if (replacement is null)
+            return false;
+
+        for (var i = 0; i < sharedMessages.Count; i++)
+        {
+            if (string.Equals(sharedMessages[i].MessageId, messageId, StringComparison.Ordinal))
+            {
+                sharedMessages[i] = replacement;
+                break;
+            }
+        }
+
+        return true;
+    }
+
+    private static ChatMessage AppendTranscriptToMessage(ChatMessage message, string transcript)
+    {
+        if (string.IsNullOrWhiteSpace(transcript))
+            return message;
+
+        var normalizedTranscript = transcript.Trim();
+        var contents = message.Contents.ToList();
+        var existingTexts = contents
+            .OfType<TextContent>()
+            .Select(content => content.Text)
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .ToArray();
+
+        if (existingTexts.Any(text => string.Equals(text, normalizedTranscript, StringComparison.Ordinal)))
+            return message;
+
+        var updatedContents = contents.ToList();
+        var transcriptContent = new TextContent(normalizedTranscript);
+        if (updatedContents.Count > 0 && !updatedContents.OfType<TextContent>().Any())
+        {
+            updatedContents.Insert(0, transcriptContent);
+        }
+        else
+        {
+            updatedContents.Add(transcriptContent);
+        }
+
+        return new ChatMessage(message.Role, updatedContents)
+        {
+            MessageId = message.MessageId,
+            AuthorName = message.AuthorName,
+            CreatedAt = message.CreatedAt,
+            RawRepresentation = message.RawRepresentation,
+            AdditionalProperties = message.AdditionalProperties is null
+                ? null
+                : new AdditionalPropertiesDictionary(message.AdditionalProperties)
+        };
     }
 
     /// <summary>
@@ -6902,6 +7286,7 @@ internal class FunctionCallProcessor
     public FunctionCallProcessor(
         HPD.Events.IEventCoordinator eventCoordinator,
         AgentMiddlewarePipeline middlewarePipeline,
+        FunctionExecutionCore functionExecutionCore,
         int maxFunctionCalls,
         ErrorHandlingConfig? errorHandlingConfig = null,
         IList<AITool>? serverConfiguredTools = null,
@@ -6912,18 +7297,13 @@ internal class FunctionCallProcessor
     {
         _eventCoordinator = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
         _middlewarePipeline = middlewarePipeline ?? throw new ArgumentNullException(nameof(middlewarePipeline));
+        _functionExecutionCore = functionExecutionCore ?? throw new ArgumentNullException(nameof(functionExecutionCore));
         _errorHandlingConfig = errorHandlingConfig;
         _serverConfiguredTools = serverConfiguredTools;
         _agenticLoopConfig = agenticLoopConfig;
         _agentName = agentName;
         _stateFactories = stateFactories ?? ImmutableDictionary<string, MiddlewareStateFactory>.Empty;
         _getBackgroundTaskRegistry = getBackgroundTaskRegistry ?? (() => null);
-        _functionExecutionCore = new FunctionExecutionCore(
-            _middlewarePipeline,
-            _errorHandlingConfig,
-            _serverConfiguredTools,
-            _agenticLoopConfig,
-            _getBackgroundTaskRegistry);
     }
 
     // Helpers moved here from FunctionMapBuilder to keep lookup logic next to caller

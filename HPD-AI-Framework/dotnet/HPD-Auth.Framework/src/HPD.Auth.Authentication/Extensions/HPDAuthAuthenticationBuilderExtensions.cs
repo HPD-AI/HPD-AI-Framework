@@ -4,6 +4,7 @@ using HPD.Auth.Authentication.PolicyScheme;
 using HPD.Auth.Builder;
 using HPD.Auth.Core.Interfaces;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Auth.Authentication.Extensions;
@@ -74,6 +75,10 @@ public static class HPDAuthAuthenticationBuilderExtensions
                     PolicySchemeConfigurator.Configure(policyOptions))
                 .AddCookie(cookieOptions =>
                     CookieAuthenticationConfigurator.Configure(cookieOptions, options.Cookie, options.AppName))
+                .AddCookie(IdentityConstants.ApplicationScheme)
+                .AddCookie(IdentityConstants.ExternalScheme)
+                .AddCookie(IdentityConstants.TwoFactorRememberMeScheme)
+                .AddCookie(IdentityConstants.TwoFactorUserIdScheme)
                 .AddJwtBearer(jwtOptions =>
                     JwtBearerConfigurator.Configure(jwtOptions, options.Jwt));
         }
@@ -89,7 +94,11 @@ public static class HPDAuthAuthenticationBuilderExtensions
                     authOptions.DefaultAuthenticateScheme = CookieAuthenticationDefaults.AuthenticationScheme;
                 })
                 .AddCookie(cookieOptions =>
-                    CookieAuthenticationConfigurator.Configure(cookieOptions, options.Cookie, options.AppName));
+                    CookieAuthenticationConfigurator.Configure(cookieOptions, options.Cookie, options.AppName))
+                .AddCookie(IdentityConstants.ApplicationScheme)
+                .AddCookie(IdentityConstants.ExternalScheme)
+                .AddCookie(IdentityConstants.TwoFactorRememberMeScheme)
+                .AddCookie(IdentityConstants.TwoFactorUserIdScheme);
         }
 
         // ITokenService is always registered. In cookie-only mode the service

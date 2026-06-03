@@ -21,7 +21,7 @@ namespace HPD.Agent.Middleware;
 /// <code>
 /// BeforeMessageTurnAsync(BeforeMessageTurnContext)
 ///   └─► [LOOP] BeforeIterationAsync(BeforeIterationContext)
-///               └─► WrapModelCallStreamingAsync(ModelRequest) - streaming LLM call
+///               └─► WrapModelTurnStreamingAsync(AgentModelTurnRequest) - streaming model turn
 ///               └─► BeforeToolExecutionAsync(BeforeToolExecutionContext)
 ///                     └─► BeforeParallelBatchAsync(BeforeParallelBatchContext)
 ///                     └─► [LOOP] BeforeFunctionAsync(BeforeFunctionContext)
@@ -125,7 +125,7 @@ public interface IAgentMiddleware
         => Task.CompletedTask;
 
     /// <summary>
-    /// Wraps the LLM model call with full streaming control.
+    /// Wraps the model turn with full streaming control.
     /// Use for: retry, caching, request modification, streaming transformation, progressive metrics.
     /// </summary>
     /// <remarks>
@@ -153,17 +153,17 @@ public interface IAgentMiddleware
     ///
     /// <para><b>Example: Progressive Token Counting</b></para>
     /// <code>
-    /// public IAsyncEnumerable&lt;ChatResponseUpdate&gt;? WrapModelCallStreamingAsync(
-    ///     ModelRequest request,
-    ///     Func&lt;ModelRequest, IAsyncEnumerable&lt;ChatResponseUpdate&gt;&gt; handler,
+    /// public IAsyncEnumerable&lt;AgentModelUpdate&gt;? WrapModelTurnStreamingAsync(
+    ///     AgentModelTurnRequest request,
+    ///     Func&lt;AgentModelTurnRequest, IAsyncEnumerable&lt;AgentModelUpdate&gt;&gt; handler,
     ///     [EnumeratorCancellation] CancellationToken ct)
     /// {
     ///     return CountTokensAsync(request, handler, ct);
     /// }
     ///
-    /// private async IAsyncEnumerable&lt;ChatResponseUpdate&gt; CountTokensAsync(
-    ///     ModelRequest request,
-    ///     Func&lt;ModelRequest, IAsyncEnumerable&lt;ChatResponseUpdate&gt;&gt; handler,
+    /// private async IAsyncEnumerable&lt;AgentModelUpdate&gt; CountTokensAsync(
+    ///     AgentModelTurnRequest request,
+    ///     Func&lt;AgentModelTurnRequest, IAsyncEnumerable&lt;AgentModelUpdate&gt;&gt; handler,
     ///     [EnumeratorCancellation] CancellationToken ct)
     /// {
     ///     int tokenCount = 0;
@@ -188,22 +188,22 @@ public interface IAgentMiddleware
     ///
     /// <para><b>Example: Simple Retry (buffered)</b></para>
     /// <code>
-    /// public IAsyncEnumerable&lt;ChatResponseUpdate&gt;? WrapModelCallStreamingAsync(
-    ///     ModelRequest request,
-    ///     Func&lt;ModelRequest, IAsyncEnumerable&lt;ChatResponseUpdate&gt;&gt; handler,
+    /// public IAsyncEnumerable&lt;AgentModelUpdate&gt;? WrapModelTurnStreamingAsync(
+    ///     AgentModelTurnRequest request,
+    ///     Func&lt;AgentModelTurnRequest, IAsyncEnumerable&lt;AgentModelUpdate&gt;&gt; handler,
     ///     [EnumeratorCancellation] CancellationToken ct)
     /// {
     ///     return RetryAsync(request, handler, ct);
     /// }
     ///
-    /// private async IAsyncEnumerable&lt;ChatResponseUpdate&gt; RetryAsync(
-    ///     ModelRequest request,
-    ///     Func&lt;ModelRequest, IAsyncEnumerable&lt;ChatResponseUpdate&gt;&gt; handler,
+    /// private async IAsyncEnumerable&lt;AgentModelUpdate&gt; RetryAsync(
+    ///     AgentModelTurnRequest request,
+    ///     Func&lt;AgentModelTurnRequest, IAsyncEnumerable&lt;AgentModelUpdate&gt;&gt; handler,
     ///     [EnumeratorCancellation] CancellationToken ct)
     /// {
     ///     for (int attempt = 0; attempt &lt; 3; attempt++)
     ///     {
-    ///         var updates = new List&lt;ChatResponseUpdate&gt;();
+    ///         var updates = new List&lt;AgentModelUpdate&gt;();
     ///         try
     ///         {
     ///             await foreach (var update in handler(request).WithCancellation(ct))
@@ -228,9 +228,9 @@ public interface IAgentMiddleware
     /// <param name="handler">Next handler in chain - call this to continue the pipeline</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Null (default) to pass through without interception, or async enumerable to intercept streaming</returns>
-    IAsyncEnumerable<ChatResponseUpdate>? WrapModelCallStreamingAsync(
-        ModelRequest request,
-        Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> handler,
+    IAsyncEnumerable<AgentModelUpdate>? WrapModelTurnStreamingAsync(
+        AgentModelTurnRequest request,
+        Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler,
         [EnumeratorCancellation] CancellationToken cancellationToken)
         => null;  // null = "I don't need to intercept streaming"
 

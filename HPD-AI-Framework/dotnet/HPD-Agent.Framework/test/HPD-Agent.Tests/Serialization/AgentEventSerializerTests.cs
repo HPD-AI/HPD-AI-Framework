@@ -1,5 +1,6 @@
 using System.Text.Json;
 using HPD.Agent;
+using HPD.Agent.Audio.Output;
 using HPD.Agent.Middleware;
 using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
@@ -126,6 +127,14 @@ public class AgentEventSerializerTests
                 {
                     Temperature = 0.7,
                     MaxOutputTokens = 123
+                },
+                Audio = new AudioRunConfig
+                {
+                    OutputMode = AudioOutputMode.TextToSpeech,
+                    AssistantOutputMode = AssistantOutputSynthesisMode.Progressive,
+                    VoiceId = "voice-1",
+                    OutputFormat = "mp3_44100_128",
+                    EnablePlayback = true
                 }
             }
         });
@@ -141,6 +150,12 @@ public class AgentEventSerializerTests
         Assert.True(result.RunConfig!.CoalesceDeltas);
         Assert.Equal(0.7, result.RunConfig.Chat!.Temperature);
         Assert.Equal(123, result.RunConfig.Chat.MaxOutputTokens);
+        Assert.NotNull(result.RunConfig.Audio);
+        Assert.Equal(AudioOutputMode.TextToSpeech, result.RunConfig.Audio!.OutputMode);
+        Assert.Equal(AssistantOutputSynthesisMode.Progressive, result.RunConfig.Audio.AssistantOutputMode);
+        Assert.Equal("voice-1", result.RunConfig.Audio.VoiceId);
+        Assert.Equal("mp3_44100_128", result.RunConfig.Audio.OutputFormat);
+        Assert.True(result.RunConfig.Audio.EnablePlayback);
     }
 
     #endregion

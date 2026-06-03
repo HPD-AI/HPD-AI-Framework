@@ -15,9 +15,9 @@ namespace HPD.Agent.Evaluations.Integration;
 public sealed class EvalJudgeTraceCaptureMiddleware : IAgentMiddleware
 {
     /// <inheritdoc />
-    public IAsyncEnumerable<ChatResponseUpdate>? WrapModelCallStreamingAsync(
-        ModelRequest request,
-        Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> handler,
+    public IAsyncEnumerable<AgentModelUpdate>? WrapModelTurnStreamingAsync(
+        AgentModelTurnRequest request,
+        Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler,
         CancellationToken cancellationToken)
     {
         if (EvalTraceContext.CurrentEvaluatorName is not null)
@@ -26,9 +26,9 @@ public sealed class EvalJudgeTraceCaptureMiddleware : IAgentMiddleware
         return CaptureAsync(request, handler, cancellationToken);
     }
 
-    private static async IAsyncEnumerable<ChatResponseUpdate> CaptureAsync(
-        ModelRequest request,
-        Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> handler,
+    private static async IAsyncEnumerable<AgentModelUpdate> CaptureAsync(
+        AgentModelTurnRequest request,
+        Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await foreach (var update in handler(request).WithCancellation(cancellationToken)

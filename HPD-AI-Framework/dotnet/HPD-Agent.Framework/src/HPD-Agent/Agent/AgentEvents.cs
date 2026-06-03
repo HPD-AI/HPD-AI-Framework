@@ -535,6 +535,42 @@ public record TextMessageEndEvent(string MessageId) : AgentEvent
     public override bool ShouldPersistToBranch() => true;
 }
 
+/// <summary>
+/// Emitted when a realtime provider produces a user input transcript update.
+/// </summary>
+public sealed record UserAudioTranscriptDeltaEvent(
+    string Text,
+    string MessageId,
+    string? ProviderItemId = null,
+    int? ContentIndex = null) : AgentEvent
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+}
+
+/// <summary>
+/// Emitted when a realtime provider finalizes a user input transcript.
+/// </summary>
+public sealed record UserAudioTranscriptCompletedEvent(
+    string Text,
+    string MessageId,
+    string? ProviderItemId = null,
+    int? ContentIndex = null) : AgentEvent
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+}
+
+/// <summary>
+/// Emitted when realtime user input transcription fails.
+/// </summary>
+public sealed record UserAudioTranscriptFailedEvent(
+    string MessageId,
+    string Error,
+    string? ProviderItemId = null,
+    int? ContentIndex = null) : AgentEvent
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+}
+
 
 #endregion
 
@@ -1168,19 +1204,42 @@ public enum CheckpointOperation
 /// <summary>
 /// Emitted for all checkpoint-related operations (save, restore, pending writes).
 /// </summary>
-public record CheckpointEvent(
-    CheckpointOperation Operation,
-    string SessionId,
-    DateTimeOffset Timestamp,
-    TimeSpan? Duration = null,
-    int? Iteration = null,
-    int? WriteCount = null,
-    int? SizeBytes = null,
-    int? MessageCount = null,
-    bool? Success = null,
-    string? ErrorMessage = null
-) : AgentEvent, IObservabilityEvent
+public record CheckpointEvent : AgentEvent, IObservabilityEvent
 {
+    public CheckpointEvent(
+        CheckpointOperation Operation,
+        string SessionId,
+        DateTimeOffset Timestamp,
+        TimeSpan? Duration = null,
+        int? Iteration = null,
+        int? WriteCount = null,
+        int? SizeBytes = null,
+        int? MessageCount = null,
+        bool? Success = null,
+        string? ErrorMessage = null)
+    {
+        this.Operation = Operation;
+        this.SessionId = SessionId;
+        this.Timestamp = Timestamp;
+        this.Duration = Duration;
+        this.Iteration = Iteration;
+        this.WriteCount = WriteCount;
+        this.SizeBytes = SizeBytes;
+        this.MessageCount = MessageCount;
+        this.Success = Success;
+        this.ErrorMessage = ErrorMessage;
+    }
+
+    public CheckpointOperation Operation { get; init; }
+    public DateTimeOffset Timestamp { get; init; }
+    public TimeSpan? Duration { get; init; }
+    public int? Iteration { get; init; }
+    public int? WriteCount { get; init; }
+    public int? SizeBytes { get; init; }
+    public int? MessageCount { get; init; }
+    public bool? Success { get; init; }
+    public string? ErrorMessage { get; init; }
+
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
 

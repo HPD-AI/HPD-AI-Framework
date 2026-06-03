@@ -12,20 +12,17 @@ namespace HPD.Auth.Audit.Tests;
 
 internal class TestLoginObserverA : IAuthEventObserver<UserLoggedInEvent>
 {
-    public bool ShouldProcess(UserLoggedInEvent evt) => true;
-    public Task OnEventAsync(UserLoggedInEvent evt, CancellationToken ct = default) => Task.CompletedTask;
+    public ValueTask HandleAsync(UserLoggedInEvent evt, CancellationToken ct = default) => ValueTask.CompletedTask;
 }
 
 internal class TestLoginObserverB : IAuthEventObserver<UserLoggedInEvent>
 {
-    public bool ShouldProcess(UserLoggedInEvent evt) => true;
-    public Task OnEventAsync(UserLoggedInEvent evt, CancellationToken ct = default) => Task.CompletedTask;
+    public ValueTask HandleAsync(UserLoggedInEvent evt, CancellationToken ct = default) => ValueTask.CompletedTask;
 }
 
 internal class TestSessionObserver : IAuthEventObserver<SessionRevokedEvent>
 {
-    public bool ShouldProcess(SessionRevokedEvent evt) => true;
-    public Task OnEventAsync(SessionRevokedEvent evt, CancellationToken ct = default) => Task.CompletedTask;
+    public ValueTask HandleAsync(SessionRevokedEvent evt, CancellationToken ct = default) => ValueTask.CompletedTask;
 }
 
 /// <summary>

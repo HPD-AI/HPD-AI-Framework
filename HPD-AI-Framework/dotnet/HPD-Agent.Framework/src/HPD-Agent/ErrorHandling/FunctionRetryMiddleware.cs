@@ -56,9 +56,9 @@ public class RetryMiddleware : IAgentMiddleware
     /// Wraps model call streaming with provider-aware retry logic.
     /// Buffers the stream to enable retries on failure.
     /// </summary>
-    public IAsyncEnumerable<ChatResponseUpdate>? WrapModelCallStreamingAsync(
-        ModelRequest request,
-        Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> handler,
+    public IAsyncEnumerable<AgentModelUpdate>? WrapModelTurnStreamingAsync(
+        AgentModelTurnRequest request,
+        Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         return RetryModelCallAsync(request, handler, cancellationToken);
@@ -128,13 +128,13 @@ public class RetryMiddleware : IAgentMiddleware
     /// Similar to how Gemini CLI handles streaming retry in JavaScript.
     /// </para>
     /// </remarks>
-    private async IAsyncEnumerable<ChatResponseUpdate> RetryModelCallAsync(
-        ModelRequest request,
-        Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> handler,
+    private async IAsyncEnumerable<AgentModelUpdate> RetryModelCallAsync(
+        AgentModelTurnRequest request,
+        Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var maxRetries = _config.MaxRetries;
-        var channel = Channel.CreateUnbounded<ChatResponseUpdate>();
+        var channel = Channel.CreateUnbounded<AgentModelUpdate>();
         Exception? producerException = null;
 
         // Producer task: Retry logic with streaming

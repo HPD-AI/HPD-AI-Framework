@@ -195,16 +195,16 @@ public class AgentMiddlewarePipeline
     }
 
     /// <summary>
-    /// Executes WrapModelCallStreamingAsync hooks in chain order.
+    /// Executes WrapModelTurnStreamingAsync hooks in chain order.
     /// Middleware can opt-in by returning non-null, or pass through by returning null.
     /// </summary>
-    public async IAsyncEnumerable<ChatResponseUpdate> ExecuteModelCallStreamingAsync(
-        ModelRequest request,
-        Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> coreHandler,
+    public async IAsyncEnumerable<AgentModelUpdate> ExecuteModelTurnStreamingAsync(
+        AgentModelTurnRequest request,
+        Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> coreHandler,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         // Build handler chain in reverse order (last middleware wraps first)
-        Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> handler = coreHandler;
+        Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler = coreHandler;
 
         for (int i = _middlewares.Count - 1; i >= 0; i--)
         {
@@ -212,7 +212,7 @@ public class AgentMiddlewarePipeline
             var previousHandler = handler;
 
             // Check if middleware provides streaming variant
-            var streamingResult = middleware.WrapModelCallStreamingAsync(
+            var streamingResult = middleware.WrapModelTurnStreamingAsync(
                 request,
                 previousHandler,
                 cancellationToken);
@@ -220,7 +220,7 @@ public class AgentMiddlewarePipeline
             if (streamingResult != null)
             {
                 // Middleware provides streaming - use it
-                handler = (req) => middleware.WrapModelCallStreamingAsync(
+                handler = (req) => middleware.WrapModelTurnStreamingAsync(
                     req,
                     previousHandler,
                     cancellationToken) ?? previousHandler(req);

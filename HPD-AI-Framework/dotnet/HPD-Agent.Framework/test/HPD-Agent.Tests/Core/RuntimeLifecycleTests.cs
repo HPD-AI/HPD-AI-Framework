@@ -515,6 +515,51 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
+    public async Task RuntimeFunctionExecutor_ExecutesRegisteredToolWithoutChatModelCall()
+    {
+        IRuntimeFunctionExecutor? executor = null;
+        var middleware = new RuntimeHookRecordingMiddleware("A", [])
+        {
+            OnAfterStarted = (context, _) =>
+            {
+                executor = context.RuntimeCapabilities.GetRequired<IRuntimeFunctionExecutor>();
+                return Task.CompletedTask;
+            }
+        };
+        var fakeClient = new FakeChatClient();
+        var tool = AIFunctionFactory.Create(
+            (string value) => $"echo:{value}",
+            name: "echo");
+        var agent = CreateAgentWithMiddlewares(
+            client: fakeClient,
+            middlewares: [middleware],
+            tools: tool);
+
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
+
+        Assert.NotNull(executor);
+        var results = await executor.ExecuteFunctionCallsAsync(
+            [
+                new FunctionCallContent(
+                    "call-1",
+                    "echo",
+                    new Dictionary<string, object?> { ["value"] = "runtime" })
+            ],
+            cancellationToken: TestCancellationToken);
+
+        var result = Assert.Single(results);
+        Assert.Equal("call-1", result.CallId);
+        Assert.Equal("echo", result.FunctionName);
+        Assert.True(result.Succeeded);
+        Assert.False(result.WasUnknown);
+        Assert.False(result.WasBlocked);
+        Assert.Equal("echo:runtime", result.Payload.Json?.GetString());
+        Assert.Empty(fakeClient.CapturedRequests);
+
+        await agent.StopAsync(TestCancellationToken);
+    }
+
+    [Fact]
     public async Task RuntimeCapabilities_AreNotSealedWhenStartIsCancelled()
     {
         var order = new List<string>();

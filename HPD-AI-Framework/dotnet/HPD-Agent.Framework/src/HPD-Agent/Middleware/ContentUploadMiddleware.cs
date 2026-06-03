@@ -107,7 +107,10 @@ public class ContentUploadMiddleware : IAgentMiddleware
         var updatedMessage = new ChatMessage(message.Role, newContents)
         {
             AuthorName = message.AuthorName,
-            AdditionalProperties = message.AdditionalProperties
+            AdditionalProperties = message.AdditionalProperties,
+            CreatedAt = message.CreatedAt,
+            MessageId = message.MessageId,
+            RawRepresentation = message.RawRepresentation
         };
 
         context.UserMessage = updatedMessage;

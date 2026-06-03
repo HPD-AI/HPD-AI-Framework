@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Agent.Providers.Audio.Meai</RootNamespace>
+    <AssemblyName>HPD.Agent.Providers.Audio.Meai</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.Providers.Audio.Meai</PackageId>
+    <Description>Provider-neutral Microsoft.Extensions.AI audio adapters for HPD Agent audio.</Description>
+    <PackageTags>ai;agent;audio;meai;stt</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <OutputType>Library</OutputType>
+    <NoWarn>$(NoWarn);1591;MEAI001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
+    <ProjectReference Include="../../HPD-Agent.Audio/HPD.Agent.Audio.Abstractions/HPD.Agent.Audio.Abstractions.csproj" />
+    <ProjectReference Include="../../HPD-Agent.Audio/HPD.Agent.Audio.AgentIntegration/HPD.Agent.Audio.AgentIntegration.csproj" />
+    <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
+  </ItemGroup>
+
+</Project>

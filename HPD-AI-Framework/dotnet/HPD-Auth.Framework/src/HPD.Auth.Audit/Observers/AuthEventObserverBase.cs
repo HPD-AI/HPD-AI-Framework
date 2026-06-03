@@ -62,6 +62,11 @@ public abstract class AuthEventObserverBase<TEvent> : IAuthEventObserver<TEvent>
         }
     }
 
+    public virtual bool ShouldProcess(TEvent evt) => true;
+
+    public Task OnEventAsync(TEvent evt, CancellationToken ct = default) =>
+        HandleAsync(evt, ct).AsTask();
+
     /// <summary>
     /// Override this method to implement observer logic.
     /// </summary>

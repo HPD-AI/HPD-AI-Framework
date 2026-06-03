@@ -56,6 +56,37 @@ public class ContentUploadMiddlewareTests
     }
 
     [Fact]
+    public async Task BeforeMessageTurnAsync_TransformedMessage_PreservesMessageIdentity()
+    {
+        var contentStore = new InMemoryContentStore();
+        var middleware = new ContentUploadMiddleware(providerRegistry: null, contentStore);
+        var session = new SessionModel("test-session");
+        var createdAt = new DateTimeOffset(2026, 6, 2, 12, 0, 0, TimeSpan.Zero);
+        var raw = new object();
+        var message = new ChatMessage(ChatRole.User, [
+            new DataContent(new byte[] { 1, 2, 3 }, "application/pdf") { Name = "report.pdf" }
+        ])
+        {
+            AuthorName = "ewoof",
+            CreatedAt = createdAt,
+            MessageId = "message-1",
+            RawRepresentation = raw
+        };
+        using var capture = new EventCapture();
+        var runConfig = new AgentRunConfig { UploadStrategy = UploadStrategy.Local };
+        var context = CreateBeforeMessageTurnContext(session, message, capture.Coordinator, runConfig);
+
+        await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
+
+        Assert.NotSame(message, context.UserMessage);
+        Assert.Equal("message-1", context.UserMessage!.MessageId);
+        Assert.Equal(createdAt, context.UserMessage.CreatedAt);
+        Assert.Equal("ewoof", context.UserMessage.AuthorName);
+        Assert.Same(raw, context.UserMessage.RawRepresentation);
+        Assert.IsType<UriContent>(Assert.Single(context.UserMessage.Contents));
+    }
+
+    [Fact]
     public async Task BeforeMessageTurnAsync_StrategyHosted_UsesRunConfigHostedClient()
     {
         var hostedClient = new FakeHostedFileClient();

@@ -131,7 +131,7 @@ public static class ProviderDiscovery
     private static bool IsProviderAssemblyName(string? assemblyName) =>
         assemblyName != null &&
         (assemblyName.StartsWith("HPD-Agent.Providers.", StringComparison.OrdinalIgnoreCase) ||
-         assemblyName.StartsWith("HPD-Agent.AudioProviders.", StringComparison.OrdinalIgnoreCase));
+         assemblyName.StartsWith("HPD.Agent.Providers.Audio.", StringComparison.OrdinalIgnoreCase));
 
     [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Uses RuntimeHelpers.RunModuleConstructor which requires the module to be preserved.")]
     private static void TriggerModuleInitializer(Assembly assembly)

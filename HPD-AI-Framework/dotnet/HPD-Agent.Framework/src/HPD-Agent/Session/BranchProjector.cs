@@ -103,6 +103,12 @@ public static class BranchProjector
                     data.AuthorName,
                     data.CreatedAt);
 
+                if (messages.TryGetValue(data.MessageId, out var existing))
+                {
+                    projection.Contents.AddRange(existing.Contents);
+                    projection.AdditionalProperties = existing.AdditionalProperties?.Clone();
+                }
+
                 if (!messages.ContainsKey(data.MessageId))
                     messageOrder.Add(data.MessageId);
 
@@ -130,8 +136,9 @@ public static class BranchProjector
 
             case TextDeltaEvent data:
             {
-                GetMessage(messages, messageOrder, data.MessageId, ChatRole.Assistant)
-                    .Contents.Add(new TextContent(data.Text));
+                AddTextContent(
+                    GetMessage(messages, messageOrder, data.MessageId, ChatRole.Assistant),
+                    data.Text);
                 branch.LastActivity = evt.Timestamp.UtcDateTime;
                 break;
             }
@@ -316,7 +323,7 @@ public static class BranchProjector
         DateTimeOffset? CreatedAt)
     {
         public List<AIContent> Contents { get; } = [];
-        public AdditionalPropertiesDictionary? AdditionalProperties { get; private set; }
+        public AdditionalPropertiesDictionary? AdditionalProperties { get; set; }
 
         public MessageProjection SetMessageTurnId(string? messageTurnId)
         {
@@ -351,6 +358,20 @@ public static class BranchProjector
             projection.AdditionalProperties = message.AdditionalProperties?.Clone();
             return projection;
         }
+    }
+
+    private static void AddTextContent(MessageProjection projection, string text)
+    {
+        var content = new TextContent(text);
+        if (projection.Role == ChatRole.User &&
+            projection.Contents.Count > 0 &&
+            !projection.Contents.OfType<TextContent>().Any())
+        {
+            projection.Contents.Insert(0, content);
+            return;
+        }
+
+        projection.Contents.Add(content);
     }
 
     private static void EnsureMessageIdentity(ChatMessage message)

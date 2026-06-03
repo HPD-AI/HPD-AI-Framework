@@ -211,17 +211,17 @@ public class CookieAuthentication_SecurityStamp_Tests
     [Fact]
     public async Task Cookie_SlidingExpiration_Issues_Renewed_SetCookie()
     {
-        // Use a tiny sliding window (2 s) so the 50%-elapsed threshold is crossed
-        // immediately after sign-in.
+        // Keep the sliding window large enough that a loaded test runner does not
+        // accidentally cross absolute expiration before the protected request.
         var (server, rootServices) = CreateServer(
             useSlidingExpiration: true,
-            slidingDuration: TimeSpan.FromSeconds(2));
+            slidingDuration: TimeSpan.FromSeconds(6));
         using var _ = server;
 
         var (client, _) = await SignInAsync(server, rootServices);
 
-        // Wait just over half the sliding window (1 s) so the middleware will renew.
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        // Wait just over half the sliding window so the middleware will renew.
+        await Task.Delay(TimeSpan.FromMilliseconds(3100));
 
         var response = await client.GetAsync("/protected");
 

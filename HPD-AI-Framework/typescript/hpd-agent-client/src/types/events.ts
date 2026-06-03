@@ -98,37 +98,8 @@ export const EventTypes = {
   SCHEMA_CHANGED: 'SCHEMA_CHANGED',
   COLLAPSING_STATE: 'COLLAPSING_STATE',
 
-  // Audio Events (TTS)
-  SYNTHESIS_STARTED: 'SYNTHESIS_STARTED',
-  AUDIO_CHUNK: 'AUDIO_CHUNK',
-  SYNTHESIS_COMPLETED: 'SYNTHESIS_COMPLETED',
-
-  // Audio Events (STT)
-  TRANSCRIPTION_DELTA: 'TRANSCRIPTION_DELTA',
-  TRANSCRIPTION_COMPLETED: 'TRANSCRIPTION_COMPLETED',
-
-  // Audio Events (Interruption)
+  // Control
   INTERRUPTION_REQUEST: 'INTERRUPTION_REQUEST',
-  USER_INTERRUPTED: 'USER_INTERRUPTED',
-  SPEECH_PAUSED: 'SPEECH_PAUSED',
-  SPEECH_RESUMED: 'SPEECH_RESUMED',
-
-  // Audio Events (Preemptive Generation)
-  PREEMPTIVE_GENERATION_STARTED: 'PREEMPTIVE_GENERATION_STARTED',
-  PREEMPTIVE_GENERATION_DISCARDED: 'PREEMPTIVE_GENERATION_DISCARDED',
-
-  // Audio Events (VAD)
-  VAD_START_OF_SPEECH: 'VAD_START_OF_SPEECH',
-  VAD_END_OF_SPEECH: 'VAD_END_OF_SPEECH',
-
-  // Audio Events (Metrics)
-  AUDIO_PIPELINE_METRICS: 'AUDIO_PIPELINE_METRICS',
-
-  // Audio Events (Turn Detection)
-  TURN_DETECTED: 'TURN_DETECTED',
-
-  // Audio Events (Filler)
-  FILLER_AUDIO_PLAYED: 'FILLER_AUDIO_PLAYED',
 } as const;
 
 export type EventType = (typeof EventTypes)[keyof typeof EventTypes];
@@ -651,150 +622,6 @@ export interface clientHarnessesRegisteredEvent extends BaseEvent {
 }
 
 // ============================================
-// Audio Events (TTS - Synthesis)
-// ============================================
-
-export interface SynthesisStartedEvent extends BaseEvent {
-  type: typeof EventTypes.SYNTHESIS_STARTED;
-  synthesisId: string;
-  modelId?: string;
-  voice?: string;
-  streamId?: string;
-}
-
-export interface AudioChunkEvent extends BaseEvent {
-  type: typeof EventTypes.AUDIO_CHUNK;
-  synthesisId: string;
-  base64Audio: string;
-  mimeType: string;
-  chunkIndex: number;
-  duration: string; // TimeSpan as ISO 8601 duration
-  isLast: boolean;
-  streamId?: string;
-}
-
-export interface SynthesisCompletedEvent extends BaseEvent {
-  type: typeof EventTypes.SYNTHESIS_COMPLETED;
-  synthesisId: string;
-  wasInterrupted: boolean;
-  totalChunks: number;
-  deliveredChunks: number;
-  streamId?: string;
-}
-
-// ============================================
-// Audio Events (STT - Transcription)
-// ============================================
-
-export interface TranscriptionDeltaEvent extends BaseEvent {
-  type: typeof EventTypes.TRANSCRIPTION_DELTA;
-  transcriptionId: string;
-  text: string;
-  isFinal: boolean;
-  confidence?: number;
-}
-
-export interface TranscriptionCompletedEvent extends BaseEvent {
-  type: typeof EventTypes.TRANSCRIPTION_COMPLETED;
-  transcriptionId: string;
-  finalText: string;
-  processingDuration: string;
-}
-
-// ============================================
-// Audio Events (Interruption)
-// ============================================
-
-export interface UserInterruptedEvent extends BaseEvent {
-  type: typeof EventTypes.USER_INTERRUPTED;
-  transcribedText?: string;
-}
-
-export interface SpeechPausedEvent extends BaseEvent {
-  type: typeof EventTypes.SPEECH_PAUSED;
-  synthesisId: string;
-  reason: 'user_speaking' | 'potential_interruption';
-}
-
-export interface SpeechResumedEvent extends BaseEvent {
-  type: typeof EventTypes.SPEECH_RESUMED;
-  synthesisId: string;
-  pauseDuration: string;
-}
-
-// ============================================
-// Audio Events (Preemptive Generation)
-// ============================================
-
-export interface PreemptiveGenerationStartedEvent extends BaseEvent {
-  type: typeof EventTypes.PREEMPTIVE_GENERATION_STARTED;
-  generationId: string;
-  turnCompletionProbability: number;
-}
-
-export interface PreemptiveGenerationDiscardedEvent extends BaseEvent {
-  type: typeof EventTypes.PREEMPTIVE_GENERATION_DISCARDED;
-  generationId: string;
-  reason: 'user_continued' | 'low_confidence';
-}
-
-// ============================================
-// Audio Events (VAD)
-// ============================================
-
-export interface VadStartOfSpeechEvent extends BaseEvent {
-  type: typeof EventTypes.VAD_START_OF_SPEECH;
-  /** ISO 8601 duration from audio start (e.g., "PT5.2S" for 5.2 seconds) */
-  timestamp: string;
-  /** Speech probability (0.0 - 1.0) */
-  speechProbability: number;
-}
-
-export interface VadEndOfSpeechEvent extends BaseEvent {
-  type: typeof EventTypes.VAD_END_OF_SPEECH;
-  /** ISO 8601 duration from audio start (e.g., "PT5.2S" for 5.2 seconds) */
-  timestamp: string;
-  /** ISO 8601 duration of speech (e.g., "PT2.5S" for 2.5 seconds of speech) */
-  speechDuration: string;
-  /** Speech probability (0.0 - 1.0) */
-  speechProbability: number;
-}
-
-// ============================================
-// Audio Events (Metrics)
-// ============================================
-
-export interface AudioPipelineMetricsEvent extends BaseEvent {
-  type: typeof EventTypes.AUDIO_PIPELINE_METRICS;
-  metricType: 'latency' | 'quality' | 'throughput' | 'error';
-  metricName: string;
-  value: number;
-  unit?: string;
-}
-
-// ============================================
-// Audio Events (Turn Detection)
-// ============================================
-
-export interface TurnDetectedEvent extends BaseEvent {
-  type: typeof EventTypes.TURN_DETECTED;
-  transcribedText: string;
-  completionProbability: number;
-  silenceDuration: string;
-  detectionMethod: 'heuristic' | 'ml' | 'manual' | 'timeout';
-}
-
-// ============================================
-// Audio Events (Filler)
-// ============================================
-
-export interface FillerAudioPlayedEvent extends BaseEvent {
-  type: typeof EventTypes.FILLER_AUDIO_PLAYED;
-  phrase: string;
-  duration: string;
-}
-
-// ============================================
 // Union Type (Core Events)
 // ============================================
 
@@ -861,28 +688,7 @@ export type KnownAgentEvent =
   | ClientToolInvokeResponseEvent
   | clientHarnessesRegisteredEvent
   // Control Events
-  | InterruptionRequestEvent
-  // Audio Events (TTS)
-  | SynthesisStartedEvent
-  | AudioChunkEvent
-  | SynthesisCompletedEvent
-  // Audio Events (STT)
-  | TranscriptionDeltaEvent
-  | TranscriptionCompletedEvent
-  // Audio Events (Interruption)
-  | UserInterruptedEvent
-  | SpeechPausedEvent
-  | SpeechResumedEvent
-  // Audio Events (Preemptive Generation)
-  | PreemptiveGenerationStartedEvent
-  | PreemptiveGenerationDiscardedEvent
-  // Audio Events (VAD)
-  | VadStartOfSpeechEvent
-  | VadEndOfSpeechEvent
-  // Audio Events (Metrics/Turn/Filler)
-  | AudioPipelineMetricsEvent
-  | TurnDetectedEvent
-  | FillerAudioPlayedEvent;
+  | InterruptionRequestEvent;
 
 export type AgentEvent = KnownAgentEvent | UnknownAgentEvent;
 
@@ -954,58 +760,3 @@ export function isclientHarnessesRegisteredEvent(
   return event.type === EventTypes.CLIENT_TOOL_GROUPS_REGISTERED;
 }
 
-// Audio Type Guards
-
-export function isSynthesisStartedEvent(event: BaseEvent): event is SynthesisStartedEvent {
-  return event.type === EventTypes.SYNTHESIS_STARTED;
-}
-
-export function isAudioChunkEvent(event: BaseEvent): event is AudioChunkEvent {
-  return event.type === EventTypes.AUDIO_CHUNK;
-}
-
-export function isSynthesisCompletedEvent(event: BaseEvent): event is SynthesisCompletedEvent {
-  return event.type === EventTypes.SYNTHESIS_COMPLETED;
-}
-
-export function isTranscriptionDeltaEvent(event: BaseEvent): event is TranscriptionDeltaEvent {
-  return event.type === EventTypes.TRANSCRIPTION_DELTA;
-}
-
-export function isTranscriptionCompletedEvent(
-  event: BaseEvent
-): event is TranscriptionCompletedEvent {
-  return event.type === EventTypes.TRANSCRIPTION_COMPLETED;
-}
-
-export function isUserInterruptedEvent(event: BaseEvent): event is UserInterruptedEvent {
-  return event.type === EventTypes.USER_INTERRUPTED;
-}
-
-export function isSpeechPausedEvent(event: BaseEvent): event is SpeechPausedEvent {
-  return event.type === EventTypes.SPEECH_PAUSED;
-}
-
-export function isSpeechResumedEvent(event: BaseEvent): event is SpeechResumedEvent {
-  return event.type === EventTypes.SPEECH_RESUMED;
-}
-
-export function isVadStartOfSpeechEvent(event: BaseEvent): event is VadStartOfSpeechEvent {
-  return event.type === EventTypes.VAD_START_OF_SPEECH;
-}
-
-export function isVadEndOfSpeechEvent(event: BaseEvent): event is VadEndOfSpeechEvent {
-  return event.type === EventTypes.VAD_END_OF_SPEECH;
-}
-
-export function isAudioPipelineMetricsEvent(event: BaseEvent): event is AudioPipelineMetricsEvent {
-  return event.type === EventTypes.AUDIO_PIPELINE_METRICS;
-}
-
-export function isTurnDetectedEvent(event: BaseEvent): event is TurnDetectedEvent {
-  return event.type === EventTypes.TURN_DETECTED;
-}
-
-export function isFillerAudioPlayedEvent(event: BaseEvent): event is FillerAudioPlayedEvent {
-  return event.type === EventTypes.FILLER_AUDIO_PLAYED;
-}

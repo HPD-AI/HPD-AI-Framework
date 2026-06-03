@@ -9,22 +9,23 @@ using SessionModel = global::HPD.Agent.Session;
 namespace HPD.Agent.Tests.Middleware.V2;
 
 /// <summary>
-/// Tests for ModelRequest.Session — the property added to give middleware
+/// Tests for AgentModelTurnRequest.Session — the property added to give middleware
 /// access to session storage during model calls (e.g. TTS artifact upload).
 /// </summary>
-public class ModelRequestSessionTests
+public class AgentModelTurnRequestSessionTests
 {
     // -------------------------------------------------------------------------
     // 30. Session defaults to null when not provided
     // -------------------------------------------------------------------------
 
     [Fact]
-    public void ModelRequest_Session_DefaultsToNull()
+    public void AgentModelTurnRequest_Session_DefaultsToNull()
     {
         // Arrange & Act
-        var request = new ModelRequest
+        var request = new AgentModelTurnRequest
         {
-            Model = new TestChatClient(),
+            Transport = AgentModelTransport.Chat,
+            ChatModel = new TestChatClient(),
             Messages = [],
             Options = new ChatOptions(),
             State = CreateTestState(),
@@ -40,15 +41,16 @@ public class ModelRequestSessionTests
     // -------------------------------------------------------------------------
 
     [Fact]
-    public void ModelRequest_Session_CanBeSet()
+    public void AgentModelTurnRequest_Session_CanBeSet()
     {
         // Arrange
         var session = new SessionModel("test-session-id");
 
         // Act
-        var request = new ModelRequest
+        var request = new AgentModelTurnRequest
         {
-            Model = new TestChatClient(),
+            Transport = AgentModelTransport.Chat,
+            ChatModel = new TestChatClient(),
             Messages = [],
             Options = new ChatOptions(),
             State = CreateTestState(),
@@ -66,13 +68,14 @@ public class ModelRequestSessionTests
     // -------------------------------------------------------------------------
 
     [Fact]
-    public void ModelRequest_Override_PreservesSession()
+    public void AgentModelTurnRequest_Override_PreservesSession()
     {
         // Arrange
         var session = new SessionModel("preserve-me");
-        var original = new ModelRequest
+        var original = new AgentModelTurnRequest
         {
-            Model = new TestChatClient(),
+            Transport = AgentModelTransport.Chat,
+            ChatModel = new TestChatClient(),
             Messages = [new ChatMessage(ChatRole.User, "original")],
             Options = new ChatOptions { Temperature = 0.5f },
             State = CreateTestState(),

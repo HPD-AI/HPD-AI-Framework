@@ -568,8 +568,9 @@ internal class TwoFactorLoginWebFactory : IAsyncDisposable
         // Initiate 2FA session by doing a password sign-in via the test helper endpoint.
         var initResp = await cookieClient.PostAsJsonAsync("/_test/init-2fa-session",
             new InitTwoFactorRequest(email, password));
+        var initBody = await initResp.Content.ReadAsStringAsync();
         initResp.StatusCode.Should().Be(HttpStatusCode.OK,
-            because: "password sign-in should require 2FA");
+            because: "password sign-in should require 2FA. Body: {0}", initBody);
 
         return (user, cookieClient);
     }

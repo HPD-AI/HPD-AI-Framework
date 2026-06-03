@@ -64,6 +64,11 @@ public sealed class AuditingAuthObserver
         await InvokeObserversAsync(evt, ct);
     }
 
+    public bool ShouldProcess(AuthEvent evt) => evt is not null;
+
+    public Task OnEventAsync(AuthEvent evt, CancellationToken ct = default) =>
+        HandleAsync(evt, ct).AsTask();
+
     private async Task InvokeObserversAsync(AuthEvent evt, CancellationToken ct)
     {
         // Resolve and invoke typed IAuthEventObserver<TEvent> by reflecting the concrete type.
@@ -77,7 +82,15 @@ public sealed class AuditingAuthObserver
 
             try
             {
-                var task = (ValueTask)observerType.GetMethod(nameof(IAuthEventObserver<AuthEvent>.HandleAsync))!
+                var shouldProcess = (bool)observerType.GetMethod(nameof(IAuthEventObserver<AuthEvent>.ShouldProcess))!
+                    .Invoke(observer, [evt])!;
+
+                if (!shouldProcess)
+                {
+                    continue;
+                }
+
+                var task = (Task)observerType.GetMethod(nameof(IAuthEventObserver<AuthEvent>.OnEventAsync))!
                     .Invoke(observer, [evt, ct])!;
 
                 await task.ConfigureAwait(false);
@@ -100,26 +113,26 @@ public sealed class AuditingAuthObserver
             Action: AuditActions.UserLogin,
             Category: AuditCategories.Authentication,
             UserId: e.UserId,
-            Metadata: new Dictionary<string, string?> { ["auth_method"] = e.AuthMethod }),
+            Metadata: new Dictionary<string, string?> { ["AuthMethod"] = e.AuthMethod }),
 
         UserLoggedOutEvent e => new AuditLogEntry(
             Action: AuditActions.UserLogout,
             Category: AuditCategories.Authentication,
             UserId: e.UserId,
-            Metadata: new Dictionary<string, string?> { ["session_id"] = e.SessionId.ToString() }),
+            Metadata: new Dictionary<string, string?> { ["SessionId"] = e.SessionId.ToString() }),
 
         UserRegisteredEvent e => new AuditLogEntry(
             Action: AuditActions.UserRegister,
             Category: AuditCategories.Authentication,
             UserId: e.UserId,
-            Metadata: new Dictionary<string, string?> { ["registration_method"] = e.RegistrationMethod }),
+            Metadata: new Dictionary<string, string?> { ["RegistrationMethod"] = e.RegistrationMethod }),
 
         LoginFailedEvent e => new AuditLogEntry(
             Action: AuditActions.UserLoginFailed,
             Category: AuditCategories.Authentication,
             Success: false,
             ErrorMessage: e.Reason,
-            Metadata: new Dictionary<string, string?> { ["email"] = e.Email }),
+            Metadata: new Dictionary<string, string?> { ["Email"] = e.Email }),
 
         PasswordChangedEvent e => new AuditLogEntry(
             Action: AuditActions.PasswordChange,
@@ -130,19 +143,19 @@ public sealed class AuditingAuthObserver
             Action: AuditActions.PasswordResetRequest,
             Category: AuditCategories.Authentication,
             UserId: e.UserId,
-            Metadata: new Dictionary<string, string?> { ["email"] = e.Email }),
+            Metadata: new Dictionary<string, string?> { ["Email"] = e.Email }),
 
         EmailConfirmedEvent e => new AuditLogEntry(
             Action: AuditActions.EmailConfirm,
             Category: AuditCategories.Authentication,
             UserId: e.UserId,
-            Metadata: new Dictionary<string, string?> { ["email"] = e.Email }),
+            Metadata: new Dictionary<string, string?> { ["Email"] = e.Email }),
 
         TwoFactorEnabledEvent e => new AuditLogEntry(
             Action: AuditActions.TwoFactorEnable,
             Category: AuditCategories.Authentication,
             UserId: e.UserId,
-            Metadata: new Dictionary<string, string?> { ["method"] = e.Method }),
+            Metadata: new Dictionary<string, string?> { ["Method"] = e.Method }),
 
         SessionRevokedEvent e => new AuditLogEntry(
             Action: AuditActions.SessionRevoke,
@@ -150,8 +163,8 @@ public sealed class AuditingAuthObserver
             UserId: e.UserId,
             Metadata: new Dictionary<string, string?>
             {
-                ["session_id"] = e.SessionId.ToString(),
-                ["revoked_by"] = e.RevokedBy.ToString()
+                ["SessionId"] = e.SessionId.ToString(),
+                ["RevokedBy"] = e.RevokedBy.ToString()
             }),
 
         _ => null,

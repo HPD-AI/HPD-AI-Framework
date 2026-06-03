@@ -149,13 +149,13 @@ public class AgentEventSerializerTests
 
     #endregion
 
-    #region ExecutionContext Tests
+    #region Agent Metadata Tests
 
     [Fact]
-    public void ToJson_ExecutionContext_SerializesCorrectly()
+    public void ToJson_Metadata_SerializesCorrectly()
     {
         // Arrange
-        var context = new AgentExecutionContext
+        var context = new AgentMetadata
         {
             AgentName = "SubAgent A",
             AgentId = "parent-abc-subagent-def",
@@ -164,20 +164,20 @@ public class AgentEventSerializerTests
         };
         var evt = new TextDeltaEvent("hello", "msg-123")
         {
-            ExecutionContext = context
+            Metadata = context
         };
 
         // Act
         var json = AgentEventSerializer.ToJson(evt);
 
         // Assert
-        Assert.Contains("\"executionContext\"", json);
+        Assert.Contains("\"metadata\"", json);
         Assert.Contains("\"agentName\":\"SubAgent A\"", json);
         Assert.Contains("\"depth\":2", json);
     }
 
     [Fact]
-    public void ToJson_NullExecutionContext_IsOmitted()
+    public void ToJson_NullMetadata_IsOmitted()
     {
         // Arrange
         var evt = new TextDeltaEvent("hello", "msg-123");
@@ -186,7 +186,7 @@ public class AgentEventSerializerTests
         var json = AgentEventSerializer.ToJson(evt);
 
         // Assert
-        Assert.DoesNotContain("executionContext", json);
+        Assert.DoesNotContain("metadata", json);
     }
 
     #endregion
@@ -849,12 +849,12 @@ public class AgentEventSerializerFromJsonTests
     }
 
     [Fact]
-    public void FromJson_ExecutionContext_WhenPresent_IsDeserialized()
+    public void FromJson_Metadata_WhenPresent_IsDeserialized()
     {
         // Arrange
         var evt = new TextDeltaEvent("hi", "msg-1")
         {
-            ExecutionContext = new AgentExecutionContext
+            Metadata = new AgentMetadata
             {
                 AgentName = "Sub",
                 AgentId = "sub-id",
@@ -866,31 +866,31 @@ public class AgentEventSerializerFromJsonTests
         var result = RoundTrip<TextDeltaEvent>(evt);
 
         // Assert
-        Assert.NotNull(result.ExecutionContext);
-        Assert.Equal("Sub", result.ExecutionContext.AgentName);
-        Assert.Equal(1, result.ExecutionContext.Depth);
+        Assert.NotNull(result.Metadata);
+        Assert.Equal("Sub", result.Metadata.AgentName);
+        Assert.Equal(1, result.Metadata.Depth);
     }
 
     [Fact]
-    public void FromJson_ExecutionContext_WhenAbsent_IsNull()
+    public void FromJson_Metadata_WhenAbsent_IsNull()
     {
         // Arrange
-        var evt = new TextDeltaEvent("hi", "msg-1"); // no ExecutionContext set
+        var evt = new TextDeltaEvent("hi", "msg-1"); // no Metadata set
 
         // Act
         var result = RoundTrip<TextDeltaEvent>(evt);
 
         // Assert
-        Assert.Null(result.ExecutionContext);
+        Assert.Null(result.Metadata);
     }
 
     [Fact]
-    public void FromJson_ExecutionContext_AgentChain_PreservesOrder()
+    public void FromJson_Metadata_AgentChain_PreservesOrder()
     {
         // Arrange
         var evt = new TextDeltaEvent("hi", "msg-1")
         {
-            ExecutionContext = new AgentExecutionContext
+            Metadata = new AgentMetadata
             {
                 AgentName = "Leaf",
                 AgentId = "leaf-id",
@@ -903,11 +903,11 @@ public class AgentEventSerializerFromJsonTests
         var result = RoundTrip<TextDeltaEvent>(evt);
 
         // Assert
-        Assert.NotNull(result.ExecutionContext);
-        Assert.Equal(3, result.ExecutionContext.AgentChain.Count);
-        Assert.Equal("Root", result.ExecutionContext.AgentChain[0]);
-        Assert.Equal("Mid", result.ExecutionContext.AgentChain[1]);
-        Assert.Equal("Leaf", result.ExecutionContext.AgentChain[2]);
+        Assert.NotNull(result.Metadata);
+        Assert.Equal(3, result.Metadata.AgentChain.Count);
+        Assert.Equal("Root", result.Metadata.AgentChain[0]);
+        Assert.Equal("Mid", result.Metadata.AgentChain[1]);
+        Assert.Equal("Leaf", result.Metadata.AgentChain[2]);
     }
 
     #endregion
@@ -1214,18 +1214,18 @@ public class AgentEventSerializerFromJsonTests
     #endregion
 
     // -------------------------------------------------------------------------
-    // Hierarchical / nested-agent (ExecutionContext depth)
+    // Hierarchical / nested-agent metadata depth
     // -------------------------------------------------------------------------
 
-    #region Hierarchical Execution Context Tests
+    #region Hierarchical Agent Metadata Tests
 
     [Fact]
-    public void FromJson_NestedAgent_Depth2_ExecutionContextPreserved()
+    public void FromJson_NestedAgent_Depth2_MetadataPreserved()
     {
         // Arrange
         var evt = new TextDeltaEvent("deep thought", "msg-1")
         {
-            ExecutionContext = new AgentExecutionContext
+            Metadata = new AgentMetadata
             {
                 AgentName = "Leaf",
                 AgentId = "leaf-id",
@@ -1239,15 +1239,15 @@ public class AgentEventSerializerFromJsonTests
         var result = RoundTrip<TextDeltaEvent>(evt);
 
         // Assert
-        Assert.NotNull(result.ExecutionContext);
-        Assert.Equal("Leaf", result.ExecutionContext.AgentName);
-        Assert.Equal("leaf-id", result.ExecutionContext.AgentId);
-        Assert.Equal("mid-id", result.ExecutionContext.ParentAgentId);
-        Assert.Equal(2, result.ExecutionContext.Depth);
-        Assert.Equal(3, result.ExecutionContext.AgentChain.Count);
-        Assert.Equal("Root", result.ExecutionContext.AgentChain[0]);
-        Assert.Equal("Mid", result.ExecutionContext.AgentChain[1]);
-        Assert.Equal("Leaf", result.ExecutionContext.AgentChain[2]);
+        Assert.NotNull(result.Metadata);
+        Assert.Equal("Leaf", result.Metadata.AgentName);
+        Assert.Equal("leaf-id", result.Metadata.AgentId);
+        Assert.Equal("mid-id", result.Metadata.ParentAgentId);
+        Assert.Equal(2, result.Metadata.Depth);
+        Assert.Equal(3, result.Metadata.AgentChain.Count);
+        Assert.Equal("Root", result.Metadata.AgentChain[0]);
+        Assert.Equal("Mid", result.Metadata.AgentChain[1]);
+        Assert.Equal("Leaf", result.Metadata.AgentChain[2]);
     }
 
     [Fact]
@@ -1267,12 +1267,12 @@ public class AgentEventSerializerFromJsonTests
     }
 
     [Fact]
-    public void FromJson_TextDelta_FromNestedAgent_ExecutionContextDepthSurvives()
+    public void FromJson_TextDelta_FromNestedAgent_MetadataDepthSurvives()
     {
         // Arrange
         var evt = new TextDeltaEvent("answer", "msg-1")
         {
-            ExecutionContext = new AgentExecutionContext
+            Metadata = new AgentMetadata
             {
                 AgentName = "DeepAgent",
                 AgentId = "deep-id",
@@ -1285,10 +1285,10 @@ public class AgentEventSerializerFromJsonTests
         var result = RoundTrip<TextDeltaEvent>(evt);
 
         // Assert
-        Assert.NotNull(result.ExecutionContext);
-        Assert.Equal(3, result.ExecutionContext.Depth);
-        Assert.True(result.ExecutionContext.IsSubAgent);
-        Assert.Equal(4, result.ExecutionContext.AgentChain.Count);
+        Assert.NotNull(result.Metadata);
+        Assert.Equal(3, result.Metadata.Depth);
+        Assert.True(result.Metadata.IsSubAgent);
+        Assert.Equal(4, result.Metadata.AgentChain.Count);
     }
 
     #endregion

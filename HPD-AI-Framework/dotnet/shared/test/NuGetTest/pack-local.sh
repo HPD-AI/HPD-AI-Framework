@@ -73,7 +73,7 @@ PROJECTS=(
   "HPD-Agent.Providers/HPD-Agent.Providers.OnnxRuntime/HPD-Agent.Providers.OnnxRuntime.csproj"
   "HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj"
   "HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj"
-  "HPD.Events/HPD.Events.csproj"
+  "HPD-Events/HPD-Events.csproj"
 )
 
 # Parse version into prefix and suffix

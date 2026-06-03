@@ -75,7 +75,7 @@ public class PipelineV2Tests
     }
 
     /// <summary>
-    /// Tests that WrapModelCallStreamingAsync builds a proper middleware chain with retry logic.
+    /// Tests that WrapModelTurnStreamingAsync builds a proper middleware chain with retry logic.
     /// </summary>
     [Fact]
     public async Task WrapModelCallStreaming_RetryPattern_BuildsChain()
@@ -84,28 +84,28 @@ public class PipelineV2Tests
         var middleware = new RetryMiddleware(maxRetries: 2);
         var pipeline = new AgentMiddlewarePipeline(new[] { middleware });
 
-        var request = CreateModelRequest();
+        var request = CreateAgentModelTurnRequest();
         var callCount = 0;
 
         // Handler that fails once, then succeeds with streaming
-        async IAsyncEnumerable<ChatResponseUpdate> Handler(ModelRequest req)
+        async IAsyncEnumerable<AgentModelUpdate> Handler(AgentModelTurnRequest req)
         {
             callCount++;
             if (callCount == 1)
                 throw new HttpRequestException("Transient error");
 
             // Success - return streaming response
-            yield return new ChatResponseUpdate
+            yield return new AgentChatModelUpdate(new ChatResponseUpdate
             {
                 Contents = new List<AIContent> { new TextContent("Success") }
-            };
+            });
         }
 
         // Act
         var updates = new List<ChatResponseUpdate>();
-        await foreach (var update in pipeline.ExecuteModelCallStreamingAsync(request, Handler, CancellationToken.None))
+        await foreach (var update in pipeline.ExecuteModelTurnStreamingAsync(request, Handler, CancellationToken.None))
         {
-            updates.Add(update);
+            updates.Add(update.ChatUpdate!);
         }
 
         // Assert - retry worked!
@@ -222,24 +222,24 @@ public class PipelineV2Tests
         public RetryMiddleware(int maxRetries) => _maxRetries = maxRetries;
 
         /// <inheritdoc />
-        public IAsyncEnumerable<ChatResponseUpdate>? WrapModelCallStreamingAsync(
-            ModelRequest request,
-            Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> handler,
+        public IAsyncEnumerable<AgentModelUpdate>? WrapModelTurnStreamingAsync(
+            AgentModelTurnRequest request,
+            Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler,
             CancellationToken ct)
         {
             return RetryAsync(request, handler, ct);
         }
 
-        private async IAsyncEnumerable<ChatResponseUpdate> RetryAsync(
-            ModelRequest request,
-            Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> handler,
+        private async IAsyncEnumerable<AgentModelUpdate> RetryAsync(
+            AgentModelTurnRequest request,
+            Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
         {
-            List<ChatResponseUpdate>? bufferedUpdates = null;
+            List<AgentModelUpdate>? bufferedUpdates = null;
 
             for (int attempt = 0; attempt < _maxRetries; attempt++)
             {
-                var updates = new List<ChatResponseUpdate>();
+                var updates = new List<AgentModelUpdate>();
 
                 try
                 {
@@ -402,7 +402,7 @@ public class PipelineV2Tests
             0);
     }
 
-    private static ModelRequest CreateModelRequest()
+    private static AgentModelTurnRequest CreateAgentModelTurnRequest()
     {
         var state = AgentLoopState.InitialSafe(
             new List<ChatMessage>(),
@@ -410,9 +410,10 @@ public class PipelineV2Tests
             "conv123",
             "TestAgent");
 
-        return new ModelRequest
+        return new AgentModelTurnRequest
         {
-            Model = new TestChatClient(),
+            Transport = AgentModelTransport.Chat,
+            ChatModel = new TestChatClient(),
             Messages = new List<ChatMessage>(),
             Options = new ChatOptions(),
             State = state,

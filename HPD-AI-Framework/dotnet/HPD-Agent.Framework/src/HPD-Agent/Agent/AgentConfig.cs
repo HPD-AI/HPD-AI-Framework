@@ -2,6 +2,8 @@ using System;
 using System.Text.Json.Nodes;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using HPD.Agent.Audio.Output;
+using HPD.Agent.Audio.Policies;
 using Microsoft.Extensions.AI;
 using HPD.Agent;
 
@@ -1598,18 +1600,52 @@ public class BackgroundResponsesConfig
 }
 
 /// <summary>
-/// Lightweight proxy for HPD.Agent.Audio.AudioConfig to avoid circular dependency.
-/// This class lives in the core HPD-Agent package and is used by AgentConfig.
-/// The actual AudioConfig with full V3 role-based architecture (TtsConfig, SttConfig, VadConfig)
-/// lives in HPD-Agent.Audio package and is referenced by the audio middleware.
-///
-/// Module initializers in audio provider packages (HPD-Agent.AudioProviders.*)
-/// register provider factories with the unified ProviderDiscovery registry.
+/// Serializable agent-level defaults for HPD-owned audio behavior.
 /// </summary>
-public class AudioConfig
+public sealed class AudioConfig
 {
-    // This is intentionally minimal - just enough for serialization/FFI
-    // The HPD.Agent.Audio.AudioConfig class contains the full V3 implementation
+    public bool Enabled { get; set; } = true;
+
+    public AudioInputMode InputMode { get; set; } = AudioInputMode.Auto;
+
+    public AudioOutputMode OutputMode { get; set; } = AudioOutputMode.Auto;
+
+    public AudioPolicySet? Policy { get; set; }
+
+    public AssistantOutputSynthesisMode AssistantOutputMode { get; set; } =
+        AssistantOutputSynthesisMode.Disabled;
+
+    public TextToSpeechPacingOptions? Pacing { get; set; }
+
+    public ProgressiveTextToSpeechRouteMode ProgressiveRouteMode { get; set; } =
+        ProgressiveTextToSpeechRouteMode.Auto;
+
+    public PushTextInputAggregationMode PushTextAggregationMode { get; set; } =
+        PushTextInputAggregationMode.ProviderDefault;
+
+    public AssistantAudioArtifactCapturePolicy ArtifactCapturePolicy { get; set; } =
+        AssistantAudioArtifactCapturePolicy.ContentStoreArtifact;
+
+    public bool EnablePlayback { get; set; }
+}
+
+public enum AudioInputMode
+{
+    Auto = 0,
+    None = 1,
+    BatchSpeechToText = 2,
+    ProviderRealtime = 3,
+    ReferenceOnly = 4,
+    Reject = 5
+}
+
+public enum AudioOutputMode
+{
+    Auto = 0,
+    None = 1,
+    TextOnly = 2,
+    TextToSpeech = 3,
+    ProviderRealtimeAudio = 4
 }
 
 #endregion

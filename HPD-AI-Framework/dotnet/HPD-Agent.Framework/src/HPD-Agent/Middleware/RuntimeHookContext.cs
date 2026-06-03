@@ -33,7 +33,7 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
     public string AgentName { get; }
     public AgentConfig Config { get; }
     public AgentRunConfig? RunConfig { get; }
-    internal AgentClientSet? ClientSet { get; }
+    public AgentClientSet? ClientSet { get; }
     public IServiceProvider? Services { get; }
     public IEventCoordinator EventCoordinator { get; }
     public IEventFlowRegistry EventFlows => EventCoordinator.EventFlows;
@@ -361,7 +361,7 @@ public abstract class RuntimeHookContext
     public string AgentName => Base.AgentName;
     public AgentConfig Config => Base.Config;
     public AgentRunConfig? RunConfig => Base.RunConfig;
-    internal AgentClientSet? ClientSet => Base.ClientSet;
+    public AgentClientSet? ClientSet => Base.ClientSet;
     public IServiceProvider? Services => Base.Services;
     public IEventCoordinator EventCoordinator => Base.EventCoordinator;
     public IEventFlowRegistry EventFlows => Base.EventFlows;

@@ -64,7 +64,7 @@ internal class MistralProvider : IChatClientProvider
 
         // Create Mistral client
         var client = new MistralClient(apiKey);
-        IChatClient chatClient = client.Completions;
+        IChatClient chatClient = new MistralConfiguredChatClient(client.Completions, modelName);
 
         // Apply client factory middleware if provided
         return chatClient;
@@ -156,5 +156,69 @@ internal class MistralProvider : IChatClientProvider
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
+    }
+
+    private sealed class MistralConfiguredChatClient : IChatClient
+    {
+        private readonly IChatClient _innerClient;
+        private readonly string _modelName;
+        private ChatClientMetadata? _metadata;
+
+        public MistralConfiguredChatClient(IChatClient innerClient, string modelName)
+        {
+            _innerClient = innerClient ?? throw new ArgumentNullException(nameof(innerClient));
+            _modelName = modelName ?? throw new ArgumentNullException(nameof(modelName));
+        }
+
+        public ChatClientMetadata Metadata =>
+            _metadata ??= new ChatClientMetadata("mistral", defaultModelId: _modelName);
+
+        public void Dispose() => _innerClient.Dispose();
+
+        public object? GetService(Type serviceType, object? serviceKey = null)
+        {
+            if (serviceType == typeof(ChatClientMetadata))
+                return Metadata;
+
+            return _innerClient.GetService(serviceType, serviceKey);
+        }
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+            => _innerClient.GetResponseAsync(messages, ApplyDefaultModel(options), cancellationToken);
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+            => _innerClient.GetStreamingResponseAsync(messages, ApplyDefaultModel(options), cancellationToken);
+
+        private ChatOptions ApplyDefaultModel(ChatOptions? options)
+        {
+            if (options?.ModelId is { Length: > 0 })
+                return options;
+
+            if (options is null)
+                return new ChatOptions { ModelId = _modelName };
+
+            return new ChatOptions
+            {
+                ModelId = _modelName,
+                Tools = options.Tools,
+                MaxOutputTokens = options.MaxOutputTokens,
+                Temperature = options.Temperature,
+                TopP = options.TopP,
+                TopK = options.TopK,
+                FrequencyPenalty = options.FrequencyPenalty,
+                PresencePenalty = options.PresencePenalty,
+                StopSequences = options.StopSequences,
+                ResponseFormat = options.ResponseFormat,
+                Seed = options.Seed,
+                ToolMode = options.ToolMode,
+                AdditionalProperties = options.AdditionalProperties,
+            };
+        }
     }
 }

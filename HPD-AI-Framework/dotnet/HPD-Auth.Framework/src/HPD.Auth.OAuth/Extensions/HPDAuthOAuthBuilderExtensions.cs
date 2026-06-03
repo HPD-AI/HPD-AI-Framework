@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Authentication.MicrosoftAccount;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using System.Text.Encodings.Web;
 
 namespace HPD.Auth.OAuth.Extensions;
 
@@ -84,6 +86,8 @@ public static class HPDAuthOAuthBuilderExtensions
         var options  = builder.Options;
 
         // ── 1. Register scoped services ───────────────────────────────────────
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton(UrlEncoder.Default);
         services.AddScoped<ExternalLoginHandler>();
         services.AddScoped<ExternalProviderService>();
 

@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using HPD.Agent.Audio.Output;
+using HPD.Agent.Audio.Policies;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 using EventChannel = HPD.Events.EventChannel;
@@ -44,6 +46,28 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(BranchMiddlewareStateCommittedEvent))]
 [JsonSerializable(typeof(BranchHistoryCompactedEvent))]
 [JsonSerializable(typeof(AgentRunConfig))]
+[JsonSerializable(typeof(AudioRunConfig))]
+[JsonSerializable(typeof(AudioConfig))]
+[JsonSerializable(typeof(AudioInputMode))]
+[JsonSerializable(typeof(AudioOutputMode))]
+[JsonSerializable(typeof(AudioPolicySet))]
+[JsonSerializable(typeof(InputMediaPolicy))]
+[JsonSerializable(typeof(InputMediaHandlingMode))]
+[JsonSerializable(typeof(InputMediaDisposition))]
+[JsonSerializable(typeof(TraceCapturePolicy))]
+[JsonSerializable(typeof(PrivacyPolicy))]
+[JsonSerializable(typeof(BranchProjectionPolicy))]
+[JsonSerializable(typeof(AssistantOutputSynthesisMode))]
+[JsonSerializable(typeof(AssistantAudioArtifactCapturePolicy))]
+[JsonSerializable(typeof(TextToSpeechPacingOptions))]
+[JsonSerializable(typeof(TextToSpeechFirstSegmentOptions))]
+[JsonSerializable(typeof(TextToSpeechContinuationOptions))]
+[JsonSerializable(typeof(TextToSpeechBoundaryOptions))]
+[JsonSerializable(typeof(TextToSpeechFilteringOptions))]
+[JsonSerializable(typeof(TextToSpeechPacingMode))]
+[JsonSerializable(typeof(TextToSpeechEmojiPolicy))]
+[JsonSerializable(typeof(ProgressiveTextToSpeechRouteMode))]
+[JsonSerializable(typeof(PushTextInputAggregationMode))]
 [JsonSerializable(typeof(ChatRunConfig))]
 [JsonSerializable(typeof(ReasoningOptions))]
 [JsonSerializable(typeof(ChatMessage), TypeInfoPropertyName = "MicrosoftExtensionsAiChatMessage")]
@@ -88,6 +112,9 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(TextMessageStartEvent))]
 [JsonSerializable(typeof(TextDeltaEvent))]
 [JsonSerializable(typeof(TextMessageEndEvent))]
+[JsonSerializable(typeof(UserAudioTranscriptDeltaEvent))]
+[JsonSerializable(typeof(UserAudioTranscriptCompletedEvent))]
+[JsonSerializable(typeof(UserAudioTranscriptFailedEvent))]
 
 // Reasoning Events
 [JsonSerializable(typeof(ReasoningMessageStartEvent))]

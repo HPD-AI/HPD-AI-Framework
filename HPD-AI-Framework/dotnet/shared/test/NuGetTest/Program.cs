@@ -22,8 +22,8 @@ try
         .WithProvider("openrouter", "minimax/minimax-m2.1")  // Using mini for cost efficiency
         .WithName("TestAssistant")
         .WithInstructions("You are a helpful assistant. Keep your responses concise and friendly.")
-        .WithEventSubscription(coordinator => coordinator.Subscribe<AgentEvent>(consoleEvents.HandleAsync))
         .BuildAsync();
+    using var subscription = agent.SubscribeAny(consoleEvents.HandleAsync);
 
     Console.WriteLine(" Agent created successfully!");
     Console.WriteLine("📝 Asking: 'What is 2 + 2? Explain briefly.'");
@@ -32,11 +32,7 @@ try
     Console.WriteLine();
 
     // Run the agent with a simple question
-    await foreach (var evt in agent.RunAsync("What is 2 + 2? Explain briefly."))
-    {
-        // Events are handled by our event handler
-        // This loop just drives the agent execution
-    }
+    await agent.RunAsync("What is 2 + 2? Explain briefly.");
 
     Console.WriteLine();
     Console.WriteLine("═══════════════════════════════════════════");

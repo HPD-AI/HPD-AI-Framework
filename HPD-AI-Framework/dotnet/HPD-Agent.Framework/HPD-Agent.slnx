@@ -39,10 +39,13 @@
     <Project Path="src/HPD-Agent.Bots/HPD-Agent.Bots.SourceGenerator/HPD-Agent.Bots.SourceGenerator.csproj" />
   </Folder>
   <Folder Name="/Audio/">
-    <Project Path="src/HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
-    <Project Path="src/HPD-Agent.Audio/HPD-Agent.AudioProviders.OpenAI/HPD-Agent.AudioProviders.OpenAI.csproj" />
-    <Project Path="src/HPD-Agent.Audio/HPD-Agent.AudioProviders.ElevenLabs/HPD-Agent.AudioProviders.ElevenLabs.csproj" />
-    <Project Path="src/HPD-Agent.Audio/HPD-Agent.AudioProviders.Silero/HPD-Agent.AudioProviders.Silero.csproj" />
+    <Project Path="src/HPD-Agent.Audio/HPD.Agent.Audio.Abstractions/HPD.Agent.Audio.Abstractions.csproj" />
+    <Project Path="src/HPD-Agent.Audio/HPD.Agent.Audio.Runtime/HPD.Agent.Audio.Runtime.csproj" />
+    <Project Path="src/HPD-Agent.Audio/HPD.Agent.Audio.AgentIntegration/HPD.Agent.Audio.AgentIntegration.csproj" />
+    <Project Path="src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.OpenAI/HPD-Agent.Providers.Audio.OpenAI.csproj" />
+    <Project Path="src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.ElevenLabs/HPD-Agent.Providers.Audio.ElevenLabs.csproj" />
+    <Project Path="src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero/HPD-Agent.Providers.Audio.Silero.csproj" />
+    <Project Path="src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Meai/HPD-Agent.Providers.Audio.Meai.csproj" />
   </Folder>
   <Folder Name="/Harneses/">
     <Project Path="src/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/HPD-Agent.Harness.FileSystem.csproj" />
@@ -74,11 +77,12 @@
     <Project Path="test/HPD-Agent.Providers.Tests/HPD-Agent.Providers.Tests.csproj" />
     <Project Path="test/HPD-Agent.Hosting.Tests/HPD-Agent.Hosting.Tests.csproj" />
     <Project Path="test/HPD-Agent.Bots.Tests/HPD-Agent.Bots.Tests.csproj" />
+    <Project Path="test/HPD.Agent.Audio.V2.Tests/HPD.Agent.Audio.V2.Tests.csproj" />
     <Project Path="test/HPD-Execution/HPD-Execution.AppleVirtualization.Tests/HPD-Execution.AppleVirtualization.Tests.csproj" />
     <Project Path="test/HPD-Execution/HPD-Execution.Local.Tests/HPD-Execution.Local.Tests.csproj" />
-    <Project Path="test/HPD-Agent.Audio.Tests/HPD-Agent.Audio.Tests.csproj" />
     <Project Path="test/HPD-Agent.Harness.Coding.Tests/HPD-Agent.Harness.Coding.Tests.csproj" />
     <Project Path="test/HPD-Agent.DevApp/HPD-Agent.DevApp.csproj" />
     <Project Path="test/HPD-Agent.CodingCli/HPD-Agent.CodingCli.csproj" />
+    <Project Path="test/HPD-Agent.AudioCli/HPD-Agent.AudioCli.csproj" />
   </Folder>
 </Solution>

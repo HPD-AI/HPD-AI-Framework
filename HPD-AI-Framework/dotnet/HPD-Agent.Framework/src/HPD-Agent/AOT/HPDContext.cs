@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent;
+using HPD.Agent.Audio.Output;
+using HPD.Agent.Audio.Policies;
 using HPD.Agent.ClientTools;
 using HPD.Agent.Middleware;
 using HPD.Agent.Planning;
@@ -53,6 +55,27 @@ using System.Collections.Immutable;
 // --- Agent configuration types ---
 [JsonSerializable(typeof(StoredAgent))]
 [JsonSerializable(typeof(AgentConfig))]
+[JsonSerializable(typeof(AudioConfig))]
+[JsonSerializable(typeof(AudioInputMode))]
+[JsonSerializable(typeof(AudioOutputMode))]
+[JsonSerializable(typeof(AudioPolicySet))]
+[JsonSerializable(typeof(InputMediaPolicy))]
+[JsonSerializable(typeof(InputMediaHandlingMode))]
+[JsonSerializable(typeof(InputMediaDisposition))]
+[JsonSerializable(typeof(TraceCapturePolicy))]
+[JsonSerializable(typeof(PrivacyPolicy))]
+[JsonSerializable(typeof(BranchProjectionPolicy))]
+[JsonSerializable(typeof(AssistantOutputSynthesisMode))]
+[JsonSerializable(typeof(AssistantAudioArtifactCapturePolicy))]
+[JsonSerializable(typeof(TextToSpeechPacingOptions))]
+[JsonSerializable(typeof(TextToSpeechFirstSegmentOptions))]
+[JsonSerializable(typeof(TextToSpeechContinuationOptions))]
+[JsonSerializable(typeof(TextToSpeechBoundaryOptions))]
+[JsonSerializable(typeof(TextToSpeechFilteringOptions))]
+[JsonSerializable(typeof(TextToSpeechPacingMode))]
+[JsonSerializable(typeof(TextToSpeechEmojiPolicy))]
+[JsonSerializable(typeof(ProgressiveTextToSpeechRouteMode))]
+[JsonSerializable(typeof(PushTextInputAggregationMode))]
 [JsonSerializable(typeof(AgentClientConfig))]
 [JsonSerializable(typeof(ClientProviderConfig))]
 [JsonSerializable(typeof(string))]
@@ -70,6 +93,7 @@ using System.Collections.Immutable;
 
 // --- Per-invocation run options (AgentRunConfig) ---
 [JsonSerializable(typeof(AgentRunConfig))]
+[JsonSerializable(typeof(AudioRunConfig))]
 [JsonSerializable(typeof(ChatRunConfig))]
 [JsonSerializable(typeof(Dictionary<string, bool>))]  // For PermissionOverrides
 

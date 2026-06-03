@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
 using HPD.Agent;
+using HPD.Agent.Audio.Output;
+using HPD.Agent.Audio.Policies;
 using HPD.Agent.FFI;
 using HPD.Agent.MCP;
 using HPD.Agent.Middleware;
@@ -54,6 +56,27 @@ namespace HPD.Agent.FFI;
 
 // --- Agent configuration types ---
 [JsonSerializable(typeof(AgentConfig))]
+[JsonSerializable(typeof(AudioConfig))]
+[JsonSerializable(typeof(AudioInputMode))]
+[JsonSerializable(typeof(AudioOutputMode))]
+[JsonSerializable(typeof(AudioPolicySet))]
+[JsonSerializable(typeof(InputMediaPolicy))]
+[JsonSerializable(typeof(InputMediaHandlingMode))]
+[JsonSerializable(typeof(InputMediaDisposition))]
+[JsonSerializable(typeof(TraceCapturePolicy))]
+[JsonSerializable(typeof(PrivacyPolicy))]
+[JsonSerializable(typeof(BranchProjectionPolicy))]
+[JsonSerializable(typeof(AssistantOutputSynthesisMode))]
+[JsonSerializable(typeof(AssistantAudioArtifactCapturePolicy))]
+[JsonSerializable(typeof(TextToSpeechPacingOptions))]
+[JsonSerializable(typeof(TextToSpeechFirstSegmentOptions))]
+[JsonSerializable(typeof(TextToSpeechContinuationOptions))]
+[JsonSerializable(typeof(TextToSpeechBoundaryOptions))]
+[JsonSerializable(typeof(TextToSpeechFilteringOptions))]
+[JsonSerializable(typeof(TextToSpeechPacingMode))]
+[JsonSerializable(typeof(TextToSpeechEmojiPolicy))]
+[JsonSerializable(typeof(ProgressiveTextToSpeechRouteMode))]
+[JsonSerializable(typeof(PushTextInputAggregationMode))]
 [JsonSerializable(typeof(ClientProviderConfig))]
 [JsonSerializable(typeof(AgentClientConfig))]
 [JsonSerializable(typeof(McpConfig))]
@@ -79,6 +102,8 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(IncludeMessageTurnBoundaryOptions))]
 [JsonSerializable(typeof(IncludeToolCallGroupBoundaryOptions))]
 [JsonSerializable(typeof(CompositeCompactionBoundaryOptions))]
+[JsonSerializable(typeof(AgentRunConfig))]
+[JsonSerializable(typeof(AudioRunConfig))]
 
 // --- Plan Mode types (from HPD.Agent.Planning) ---
 [JsonSerializable(typeof(PlanModeConfig))]

@@ -7,20 +7,11 @@ namespace HPD.Agent;
 ///
 /// For all other tools, use the generated ToolRegistry.All catalog via WithTools&lt;T&gt;().
 /// </summary>
+/// <param name="Instance">The tool instance, pre-created and typically via DI.</param>
+/// <param name="ToolTypeName">The tool type name for lookup in generated registration classes.</param>
+/// <param name="FunctionFilter">Optional function filter. If set, only these functions will be included.</param>
 public record ToolInstanceRegistration(
-    /// <summary>
-    /// The tool instance (pre-created, typically via DI)
-    /// </summary>
     object Instance,
-
-    /// <summary>
-    /// The tool type name (for lookup in generated Registration classes)
-    /// </summary>
     string ToolTypeName,
-
-    /// <summary>
-    /// Optional function filter - if set, only these functions will be included.
-    /// Phase 4.5: Used for selective function registration from skills.
-    /// </summary>
     string[]? FunctionFilter = null
 );

@@ -445,7 +445,7 @@ public class FunctionRetryMiddlewareTests
     #region Model Call Retry Tests
 
     [Fact]
-    public async Task WrapModelCallStreamingAsync_SuccessOnFirstAttempt_NoRetry()
+    public async Task WrapModelTurnStreamingAsync_SuccessOnFirstAttempt_NoRetry()
     {
         // Arrange
         var config = new ErrorHandlingConfig
@@ -454,23 +454,28 @@ public class FunctionRetryMiddlewareTests
         };
         var middleware = new RetryMiddleware(config);
         var mockClient = new FakeChatClient();
-        var request = CreateModelRequest(mockClient);
+        var request = CreateAgentModelTurnRequest(mockClient);
 
         int attempts = 0;
-        async IAsyncEnumerable<ChatResponseUpdate> Handler(ModelRequest req)
+        async IAsyncEnumerable<AgentModelUpdate> Handler(AgentModelTurnRequest req)
         {
             attempts++;
-            yield return new ChatResponseUpdate
+            yield return ChatUpdate("Success");
+        }
+
+        static AgentModelUpdate ChatUpdate(string text)
+        {
+            return new AgentChatModelUpdate(new ChatResponseUpdate
             {
-                Contents = new List<AIContent> { new TextContent("Success") }
-            };
+                Contents = new List<AIContent> { new TextContent(text) }
+            });
         }
 
         // Act
         var updates = new List<ChatResponseUpdate>();
-        await foreach (var update in middleware.WrapModelCallStreamingAsync(request, Handler, CancellationToken.None)!)
+        await foreach (var update in middleware.WrapModelTurnStreamingAsync(request, Handler, CancellationToken.None)!)
         {
-            updates.Add(update);
+            updates.Add(update.ChatUpdate!);
         }
 
         // Assert
@@ -480,7 +485,7 @@ public class FunctionRetryMiddlewareTests
     }
 
     [Fact]
-    public async Task WrapModelCallStreamingAsync_FailsOnce_RetriesSuccessfully()
+    public async Task WrapModelTurnStreamingAsync_FailsOnce_RetriesSuccessfully()
     {
         // Arrange
         var config = new ErrorHandlingConfig
@@ -490,26 +495,31 @@ public class FunctionRetryMiddlewareTests
         };
         var middleware = new RetryMiddleware(config);
         var mockClient = new FakeChatClient();
-        var request = CreateModelRequest(mockClient);
+        var request = CreateAgentModelTurnRequest(mockClient);
 
         int attempts = 0;
-        async IAsyncEnumerable<ChatResponseUpdate> Handler(ModelRequest req)
+        async IAsyncEnumerable<AgentModelUpdate> Handler(AgentModelTurnRequest req)
         {
             attempts++;
             if (attempts == 1)
                 throw new InvalidOperationException("Transient error");
 
-            yield return new ChatResponseUpdate
+            yield return ChatUpdate("Success");
+        }
+
+        static AgentModelUpdate ChatUpdate(string text)
+        {
+            return new AgentChatModelUpdate(new ChatResponseUpdate
             {
-                Contents = new List<AIContent> { new TextContent("Success") }
-            };
+                Contents = new List<AIContent> { new TextContent(text) }
+            });
         }
 
         // Act
         var updates = new List<ChatResponseUpdate>();
-        await foreach (var update in middleware.WrapModelCallStreamingAsync(request, Handler, CancellationToken.None)!)
+        await foreach (var update in middleware.WrapModelTurnStreamingAsync(request, Handler, CancellationToken.None)!)
         {
-            updates.Add(update);
+            updates.Add(update.ChatUpdate!);
         }
 
         // Assert
@@ -519,7 +529,7 @@ public class FunctionRetryMiddlewareTests
     }
 
     [Fact]
-    public async Task WrapModelCallStreamingAsync_ClientError_DoesNotRetry()
+    public async Task WrapModelTurnStreamingAsync_ClientError_DoesNotRetry()
     {
         // Arrange
         var providerHandler = new TestProviderErrorHandler
@@ -537,10 +547,10 @@ public class FunctionRetryMiddlewareTests
         };
         var middleware = new RetryMiddleware(config, providerHandler);
         var mockClient = new FakeChatClient();
-        var request = CreateModelRequest(mockClient);
+        var request = CreateAgentModelTurnRequest(mockClient);
 
         int attempts = 0;
-        async IAsyncEnumerable<ChatResponseUpdate> Handler(ModelRequest req)
+        async IAsyncEnumerable<AgentModelUpdate> Handler(AgentModelTurnRequest req)
         {
             attempts++;
             throw new InvalidOperationException("Client error");
@@ -550,7 +560,7 @@ public class FunctionRetryMiddlewareTests
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
-            await foreach (var update in middleware.WrapModelCallStreamingAsync(request, Handler, CancellationToken.None)!)
+            await foreach (var update in middleware.WrapModelTurnStreamingAsync(request, Handler, CancellationToken.None)!)
             {
                 // Should never reach here
             }
@@ -560,7 +570,7 @@ public class FunctionRetryMiddlewareTests
     }
 
     [Fact]
-    public async Task WrapModelCallStreamingAsync_RateLimitError_RespectsRetryAfter()
+    public async Task WrapModelTurnStreamingAsync_RateLimitError_RespectsRetryAfter()
     {
         // Arrange
         var providerHandler = new TestProviderErrorHandler
@@ -579,27 +589,32 @@ public class FunctionRetryMiddlewareTests
         };
         var middleware = new RetryMiddleware(config, providerHandler);
         var mockClient = new FakeChatClient();
-        var request = CreateModelRequest(mockClient);
+        var request = CreateAgentModelTurnRequest(mockClient);
 
         int attempts = 0;
         var startTime = DateTime.UtcNow;
-        async IAsyncEnumerable<ChatResponseUpdate> Handler(ModelRequest req)
+        async IAsyncEnumerable<AgentModelUpdate> Handler(AgentModelTurnRequest req)
         {
             attempts++;
             if (attempts == 1)
                 throw new InvalidOperationException("Rate limit");
 
-            yield return new ChatResponseUpdate
+            yield return ChatUpdate("Success");
+        }
+
+        static AgentModelUpdate ChatUpdate(string text)
+        {
+            return new AgentChatModelUpdate(new ChatResponseUpdate
             {
-                Contents = new List<AIContent> { new TextContent("Success") }
-            };
+                Contents = new List<AIContent> { new TextContent(text) }
+            });
         }
 
         // Act
         var updates = new List<ChatResponseUpdate>();
-        await foreach (var update in middleware.WrapModelCallStreamingAsync(request, Handler, CancellationToken.None)!)
+        await foreach (var update in middleware.WrapModelTurnStreamingAsync(request, Handler, CancellationToken.None)!)
         {
-            updates.Add(update);
+            updates.Add(update.ChatUpdate!);
         }
         var elapsed = DateTime.UtcNow - startTime;
 
@@ -610,7 +625,7 @@ public class FunctionRetryMiddlewareTests
     }
 
     [Fact]
-    public async Task WrapModelCallStreamingAsync_FailsDuringStreaming_Retries()
+    public async Task WrapModelTurnStreamingAsync_FailsDuringStreaming_Retries()
     {
         // Arrange
         var config = new ErrorHandlingConfig
@@ -620,33 +635,35 @@ public class FunctionRetryMiddlewareTests
         };
         var middleware = new RetryMiddleware(config);
         var mockClient = new FakeChatClient();
-        var request = CreateModelRequest(mockClient);
+        var request = CreateAgentModelTurnRequest(mockClient);
 
         int attempts = 0;
-        async IAsyncEnumerable<ChatResponseUpdate> Handler(ModelRequest req)
+        async IAsyncEnumerable<AgentModelUpdate> Handler(AgentModelTurnRequest req)
         {
             attempts++;
             if (attempts == 1)
             {
                 // Fail during streaming
-                yield return new ChatResponseUpdate
-                {
-                    Contents = new List<AIContent> { new TextContent("Partial") }
-                };
+                yield return ChatUpdate("Partial");
                 throw new InvalidOperationException("Streaming error");
             }
 
-            yield return new ChatResponseUpdate
+            yield return ChatUpdate("Success");
+        }
+
+        static AgentModelUpdate ChatUpdate(string text)
+        {
+            return new AgentChatModelUpdate(new ChatResponseUpdate
             {
-                Contents = new List<AIContent> { new TextContent("Success") }
-            };
+                Contents = new List<AIContent> { new TextContent(text) }
+            });
         }
 
         // Act
         var updates = new List<ChatResponseUpdate>();
-        await foreach (var update in middleware.WrapModelCallStreamingAsync(request, Handler, CancellationToken.None)!)
+        await foreach (var update in middleware.WrapModelTurnStreamingAsync(request, Handler, CancellationToken.None)!)
         {
-            updates.Add(update);
+            updates.Add(update.ChatUpdate!);
         }
 
         // Assert
@@ -660,7 +677,7 @@ public class FunctionRetryMiddlewareTests
     }
 
     [Fact]
-    public async Task WrapModelCallStreamingAsync_ExhaustsRetries_ThrowsException()
+    public async Task WrapModelTurnStreamingAsync_ExhaustsRetries_ThrowsException()
     {
         // Arrange
         var config = new ErrorHandlingConfig
@@ -670,10 +687,10 @@ public class FunctionRetryMiddlewareTests
         };
         var middleware = new RetryMiddleware(config);
         var mockClient = new FakeChatClient();
-        var request = CreateModelRequest(mockClient);
+        var request = CreateAgentModelTurnRequest(mockClient);
 
         int attempts = 0;
-        async IAsyncEnumerable<ChatResponseUpdate> Handler(ModelRequest req)
+        async IAsyncEnumerable<AgentModelUpdate> Handler(AgentModelTurnRequest req)
         {
             attempts++;
             throw new InvalidOperationException($"Persistent error (attempt {attempts})");
@@ -683,7 +700,7 @@ public class FunctionRetryMiddlewareTests
         // Act & Assert
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
-            await foreach (var update in middleware.WrapModelCallStreamingAsync(request, Handler, CancellationToken.None)!)
+            await foreach (var update in middleware.WrapModelTurnStreamingAsync(request, Handler, CancellationToken.None)!)
             {
                 // Should never reach here
             }
@@ -774,7 +791,7 @@ public class FunctionRetryMiddlewareTests
         return agentContext.AsAfterMessageTurn(finalResponse, turnHistory, new AgentRunConfig());
     }
 
-    private static ModelRequest CreateModelRequest(IChatClient? client = null)
+    private static AgentModelTurnRequest CreateAgentModelTurnRequest(IChatClient? client = null)
     {
         client ??= new FakeChatClient();
         var messages = new List<ChatMessage> { new ChatMessage(ChatRole.User, "Test") };
@@ -785,9 +802,10 @@ public class FunctionRetryMiddlewareTests
             conversationId: "test-conversation",
             agentName: "TestAgent");
 
-        return new ModelRequest
+        return new AgentModelTurnRequest
         {
-            Model = client,
+            Transport = AgentModelTransport.Chat,
+            ChatModel = client,
             Messages = messages,
             Options = options,
             State = state,

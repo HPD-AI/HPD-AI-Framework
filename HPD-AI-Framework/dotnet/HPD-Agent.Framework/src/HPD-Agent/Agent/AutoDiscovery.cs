@@ -7,8 +7,8 @@ namespace HPD.Agent;
 /// <summary>
 /// Auto-discovers and loads HPD-Agent extension libraries and provider assemblies.
 /// This ModuleInitializer runs automatically in both JIT and AOT scenarios.
-/// Loads: HPD-Agent.Audio, HPD-Agent.MCP, HPD-Agent.Harness.*, and provider packages
-/// (HPD-Agent.Providers.* and HPD-Agent.AudioProviders.*).
+/// Loads: HPD-Agent.MCP, HPD-Agent.Harness.*, and provider packages
+/// (HPD-Agent.Providers.* and HPD.Agent.Providers.Audio.*).
 /// </summary>
 internal static class AutoDiscovery
 {
@@ -54,9 +54,9 @@ internal static class AutoDiscovery
         // If the app doesn't reference a library, the weak reference will fail gracefully
 
         // 1. Initialize extension libraries (which may auto-discover their own providers)
-        TryInitializeByTypeName("HPD.Agent.Audio.AudioProviderAutoDiscovery, HPD-Agent.Audio");
         TryInitializeByTypeName("HPD.Agent.MCP.MCPAutoDiscovery, HPD-Agent.MCP");
         TryInitializeByTypeName("HPD.Agent.OpenApi.OpenApiAutoDiscovery, HPD-Agent.OpenApi");
+        TryInitializeByTypeName("HPD.Agent.Audio.AgentIntegration.AudioAgentFeatureActivator, HPD.Agent.Audio.AgentIntegration");
 
         // 2. Initialize provider packages
         TryInitializeByTypeName("HPD.Agent.Providers.OpenAI.OpenAIProviderModule, HPD-Agent.Providers.OpenAI");
@@ -69,17 +69,16 @@ internal static class AutoDiscovery
         TryInitializeByTypeName("HPD.Agent.Providers.HuggingFace.HuggingFaceProviderModule, HPD-Agent.Providers.HuggingFace");
         TryInitializeByTypeName("HPD.Agent.Providers.OnnxRuntime.OnnxRuntimeProviderModule, HPD-Agent.Providers.OnnxRuntime");
         TryInitializeByTypeName("HPD.Agent.Providers.OpenRouter.OpenRouterProviderModule, HPD-Agent.Providers.OpenRouter");
-        TryInitializeByTypeName("HPD.Agent.AudioProviders.OpenAI.OpenAIAudioProviderModule, HPD-Agent.AudioProviders.OpenAI");
-        TryInitializeByTypeName("HPD.Agent.AudioProviders.ElevenLabs.ElevenLabsProviderModule, HPD-Agent.AudioProviders.ElevenLabs");
-        TryInitializeByTypeName("HPD.Agent.AudioProviders.Silero.SileroVadProviderModule, HPD-Agent.AudioProviders.Silero");
+        TryInitializeByTypeName("HPD.Agent.Providers.Audio.OpenAI.OpenAIAudioProviderModule, HPD.Agent.Providers.Audio.OpenAI");
+        TryInitializeByTypeName("HPD.Agent.Providers.Audio.ElevenLabs.ElevenLabsAudioProviderModule, HPD.Agent.Providers.Audio.ElevenLabs");
     }
 
     /// <summary>
     /// Attempts to load and initialize an extension or provider module by assembly-qualified type name.
     /// </summary>
-    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Audio.AudioProviderAutoDiscovery", "HPD-Agent.Audio")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.MCP.MCPAutoDiscovery", "HPD-Agent.MCP")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.OpenApi.OpenApiAutoDiscovery", "HPD-Agent.OpenApi")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Audio.AgentIntegration.AudioAgentFeatureActivator", "HPD.Agent.Audio.AgentIntegration")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.OpenAI.OpenAIProviderModule", "HPD-Agent.Providers.OpenAI")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Anthropic.AnthropicProviderModule", "HPD-Agent.Providers.Anthropic")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.GoogleAI.GoogleAIProviderModule", "HPD-Agent.Providers.GoogleAI")]
@@ -90,9 +89,8 @@ internal static class AutoDiscovery
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.HuggingFace.HuggingFaceProviderModule", "HPD-Agent.Providers.HuggingFace")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.OnnxRuntime.OnnxRuntimeProviderModule", "HPD-Agent.Providers.OnnxRuntime")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.OpenRouter.OpenRouterProviderModule", "HPD-Agent.Providers.OpenRouter")]
-    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.AudioProviders.OpenAI.OpenAIAudioProviderModule", "HPD-Agent.AudioProviders.OpenAI")]
-    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.AudioProviders.ElevenLabs.ElevenLabsProviderModule", "HPD-Agent.AudioProviders.ElevenLabs")]
-    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.AudioProviders.Silero.SileroVadProviderModule", "HPD-Agent.AudioProviders.Silero")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Audio.OpenAI.OpenAIAudioProviderModule", "HPD.Agent.Providers.Audio.OpenAI")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Audio.ElevenLabs.ElevenLabsAudioProviderModule", "HPD.Agent.Providers.Audio.ElevenLabs")]
     private static void TryInitializeByTypeName(string assemblyQualifiedTypeName)
     {
         try
@@ -126,9 +124,9 @@ internal static class AutoDiscovery
             directory = Path.GetFullPath(directory);
 
             // 1. Load extension libraries (which may auto-discover their own providers)
-            TryLoadExtensionLibrary(directory, "HPD-Agent.Audio.dll");
             TryLoadExtensionLibrary(directory, "HPD-Agent.MCP.dll");
             TryLoadExtensionLibrary(directory, "HPD-Agent.OpenApi.dll");
+            TryLoadExtensionLibrary(directory, "HPD.Agent.Audio.AgentIntegration.dll");
 
             // 2. Scan for harness assemblies so string-based AgentConfig harnesses can resolve.
             foreach (var harnessFile in Directory.GetFiles(directory, "HPD-Agent.Harness.*.dll"))
@@ -138,7 +136,7 @@ internal static class AutoDiscovery
 
             // 3. Scan for provider assemblies.
             TryLoadProviderAssemblies(directory, "HPD-Agent.Providers.*.dll");
-            TryLoadProviderAssemblies(directory, "HPD-Agent.AudioProviders.*.dll");
+            TryLoadProviderAssemblies(directory, "HPD.Agent.Providers.Audio.*.dll");
         }
         catch
         {

@@ -3,92 +3,6 @@ using Microsoft.Extensions.AI;
 
 namespace HPD.Agent;
 
-internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
-{
-    private readonly string _agentName;
-    private readonly IChatClient? _baseClient;
-    private readonly IServiceProvider? _serviceProvider;
-    private readonly AgentConfig? _config;
-    private readonly MessageProcessor _messageProcessor;
-    private readonly FunctionCallProcessor _functionCallProcessor;
-    private readonly Middleware.AgentRuntimeContext _runtimeContext;
-    private readonly HPD.Events.IEventCoordinator _eventCoordinator;
-
-    public AgentRuntimeFunctionExecutor(
-        string agentName,
-        IChatClient? baseClient,
-        IServiceProvider? serviceProvider,
-        AgentConfig? config,
-        MessageProcessor messageProcessor,
-        FunctionCallProcessor functionCallProcessor,
-        Middleware.AgentRuntimeContext runtimeContext,
-        HPD.Events.IEventCoordinator eventCoordinator)
-    {
-        _agentName = agentName ?? throw new ArgumentNullException(nameof(agentName));
-        _baseClient = baseClient;
-        _serviceProvider = serviceProvider;
-        _config = config;
-        _messageProcessor = messageProcessor ?? throw new ArgumentNullException(nameof(messageProcessor));
-        _functionCallProcessor = functionCallProcessor ?? throw new ArgumentNullException(nameof(functionCallProcessor));
-        _runtimeContext = runtimeContext ?? throw new ArgumentNullException(nameof(runtimeContext));
-        _eventCoordinator = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
-    }
-
-    public async Task<IReadOnlyList<FunctionResultContent>> ExecuteFunctionCallsAsync(
-        IReadOnlyList<FunctionCallContent> functionCalls,
-        AgentRunConfig? runConfig = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(functionCalls);
-
-        var calls = functionCalls
-            .Where(static call => !string.IsNullOrWhiteSpace(call.Name))
-            .ToList();
-        if (calls.Count == 0)
-            return Array.Empty<FunctionResultContent>();
-
-        var effectiveRunConfig = runConfig ?? new AgentRunConfig();
-        var effectiveOptions = effectiveRunConfig.Chat?.MergeWith(_messageProcessor.DefaultOptions)
-            ?? _messageProcessor.DefaultOptions
-            ?? new ChatOptions();
-        var messages = new List<ChatMessage>();
-        var runId = Guid.NewGuid().ToString("N");
-        var state = AgentLoopState.Initial(
-            messages,
-            runId,
-            _runtimeContext.RuntimeId,
-            _agentName);
-
-        var agentContext = new Middleware.AgentContext(
-            agentName: _agentName,
-            conversationId: _runtimeContext.RuntimeId,
-            initialState: state,
-            eventCoordinator: _eventCoordinator,
-            session: null,
-            branch: null,
-            cancellationToken: cancellationToken,
-            parentChatClient: _baseClient,
-            services: _serviceProvider,
-            runtimeCapabilities: _runtimeContext.RuntimeCapabilities,
-            traceId: null,
-            parentAgentStore: _config?.AgentStore,
-            config: _config);
-
-        var result = await _functionCallProcessor.ExecuteToolsAsync(
-            messages,
-            calls,
-            effectiveOptions,
-            state,
-            effectiveRunConfig,
-            agentContext,
-            cancellationToken).ConfigureAwait(false);
-
-        return result.Message.Contents
-            .OfType<FunctionResultContent>()
-            .ToArray();
-    }
-}
-
 internal sealed record FunctionExecutionOutcome(
     string CallId,
     string? FunctionName,
@@ -128,6 +42,7 @@ internal interface IFunctionExecutionCore
         ChatOptions? options,
         AgentRunConfig runConfig,
         AgentContext agentContext,
+        ToolInvocationInfo? invocation,
         CancellationToken cancellationToken);
 }
 
@@ -279,6 +194,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         ChatOptions? options,
         AgentRunConfig runConfig,
         AgentContext agentContext,
+        ToolInvocationInfo? invocation,
         CancellationToken cancellationToken)
     {
         var preparation = await PrepareFunctionAsync(
@@ -286,7 +202,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             options,
             runConfig,
             agentContext,
-            invocation: null,
+            invocation,
             cancellationToken).ConfigureAwait(false);
 
         if (preparation.ImmediateOutcome is { } immediateOutcome)

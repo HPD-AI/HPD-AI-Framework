@@ -167,9 +167,9 @@ public class ErrorFormattingMiddleware : IAgentMiddleware
     /// Wraps model call streaming and formats any errors according to security settings.
     /// Uses Channel-based approach to catch errors during streaming while maintaining progressive streaming.
     /// </summary>
-    public IAsyncEnumerable<ChatResponseUpdate>? WrapModelCallStreamingAsync(
-        ModelRequest request,
-        Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> handler,
+    public IAsyncEnumerable<AgentModelUpdate>? WrapModelTurnStreamingAsync(
+        AgentModelTurnRequest request,
+        Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler,
         CancellationToken cancellationToken)
     {
         return FormatModelCallErrorsAsync(request, handler, cancellationToken);
@@ -179,12 +179,12 @@ public class ErrorFormattingMiddleware : IAgentMiddleware
     /// Internal implementation that catches and formats model call errors during streaming.
     /// Separate method enables yield return outside of try-catch (C# compiler requirement).
     /// </summary>
-    private async IAsyncEnumerable<ChatResponseUpdate> FormatModelCallErrorsAsync(
-        ModelRequest request,
-        Func<ModelRequest, IAsyncEnumerable<ChatResponseUpdate>> handler,
+    private async IAsyncEnumerable<AgentModelUpdate> FormatModelCallErrorsAsync(
+        AgentModelTurnRequest request,
+        Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var channel = Channel.CreateUnbounded<ChatResponseUpdate>();
+        var channel = Channel.CreateUnbounded<AgentModelUpdate>();
         Exception? capturedException = null;
 
         // Producer task: Stream with error capture

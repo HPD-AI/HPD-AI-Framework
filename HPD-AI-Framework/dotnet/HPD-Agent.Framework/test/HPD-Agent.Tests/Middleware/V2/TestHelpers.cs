@@ -199,9 +199,9 @@ public static class MiddlewareTestHelpers
     }
 
     /// <summary>
-    /// Creates a ModelRequest for testing WrapModelCallStreamingAsync.
+    /// Creates a AgentModelTurnRequest for testing WrapModelTurnStreamingAsync.
     /// </summary>
-    public static ModelRequest CreateModelRequest(
+    public static AgentModelTurnRequest CreateAgentModelTurnRequest(
         IChatClient? model = null,
         List<ChatMessage>? messages = null,
         ChatOptions? options = null,
@@ -214,9 +214,10 @@ public static class MiddlewareTestHelpers
             "test-conv",
             "TestAgent");
 
-        return new ModelRequest
+        return new AgentModelTurnRequest
         {
-            Model = model ?? new TestChatClient(),
+            Transport = AgentModelTransport.Chat,
+            ChatModel = model ?? new TestChatClient(),
             Messages = messages ?? new List<ChatMessage>(),
             Options = options ?? new ChatOptions(),
             State = state,

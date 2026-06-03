@@ -1,5 +1,7 @@
 using System.Text.Json;
 using HPD.Agent;
+using HPD.Agent.Audio.Output;
+using HPD.Agent.Audio.Policies;
 using Xunit;
 
 namespace HPD.Agent.Tests.Serialization;
@@ -178,6 +180,154 @@ public class ConfigSerializationTests
         Assert.Equal(2, deserialized.Middlewares.Count);
         Assert.Equal("LoggingMiddleware", deserialized.Middlewares[0].Name);
         Assert.Equal("RetryMiddleware", deserialized.Middlewares[1].Name);
+    }
+
+    [Fact]
+    public void AgentConfig_WithAudio_RoundTripsThroughSourceGeneratedContext()
+    {
+        var config = new AgentConfig
+        {
+            Name = "VoiceAgent",
+            Audio = new AudioConfig
+            {
+                Enabled = true,
+                InputMode = AudioInputMode.BatchSpeechToText,
+                OutputMode = AudioOutputMode.TextToSpeech,
+                AssistantOutputMode = AssistantOutputSynthesisMode.ProgressiveWithFinalFallback,
+                ProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.ForcePushText,
+                PushTextAggregationMode = PushTextInputAggregationMode.Sentence,
+                ArtifactCapturePolicy = AssistantAudioArtifactCapturePolicy.MetadataOnly,
+                EnablePlayback = true,
+                Policy = new AudioPolicySet
+                {
+                    InputMedia = new InputMediaPolicy
+                    {
+                        HandlingMode = InputMediaHandlingMode.TranscribeOnly,
+                        AllowBatchTranscription = true,
+                        RetainInputMediaArtifact = true,
+                        AllowDerivedTextPersistence = false,
+                        AllowDigestCapture = false
+                    },
+                    Trace = new TraceCapturePolicy
+                    {
+                        CaptureTraceRecords = true,
+                        CaptureRawMedia = false,
+                        CaptureProviderPayloads = true
+                    },
+                    Privacy = new PrivacyPolicy
+                    {
+                        RedactRawAudioByDefault = true,
+                        AllowMetadataOnlyReplay = true,
+                        AllowTranscriptReplay = false
+                    },
+                    BranchProjection = new BranchProjectionPolicy
+                    {
+                        ProjectCommittedUserTurns = true,
+                        ProjectCommittedAssistantOutputs = true,
+                        ProjectInputContentMetadata = true,
+                        ProjectRawInputMedia = false
+                    }
+                },
+                Pacing = new TextToSpeechPacingOptions
+                {
+                    Mode = TextToSpeechPacingMode.Phrase,
+                    First = new TextToSpeechFirstSegmentOptions
+                    {
+                        MinCharacters = 12,
+                        MaxCharacters = 80,
+                        EmitFirstSafeSentenceImmediately = false
+                    },
+                    Continuation = new TextToSpeechContinuationOptions
+                    {
+                        MaxCharacters = 160,
+                        PreferSentenceBoundaries = false,
+                        AllowPhraseBoundaries = true,
+                        MaxInFlightSynthesisRequests = 2
+                    },
+                    Filtering = new TextToSpeechFilteringOptions
+                    {
+                        Enabled = true,
+                        RemoveCodeBlocks = false,
+                        EmojiPolicy = TextToSpeechEmojiPolicy.Verbalize
+                    }
+                }
+            }
+        };
+
+        var json = JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
+        var deserialized = JsonSerializer.Deserialize<AgentConfig>(json, HPDJsonContext.Default.AgentConfig);
+
+        Assert.NotNull(deserialized?.Audio);
+        Assert.Equal(AudioInputMode.BatchSpeechToText, deserialized.Audio.InputMode);
+        Assert.Equal(AudioOutputMode.TextToSpeech, deserialized.Audio.OutputMode);
+        Assert.Equal(AssistantOutputSynthesisMode.ProgressiveWithFinalFallback, deserialized.Audio.AssistantOutputMode);
+        Assert.Equal(ProgressiveTextToSpeechRouteMode.ForcePushText, deserialized.Audio.ProgressiveRouteMode);
+        Assert.Equal(PushTextInputAggregationMode.Sentence, deserialized.Audio.PushTextAggregationMode);
+        Assert.Equal(AssistantAudioArtifactCapturePolicy.MetadataOnly, deserialized.Audio.ArtifactCapturePolicy);
+        Assert.True(deserialized.Audio.EnablePlayback);
+        Assert.NotNull(deserialized.Audio.Policy);
+        Assert.Equal(InputMediaHandlingMode.TranscribeOnly, deserialized.Audio.Policy.InputMedia.HandlingMode);
+        Assert.False(deserialized.Audio.Policy.InputMedia.AllowDerivedTextPersistence);
+        Assert.True(deserialized.Audio.Policy.Trace.CaptureProviderPayloads);
+        Assert.False(deserialized.Audio.Policy.Privacy.AllowTranscriptReplay);
+        Assert.NotNull(deserialized.Audio.Pacing);
+        Assert.Equal(TextToSpeechPacingMode.Phrase, deserialized.Audio.Pacing.Mode);
+        Assert.Equal(12, deserialized.Audio.Pacing.First.MinCharacters);
+        Assert.Equal(160, deserialized.Audio.Pacing.Continuation.MaxCharacters);
+        Assert.Equal(TextToSpeechEmojiPolicy.Verbalize, deserialized.Audio.Pacing.Filtering.EmojiPolicy);
+    }
+
+    [Fact]
+    public void AgentRunConfig_WithAudio_RoundTripsThroughSourceGeneratedContext()
+    {
+        var config = new AgentRunConfig
+        {
+            Audio = new AudioRunConfig
+            {
+                Enabled = false,
+                InputMode = AudioInputMode.ReferenceOnly,
+                OutputMode = AudioOutputMode.TextOnly,
+                AssistantOutputMode = AssistantOutputSynthesisMode.FinalText,
+                ProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.ForceSegment,
+                PushTextAggregationMode = PushTextInputAggregationMode.ManualFlush,
+                ArtifactCapturePolicy = AssistantAudioArtifactCapturePolicy.DigestOnly,
+                VoiceId = "voice-run",
+                Language = "en-US",
+                OutputFormat = "pcm16",
+                ContentType = "audio/pcm",
+                Speed = 1.25f,
+                EnablePlayback = true,
+                Pacing = new TextToSpeechPacingOptions
+                {
+                    Mode = TextToSpeechPacingMode.TokenBatch,
+                    First = new TextToSpeechFirstSegmentOptions
+                    {
+                        MinCharacters = 8
+                    }
+                }
+            }
+        };
+
+        var json = JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentRunConfig);
+        var deserialized = JsonSerializer.Deserialize<AgentRunConfig>(json, HPDJsonContext.Default.AgentRunConfig);
+
+        Assert.NotNull(deserialized?.Audio);
+        Assert.False(deserialized.Audio.Enabled);
+        Assert.Equal(AudioInputMode.ReferenceOnly, deserialized.Audio.InputMode);
+        Assert.Equal(AudioOutputMode.TextOnly, deserialized.Audio.OutputMode);
+        Assert.Equal(AssistantOutputSynthesisMode.FinalText, deserialized.Audio.AssistantOutputMode);
+        Assert.Equal(ProgressiveTextToSpeechRouteMode.ForceSegment, deserialized.Audio.ProgressiveRouteMode);
+        Assert.Equal(PushTextInputAggregationMode.ManualFlush, deserialized.Audio.PushTextAggregationMode);
+        Assert.Equal(AssistantAudioArtifactCapturePolicy.DigestOnly, deserialized.Audio.ArtifactCapturePolicy);
+        Assert.Equal("voice-run", deserialized.Audio.VoiceId);
+        Assert.Equal("en-US", deserialized.Audio.Language);
+        Assert.Equal("pcm16", deserialized.Audio.OutputFormat);
+        Assert.Equal("audio/pcm", deserialized.Audio.ContentType);
+        Assert.Equal(1.25f, deserialized.Audio.Speed);
+        Assert.True(deserialized.Audio.EnablePlayback);
+        Assert.NotNull(deserialized.Audio.Pacing);
+        Assert.Equal(TextToSpeechPacingMode.TokenBatch, deserialized.Audio.Pacing.Mode);
+        Assert.Equal(8, deserialized.Audio.Pacing.First.MinCharacters);
     }
 
     [Fact]

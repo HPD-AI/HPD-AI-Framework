@@ -57,7 +57,7 @@ public abstract class HookContext
     /// <summary>
     /// Provider-created client-family instances resolved for this agent build.
     /// </summary>
-    internal AgentClientSet? ClientSet => Base.ClientSet;
+    public AgentClientSet? ClientSet => Base.ClientSet;
 
     /// <summary>
     /// Explicit content store configured for this agent.

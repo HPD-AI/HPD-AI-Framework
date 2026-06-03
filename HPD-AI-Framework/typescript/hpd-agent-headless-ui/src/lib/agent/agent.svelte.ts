@@ -15,12 +15,6 @@ import type {
 	ClarificationRequest,
 	ClientToolInvokeRequest
 } from './types.ts';
-import { AudioPlayerState } from '../audio-player/audio-player.svelte.ts';
-import { TranscriptionState } from '../transcription/transcription.svelte.ts';
-import { VoiceActivityIndicatorState } from '../voice-activity-indicator/voice-activity-indicator.svelte.ts';
-import { InterruptionIndicatorState } from '../interruption-indicator/interruption-indicator.svelte.ts';
-import { TurnIndicatorState } from '../turn-indicator/turn-indicator.svelte.ts';
-import { AudioVisualizerState } from '../audio-visualizer/audio-visualizer.svelte.ts';
 
 function formatToolResultPayload(result: ToolResultPayload): string {
 	if (result.text) return result.text;
@@ -51,15 +45,6 @@ export class AgentState {
 	#currentTurnId = $state<string | null>(null);
 	#currentConversationId = $state<string | null>(null);
 
-	// Audio component states (Phase 3 - Voice UI)
-	// TODO: These are placeholder states - they will be properly initialized when needed
-	#audioPlayer = $state<AudioPlayerState | null>(null);
-	#transcription = $state<TranscriptionState | null>(null);
-	#voiceActivity = $state<VoiceActivityIndicatorState | null>(null);
-	#interruption = $state<InterruptionIndicatorState | null>(null);
-	#turnIndicator = $state<TurnIndicatorState | null>(null);
-	#audioVisualizer = $state<AudioVisualizerState | null>(null);
-
 	// ============================================
 	// Derived State ($derived)
 	// ============================================
@@ -85,14 +70,6 @@ export class AgentState {
 	readonly activeTools = $derived(this.#activeTools);
 	readonly pendingPermissions = $derived(this.#pendingPermissions);
 	readonly pendingClarifications = $derived(this.#pendingClarifications);
-
-	// Audio component accessors
-	readonly audioPlayer = $derived(this.#audioPlayer);
-	readonly transcription = $derived(this.#transcription);
-	readonly voiceActivity = $derived(this.#voiceActivity);
-	readonly interruption = $derived(this.#interruption);
-	readonly turnIndicator = $derived(this.#turnIndicator);
-	readonly audioVisualizer = $derived(this.#audioVisualizer);
 
 	// ============================================
 	// Event Handlers (called by EventMapper)
@@ -344,125 +321,6 @@ export class AgentState {
 		console.error('[AgentState] Turn error:', message);
 	}
 
-	// --- Audio Events (TTS) ---
-
-	onSynthesisStarted(synthesisId: string, modelId?: string, voice?: string, streamId?: string) {
-		this.#audioPlayer?.onSynthesisStarted(synthesisId, modelId, voice, streamId);
-		this.#turnIndicator?.onSynthesisStarted(synthesisId, modelId, voice, streamId);
-	}
-
-	onAudioChunk(
-		synthesisId: string,
-		base64Audio: string,
-		mimeType: string,
-		chunkIndex: number,
-		duration: string,
-		isLast: boolean,
-		streamId?: string
-	) {
-		this.#audioPlayer?.onAudioChunk(synthesisId, base64Audio, mimeType, chunkIndex, duration, isLast, streamId);
-		// AudioVisualizer uses AnalyserNode from AudioPlayer, not direct audio chunks
-	}
-
-	onSynthesisCompleted(
-		synthesisId: string,
-		wasInterrupted: boolean,
-		totalChunks: number,
-		deliveredChunks: number,
-		streamId?: string
-	) {
-		this.#audioPlayer?.onSynthesisCompleted(synthesisId, wasInterrupted, totalChunks, deliveredChunks, streamId);
-	}
-
-	// --- Audio Events (STT) ---
-
-	onTranscriptionDelta(
-		transcriptionId: string,
-		text: string,
-		isFinal: boolean,
-		confidence?: number
-	) {
-		this.#transcription?.onTranscriptionDelta(transcriptionId, text, isFinal, confidence);
-	}
-
-	onTranscriptionCompleted(
-		transcriptionId: string,
-		finalText: string,
-		_processingDuration: string
-	) {
-		// Note: _processingDuration is ignored as TranscriptionState expects confidence instead
-		this.#transcription?.onTranscriptionCompleted(transcriptionId, finalText);
-	}
-
-	// --- Audio Events (Interruption) ---
-
-	onUserInterrupted(transcribedText?: string) {
-		this.#interruption?.onUserInterrupted(transcribedText);
-	}
-
-	onSpeechPaused(synthesisId: string, reason: 'user_speaking' | 'potential_interruption') {
-		this.#interruption?.onSpeechPaused(synthesisId, reason);
-		this.#audioPlayer?.onSpeechPaused(synthesisId, reason);
-	}
-
-	onSpeechResumed(synthesisId: string, pauseDuration: string) {
-		this.#interruption?.onSpeechResumed(synthesisId, pauseDuration);
-		this.#audioPlayer?.onSpeechResumed(synthesisId, pauseDuration);
-	}
-
-	// --- Audio Events (Preemptive Generation) ---
-
-	onPreemptiveGenerationStarted(generationId: string, turnCompletionProbability: number) {
-		console.log(`[AgentState] Preemptive generation started: ${generationId}`, { turnCompletionProbability });
-		// TODO: Handle preemptive generation state when needed
-	}
-
-	onPreemptiveGenerationDiscarded(generationId: string, reason: 'user_continued' | 'low_confidence') {
-		console.log(`[AgentState] Preemptive generation discarded: ${generationId}`, { reason });
-		// TODO: Handle preemptive generation state when needed
-	}
-
-	// --- Audio Events (VAD) ---
-
-	onVadStartOfSpeech(timestamp: string, speechProbability: number) {
-		this.#voiceActivity?.onVadStartOfSpeech(timestamp, speechProbability);
-		this.#turnIndicator?.onVadStartOfSpeech(timestamp, speechProbability);
-	}
-
-	onVadEndOfSpeech(timestamp: string, speechDuration: string, speechProbability: number) {
-		this.#voiceActivity?.onVadEndOfSpeech(timestamp, speechDuration, speechProbability);
-	}
-
-	// --- Audio Events (Metrics) ---
-
-	onAudioPipelineMetrics(
-		metricType: 'latency' | 'quality' | 'throughput' | 'error',
-		metricName: string,
-		value: number,
-		unit?: string
-	) {
-		console.log(`[AgentState] Audio pipeline metrics:`, { metricType, metricName, value, unit });
-		// TODO: Expose metrics for debugging/monitoring UI
-	}
-
-	// --- Audio Events (Turn Detection) ---
-
-	onTurnDetected(
-		transcribedText: string,
-		completionProbability: number,
-		silenceDuration: string,
-		detectionMethod: 'heuristic' | 'ml' | 'manual' | 'timeout'
-	) {
-		this.#turnIndicator?.onTurnDetected(transcribedText, completionProbability, silenceDuration, detectionMethod);
-	}
-
-	// --- Audio Events (Filler) ---
-
-	onFillerAudioPlayed(phrase: string, duration: string) {
-		console.log(`[AgentState] Filler audio played: ${phrase}`, { duration });
-		// TODO: Handle filler audio indication when needed
-	}
-
 	// ============================================
 	// Public Methods (for user interaction)
 	// ============================================
@@ -513,9 +371,9 @@ export class AgentState {
 			case 'MESSAGE_TURN_ERROR':
 				this.onMessageTurnError(known.message);
 				break;
-			// All other event types (audio, VAD, permissions, etc.) are handled
+			// All other event types (permissions, continuations, etc.) are handled
 			// by callers that need them (e.g. createAgent). BranchManager ignores them.
-		}
+	}
 	}
 
 	/**

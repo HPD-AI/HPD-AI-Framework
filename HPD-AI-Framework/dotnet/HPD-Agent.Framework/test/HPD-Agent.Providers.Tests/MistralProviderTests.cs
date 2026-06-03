@@ -3,7 +3,9 @@ using HPD.Agent;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
 using HPD.Agent.Providers.Mistral;
+using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Generic;
 using Xunit;
 
@@ -35,6 +37,30 @@ public class MistralProviderTests
         chat.Capabilities!["SupportsStreaming"].Should().Be(true);
         chat.Capabilities["SupportsFunctionCalling"].Should().Be(true);
         chat.Capabilities["SupportsVision"].Should().Be(false);
+    }
+
+    #endregion
+
+    #region Client Creation Tests
+
+    [Fact]
+    public void CreateChatClient_ShouldExposeConfiguredModelAsDefaultModel()
+    {
+        // Arrange
+        var config = new ClientProviderConfig
+        {
+            ProviderKey = "mistral",
+            ModelName = "mistral-large-latest",
+            ApiKey = "test-key"
+        };
+
+        // Act
+        using var client = _provider.CreateChatClient(config, CreateServices());
+        var metadata = client.GetService<ChatClientMetadata>();
+
+        // Assert
+        metadata.Should().NotBeNull();
+        metadata!.DefaultModelId.Should().Be("mistral-large-latest");
     }
 
     #endregion
@@ -904,4 +930,11 @@ public class MistralProviderTests
     }
 
     #endregion
+
+    private static IServiceProvider CreateServices()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<ISecretResolver>(new ExplicitSecretResolver());
+        return services.BuildServiceProvider();
+    }
 }

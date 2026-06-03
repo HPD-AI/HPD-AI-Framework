@@ -168,17 +168,6 @@ export { ToolExecution } from './tool-execution/index.js';
 // PermissionDialog component
 export * as PermissionDialog from './permission-dialog/index.js';
 
-// Audio components (Phase 3A)
-export * as AudioPlaybackGate from './audio-playback-gate/index.js';
-export * as AudioPlayer from './audio-player/index.js';
-export * as Transcription from './transcription/index.js';
-export * as VoiceActivityIndicator from './voice-activity-indicator/index.js';
-
-// Audio components (Phase 3B)
-export * as InterruptionIndicator from './interruption-indicator/index.js';
-export * as TurnIndicator from './turn-indicator/index.js';
-export * as AudioVisualizer from './audio-visualizer/index.js';
-
 // Testing utilities (mock workspace)
 export { createMockWorkspace } from './testing/mock-agent.svelte.js';
 export type { MockWorkspaceOptions } from './testing/mock-agent.svelte.js';

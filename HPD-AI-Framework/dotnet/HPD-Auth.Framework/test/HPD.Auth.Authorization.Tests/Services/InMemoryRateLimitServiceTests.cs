@@ -129,22 +129,30 @@ public class InMemoryRateLimitServiceTests
         // The implementation uses '>' not '>=' so a request at exactly T+window
         // is NOT reset — it's still within the old window.
         // This test documents that boundary behaviour.
-        var svc = CreateService();
+        var timeProvider = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var svc = new InMemoryRateLimitService(timeProvider);
         const string key = "boundary-key";
         var window = TimeSpan.FromMilliseconds(80);
 
         await svc.CheckRateLimitAsync(key, maxRequests: 1, window: window);
 
-        // Wait almost (but not quite) the full window
-        await Task.Delay(60);
+        timeProvider.Advance(window);
 
         var stillBlocked = await svc.CheckRateLimitAsync(key, maxRequests: 1, window: window);
         stillBlocked.Should().BeFalse("window has not yet expired");
 
-        // Wait for the full window to pass
-        await Task.Delay(60);
+        timeProvider.Advance(TimeSpan.FromTicks(1));
 
         var nowAllowed = await svc.CheckRateLimitAsync(key, maxRequests: 1, window: window);
         nowAllowed.Should().BeTrue("window has now expired");
+    }
+
+    private sealed class ManualTimeProvider(DateTimeOffset start) : TimeProvider
+    {
+        private DateTimeOffset _utcNow = start;
+
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+
+        public void Advance(TimeSpan delta) => _utcNow += delta;
     }
 }

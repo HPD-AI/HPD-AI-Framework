@@ -10,7 +10,7 @@ using Xunit;
 public class ImmutableRequestTests
 {
     [Fact]
-    public void ModelRequest_Override_PreservesOriginal()
+    public void AgentModelTurnRequest_Override_PreservesOriginal()
     {
         // Arrange
         var originalMessages = new List<ChatMessage>
@@ -18,9 +18,10 @@ public class ImmutableRequestTests
             new(ChatRole.User, "Original question")
         };
 
-        var originalRequest = new ModelRequest
+        var originalRequest = new AgentModelTurnRequest
         {
-            Model = new TestChatClient(),
+            Transport = AgentModelTransport.Chat,
+            ChatModel = new TestChatClient(),
             Messages = originalMessages,
             Options = new ChatOptions { Temperature = 0.5f },
             State = CreateTestState(),
@@ -39,12 +40,13 @@ public class ImmutableRequestTests
     }
 
     [Fact]
-    public void ModelRequest_Override_MultipleProperties()
+    public void AgentModelTurnRequest_Override_MultipleProperties()
     {
         // Arrange
-        var request = new ModelRequest
+        var request = new AgentModelTurnRequest
         {
-            Model = new TestChatClient(),
+            Transport = AgentModelTransport.Chat,
+            ChatModel = new TestChatClient(),
             Messages = new List<ChatMessage>(),
             Options = new ChatOptions { Temperature = 0.5f },
             State = CreateTestState(),
@@ -62,7 +64,7 @@ public class ImmutableRequestTests
         // Assert
         Assert.Same(newMessages, modified.Messages);
         Assert.Equal(0.9f, modified.Options.Temperature);
-        Assert.Same(request.Model, modified.Model); // Unchanged
+        Assert.Same(request.ChatModel, modified.ChatModel); // Unchanged
         Assert.Equal(0, modified.Iteration); // Unchanged
     }
 

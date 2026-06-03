@@ -15,9 +15,9 @@ namespace HPD.Agent.Middleware;
 /// </para>
 /// <para><b>Example:</b></para>
 /// <code>
-/// public async Task&lt;ModelResponse&gt; WrapModelCallAsync(
-///     ModelRequest request,
-///     Func&lt;ModelRequest, Task&lt;ModelResponse&gt;&gt; handler,
+/// public async Task&lt;ModelResponse&gt; WrapModelTurnAsync(
+///     AgentModelTurnRequest request,
+///     Func&lt;AgentModelTurnRequest, Task&lt;ModelResponse&gt;&gt; handler,
 ///     CancellationToken ct)
 /// {
 ///     var response = await handler(request);

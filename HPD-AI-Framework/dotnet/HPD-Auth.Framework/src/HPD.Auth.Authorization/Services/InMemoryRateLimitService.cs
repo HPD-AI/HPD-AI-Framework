@@ -30,6 +30,12 @@ public sealed class InMemoryRateLimitService : IRateLimitService
 {
     // Value: (requestCount, windowStartUtc)
     private readonly ConcurrentDictionary<string, (int Count, DateTime WindowStart)> _buckets = new();
+    private readonly TimeProvider _timeProvider;
+
+    public InMemoryRateLimitService(TimeProvider? timeProvider = null)
+    {
+        _timeProvider = timeProvider ?? TimeProvider.System;
+    }
 
     /// <inheritdoc />
     public Task<bool> CheckRateLimitAsync(
@@ -38,7 +44,7 @@ public sealed class InMemoryRateLimitService : IRateLimitService
         TimeSpan window,
         CancellationToken ct = default)
     {
-        var now    = DateTime.UtcNow;
+        var now    = _timeProvider.GetUtcNow().UtcDateTime;
         var result = false;
 
         _buckets.AddOrUpdate(
