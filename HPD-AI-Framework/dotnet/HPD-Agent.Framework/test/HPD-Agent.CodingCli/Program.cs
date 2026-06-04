@@ -207,7 +207,7 @@ static async Task EnsureSessionAsync(Agent agent, string sessionId)
     }
     catch (InvalidOperationException ex) when (ex.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase))
     {
-        // Reuse the existing CLI session when backed by a persistent session store.
+        // Reuse the existing CLI session when backed by a persistent session repository.
     }
 }
 

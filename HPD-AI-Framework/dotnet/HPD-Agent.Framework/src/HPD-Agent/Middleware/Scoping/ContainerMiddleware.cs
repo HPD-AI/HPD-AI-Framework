@@ -723,7 +723,7 @@ public class ContainerMiddleware : IAgentMiddleware
 
         // ALWAYS update state to ensure cleared state is persisted
         // Even if there were no changes, we need to write back the state
-        // to ensure it's captured in checkpoints/session stores
+        // to ensure it's captured in session persistence.
         if (collapsingState.ContainersExpandedThisTurn.Count > 0 ||
             !collapsingState.ActiveContainerInstructions.IsEmpty ||
             !collapsingState.RecoveredFunctionCalls.IsEmpty ||
@@ -897,12 +897,6 @@ public class ContainerMiddleware : IAgentMiddleware
             var funcResultCtx = ExtractStringMetadata(function, "FunctionResult");
             var sysPromptCtx = ExtractStringMetadata(function, "SystemPrompt");
 
-            // Fallback to legacy "Instructions" for skills if SystemPrompt not present
-            if (string.IsNullOrEmpty(sysPromptCtx) && isSkill)
-            {
-                sysPromptCtx = ExtractStringMetadata(function, "Instructions");
-            }
-
             // Store instruction contexts
             if (funcResultCtx != null || sysPromptCtx != null)
             {
@@ -1033,8 +1027,8 @@ public class ContainerMiddleware : IAgentMiddleware
             if (containerFunction == null)
                 continue;
 
-            // Check if it's a [Collapse] container (IsCollapse=true OR just IsContainer=true without IsSkill)
-            var isCollapse = containerFunction.AdditionalProperties?.TryGetValue("IsCollapse", out var collapseVal) == true
+            // Check if it's a [Collapse] container (IsToolHarnessContainer=true OR just IsContainer=true without IsSkill)
+            var isCollapse = containerFunction.AdditionalProperties?.TryGetValue("IsToolHarnessContainer", out var collapseVal) == true
                 && collapseVal is bool collapseFlag && collapseFlag;
 
             var isSkill = containerFunction.AdditionalProperties?.TryGetValue("IsSkill", out var skillVal) == true
@@ -1044,7 +1038,7 @@ public class ContainerMiddleware : IAgentMiddleware
             if (isCollapse || !isSkill)
             {
                 collapseContainersToFilter.Add(containerName);
-                _logger?.LogDebug("BeforeIterationAsync: Will filter [Collapse] container '{Container}' from messages (IsCollapse={IsCollapse}, IsSkill={IsSkill})",
+                _logger?.LogDebug("BeforeIterationAsync: Will filter [Collapse] container '{Container}' from messages (IsToolHarnessContainer={IsToolHarnessContainer}, IsSkill={IsSkill})",
                     containerName, isCollapse, isSkill);
             }
         }

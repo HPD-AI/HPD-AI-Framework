@@ -1028,12 +1028,12 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
             request,
             providerKey);
 
-        if (RequiresContentStoreArtifact(Options.OutputOptions) && Options.OutputOptions?.ContentStore is null)
+        if (RequiresWorkspaceArtifact(Options.OutputOptions) && Options.OutputOptions?.WorkspaceStore is null)
         {
             var missingStore = new AudioErrorInfo
             {
-                Code = "MissingContentStore",
-                Message = "Push-text assistant TTS output synthesis requires IContentStore; no content store is configured.",
+                Code = "MissingWorkspaceStore",
+                Message = "Push-text assistant TTS output synthesis requires IWorkspaceStore; no workspace store is configured.",
                 Category = "TextToSpeech",
                 IsRetryable = false
             };
@@ -1108,11 +1108,12 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
             null,
             _providerFirstAudioAt);
 
-        if (RequiresContentStoreArtifact(Options.OutputOptions))
+        if (RequiresWorkspaceArtifact(Options.OutputOptions))
         {
             var artifact = await _artifactWriter.WriteAssistantAudioArtifactAsync(
-                Options.OutputOptions!.ContentStore!,
+                Options.OutputOptions!.WorkspaceStore!,
                 Options.SessionId,
+                Options.Branch,
                 OutputFlow.Id,
                 responseId,
                 providerKey,
@@ -1281,8 +1282,8 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
         return null;
     }
 
-    private static bool RequiresContentStoreArtifact(AssistantTextToSpeechOutputOptions? options) =>
-        options?.ArtifactCapturePolicy == AssistantAudioArtifactCapturePolicy.ContentStoreArtifact;
+    private static bool RequiresWorkspaceArtifact(AssistantTextToSpeechOutputOptions? options) =>
+        options?.ArtifactCapturePolicy == AssistantAudioArtifactCapturePolicy.WorkspaceArtifact;
 }
 
 internal sealed class UnsupportedPushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase

@@ -248,6 +248,6 @@ sealed record PackPrepOptions(string ProjectPath, string? OutputRoot)
     private static void PrintUsage()
     {
         Console.WriteLine("Usage:");
-        Console.WriteLine("  dotnet run --file prepare-ripgrep-binaries.cs -- --project <HPD-Agent.ToolHarness.Coding.csproj> [--output-root <path>]");
+        Console.WriteLine("  dotnet run --file prepare-ripgrep-binaries.cs -- --project <HPD-Agent.Harness.Coding.csproj> [--output-root <path>]");
     }
 }

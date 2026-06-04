@@ -26,16 +26,19 @@ function makeFile(name = 'test.png', type = 'image/png'): File {
 
 interface StateOpts {
 	sessionId?: string | null;
+	branchId?: string | null;
 	disabled?: boolean;
-	uploadFn?: (sessionId: string, file: File) => Promise<ContentReference>;
+	uploadFn?: (sessionId: string, branchId: string, file: File) => Promise<ContentReference>;
 }
 
 function makeState(opts: StateOpts = {}) {
 	const uploadFn = opts.uploadFn ?? vi.fn(async () => CONTENT);
 	const sessionId: string = 'sessionId' in opts ? (opts.sessionId as string) : 'sess-1';
+	const branchId: string = 'branchId' in opts ? (opts.branchId as string) : 'branch-1';
 	const state = new FileAttachmentState({
 		uploadFn: boxWith(() => uploadFn),
 		sessionId: boxWith(() => sessionId),
+		branchId: boxWith(() => branchId),
 		disabled: boxWith(() => opts.disabled ?? false),
 	});
 	return { state, uploadFn: uploadFn as ReturnType<typeof vi.fn> };
@@ -80,6 +83,13 @@ describe('FileAttachmentState — add()', () => {
 		expect(uploadFn).not.toHaveBeenCalled();
 	});
 
+	it('does nothing when branchId is null', async () => {
+		const { state, uploadFn } = makeState({ branchId: null });
+		await state.add([makeFile()]);
+		expect(state.attachments).toEqual([]);
+		expect(uploadFn).not.toHaveBeenCalled();
+	});
+
 	it('resolves to done after successful upload', async () => {
 		const { state } = makeState();
 		await state.add([makeFile()]);
@@ -119,10 +129,10 @@ describe('FileAttachmentState — add()', () => {
 		expect(state.hasAttachments).toBe(true);
 	});
 
-	it('passes sessionId to uploadFn', async () => {
+	it('passes sessionId and branchId to uploadFn', async () => {
 		const { state, uploadFn } = makeState({ sessionId: 'my-session' });
 		await state.add([makeFile()]);
-		expect(uploadFn).toHaveBeenCalledWith('my-session', expect.any(File));
+		expect(uploadFn).toHaveBeenCalledWith('my-session', 'branch-1', expect.any(File));
 	});
 
 	it('uploads files in parallel (uploadFn called once per file before any await)', async () => {

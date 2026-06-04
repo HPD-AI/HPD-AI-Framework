@@ -110,14 +110,14 @@ public sealed class InputContentDetector
     private static InputContentRef FromUriContent(UriContent content)
     {
         var sourceKind = ContentReferenceResolverMiddleware.IsContentReference(content)
-            ? InputContentSourceKind.ContentStore
+            ? InputContentSourceKind.WorkspaceContent
             : InputContentSourceKind.UriContent;
         var kind = ResolveKind(content.MediaType);
 
-        InputContentStoreRef? storeRef = null;
-        if (sourceKind is InputContentSourceKind.ContentStore)
+        InputWorkspaceContentRef? storeRef = null;
+        if (sourceKind is InputContentSourceKind.WorkspaceContent)
         {
-            storeRef = new InputContentStoreRef(
+            storeRef = new InputWorkspaceContentRef(
                 StoreKind: "hpd-content",
                 Scope: null,
                 ContentId: content.Uri.Host,
@@ -132,8 +132,8 @@ public sealed class InputContentDetector
             SourceKind = sourceKind,
             MediaType = content.MediaType,
             Name = GetFileName(content.Uri),
-            ContentStore = storeRef,
-            Source = sourceKind is InputContentSourceKind.ContentStore
+            WorkspaceContent = storeRef,
+            Source = sourceKind is InputContentSourceKind.WorkspaceContent
                 ? null
                 : new InputContentSourceRef(
                     sourceKind.ToString(),

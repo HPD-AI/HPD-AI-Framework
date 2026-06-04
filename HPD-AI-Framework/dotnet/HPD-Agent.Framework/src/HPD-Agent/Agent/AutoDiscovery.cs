@@ -133,6 +133,10 @@ internal static class AutoDiscovery
             {
                 TryLoadAssemblyAndRunModuleInitializer(toolharnessFile);
             }
+            foreach (var toolharnessFile in Directory.GetFiles(directory, "HPD-Agent.Harness.*.dll"))
+            {
+                TryLoadAssemblyAndRunModuleInitializer(toolharnessFile);
+            }
 
             // 3. Scan for provider assemblies.
             TryLoadProviderAssemblies(directory, "HPD-Agent.Providers.*.dll");

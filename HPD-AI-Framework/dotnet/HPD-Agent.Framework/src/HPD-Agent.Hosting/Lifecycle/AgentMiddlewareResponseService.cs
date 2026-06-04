@@ -71,11 +71,11 @@ public sealed class AgentMiddlewareResponseService : IAgentMiddlewareResponseSer
         string branchId,
         CancellationToken cancellationToken)
     {
-        var session = await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken);
+        var session = await _sessionManager.Repository.LoadSessionAsync(sessionId, cancellationToken);
         if (session == null)
             return false;
 
-        var branch = await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken);
+        var branch = await _sessionManager.Repository.LoadBranchAsync(sessionId, branchId, cancellationToken);
         return branch != null;
     }
 }

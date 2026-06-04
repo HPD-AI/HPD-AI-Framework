@@ -121,7 +121,7 @@ public record ClientSkillReference(
 /// Document attached to a skill that the agent can read on-demand.
 /// Supports inline content (for simple documents) or URLs (for large documents).
 /// </summary>
-/// <param name="DocumentId">Unique ID — retrievable via content_read("/skills/{DocumentId}")</param>
+/// <param name="DocumentId">Unique ID, retrievable from the agent skill content area.</param>
 /// <param name="Description">Tells agent what information this document contains</param>
 /// <param name="Content">Inline content (for documents under ~10KB)</param>
 /// <param name="Url">URL to fetch content from (for large documents)</param>

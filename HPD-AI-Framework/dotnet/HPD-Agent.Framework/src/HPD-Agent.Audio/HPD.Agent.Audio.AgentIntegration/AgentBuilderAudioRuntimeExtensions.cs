@@ -77,11 +77,12 @@ public static class AgentBuilderAudioRuntimeExtensions
 
     public static AgentBuilder WithAudioRuntimeAttachment(
         this AgentBuilder builder,
-        ISessionStore sessionStore)
+        ISessionRepository sessionRepository)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        ArgumentNullException.ThrowIfNull(sessionStore);
+        ArgumentNullException.ThrowIfNull(sessionRepository);
 
-        return builder.WithAudioRuntimeAttachment(new SessionBranchProjectionSink(sessionStore));
+        return builder.WithAudioRuntimeAttachment(new SessionBranchProjectionSink(sessionRepository));
     }
+
 }

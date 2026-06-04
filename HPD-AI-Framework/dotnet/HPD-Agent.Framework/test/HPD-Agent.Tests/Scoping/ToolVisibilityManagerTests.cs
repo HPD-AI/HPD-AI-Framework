@@ -35,8 +35,8 @@ public class ToolVisibilityManagerTests
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty, // No expanded ToolHarnesses
-            ImmutableHashSet<string>.Empty); // No expanded skills
+            ImmutableHashSet<string>.Empty.Union(// No expanded ToolHarnesses
+            ImmutableHashSet<string>.Empty)); // No expanded skills
 
         // Assert
         visibleTools.Should().HaveCount(2); // Only containers, no read_skill_document (no skills expanded)
@@ -78,8 +78,7 @@ public class ToolVisibilityManagerTests
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert - Should show all ToolHarness functions (explicit, no Collapse)
         visibleTools.Should().Contain(t => t.Name == "CalculateCurrentRatio");
@@ -120,8 +119,7 @@ public class ToolVisibilityManagerTests
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert
         visibleTools.Should().Contain(t => t.Name == "FinancialAnalysisToolHarness"); // Collapse container
@@ -162,8 +160,7 @@ public class ToolVisibilityManagerTests
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert - Skills visible
         visibleTools.Should().Contain(t => t.Name == "QuickLiquidityAnalysis");
@@ -202,8 +199,7 @@ public class ToolVisibilityManagerTests
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert
         visibleTools.Should().Contain(t => t.Name == "FinancialAnalysisSkills"); // Collapse container
@@ -244,8 +240,7 @@ public class ToolVisibilityManagerTests
         // Act - Not expanded
         var visibleToolsBeforeExpansion = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert - Before expansion
         visibleToolsBeforeExpansion.Should().Contain(t => t.Name == "FinancialAnalysisToolHarness");
@@ -256,8 +251,8 @@ public class ToolVisibilityManagerTests
         // Act - After expansion
         var visibleToolsAfterExpansion = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "FinancialAnalysisToolHarness"), // Expanded
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "FinancialAnalysisToolHarness").Union(// Expanded
+            ImmutableHashSet<string>.Empty));
 
         // Assert - After expansion, all functions visible
         visibleToolsAfterExpansion.Should().Contain(t => t.Name == "CalculateCurrentRatio");
@@ -290,8 +285,7 @@ public class ToolVisibilityManagerTests
         // Act - Expand FinancialAnalysisSkills Collapse
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "FinancialAnalysisSkills"));
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "FinancialAnalysisSkills")));
 
         // Assert - Individual skills now visible
         visibleTools.Should().Contain(t => t.Name == "QuickLiquidityAnalysis");
@@ -321,8 +315,8 @@ public class ToolVisibilityManagerTests
         // Act - Expand both the ToolHarness (so functions are available) AND the skill (so it references them)
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "FinancialAnalysisToolHarness"), // Expand ToolHarness
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "QuickLiquidityAnalysis")); // Expand skill
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "FinancialAnalysisToolHarness").Union(// Expand ToolHarness
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "QuickLiquidityAnalysis"))); // Expand skill
 
         // Assert - Functions referenced by QuickLiquidityAnalysis now visible
         visibleTools.Should().Contain(t => t.Name == "CalculateCurrentRatio");
@@ -398,7 +392,7 @@ public class ToolVisibilityManagerTests
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["IsContainer"] = true,
-                    ["IsCollapse"] = true
+                    ["IsToolHarnessContainer"] = true
                 }
             });
     }
@@ -557,8 +551,7 @@ public class ToolVisibilityManagerTests
         // Act: Initially, MathTools container should be visible
         var initialTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: Only container visible initially
         initialTools.Should().Contain(t => t.Name == "MathTools");
@@ -572,8 +565,7 @@ public class ToolVisibilityManagerTests
 
         var expandedTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ExpandedSkillContainers,
-            ImmutableHashSet<string>.Empty);
+            ExpandedSkillContainers.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: Container hidden, contents visible
         expandedTools.Should().NotContain(t => t.Name == "MathTools");
@@ -596,8 +588,7 @@ public class ToolVisibilityManagerTests
 
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ExpandedSkillContainers,
-            ImmutableHashSet<string>.Empty);
+            ExpandedSkillContainers.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: All AI functions from MathTools should be visible
         visibleTools.Should().Contain(t => t.Name == "Add");
@@ -622,8 +613,7 @@ public class ToolVisibilityManagerTests
 
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ExpandedSkillContainers,
-            ImmutableHashSet<string>.Empty);
+            ExpandedSkillContainers.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: SolveQuadratic skill should be visible when parent is in ExpandedSkillContainers
         visibleTools.Should().Contain(t => t.Name == "SolveQuadratic");
@@ -643,8 +633,7 @@ public class ToolVisibilityManagerTests
 
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            expandedSkills);
+            ImmutableHashSet<string>.Empty.Union(expandedSkills));
 
         // Assert: SolveQuadratic skill should be visible when parent is in expandedSkills
         visibleTools.Should().Contain(t => t.Name == "SolveQuadratic");
@@ -667,8 +656,7 @@ public class ToolVisibilityManagerTests
 
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ExpandedSkillContainers,
-            ImmutableHashSet<string>.Empty);
+            ExpandedSkillContainers.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: MathTools hidden, but OtherToolHarness still visible
         visibleTools.Should().NotContain(t => t.Name == "MathTools");
@@ -689,8 +677,7 @@ public class ToolVisibilityManagerTests
 
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ExpandedSkillContainers,
-            ImmutableHashSet<string>.Empty);
+            ExpandedSkillContainers.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: Skill should be visible
         var solveQuadratic = visibleTools.FirstOrDefault(t => t.Name == "SolveQuadratic");
@@ -741,7 +728,7 @@ public class ToolVisibilityManagerTests
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["IsContainer"] = true,
-                    ["IsCollapse"] = true,
+                    ["IsToolHarnessContainer"] = true,
                     ["FunctionNames"] = new string[] { },
                     ["FunctionCount"] = 0
                 }
@@ -854,8 +841,7 @@ public class ToolVisibilityManagerTests
         // Act: No expansions
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: Should show ONLY the skill container, NOT the ToolHarness Collapse container
         visibleTools.Should().Contain(t => t.Name == "QuickLiquidityAnalysis");
@@ -892,8 +878,8 @@ public class ToolVisibilityManagerTests
         // Act: Expand the skill (NOT the ToolHarness)
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty, // ToolHarness Collapse NOT expanded
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "QuickLiquidityAnalysis")); // Skill expanded
+            ImmutableHashSet<string>.Empty.Union(// ToolHarness Collapse NOT expanded
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "QuickLiquidityAnalysis"))); // Skill expanded
 
         // Assert: Skill bypass should make referenced functions visible
         visibleTools.Should().Contain(t => t.Name == "CalculateCurrentRatio");
@@ -933,8 +919,7 @@ public class ToolVisibilityManagerTests
         // Act: Expand the skill
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "QuickLiquidityAnalysis"));
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "QuickLiquidityAnalysis")));
 
         // Assert: Referenced functions visible
         visibleTools.Should().Contain(t => t.Name == "CalculateCurrentRatio");
@@ -974,8 +959,8 @@ public class ToolVisibilityManagerTests
         // This is an edge case - user manually expands the ToolHarness even though it was implicitly registered
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "FinancialAnalysisToolHarness"), // ToolHarness expanded
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "FinancialAnalysisToolHarness").Union(// ToolHarness expanded
+            ImmutableHashSet<string>.Empty));
 
         // Assert: ALL ToolHarness functions should be visible (ToolHarness Collapse expanded)
         visibleTools.Should().Contain(t => t.Name == "CalculateCurrentRatio");
@@ -994,16 +979,12 @@ public class ToolVisibilityManagerTests
 
     #endregion
 
-    #region Regression Tests: IsToolHarnessContainer Flag (ToolHarness Attribute Migration)
+    #region IsToolHarnessContainer Flag Tests
 
     /// <summary>
-    /// Regression test for the ToolHarness attribute migration.
     /// When a toolharness is marked with [Collapse(Collapsed=true)], the source generator sets
-    /// IsToolHarnessContainer=true (not the legacy IsCollapse flag).
-    /// ToolVisibilityManager must recognize both flags to properly hide skills inside collapsed toolharnesses.
-    ///
-    /// Bug fix: ToolVisibilityManager.GetContainerType() was only checking IsCollapse flag,
-    /// but the new [Collapse] attribute sets IsToolHarnessContainer flag.
+    /// IsToolHarnessContainer=true. ToolVisibilityManager uses that flag to hide skills inside
+    /// collapsed toolharnesses.
     /// </summary>
     [Fact]
     public void CollapsedToolHarness_WithIsToolHarnessContainerFlag_HidesSkillsUntilExpanded()
@@ -1032,8 +1013,7 @@ public class ToolVisibilityManagerTests
         // Act: No expansions - initial state
         var initialTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: Only the toolharness container should be visible initially
         initialTools.Should().Contain(t => t.Name == "MathToolHarness",
@@ -1072,8 +1052,7 @@ public class ToolVisibilityManagerTests
         // Act: Expand the toolharness
         var expandedTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "MathToolHarness"),
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "MathToolHarness").Union(ImmutableHashSet<string>.Empty));
 
         // Assert: Container hidden, contents visible
         expandedTools.Should().NotContain(t => t.Name == "MathToolHarness",
@@ -1086,42 +1065,8 @@ public class ToolVisibilityManagerTests
             "skill should be visible after parent toolharness is expanded");
     }
 
-    [Fact]
-    public void CollapsedToolHarness_BothFlagsWork_LegacyIsCollapseAndNewIsToolHarnessContainer()
-    {
-        // Arrange: Test that both the legacy IsCollapse and new IsToolHarnessContainer flags work
-        var tools = new List<AIFunction>();
-
-        // Legacy flag (IsCollapse=true)
-        tools.Add(CreateCollapseContainer("LegacyToolHarness", "Legacy toolharness using IsCollapse flag"));
-        tools.Add(CreateToolHarnessFunction("LegacyFunc", "LegacyToolHarness", "A legacy function"));
-
-        // New flag (IsToolHarnessContainer=true)
-        tools.Add(CreateToolHarnessContainerWithNewFlag("NewToolHarness", "New toolharness using IsToolHarnessContainer flag"));
-        tools.Add(CreateToolHarnessFunction("NewFunc", "NewToolHarness", "A new function"));
-
-        var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
-
-        // Act: No expansions
-        var visibleTools = manager.GetToolsForAgentTurn(
-            tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
-
-        // Assert: Both containers should be visible, both functions hidden
-        visibleTools.Should().Contain(t => t.Name == "LegacyToolHarness",
-            "legacy collapsed toolharness should be visible");
-        visibleTools.Should().Contain(t => t.Name == "NewToolHarness",
-            "new collapsed toolharness should be visible");
-        visibleTools.Should().NotContain(t => t.Name == "LegacyFunc",
-            "function in legacy collapsed toolharness should be hidden");
-        visibleTools.Should().NotContain(t => t.Name == "NewFunc",
-            "function in new collapsed toolharness should be hidden");
-        visibleTools.Should().HaveCount(2, "only the two toolharness containers should be visible");
-    }
-
     /// <summary>
-    /// Creates a toolharness container using the NEW IsToolHarnessContainer flag.
+    /// Creates a toolharness container using the IsToolHarnessContainer flag.
     /// This simulates what the source generator produces for [Collapse("...", Collapsed = true)]
     /// </summary>
     private AIFunction CreateToolHarnessContainerWithNewFlag(string name, string description)
@@ -1197,8 +1142,7 @@ public class ToolVisibilityManagerTests
         // Act: Get visible tools without any expansions
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: Functions should be visible directly, container should be hidden
         visibleTools.Should().NotContain(t => t.Name == "FileToolHarness",
@@ -1233,8 +1177,7 @@ public class ToolVisibilityManagerTests
         // Act: Get visible tools without any expansions
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: Should collapse normally - only container visible
         visibleTools.Should().Contain(t => t.Name == "DatabaseToolHarness",
@@ -1274,8 +1217,7 @@ public class ToolVisibilityManagerTests
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: FileToolHarness functions visible, DatabaseToolHarness collapsed
         visibleTools.Should().NotContain(t => t.Name == "FileToolHarness",
@@ -1312,8 +1254,7 @@ public class ToolVisibilityManagerTests
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: Should match case-insensitively
         visibleTools.Should().NotContain(t => t.Name == "FileToolHarness",
@@ -1343,8 +1284,7 @@ public class ToolVisibilityManagerTests
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: Should collapse normally
         visibleTools.Should().Contain(t => t.Name == "FileToolHarness",
@@ -1373,8 +1313,7 @@ public class ToolVisibilityManagerTests
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: Should collapse normally
         visibleTools.Should().Contain(t => t.Name == "FileToolHarness",
@@ -1408,8 +1347,7 @@ public class ToolVisibilityManagerTests
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: Both functions and skills should be visible directly
         visibleTools.Should().NotContain(t => t.Name == "MathToolHarness",
@@ -1469,8 +1407,7 @@ public class ToolVisibilityManagerTests
         // Act: Initial state (no expansions)
         var initialTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: Only container visible, SubAgent hidden
         initialTools.Should().Contain(t => t.Name == "MathToolHarness");
@@ -1501,8 +1438,7 @@ public class ToolVisibilityManagerTests
         // Act: Expand the toolharness
         var expandedTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "MathToolHarness"),
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "MathToolHarness").Union(ImmutableHashSet<string>.Empty));
 
         // Assert: Container hidden, contents visible (including SubAgent)
         expandedTools.Should().NotContain(t => t.Name == "MathToolHarness");
@@ -1539,8 +1475,7 @@ public class ToolVisibilityManagerTests
         // Act
         var visibleTools = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: SubAgent should be visible (no parent to collapse it)
         visibleTools.Should().Contain(t => t.Name == "StandaloneAgent");
@@ -1565,8 +1500,7 @@ public class ToolVisibilityManagerTests
         // Act: Before expansion
         var beforeExpansion = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: All SubAgents hidden
         beforeExpansion.Should().Contain(t => t.Name == "ResearchToolHarness");
@@ -1577,8 +1511,7 @@ public class ToolVisibilityManagerTests
         // Act: After expansion
         var afterExpansion = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "ResearchToolHarness"),
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "ResearchToolHarness").Union(ImmutableHashSet<string>.Empty));
 
         // Assert: All SubAgents visible
         afterExpansion.Should().NotContain(t => t.Name == "ResearchToolHarness");
@@ -1617,8 +1550,7 @@ public class ToolVisibilityManagerTests
         // Act: Before expansion
         var beforeExpansion = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet<string>.Empty,
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet<string>.Empty.Union(ImmutableHashSet<string>.Empty));
 
         // Assert: Only container visible
         beforeExpansion.Should().Contain(t => t.Name == "ComprehensiveToolHarness");
@@ -1630,8 +1562,7 @@ public class ToolVisibilityManagerTests
         // Act: After expansion
         var afterExpansion = manager.GetToolsForAgentTurn(
             tools.ToList(),
-            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "ComprehensiveToolHarness"),
-            ImmutableHashSet<string>.Empty);
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "ComprehensiveToolHarness").Union(ImmutableHashSet<string>.Empty));
 
         // Assert: All contents visible (function, skill, SubAgent)
         afterExpansion.Should().NotContain(t => t.Name == "ComprehensiveToolHarness");

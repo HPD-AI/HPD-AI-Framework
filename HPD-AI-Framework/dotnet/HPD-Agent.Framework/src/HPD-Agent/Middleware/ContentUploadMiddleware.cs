@@ -5,51 +5,51 @@ namespace HPD.Agent.Middleware;
 
 /// <summary>
 /// Intelligently routes DataContent uploads between provider-native HostedFileClient
-/// and framework IContentStore based on provider capabilities and UploadStrategy.
+/// and workspace storage based on provider capabilities and UploadStrategy.
 /// 
 /// Transforms DataContent into either:
 /// - HostedFileContent (provider-native) when provider supports it
-/// - UriContent(hpd-content://id) (framework storage) as fallback
+/// - UriContent(hpd-content://id) (workspace storage) as fallback
 /// </summary>
 /// <remarks>
 /// <para>
 /// This middleware is automatically registered in AgentBuilder. It checks at runtime
-/// if a content store or provider registry is available — zero cost when unused.
+/// if a workspace store or provider registry is available — zero cost when unused.
 /// </para>
 /// <para><b>Behavior:</b></para>
 /// <list type="bullet">
 /// <item>Scans messages for DataContent with binary data</item>
 /// <item>Queries provider registry to detect HostedFileClient support</item>
 /// <item>Routes based on UploadStrategy (Auto/Hosted/Local) and provider capability</item>
-/// <item>Uploads via HostedFileClient or IContentStore accordingly</item>
+/// <item>Uploads via HostedFileClient or workspace storage accordingly</item>
 /// <item>Emits corresponding upload events for observability</item>
 /// </list>
 /// <para><b>Smart Fallback:</b></para>
 /// <para>
-/// In Auto mode, if HostedFileClient upload fails, automatically falls back to IContentStore.
+/// In Auto mode, if HostedFileClient upload fails, automatically falls back to workspace storage.
 /// If both fail, keeps original DataContent (no-op).
 /// </para>
 /// </remarks>
 public class ContentUploadMiddleware : IAgentMiddleware
 {
     private readonly IProviderRegistry? _providerRegistry;
-    private readonly IContentStore? _contentStore;
+    private readonly IWorkspaceStore? _workspaceStore;
 
     /// <summary>
-    /// Creates a ContentUploadMiddleware with optional provider registry and content store.
+    /// Creates a ContentUploadMiddleware with optional provider registry and workspace store.
     /// </summary>
     /// <param name="providerRegistry">Optional provider registry for detecting HostedFileClient support</param>
-    /// <param name="contentStore">Optional content store for local/framework-managed uploads</param>
+    /// <param name="workspaceStore">Optional workspace store for framework-managed uploads</param>
     /// <remarks>
     /// If both are null, middleware is a no-op (zero cost).
-    /// If only contentStore is provided, only local uploads are available.
+    /// If only workspaceStore is provided, only local uploads are available.
     /// If only providerRegistry is provided, only hosted uploads are available.
     /// If both provided, middleware intelligently routes based on UploadStrategy.
     /// </remarks>
-    public ContentUploadMiddleware(IProviderRegistry? providerRegistry = null, IContentStore? contentStore = null)
+    public ContentUploadMiddleware(IProviderRegistry? providerRegistry = null, IWorkspaceStore? workspaceStore = null)
     {
         _providerRegistry = providerRegistry;
-        _contentStore = contentStore;
+        _workspaceStore = workspaceStore;
     }
 
     public async Task BeforeMessageTurnAsync(
@@ -73,7 +73,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
 
         // Zero-cost exit when no upload path is configured for this agent/run.
         if (_providerRegistry == null
-            && _contentStore == null
+            && _workspaceStore == null
             && context.RunConfig.OverrideHostedFileClient == null
             && context.ClientSet?.HostedFiles == null)
         {
@@ -128,7 +128,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
         // Determine if the current agent/run has a hosted file client available.
         var hostedFileClient = GetHostedFileClient(context);
         var canUseHosted = hostedFileClient != null;
-        var canUseLocal = _contentStore != null;
+        var canUseLocal = _workspaceStore != null;
 
         var useHosted = strategy switch
         {
@@ -149,7 +149,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
         if (strategy == UploadStrategy.Local && !canUseLocal)
         {
             context.Emit(new ContentUploadFailedEvent(
-                Error: "UploadStrategy.Local requested but no IContentStore configured"));
+                Error: "UploadStrategy.Local requested but no workspace store configured"));
             return data;  // Keep original
         }
 
@@ -246,28 +246,37 @@ public class ContentUploadMiddleware : IAgentMiddleware
     {
         try
         {
-            var info = await _contentStore!.WriteBytesAsync(
-                scope: session.Id,
-                data: data.Data.ToArray(),
-                metadata: new ContentMetadata
+            var branchId = context.Branch?.Id ?? context.BranchId ?? "main";
+            var branchSpace = await EnsureBranchSpaceAsync(session, branchId, cancellationToken).ConfigureAwait(false);
+            var fileName = ExtractFileName(data) ?? $"upload_{Guid.NewGuid():N}";
+            await using var stream = new MemoryStream(data.Data.ToArray(), writable: false);
+            var attachment = await _workspaceStore!.WriteContentAsync(
+                WorkspacePrincipalRef.System,
+                branchSpace.Id,
+                existingAttachmentId: null,
+                stream,
+                new WriteWorkspaceSpaceContentRequest
                 {
                     ContentType = mediaType,
-                    Name = ExtractFileName(data),
-                    Origin = ContentSource.User,
-                    Tags = new Dictionary<string, string>
+                    Role = WorkspaceContentRoles.Upload,
+                    Name = fileName,
+                    PathHint = WorkspaceContentPaths.BranchUploads(session.Id, branchId),
+                    Permission = WorkspacePermissions.ReadWrite,
+                    ContentMetadata = new Dictionary<string, string>(StringComparer.Ordinal)
                     {
-                        ["folder"] = "/uploads"
+                        ["origin"] = ContentSource.User.ToString(),
+                        ["session_id"] = session.Id,
+                        ["branch_id"] = branchId
                     }
                 },
-                options: new ContentWriteOptions { Mode = ContentWriteMode.Create },
-                cancellationToken: cancellationToken);
+                cancellationToken: cancellationToken).ConfigureAwait(false);
 
             var uriContent = new UriContent(
-                ContentReferenceResolverMiddleware.CreateContentUri(info.Id),
+                ContentReferenceResolverMiddleware.CreateContentUri(attachment.ContentId),
                 mediaType);
 
             context.Emit(new ContentUploadedEvent(
-                ContentId: info.Id,
+                ContentId: attachment.ContentId,
                 MediaType: mediaType,
                 SizeBytes: data.Data.Length));
 
@@ -279,6 +288,64 @@ public class ContentUploadMiddleware : IAgentMiddleware
                 Error: $"Local upload failed: {ex.Message}"));
             return null;
         }
+    }
+
+    private async Task<WorkspaceSpaceInfo> EnsureBranchSpaceAsync(
+        Session session,
+        string branchId,
+        CancellationToken cancellationToken)
+    {
+        var sessionSpace = await EnsureSessionSpaceAsync(session, cancellationToken).ConfigureAwait(false);
+        var existing = await _workspaceStore!.FindSpaceAsync(
+            WorkspacePrincipalRef.System,
+            new WorkspaceSpaceQuery
+            {
+                Kind = WorkspaceSessionRepository.BranchKind,
+                ExternalId = branchId,
+                ParentSpaceId = sessionSpace.Id
+            },
+            cancellationToken).ConfigureAwait(false);
+        if (existing is not null)
+            return existing;
+
+        return await _workspaceStore.CreateChildSpaceAsync(
+            WorkspacePrincipalRef.System,
+            sessionSpace.Id,
+            new CreateWorkspaceSpaceRequest
+            {
+                Kind = WorkspaceSessionRepository.BranchKind,
+                ExternalId = branchId,
+                Name = branchId,
+                Slug = branchId
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<WorkspaceSpaceInfo> EnsureSessionSpaceAsync(
+        Session session,
+        CancellationToken cancellationToken)
+    {
+        var existing = await _workspaceStore!.FindSpaceAsync(
+            WorkspacePrincipalRef.System,
+            new WorkspaceSpaceQuery
+            {
+                Kind = WorkspaceSessionRepository.SessionKind,
+                ExternalId = session.Id
+            },
+            cancellationToken).ConfigureAwait(false);
+        if (existing is not null)
+            return existing;
+
+        return await _workspaceStore.CreateSpaceAsync(
+            WorkspacePrincipalRef.System,
+            new CreateWorkspaceSpaceRequest
+            {
+                Kind = WorkspaceSessionRepository.SessionKind,
+                ExternalId = session.Id,
+                Name = session.Id,
+                Slug = session.Id
+            },
+            cancellationToken).ConfigureAwait(false);
     }
 
     private IHostedFileClient? GetHostedFileClient(BeforeMessageTurnContext context)
@@ -318,6 +385,9 @@ public class ContentUploadMiddleware : IAgentMiddleware
 
     private static string? ExtractFileName(AIContent content)
     {
+        if (content is DataContent { Name.Length: > 0 } data)
+            return data.Name;
+
         if (content.AdditionalProperties != null &&
             content.AdditionalProperties.TryGetValue("filename", out var fn))
             return fn?.ToString();

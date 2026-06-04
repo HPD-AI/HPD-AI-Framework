@@ -67,10 +67,10 @@ public sealed class AudioRuntimeAttachmentBranchProjectionTests
     [Fact]
     public async Task AgentBuilderAudioRuntimeAttachment_RunsBeforeContentUpload_AndPreservesInputMediaIdentity()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var agent = await AgentBuilder.Create()
             .WithDeferredProvider()
-            .WithContentStore(contentStore)
+            .WithWorkspaceStore(workspaceStore)
             .WithAudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
             {
                 RunAudioInteractionRuntime = false
@@ -118,10 +118,10 @@ public sealed class AudioRuntimeAttachmentBranchProjectionTests
     [Fact]
     public async Task BeforeMessageTurn_ProjectsInputMediaTranscript_ToSessionBranchWithoutRawAudio()
     {
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
-            BranchProjectionSink = new SessionBranchProjectionSink(store),
+            BranchProjectionSink = new SessionBranchProjectionSink(repository),
             InteractionSessionFactory = new FakeAudioInteractionSessionFactory(
                 options: new FakeAudioInteractionSessionOptions
                 {
@@ -140,8 +140,8 @@ public sealed class AudioRuntimeAttachmentBranchProjectionTests
         Assert.Contains(context.UserMessage.Contents.OfType<TextContent>(), text =>
             text.Text == "middleware transcript:middleware.wav");
 
-        var loaded = await store.LoadBranchAsync("session-middleware", "main");
-        var document = await store.LoadBranchDocumentAsync("session-middleware", "main");
+        var loaded = await repository.LoadBranchAsync("session-middleware", "main");
+        var document = await repository.LoadBranchDocumentAsync("session-middleware", "main");
 
         Assert.NotNull(loaded);
         var projectedMessage = Assert.Single(loaded.Messages);
@@ -159,12 +159,12 @@ public sealed class AudioRuntimeAttachmentBranchProjectionTests
     [Fact]
     public async Task BeforeMessageTurn_CreatesInteractionFactoryFromInputMediaResolver()
     {
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var client = new FakeSpeechToTextClient("meai middleware transcript");
         var factoryCreateCount = 0;
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
-            BranchProjectionSink = new SessionBranchProjectionSink(store),
+            BranchProjectionSink = new SessionBranchProjectionSink(repository),
             InteractionSessionFactoryResolver = sourceResolver =>
             {
                 factoryCreateCount++;
@@ -185,7 +185,7 @@ public sealed class AudioRuntimeAttachmentBranchProjectionTests
         Assert.Equal(1, factoryCreateCount);
         Assert.Equal(bytes, client.LastAudioBytes);
 
-        var loaded = await store.LoadBranchAsync("session-meai-middleware", "main");
+        var loaded = await repository.LoadBranchAsync("session-meai-middleware", "main");
         Assert.NotNull(loaded);
         var projectedMessage = Assert.Single(loaded.Messages);
         Assert.Equal(ChatRole.User, projectedMessage.Role);
@@ -526,7 +526,7 @@ public sealed class AudioRuntimeAttachmentBranchProjectionTests
     [Fact]
     public async Task BeforeMessageTurn_SpeechToTextProviderBridge_ProjectsCommittedTranscriptWithoutRawAudio()
     {
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var client = new FakeSpeechToTextClient("provider registry transcript");
         var provider = new FakeSpeechToTextClientProvider("fake-stt", client);
         var registry = new ProviderRegistry();
@@ -534,7 +534,7 @@ public sealed class AudioRuntimeAttachmentBranchProjectionTests
 
         var options = new AudioRuntimeAttachmentOptions
         {
-            BranchProjectionSink = new SessionBranchProjectionSink(store)
+            BranchProjectionSink = new SessionBranchProjectionSink(repository)
         };
         options.UseSpeechToTextProvider(
             registry,
@@ -566,8 +566,8 @@ public sealed class AudioRuntimeAttachmentBranchProjectionTests
         Assert.Equal(16_000, client.LastOptions.SpeechSampleRate);
         Assert.True(client.IsDisposed);
 
-        var loaded = await store.LoadBranchAsync("session-provider-bridge", "main");
-        var document = await store.LoadBranchDocumentAsync("session-provider-bridge", "main");
+        var loaded = await repository.LoadBranchAsync("session-provider-bridge", "main");
+        var document = await repository.LoadBranchDocumentAsync("session-provider-bridge", "main");
 
         Assert.NotNull(loaded);
         var projectedMessage = Assert.Single(loaded.Messages);

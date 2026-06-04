@@ -45,11 +45,11 @@ public class HPDAgentRegistryTests
     }
 
     [Fact]
-    public void AddHPDAgent_SessionManager_HasStore()
+    public void AddHPDAgent_SessionManager_HasRepository()
     {
         var sp = BuildProvider();
         var sm = sp.GetRequiredService<SessionManager>();
-        sm.Store.Should().NotBeNull();
+        sm.Repository.Should().NotBeNull();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -74,32 +74,23 @@ public class HPDAgentRegistryTests
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void AddHPDAgent_UsesProvidedSessionStore()
-    {
-        var customStore = new InMemorySessionStore();
-        var sp = BuildProvider(opts => opts.SessionStore = customStore);
-
-        var sm = sp.GetRequiredService<SessionManager>();
-        sm.Store.Should().BeSameAs(customStore);
-    }
-
-    [Fact]
-    public void AddHPDAgent_CreatesInMemorySessionStore_WhenNoneProvided()
+    public void AddHPDAgent_CreatesWorkspaceBackedSessionRepository_WhenNoneProvided()
     {
         var sp = BuildProvider();
         var sm = sp.GetRequiredService<SessionManager>();
-        sm.Store.Should().BeOfType<InMemorySessionStore>();
+        sm.Repository.Should().BeOfType<WorkspaceSessionRepository>();
     }
 
     [Fact]
-    public void AddHPDAgent_CreatesJsonSessionStore_WhenPathProvided()
+    public void AddHPDAgent_UsesWorkspaceStorePathAsJsonWorkspacePath()
     {
         var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         try
         {
-            var sp = BuildProvider(opts => opts.SessionStore = new JsonSessionStore(tempPath));
+            var sp = BuildProvider(opts => opts.WorkspaceStorePath = tempPath);
             var sm = sp.GetRequiredService<SessionManager>();
-            sm.Store.Should().BeOfType<JsonSessionStore>();
+
+            sm.Repository.Should().BeOfType<WorkspaceSessionRepository>();
         }
         finally
         {
@@ -117,7 +108,7 @@ public class HPDAgentRegistryTests
     {
         var services = new ServiceCollection();
         services.AddSingleton<IAgentFactory, StubAgentFactory>();
-        services.AddHPDAgent(opts => opts.SessionStore = new InMemorySessionStore());
+        services.AddHPDAgent(opts => opts.UseInMemoryWorkspace());
         var sp = services.BuildServiceProvider();
 
         // AgentManager and SessionManager must resolve without throwing
@@ -132,23 +123,25 @@ public class HPDAgentRegistryTests
     [Fact]
     public async Task AddHPDAgent_DoesNotSeedDefaultStoredAgent_OnRegistration()
     {
-        var agentStore = new InMemoryAgentStore();
-        var sp = BuildProvider(opts => opts.AgentStore = agentStore);
+        var workspace = new InMemoryWorkspaceStore();
+        var repository = new WorkspaceAgentRepository(workspace);
+        var sp = BuildProvider(opts => opts.UseWorkspaceStore(workspace));
 
         // Trigger pair creation by resolving AgentManager
         _ = sp.GetRequiredService<AgentManager>();
 
-        var def = await agentStore.LoadAsync("default");
+        var def = await repository.LoadAsync("default");
         def.Should().BeNull("registration should no longer fire-and-forget seed a default definition");
     }
 
     [Fact]
     public async Task AddHPDAgent_PersistsDefaultStoredAgent_OnFirstBuild()
     {
-        var agentStore = new InMemoryAgentStore();
+        var workspace = new InMemoryWorkspaceStore();
+        var repository = new WorkspaceAgentRepository(workspace);
         var sp = BuildProvider(opts =>
         {
-            opts.AgentStore = agentStore;
+            opts.UseWorkspaceStore(workspace);
             opts.ConfigureAgent = InjectTestProvider;
         });
 
@@ -156,7 +149,7 @@ public class HPDAgentRegistryTests
 
         await manager.GetOrBuildAgentAsync("default");
 
-        var def = await agentStore.LoadAsync("default");
+        var def = await repository.LoadAsync("default");
         def.Should().NotBeNull("first build should persist the synthesized default definition");
         def!.Id.Should().Be("default");
     }
@@ -164,7 +157,8 @@ public class HPDAgentRegistryTests
     [Fact]
     public async Task AddHPDAgent_DoesNotOverwrite_ExistingDefaultAgent_OnFirstBuild()
     {
-        var agentStore = new InMemoryAgentStore();
+        var workspace = new InMemoryWorkspaceStore();
+        var repository = new WorkspaceAgentRepository(workspace);
         var existing = new StoredAgent
         {
             Id = "default",
@@ -173,18 +167,18 @@ public class HPDAgentRegistryTests
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
-        await agentStore.SaveAsync(existing);
+        await repository.SaveAsync(existing);
 
         var sp = BuildProvider(opts =>
         {
-            opts.AgentStore = agentStore;
+            opts.UseWorkspaceStore(workspace);
             opts.ConfigureAgent = InjectTestProvider;
         });
 
         var manager = sp.GetRequiredService<AgentManager>();
         await manager.GetOrBuildAgentAsync("default");
 
-        var loaded = await agentStore.LoadAsync("default");
+        var loaded = await repository.LoadAsync("default");
         loaded!.Name.Should().Be("Pre-existing");
     }
 
@@ -197,7 +191,6 @@ public class HPDAgentRegistryTests
         var services = new ServiceCollection();
         services.AddHPDAgent(opts =>
         {
-            opts.SessionStore = new InMemorySessionStore();
             configure?.Invoke(opts);
         });
         return services.BuildServiceProvider();
@@ -220,7 +213,7 @@ public class HPDAgentRegistryTests
 
     private sealed class StubAgentFactory : IAgentFactory
     {
-        public Task<Agent> CreateAgentAsync(string agentId, ISessionStore store, CancellationToken ct = default)
+        public Task<Agent> CreateAgentAsync(string agentId, ISessionRepository sessionRepository, CancellationToken ct = default)
             => throw new NotSupportedException("Stub — not called in this test.");
     }
 }

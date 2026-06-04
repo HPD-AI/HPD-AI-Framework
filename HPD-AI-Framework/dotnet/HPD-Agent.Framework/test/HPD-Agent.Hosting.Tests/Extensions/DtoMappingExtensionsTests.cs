@@ -162,13 +162,15 @@ public class DtoMappingExtensionsTests
     public void ToDto_MapsContentCorrectly_WithAllProperties()
     {
         // Arrange
-        var metadata = new HPD.Agent.ContentInfo
+        var metadata = new HPD.Agent.WorkspaceContentInfo
         {
             Id = "content-123",
             Version = "rev:123",
             Name = "content-123",
             ContentType = "image/png",
             SizeBytes = 1024000,
+            Checksum = "sha256:test",
+            StorageKey = "memory://content-123/rev-123",
             CreatedAt = DateTime.UtcNow
         };
 
@@ -180,7 +182,7 @@ public class DtoMappingExtensionsTests
         dto.ContentType.Should().Be("image/png");
         dto.SizeBytes.Should().Be(1024000);
         DateTime.TryParse(dto.CreatedAt, null, System.Globalization.DateTimeStyles.RoundtripKind, out var createdAt).Should().BeTrue();
-        createdAt.ToUniversalTime().Should().BeCloseTo(metadata.CreatedAt, TimeSpan.FromSeconds(1));
+        createdAt.ToUniversalTime().Should().BeCloseTo(metadata.CreatedAt.UtcDateTime, TimeSpan.FromSeconds(1));
     }
 
     #endregion

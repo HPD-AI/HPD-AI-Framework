@@ -35,6 +35,7 @@ public interface IBranchHistoryCompactor
     Task<BranchCompactionResult> CompactAsync(
         Branch branch,
         BranchCompactionPlan plan,
+        ISessionRepository? sessionRepository,
         CancellationToken cancellationToken);
 }
 
@@ -235,6 +236,7 @@ public sealed class BranchHistoryCompactor : IBranchHistoryCompactor
     public async Task<BranchCompactionResult> CompactAsync(
         Branch branch,
         BranchCompactionPlan plan,
+        ISessionRepository? sessionRepository,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(branch);
@@ -272,9 +274,9 @@ public sealed class BranchHistoryCompactor : IBranchHistoryCompactor
 
         ApplyToLiveBranch(branch, durableRemovedIds, replacementMessages);
 
-        if (branch.Session?.Store is { } store)
+        if (sessionRepository is not null)
         {
-            await store.AppendBranchEventAsync(
+            await sessionRepository.AppendBranchEventAsync(
                 branch.SessionId,
                 branch.Id,
                 BranchEventFactory.BranchHistoryCompacted(branch.SessionId, branch.Id, evt),

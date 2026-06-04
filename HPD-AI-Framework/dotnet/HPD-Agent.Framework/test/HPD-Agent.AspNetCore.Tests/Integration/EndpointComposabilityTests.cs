@@ -235,10 +235,10 @@ public class EndpointComposabilityTests
 
     private sealed class UnsupportedContentService : IAgentContentService
     {
-        public Task<AgentServiceResult<ContentDto>> UploadContentAsync(string sessionId, Stream content, string fileName, string? contentType, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<IReadOnlyList<ContentDto>>> ListContentAsync(string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<AgentContentDownload>> DownloadContentAsync(string sessionId, string contentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult> DeleteContentAsync(string sessionId, string contentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<ContentDto>> UploadContentAsync(string sessionId, string branchId, Stream content, string fileName, string? contentType, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<IReadOnlyList<ContentDto>>> ListContentAsync(string sessionId, string branchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<AgentContentDownload>> DownloadContentAsync(string sessionId, string branchId, string contentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult> DeleteContentAsync(string sessionId, string branchId, string contentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class UnsupportedAgentDefinitionService : IAgentDefinitionService

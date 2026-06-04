@@ -1,5 +1,6 @@
 using HPD.Agent.AspNetCore.DependencyInjection;
 using HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
+using HPD.Agent.Evaluations.Storage;
 using HPD.Agent.Hosting.Lifecycle;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
@@ -66,6 +67,9 @@ public static class HPDAgentEndpointRouteBuilderExtensions
 
         var routeGroup = endpoints.MapGroup(options.RoutePrefix);
 
+        var registry = endpoints.ServiceProvider.GetRequiredService<HPDAgentRegistry>();
+        var pair = registry.Get(name);
+
         var servicesProvider = endpoints.ServiceProvider.GetRequiredService<IHPDAgentHostingServicesProvider>();
         var hostingServices = servicesProvider.Get(name);
 
@@ -86,10 +90,39 @@ public static class HPDAgentEndpointRouteBuilderExtensions
         if (options.MapAgents)
             AgentEndpoints.Map(routeGroup, hostingServices.Agents);
         if (options.MapEvals)
-            EvalEndpoints.Map(routeGroup);
+            EvalEndpoints.Map(
+                routeGroup,
+                ResolveScoreStore(endpoints, pair.SessionManager.Repository),
+                ResolveDatasetStore(endpoints, pair.SessionManager.Repository));
 
         options.ConfigureRoutes?.Invoke(routeGroup);
 
         return routeGroup;
+    }
+
+    private static IScoreStore? ResolveScoreStore(
+        IEndpointRouteBuilder endpoints,
+        ISessionRepository sessionRepository)
+    {
+        var explicitStore = endpoints.ServiceProvider.GetService<IScoreStore>();
+        if (explicitStore is not null)
+            return explicitStore;
+
+        return sessionRepository is WorkspaceSessionRepository workspaceRepository
+            ? new WorkspaceScoreStore(workspaceRepository.Workspace)
+            : null;
+    }
+
+    private static IDatasetStore? ResolveDatasetStore(
+        IEndpointRouteBuilder endpoints,
+        ISessionRepository sessionRepository)
+    {
+        var explicitStore = endpoints.ServiceProvider.GetService<IDatasetStore>();
+        if (explicitStore is not null)
+            return explicitStore;
+
+        return sessionRepository is WorkspaceSessionRepository workspaceRepository
+            ? new WorkspaceDatasetStore(workspaceRepository.Workspace)
+            : null;
     }
 }

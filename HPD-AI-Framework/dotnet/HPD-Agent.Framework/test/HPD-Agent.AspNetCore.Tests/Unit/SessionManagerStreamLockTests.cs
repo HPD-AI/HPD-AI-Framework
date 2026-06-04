@@ -10,13 +10,13 @@ namespace HPD.Agent.AspNetCore.Tests.Unit;
 /// </summary>
 public class SessionManagerBranchOperationLockTests : IDisposable
 {
-    private readonly InMemorySessionStore _store;
+    private readonly ISessionRepository _repository;
     private readonly TestSessionManagerImpl _manager;
 
     public SessionManagerBranchOperationLockTests()
     {
-        _store = new InMemorySessionStore();
-        _manager = new TestSessionManagerImpl(_store);
+        _repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
+        _manager = new TestSessionManagerImpl(_repository);
     }
 
     public void Dispose() => _manager.Dispose();
@@ -177,6 +177,6 @@ public class SessionManagerBranchOperationLockTests : IDisposable
 
     private sealed class TestSessionManagerImpl : SessionManager
     {
-        public TestSessionManagerImpl(ISessionStore store) : base(store) { }
+        public TestSessionManagerImpl(ISessionRepository repository) : base(repository) { }
     }
 }

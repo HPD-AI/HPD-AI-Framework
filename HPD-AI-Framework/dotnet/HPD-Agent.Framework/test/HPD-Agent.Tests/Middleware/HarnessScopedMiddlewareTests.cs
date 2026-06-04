@@ -830,7 +830,7 @@ public class HARNESScopedMiddlewareTests
                     ["IsContainer"] = true,
                     ["ToolHarnessName"] = toolharnessName,
                     ["FunctionNames"] = childFunctionNames,
-                    ["IsCollapse"] = true,
+                    ["IsToolHarnessContainer"] = true,
                 },
             });
         tools.Add(containerFunc);

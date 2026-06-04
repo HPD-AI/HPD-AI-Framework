@@ -10,7 +10,7 @@ namespace HPD.Agent.Hosting.Lifecycle;
 /// <remarks>
 /// Responsibilities:
 /// <list type="bullet">
-///   <item>Agent definition CRUD (delegated to <see cref="IAgentStore"/>)</item>
+///   <item>Agent definition CRUD (delegated to <see cref="IAgentRepository"/>)</item>
 ///   <item><see cref="Agent"/> instance build, cache, and idle eviction (keyed by runtime owner)</item>
 /// </list>
 ///
@@ -20,23 +20,28 @@ namespace HPD.Agent.Hosting.Lifecycle;
 /// </remarks>
 public abstract class AgentManager : IDisposable
 {
-    private readonly IAgentStore _store;
+    private readonly IAgentRepository _repository;
     private readonly ConcurrentDictionary<string, AgentEntry> _agents = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _buildLocks = new();
     private readonly Timer _evictionTimer;
     private bool _disposed;
 
-    protected AgentManager(IAgentStore store)
+    protected AgentManager(IAgentRepository repository)
     {
-        _store = store ?? throw new ArgumentNullException(nameof(store));
+        _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _evictionTimer = new Timer(EvictIdleAgents, null,
             TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
     }
 
     /// <summary>
-    /// Store used for persisted agent definitions.
+    /// Typed repository used for persisted agent definitions.
     /// </summary>
-    protected IAgentStore AgentStore => _store;
+    public IAgentRepository Repository => _repository;
+
+    /// <summary>
+    /// Typed repository used by derived managers.
+    /// </summary>
+    protected IAgentRepository AgentRepository => _repository;
 
     // ─── Definition CRUD ────────────────────────────────────────────────
 
@@ -59,7 +64,7 @@ public abstract class AgentManager : IDisposable
             Metadata = metadata
         };
 
-        await _store.SaveAsync(stored, ct);
+        await _repository.SaveAsync(stored, ct);
         return stored;
     }
 
@@ -67,17 +72,17 @@ public abstract class AgentManager : IDisposable
     public Task<StoredAgent?> GetDefinitionAsync(string agentId, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
-        return _store.LoadAsync(agentId, ct);
+        return _repository.LoadAsync(agentId, ct);
     }
 
     /// <summary>List all stored agent definitions.</summary>
     public async Task<IReadOnlyList<StoredAgent>> ListDefinitionsAsync(CancellationToken ct = default)
     {
-        var ids = await _store.ListIdsAsync(ct);
+        var ids = await _repository.ListIdsAsync(ct);
         var result = new List<StoredAgent>(ids.Count);
         foreach (var id in ids)
         {
-            var agent = await _store.LoadAsync(id, ct);
+            var agent = await _repository.LoadAsync(id, ct);
             if (agent != null)
                 result.Add(agent);
         }
@@ -97,13 +102,13 @@ public abstract class AgentManager : IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentNullException.ThrowIfNull(config);
 
-        var existing = await _store.LoadAsync(agentId, ct)
+        var existing = await _repository.LoadAsync(agentId, ct)
             ?? throw new KeyNotFoundException($"Agent '{agentId}' not found.");
 
         existing.Config = config;
         existing.UpdatedAt = DateTime.UtcNow;
 
-        await _store.SaveAsync(existing, ct);
+        await _repository.SaveAsync(existing, ct);
 
         // Evict cached instance — next request will rebuild
         EvictAgent(agentId);
@@ -117,7 +122,7 @@ public abstract class AgentManager : IDisposable
     public async Task DeleteDefinitionAsync(string agentId, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
-        await _store.DeleteAsync(agentId, ct);
+        await _repository.DeleteAsync(agentId, ct);
         EvictAgent(agentId);
     }
 
@@ -212,7 +217,7 @@ public abstract class AgentManager : IDisposable
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
-        await _store.SaveAsync(stored, ct);
+        await _repository.SaveAsync(stored, ct);
     }
 
     // ─── Abstract ────────────────────────────────────────────────────────

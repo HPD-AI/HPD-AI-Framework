@@ -11,7 +11,7 @@ namespace HPD.Agent.Evaluations.Storage;
 /// <summary>
 /// In-memory IScoreStore implementation for unit tests and development.
 /// All analytics queries operate over the in-memory collection — appropriate
-/// for small result sets. Use SqliteScoreStore for production with analytics.
+/// for small result sets.
 /// </summary>
 public sealed class InMemoryScoreStore : IScoreStore
 {

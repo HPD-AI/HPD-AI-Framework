@@ -17,7 +17,7 @@ public sealed class BeforeMessageTurnContext : HookContext
     /// The new user message that initiated this turn.
     /// </summary>
     /// <remarks>
-    /// This can be <see langword="null"/> in continuation scenarios, such as resuming from a checkpoint
+    /// This can be <see langword="null"/> in continuation scenarios without new user input
     /// without new user input. Middleware may replace this value when transforming the current input
     /// message, for example when converting uploaded content into provider-specific references. Replacing
     /// this value updates the turn-owned message lists used for model input and persistence.

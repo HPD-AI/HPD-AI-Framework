@@ -316,38 +316,40 @@ public sealed class ExecuteCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecuteCommand_ForegroundRun_CommitsArtifactsWhenSessionContentStoreExists()
+    public async Task ExecuteCommand_ForegroundRun_CommitsArtifactsWhenSessionWorkspaceExists()
     {
-        var store = new InMemorySessionStore();
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var runner = new FakeProcessProvider
         {
             Result = CreateResult(stdout: "artifact stdout\n", stderr: "artifact stderr\n", exitCode: 0)
         };
 
         var result = await new CodingToolHarness().ExecuteCommand(
-            context: CreateContext(runner, store, contentStore: contentStore),
+            context: CreateContext(runner, workspaceStore: workspaceStore),
             command: "dotnet test");
 
         var xml = result.ToString();
-        xml.Should().Contain("artifact_path=\"/artifacts/commands/");
+        xml.Should().Contain("artifact_path=\"/sessions/session-1/branches/branch-1/artifacts/commands/");
         xml.Should().Contain("content_id=");
 
-        var artifacts = await contentStore.QueryAsync("session-1", new ContentQuery
+        var artifacts = await workspaceStore.SearchContentAsync(WorkspacePrincipalRef.System, new WorkspaceVisibleContentQuery
         {
-            Tags = new Dictionary<string, string> { ["folder"] = "/artifacts" }
+            Role = WorkspaceContentRoles.Artifact
         });
+        artifacts = artifacts
+            .Where(item => item.Attachment.PathHint == WorkspaceContentPaths.BranchArtifacts("session-1", "branch-1"))
+            .ToArray();
 
-        artifacts.Select(item => item.Name).Should().Contain(name => name.EndsWith("/stdout.txt", StringComparison.Ordinal));
-        artifacts.Select(item => item.Name).Should().Contain(name => name.EndsWith("/stderr.txt", StringComparison.Ordinal));
-        artifacts.Select(item => item.Name).Should().Contain(name => name.EndsWith("/combined.log", StringComparison.Ordinal));
-        artifacts.Select(item => item.Name).Should().Contain(name => name.EndsWith("/metadata.json", StringComparison.Ordinal));
+        artifacts.Select(item => item.Attachment.Name).Should().Contain(name => name.EndsWith("/stdout.txt", StringComparison.Ordinal));
+        artifacts.Select(item => item.Attachment.Name).Should().Contain(name => name.EndsWith("/stderr.txt", StringComparison.Ordinal));
+        artifacts.Select(item => item.Attachment.Name).Should().Contain(name => name.EndsWith("/combined.log", StringComparison.Ordinal));
+        artifacts.Select(item => item.Attachment.Name).Should().Contain(name => name.EndsWith("/metadata.json", StringComparison.Ordinal));
         foreach (var artifact in artifacts)
         {
-            artifact.Tags.Should().NotBeNull();
-            artifact.Tags!["artifact-kind"].Should().Be("execute_command_output");
-            artifact.Tags["command-id"].Should().StartWith("cmd_");
-            artifact.Tags["cwd"].Should().Be(Directory.GetCurrentDirectory());
+            artifact.Content.Metadata.Should().NotBeNull();
+            artifact.Content.Metadata!["artifact-kind"].Should().Be("execute_command_output");
+            artifact.Content.Metadata["command-id"].Should().StartWith("cmd_");
+            artifact.Content.Metadata["cwd"].Should().Be(Directory.GetCurrentDirectory());
         }
     }
 
@@ -360,13 +362,13 @@ public sealed class ExecuteCommandTests : IDisposable
         };
 
         var result = await new CodingToolHarness().ExecuteCommand(
-            context: CreateContext(runner, contentStore: new ThrowingContentStore()),
+            context: CreateContext(runner, workspaceStore: new InMemoryWorkspaceStore(contentObjects: new ThrowingWorkspaceContentObjects())),
             command: "dotnet test");
 
         var xml = result.ToString();
         xml.Should().Contain("preview survives");
         xml.Should().Contain("<output_store");
-        xml.Should().Contain("content_store_available=\"true\"");
+        xml.Should().Contain("workspace_store_available=\"true\"");
         xml.Should().Contain("warning=\"Failed to commit command output artifacts: commit blocked\"");
         xml.Should().Contain("local_path=");
     }
@@ -788,11 +790,10 @@ public sealed class ExecuteCommandTests : IDisposable
 
     private static FunctionExecutionContext CreateContext(
         IProcessProvider? runner,
-        ISessionStore? sessionStore = null,
         IAgentBackgroundTaskRegistry? backgroundTasks = null,
         string sessionId = "session-1",
         AgentRunConfig? runConfig = null,
-        IContentStore? contentStore = null)
+        IWorkspaceStore? workspaceStore = null)
     {
         var function = AIFunctionFactory.Create(
             () => "ok",
@@ -803,7 +804,7 @@ public sealed class ExecuteCommandTests : IDisposable
             });
 
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
-        var session = new Session(sessionId) { Store = sessionStore };
+        var session = new Session(sessionId);
         var branch = new Branch(sessionId) { Id = "branch-1" };
         var eventCoordinator = new EventCoordinator();
         var agentContext = new AgentContext(
@@ -814,7 +815,7 @@ public sealed class ExecuteCommandTests : IDisposable
             session,
             branch,
             CancellationToken.None,
-            contentStore: contentStore);
+            workspaceStore: workspaceStore);
         if (runner is not null)
             agentContext.RuntimeCapabilities.Set<IProcessProvider>(runner);
 
@@ -1088,60 +1089,45 @@ public sealed class ExecuteCommandTests : IDisposable
         }
     }
 
-    private sealed class ThrowingSessionStore : ISessionStore
+    private sealed class ThrowingWorkspaceContentObjects : IWorkspaceContentObjects
     {
-        public Task<Session?> LoadSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<Session?>(null);
-        public Task SaveSessionAsync(Session session, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<List<string>> ListSessionIdsAsync(CancellationToken cancellationToken = default) => Task.FromResult(new List<string>());
-        public Task DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<Branch?> LoadBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default) => Task.FromResult<Branch?>(null);        public Task<List<string>> ListBranchIdsAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult(new List<string>());
-        public Task DeleteBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<UncommittedTurn?> LoadUncommittedTurnAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<UncommittedTurn?>(null);
-        public Task SaveUncommittedTurnAsync(UncommittedTurn turn, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task DeleteUncommittedTurnAsync(string sessionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<int> DeleteInactiveSessionsAsync(TimeSpan inactivityThreshold, bool dryRun = false, CancellationToken cancellationToken = default) => Task.FromResult(0);
-    }
-
-    private sealed class ThrowingContentStore : IContentStore
-    {
-        public Task<ContentInfo> WriteAsync(
-            string? scope,
+        public Task<WorkspaceContentObjectWriteResult> WriteAsync(
+            string contentId,
+            string version,
             Stream data,
-            ContentMetadata metadata,
-            ContentWriteOptions options,
+            WorkspaceContentObjectWriteRequest request,
             CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("commit blocked");
 
         public Task<Stream?> OpenReadAsync(
-            string? scope,
             string contentId,
+            string? version = null,
             CancellationToken cancellationToken = default)
             => Task.FromResult<Stream?>(null);
 
         public Task<Uri?> CreateReadUriAsync(
-            string? scope,
             string contentId,
+            string? version,
             TimeSpan expiresIn,
             CancellationToken cancellationToken = default)
             => Task.FromResult<Uri?>(null);
 
-        public Task<ContentInfo?> StatAsync(
-            string? scope,
+        public Task<WorkspaceContentObjectStat?> StatAsync(
             string contentId,
+            string? version = null,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<ContentInfo?>(null);
+            => Task.FromResult<WorkspaceContentObjectStat?>(null);
 
         public Task DeleteAsync(
-            string? scope,
             string contentId,
-            ContentDeleteOptions? options = null,
+            string? ifMatchVersion = null,
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
-        public Task<IReadOnlyList<ContentInfo>> QueryAsync(
-            string? scope = null,
-            ContentQuery? query = null,
+        public Task DeleteVersionAsync(
+            string contentId,
+            string version,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<ContentInfo>>([]);
+            => Task.CompletedTask;
     }
 }

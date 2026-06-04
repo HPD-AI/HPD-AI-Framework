@@ -20,15 +20,15 @@ namespace HPD.Agent;
 /// <para>
 /// Uses ImmutableDictionary&lt;string, object?&gt; as backing storage.
 /// This pattern is proven by Microsoft.Extensions.AI (see AIJsonUtilities.Defaults.cs).
-/// During deserialization from checkpoints, values become JsonElement which are
+/// During deserialization from durable JSON, values become JsonElement which are
 /// transparently converted to concrete types by the smart accessor.
 /// </para>
 ///
 /// <para><b>Performance:</b></para>
 /// <list type="bullet">
 /// <item>Runtime reads: ~20-25ns (dictionary lookup + pattern match)</item>
-/// <item>Post-checkpoint first read: ~150ns (JsonElement deserialize)</item>
-/// <item>Post-checkpoint cached reads: ~20ns (from cache)</item>
+/// <item>Post-deserialization first read: ~150ns (JsonElement deserialize)</item>
+/// <item>Post-deserialization cached reads: ~20ns (from cache)</item>
 /// <item>Immutable updates: ~30ns (ImmutableDictionary.SetItem)</item>
 /// </list>
 ///
@@ -77,9 +77,9 @@ public sealed partial class MiddlewareState
     //      
 
     /// <summary>
-    /// Schema signature of the code that created this checkpoint.
+    /// Schema signature of the code that created this serialized state.
     /// Comma-separated list of middleware state FQNs in alphabetical order.
-    /// Null for checkpoints created before schema versioning was added.
+    /// Null for serialized states created before schema versioning was added.
     /// </summary>
     [JsonPropertyName("schemaSignature")]
     public string? SchemaSignature { get; init; }
@@ -94,7 +94,7 @@ public sealed partial class MiddlewareState
     /// <summary>
     /// Per-state version mapping (type FQN → version).
     /// Used for detecting individual state schema evolution.
-    /// Null for checkpoints created before schema versioning was added.
+    /// Null for serialized states created before schema versioning was added.
     /// </summary>
     [JsonPropertyName("stateVersions")]
     public ImmutableDictionary<string, int>? StateVersions { get; init; }
@@ -148,7 +148,7 @@ public sealed partial class MiddlewareState
     /// <para><b>Timeline of State Transitions:</b></para>
     /// <para>
     /// T0: Runtime - Store concrete type in _states[key] = TState instance
-    /// T1: Serialize to JSON (checkpoint)
+    /// T1: Serialize to JSON.
     /// T2: Deserialize from JSON (restore) - _states[key] = JsonElement
     /// T3: Access via property - Smart accessor detects JsonElement, deserializes to TState, caches result
     /// T4: Update state - _states[key] = TState instance (concrete type again)
@@ -170,7 +170,7 @@ public sealed partial class MiddlewareState
     /// </example>
     public TState? GetState<TState>(string key) where TState : class
     {
-        // Fast path: Check deserialization cache first (post-checkpoint scenario)
+        // Fast path: Check deserialization cache first.
         if (_deserializedCache.IsValueCreated &&
             _deserializedCache.Value.TryGetValue(key, out var cached))
         {
@@ -184,7 +184,7 @@ public sealed partial class MiddlewareState
         var result = value switch
         {
             TState typed => typed,  // Runtime: already correct type
-            JsonElement elem => DeserializeJsonElement<TState>(key, elem),  // Deserialized from checkpoint
+            JsonElement elem => DeserializeJsonElement<TState>(key, elem),  // Deserialized from durable JSON
             _ => throw new InvalidOperationException(
                 $"Unexpected type {value.GetType().Name} for middleware state '{key}'. " +
                 $"Expected {typeof(TState).Name} or JsonElement.")
@@ -254,7 +254,7 @@ public sealed partial class MiddlewareState
     //
     // PERSISTENCE API (Session + Branch Synchronization)
     //
-    // V3 Architecture: State is split by scope
+    // State is split by scope.
     // - Session-scoped: LoadFromSession/SaveToSession (filters Scope == Session)
     // - Branch-scoped: LoadFromBranch/SaveToBranch (filters Scope == Branch)
 
@@ -267,7 +267,7 @@ public sealed partial class MiddlewareState
     /// <param name="factories">Middleware state factories from the agent's registry.</param>
     /// <returns>MiddlewareState with restored session-scoped persistent states.</returns>
     /// <remarks>
-    /// <para><b>V3 Change:</b> Now filters by Scope == StateScope.Session.</para>
+    /// <para>Filters by Scope == StateScope.Session.</para>
     /// <para>
     /// Session-scoped states (permissions, preferences) are shared across all branches.
     /// Branch-scoped states (plan progress, history cache) use LoadFromBranch instead.
@@ -325,7 +325,7 @@ public sealed partial class MiddlewareState
     /// <param name="factories">Middleware state factories from the agent's registry.</param>
     /// <returns>MiddlewareState with restored branch-scoped persistent states.</returns>
     /// <remarks>
-    /// <para><b>V3 Addition:</b> Branch-scoped state loading.</para>
+    /// <para>Loads branch-scoped state.</para>
     /// <para>
     /// Branch-scoped states (plan progress, history cache) are per-conversation path.
     /// Session-scoped states (permissions, preferences) use LoadFromSession instead.
@@ -383,7 +383,7 @@ public sealed partial class MiddlewareState
     /// <param name="factories">Middleware state factories from the agent's registry.</param>
     /// <exception cref="ArgumentNullException">Thrown if session is null.</exception>
     /// <remarks>
-    /// <para><b>V3 Change:</b> Now filters by Scope == StateScope.Session.</para>
+    /// <para>Filters by Scope == StateScope.Session.</para>
     /// <para>
     /// Session-scoped states (permissions, preferences) are shared across all branches.
     /// Branch-scoped states (plan progress, history cache) use SaveToBranch instead.
@@ -425,7 +425,7 @@ public sealed partial class MiddlewareState
     /// <param name="factories">Middleware state factories from the agent's registry.</param>
     /// <exception cref="ArgumentNullException">Thrown if branch is null.</exception>
     /// <remarks>
-    /// <para><b>V3 Addition:</b> Branch-scoped state saving.</para>
+    /// <para>Saves branch-scoped state.</para>
     /// <para>
     /// Branch-scoped states (plan progress, history cache) are per-conversation path.
     /// Session-scoped states (permissions, preferences) use SaveToSession instead.

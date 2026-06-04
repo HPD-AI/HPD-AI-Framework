@@ -17,7 +17,7 @@ import { describe, it, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 import { flushSync } from 'svelte';
-import MessageReactiveOwnerToolHarness from './message-reactive-owner-toolharness.svelte';
+import MessageReactiveOwnerToolHarness from './message-reactive-owner-harness.svelte';
 
 // ---------------------------------------------------------------------------
 // Tests

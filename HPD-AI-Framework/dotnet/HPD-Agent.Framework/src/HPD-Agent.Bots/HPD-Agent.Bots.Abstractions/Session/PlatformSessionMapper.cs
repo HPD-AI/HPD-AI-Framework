@@ -4,11 +4,11 @@ namespace HPD.Agent.Bots.Session;
 
 /// <summary>
 /// Resolves an inbound platform message to an HPD <c>sessionId</c> + <c>branchId</c>.
-/// Operates in-process against <see cref="SessionManager"/> — no external store, no HTTP.
+/// Operates in-process against <see cref="SessionManager"/> — no HTTP.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <see cref="ResolveAsync"/> searches the session store by <c>metadata["platformKey"]</c>.
+/// <see cref="ResolveAsync"/> searches the session repository by <c>metadata["platformKey"]</c>.
 /// On a miss it delegates to <see cref="SessionManager.CreateSessionAsync"/> — the same
 /// method that creates the session, the default "main" branch, and persists both atomically.
 /// </para>
@@ -20,7 +20,7 @@ namespace HPD.Agent.Bots.Session;
 /// <b>Performance note (open question §5):</b> <see cref="ResolveAsync"/> currently does
 /// <c>ListSessionIdsAsync</c> + load-each — O(n) over all sessions. Acceptable for low-volume
 /// deployments but degrades at scale. A future iteration can add an in-memory
-/// <c>ConcurrentDictionary</c> cache or a secondary index in <c>ISessionStore</c>.
+/// <c>ConcurrentDictionary</c> cache or a secondary index in the workspace-backed repository.
 /// </para>
 /// </remarks>
 public sealed class PlatformSessionMapper
@@ -56,14 +56,14 @@ public sealed class PlatformSessionMapper
         ArgumentException.ThrowIfNullOrWhiteSpace(platformKey);
 
         // Search existing sessions for a matching platformKey in metadata
-        var sessionIds = await _manager.Store.ListSessionIdsAsync(ct);
+        var sessionIds = await _manager.Repository.ListSessionIdsAsync(ct);
         foreach (var sessionId in sessionIds)
         {
-            var session = await _manager.Store.LoadSessionAsync(sessionId, ct);
+            var session = await _manager.Repository.LoadSessionAsync(sessionId, ct);
             if (session?.Metadata != null && MetadataContainsPlatformKey(session.Metadata, platformKey))
             {
                 // Return the first branch (always "main" for adapter-created sessions)
-                var branchIds = await _manager.Store.ListBranchIdsAsync(sessionId, ct);
+                var branchIds = await _manager.Repository.ListBranchIdsAsync(sessionId, ct);
                 var branchId  = branchIds.Count > 0 ? branchIds[0] : "main";
                 return (sessionId, branchId);
             }
@@ -96,7 +96,7 @@ public sealed class PlatformSessionMapper
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
 
-        var session = await _manager.Store.LoadSessionAsync(sessionId, ct)
+        var session = await _manager.Repository.LoadSessionAsync(sessionId, ct)
             ?? throw new InvalidOperationException($"Session '{sessionId}' was not found.");
 
         if (MetadataContainsPlatformKey(session.Metadata, platformKey))
@@ -106,7 +106,7 @@ public sealed class PlatformSessionMapper
         aliases.Add(platformKey);
         session.Metadata[PlatformKeyAliasesMetadataField] = aliases.Distinct(StringComparer.Ordinal).ToArray();
 
-        await _manager.Store.SaveSessionAsync(session, ct);
+        await _manager.Repository.SaveSessionAsync(session, ct);
     }
 
     /// <summary>
@@ -123,13 +123,13 @@ public sealed class PlatformSessionMapper
         ArgumentException.ThrowIfNullOrWhiteSpace(platformKey);
 
         // Find and delete existing session
-        var sessionIds = await _manager.Store.ListSessionIdsAsync(ct);
+        var sessionIds = await _manager.Repository.ListSessionIdsAsync(ct);
         foreach (var sessionId in sessionIds)
         {
-            var session = await _manager.Store.LoadSessionAsync(sessionId, ct);
+            var session = await _manager.Repository.LoadSessionAsync(sessionId, ct);
             if (session?.Metadata != null && MetadataContainsPlatformKey(session.Metadata, platformKey))
             {
-                await _manager.Store.DeleteSessionAsync(sessionId, ct);
+                await _manager.Repository.DeleteSessionAsync(sessionId, ct);
                 _manager.RemoveSession(sessionId);
                 break;
             }

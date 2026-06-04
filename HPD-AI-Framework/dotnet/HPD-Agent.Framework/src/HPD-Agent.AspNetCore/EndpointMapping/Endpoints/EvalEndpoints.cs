@@ -14,10 +14,13 @@ namespace HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 
 internal static class EvalEndpoints
 {
-    internal static void Map(IEndpointRouteBuilder endpoints)
+    internal static void Map(
+        IEndpointRouteBuilder endpoints,
+        IScoreStore? scoreStore = null,
+        IDatasetStore? datasetStore = null)
     {
-        var scoreStore = endpoints.ServiceProvider.GetService<IScoreStore>();
-        var datasetStore = endpoints.ServiceProvider.GetService<IDatasetStore>();
+        scoreStore ??= endpoints.ServiceProvider.GetService<IScoreStore>();
+        datasetStore ??= endpoints.ServiceProvider.GetService<IDatasetStore>();
 
         var group = endpoints.MapGroup("/evals").WithTags("Evaluations");
         var analytics = group.MapGroup("/analytics");

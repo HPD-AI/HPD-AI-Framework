@@ -14,7 +14,7 @@ namespace HPD.Agent;
 /// Think of branches like ChatGPT's message editing feature:
 /// - User edits a message → creates a new branch from that point
 /// - Each branch is an independent conversation path
-/// - All branches share the same session (metadata, content, session-scoped state)
+/// - All branches share the same session metadata and session-scoped state
 /// </para>
 ///
 /// <para><b>Relationship to Session:</b></para>
@@ -22,14 +22,14 @@ namespace HPD.Agent;
 /// Branch belongs to a Session (via SessionId).
 /// Multiple branches can exist in one session, all sharing:
 /// - Session metadata
-/// - Session content (uploaded files)
 /// - Session-scoped middleware state (permissions, preferences)
+/// Uploaded files and generated artifacts are attached to the branch that used or produced them.
 /// </para>
 ///
 /// <para><b>Branch-Scoped vs Session-Scoped:</b></para>
 /// <list type="bullet">
-/// <item><b>Branch-scoped:</b> Messages, plan progress, history cache (diverges per branch)</item>
-/// <item><b>Session-scoped:</b> Permissions, content, user preferences (shared across branches)</item>
+/// <item><b>Branch-scoped:</b> Messages, plan progress, history cache, uploads, artifacts (diverges per branch)</item>
+/// <item><b>Session-scoped:</b> Permissions and user preferences (shared across branches)</item>
 /// </list>
 /// </remarks>
 public class Branch
@@ -106,7 +106,7 @@ public class Branch
     public Dictionary<string, string>? Ancestors { get; set; }
 
     // ============================================
-    // NEW: Tree Structure Navigation (V3)
+    // Tree structure navigation
     // ============================================
 
     /// <summary>
@@ -287,7 +287,7 @@ public class Branch
         Dictionary<string, string>? ancestors,
         Dictionary<string, string> middlewareState,
         Dictionary<string, object>? metadata = null,
-        //  Tree navigation properties (with safe defaults for backward compatibility)
+        //  Tree navigation properties (with safe defaults for older serialized payloads)
         int siblingIndex = 0,
         int totalSiblings = 1,
         bool isOriginal = true,

@@ -20,7 +20,7 @@ public sealed record InputContentRef
 
     public InputContentSourceRef? Source { get; init; }
 
-    public InputContentStoreRef? ContentStore { get; init; }
+    public InputWorkspaceContentRef? WorkspaceContent { get; init; }
 
     public AudioArtifactRef? Artifact { get; init; }
 
@@ -43,7 +43,7 @@ public enum InputContentSourceKind
     DataContent = 1,
     UriContent = 2,
     HostedFileContent = 3,
-    ContentStore = 4,
+    WorkspaceContent = 4,
     Artifact = 5,
     MetadataOnly = 6
 }
@@ -51,7 +51,7 @@ public enum InputContentSourceKind
 public enum InputContentResolutionKind
 {
     InlineBytes = 0,
-    ContentStoreRef = 1,
+    WorkspaceContentRef = 1,
     HostedFileRef = 2,
     ProviderReadableUri = 3,
     ArtifactRef = 4,

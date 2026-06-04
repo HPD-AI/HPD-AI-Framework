@@ -19,14 +19,14 @@ public sealed class AgentBranchService : IAgentBranchService
         string sessionId,
         CancellationToken cancellationToken = default)
     {
-        if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
+        if (await _sessionManager.Repository.LoadSessionAsync(sessionId, cancellationToken) == null)
             return AgentServiceResult<IReadOnlyList<BranchDto>>.NotFound;
 
-        var branchIds = await _sessionManager.Store.ListBranchIdsAsync(sessionId, cancellationToken);
+        var branchIds = await _sessionManager.Repository.ListBranchIdsAsync(sessionId, cancellationToken);
         var dtos = new List<BranchDto>();
         foreach (var branchId in branchIds)
         {
-            var branch = await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken);
+            var branch = await _sessionManager.Repository.LoadBranchAsync(sessionId, branchId, cancellationToken);
             if (branch != null)
                 dtos.Add(branch.ToDto(sessionId));
         }
@@ -39,7 +39,7 @@ public sealed class AgentBranchService : IAgentBranchService
         string branchId,
         CancellationToken cancellationToken = default)
     {
-        var branch = await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken);
+        var branch = await _sessionManager.Repository.LoadBranchAsync(sessionId, branchId, cancellationToken);
         return branch == null
             ? AgentServiceResult<BranchDto>.NotFound
             : AgentServiceResult<BranchDto>.Success(branch.ToDto(sessionId));
@@ -51,28 +51,29 @@ public sealed class AgentBranchService : IAgentBranchService
         CreateBranchRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
+        if (await _sessionManager.Repository.LoadSessionAsync(sessionId, cancellationToken) == null)
             return AgentServiceResult<BranchDto>.NotFound;
 
         var branchId = string.IsNullOrWhiteSpace(request.BranchId)
             ? Guid.NewGuid().ToString()
             : request.BranchId;
 
-        if (await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken) != null)
+        if (await _sessionManager.Repository.LoadBranchAsync(sessionId, branchId, cancellationToken) != null)
             return AgentServiceResult<BranchDto>.Conflict;
 
-        var session = await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken)
+        var session = await _sessionManager.Repository.LoadSessionAsync(sessionId, cancellationToken)
             ?? throw new InvalidOperationException($"Session '{sessionId}' not found after existence check.");
-        session.Store = _sessionManager.Store;
 
         var branch = session.CreateBranch(branchId);
         branch.Name = request.Name ?? branchId;
         branch.Description = request.Description;
         branch.Tags = request.Tags;
         MergeBranchMetadata(branch.Metadata, request.Metadata);
-        await _sessionManager.Store.SaveInitialBranchAsync(sessionId, branch, cancellationToken);
+        await _sessionManager.Repository.SaveBranchDocumentAsync(
+            BranchEventDocumentBuilder.FromBranchSnapshot(sessionId, branch),
+            cancellationToken: cancellationToken);
 
-        branch = await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken)
+        branch = await _sessionManager.Repository.LoadBranchAsync(sessionId, branchId, cancellationToken)
             ?? throw new InvalidOperationException($"Branch '{branchId}' not found after creation.");
 
         return AgentServiceResult<BranchDto>.Success(branch.ToDto(sessionId));
@@ -97,7 +98,7 @@ public sealed class AgentBranchService : IAgentBranchService
         UpdateBranchRequest request,
         CancellationToken cancellationToken = default)
     {
-        var branch = await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken);
+        var branch = await _sessionManager.Repository.LoadBranchAsync(sessionId, branchId, cancellationToken);
         if (branch == null)
             return AgentServiceResult<BranchDto>.NotFound;
 
@@ -111,7 +112,11 @@ public sealed class AgentBranchService : IAgentBranchService
                 MergeBranchMetadata(branch.Metadata, request.Metadata);
                 branch.LastActivity = DateTime.UtcNow;
 
-                await _sessionManager.Store.AppendBranchMetadataUpdatedAsync(branch, cancellationToken);
+                await _sessionManager.Repository.AppendBranchEventAsync(
+                    branch.SessionId,
+                    branch.Id,
+                    BranchEventFactory.BranchMetadataUpdated(branch),
+                    cancellationToken: cancellationToken);
                 return AgentServiceResult<BranchDto>.Success(branch.ToDto(sessionId));
             },
             cancellationToken);
@@ -126,7 +131,7 @@ public sealed class AgentBranchService : IAgentBranchService
         if (branchId == "main")
             return AgentServiceResult.Validation("ProtectedBranch", "Cannot delete the 'main' branch.");
 
-        var branch = await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken);
+        var branch = await _sessionManager.Repository.LoadBranchAsync(sessionId, branchId, cancellationToken);
         if (branch == null)
             return AgentServiceResult.NotFound;
 
@@ -172,8 +177,8 @@ public sealed class AgentBranchService : IAgentBranchService
         string branchId,
         CancellationToken cancellationToken = default)
     {
-        var document = await _sessionManager.Store.LoadBranchDocumentAsync(sessionId, branchId, cancellationToken);
-        if (document == null && await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken) == null)
+        var document = await _sessionManager.Repository.LoadBranchDocumentAsync(sessionId, branchId, cancellationToken);
+        if (document == null && await _sessionManager.Repository.LoadBranchAsync(sessionId, branchId, cancellationToken) == null)
             return AgentServiceResult<IReadOnlyList<AgentEvent>>.NotFound;
 
         return AgentServiceResult<IReadOnlyList<AgentEvent>>.Success(
@@ -185,16 +190,16 @@ public sealed class AgentBranchService : IAgentBranchService
         string branchId,
         CancellationToken cancellationToken = default)
     {
-        var targetBranch = await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken);
+        var targetBranch = await _sessionManager.Repository.LoadBranchAsync(sessionId, branchId, cancellationToken);
         if (targetBranch == null)
             return AgentServiceResult<IReadOnlyList<BranchDto>>.NotFound;
 
-        var branchIds = await _sessionManager.Store.ListBranchIdsAsync(sessionId, cancellationToken);
+        var branchIds = await _sessionManager.Repository.ListBranchIdsAsync(sessionId, cancellationToken);
         var siblingDtos = new List<BranchDto>();
 
         foreach (var id in branchIds)
         {
-            var branch = await _sessionManager.Store.LoadBranchAsync(sessionId, id, cancellationToken);
+            var branch = await _sessionManager.Repository.LoadBranchAsync(sessionId, id, cancellationToken);
             if (branch == null)
                 continue;
 
@@ -217,10 +222,10 @@ public sealed class AgentBranchService : IAgentBranchService
         ForkBranchRequest request,
         CancellationToken cancellationToken)
     {
-        if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
+        if (await _sessionManager.Repository.LoadSessionAsync(sessionId, cancellationToken) == null)
             return AgentServiceResult<BranchDto>.NotFound;
 
-        if (await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken) == null)
+        if (await _sessionManager.Repository.LoadBranchAsync(sessionId, branchId, cancellationToken) == null)
             return AgentServiceResult<BranchDto>.NotFound;
 
         var newBranchId = string.IsNullOrWhiteSpace(request.NewBranchId)
@@ -245,11 +250,15 @@ public sealed class AgentBranchService : IAgentBranchService
                 ex.Message);
         }
 
-        var newBranch = await _sessionManager.Store.LoadBranchAsync(sessionId, newBranchId, cancellationToken)
+        var newBranch = await _sessionManager.Repository.LoadBranchAsync(sessionId, newBranchId, cancellationToken)
             ?? throw new InvalidOperationException($"Branch '{newBranchId}' not found after fork.");
 
         ApplyBranchMetadata(newBranch, request.Name, request.Description, request.Tags, metadata: null);
-        await _sessionManager.Store.AppendBranchMetadataUpdatedAsync(newBranch, cancellationToken);
+        await _sessionManager.Repository.AppendBranchEventAsync(
+            newBranch.SessionId,
+            newBranch.Id,
+            BranchEventFactory.BranchMetadataUpdated(newBranch),
+            cancellationToken: cancellationToken);
 
         return AgentServiceResult<BranchDto>.Success(newBranch.ToDto(sessionId));
     }
@@ -269,14 +278,14 @@ public sealed class AgentBranchService : IAgentBranchService
 
         await ReindexSiblingsAfterDeleteAsync(sessionId, branchId, branch, cancellationToken);
 
-        var session = await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken);
+        var session = await _sessionManager.Repository.LoadSessionAsync(sessionId, cancellationToken);
         if (session != null)
         {
             session.LastActivity = DateTime.UtcNow;
-            await _sessionManager.Store.SaveSessionAsync(session, cancellationToken);
+            await _sessionManager.Repository.SaveSessionAsync(session, cancellationToken);
         }
 
-        await _sessionManager.Store.DeleteBranchAsync(sessionId, branchId, cancellationToken);
+        await _sessionManager.Repository.DeleteBranchAsync(sessionId, branchId, cancellationToken);
         return AgentServiceResult.Success;
     }
 
@@ -285,7 +294,7 @@ public sealed class AgentBranchService : IAgentBranchService
         string branchId,
         CancellationToken cancellationToken)
     {
-        var branch = await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken);
+        var branch = await _sessionManager.Repository.LoadBranchAsync(sessionId, branchId, cancellationToken);
         if (branch == null)
             return;
 
@@ -293,7 +302,7 @@ public sealed class AgentBranchService : IAgentBranchService
             await DeleteSubtreeAsync(sessionId, childId, cancellationToken);
 
         await ReindexSiblingsAfterDeleteAsync(sessionId, branchId, branch, cancellationToken);
-        await _sessionManager.Store.DeleteBranchAsync(sessionId, branchId, cancellationToken);
+        await _sessionManager.Repository.DeleteBranchAsync(sessionId, branchId, cancellationToken);
     }
 
     private async Task ReindexSiblingsAfterDeleteAsync(
@@ -304,16 +313,20 @@ public sealed class AgentBranchService : IAgentBranchService
     {
         if (branch.ForkedFrom != null)
         {
-            var parent = await _sessionManager.Store.LoadBranchAsync(sessionId, branch.ForkedFrom, cancellationToken);
+            var parent = await _sessionManager.Repository.LoadBranchAsync(sessionId, branch.ForkedFrom, cancellationToken);
             if (parent != null && parent.ChildBranches.Contains(branchId))
             {
                 parent.ChildBranches.Remove(branchId);
                 parent.LastActivity = DateTime.UtcNow;
-                await _sessionManager.Store.AppendBranchTreeUpdatedAsync(parent, cancellationToken);
+                await _sessionManager.Repository.AppendBranchEventAsync(
+                    parent.SessionId,
+                    parent.Id,
+                    BranchEventFactory.BranchTreeUpdated(parent),
+                    cancellationToken: cancellationToken);
             }
         }
 
-        var allBranchIds = await _sessionManager.Store.ListBranchIdsAsync(sessionId, cancellationToken);
+        var allBranchIds = await _sessionManager.Repository.ListBranchIdsAsync(sessionId, cancellationToken);
         var remainingSiblings = new List<Branch>();
 
         foreach (var id in allBranchIds)
@@ -321,7 +334,7 @@ public sealed class AgentBranchService : IAgentBranchService
             if (id == branchId)
                 continue;
 
-            var sibling = await _sessionManager.Store.LoadBranchAsync(sessionId, id, cancellationToken);
+            var sibling = await _sessionManager.Repository.LoadBranchAsync(sessionId, id, cancellationToken);
             if (sibling == null)
                 continue;
 
@@ -342,7 +355,11 @@ public sealed class AgentBranchService : IAgentBranchService
             sibling.PreviousSiblingId = i > 0 ? remainingSiblings[i - 1].Id : null;
             sibling.NextSiblingId = i < remainingSiblings.Count - 1 ? remainingSiblings[i + 1].Id : null;
             sibling.LastActivity = DateTime.UtcNow;
-            await _sessionManager.Store.AppendBranchTreeUpdatedAsync(sibling, cancellationToken);
+            await _sessionManager.Repository.AppendBranchEventAsync(
+                sibling.SessionId,
+                sibling.Id,
+                BranchEventFactory.BranchTreeUpdated(sibling),
+                cancellationToken: cancellationToken);
         }
     }
 

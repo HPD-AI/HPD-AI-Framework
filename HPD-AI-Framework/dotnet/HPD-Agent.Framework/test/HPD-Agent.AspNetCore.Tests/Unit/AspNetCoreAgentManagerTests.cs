@@ -15,19 +15,19 @@ namespace HPD.Agent.AspNetCore.Tests.Unit;
 /// </summary>
 public class AspNetCoreAgentManagerTests : IDisposable
 {
-    private readonly InMemorySessionStore _sessionStore;
-    private readonly InMemoryAgentStore _agentStore;
+    private readonly ISessionRepository _sessionRepository;
+    private readonly IAgentRepository _agentRepository;
     private readonly AspNetCoreSessionManager _sessionManager;
     private readonly OptionsMonitorWrapper _optionsMonitor;
     private readonly ServiceProvider _serviceProvider;
 
     public AspNetCoreAgentManagerTests()
     {
-        _sessionStore = new InMemorySessionStore();
-        _agentStore = new InMemoryAgentStore();
+        _sessionRepository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
+        _agentRepository = new WorkspaceAgentRepository(new InMemoryWorkspaceStore());
         _optionsMonitor = new OptionsMonitorWrapper();
         _serviceProvider = new ServiceCollection().BuildServiceProvider();
-        _sessionManager = new AspNetCoreSessionManager(_sessionStore, _optionsMonitor, Options.DefaultName);
+        _sessionManager = new AspNetCoreSessionManager(_sessionRepository, _optionsMonitor, Options.DefaultName);
     }
 
     public void Dispose()
@@ -43,7 +43,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
     [Fact]
     public async Task BuildAgentAsync_UsesIAgentFactory_WhenRegistered()
     {
-        var factory = new CountingAgentFactory(_sessionStore);
+        var factory = new CountingAgentFactory();
         var manager = MakeManager(factory);
         var stored = await SeedDefault(manager);
 
@@ -156,7 +156,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
 
         agent.Should().NotBeNull();
         agent.AgentId.Should().Be("runtime-only");
-        (await _agentStore.LoadAsync("runtime-only")).Should().BeNull();
+        (await _agentRepository.LoadAsync("runtime-only")).Should().BeNull();
     }
 
     [Fact]
@@ -265,7 +265,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
     // ──────────────────────────────────────────────────────────────────────────
 
     private TestableAgentManager MakeManager(IAgentFactory? factory = null)
-        => new TestableAgentManager(_agentStore, _sessionManager, _optionsMonitor, _serviceProvider, Options.DefaultName, factory);
+        => new TestableAgentManager(_agentRepository, _sessionManager, _optionsMonitor, _serviceProvider, Options.DefaultName, factory);
 
     private static async Task<StoredAgent> SeedDefault(AgentManager manager)
     {
@@ -319,18 +319,15 @@ public class AspNetCoreAgentManagerTests : IDisposable
 
     private class CountingAgentFactory : IAgentFactory
     {
-        private readonly ISessionStore _store;
         public int CreateCallCount { get; private set; }
 
-        public CountingAgentFactory(ISessionStore store) => _store = store;
-
-        public async Task<Agent> CreateAgentAsync(string agentId, ISessionStore store, CancellationToken ct = default)
+        public async Task<Agent> CreateAgentAsync(string agentId, ISessionRepository sessionRepository, CancellationToken ct = default)
         {
             CreateCallCount++;
             var config = MakeConfig("Factory");
             var chatClient = new FakeChatClient();
             var registry = new TestProviderRegistry(chatClient);
-            return await new AgentBuilder(config, registry).WithSessionStore(store).BuildAsync(ct);
+            return await new AgentBuilder(config, registry).WithSessionRepository(sessionRepository).BuildAsync(ct);
         }
 
         private static AgentConfig MakeConfig(string name) => new AgentConfig
@@ -344,13 +341,13 @@ public class AspNetCoreAgentManagerTests : IDisposable
     private class TestableAgentManager : AspNetCoreAgentManager
     {
         public TestableAgentManager(
-            IAgentStore agentStore,
+            IAgentRepository agentRepository,
             AspNetCoreSessionManager sessionManager,
             IOptionsMonitor<HPDAgentConfig> optionsMonitor,
             IServiceProvider serviceProvider,
             string name,
             IAgentFactory? agentFactory = null)
-            : base(agentStore, sessionManager, optionsMonitor, serviceProvider, name, agentFactory) { }
+            : base(agentRepository, sessionManager, optionsMonitor, serviceProvider, name, agentFactory) { }
 
         public TimeSpan GetIdleTimeoutForTests() => GetIdleTimeout();
     }

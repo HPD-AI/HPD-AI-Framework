@@ -10,19 +10,14 @@ namespace HPD.Agent.Hosting.Tests.Configuration;
 public class HPDAgentConfigTests
 {
     [Fact]
-    public void SessionStore_TakesPriority_OverSessionStorePath()
+    public void WorkspaceStorePath_CanBeConfigured()
     {
-        // Arrange
-        var customStore = new InMemorySessionStore();
         var options = new HPDAgentConfig
         {
-            SessionStore = customStore,
-            SessionStorePath = "./some-path" // Should be ignored
+            WorkspaceStorePath = "./some-path"
         };
 
-        // Assert
-        options.SessionStore.Should().BeSameAs(customStore);
-        options.SessionStorePath.Should().Be("./some-path"); // Still set, but not used
+        options.WorkspaceStorePath.Should().Be("./some-path");
     }
 
     [Fact]
@@ -93,18 +88,65 @@ public class HPDAgentConfigTests
         // Arrange
         var options = new HPDAgentConfig
         {
-            SessionStore = null,
-            SessionStorePath = null,
+            WorkspaceStorePath = null,
             AgentConfig = null,
             AgentConfigPath = null,
             ConfigureAgent = null
         };
 
         // Assert - Should not throw
-        options.SessionStore.Should().BeNull();
-        options.SessionStorePath.Should().BeNull();
+        options.WorkspaceStorePath.Should().BeNull();
         options.AgentConfig.Should().BeNull();
         options.AgentConfigPath.Should().BeNull();
         options.ConfigureAgent.Should().BeNull();
+    }
+
+    [Fact]
+    public void UseJsonWorkspace_ConfiguresWorkspaceStoreAndPath()
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"hpd-json-workspace-options-{Guid.NewGuid():N}");
+        try
+        {
+            var options = new HPDAgentConfig();
+
+            options.UseJsonWorkspace(tempPath);
+
+            options.WorkspaceStore.Should().BeOfType<JsonWorkspaceStore>();
+            options.WorkspaceStorePath.Should().Be(tempPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempPath))
+                Directory.Delete(tempPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void UseDefaultAgent_WithConfig_ConfiguresDefaultAgent()
+    {
+        var agentConfig = new AgentConfig { Name = "Default Agent" };
+        var options = new HPDAgentConfig
+        {
+            DefaultAgentConfigPath = "./old-agent.json"
+        };
+
+        options.UseDefaultAgent(agentConfig);
+
+        options.DefaultAgentConfig.Should().BeSameAs(agentConfig);
+        options.DefaultAgentConfigPath.Should().BeNull();
+    }
+
+    [Fact]
+    public void UseDefaultAgent_WithPath_ConfiguresDefaultAgentPath()
+    {
+        var options = new HPDAgentConfig
+        {
+            DefaultAgentConfig = new AgentConfig { Name = "Old Agent" }
+        };
+
+        options.UseDefaultAgent("./agent.json");
+
+        options.DefaultAgentConfig.Should().BeNull();
+        options.DefaultAgentConfigPath.Should().Be("./agent.json");
     }
 }

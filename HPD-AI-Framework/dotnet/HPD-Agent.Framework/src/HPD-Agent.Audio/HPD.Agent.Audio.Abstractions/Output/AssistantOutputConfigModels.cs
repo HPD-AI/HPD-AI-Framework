@@ -10,7 +10,7 @@ public enum AssistantOutputSynthesisMode
 
 public enum AssistantAudioArtifactCapturePolicy
 {
-    ContentStoreArtifact = 0,
+    WorkspaceArtifact = 0,
     Disabled = 1,
     MetadataOnly = 2,
     DigestOnly = 3

@@ -10,30 +10,30 @@ namespace HPD.Agent.Hosting.Lifecycle;
 /// <remarks>
 /// Responsibilities:
 /// <list type="bullet">
-///   <item>Session and initial branch creation (delegated to <see cref="ISessionStore"/>)</item>
+///   <item>Session and initial branch creation (delegated to <see cref="ISessionRepository"/>)</item>
 ///   <item>Per-branch operation lock (protects branch mutations that must not overlap)</item>
 ///   <item>Per-session exclusive lock (safe metadata updates)</item>
 /// </list>
 ///
 /// <b>Behavioral note:</b> <see cref="RemoveSession"/> only cleans up in-memory locks —
-/// it does not delete store data and does not touch the agent cache.
+/// it does not delete repository data and does not touch the agent cache.
 /// The agent is shared across sessions and is managed by <see cref="AgentManager"/>.
 /// </remarks>
 public abstract class SessionManager : IDisposable
 {
-    private readonly ISessionStore _store;
+    private readonly ISessionRepository _repository;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _branchOperationLocks = new();
     private readonly ConcurrentDictionary<string, BranchRunState> _activeBranchRuns = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks = new();
     private bool _disposed;
 
-    protected SessionManager(ISessionStore store)
+    protected SessionManager(ISessionRepository repository)
     {
-        _store = store ?? throw new ArgumentNullException(nameof(store));
+        _repository = repository ?? throw new ArgumentNullException(nameof(repository));
     }
 
-    /// <summary>The session store for this manager.</summary>
-    public ISessionStore Store => _store;
+    /// <summary>The typed session repository for this manager.</summary>
+    public ISessionRepository Repository => _repository;
 
     // ─── Session lifecycle ───────────────────────────────────────────────
 
@@ -50,7 +50,6 @@ public abstract class SessionManager : IDisposable
         var session = new Session(id);
         var branch = session.CreateBranch("main");
         branch.Name = "main";
-        session.Store = _store;
 
         if (metadata != null)
         {
@@ -58,15 +57,17 @@ public abstract class SessionManager : IDisposable
                 session.AddMetadata(kvp.Key, kvp.Value);
         }
 
-        await _store.SaveSessionAsync(session, ct);
-        await _store.SaveInitialBranchAsync(id, branch, ct);
+        await _repository.SaveSessionAsync(session, ct);
+        await _repository.SaveBranchDocumentAsync(
+            BranchEventDocumentBuilder.FromBranchSnapshot(id, branch),
+            cancellationToken: ct);
 
         return (id, "main");
     }
 
     /// <summary>
     /// Clean up in-memory branch operation and session locks for a session.
-    /// Does NOT delete store data and does NOT evict any agent from <see cref="AgentManager"/>.
+    /// Does NOT delete repository data and does NOT evict any agent from <see cref="AgentManager"/>.
     /// </summary>
     public void RemoveSession(string sessionId)
     {

@@ -8,8 +8,9 @@ namespace HPD.Agent.Audio.AgentIntegration.Output;
 internal sealed class OutputArtifactWriter
 {
     public async ValueTask<StoredAudioArtifact> WriteAssistantAudioArtifactAsync(
-        IContentStore contentStore,
+        IWorkspaceStore workspace,
         AudioSessionId sessionId,
+        BranchRef branch,
         OutputFlowId outputFlowId,
         ResponseId responseId,
         string providerKey,
@@ -19,7 +20,7 @@ internal sealed class OutputArtifactWriter
         ReadOnlyMemory<byte> data,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(contentStore);
+        ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(options);
 
         var bytes = data.ToArray();
@@ -27,33 +28,104 @@ internal sealed class OutputArtifactWriter
         var name = $"assistant-output-{SanitizeNamePart(outputFlowId.Value)}-{SanitizeNamePart(responseId.Value)}{ExtensionFor(mediaType, options.OutputFormat)}";
         var tags = new Dictionary<string, string>
         {
-            ["folder"] = "/artifacts",
             ["kind"] = "assistant-audio",
             ["outputFlowId"] = outputFlowId.Value,
             ["responseId"] = responseId.Value,
-            ["provider"] = providerKey
+            ["provider"] = providerKey,
+            ["origin"] = ContentSource.Agent.ToString()
         };
         AddIfPresent(tags, "model", modelId);
         AddIfPresent(tags, "voice", options.VoiceId);
 
-        var info = await contentStore.WriteBytesAsync(
-            scope: sessionId.Value,
-            data: bytes,
-            metadata: new ContentMetadata
+        var branchSpace = await EnsureBranchSpaceAsync(workspace, sessionId.Value, branch.BranchId, cancellationToken).ConfigureAwait(false);
+        await using var stream = new MemoryStream(bytes, writable: false);
+        var attachment = await workspace.WriteContentAsync(
+            WorkspacePrincipalRef.System,
+            branchSpace.Id,
+            existingAttachmentId: null,
+            stream,
+            new WriteWorkspaceSpaceContentRequest
             {
                 ContentType = mediaType,
+                Role = WorkspaceContentRoles.Artifact,
                 Name = name,
-                Origin = ContentSource.Agent,
-                Tags = tags
+                PathHint = WorkspaceContentPaths.BranchArtifacts(sessionId.Value, branch.BranchId),
+                Permission = WorkspacePermissions.ReadWrite,
+                ContentMetadata = tags
             },
-            options: new ContentWriteOptions { Mode = ContentWriteMode.Create },
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false);
+        var info = await workspace.StatContentAsync(
+            WorkspacePrincipalRef.System,
+            attachment.ContentId,
+            attachment.ContentVersion,
+            cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Workspace content '{attachment.ContentId}' was not found after write.");
 
         return new StoredAudioArtifact(
             new AudioArtifactRef("hpd-content", info.Id, info.ContentType, info.SizeBytes, sha256),
             info.ContentType,
             info.SizeBytes,
             sha256);
+    }
+
+    private static async Task<WorkspaceSpaceInfo> EnsureBranchSpaceAsync(
+        IWorkspaceStore workspace,
+        string sessionId,
+        string branchId,
+        CancellationToken cancellationToken)
+    {
+        var sessionSpace = await EnsureSessionSpaceAsync(workspace, sessionId, cancellationToken).ConfigureAwait(false);
+        var existing = await workspace.FindSpaceAsync(
+            WorkspacePrincipalRef.System,
+            new WorkspaceSpaceQuery
+            {
+                Kind = WorkspaceSessionRepository.BranchKind,
+                ExternalId = branchId,
+                ParentSpaceId = sessionSpace.Id
+            },
+            cancellationToken).ConfigureAwait(false);
+        if (existing is not null)
+            return existing;
+
+        return await workspace.CreateChildSpaceAsync(
+            WorkspacePrincipalRef.System,
+            sessionSpace.Id,
+            new CreateWorkspaceSpaceRequest
+            {
+                Kind = WorkspaceSessionRepository.BranchKind,
+                ExternalId = branchId,
+                Name = branchId,
+                Slug = branchId
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<WorkspaceSpaceInfo> EnsureSessionSpaceAsync(
+        IWorkspaceStore workspace,
+        string sessionId,
+        CancellationToken cancellationToken)
+    {
+        var existing = await workspace.FindSpaceAsync(
+            WorkspacePrincipalRef.System,
+            new WorkspaceSpaceQuery
+            {
+                Kind = WorkspaceSessionRepository.SessionKind,
+                ExternalId = sessionId
+            },
+            cancellationToken).ConfigureAwait(false);
+        if (existing is not null)
+            return existing;
+
+        return await workspace.CreateSpaceAsync(
+            WorkspacePrincipalRef.System,
+            new CreateWorkspaceSpaceRequest
+            {
+                Kind = WorkspaceSessionRepository.SessionKind,
+                ExternalId = sessionId,
+                Name = sessionId,
+                Slug = sessionId
+            },
+            cancellationToken).ConfigureAwait(false);
     }
 
     public static string? ToMediaType(string? outputFormat)

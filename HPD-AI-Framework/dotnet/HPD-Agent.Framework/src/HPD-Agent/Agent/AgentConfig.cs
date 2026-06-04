@@ -295,7 +295,7 @@ public class AgentConfig
 
     /// <summary>
     /// Optional stable identity used by <see cref="AgentBuilder"/> to load and
-    /// persist a <see cref="StoredAgent"/> definition through <see cref="AgentStore"/>.
+    /// persist a <see cref="StoredAgent"/> definition through <see cref="AgentRepository"/>.
     /// Ignored during JSON serialization because persisted identity lives on
     /// <see cref="StoredAgent.Id"/>.
     /// </summary>
@@ -303,46 +303,33 @@ public class AgentConfig
     public string? AgentId { get; set; }
 
     /// <summary>
-    /// Optional session store for durable execution and crash recovery.
-    /// Use InMemorySessionStore for development/testing or JsonSessionStore for production.
+    /// Session repository for durable session metadata and branch event streams.
+    /// Prefer workspace-backed repositories for 0.5.0 persistence.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Example - Auto-save mode:</b>
-    /// <code>
-    /// var agent = new AgentBuilder()
-    ///     .WithSessionStore(new JsonSessionStore("./sessions"), autoSave: true)
-    ///     .Build();
-    ///
-    /// // One line - load, run, save all handled
-    /// await agent.RunAsync("Hello", "session-123");
-    /// </code>
-    /// </para>
-    /// </remarks>
     [JsonIgnore]
-    public ISessionStore? SessionStore { get; set; }
+    public ISessionRepository? SessionRepository { get; set; }
 
     /// <summary>
-    /// Agent store used to resolve <see cref="StoredAgent"/> definitions at runtime.
-    /// Required when using sub-agents via <c>StoredAgentId</c>.
+    /// Agent repository used to resolve <see cref="StoredAgent"/> definitions at runtime.
+    /// Prefer workspace-backed repositories for 0.5.0 persistence.
     /// </summary>
     [JsonIgnore]
-    public IAgentStore? AgentStore { get; set; }
+    public IAgentRepository? AgentRepository { get; set; }
 
     /// <summary>
     /// Options for agent definition persistence behavior.
     /// Controls whether <see cref="AgentBuilder.BuildAsync"/> saves the current
-    /// definition back to <see cref="AgentStore"/>.
+    /// definition back to <see cref="AgentRepository"/>.
     /// </summary>
     [JsonIgnore]
-    public AgentStoreOptions? AgentStoreOptions { get; set; }
+    public AgentRepositoryOptions? AgentRepositoryOptions { get; set; }
 
     /// <summary>
     /// Options for session persistence behavior.
-    /// Controls auto-save, checkpoint frequency, and retention policy.
+    /// Controls auto-save behavior for session and branch metadata.
     /// </summary>
     [JsonIgnore]
-    public SessionStoreOptions? SessionStoreOptions { get; set; }
+    public SessionRepositoryOptions? SessionRepositoryOptions { get; set; }
 
     // Branching config removed - branching is now an application-level concern
 
@@ -1624,7 +1611,7 @@ public sealed class AudioConfig
         PushTextInputAggregationMode.ProviderDefault;
 
     public AssistantAudioArtifactCapturePolicy ArtifactCapturePolicy { get; set; } =
-        AssistantAudioArtifactCapturePolicy.ContentStoreArtifact;
+        AssistantAudioArtifactCapturePolicy.WorkspaceArtifact;
 
     public bool EnablePlayback { get; set; }
 }

@@ -10,11 +10,11 @@ namespace HPD.Agent.Audio.AgentIntegration.Branch;
 /// </summary>
 public sealed class SessionBranchProjectionSink : IBranchProjectionSink
 {
-    private readonly ISessionStore _sessionStore;
+    private readonly ISessionRepository _sessionRepository;
 
-    public SessionBranchProjectionSink(ISessionStore sessionStore)
+    public SessionBranchProjectionSink(ISessionRepository sessionRepository)
     {
-        _sessionStore = sessionStore ?? throw new ArgumentNullException(nameof(sessionStore));
+        _sessionRepository = sessionRepository ?? throw new ArgumentNullException(nameof(sessionRepository));
     }
 
     public async ValueTask<BranchProjectedEventRef> ProjectAsync(
@@ -40,13 +40,13 @@ public sealed class SessionBranchProjectionSink : IBranchProjectionSink
             MessageId = messageId
         };
 
-        await _sessionStore.AppendBranchEventAsync(
+        await _sessionRepository.AppendBranchEventAsync(
             branch.SessionId,
             branch.BranchId,
             BranchEventFactory.MessageStarted(branch.SessionId, branch.BranchId, message),
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        await _sessionStore.AppendBranchEventAsync(
+        await _sessionRepository.AppendBranchEventAsync(
             branch.SessionId,
             branch.BranchId,
             BranchEventFactory.ContentAdded(
@@ -57,7 +57,7 @@ public sealed class SessionBranchProjectionSink : IBranchProjectionSink
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var completed = BranchEventFactory.MessageCompleted(branch.SessionId, branch.BranchId, messageId);
-        await _sessionStore.AppendBranchEventAsync(
+        await _sessionRepository.AppendBranchEventAsync(
             branch.SessionId,
             branch.BranchId,
             completed,
@@ -74,7 +74,7 @@ public sealed class SessionBranchProjectionSink : IBranchProjectionSink
         string? eventId,
         CancellationToken cancellationToken)
     {
-        var document = await _sessionStore.LoadBranchDocumentAsync(
+        var document = await _sessionRepository.LoadBranchDocumentAsync(
             branch.SessionId,
             branch.BranchId,
             cancellationToken).ConfigureAwait(false);
@@ -92,7 +92,7 @@ public sealed class SessionBranchProjectionSink : IBranchProjectionSink
         string messageId,
         CancellationToken cancellationToken)
     {
-        var document = await _sessionStore.LoadBranchDocumentAsync(
+        var document = await _sessionRepository.LoadBranchDocumentAsync(
             branch.SessionId,
             branch.BranchId,
             cancellationToken).ConfigureAwait(false);

@@ -35,7 +35,7 @@ public static class RetroactiveScorer
     /// ReportCase per turn.
     /// </summary>
     public static async Task<EvaluationReport> ScoreBranchAsync(
-        ISessionStore sessionStore,
+        ISessionRepository sessionRepository,
         string sessionId,
         string branchId,
         IReadOnlyList<IEvaluator> evaluators,
@@ -50,7 +50,7 @@ public static class RetroactiveScorer
             ? EvaluationExecutionHelpers.WithTracing(chatConfiguration)
             : EvaluationExecutionHelpers.BuildChatConfiguration(judgeConfig);
 
-        var branch = await sessionStore.LoadBranchAsync(sessionId, branchId, ct).ConfigureAwait(false)
+        var branch = await sessionRepository.LoadBranchAsync(sessionId, branchId, ct).ConfigureAwait(false)
             ?? throw new ArgumentException($"Branch '{branchId}' in session '{sessionId}' not found.", nameof(branchId));
 
         var cases = await ScoreBranchInternalAsync(
@@ -64,7 +64,7 @@ public static class RetroactiveScorer
     /// Score two branches and return a comparison report.
     /// </summary>
     public static async Task<BranchComparisonReport> CompareBranchesAsync(
-        ISessionStore sessionStore,
+        ISessionRepository sessionRepository,
         string sessionId,
         string branchId1,
         string branchId2,
@@ -76,8 +76,8 @@ public static class RetroactiveScorer
         options ??= new();
         chatConfiguration = EvaluationExecutionHelpers.WithTracing(chatConfiguration);
 
-        var branch1Task = sessionStore.LoadBranchAsync(sessionId, branchId1, ct);
-        var branch2Task = sessionStore.LoadBranchAsync(sessionId, branchId2, ct);
+        var branch1Task = sessionRepository.LoadBranchAsync(sessionId, branchId1, ct);
+        var branch2Task = sessionRepository.LoadBranchAsync(sessionId, branchId2, ct);
 
         var branch1 = await branch1Task.ConfigureAwait(false)
             ?? throw new ArgumentException($"Branch '{branchId1}' not found.");
@@ -99,7 +99,7 @@ public static class RetroactiveScorer
     /// Returns branches sorted descending by average score.
     /// </summary>
     public static async Task<TournamentResult> TournamentAsync(
-        ISessionStore sessionStore,
+        ISessionRepository sessionRepository,
         string sessionId,
         IReadOnlyList<string> branchIds,
         IEvaluator evaluator,
@@ -110,7 +110,7 @@ public static class RetroactiveScorer
         var options = new RetroactiveScorerOptions();
         var scoreTasks = branchIds.Select(async branchId =>
         {
-            var branch = await sessionStore.LoadBranchAsync(sessionId, branchId, ct).ConfigureAwait(false);
+            var branch = await sessionRepository.LoadBranchAsync(sessionId, branchId, ct).ConfigureAwait(false);
             if (branch is null) return (branchId, 0.0, 0);
 
             var cases = await ScoreBranchInternalAsync(

@@ -68,8 +68,8 @@ public sealed class Agent
     // Provider registry for runtime provider switching via AgentRunConfig.ProviderKey/ModelId
     private readonly Providers.IProviderRegistry? _providerRegistry;
 
-    // Store used for opt-in event content persistence.
-    private readonly IContentStore? _contentStore;
+    // Workspace used for opt-in event content persistence and runtime content.
+    private readonly IWorkspaceStore? _workspaceStore;
 
     // Service provider for creating new clients
     private readonly IServiceProvider? _serviceProvider;
@@ -183,13 +183,13 @@ public sealed class Agent
         IServiceProvider? serviceProvider = null,
         IEnumerable<Func<HPD.Events.IEventCoordinator, IDisposable>>? eventSubscriptionFactories = null,
         Providers.IProviderRegistry? providerRegistry = null,
-        IContentStore? contentStore = null,
+        IWorkspaceStore? workspaceStore = null,
         IReadOnlyDictionary<string, MiddlewareStateFactory>? stateFactories = null,
         IReadOnlyList<HttpClient>? ownedHttpClients = null,
         AgentClientSet? clientSet = null)
     {
         _providerRegistry = providerRegistry;
-        _contentStore = contentStore;
+        _workspaceStore = workspaceStore;
         _serviceProvider = serviceProvider;
         _stateFactories = stateFactories?.ToImmutableDictionary()
             ?? ImmutableDictionary<string, MiddlewareStateFactory>.Empty;
@@ -260,8 +260,8 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Stable agent identity used for store lookup, hosted routing, and observability.
-    /// Falls back to <see cref="Name"/> for non-store-backed agents.
+    /// Stable agent identity used for repository lookup, hosted routing, and observability.
+    /// Falls back to <see cref="Name"/> when no explicit agent ID is configured.
     /// </summary>
     public string AgentId => Config?.AgentId ?? _name;
 
@@ -500,8 +500,6 @@ public sealed class Agent
         });
     }
 
-    /// <summary>
-    /// Validates and migrates middleware state schema when resuming from checkpoint.
     // ── Span ID helpers ───────────────────────────────────────────────────────
 
     /// <summary>Generates a 128-bit OTel-compatible trace ID (32 lowercase hex chars).</summary>
@@ -512,107 +510,6 @@ public sealed class Agent
     private static string GenerateSpanId()
         => Convert.ToHexString(RandomNumberGenerator.GetBytes(8)).ToLowerInvariant();
 
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// Detects added/removed middleware and logs changes for operational visibility.
-    /// Schema is computed from runtime-registered factories (not compiled constants).
-    /// </summary>
-    /// <param name="checkpointState">Middleware state from checkpoint</param>
-    /// <returns>Updated middleware state with current schema metadata</returns>
-    private MiddlewareState ValidateAndMigrateSchema(MiddlewareState checkpointState)
-    {
-        // Compute current schema signature from runtime-registered factories
-        var currentSignature = string.Join(",",
-            _stateFactories.Keys.OrderBy(k => k, StringComparer.Ordinal));
-
-        var currentVersions = _stateFactories.ToImmutableDictionary(
-            kvp => kvp.Key,
-            kvp => kvp.Value.Version);
-
-        // Case 1: Pre-versioning checkpoint (SchemaSignature is null)
-        if (checkpointState.SchemaSignature == null)
-        {
-            _agentLogger?.LogInformation(
-                "Resuming from checkpoint created before schema versioning. " +
-                "Upgrading to current schema.");
-
-            var upgradeEvent = new SchemaChangedEvent(
-                OldSignature: null,
-                NewSignature: currentSignature,
-                RemovedTypes: Array.Empty<string>(),
-                AddedTypes: Array.Empty<string>(),
-                IsUpgrade: true);
-
-            PublishOutputEvent(upgradeEvent);
-
-            return new MiddlewareState
-            {
-                States = checkpointState.States,
-                SchemaSignature = currentSignature,
-                SchemaVersion = 1,
-                StateVersions = currentVersions
-            };
-        }
-
-        // Case 2: Schema matches (common case - no changes)
-        if (checkpointState.SchemaSignature == currentSignature)
-        {
-            return checkpointState;
-        }
-
-        // Case 3: Schema changed - detect and log differences
-        var oldTypes = checkpointState.SchemaSignature
-            .Split(',', StringSplitOptions.RemoveEmptyEntries)
-            .ToHashSet();
-        var newTypes = _stateFactories.Keys.ToHashSet();
-
-        var removed = oldTypes.Except(newTypes).ToList();
-        var added = newTypes.Except(oldTypes).ToList();
-
-        // Log removed middleware (potential data loss - WARNING level)
-        if (removed.Count > 0)
-        {
-            var removedNames = removed.Select(fqn => fqn.Split('.').Last()).ToList();
-
-            _agentLogger?.LogWarning(
-                "Checkpoint contains state for {RemovedCount} middleware that no longer exist: {RemovedMiddleware}. " +
-                "State will be discarded (this is expected after middleware removal).",
-                removed.Count,
-                string.Join(", ", removedNames));
-        }
-
-        // Log added middleware (expected behavior - INFO level)
-        if (added.Count > 0)
-        {
-            var addedNames = added.Select(fqn => fqn.Split('.').Last()).ToList();
-
-            _agentLogger?.LogInformation(
-                "Detected {AddedCount} new middleware not present in checkpoint: {AddedMiddleware}. " +
-                "State will be initialized to defaults.",
-                added.Count,
-                string.Join(", ", addedNames));
-        }
-
-        // Emit telemetry event for monitoring
-        var schemaEvent = new SchemaChangedEvent(
-            OldSignature: checkpointState.SchemaSignature,
-            NewSignature: currentSignature,
-            RemovedTypes: removed,
-            AddedTypes: added,
-            IsUpgrade: false);
-
-        PublishOutputEvent(schemaEvent);
-
-        // Update to current schema metadata
-        return new MiddlewareState
-        {
-            States = checkpointState.States,
-            SchemaSignature = currentSignature,
-            SchemaVersion = 1,
-            StateVersions = currentVersions
-        };
-    }
-
     /// <summary>
     /// Publishes an output event produced by the agent engine.
     /// </summary>
@@ -622,6 +519,13 @@ public sealed class Agent
         evt.Metadata == null && AgentMetadata != null
             ? evt with { Metadata = AgentMetadata }
             : evt;
+
+    private ISessionRepository? SessionRepository => Config?.SessionRepository;
+
+    private ISessionRepository RequireSessionRepository()
+        => Config.SessionRepository
+            ?? throw new InvalidOperationException(
+                "No session repository configured. Use WithSessionRepository() on AgentBuilder to configure persistence.");
 
     private async Task CommitBranchMessagesAsync(
         Session? session,
@@ -653,21 +557,21 @@ public sealed class Agent
 
         branch.AddMessages(newMessages);
 
-        var store = Config?.SessionStore;
-        if (store == null)
+        var repository = SessionRepository;
+        if (repository == null)
             return;
 
         if (session != null)
         {
             session.LastActivity = branch.LastActivity;
-            await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
+            await repository.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
         }
 
         foreach (var message in newMessages.Where(ShouldPersistMessageSnapshotAsBranchEvents))
         {
             foreach (var evt in BranchMessageEventConverter.ToBranchEvents(branch.SessionId, branch.Id, message))
             {
-                await store.AppendBranchEventAsync(
+                await repository.AppendBranchEventAsync(
                     branch.SessionId,
                     branch.Id,
                     evt,
@@ -723,14 +627,14 @@ public sealed class Agent
 
         branch.LastActivity = DateTime.UtcNow;
 
-        var store = Config?.SessionStore;
-        if (store == null)
+        var repository = SessionRepository;
+        if (repository == null)
             return;
 
         if (session != null)
         {
             session.LastActivity = branch.LastActivity;
-            await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
+            await repository.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
         }
 
         // Reconciled ChatMessage snapshots should not be re-expanded into branch events during
@@ -755,13 +659,13 @@ public sealed class Agent
         if (session == null || branch == null)
             return;
 
-        var store = Config?.SessionStore;
-        if (store == null)
+        var repository = SessionRepository;
+        if (repository == null)
             return;
 
         try
         {
-            await store.AppendBranchEventAsync(
+            await repository.AppendBranchEventAsync(
                 session.Id,
                 branch.Id,
                 evt,
@@ -839,13 +743,13 @@ public sealed class Agent
         AgentEvent evt,
         CancellationToken cancellationToken)
     {
-        if (_contentStore == null || evt.GetContentPersistenceRequest() == null)
+        if (_workspaceStore == null || evt.GetContentPersistenceRequest() == null)
             return;
 
         try
         {
             await AgentEventContentPersistence.PersistAsync(
-                _contentStore,
+                _workspaceStore,
                 evt,
                 session?.Id,
                 cancellationToken).ConfigureAwait(false);
@@ -861,33 +765,6 @@ public sealed class Agent
                 evt.GetType().Name);
             // Event content persistence is opt-in telemetry/storage and should not break streaming.
         }
-    }
-
-    private async Task SaveTurnCheckpointAsync(
-        ISessionStore? store,
-        Session? session,
-        Branch? branch,
-        string turnId,
-        DateTime turnStartTime,
-        AgentLoopState state,
-        CancellationToken cancellationToken)
-    {
-        if (store == null || session == null)
-            return;
-
-        await store.SaveUncommittedTurnAsync(new UncommittedTurn
-        {
-            SessionId = session.Id,
-            BranchId = branch?.Id ?? UncommittedTurn.DefaultBranch,
-            TurnId = turnId,
-            Iteration = state.Iteration,
-            CompletedFunctions = state.CompletedFunctions,
-            MiddlewareState = state.MiddlewareState,
-            IsTerminated = state.IsTerminated,
-            TerminationReason = state.TerminationReason,
-            CreatedAt = turnStartTime,
-            LastUpdatedAt = DateTime.UtcNow
-        }, cancellationToken).ConfigureAwait(false);
     }
 
     private Task HandleInterruptionAsync(InterruptionRequestEvent interruption, CancellationToken cancellationToken)
@@ -974,7 +851,7 @@ public sealed class Agent
                 result.Add(evt);
             }
 
-            if (Config?.SessionStoreOptions?.PersistAfterTurn == true)
+            if (Config?.SessionRepositoryOptions?.PersistAfterTurn == true)
             {
                 await SaveSessionAndBranchAsync(session, branch, cancellationToken).ConfigureAwait(false);
             }
@@ -1142,12 +1019,12 @@ public sealed class Agent
             BranchId = input.BranchId
         };
 
-        var store = Config?.SessionStore;
-        if (store != null)
+        var repository = SessionRepository;
+        if (repository != null)
         {
             try
             {
-                await store.AppendBranchEventAsync(
+                await repository.AppendBranchEventAsync(
                     input.SessionId!,
                     input.BranchId!,
                     evt,
@@ -1204,7 +1081,7 @@ public sealed class Agent
                 runtimeCts.Token,
                 _clientSet,
                 runConfig,
-                _contentStore);
+                _workspaceStore);
             runtimeContext.RuntimeCapabilities.Set<IRuntimeFunctionExecutor>(
                 new AgentRuntimeFunctionExecutor(
                     _name,
@@ -1609,7 +1486,6 @@ public sealed class Agent
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         eventCoordinator ??= _eventCoordinator;
-        var orchestrationStartTime = DateTime.UtcNow;
 
         // Create orchestration activity to group all agent turns and function calls
         using var orchestrationActivity = ActivitySource.StartActivity(
@@ -1697,78 +1573,9 @@ public sealed class Agent
             // Shared mutable message list - all contexts reference this same list (zero-sync architecture)
             List<ChatMessage> sharedMessages;
 
-            // Check for uncommitted turn (crash recovery via session store)
-            UncommittedTurn? uncommittedTurn = null;
-            var store = Config?.SessionStore;
-            if (session != null && store != null)
-            {
-                try
-                {
-                    uncommittedTurn = await store.LoadUncommittedTurnAsync(
-                        session.Id, effectiveCancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception)
-                {
-                    // Best-effort — if we can't load, treat as fresh run
-                }
-            }
-
-            var isResumingTurn = uncommittedTurn != null && !newInputMessages.Any();
-
-            if (isResumingTurn)
-            {
-                // RESUME PATH: Restore from uncommitted turn (crash recovery)
-                var restoreStopwatch = Stopwatch.StartNew();
-
-                // Reconstruct full message list from the durable branch transcript.
-                sharedMessages = branch!.Messages.ToList();
-
-                // Validate and migrate middleware schema
-                var restoredMiddlewareState = ValidateAndMigrateSchema(uncommittedTurn.MiddlewareState);
-
-                // Reconstruct AgentLoopState from uncommitted turn
-                state = AgentLoopState.Initial(sharedMessages, messageTurnId, conversationId, this.Name, restoredMiddlewareState);
-                state = state with
-                {
-                    Iteration = uncommittedTurn.Iteration,
-                    CompletedFunctions = uncommittedTurn.CompletedFunctions,
-                    IsTerminated = uncommittedTurn.IsTerminated,
-                    TerminationReason = uncommittedTurn.TerminationReason,
-                    // Reset history tracking — first LLM call after recovery sends full history
-                    InnerClientTracksHistory = false,
-                    MessagesSentToInnerClient = 0
-                };
-
-                effectiveMessages = sharedMessages;
-                effectiveOptions = turn.Options;
-
-                restoreStopwatch.Stop();
-
-                // Emit checkpoint restored event
-                yield return new CheckpointEvent(
-                    Operation: CheckpointOperation.Restored,
-                    SessionId: session.Id,
-                    Timestamp: DateTimeOffset.UtcNow,
-                    Duration: restoreStopwatch.Elapsed,
-                    Iteration: state.Iteration,
-                    MessageCount: sharedMessages.Count)
-                { TraceId = traceId };
-            }
-            else
-            {
-                //
-                // FRESH RUN PATH: Use PreparedTurn directly (all preparation already done)
-                //
-
-                // Discard stale uncommitted turn if user sent a new message (last-write-wins)
-                if (uncommittedTurn != null && session != null && store != null)
-                {
-                    _ = Task.Run(async () =>
-                    {
-                        try { await store.DeleteUncommittedTurnAsync(session.Id); }
-                        catch { /* best-effort */ }
-                    }, CancellationToken.None);
-                }
+            // FRESH RUN PATH: Use PreparedTurn directly (all preparation already done).
+            // Uncommitted-turn crash recovery was intentionally removed from the workspace
+            // persistence path; durable branch events are the session history source of truth.
 
                 // Load persistent middleware state from session + branch ( split by scope)
                 var sessionState = MiddlewareState.LoadFromSession(session, _stateFactories);
@@ -1785,8 +1592,6 @@ public sealed class Agent
                 // Use PreparedTurn's already-prepared messages and options
                 effectiveMessages = turn.MessagesForLLM;
                 effectiveOptions = turn.Options;  // Already merged + Middlewareed
-            }
-
             //     
             // BUILD CONFIGURATION & DECISION ENGINE (common to both paths)
             //     
@@ -1851,10 +1656,10 @@ public sealed class Agent
                 services: _serviceProvider,     // Pass service provider for DI
                 runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
                 traceId: traceId,                // Propagate trace ID to all middleware-emitted events
-                parentAgentStore: Config?.AgentStore,
+                parentAgentRepository: Config?.AgentRepository,
                 config: Config,
                 clientSet: _clientSet,
-                contentStore: _contentStore);
+                workspaceStore: _workspaceStore);
 
             // IMPORTANT: Create runConfig instance ONCE and reuse it throughout the entire turn
             // Middleware may modify runConfig (e.g., AgentPlanAgentMiddleware sets AdditionalSystemInstructions)
@@ -2283,7 +2088,7 @@ public sealed class Agent
                             EventCoordinator = eventCoordinator,
                             StructEvents = GetActiveStructEvents(),
                             Session = agentContext.Session,
-                            ContentStore = _contentStore,
+                            WorkspaceStore = _workspaceStore,
                             ClientSet = _clientSet
                         };
 
@@ -2834,14 +2639,6 @@ public sealed class Agent
                                 branch,
                                 [historyMessage],
                                 effectiveCancellationToken).ConfigureAwait(false);
-                            await SaveTurnCheckpointAsync(
-                                store,
-                                session,
-                                branch,
-                                messageTurnId,
-                                orchestrationStartTime,
-                                state,
-                                effectiveCancellationToken).ConfigureAwait(false);
                         }
 
                         var effectiveOptionsForTools = beforeIterationContext.Options;
@@ -2965,14 +2762,6 @@ public sealed class Agent
                             branch,
                             [toolResultMessage],
                             effectiveCancellationToken).ConfigureAwait(false);
-                        await SaveTurnCheckpointAsync(
-                            store,
-                            session,
-                            branch,
-                            messageTurnId,
-                            orchestrationStartTime,
-                            state,
-                            effectiveCancellationToken).ConfigureAwait(false);
 
                         // Build callId → toolharnessName / callType mappings for result events
                         var callIdToToolHarness = toolRequests.ToDictionary(
@@ -3050,14 +2839,6 @@ public sealed class Agent
                                     branch,
                                     [finalAssistantMessage],
                                     effectiveCancellationToken).ConfigureAwait(false);
-                                await SaveTurnCheckpointAsync(
-                                    store,
-                                    session,
-                                    branch,
-                                    messageTurnId,
-                                    orchestrationStartTime,
-                                    state,
-                                    effectiveCancellationToken).ConfigureAwait(false);
                             }
                         }
 
@@ -3111,8 +2892,7 @@ public sealed class Agent
                 // Advance to next iteration
                 state = state.NextIteration();
 
-                // No separate iteration checkpoint needed — uncommitted turn save
-                // fires after each tool batch (more granular than per-iteration)
+                // Durable branch events are committed as messages and runtime events are produced.
             }
 
             if (responseUpdates.Any())
@@ -3137,14 +2917,6 @@ public sealed class Agent
                             session,
                             branch,
                             [finalAssistantMessage],
-                            effectiveCancellationToken).ConfigureAwait(false);
-                        await SaveTurnCheckpointAsync(
-                            store,
-                            session,
-                            branch,
-                            messageTurnId,
-                            orchestrationStartTime,
-                            state,
                             effectiveCancellationToken).ConfigureAwait(false);
                     }
                 }
@@ -3180,35 +2952,6 @@ public sealed class Agent
                 DateTimeOffset.UtcNow)
             { TraceId = traceId };
     
-            // DELETE UNCOMMITTED TURN (turn completed successfully — no longer needed)
-            if (session != null && store != null)
-            {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await store.DeleteUncommittedTurnAsync(session.Id);
-
-                        PublishOutputEvent(new CheckpointEvent(
-                            Operation: CheckpointOperation.Cleared,
-                            SessionId: session.Id,
-                            Timestamp: DateTimeOffset.UtcNow,
-                            Iteration: state.Iteration,
-                            Success: true));
-                    }
-                    catch (Exception ex)
-                    {
-                        PublishOutputEvent(new CheckpointEvent(
-                            Operation: CheckpointOperation.Cleared,
-                            SessionId: session.Id,
-                            Timestamp: DateTimeOffset.UtcNow,
-                            Iteration: state.Iteration,
-                            Success: false,
-                            ErrorMessage: ex.Message));
-                    }
-                }, CancellationToken.None);
-            }
-
             // MIDDLEWARE: AfterMessageTurnAsync (V2 - turn-level hook)
             // Update AgentContext with final state
             agentContext.SyncState(state);
@@ -3263,10 +3006,10 @@ public sealed class Agent
                     // Save branch-scoped state (plan progress, history cache) to Branch
                     state.MiddlewareState.SaveToBranch(branch, _stateFactories);
 
-                    var branchEventStore = Config?.SessionStore;
-                    if (branchEventStore != null && branch.MiddlewareState.Count > 0)
+                    var branchEventRepository = SessionRepository;
+                    if (branchEventRepository != null && branch.MiddlewareState.Count > 0)
                     {
-                        await branchEventStore.AppendBranchEventAsync(
+                        await branchEventRepository.AppendBranchEventAsync(
                             branch.SessionId,
                             branch.Id,
                             BranchEventFactory.BranchMiddlewareStateCommitted(
@@ -3746,21 +3489,9 @@ public sealed class Agent
             var hasMessages = messages?.Any() ?? false;
             var hasHistory = branch.Messages.Count > 0;
 
-            // Check for uncommitted turn
-            var hasUncommittedTurn = false;
-            var runStore = Config?.SessionStore;
-            if (runStore != null && session != null)
-            {
-                try
-                {
-                    hasUncommittedTurn = await runStore.LoadUncommittedTurnAsync(
-                        session.Id, cancellationToken).ConfigureAwait(false) != null;
-                }
-                catch { /* best-effort */ }
-            }
-            var hasCheckpoint = branch.ExecutionState != null || hasUncommittedTurn;
+            var hasExecutionState = branch.ExecutionState != null;
 
-            if (!hasCheckpoint && !hasMessages && !hasHistory)
+            if (!hasExecutionState && !hasMessages && !hasHistory)
             {
                 throw new InvalidOperationException(
                     "Cannot run agent with empty branch and no messages.");
@@ -5152,8 +4883,8 @@ public sealed class Agent
     /// <param name="options">Optional per-invocation run options</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Stream of agent events</returns>
-    /// <exception cref="InvalidOperationException">Thrown if no session store is configured</exception>
-    /// <exception cref="SessionNotFoundException">Thrown if the session or branch does not exist in the store</exception>
+    /// <exception cref="InvalidOperationException">Thrown if no session repository is configured</exception>
+    /// <exception cref="SessionNotFoundException">Thrown if the session or branch does not exist in the repository</exception>
     /// <exception cref="AmbiguousBranchException">Thrown if branchId is omitted and the session has multiple branches</exception>
     /// <remarks>
     /// <para>
@@ -5181,7 +4912,7 @@ public sealed class Agent
         }
 
         // Auto-save if configured
-        if (Config.SessionStoreOptions?.PersistAfterTurn == true)
+        if (Config.SessionRepositoryOptions?.PersistAfterTurn == true)
         {
             await SaveSessionAndBranchAsync(session, branch, cancellationToken);
         }
@@ -5198,7 +4929,7 @@ public sealed class Agent
     /// <param name="options">Optional run options</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Stream of agent events</returns>
-    /// <exception cref="SessionNotFoundException">Thrown if the session or branch does not exist in the store</exception>
+    /// <exception cref="SessionNotFoundException">Thrown if the session or branch does not exist in the repository</exception>
     /// <remarks>
     /// <para>
     /// <b>Example - Send image to vision model:</b>
@@ -5225,14 +4956,14 @@ public sealed class Agent
         }
 
         // Auto-save if configured
-        if (Config.SessionStoreOptions?.PersistAfterTurn == true)
+        if (Config.SessionRepositoryOptions?.PersistAfterTurn == true)
         {
             await SaveSessionAndBranchAsync(session, branch, cancellationToken);
         }
     }
 
     /// <summary>
-    /// Loads a session and branch by ID from the configured store.
+    /// Loads a session and branch by ID from the configured repository.
     /// Throws <see cref="SessionNotFoundException"/> if the session or branch does not exist.
     /// Use <see cref="CreateSessionAsync"/> to create a session before calling this or RunAsync.
     /// </summary>
@@ -5240,8 +4971,8 @@ public sealed class Agent
     /// <param name="branchId">Branch identifier. Defaults to "main" if the session has only one branch.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>The loaded session and branch</returns>
-    /// <exception cref="InvalidOperationException">Thrown if no session store is configured</exception>
-    /// <exception cref="SessionNotFoundException">Thrown if the session or branch does not exist in the store</exception>
+    /// <exception cref="InvalidOperationException">Thrown if no session repository is configured</exception>
+    /// <exception cref="SessionNotFoundException">Thrown if the session or branch does not exist in the repository</exception>
     /// <exception cref="AmbiguousBranchException">Thrown if branchId is omitted and the session has multiple branches</exception>
     internal async Task<(Session session, Branch branch)> LoadSessionAndBranchAsync(
         string sessionId,
@@ -5250,14 +4981,12 @@ public sealed class Agent
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        var store = Config.SessionStore
-            ?? throw new InvalidOperationException(
-                "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
+        var repository = RequireSessionRepository();
 
         // If branchId was not specified, check for ambiguity
         if (branchId is null)
         {
-            var branchIds = await store.ListBranchIdsAsync(sessionId, cancellationToken);
+            var branchIds = (await repository.ListBranchIdsAsync(sessionId, cancellationToken)).ToList();
             if (branchIds.Count > 1)
             {
                 throw new AmbiguousBranchException(sessionId, branchIds);
@@ -5265,11 +4994,10 @@ public sealed class Agent
             branchId = "main";
         }
 
-        var session = await store.LoadSessionAsync(sessionId, cancellationToken)
+        var session = await repository.LoadSessionAsync(sessionId, cancellationToken)
             ?? throw new SessionNotFoundException(sessionId);
-        session.Store = store;
 
-        var branch = await store.LoadBranchAsync(sessionId, branchId, cancellationToken)
+        var branch = await repository.LoadBranchAsync(sessionId, branchId, cancellationToken)
             ?? throw new SessionNotFoundException(sessionId, branchId);
 
         // Ensure back-reference is set on loaded branches
@@ -5279,7 +5007,7 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Saves session metadata and branch to the configured store.
+    /// Saves session metadata and branch to the configured repository.
     /// </summary>
     internal async Task SaveSessionAndBranchAsync(
         Session session,
@@ -5289,42 +5017,60 @@ public sealed class Agent
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(branch);
 
-        var store = Config.SessionStore
-            ?? throw new InvalidOperationException(
-                "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
+        var repository = RequireSessionRepository();
 
-        await store.SaveSessionAsync(session, cancellationToken);
-        await store.SaveInitialBranchAsync(session.Id, branch, cancellationToken);
+        await repository.SaveSessionAsync(session, cancellationToken);
+
+        var existingDocument = await repository.LoadBranchDocumentAsync(
+            session.Id,
+            branch.Id,
+            cancellationToken).ConfigureAwait(false);
+        if (existingDocument is null)
+        {
+            await repository.SaveInitialBranchAsync(session.Id, branch, cancellationToken);
+            return;
+        }
+
+        await repository.AppendBranchMetadataUpdatedAsync(branch, cancellationToken);
+        await repository.AppendBranchTreeUpdatedAsync(branch, cancellationToken);
+        if (branch.MiddlewareState.Count > 0)
+        {
+            await repository.AppendBranchEventAsync(
+                branch.SessionId,
+                branch.Id,
+                BranchEventFactory.BranchMiddlewareStateCommitted(
+                    branch.SessionId,
+                    branch.Id,
+                    branch.MiddlewareState),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
-    /// Creates a new session and its default "main" branch in the configured store.
-    /// Must be called before <c>RunTurnStreamAsync(userMessage, sessionId)</c> when a store is configured.
+    /// Creates a new session and its default "main" branch in the configured repository.
+    /// Must be called before <c>RunTurnStreamAsync(userMessage, sessionId)</c> when a repository is configured.
     /// </summary>
     /// <param name="sessionId">Session identifier. If null, a new GUID is generated.</param>
     /// <param name="metadata">Optional metadata to attach to the session.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The created session ID.</returns>
-    /// <exception cref="InvalidOperationException">Thrown if no session store is configured, or if a session with the same ID already exists.</exception>
+    /// <exception cref="InvalidOperationException">Thrown if no session repository is configured, or if a session with the same ID already exists.</exception>
     public async Task<string> CreateSessionAsync(
         string? sessionId = null,
         Dictionary<string, object>? metadata = null,
         CancellationToken cancellationToken = default)
     {
-        var store = Config.SessionStore
-            ?? throw new InvalidOperationException(
-                "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
+        var repository = RequireSessionRepository();
 
         var id = string.IsNullOrWhiteSpace(sessionId) ? Guid.NewGuid().ToString() : sessionId;
 
-        var existing = await store.LoadSessionAsync(id, cancellationToken);
+        var existing = await repository.LoadSessionAsync(id, cancellationToken);
         if (existing != null)
             throw new InvalidOperationException(
                 $"Session '{id}' already exists. Session IDs must be unique — use a different ID or load the existing session.");
 
         var session = new Session(id);
         var branch = session.CreateBranch("main");
-        session.Store = store;
 
         if (metadata != null)
         {
@@ -5332,18 +5078,18 @@ public sealed class Agent
                 session.AddMetadata(kvp.Key, kvp.Value);
         }
 
-        await store.SaveSessionAsync(session, cancellationToken);
-        await store.SaveInitialBranchAsync(id, branch, cancellationToken);
+        await repository.SaveSessionAsync(session, cancellationToken);
+        await repository.SaveInitialBranchAsync(id, branch, cancellationToken);
 
         return id;
     }
 
     //
-    // V3 BRANCH MANAGEMENT (Session + Branch Architecture)
+    // Branch management through the session repository facade.
     //
 
     /// <summary>
-    /// Load branch from session store (V3 API).
+    /// Load branch from the session repository facade.
     /// </summary>
     /// <param name="sessionId">Session identifier</param>
     /// <param name="branchId">Branch identifier</param>
@@ -5357,15 +5103,15 @@ public sealed class Agent
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
 
-        var store = Config?.SessionStore;
-        if (store == null)
+        var repository = SessionRepository;
+        if (repository == null)
             return null;
 
-        return await store.LoadBranchAsync(sessionId, branchId, cancellationToken);
+        return await repository.LoadBranchAsync(sessionId, branchId, cancellationToken);
     }
 
     /// <summary>
-    /// List all branch IDs in a session (V3 API).
+    /// List all branch IDs in a session through the repository facade.
     /// </summary>
     /// <param name="sessionId">Session identifier</param>
     /// <param name="cancellationToken">Cancellation token</param>
@@ -5376,11 +5122,11 @@ public sealed class Agent
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        var store = Config?.SessionStore;
-        if (store == null)
+        var repository = SessionRepository;
+        if (repository == null)
             return [];
 
-        return await store.ListBranchIdsAsync(sessionId, cancellationToken);
+        return (await repository.ListBranchIdsAsync(sessionId, cancellationToken)).ToList();
     }
 
     /// <summary>
@@ -5394,10 +5140,10 @@ public sealed class Agent
     {
         ArgumentNullException.ThrowIfNull(branch);
 
-        var store = Config?.SessionStore;
-        if (store != null)
+        var repository = SessionRepository;
+        if (repository != null)
         {
-            await store.DeleteBranchAsync(branch.SessionId, branch.Id, cancellationToken);
+            await repository.DeleteBranchAsync(branch.SessionId, branch.Id, cancellationToken);
         }
     }
 
@@ -5446,14 +5192,12 @@ public sealed class Agent
         ArgumentException.ThrowIfNullOrWhiteSpace(newBranchId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fromMessageId);
 
-        var store = Config.SessionStore
-            ?? throw new InvalidOperationException(
-                "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
+        var repository = RequireSessionRepository();
 
         var fromMessageIndex = await ResolveForkMessageIndexAsync(
             sourceBranch,
             fromMessageId,
-            store,
+            repository,
             cancellationToken).ConfigureAwait(false);
 
         //  Get all existing siblings at this fork point.
@@ -5556,10 +5300,10 @@ public sealed class Agent
                 parentChatClient: _baseClient,
                 services: _serviceProvider,
                 runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
-                parentAgentStore: Config?.AgentStore,
+                parentAgentRepository: Config?.AgentRepository,
                 config: Config,
                 clientSet: _clientSet,
-                contentStore: _contentStore);
+                workspaceStore: _workspaceStore);
 
             var beforeForkCommitContext = forkContext.AsBeforeBranchForkCommit(
                 sourceBranch,
@@ -5579,7 +5323,7 @@ public sealed class Agent
             }
         }
 
-        await store.SaveInitialBranchAsync(sourceBranch.SessionId, newBranch, cancellationToken);
+        await repository.SaveInitialBranchAsync(sourceBranch.SessionId, newBranch, cancellationToken);
 
         //  Update ALL existing siblings atomically.
         // sourceBranch at slot 0 is the "original" for this new group.
@@ -5609,7 +5353,7 @@ public sealed class Agent
             sibling.PreviousSiblingId = i > 0 ? sortedSiblings[i - 1].Id : null;
             sibling.NextSiblingId = i < sortedSiblings.Count - 1 ? sortedSiblings[i + 1].Id : newBranch.Id;
             sibling.LastActivity = now;
-            await store.AppendBranchTreeUpdatedAsync(sibling, cancellationToken);
+            await repository.AppendBranchTreeUpdatedAsync(sibling, cancellationToken);
         }
 
         //  Update source branch's ChildBranches list
@@ -5617,14 +5361,14 @@ public sealed class Agent
         {
             sourceBranch.ChildBranches.Add(newBranch.Id);
             sourceBranch.LastActivity = now;
-            await store.AppendBranchTreeUpdatedAsync(sourceBranch, cancellationToken);
+            await repository.AppendBranchTreeUpdatedAsync(sourceBranch, cancellationToken);
         }
 
         //  Update session's LastActivity
         if (sourceBranch.Session != null)
         {
             sourceBranch.Session.LastActivity = now;
-            await store.SaveSessionAsync(sourceBranch.Session, cancellationToken);
+            await repository.SaveSessionAsync(sourceBranch.Session, cancellationToken);
         }
 
         return newBranch;
@@ -5641,16 +5385,14 @@ public sealed class Agent
         string fromMessageId,
         CancellationToken ct)
     {
-        var store = Config.SessionStore
-            ?? throw new InvalidOperationException(
-                "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
+        var repository = RequireSessionRepository();
 
-        var branchIds = await store.ListBranchIdsAsync(sessionId, ct);
+        var branchIds = await repository.ListBranchIdsAsync(sessionId, ct);
         var siblings = new List<Branch>();
 
         foreach (var branchId in branchIds)
         {
-            var branch = await store.LoadBranchAsync(sessionId, branchId, ct);
+            var branch = await repository.LoadBranchAsync(sessionId, branchId, ct);
             if (branch == null) continue;
 
             if (branch.ForkedFrom == forkedFromBranchId &&
@@ -5710,11 +5452,9 @@ public sealed class Agent
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceBranchId);
         ArgumentException.ThrowIfNullOrWhiteSpace(newBranchId);
 
-        var store = Config.SessionStore
-            ?? throw new InvalidOperationException(
-                "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
+        var repository = RequireSessionRepository();
 
-        var sourceBranch = await store.LoadBranchAsync(sessionId, sourceBranchId, cancellationToken)
+        var sourceBranch = await repository.LoadBranchAsync(sessionId, sourceBranchId, cancellationToken)
             ?? throw new InvalidOperationException($"Branch '{sourceBranchId}' not found in session '{sessionId}'.");
 
         var latestMessageId = sourceBranch.Messages.LastOrDefault()?.MessageId;
@@ -5774,16 +5514,13 @@ public sealed class Agent
         ArgumentException.ThrowIfNullOrWhiteSpace(newBranchId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fromMessageId);
 
-        var store = Config.SessionStore
-            ?? throw new InvalidOperationException(
-                "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
+        var repository = RequireSessionRepository();
 
         // Load session and source branch
-        var session = await store.LoadSessionAsync(sessionId, cancellationToken)
+        var session = await repository.LoadSessionAsync(sessionId, cancellationToken)
             ?? throw new InvalidOperationException($"Session '{sessionId}' not found.");
-        session.Store = store;
 
-        var sourceBranch = await store.LoadBranchAsync(sessionId, sourceBranchId, cancellationToken)
+        var sourceBranch = await repository.LoadBranchAsync(sessionId, sourceBranchId, cancellationToken)
             ?? throw new InvalidOperationException($"Branch '{sourceBranchId}' not found in session '{sessionId}'.");
         sourceBranch.Session = session;
 
@@ -5796,7 +5533,7 @@ public sealed class Agent
     private static async Task<int> ResolveForkMessageIndexAsync(
         Branch sourceBranch,
         string fromMessageId,
-        ISessionStore store,
+        ISessionRepository repository,
         CancellationToken cancellationToken)
     {
         var index = sourceBranch.Messages.FindIndex(message =>
@@ -5809,7 +5546,7 @@ public sealed class Agent
             sourceBranch.SessionId,
             sourceBranch.Id,
             fromMessageId,
-            store,
+            repository,
             cancellationToken).ConfigureAwait(false);
 
         throw new MessageNotPresentOnBranchException(
@@ -5823,10 +5560,10 @@ public sealed class Agent
         string sessionId,
         string branchId,
         string messageId,
-        ISessionStore store,
+        ISessionRepository repository,
         CancellationToken cancellationToken)
     {
-        var document = await store.LoadBranchDocumentAsync(sessionId, branchId, cancellationToken)
+        var document = await repository.LoadBranchDocumentAsync(sessionId, branchId, cancellationToken)
             .ConfigureAwait(false);
         if (document == null)
             return [];
@@ -6014,9 +5751,7 @@ public sealed class Agent
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
 
-        var store = Config.SessionStore
-            ?? throw new InvalidOperationException(
-                "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
+        var repository = RequireSessionRepository();
 
         //  Protect "main" branch from deletion
         if (branchId == "main")
@@ -6025,7 +5760,7 @@ public sealed class Agent
         }
 
         // Load the branch to delete
-        var branch = await store.LoadBranchAsync(sessionId, branchId, cancellationToken);
+        var branch = await repository.LoadBranchAsync(sessionId, branchId, cancellationToken);
         if (branch == null)
         {
             throw new InvalidOperationException($"Branch '{branchId}' not found in session '{sessionId}'.");
@@ -6045,26 +5780,26 @@ public sealed class Agent
         // Remove from parent's ChildBranches list
         if (branch.ForkedFrom != null)
         {
-            var parent = await store.LoadBranchAsync(sessionId, branch.ForkedFrom, cancellationToken);
+            var parent = await repository.LoadBranchAsync(sessionId, branch.ForkedFrom, cancellationToken);
             if (parent != null && parent.ChildBranches.Contains(branchId))
             {
                 parent.ChildBranches.Remove(branchId);
                 parent.LastActivity = DateTime.UtcNow;
-                await store.AppendBranchTreeUpdatedAsync(parent, cancellationToken);
+                await repository.AppendBranchTreeUpdatedAsync(parent, cancellationToken);
             }
         }
 
         // Get all remaining siblings (same fork group, excluding branch being deleted).
         // The fork group is: source branch (ForkedFrom) + all branches with ForkedFrom==branch.ForkedFrom
         // and ForkedAtMessageId==branch.ForkedAtMessageId.
-        var branchIds = await store.ListBranchIdsAsync(sessionId, cancellationToken);
+        var branchIds = await repository.ListBranchIdsAsync(sessionId, cancellationToken);
         var remainingSiblings = new List<Branch>();
 
         foreach (var bid in branchIds)
         {
             if (bid == branchId) continue; // Skip branch being deleted
 
-            var sibling = await store.LoadBranchAsync(sessionId, bid, cancellationToken);
+            var sibling = await repository.LoadBranchAsync(sessionId, bid, cancellationToken);
             if (sibling == null) continue;
 
             // Sibling = same ForkedFrom + ForkedAtMessageId (peer forks)
@@ -6104,11 +5839,11 @@ public sealed class Agent
                 ? remainingSiblings[i + 1].Id
                 : null;
 
-            await store.AppendBranchTreeUpdatedAsync(sibling, cancellationToken);
+            await repository.AppendBranchTreeUpdatedAsync(sibling, cancellationToken);
         }
 
         // Delete the branch (after all updates complete)
-        await store.DeleteBranchAsync(sessionId, branchId, cancellationToken);
+        await repository.DeleteBranchAsync(sessionId, branchId, cancellationToken);
     }
 
     /// <summary>
@@ -6122,11 +5857,9 @@ public sealed class Agent
     {
         ArgumentNullException.ThrowIfNull(session);
 
-        var store = Config.SessionStore
-            ?? throw new InvalidOperationException(
-                "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
+        var repository = RequireSessionRepository();
 
-        await store.SaveSessionAsync(session, cancellationToken);
+        await repository.SaveSessionAsync(session, cancellationToken);
     }
 
     /// <summary>
@@ -6140,11 +5873,9 @@ public sealed class Agent
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        var store = Config.SessionStore
-            ?? throw new InvalidOperationException(
-                "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
+        var repository = RequireSessionRepository();
 
-        await store.DeleteSessionAsync(sessionId, cancellationToken);
+        await repository.DeleteSessionAsync(sessionId, cancellationToken);
     }
 
     /// <summary>
@@ -6155,11 +5886,11 @@ public sealed class Agent
     public async Task<List<string>> ListSessionsAsync(
         CancellationToken cancellationToken = default)
     {
-        var store = Config.SessionStore;
-        if (store == null)
+        var repository = SessionRepository;
+        if (repository == null)
             return [];
 
-        return await store.ListSessionIdsAsync(cancellationToken);
+        return (await repository.ListSessionIdsAsync(cancellationToken)).ToList();
     }
 
     //
@@ -6710,13 +6441,13 @@ public sealed record AgentLoopState
         init
         {
             // Store defensive copy for deserialization path
-            // This is called by JsonSerializer.Deserialize when loading checkpoints
+            // This is called by JsonSerializer.Deserialize when restoring serialized state.
             _deserializedMessages = value?.ToList();
         }
     }
 
     /// <summary>
-    /// Deserialized messages storage (used when loading from checkpoint).
+    /// Deserialized messages storage (used when restoring serialized state).
     /// Null during runtime execution (MessagesRef is used instead).
     /// </summary>
     private List<ChatMessage>? _deserializedMessages;
@@ -6880,7 +6611,7 @@ public sealed record AgentLoopState
 
     /// <summary>
     /// Creates initial state with defensive copy (backward compatibility).
-    /// Used by tests, external code, or when loading from checkpoint.
+    /// Used by tests, external code, or when restoring serialized state.
     /// </summary>
     /// <param name="messages">Messages to copy (immutable snapshot)</param>
     /// <param name="runId">Unique identifier for this run</param>
@@ -7050,7 +6781,7 @@ public sealed record AgentLoopState
     public int Version { get; init; } = 2;
     
     /// <summary>
-    /// Serializes this state to JSON for checkpointing.
+    /// Serializes this state to JSON.
     /// Uses Microsoft.Extensions.AI's built-in serialization for ChatMessage and AIContent.
     /// Handles immutable collections, polymorphic content, and all message types automatically.
     /// </summary>

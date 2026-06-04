@@ -592,7 +592,7 @@ class MockWorkspaceImpl implements Workspace {
 		createAgent: async () => ({ id: 'mock', name: 'mock', config: {}, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }),
 		updateAgent: async () => ({ id: 'mock', name: 'mock', config: {}, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }),
 		deleteAgent: async () => {},
-		uploadContent: async () => ({ contentId: 'mock', contentType: 'text/plain' }),
+		uploadContent: async (_sessionId: string, _branchId: string, _file: File | Blob, _name?: string) => ({ contentId: 'mock', contentType: 'text/plain' }),
 	} as any;
 }
 
@@ -694,7 +694,7 @@ class MockAgentImpl implements Workspace {
 		createAgent: async () => ({ id: 'mock', name: 'mock', config: {}, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }),
 		updateAgent: async () => ({ id: 'mock', name: 'mock', config: {}, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }),
 		deleteAgent: async () => {},
-		uploadContent: async () => ({ contentId: 'mock', contentType: 'text/plain' }),
+		uploadContent: async (_sessionId: string, _branchId: string, _file: File | Blob, _name?: string) => ({ contentId: 'mock', contentType: 'text/plain' }),
 	} as any;
 }
 

@@ -299,6 +299,7 @@ public sealed class WriteFileTests : IDisposable
         var result = await WriteFileTextAsync(agentContext, new CodingToolHarness(), "A.cs", content);
 
         result.Should().Contain("event_emitted=\"true\"");
+        await WaitUntilAsync(() => events.Count == 1);
         var writeEvent = events.Should().ContainSingle().Subject;
         writeEvent.ToolCallId.Should().Be("call-1");
         writeEvent.FunctionName.Should().Be(nameof(CodingToolHarness.WriteFile));
@@ -458,6 +459,15 @@ public sealed class WriteFileTests : IDisposable
 
     private static ReadFileState? GetReadFileState(AgentContext agentContext)
         => CreateBeforeFunctionContext(agentContext).GetMiddlewareState<ReadFileState>();
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!condition())
+        {
+            await Task.Delay(25, cts.Token);
+        }
+    }
 
     private static AgentContext CreateAgentContext(IEventCoordinator? eventCoordinator = null)
     {

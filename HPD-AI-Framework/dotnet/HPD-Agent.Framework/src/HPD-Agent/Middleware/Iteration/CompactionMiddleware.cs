@@ -73,7 +73,11 @@ public class CompactionMiddleware : IAgentMiddleware
         {
             var plan = BranchCompactionPlanner.Plan(context.Branch, result, Config.Retention);
             if (plan is not null)
-                await BranchHistoryCompactor.CompactAsync(context.Branch, plan, cancellationToken).ConfigureAwait(false);
+                await BranchHistoryCompactor.CompactAsync(
+                    context.Branch,
+                    plan,
+                    context.Config?.SessionRepository,
+                    cancellationToken).ConfigureAwait(false);
         }
 
         EmitCompactionEvent(context, CompactionStatus.Performed,

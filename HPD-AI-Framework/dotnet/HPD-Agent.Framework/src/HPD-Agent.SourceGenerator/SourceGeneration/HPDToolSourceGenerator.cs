@@ -703,8 +703,8 @@ namespace HPD.Agent.Diagnostics {{
                 sb.AppendLine($"                CollectOpenApiSources: null,");
             }
 
-            //  Content store document initialization
-            sb.AppendLine($"                // ========== V3 CONTENT STORE DOCUMENTS ==========");
+            //  Workspace content document initialization
+            sb.AppendLine($"                // ========== WORKSPACE CONTENT FACADE DOCUMENTS ==========");
             var hasSkillDocs = ToolHarness.SkillCapabilities.Any(s =>
                 s.Options.DocumentUploads.Any() || s.Options.DocumentReferences.Any());
             if (hasSkillDocs)
@@ -1361,7 +1361,7 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
                method.ReturnType.ToString().StartsWith("Task");
     }
 
-    // V3.0 New Helper Methods
+    // Source-generation helper methods.
     
     /// <summary>
     /// Extracts context type from AIFunction&lt;TMetadata&gt; attribute.

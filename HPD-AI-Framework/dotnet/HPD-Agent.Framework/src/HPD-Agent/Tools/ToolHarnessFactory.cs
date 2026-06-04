@@ -175,15 +175,15 @@ public record ToolHarnessFactory(
     /// </summary>
     Action<object, Action<string, object, string>>? CollectOpenApiSources = null,
 
-    // ==========  CONTENT STORE DOCUMENT INITIALIZATION ==========
+    // ========== WORKSPACE DOCUMENT INITIALIZATION ==========
 
     /// <summary>
-    /// Delegate to the generated InitializeDocumentsAsync(IContentStore) method.
+    /// Delegate to the generated InitializeDocumentsAsync(IWorkspaceStore, agentName) method.
     /// Null when the toolharness has no skills with document uploads or references.
-    /// Called by AgentBuilder.Build() to upload skill documents to the V3 content store at startup.
+    /// Called by AgentBuilder.Build() to upload skill documents through the workspace at startup.
     /// Idempotent: same document ID + same content hash = no-op.
     /// </summary>
-    Func<IContentStore, System.Threading.CancellationToken, System.Threading.Tasks.Task>? InitializeDocumentsAsync = null,
+    Func<IWorkspaceStore, string, System.Threading.CancellationToken, System.Threading.Tasks.Task>? InitializeDocumentsAsync = null,
 
     // ========== HARNESS-SCOPED MIDDLEWARE (015) ==========
 

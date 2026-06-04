@@ -65,9 +65,9 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     TextDone("resp-final")
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var config = DefaultConfig();
-        config.SessionStore = store;
+        config.SessionRepository = repository;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
         var capture = SubscribeEvents(agent);
 
@@ -94,7 +94,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         Assert.Contains(capturedEvents, evt => evt is MessageTurnFinishedEvent);
         Assert.Equal("Hello realtime", string.Concat(capturedEvents.OfType<TextDeltaEvent>().Select(evt => evt.Text)));
 
-        var branch = await store.LoadBranchAsync("session-1", "main", TestCancellationToken);
+        var branch = await repository.LoadBranchAsync("session-1", "main", TestCancellationToken);
         Assert.NotNull(branch);
         Assert.Equal("Say hello.", branch.Messages[0].Text);
         Assert.Equal("Hello realtime", branch.Messages[1].Text);
@@ -112,9 +112,9 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     TextDone("resp-final")
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var config = DefaultConfig();
-        config.SessionStore = store;
+        config.SessionRepository = repository;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
         var capture = SubscribeEvents(agent);
         var audioMessage = new ChatMessage(
@@ -157,8 +157,8 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             evt.MessageId == "user-audio-1" &&
             evt.Text == "How are you doing today?");
 
-        var branch = await store.LoadBranchAsync("session-transcript", "main", TestCancellationToken);
-        var document = await store.LoadBranchDocumentAsync("session-transcript", "main", TestCancellationToken);
+        var branch = await repository.LoadBranchAsync("session-transcript", "main", TestCancellationToken);
+        var document = await repository.LoadBranchDocumentAsync("session-transcript", "main", TestCancellationToken);
         Assert.NotNull(document);
         Assert.Contains(document.Events, evt => evt is TextDeltaEvent text && text.MessageId == "user-audio-1");
         Assert.NotNull(branch);
@@ -183,9 +183,9 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     ResponseDone("resp-final")
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var config = DefaultConfig();
-        config.SessionStore = store;
+        config.SessionRepository = repository;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
         var capture = SubscribeEvents(agent);
         var audioMessage = new ChatMessage(
@@ -222,7 +222,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             evt.MessageId == "user-audio-after-final" &&
             evt.Text == "How are you doing today?");
 
-        var branch = await store.LoadBranchAsync(
+        var branch = await repository.LoadBranchAsync(
             "session-transcript-after-final",
             "main",
             TestCancellationToken);
@@ -247,9 +247,9 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     ResponseDone("resp-final")
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var config = DefaultConfig();
-        config.SessionStore = store;
+        config.SessionRepository = repository;
         var agent = TestAgentFactory.CreateWithMiddlewares(
             config,
             middlewares: [new ReplacingUserMessageMiddleware()],
@@ -281,7 +281,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             agent.Dispose();
         }
 
-        var branch = await store.LoadBranchAsync(
+        var branch = await repository.LoadBranchAsync(
             "session-transcript-replaced",
             "main",
             TestCancellationToken);
@@ -309,9 +309,9 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     }
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var config = DefaultConfig();
-        config.SessionStore = store;
+        config.SessionRepository = repository;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
 
         try
@@ -329,7 +329,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             agent.Dispose();
         }
 
-        var branch = await store.LoadBranchAsync("session-dup", "main", TestCancellationToken);
+        var branch = await repository.LoadBranchAsync("session-dup", "main", TestCancellationToken);
         Assert.NotNull(branch);
         Assert.Equal("The final answer is 20.", branch.Messages.Last(m => m.Role == ChatRole.Assistant).Text);
     }
@@ -342,9 +342,9 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 [ToolCallDone("resp-add", "call-add", "Add", new Dictionary<string, object?> { ["left"] = 2, ["right"] = 3 })],
                 [TextDelta("resp-final", "The answer is 5."), TextDone("resp-final")]
             ]);
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var config = DefaultConfig();
-        config.SessionStore = store;
+        config.SessionRepository = repository;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
 
         try
@@ -362,7 +362,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             agent.Dispose();
         }
 
-        var branch = await store.LoadBranchAsync("session-tools", "main", TestCancellationToken);
+        var branch = await repository.LoadBranchAsync("session-tools", "main", TestCancellationToken);
         Assert.NotNull(branch);
         Assert.Equal(4, branch.Messages.Count);
         Assert.Equal(ChatRole.User, branch.Messages[0].Role);
@@ -387,9 +387,9 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 [ToolCallDone("resp-add", "call-add", "Add", new Dictionary<string, object?> { ["left"] = 10, ["right"] = 7 })],
                 [TextDelta("resp-2", "The answer is 17."), TextDone("resp-2")]
             ]);
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var config = DefaultConfig();
-        config.SessionStore = store;
+        config.SessionRepository = repository;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
 
         try
@@ -423,7 +423,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         Assert.Equal(["Say first done.", "Now add 10 and 7."], sentUserTexts);
         Assert.Single(SentContents<FunctionResultContent>(session), result => result.CallId == "call-add");
 
-        var branch = await store.LoadBranchAsync("session-multi", "main", TestCancellationToken);
+        var branch = await repository.LoadBranchAsync("session-multi", "main", TestCancellationToken);
         Assert.NotNull(branch);
         Assert.Contains(branch.Messages, message => message.Text == "The answer is 17.");
     }
@@ -444,9 +444,9 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                     }
                 ]
             ]);
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var config = DefaultConfig();
-        config.SessionStore = store;
+        config.SessionRepository = repository;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
 
         await agent.CreateSessionAsync("session-error", cancellationToken: TestCancellationToken);
@@ -461,7 +461,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
 
         Assert.Contains("provider.error", ex.Message);
 
-        var branch = await store.LoadBranchAsync("session-error", "main", TestCancellationToken);
+        var branch = await repository.LoadBranchAsync("session-error", "main", TestCancellationToken);
         Assert.NotNull(branch);
         Assert.Single(branch.Messages);
         Assert.Equal("Trigger provider failure.", branch.Messages[0].Text);
@@ -488,9 +488,9 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 ],
                 [TextDelta("resp-final", "The answers are 5 and 20."), TextDone("resp-final")]
             ]);
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var config = DefaultConfig();
-        config.SessionStore = store;
+        config.SessionRepository = repository;
         var agent = TestAgentFactory.Create(config, circuitBreakerThreshold: 10);
 
         try
@@ -522,7 +522,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 Assert.Equal(20, ReadIntResult(result));
             });
 
-        var branch = await store.LoadBranchAsync("session-parallel", "main", TestCancellationToken);
+        var branch = await repository.LoadBranchAsync("session-parallel", "main", TestCancellationToken);
         Assert.NotNull(branch);
         Assert.Equal(2, branch.Messages.SelectMany(message => message.Contents).OfType<FunctionCallContent>().Count());
         Assert.Equal(2, branch.Messages.SelectMany(message => message.Contents).OfType<FunctionResultContent>().Count());

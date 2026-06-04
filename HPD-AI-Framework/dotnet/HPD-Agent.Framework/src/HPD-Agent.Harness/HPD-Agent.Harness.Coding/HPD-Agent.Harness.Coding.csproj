@@ -32,8 +32,9 @@
   <ItemGroup>
     <!-- Reference to core HPD-Agent project -->
     <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../../HPD-Execution/HPD-Execution.Contracts/HPD-Execution.Contracts.csproj" />
     <ProjectReference Include="../../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="../HPD-Agent.ToolHarness.Coding.SourceGenerator/HPD-Agent.ToolHarness.Coding.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier" AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
+    <ProjectReference Include="../HPD-Agent.Harness.Coding.SourceGenerator/HPD-Agent.Harness.Coding.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier" AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
   </ItemGroup>
 
   <ItemGroup>
@@ -42,7 +43,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="HPD-Agent.ToolHarness.Coding.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.Tests" />
   </ItemGroup>
 
   <PropertyGroup>

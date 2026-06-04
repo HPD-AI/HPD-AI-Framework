@@ -20,13 +20,13 @@ internal class AspNetCoreAgentManager : AgentManager
     private readonly IAgentFactory? _agentFactory;
 
     internal AspNetCoreAgentManager(
-        IAgentStore agentStore,
+        IAgentRepository agentRepository,
         AspNetCoreSessionManager sessionManager,
         IOptionsMonitor<HPDAgentConfig> optionsMonitor,
         IServiceProvider serviceProvider,
         string name,
         IAgentFactory? agentFactory = null)
-        : base(agentStore)
+        : base(agentRepository)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _optionsMonitor = optionsMonitor ?? throw new ArgumentNullException(nameof(optionsMonitor));
@@ -41,9 +41,9 @@ internal class AspNetCoreAgentManager : AgentManager
 
         // Priority 1: IAgentFactory from DI
         if (_agentFactory != null)
-            return await _agentFactory.CreateAgentAsync(agentId, _sessionManager.Store, ct);
+            return await _agentFactory.CreateAgentAsync(agentId, _sessionManager.Repository, ct);
 
-        // Priority 2: stored.Config loaded by AgentBuilder through IAgentStore
+        // Priority 2: stored.Config loaded by AgentBuilder through IAgentRepository
         // Priority 3: DefaultAgentConfig object
         // Priority 4: DefaultAgentConfigPath file
         // Priority 5: Empty builder (fallback)
@@ -68,8 +68,8 @@ internal class AspNetCoreAgentManager : AgentManager
         builder
             .WithServiceProvider(_serviceProvider)
             .WithAgentId(agentId)
-            .WithAgentStore(AgentStore, opts.PersistAgentDefinitionsOnBuild)
-            .WithSessionStore(_sessionManager.Store, opts.PersistAfterTurn);
+            .WithAgentRepository(Repository, opts.PersistAgentDefinitionsOnBuild)
+            .WithSessionRepository(_sessionManager.Repository, opts.PersistAfterTurn);
 
         // ConfigureAgent always runs last — server enrichment for all agents
         opts.ConfigureAgent?.Invoke(builder);

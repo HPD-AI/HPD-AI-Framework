@@ -18,7 +18,7 @@ public class BotStreamingRunnerTests
         var agent = new HpdAgent(CreateAgentConfig(), chatClient, mergedOptions: null);
         await agent.CreateSessionAsync("session-1");
         var runner = new BotStreamingRunner(
-            new TestSessionManager(new InMemorySessionStore()),
+            new TestSessionManager(),
             new StaticAgentManager(agent));
 
         var updates = new List<string>();
@@ -61,7 +61,7 @@ public class BotStreamingRunnerTests
         var agent = new HpdAgent(CreateAgentConfig(), chatClient, mergedOptions: null);
         await agent.CreateSessionAsync("session-1");
         var runner = new BotStreamingRunner(
-            new TestSessionManager(new InMemorySessionStore()),
+            new TestSessionManager(),
             new StaticAgentManager(agent));
 
         var updates = new List<string>();
@@ -116,14 +116,15 @@ public class BotStreamingRunnerTests
                 MaxRetries = 0,
                 NormalizeErrors = true,
             },
-            SessionStore = new InMemorySessionStore(),
-            SessionStoreOptions = new SessionStoreOptions
+            SessionRepository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore()),
+            SessionRepositoryOptions = new SessionRepositoryOptions
             {
                 PersistAfterTurn = true,
             },
         };
 
-    private sealed class StaticAgentManager(HpdAgent agent) : AgentManager(new InMemoryAgentStore())
+    private sealed class StaticAgentManager(HpdAgent agent)
+        : AgentManager(new WorkspaceAgentRepository(new InMemoryWorkspaceStore()))
     {
         public override Task<HpdAgent> GetOrBuildAgentAsync(string agentId, CancellationToken ct = default)
             => Task.FromResult(agent);

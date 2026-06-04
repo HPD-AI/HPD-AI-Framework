@@ -9,7 +9,12 @@ namespace HPD.Agent.Bots.Tests.TestInfrastructure;
 /// </summary>
 internal sealed class TestAgentManager : AgentManager
 {
-    public TestAgentManager(IAgentStore agentStore) : base(agentStore) { }
+    public TestAgentManager()
+        : this(new WorkspaceAgentRepository(new InMemoryWorkspaceStore()))
+    {
+    }
+
+    public TestAgentManager(IAgentRepository agentRepository) : base(agentRepository) { }
 
     protected override Task<Agent> BuildAgentAsync(string agentId, CancellationToken ct)
         => throw new NotSupportedException("BuildAgentAsync is not used in adapter tests.");

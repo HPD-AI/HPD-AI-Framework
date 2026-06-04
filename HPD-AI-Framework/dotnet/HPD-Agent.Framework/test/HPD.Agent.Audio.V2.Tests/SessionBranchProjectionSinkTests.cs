@@ -11,8 +11,8 @@ public sealed class SessionBranchProjectionSinkTests
     [Fact]
     public async Task ProjectAsync_AppendsCommittedInputMediaTranscript_ToRealSessionBranch()
     {
-        var store = new InMemorySessionStore();
-        var sink = new SessionBranchProjectionSink(store);
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
+        var sink = new SessionBranchProjectionSink(repository);
         var content = TestInputContent.Audio("branch-real.wav", "audio/wav", sizeBytes: 8192);
         var branch = new BranchRef("session-real", "main");
 
@@ -23,8 +23,8 @@ public sealed class SessionBranchProjectionSinkTests
             InputContentId = content.Id
         });
 
-        var loaded = await store.LoadBranchAsync(branch.SessionId, branch.BranchId);
-        var document = await store.LoadBranchDocumentAsync(branch.SessionId, branch.BranchId);
+        var loaded = await repository.LoadBranchAsync(branch.SessionId, branch.BranchId);
+        var document = await repository.LoadBranchDocumentAsync(branch.SessionId, branch.BranchId);
 
         Assert.NotNull(loaded);
         var message = Assert.Single(loaded.Messages);
@@ -46,8 +46,8 @@ public sealed class SessionBranchProjectionSinkTests
     [Fact]
     public async Task BranchProjection_IdempotentForSameProjectionEpoch()
     {
-        var store = new InMemorySessionStore();
-        var sink = new SessionBranchProjectionSink(store);
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
+        var sink = new SessionBranchProjectionSink(repository);
         var content = TestInputContent.Audio("branch-idempotent.wav", "audio/wav", sizeBytes: 8192);
         var branch = new BranchRef("session-idempotent", "main");
         var record = new BranchProjectionRecord
@@ -60,8 +60,8 @@ public sealed class SessionBranchProjectionSinkTests
         var first = await sink.ProjectAsync(branch, record);
         var second = await sink.ProjectAsync(branch, record);
 
-        var loaded = await store.LoadBranchAsync(branch.SessionId, branch.BranchId);
-        var document = await store.LoadBranchDocumentAsync(branch.SessionId, branch.BranchId);
+        var loaded = await repository.LoadBranchAsync(branch.SessionId, branch.BranchId);
+        var document = await repository.LoadBranchDocumentAsync(branch.SessionId, branch.BranchId);
 
         Assert.Equal(first, second);
         Assert.NotNull(loaded);
@@ -78,8 +78,8 @@ public sealed class SessionBranchProjectionSinkTests
     [Fact]
     public async Task ProjectAsync_AppendsAssistantOutput_WithAssistantRole()
     {
-        var store = new InMemorySessionStore();
-        var sink = new SessionBranchProjectionSink(store);
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
+        var sink = new SessionBranchProjectionSink(repository);
         var branch = new BranchRef("session-assistant-output", "main");
 
         await sink.ProjectAsync(branch, new BranchProjectionRecord
@@ -92,7 +92,7 @@ public sealed class SessionBranchProjectionSinkTests
             ResponseId = new ResponseId("response-real")
         });
 
-        var loaded = await store.LoadBranchAsync(branch.SessionId, branch.BranchId);
+        var loaded = await repository.LoadBranchAsync(branch.SessionId, branch.BranchId);
 
         Assert.NotNull(loaded);
         var message = Assert.Single(loaded.Messages);

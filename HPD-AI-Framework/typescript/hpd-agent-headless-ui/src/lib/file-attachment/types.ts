@@ -44,9 +44,11 @@ export interface FileAttachmentProps {
 	/** Pre-constructed state (preferred when resolvedContent is needed outside snippet) */
 	state?: FileAttachmentState;
 	/** AgentClient — used when state is not provided */
-	client?: { uploadContent(sessionId: string, file: File | Blob, name?: string): Promise<ContentReference> };
+	client?: { uploadContent(sessionId: string, branchId: string, file: File | Blob, name?: string): Promise<ContentReference> };
 	/** Active session ID — used when state is not provided */
 	sessionId?: string | null;
+	/** Active branch ID — used when state is not provided */
+	branchId?: string | null;
 	disabled?: boolean;
 	child?: Snippet<[FileAttachmentSnippetProps & { props: FileAttachmentHTMLProps }]>;
 	children?: Snippet<[FileAttachmentSnippetProps]>;

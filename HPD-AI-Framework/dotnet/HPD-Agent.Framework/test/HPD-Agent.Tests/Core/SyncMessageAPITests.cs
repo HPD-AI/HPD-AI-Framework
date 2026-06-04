@@ -4,7 +4,7 @@ using Xunit;
 namespace HPD.Agent.Tests.Core;
 
 /// <summary>
-/// Unit tests for synchronous message API on Branch (V3).
+/// Unit tests for synchronous message API on Branch.
 /// Tests the public sync methods: Messages, MessageCount, AddMessage(), AddMessages().
 /// </summary>
 public class SyncMessageAPITests

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <RootNamespace>HPD.Execution.Contracts</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Execution.Contracts</PackageId>
+    <Description>Execution resource, provider, runtime, and content projection contracts for HPD Agent execution providers.</Description>
+    <PackageTags>execution;contracts;providers;runtime;hpd</PackageTags>
+  </PropertyGroup>
+</Project>

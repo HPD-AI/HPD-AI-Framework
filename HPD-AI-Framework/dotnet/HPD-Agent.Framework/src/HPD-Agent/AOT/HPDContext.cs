@@ -102,7 +102,6 @@ using System.Collections.Immutable;
 [JsonSerializable(typeof(HPD.Agent.AudioContent))]
 [JsonSerializable(typeof(HPD.Agent.VideoContent))]
 [JsonSerializable(typeof(HPD.Agent.DocumentContent))]
-[JsonSerializable(typeof(LocalContentMetadata))]
 
 // --- Conversation storage and serialization types ---
 [JsonSerializable(typeof(BatchPermissionStateData))]

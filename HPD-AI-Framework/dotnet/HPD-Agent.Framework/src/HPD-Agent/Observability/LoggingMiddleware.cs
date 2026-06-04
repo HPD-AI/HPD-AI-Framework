@@ -339,7 +339,7 @@ public class LoggingMiddleware : IAgentMiddleware
         // Detect toolharness expansion (collapsed toolharness being called by the LLM)
         var props = context.Function?.AdditionalProperties;
         var isContainer = props?.TryGetValue("IsContainer", out var icVal) == true && icVal is true;
-        var isCollapse = props?.TryGetValue("IsCollapse", out var colVal) == true && colVal is true;
+        var isCollapse = props?.TryGetValue("IsToolHarnessContainer", out var colVal) == true && colVal is true;
 
         if (isContainer && isCollapse && _options.LogToolHarnessExpansion)
         {
@@ -395,7 +395,7 @@ public class LoggingMiddleware : IAgentMiddleware
 
         var props = context.Function?.AdditionalProperties;
         var isContainer = props?.TryGetValue("IsContainer", out var icVal) == true && icVal is true;
-        var isCollapse = props?.TryGetValue("IsCollapse", out var colVal) == true && colVal is true;
+        var isCollapse = props?.TryGetValue("IsToolHarnessContainer", out var colVal) == true && colVal is true;
 
         if (isContainer && isCollapse && _options.LogToolHarnessExpansion)
         {

@@ -139,8 +139,9 @@ public partial class RuntimeToolHarness
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
-        Assert.Contains("CreateJsonSchema", generatedCode);
-        Assert.Contains("typeof(SearchArgs)", generatedCode);
+        Assert.Contains("SchemaProvider = () =>", generatedCode);
+        Assert.Contains("JsonDocument.Parse", generatedCode);
+        Assert.Contains("\\\"query\\\"", generatedCode);
         Assert.DoesNotContain("CreateFunctionJsonSchema", generatedCode);
     }
 
@@ -168,7 +169,8 @@ public partial class RuntimeToolHarness
         Assert.Contains("public string query", generatedCode);
         Assert.DoesNotContain($"public {runtimeParameter}", generatedCode);
         Assert.DoesNotContain($"JsonPropertyName(\"{parameterName}\")", generatedCode);
-        Assert.Contains("typeof(SearchArgs)", generatedCode);
+        Assert.Contains("SchemaProvider = () =>", generatedCode);
+        Assert.Contains("\\\"query\\\"", generatedCode);
     }
 
     [Fact]
@@ -190,8 +192,8 @@ public partial class RuntimeToolHarness
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
         Assert.Contains("Ping(functionContext, cancellationToken)", generatedCode);
         Assert.DoesNotContain("class PingArgs", generatedCode);
-        Assert.Contains("CreateJsonSchema(", generatedCode);
-        Assert.Contains("null,", generatedCode);
+        Assert.Contains("SchemaProvider = () =>", generatedCode);
+        Assert.Contains("\\\"properties\\\":{}", generatedCode);
     }
 
     [Fact]

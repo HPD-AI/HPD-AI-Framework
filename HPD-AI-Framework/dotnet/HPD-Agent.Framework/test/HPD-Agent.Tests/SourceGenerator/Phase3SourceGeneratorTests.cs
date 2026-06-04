@@ -454,7 +454,7 @@ namespace TestToolHarnesses
         // Assert: Description override is correctly extracted
         Assert.Contains("descriptionOverride: \"Custom description for existing doc\"", generatedCode);
 
-        // Assert: Document is registered via InitializeDocumentsAsync (V3 pattern)
+        // Assert: Document is registered via InitializeDocumentsAsync.
         Assert.Contains("InitializeDocumentsAsync", generatedCode);
     }
 

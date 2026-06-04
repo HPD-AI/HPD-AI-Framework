@@ -386,13 +386,13 @@ public class AgentRunConfig
 
     /// <summary>
     /// Controls how DataContent attachments are uploaded: via provider-native HostedFileClient,
-    /// framework IContentStore, or Auto (prefer hosted if available).
+    /// framework content facade, or Auto (prefer hosted if available).
     /// </summary>
     /// <remarks>
     /// <para>
     /// <b>UploadStrategy.Auto (default):</b>
     /// Intelligently routes uploads to HostedFileClient if the current provider supports it,
-    /// otherwise falls back to IContentStore. Provides best-of-both-worlds behavior.
+    /// otherwise falls back to the configured workspace store facade.
     /// </para>
     /// <para>
     /// <b>UploadStrategy.Hosted:</b>
@@ -401,7 +401,7 @@ public class AgentRunConfig
     /// </para>
     /// <para>
     /// <b>UploadStrategy.Local:</b>
-    /// Forces upload to IContentStore (local/framework-managed).
+    /// Forces upload to the configured workspace store facade.
     /// Ignores provider capabilities.
     /// </para>
     /// <para>

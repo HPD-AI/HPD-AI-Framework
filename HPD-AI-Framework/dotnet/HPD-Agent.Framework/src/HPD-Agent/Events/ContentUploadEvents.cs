@@ -3,7 +3,7 @@ using HPD.Agent;
 namespace HPD.Agent.Middleware;
 
 /// <summary>
-/// Emitted when DataContent is successfully uploaded to IContentStore and transformed to UriContent(hpd-content://id).
+/// Emitted when DataContent is successfully uploaded to workspace store and transformed to UriContent(hpd-content://id).
 /// </summary>
 /// <remarks>
 /// This event indicates framework-managed local or ephemeral storage was used.
@@ -18,7 +18,7 @@ public record ContentUploadedEvent(
     int SizeBytes) : AgentEvent;
 
 /// <summary>
-/// Emitted when IContentStore upload fails.
+/// Emitted when workspace store upload fails.
 /// </summary>
 /// <remarks>
 /// In Auto mode, the middleware will attempt to fall back to HostedFileClient.
@@ -48,7 +48,7 @@ public record HostedFileUploadedEvent(
 /// Emitted when HostedFileClient upload fails.
 /// </summary>
 /// <remarks>
-/// In Auto mode, the middleware will fall back to IContentStore.
+/// In Auto mode, the middleware will fall back to workspace store.
 /// In Hosted mode, original DataContent is kept and an error is logged.
 /// </remarks>
 public record HostedFileUploadFailedEvent(
@@ -71,7 +71,7 @@ public enum ContentReferenceResolutionKind
 }
 
 /// <summary>
-/// Emitted when an hpd-content:// URI is resolved from IContentStore.
+/// Emitted when an hpd-content:// URI is resolved from workspace store.
 /// </summary>
 public record ContentReferenceResolvedEvent(
     /// <summary>The hpd-content:// URI that was resolved.</summary>

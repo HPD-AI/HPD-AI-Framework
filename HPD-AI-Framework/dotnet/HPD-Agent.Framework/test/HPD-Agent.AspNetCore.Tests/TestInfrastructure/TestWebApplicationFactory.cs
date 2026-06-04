@@ -70,7 +70,7 @@ public class TestWebApplicationFactory : IDisposable
                 services.AddSingleton<IAgentFactory, TestWebApplicationAgentFactory>();
                 services.AddHPDAgent("test-agent", options =>
                 {
-                    options.SessionStorePath = Path.Combine(Path.GetTempPath(), $"hpd-agent-tests-{Guid.NewGuid()}");
+                    options.UseJsonWorkspace(Path.Combine(Path.GetTempPath(), $"hpd-agent-tests-{Guid.NewGuid()}"));
                 });
             })
             .Configure(app =>
@@ -108,7 +108,7 @@ internal class TestWebApplicationAgentFactory : IAgentFactory
 
     public async Task<HPD.Agent.Agent> CreateAgentAsync(
         string sessionId,
-        ISessionStore store,
+        ISessionRepository sessionRepository,
         CancellationToken ct = default)
     {
         var config = new AgentConfig
@@ -124,7 +124,7 @@ internal class TestWebApplicationAgentFactory : IAgentFactory
         var providerRegistry = new TestProviderRegistry(_fakeChatClient);
 
         return await new AgentBuilder(config, providerRegistry)
-            .WithSessionStore(store, options =>
+            .WithSessionRepository(sessionRepository, options =>
             {
                 options.PersistAfterTurn = true;
             })

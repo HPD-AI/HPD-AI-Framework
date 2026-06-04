@@ -60,9 +60,9 @@ public abstract class HookContext
     public AgentClientSet? ClientSet => Base.ClientSet;
 
     /// <summary>
-    /// Explicit content store configured for this agent.
+    /// Explicit workspace content configured for this agent.
     /// </summary>
-    public IContentStore? ContentStore => Base.ContentStore;
+    public IWorkspaceStore? WorkspaceStore => Base.WorkspaceStore;
 
     /// <summary>
     /// The session metadata container.
@@ -73,11 +73,15 @@ public abstract class HookContext
     /// <code>
     /// public async Task BeforeIterationAsync(BeforeIterationContext context, ...)
     /// {
-    ///     var contentStore = context.ContentStore;
-    ///     if (contentStore != null)
+    ///     var workspace = context.WorkspaceStore;
+    ///     if (workspace != null)
     ///     {
-    ///         var info = await contentStore.WriteBytesAsync(context.Session.Id, bytes,
-    ///             new ContentMetadata { ContentType = "image/jpeg" });
+    ///         await workspace.WriteContentAsync(
+    ///             WorkspacePrincipalRef.System,
+    ///             spaceId,
+    ///             existingAttachmentId: null,
+    ///             stream,
+    ///             request);
     ///     }
     /// }
     /// </code>
@@ -331,13 +335,13 @@ public abstract class HookContext
     }
 
     /// <summary>
-    /// Gets the parent agent's definition store for stored-agent subagent resolution.
+    /// Gets the parent agent's definition repository for stored-agent subagent resolution.
     /// Used by source-generated SubAgent wrappers.
     /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public IAgentStore? GetParentAgentStore()
+    public IAgentRepository? GetParentAgentRepository()
     {
-        return Base.ParentAgentStore;
+        return Base.ParentAgentRepository;
     }
 
     /// <summary>

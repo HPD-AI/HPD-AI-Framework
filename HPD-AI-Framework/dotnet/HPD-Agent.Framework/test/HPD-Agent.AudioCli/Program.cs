@@ -159,7 +159,7 @@ var ttsPushAggregationMode = options.TtsPushAggregationMode
 var artifactCapturePolicy = options.TtsArtifactCapturePolicy
     ?? TryParseArtifactCapturePolicy(GetConfigString(appsettings, "AudioCli", "TtsArtifactCapture"))
     ?? TryParseArtifactCapturePolicy(GetConfigString(appsettings, "AudioCli", "TtsArtifactCapturePolicy"))
-    ?? AssistantAudioArtifactCapturePolicy.ContentStoreArtifact;
+    ?? AssistantAudioArtifactCapturePolicy.WorkspaceArtifact;
 var ttsEnabledByConfig = GetConfigBool(appsettings, "AudioCli", "TtsEnabled") ?? false;
 var ttsPushTextEnabledByConfig =
     GetConfigBool(appsettings, "AudioCli", "TtsPushTextEnabled") ??
@@ -283,8 +283,8 @@ foreach (var audioPath in audioPaths)
     }
 }
 
-var sessionStore = new InMemorySessionStore();
-var contentStore = new InMemoryContentStore();
+var sessionRepository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
+var contentStore = new InMemoryWorkspaceStore();
 var builder = AgentBuilder.Create();
 builder.ProviderRegistry.Register(new OpenAIAudioProvider());
 
@@ -371,7 +371,7 @@ if (useManualPlaybackSink)
 
 var audioOptions = new AudioRuntimeAttachmentOptions
 {
-    BranchProjectionSink = new SessionBranchProjectionSink(sessionStore),
+    BranchProjectionSink = new SessionBranchProjectionSink(sessionRepository),
     RunAudioInteractionRuntime = true,
     EnableAssistantOutputPlayback = useManualPlaybackSink,
     AssistantAudioOutputSink = assistantOutputSink,
@@ -426,8 +426,8 @@ var audioAttachment = new AudioRuntimeAttachment(audioOptions);
 
 builder
     .WithName("HPD Audio CLI")
-    .WithSessionStore(sessionStore)
-    .WithContentStore(contentStore)
+    .WithSessionRepository(sessionRepository)
+    .WithWorkspaceStore(contentStore)
     .WithMiddleware(audioAttachment);
 
 var agent = await builder.BuildAsync();
@@ -701,7 +701,7 @@ for (var textTurnIndex = 0; textTurnIndex < textOnlyTurns.Count; textTurnIndex++
     await benchmark.WriteAsync(audioAttachment, benchmarkOutputPath);
 }
 
-await PrintBranchAsync(sessionStore, sessionId, branchId);
+await PrintBranchAsync(sessionRepository, sessionId, branchId);
 return 0;
 
 static async Task EnsureSessionAsync(Agent agent, string sessionId)
@@ -712,7 +712,7 @@ static async Task EnsureSessionAsync(Agent agent, string sessionId)
     }
     catch (InvalidOperationException ex) when (ex.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase))
     {
-        // Reuse the existing CLI session when backed by a persistent session store.
+        // Reuse the existing CLI session when backed by a persistent session repository.
     }
 }
 
@@ -833,7 +833,7 @@ static int Subtract(int left, int right) => left - right;
 
 static async Task PrintAssistantOutputResultsAsync(
     AudioRuntimeAttachment audioAttachment,
-    IContentStore contentStore,
+    IWorkspaceStore workspaceStore,
     string sessionId,
     string? exportDir,
     IReadOnlyDictionary<(string OutputFlowId, int SegmentIndex), AssistantAudioPlayoutResult> playoutResults)
@@ -864,12 +864,16 @@ static async Task PrintAssistantOutputResultsAsync(
 
         if (!string.IsNullOrWhiteSpace(exportDir) && artifact is not null)
         {
-            var bytesToExport = await contentStore.ReadBytesAsync(sessionId, artifact.Artifact.ArtifactId);
-            if (bytesToExport is not null)
+            await using var stream = await workspaceStore.OpenContentAsync(
+                WorkspacePrincipalRef.System,
+                artifact.Artifact.ArtifactId);
+            if (stream is not null)
             {
+                using var buffer = new MemoryStream();
+                await stream.CopyToAsync(buffer);
                 Directory.CreateDirectory(exportDir);
                 var path = Path.Combine(exportDir, $"assistant-output-{artifact.Artifact.ArtifactId}{ExtensionFor(mediaType)}");
-                await File.WriteAllBytesAsync(path, bytesToExport);
+                await File.WriteAllBytesAsync(path, buffer.ToArray());
                 Console.WriteLine($"[assistant-audio:export] path={path}");
             }
         }
@@ -901,9 +905,9 @@ static IReadOnlyDictionary<(string OutputFlowId, int SegmentIndex), AssistantAud
     return results;
 }
 
-static async Task PrintBranchAsync(InMemorySessionStore sessionStore, string sessionId, string branchId)
+static async Task PrintBranchAsync(ISessionRepository sessionRepository, string sessionId, string branchId)
 {
-    var branch = await sessionStore.LoadBranchAsync(sessionId, branchId);
+    var branch = await sessionRepository.LoadBranchAsync(sessionId, branchId);
     Console.WriteLine();
     if (branch is null)
     {
@@ -1109,7 +1113,7 @@ static AssistantAudioArtifactCapturePolicy? TryParseArtifactCapturePolicy(string
 
     return NormalizeMode(value) switch
     {
-        "contentstore" or "contentstoreartifact" or "artifact" => AssistantAudioArtifactCapturePolicy.ContentStoreArtifact,
+        "contentstore" or "contentstoreartifact" or "artifact" => AssistantAudioArtifactCapturePolicy.WorkspaceArtifact,
         "disabled" or "none" or "off" => AssistantAudioArtifactCapturePolicy.Disabled,
         "metadataonly" or "metadata" => AssistantAudioArtifactCapturePolicy.MetadataOnly,
         "digestonly" or "digest" => AssistantAudioArtifactCapturePolicy.DigestOnly,
@@ -1596,7 +1600,7 @@ file sealed record AudioCliOptions(
 
         return NormalizeMode(value) switch
         {
-            "contentstore" or "contentstoreartifact" or "artifact" => AssistantAudioArtifactCapturePolicy.ContentStoreArtifact,
+            "contentstore" or "contentstoreartifact" or "artifact" => AssistantAudioArtifactCapturePolicy.WorkspaceArtifact,
             "disabled" or "none" or "off" => AssistantAudioArtifactCapturePolicy.Disabled,
             "metadataonly" or "metadata" => AssistantAudioArtifactCapturePolicy.MetadataOnly,
             "digestonly" or "digest" => AssistantAudioArtifactCapturePolicy.DigestOnly,

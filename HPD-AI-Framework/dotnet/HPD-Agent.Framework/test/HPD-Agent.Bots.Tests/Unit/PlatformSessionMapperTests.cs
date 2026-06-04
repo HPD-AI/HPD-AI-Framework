@@ -7,19 +7,19 @@ namespace HPD.Agent.Bots.Tests.Unit;
 
 /// <summary>
 /// Tests for <see cref="PlatformSessionMapper"/>.
-/// Uses <see cref="InMemorySessionStore"/> and <see cref="TestSessionManager"/>
+/// Uses <see cref="WorkspaceSessionRepository"/> and <see cref="TestSessionManager"/>
 /// to exercise session resolution and reset without external dependencies.
 /// </summary>
 public class PlatformSessionMapperTests : IDisposable
 {
-    private readonly InMemorySessionStore _store;
+    private readonly ISessionRepository _repository;
     private readonly TestSessionManager   _manager;
     private readonly PlatformSessionMapper _mapper;
 
     public PlatformSessionMapperTests()
     {
-        _store   = new InMemorySessionStore();
-        _manager = new TestSessionManager(_store);
+        _repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
+        _manager = new TestSessionManager(_repository);
         _mapper  = new PlatformSessionMapper(_manager);
     }
 
@@ -79,7 +79,7 @@ public class PlatformSessionMapperTests : IDisposable
 
         var (sessionId, _) = await _mapper.ResolveAsync(key);
 
-        var session = await _store.LoadSessionAsync(sessionId);
+        var session = await _repository.LoadSessionAsync(sessionId);
         session.Should().NotBeNull();
         session!.Metadata.Should().ContainKey("platformKey")
             .WhoseValue.Should().Be(key);
@@ -142,13 +142,13 @@ public class PlatformSessionMapperTests : IDisposable
     {
         // Create a session without any platformKey metadata
         await _manager.CreateSessionAsync();
-        var sessionCount = (await _store.ListSessionIdsAsync()).Count;
+        var sessionCount = (await _repository.ListSessionIdsAsync()).Count;
 
         // Resolve with a key that no session has
         var (newSessionId, _) = await _mapper.ResolveAsync("slack:C99:999.000");
 
         // A new session should have been created
-        var allIds = await _store.ListSessionIdsAsync();
+        var allIds = await _repository.ListSessionIdsAsync();
         allIds.Should().HaveCount(sessionCount + 1);
         allIds.Should().Contain(newSessionId);
     }
@@ -161,9 +161,9 @@ public class PlatformSessionMapperTests : IDisposable
         var (sessionId, _) = await _mapper.ResolveAsync(key);
 
         // Delete branches from the store to simulate a session with no branches
-        var branches = await _store.ListBranchIdsAsync(sessionId);
+        var branches = await _repository.ListBranchIdsAsync(sessionId);
         foreach (var b in branches)
-            await _store.DeleteBranchAsync(sessionId, b);
+            await _repository.DeleteBranchAsync(sessionId, b);
 
         // Resolve again — no branches means fallback to "main"
         var (_, branchId) = await _mapper.ResolveAsync(key);
@@ -194,7 +194,7 @@ public class PlatformSessionMapperTests : IDisposable
         await _mapper.BindThreadAsync("discord:guild:channel:thread", sessionId, branchId);
         await _mapper.BindThreadAsync("discord:guild:channel:thread", sessionId, branchId);
 
-        var session = await _store.LoadSessionAsync(sessionId);
+        var session = await _repository.LoadSessionAsync(sessionId);
         session.Should().NotBeNull();
         session!.Metadata["platformKeyAliases"].Should()
             .BeEquivalentTo(new[] { "discord:guild:channel:thread" });
@@ -205,7 +205,7 @@ public class PlatformSessionMapperTests : IDisposable
     [Fact]
     public async Task ResolveAsync_CancelledToken_CompletesOrThrows()
     {
-        // InMemorySessionStore is synchronous — it may or may not check the token
+        // WorkspaceSessionRepository is synchronous — it may or may not check the token
         // before completing. This test verifies that passing a cancelled token does
         // not cause an unhandled exception (ArgumentException, ObjectDisposedException, etc.)
         // and either completes normally or throws OperationCanceledException.
@@ -264,7 +264,7 @@ public class PlatformSessionMapperTests : IDisposable
 
         newId.Should().NotBe(oldId);
         // Old session should no longer exist
-        var oldSession = await _store.LoadSessionAsync(oldId);
+        var oldSession = await _repository.LoadSessionAsync(oldId);
         oldSession.Should().BeNull();
     }
 
@@ -276,7 +276,7 @@ public class PlatformSessionMapperTests : IDisposable
 
         var (newId, _) = await _mapper.ResetAsync(key);
 
-        var session = await _store.LoadSessionAsync(newId);
+        var session = await _repository.LoadSessionAsync(newId);
         session.Should().NotBeNull();
         session!.Metadata.Should().ContainKey("platformKey")
             .WhoseValue.Should().Be(key);

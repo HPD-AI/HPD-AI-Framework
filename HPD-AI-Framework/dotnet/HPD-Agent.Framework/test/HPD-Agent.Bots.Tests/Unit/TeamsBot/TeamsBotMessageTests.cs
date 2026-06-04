@@ -73,7 +73,7 @@ public class TeamsBotMessageTests
         {
             await bot.ProcessMessageAsync(turn, CancellationToken.None);
 
-            var session = await sessionManager.Store.LoadSessionAsync(sessionId);
+            var session = await sessionManager.Repository.LoadSessionAsync(sessionId);
             session!.Metadata["platformKey"].Should().Be(platformKey);
         }
         finally
@@ -106,7 +106,7 @@ public class TeamsBotMessageTests
         {
             await bot.ProcessMessageAsync(turn, CancellationToken.None);
 
-            var session = await sessionManager.Store.LoadSessionAsync(sessionId);
+            var session = await sessionManager.Repository.LoadSessionAsync(sessionId);
             session!.Metadata["teams.serviceUrl"].Should().Be(turn.ServiceUrl);
             session.Metadata["teams.conversationId"].Should().Be(turn.ConversationId);
             session.Metadata["teams.tenantId"].Should().Be("tenant-1");
@@ -126,10 +126,10 @@ public class TeamsBotMessageTests
     [Fact]
     public async Task ProcessMessageAsync_WithInputFiles_PassesAttachmentsToAgentMessage()
     {
-        var sessionStore = new InMemorySessionStore();
-        var sessionManager = new TestSessionManager(sessionStore);
+        var sessionRepository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
+        var sessionManager = new TestSessionManager(sessionRepository);
         var chatClient = new CapturingChatClient("done");
-        var agent = new HpdAgent(CreateAgentConfig(sessionStore), chatClient, mergedOptions: null);
+        var agent = new HpdAgent(CreateAgentConfig(sessionRepository), chatClient, mergedOptions: null);
         var bot = CreateBot(sessionManager, new StaticAgentManager(agent)).Bot;
         var fileBytes = new byte[] { 0x01, 0x02, 0x03 };
         var turn = new FakeTeamsTurn
@@ -162,8 +162,8 @@ public class TeamsBotMessageTests
 
     private static (HPD.Agent.Bots.Teams.TeamsBot Bot, SessionManager SessionManager) CreateBot()
     {
-        var sessionManager = new TestSessionManager(new InMemorySessionStore());
-        var agentManager = new TestAgentManager(new InMemoryAgentStore());
+        var sessionManager = new TestSessionManager();
+        var agentManager = new TestAgentManager();
         return CreateBot(sessionManager, agentManager);
     }
 
@@ -182,7 +182,7 @@ public class TeamsBotMessageTests
         return (new HPD.Agent.Bots.Teams.TeamsBot(options, sessionManager, agentManager, mapper), sessionManager);
     }
 
-    private static AgentConfig CreateAgentConfig(ISessionStore sessionStore)
+    private static AgentConfig CreateAgentConfig(ISessionRepository sessionRepository)
         => new()
         {
             Name = "TeamsTestAgent",
@@ -201,14 +201,15 @@ public class TeamsBotMessageTests
                 MaxRetries = 0,
                 NormalizeErrors = true,
             },
-            SessionStore = sessionStore,
-            SessionStoreOptions = new SessionStoreOptions
+            SessionRepository = sessionRepository,
+            SessionRepositoryOptions = new SessionRepositoryOptions
             {
                 PersistAfterTurn = true,
             },
         };
 
-    private sealed class StaticAgentManager(HpdAgent agent) : AgentManager(new InMemoryAgentStore())
+    private sealed class StaticAgentManager(HpdAgent agent)
+        : AgentManager(new WorkspaceAgentRepository(new InMemoryWorkspaceStore()))
     {
         public override Task<HpdAgent> GetOrBuildAgentAsync(string agentId, CancellationToken ct = default)
             => Task.FromResult(agent);

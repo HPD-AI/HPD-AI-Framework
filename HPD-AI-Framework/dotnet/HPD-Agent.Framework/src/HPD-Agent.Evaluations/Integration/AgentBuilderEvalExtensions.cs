@@ -9,6 +9,7 @@ using HPD.Agent.Evaluations.Batch;
 using HPD.Agent.Evaluations.Storage;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
+using Microsoft.Extensions.AI.Evaluation.Reporting;
 
 namespace HPD.Agent.Evaluations.Integration;
 
@@ -50,9 +51,28 @@ public static class AgentBuilderEvalExtensions
     /// </summary>
     public static AgentBuilder UseScoreStore(this AgentBuilder builder, IScoreStore store)
     {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(store);
+
         var middleware = GetOrCreateMiddleware(builder);
         middleware.ScoreStore = store;
         return builder;
+    }
+
+    /// <summary>
+    /// Sets LiveEvaluationMiddleware to persist scores into the same workspace substrate
+    /// used by the builder's runtime repositories.
+    /// </summary>
+    public static AgentBuilder UseWorkspaceScoreStore(
+        this AgentBuilder builder,
+        IWorkspaceStore? workspace = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        if (workspace is not null)
+            EnsureWorkspaceRepositories(builder, workspace);
+
+        return builder.UseScoreStore(new BuilderWorkspaceScoreStore(builder, workspace));
     }
 
     /// <summary>
@@ -174,6 +194,58 @@ public static class AgentBuilderEvalExtensions
         return middleware;
     }
 
+    private static IWorkspaceStore ResolveWorkspaceForEvaluationStore(AgentBuilder builder)
+    {
+        var sessionWorkspace = builder.Config.SessionRepository is WorkspaceSessionRepository sessionRepository
+            ? sessionRepository.Workspace
+            : null;
+        var agentWorkspace = builder.Config.AgentRepository is WorkspaceAgentRepository agentRepository
+            ? agentRepository.Workspace
+            : null;
+
+        if (sessionWorkspace is not null &&
+            agentWorkspace is not null &&
+            !ReferenceEquals(sessionWorkspace, agentWorkspace))
+        {
+            throw new InvalidOperationException(
+                "Cannot infer a workspace score store because the builder uses different session and agent workspaces.");
+        }
+
+        if (sessionWorkspace is not null)
+            return sessionWorkspace;
+
+        if (agentWorkspace is not null)
+            return agentWorkspace;
+
+        if (builder.Config.SessionRepository is not null || builder.Config.AgentRepository is not null)
+        {
+            throw new InvalidOperationException(
+                "Cannot infer a workspace score store from non-workspace runtime repositories. Pass an explicit IWorkspaceStore.");
+        }
+
+        return new InMemoryWorkspaceStore();
+    }
+
+    private static void EnsureWorkspaceRepositories(AgentBuilder builder, IWorkspaceStore workspace)
+    {
+        if (builder.Config.SessionRepository is WorkspaceSessionRepository sessionRepository &&
+            !ReferenceEquals(sessionRepository.Workspace, workspace))
+        {
+            throw new InvalidOperationException(
+                "The supplied workspace does not match the builder's session repository workspace.");
+        }
+
+        if (builder.Config.AgentRepository is WorkspaceAgentRepository agentRepository &&
+            !ReferenceEquals(agentRepository.Workspace, workspace))
+        {
+            throw new InvalidOperationException(
+                "The supplied workspace does not match the builder's agent repository workspace.");
+        }
+
+        builder.Config.SessionRepository ??= new WorkspaceSessionRepository(workspace);
+        builder.Config.AgentRepository ??= new WorkspaceAgentRepository(workspace);
+    }
+
     private static void PinLiveEvaluationMiddlewareOutermost(
         AgentBuilder builder,
         LiveEvaluationMiddleware middleware)
@@ -242,5 +314,193 @@ public static class AgentBuilderEvalExtensions
                 _gate.Release();
             }
         }
+    }
+
+    private sealed class BuilderWorkspaceScoreStore(
+        AgentBuilder builder,
+        IWorkspaceStore? explicitWorkspace) : IScoreStore
+    {
+        private WorkspaceScoreStore Resolve()
+        {
+            var workspace = explicitWorkspace ?? ResolveWorkspaceForEvaluationStore(builder);
+            EnsureWorkspaceRepositories(builder, workspace);
+            return new WorkspaceScoreStore(workspace);
+        }
+
+        public ValueTask WriteScoreAsync(ScoreRecord record, CancellationToken ct = default) =>
+            Resolve().WriteScoreAsync(record, ct);
+
+        public ValueTask WriteRunAsync(EvaluationRunRecord record, CancellationToken ct = default) =>
+            Resolve().WriteRunAsync(record, ct);
+
+        public IAsyncEnumerable<ScoreRecord> GetScoresAsync(
+            string sessionId,
+            string? branchId = null,
+            CancellationToken ct = default) =>
+            Resolve().GetScoresAsync(sessionId, branchId, ct);
+
+        public IAsyncEnumerable<ScoreRecord> GetScoresAsync(
+            string evaluatorName,
+            DateTimeOffset? from = null,
+            DateTimeOffset? to = null,
+            CancellationToken ct = default) =>
+            Resolve().GetScoresAsync(evaluatorName, from, to, ct);
+
+        public IAsyncEnumerable<EvaluationRunRecord> GetRunsAsync(
+            string? executionName = null,
+            string? scenarioName = null,
+            string? iterationName = null,
+            CancellationToken ct = default) =>
+            Resolve().GetRunsAsync(executionName, scenarioName, iterationName, ct);
+
+        public ValueTask DeleteRunsAsync(
+            string? executionName = null,
+            string? scenarioName = null,
+            string? iterationName = null,
+            CancellationToken ct = default) =>
+            Resolve().DeleteRunsAsync(executionName, scenarioName, iterationName, ct);
+
+        public IAsyncEnumerable<string> GetLatestRunExecutionNamesAsync(
+            int? count = null,
+            CancellationToken ct = default) =>
+            Resolve().GetLatestRunExecutionNamesAsync(count, ct);
+
+        public IAsyncEnumerable<string> GetRunScenarioNamesAsync(
+            string executionName,
+            CancellationToken ct = default) =>
+            Resolve().GetRunScenarioNamesAsync(executionName, ct);
+
+        public IAsyncEnumerable<string> GetRunIterationNamesAsync(
+            string executionName,
+            string scenarioName,
+            CancellationToken ct = default) =>
+            Resolve().GetRunIterationNamesAsync(executionName, scenarioName, ct);
+
+        public ValueTask<ScoreTrend> GetTrendAsync(
+            string evaluatorName,
+            DateTimeOffset from,
+            DateTimeOffset to,
+            TimeSpan bucketSize,
+            CancellationToken ct = default) =>
+            Resolve().GetTrendAsync(evaluatorName, from, to, bucketSize, ct);
+
+        public ValueTask<double> GetPassRateAsync(
+            string evaluatorName,
+            DateTimeOffset? from = null,
+            DateTimeOffset? to = null,
+            CancellationToken ct = default) =>
+            Resolve().GetPassRateAsync(evaluatorName, from, to, ct);
+
+        public ValueTask<IDictionary<string, ScoreAggregate>> GetAgentComparisonAsync(
+            string evaluatorName,
+            IEnumerable<string> agentNames,
+            DateTimeOffset? from = null,
+            DateTimeOffset? to = null,
+            CancellationToken ct = default) =>
+            Resolve().GetAgentComparisonAsync(evaluatorName, agentNames, from, to, ct);
+
+        public ValueTask<BranchComparisonResult> GetBranchComparisonAsync(
+            string sessionId,
+            string branchId1,
+            string branchId2,
+            IEnumerable<string> evaluatorNames,
+            CancellationToken ct = default) =>
+            Resolve().GetBranchComparisonAsync(sessionId, branchId1, branchId2, evaluatorNames, ct);
+
+        public ValueTask<IReadOnlyList<EvaluatorSummary>> GetEvaluatorSummaryAsync(
+            DateTimeOffset? from = null,
+            DateTimeOffset? to = null,
+            CancellationToken ct = default) =>
+            Resolve().GetEvaluatorSummaryAsync(from, to, ct);
+
+        public ValueTask<double> GetFailureRateAsync(
+            string evaluatorName,
+            DateTimeOffset? from = null,
+            DateTimeOffset? to = null,
+            CancellationToken ct = default) =>
+            Resolve().GetFailureRateAsync(evaluatorName, from, to, ct);
+
+        public ValueTask<IDictionary<string, double>> GetCostBreakdownAsync(
+            DateTimeOffset? from = null,
+            DateTimeOffset? to = null,
+            CancellationToken ct = default) =>
+            Resolve().GetCostBreakdownAsync(from, to, ct);
+
+        public IAsyncEnumerable<ScoreRecord> GetScoresByVersionAsync(
+            string evaluatorName,
+            string version,
+            CancellationToken ct = default) =>
+            Resolve().GetScoresByVersionAsync(evaluatorName, version, ct);
+
+        public ValueTask<IDictionary<string, ToolUsageSummary>> GetToolUsageSummaryAsync(
+            DateTimeOffset? from = null,
+            DateTimeOffset? to = null,
+            CancellationToken ct = default) =>
+            Resolve().GetToolUsageSummaryAsync(from, to, ct);
+
+        public ValueTask<IReadOnlyList<RiskAutonomyDataPoint>> GetRiskAutonomyDistributionAsync(
+            DateTimeOffset? from = null,
+            DateTimeOffset? to = null,
+            CancellationToken ct = default) =>
+            Resolve().GetRiskAutonomyDistributionAsync(from, to, ct);
+
+        public ValueTask<double> GetAttackSuccessRateAsync(
+            DateTimeOffset? from = null,
+            DateTimeOffset? to = null,
+            CancellationToken ct = default) =>
+            Resolve().GetAttackSuccessRateAsync(from, to, ct);
+
+        public ValueTask<IDictionary<string, double>> GetAttackSuccessRateByPluginAsync(
+            DateTimeOffset? from = null,
+            DateTimeOffset? to = null,
+            CancellationToken ct = default) =>
+            Resolve().GetAttackSuccessRateByPluginAsync(from, to, ct);
+
+        public ValueTask<IDictionary<string, double>> GetAttackSuccessRateByStrategyAsync(
+            DateTimeOffset? from = null,
+            DateTimeOffset? to = null,
+            CancellationToken ct = default) =>
+            Resolve().GetAttackSuccessRateByStrategyAsync(from, to, ct);
+
+        public ValueTask<IReadOnlyList<RedTeamFinding>> GetRedTeamFindingsAsync(
+            DateTimeOffset? from = null,
+            DateTimeOffset? to = null,
+            CancellationToken ct = default) =>
+            Resolve().GetRedTeamFindingsAsync(from, to, ct);
+
+        public ValueTask WriteResultsAsync(
+            IEnumerable<ScenarioRunResult> results,
+            CancellationToken ct = default) =>
+            Resolve().WriteResultsAsync(results, ct);
+
+        public IAsyncEnumerable<ScenarioRunResult> ReadResultsAsync(
+            string? executionName,
+            string? scenarioName,
+            string? iterationName,
+            CancellationToken ct = default) =>
+            Resolve().ReadResultsAsync(executionName, scenarioName, iterationName, ct);
+
+        public ValueTask DeleteResultsAsync(
+            string? executionName,
+            string? scenarioName,
+            string? iterationName,
+            CancellationToken ct = default) =>
+            Resolve().DeleteResultsAsync(executionName, scenarioName, iterationName, ct);
+
+        public IAsyncEnumerable<string> GetLatestExecutionNamesAsync(
+            int? maxCount = null,
+            CancellationToken ct = default) =>
+            Resolve().GetLatestExecutionNamesAsync(maxCount, ct);
+
+        public IAsyncEnumerable<string> GetScenarioNamesAsync(
+            string? executionName,
+            CancellationToken ct = default) =>
+            Resolve().GetScenarioNamesAsync(executionName, ct);
+
+        public IAsyncEnumerable<string> GetIterationNamesAsync(
+            string? executionName,
+            string? scenarioName,
+            CancellationToken ct = default) =>
+            Resolve().GetIterationNamesAsync(executionName, scenarioName, ct);
     }
 }

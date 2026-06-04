@@ -81,8 +81,10 @@ public class AgentBuilder
     public readonly List<ToolInstanceRegistration> _instanceRegistrations = new();
     // store individual ToolHarness contexts
     internal readonly Dictionary<string, IToolMetadata?> _toolharnessContexts = new();
-    //  Unified content store for all agent content (skills, knowledge, memory, uploads, artifacts)
-    internal IContentStore? _contentStore;
+    // Workspace substrate for skills, knowledge, memory, uploads, and artifacts.
+    internal IWorkspaceStore? _workspaceStore;
+    private bool _workspaceStoreExplicitlyConfigured;
+    private bool _defaultWorkspaceToolingRegistered;
     // Track explicitly registered ToolHarnesses (for Collapsing manager)
     internal readonly HashSet<string> _explicitlyRegisteredToolHarnesses = new(StringComparer.OrdinalIgnoreCase);
     internal readonly List<Middleware.IAgentMiddleware> _middlewares = new(); // Unified middleware list
@@ -1029,24 +1031,24 @@ public class AgentBuilder
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  Unified Content Store & Provider Registry
+    //  Content Facade & Provider Registry
     // ═══════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Configure a custom content store for this agent.
-    /// The store provides unified storage for skills, knowledge, memory, uploads, and artifacts.
-    /// Use <see cref="UseDefaultContentStore"/> for automatic default folder setup.
+    /// Configure the workspace substrate for this agent.
+    /// The workspace provides access for skills, knowledge, memory, uploads, and artifacts.
     /// </summary>
-    public AgentBuilder WithContentStore(IContentStore store)
+    public AgentBuilder WithWorkspaceStore(IWorkspaceStore workspace)
     {
-        _contentStore = store ?? throw new ArgumentNullException(nameof(store));
+        _workspaceStore = workspace ?? throw new ArgumentNullException(nameof(workspace));
+        _workspaceStoreExplicitlyConfigured = true;
         return this;
     }
 
     /// <summary>
     /// Configure the provider registry for intelligent content upload routing.
     /// When set, ContentUploadMiddleware can automatically detect provider capabilities
-    /// and route DataContent uploads to HostedFileClient (provider-native) or IContentStore.
+    /// and route DataContent uploads to HostedFileClient (provider-native) or the workspace store.
     /// </summary>
     public AgentBuilder WithProviderRegistry(IProviderRegistry registry)
     {
@@ -1056,46 +1058,19 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Configure the content store with default folders (/skills, /knowledge, /memory)
-    /// and auto-register FolderDiscoveryMiddleware and ContentStoreToolHarness.
-    /// This is the recommended one-liner for enabling the V3 content store system.
+    /// Configure the workspace store and auto-register workspace content discovery plus WorkspaceContentToolHarness.
+    /// This is the recommended one-liner for enabling content navigation tools.
     /// </summary>
-    /// <param name="store">
-    /// Optional custom store. Defaults to InMemoryContentStore if not provided.
-    /// For production use, pass a LocalFileContentStore or custom implementation.
+    /// <param name="workspace">
+    /// Optional workspace store. Defaults to the runtime workspace if not provided.
+    /// For production use, configure a durable workspace store with a streaming payload backend.
     /// </param>
-    public AgentBuilder UseDefaultContentStore(IContentStore? store = null)
+    public AgentBuilder UseDefaultWorkspaceContent(IWorkspaceStore? workspace = null)
     {
-        _contentStore = store ?? new InMemoryContentStore();
-
-        // Register default folders
-        _contentStore.CreateFolder("skills", new FolderOptions
-        {
-            Permissions = ContentPermissions.Read,
-            Description = "Agent skill instructions and documentation"
-        });
-        _contentStore.CreateFolder("knowledge", new FolderOptions
-        {
-            Permissions = ContentPermissions.Read,
-            Description = "Agent knowledge base and expertise"
-        });
-        _contentStore.CreateFolder("memory", new FolderOptions
-        {
-            Permissions = ContentPermissions.ReadWrite,
-            Description = "Agent working memory and context"
-        });
-
-        // Auto-register FolderDiscoveryMiddleware and ContentStoreToolHarness
-        var toolharness = new ContentStoreToolHarness(_contentStore, AgentName ?? "agent");
-        var discoveryMiddleware = new Middleware.FolderDiscoveryMiddleware(_contentStore, AgentName);
-        discoveryMiddleware.SetToolHarness(toolharness);
-
-        _middlewares.Add(discoveryMiddleware);
-        // FolderDiscoveryMiddleware propagates session ID to the toolharness via SetToolHarness link.
-
-        // Register toolharness for AI function exposure
-        _instanceRegistrations.Add(new ToolInstanceRegistration(toolharness, nameof(ContentStoreToolHarness)));
-        _toolharnessContexts[nameof(ContentStoreToolHarness)] = null;
+        RemoveDefaultContentTooling();
+        _workspaceStore = workspace ?? ResolveDefaultContentWorkspace();
+        _workspaceStoreExplicitlyConfigured = workspace is not null;
+        RegisterDefaultContentTooling();
 
         return this;
     }
@@ -1897,25 +1872,16 @@ public class AgentBuilder
 
         var buildData = await BuildDependenciesAsync(cancellationToken).ConfigureAwait(false);
 
-        // Default session store: InMemorySessionStore for zero-config out-of-the-box experience (V3)
-        // Users can override with WithSessionStore() for persistent storage (JsonSessionStore, etc.)
-        if (_config.SessionStore == null)
-        {
-            _config.SessionStore = new InMemorySessionStore();
-            _logger?.CreateLogger<AgentBuilder>().LogInformation(
-                "Using default InMemorySessionStore (in-memory, ephemeral). " +
-                "Use .WithSessionStore() for persistence.");
-        }
-        _config.SessionStoreOptions ??= new SessionStoreOptions();
+        EnsureRuntimeRepositories();
+        _config.SessionRepositoryOptions ??= new SessionRepositoryOptions();
 
-        // Default content store: InMemoryContentStore for zero-config out-of-the-box experience (V3)
-        // Users can override with WithContentStore() for persistent storage (LocalFileContentStore, etc.)
-        if (_contentStore == null)
+        // Default workspace substrate over the shared runtime workspace.
+        if (_workspaceStore == null)
         {
-            _contentStore = new InMemoryContentStore();
+            var workspace = ResolveDefaultContentWorkspace();
+            _workspaceStore = workspace;
             _logger?.CreateLogger<AgentBuilder>().LogInformation(
-                "Using default InMemoryContentStore (in-memory, ephemeral). " +
-                "Use .WithContentStore() for persistence (e.g., LocalFileContentStore).");
+                "Using default workspace substrate. Use a durable workspace store for persistent content.");
         }
 
         // Resolve config middlewares before auto-middleware registration
@@ -1933,17 +1899,18 @@ public class AgentBuilder
             return;
 
         var agentId = _config.AgentId;
-        var storeWasProvided = _config.AgentStore != null;
-        var store = _config.AgentStore ??= AgentBuilderDefaults.AgentStore;
+        var repositoryWasProvided = _config.AgentRepository != null;
+        EnsureRuntimeRepositories();
+        var repository = _config.AgentRepository ??= AgentBuilderDefaults.AgentRepository;
 
-        var stored = await store.LoadAsync(agentId, cancellationToken).ConfigureAwait(false);
+        var stored = await repository.LoadAsync(agentId, cancellationToken).ConfigureAwait(false);
         if (stored?.Config != null)
         {
             MergeStoredConfigIntoCurrent(stored.Config);
         }
 
         _config.AgentId = agentId;
-        _config.AgentStore = store;
+        _config.AgentRepository = repository;
         if (stored != null &&
             _config.Name == new AgentConfig().Name &&
             !string.IsNullOrWhiteSpace(stored.Name))
@@ -1955,14 +1922,14 @@ public class AgentBuilder
             _config.Name = agentId;
 
         var shouldPersist =
-            _config.AgentStoreOptions?.PersistOnBuild == true ||
-            (!storeWasProvided && ReferenceEquals(store, AgentBuilderDefaults.AgentStore));
+            _config.AgentRepositoryOptions?.PersistOnBuild == true ||
+            (!repositoryWasProvided && ReferenceEquals(repository, AgentBuilderDefaults.AgentRepository));
 
         if (!shouldPersist)
             return;
 
         var storedConfig = CloneSerializableConfig(_config);
-        await store.SaveAsync(new StoredAgent
+        await repository.SaveAsync(new StoredAgent
         {
             Id = agentId,
             Name = storedConfig.Name,
@@ -1971,6 +1938,72 @@ public class AgentBuilder
             UpdatedAt = DateTime.UtcNow,
             Metadata = stored?.Metadata
         }, cancellationToken).ConfigureAwait(false);
+    }
+
+    private void EnsureRuntimeRepositories()
+    {
+        if (_config.SessionRepository is null)
+        {
+            _config.SessionRepository = AgentBuilderDefaults.SessionRepository;
+            _logger?.CreateLogger<AgentBuilder>().LogInformation(
+                "Using default InMemoryWorkspaceStore for session persistence.");
+        }
+
+        _config.AgentRepository ??= AgentBuilderDefaults.AgentRepository;
+    }
+
+    private IWorkspaceStore ResolveDefaultContentWorkspace()
+    {
+        if (_config.SessionRepository is WorkspaceSessionRepository sessionRepository)
+            return sessionRepository.Workspace;
+
+        if (_config.AgentRepository is WorkspaceAgentRepository agentRepository)
+            return agentRepository.Workspace;
+
+        return AgentBuilderDefaults.WorkspaceStore;
+    }
+
+    internal void ConfigureWorkspaceStore(IWorkspaceStore workspace)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+
+        if (_workspaceStoreExplicitlyConfigured)
+            return;
+
+        var registerDefaultTooling = _defaultWorkspaceToolingRegistered;
+        if (registerDefaultTooling)
+            RemoveDefaultContentTooling();
+
+        _workspaceStore = workspace;
+        if (registerDefaultTooling)
+            RegisterDefaultContentTooling();
+    }
+
+    private void RegisterDefaultContentTooling()
+    {
+        if (_workspaceStore is null)
+            throw new InvalidOperationException("A workspace store is required before registering default content tooling.");
+
+        var toolharness = new WorkspaceContentToolHarness(_workspaceStore);
+        var discoveryMiddleware = new Middleware.WorkspaceContentDiscoveryMiddleware(AgentName);
+        discoveryMiddleware.SetToolHarness(toolharness);
+
+        _middlewares.Add(discoveryMiddleware);
+        _instanceRegistrations.Add(new ToolInstanceRegistration(toolharness, nameof(WorkspaceContentToolHarness)));
+        _toolharnessContexts[nameof(WorkspaceContentToolHarness)] = null;
+        _defaultWorkspaceToolingRegistered = true;
+    }
+
+    private void RemoveDefaultContentTooling()
+    {
+        if (!_defaultWorkspaceToolingRegistered)
+            return;
+
+        _middlewares.RemoveAll(middleware => middleware is Middleware.WorkspaceContentDiscoveryMiddleware);
+        _instanceRegistrations.RemoveAll(registration =>
+            string.Equals(registration.ToolTypeName, nameof(WorkspaceContentToolHarness), StringComparison.Ordinal));
+        _toolharnessContexts.Remove(nameof(WorkspaceContentToolHarness));
+        _defaultWorkspaceToolingRegistered = false;
     }
 
     private void MergeStoredConfigIntoCurrent(AgentConfig storedConfig)
@@ -2002,7 +2035,7 @@ public class AgentBuilder
     {
         var json = JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
         return JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentConfig)
-            ?? throw new InvalidOperationException("Failed to clone AgentConfig for agent store persistence.");
+            ?? throw new InvalidOperationException("Failed to clone AgentConfig for agent repository persistence.");
     }
 
     private static JsonObject SerializeConfigToObject(AgentConfig config)
@@ -2068,15 +2101,15 @@ public class AgentBuilder
         }
 
         // Register ContentUploadMiddleware for intelligent file upload routing.
-        // Routes DataContent to HostedFileClient (provider-native) or IContentStore based on
+        // Routes DataContent to HostedFileClient (provider-native) or workspace based on
         // provider capabilities and RunConfig.UploadStrategy (Auto/Hosted/Local).
-        // _contentStore is guaranteed to be non-null due to auto-initialization in Build().
-        _middlewares.Add(new Middleware.ContentUploadMiddleware(_providerRegistry, _contentStore));
+        // _workspaceStore is guaranteed to be non-null due to auto-initialization in Build().
+        _middlewares.Add(new Middleware.ContentUploadMiddleware(_providerRegistry, _workspaceStore));
 
         // Register ContentReferenceResolverMiddleware immediately after ContentUploadMiddleware.
         // Converts hpd-content:// URIs to provider-facing UriContent, HostedFileContent, or DataContent.
         // This ensures efficient message storage (URI refs) with transparent resolution.
-        _middlewares.Add(new Middleware.ContentReferenceResolverMiddleware(_contentStore));
+        _middlewares.Add(new Middleware.ContentReferenceResolverMiddleware(_workspaceStore));
 
         // Register ImageMiddleware ALWAYS with default PassThrough strategy
         // Allows images to flow to vision models without processing
@@ -2166,7 +2199,7 @@ public class AgentBuilder
             _serviceProvider,
             _eventSubscriptionFactories,
             _providerRegistry,
-            _contentStore,
+            _workspaceStore,
             _stateFactories,
             buildData.OwnedHttpClients,
             buildData.ClientSet);
@@ -2588,10 +2621,10 @@ public class AgentBuilder
     /// </summary>
     private async Task<AgentBuildDependencies> BuildDependenciesAsync(CancellationToken cancellationToken)
     {
-        // ===  INITIALIZE SKILL DOCUMENTS VIA CONTENT STORE ===
+        // === INITIALIZE SKILL DOCUMENTS VIA WORKSPACE STORE ===
         // Each toolharness registration class with skill documents generates InitializeDocumentsAsync.
         // Idempotent: same document ID + same content hash = no-op (startup-safe).
-        if (_contentStore != null)
+        if (_workspaceStore != null)
         {
             var docLogger = _logger?.CreateLogger<AgentBuilder>();
             foreach (var factory in _selectedToolHarnessFactories)
@@ -2599,7 +2632,7 @@ public class AgentBuilder
                 if (factory.InitializeDocumentsAsync != null)
                 {
                     docLogger?.LogDebug("Initializing skill documents for toolharness {ToolHarness}", factory.Name);
-                    await factory.InitializeDocumentsAsync(_contentStore, cancellationToken).ConfigureAwait(false);
+                    await factory.InitializeDocumentsAsync(_workspaceStore, AgentName ?? "agent", cancellationToken).ConfigureAwait(false);
                 }
             }
         }
@@ -4634,5 +4667,7 @@ public class ProviderConnectionInfo
 
 internal static class AgentBuilderDefaults
 {
-    internal static IAgentStore AgentStore { get; } = new InMemoryAgentStore();
+    internal static IWorkspaceStore WorkspaceStore { get; } = new InMemoryWorkspaceStore();
+    internal static ISessionRepository SessionRepository { get; } = new WorkspaceSessionRepository(WorkspaceStore);
+    internal static IAgentRepository AgentRepository { get; } = new WorkspaceAgentRepository(WorkspaceStore);
 }

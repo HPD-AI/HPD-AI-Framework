@@ -432,16 +432,6 @@ public class ClientToolMiddleware : IAgentMiddleware
             returnMessage += $"\n\n{skill.FunctionResult}";
         }
 
-        // Build document reference list for activation message ( content_read paths)
-        if (skill.Documents != null && skill.Documents.Count > 0)
-        {
-            returnMessage += "\n\nReference documents available in the content store:";
-            foreach (var doc in skill.Documents)
-            {
-                returnMessage += $"\n- content_read(\"/skills/{doc.DocumentId}\") — {doc.Description}";
-            }
-        }
-
         // Build referenced function names for ToolVisibilityManager
         var referencedFunctions = Array.Empty<string>();
         var referencedToolHarnesses = Array.Empty<string>();
@@ -468,9 +458,18 @@ public class ClientToolMiddleware : IAgentMiddleware
         }
 
         return HPDAIFunctionFactory.Create(
-            async (args, _, ct) =>
+            async (args, functionContext, ct) =>
             {
-                return returnMessage;
+                var message = returnMessage;
+                if (skill.Documents != null && skill.Documents.Count > 0)
+                {
+                    var skillDocPath = WorkspaceContentPaths.AgentSkills(functionContext.AgentName);
+                    message += "\n\nReference documents available in the workspace content:";
+                    foreach (var doc in skill.Documents)
+                        message += $"\n- content_read(\"{skillDocPath}/{doc.DocumentId}\") - {doc.Description}";
+                }
+
+                return message;
             },
             new HPDAIFunctionFactoryOptions
             {
@@ -486,11 +485,8 @@ public class ClientToolMiddleware : IAgentMiddleware
                     ["IsClientSkill"] = true,
                     ["clientToolHarnessName"] = toolName,
                     ["SourceType"] = "clientToolHarness",
-                    // Dual-context architecture: FunctionResult for ephemeral, SystemPrompt for persistent
                     ["FunctionResult"] = skill.FunctionResult,
                     ["SystemPrompt"] = skill.SystemPrompt,
-                    // Legacy key for backward compatibility with ContainerMiddleware
-                    ["Instructions"] = skill.SystemPrompt,
                     // These are used by ToolVisibilityManager for visibility rules
                     ["ReferencedFunctions"] = referencedFunctions,
                     ["ReferencedToolHarnesses"] = referencedToolHarnesses

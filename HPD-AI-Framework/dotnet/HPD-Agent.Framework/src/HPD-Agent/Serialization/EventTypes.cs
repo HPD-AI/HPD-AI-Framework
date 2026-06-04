@@ -176,7 +176,6 @@ public static partial class EventTypes
         public const string ITERATION_START = "ITERATION_START";
         public const string CIRCUIT_BREAKER_TRIGGERED = "CIRCUIT_BREAKER_TRIGGERED";
         public const string COMPACTION_CACHE = "COMPACTION_CACHE";
-        public const string CHECKPOINT = "CHECKPOINT";
         public const string INTERNAL_PARALLEL_TOOL_EXECUTION = "INTERNAL_PARALLEL_TOOL_EXECUTION";
         public const string INTERNAL_RETRY = "INTERNAL_RETRY";
         public const string FUNCTION_RETRY = "FUNCTION_RETRY";
@@ -193,7 +192,6 @@ public static partial class EventTypes
         public const string ITERATION_CONTEXT_SNAPSHOT = "ITERATION_CONTEXT_SNAPSHOT";
         public const string MIDDLEWARE_STATE_SNAPSHOT = "MIDDLEWARE_STATE_SNAPSHOT";
         public const string MIDDLEWARE_STATE_CHANGED = "MIDDLEWARE_STATE_CHANGED";
-        public const string SCHEMA_CHANGED = "SCHEMA_CHANGED";
         public const string COLLAPSING_STATE = "COLLAPSING_STATE";
         public const string EVENT_DROPPED = "EVENT_DROPPED";
         public const string BACKGROUND_OPERATION_STARTED = "BACKGROUND_OPERATION_STARTED";

@@ -145,7 +145,7 @@ The V2 middleware architecture is **production-ready and deployed** as the defau
 | `SkillInstructionMiddlewareTests.cs` | 207 | ~12 | 🟢 Low | Low |
 | `ToolScopingMiddlewareTests.cs` | 779 | ~35 | 🟢 Low | High |
 | `MiddlewareChainEndToEndTests.cs` | 462 | ~20 | 🟡 Med | High |
-| `CheckpointRoundTripTests.cs` | 343 | ~15 | 🟢 Low | Medium |
+| `MiddlewareStateSerializationTests.cs` | 343 | ~15 | 🟢 Low | Medium |
 | `ExecuteFunctionPipelineTests.cs` | 384 | ~18 | 🟡 Med | Medium |
 | `IterationFilterTestHelpers.cs` | 45 | 3 | 🔴 High | Low |
 | `ClientToolMiddlewareTests.cs` | ~200 | ~10 | 🟢 Low | Low |
@@ -206,7 +206,7 @@ The V2 middleware architecture is **production-ready and deployed** as the defau
 
 7. **Migrate integration tests**:
    - MiddlewareChainEndToEndTests.cs
-   - CheckpointRoundTripTests.cs
+   - MiddlewareStateSerializationTests.cs
    - ExecuteFunctionPipelineTests.cs
 
 8. **Migrate specialized tests**:

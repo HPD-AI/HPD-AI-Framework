@@ -9,7 +9,7 @@ public sealed record InputContentSourceRef(
     long? SizeBytes,
     string? Sha256);
 
-public sealed record InputContentStoreRef(
+public sealed record InputWorkspaceContentRef(
     string StoreKind,
     string? Scope,
     string ContentId,

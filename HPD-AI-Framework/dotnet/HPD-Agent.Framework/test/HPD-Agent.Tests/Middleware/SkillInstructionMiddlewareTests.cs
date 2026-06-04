@@ -4,13 +4,11 @@ using HPD.Agent.Collapsing;
 using Microsoft.Extensions.AI;
 using System.Collections.Immutable;
 using Xunit;
-using CollapsingStateData = HPD.Agent.ContainerMiddlewareState;
 
 namespace HPD.Agent.Tests.Middleware;
 
 /// <summary>
-/// Legacy tests for SkillInstructionMiddleware functionality (now merged into ContainerMiddleware).
-/// Ported from SkillInstructionIterationFilterTests.cs with updates for new architecture.
+/// Tests for skill instruction behavior in ContainerMiddleware.
 /// </summary>
 public class SkillInstructionMiddlewareTests
 {
@@ -268,7 +266,7 @@ public class SkillInstructionMiddlewareTests
             {
                 MiddlewareState = new MiddlewareState().SetState(
                     "HPD.Agent.ContainerMiddlewareState",
-                    new CollapsingStateData { ActiveContainerInstructions = activeContainers })
+                    new ContainerMiddlewareState { ActiveContainerInstructions = activeContainers })
             };
 
         var messages = new List<ChatMessage>();

@@ -127,11 +127,11 @@ public class TeamsBotInteractionTests
     }
 
     private static HPD.Agent.Bots.Teams.TeamsBot CreateBot()
-        => CreateBot(new TestAgentManager(new InMemoryAgentStore()));
+        => CreateBot(new TestAgentManager());
 
     private static HPD.Agent.Bots.Teams.TeamsBot CreateBot(AgentManager agentManager)
     {
-        var sessionManager = new TestSessionManager(new InMemorySessionStore());
+        var sessionManager = new TestSessionManager();
         var mapper = new PlatformSessionMapper(sessionManager);
         var options = Options.Create(new TeamsBotConfig
         {
@@ -162,10 +162,11 @@ public class TeamsBotInteractionTests
                 MaxRetries = 0,
                 NormalizeErrors = true,
             },
-            SessionStore = new InMemorySessionStore(),
+            SessionRepository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore()),
         };
 
-    private sealed class StaticAgentManager(HpdAgent agent) : AgentManager(new InMemoryAgentStore())
+    private sealed class StaticAgentManager(HpdAgent agent)
+        : AgentManager(new WorkspaceAgentRepository(new InMemoryWorkspaceStore()))
     {
         public override Task<HpdAgent> GetOrBuildAgentAsync(string agentId, CancellationToken ct = default)
             => Task.FromResult(agent);

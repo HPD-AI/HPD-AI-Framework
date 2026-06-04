@@ -9,7 +9,7 @@ namespace HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 
 /// <summary>
 /// Content management endpoints for the HPD-Agent API.
-/// Content items are session-scoped and shared across all branches.
+/// Content items are branch-scoped within a session.
 /// </summary>
 internal static class ContentEndpoints
 {
@@ -18,34 +18,35 @@ internal static class ContentEndpoints
     /// </summary>
     internal static void Map(IEndpointRouteBuilder endpoints, IAgentContentService content)
     {
-        // POST /sessions/{sid}/content - Upload content (multipart/form-data)
-        endpoints.MapPost("/sessions/{sid}/content", (string sid, HttpRequest request, CancellationToken ct) =>
-                UploadContent(sid, request, content, ct))
+        // POST /sessions/{sid}/branches/{bid}/content - Upload content (multipart/form-data)
+        endpoints.MapPost("/sessions/{sid}/branches/{bid}/content", (string sid, string bid, HttpRequest request, CancellationToken ct) =>
+                UploadContent(sid, bid, request, content, ct))
             .WithName("UploadContent")
             .WithSummary("Upload content (multipart/form-data)")
             .DisableAntiforgery(); // Allow multipart uploads
 
-        // GET /sessions/{sid}/content - List content for session
-        endpoints.MapGet("/sessions/{sid}/content", (string sid, CancellationToken ct) =>
-                ListContent(sid, content, ct))
+        // GET /sessions/{sid}/branches/{bid}/content - List content for branch
+        endpoints.MapGet("/sessions/{sid}/branches/{bid}/content", (string sid, string bid, CancellationToken ct) =>
+                ListContent(sid, bid, content, ct))
             .WithName("ListContent")
-            .WithSummary("List all content in a session");
+            .WithSummary("List all content in a branch");
 
-        // GET /sessions/{sid}/content/{contentId} - Download content (returns binary)
-        endpoints.MapGet("/sessions/{sid}/content/{contentId}", (string sid, string contentId, CancellationToken ct) =>
-                DownloadContent(sid, contentId, content, ct))
+        // GET /sessions/{sid}/branches/{bid}/content/{contentId} - Download content (returns binary)
+        endpoints.MapGet("/sessions/{sid}/branches/{bid}/content/{contentId}", (string sid, string bid, string contentId, CancellationToken ct) =>
+                DownloadContent(sid, bid, contentId, content, ct))
             .WithName("DownloadContent")
             .WithSummary("Download content (returns binary content)");
 
-        // DELETE /sessions/{sid}/content/{contentId} - Delete content
-        endpoints.MapDelete("/sessions/{sid}/content/{contentId}", (string sid, string contentId, CancellationToken ct) =>
-                DeleteContent(sid, contentId, content, ct))
+        // DELETE /sessions/{sid}/branches/{bid}/content/{contentId} - Delete content
+        endpoints.MapDelete("/sessions/{sid}/branches/{bid}/content/{contentId}", (string sid, string bid, string contentId, CancellationToken ct) =>
+                DeleteContent(sid, bid, contentId, content, ct))
             .WithName("DeleteContent")
             .WithSummary("Delete content");
     }
 
     private static async Task<Results<Created<ContentDto>, NotFound, ValidationProblem>> UploadContent(
         string sid,
+        string bid,
         HttpRequest request,
         IAgentContentService content,
         CancellationToken ct = default)
@@ -72,11 +73,11 @@ internal static class ContentEndpoints
             }
 
             await using var stream = file.OpenReadStream();
-            var result = await content.UploadContentAsync(sid, stream, file.FileName, file.ContentType, ct);
+            var result = await content.UploadContentAsync(sid, bid, stream, file.FileName, file.ContentType, ct);
             return result.Status switch
             {
                 AgentServiceStatus.Success => TypedResults.Created(
-                    $"/sessions/{sid}/content/{result.Value!.ContentId}",
+                    $"/sessions/{sid}/branches/{bid}/content/{result.Value!.ContentId}",
                     result.Value),
                 AgentServiceStatus.NotFound => TypedResults.NotFound(),
                 _ => TypedResults.ValidationProblem(ToValidation(result))
@@ -93,12 +94,13 @@ internal static class ContentEndpoints
 
     private static async Task<Results<Ok<List<ContentDto>>, NotFound, ValidationProblem>> ListContent(
         string sid,
+        string bid,
         IAgentContentService content,
         CancellationToken ct = default)
     {
         try
         {
-            var result = await content.ListContentAsync(sid, ct);
+            var result = await content.ListContentAsync(sid, bid, ct);
             return result.Status == AgentServiceStatus.NotFound
                 ? TypedResults.NotFound()
                 : TypedResults.Ok(result.Value!.ToList());
@@ -114,13 +116,14 @@ internal static class ContentEndpoints
 
     private static async Task<Results<FileContentHttpResult, NotFound, ValidationProblem>> DownloadContent(
         string sid,
+        string bid,
         string contentId,
         IAgentContentService content,
         CancellationToken ct = default)
     {
         try
         {
-            var result = await content.DownloadContentAsync(sid, contentId, ct);
+            var result = await content.DownloadContentAsync(sid, bid, contentId, ct);
             if (result.Status == AgentServiceStatus.NotFound)
                 return TypedResults.NotFound();
 
@@ -137,13 +140,14 @@ internal static class ContentEndpoints
 
     private static async Task<Results<NoContent, NotFound, ValidationProblem>> DeleteContent(
         string sid,
+        string bid,
         string contentId,
         IAgentContentService content,
         CancellationToken ct = default)
     {
         try
         {
-            var result = await content.DeleteContentAsync(sid, contentId, ct);
+            var result = await content.DeleteContentAsync(sid, bid, contentId, ct);
             return result.Status == AgentServiceStatus.NotFound
                 ? TypedResults.NotFound()
                 : TypedResults.NoContent();

@@ -19,10 +19,10 @@ public sealed class AgentStreamingService : IAgentStreamingService
         string branchId,
         CancellationToken cancellationToken = default)
     {
-        if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
+        if (await _sessionManager.Repository.LoadSessionAsync(sessionId, cancellationToken) == null)
             return AgentServiceResult<AgentStreamLease>.NotFound;
 
-        if (await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken) == null)
+        if (await _sessionManager.Repository.LoadBranchAsync(sessionId, branchId, cancellationToken) == null)
             return AgentServiceResult<AgentStreamLease>.NotFound;
 
         var agent = await _agentManager.GetOrBuildAgentRuntimeAsync(agentId, sessionId, branchId, cancellationToken);
@@ -71,7 +71,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
 
         try
         {
-            await _sessionManager.Store.AppendBranchEventAsync(
+            await _sessionManager.Repository.AppendBranchEventAsync(
                 sessionId,
                 branchId,
                 startedEvent,
@@ -97,7 +97,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
 
             try
             {
-                await _sessionManager.Store.AppendBranchEventAsync(
+                await _sessionManager.Repository.AppendBranchEventAsync(
                     sessionId,
                     branchId,
                     completedEvent,

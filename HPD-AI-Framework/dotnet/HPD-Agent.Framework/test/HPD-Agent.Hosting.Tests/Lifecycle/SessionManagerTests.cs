@@ -10,13 +10,13 @@ namespace HPD.Agent.Hosting.Tests.Lifecycle;
 /// </summary>
 public class SessionManagerTests : IDisposable
 {
-    private readonly InMemorySessionStore _store;
+    private readonly ISessionRepository _repository;
     private readonly TestSessionManagerImpl _manager;
 
     public SessionManagerTests()
     {
-        _store = new InMemorySessionStore();
-        _manager = new TestSessionManagerImpl(_store);
+        _repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
+        _manager = new TestSessionManagerImpl(_repository);
     }
 
     public void Dispose() => _manager.Dispose();
@@ -47,7 +47,7 @@ public class SessionManagerTests : IDisposable
     {
         var (sessionId, _) = await _manager.CreateSessionAsync();
 
-        var branch = await _store.LoadBranchAsync(sessionId, "main");
+        var branch = await _repository.LoadBranchAsync(sessionId, "main");
         branch.Should().NotBeNull();
     }
 
@@ -57,7 +57,7 @@ public class SessionManagerTests : IDisposable
         var meta = new Dictionary<string, object> { ["source"] = "test" };
         var (sessionId, _) = await _manager.CreateSessionAsync(metadata: meta);
 
-        var session = await _store.LoadSessionAsync(sessionId);
+        var session = await _repository.LoadSessionAsync(sessionId);
         session.Should().NotBeNull();
         session!.Metadata.Should().ContainKey("source");
     }
@@ -100,13 +100,13 @@ public class SessionManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task RemoveSession_DoesNotDeleteStoreData()
+    public async Task RemoveSession_DoesNotDeleteRepositoryData()
     {
         var (sessionId, _) = await _manager.CreateSessionAsync();
 
         _manager.RemoveSession(sessionId);
 
-        var session = await _store.LoadSessionAsync(sessionId);
+        var session = await _repository.LoadSessionAsync(sessionId);
         session.Should().NotBeNull();
     }
 
@@ -333,6 +333,6 @@ public class SessionManagerTests : IDisposable
 
     private sealed class TestSessionManagerImpl : SessionManager
     {
-        public TestSessionManagerImpl(ISessionStore store) : base(store) { }
+        public TestSessionManagerImpl(ISessionRepository repository) : base(repository) { }
     }
 }

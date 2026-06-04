@@ -57,6 +57,8 @@
     <Project Path="src/HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj" />
     <Project Path="src/HPD-Agent.FFI/HPD-Agent.FFI.csproj" />
     <Project Path="src/HPD-Agent.MCP/HPD-Agent.MCP.csproj" />
+    <Project Path="src/HPD-Execution/HPD-Execution.Contracts/HPD-Execution.Contracts.csproj" />
+    <Project Path="src/HPD-Execution/HPD-Execution.Runtime/HPD-Execution.Runtime.csproj" />
     <Project Path="src/HPD-Execution/HPD-Execution.AppleVirtualization.Cli/HPD-Execution.AppleVirtualization.Cli.csproj" />
     <Project Path="src/HPD-Execution/HPD-Execution.AppleVirtualization.DevKit/HPD-Execution.AppleVirtualization.DevKit.csproj" />
     <Project Path="src/HPD-Execution/HPD-Execution.AppleVirtualization/HPD-Execution.AppleVirtualization.csproj" />
@@ -78,6 +80,8 @@
     <Project Path="test/HPD-Agent.Hosting.Tests/HPD-Agent.Hosting.Tests.csproj" />
     <Project Path="test/HPD-Agent.Bots.Tests/HPD-Agent.Bots.Tests.csproj" />
     <Project Path="test/HPD.Agent.Audio.V2.Tests/HPD.Agent.Audio.V2.Tests.csproj" />
+    <Project Path="test/HPD-Execution/HPD-Execution.Contracts.Tests/HPD-Execution.Contracts.Tests.csproj" />
+    <Project Path="test/HPD-Execution/HPD-Execution.Runtime.Tests/HPD-Execution.Runtime.Tests.csproj" />
     <Project Path="test/HPD-Execution/HPD-Execution.AppleVirtualization.Tests/HPD-Execution.AppleVirtualization.Tests.csproj" />
     <Project Path="test/HPD-Execution/HPD-Execution.Local.Tests/HPD-Execution.Local.Tests.csproj" />
     <Project Path="test/HPD-Agent.Harness.Coding.Tests/HPD-Agent.Harness.Coding.Tests.csproj" />

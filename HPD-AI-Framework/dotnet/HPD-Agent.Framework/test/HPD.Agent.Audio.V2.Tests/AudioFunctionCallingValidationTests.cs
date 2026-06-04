@@ -14,7 +14,7 @@ public sealed class AudioFunctionCallingValidationTests
     [Fact]
     public async Task AgentIterations_MathToolHarness_ExecutesMultipleToolCallsAndPersistsToolHarnessEvents()
     {
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var chatClient = new ScriptedToolLoopChatClient();
         chatClient.EnqueueToolCall("Add", "call-add", new Dictionary<string, object?>
         {
@@ -28,7 +28,7 @@ public sealed class AudioFunctionCallingValidationTests
         });
         chatClient.EnqueueTextResponse("The answer is 20.");
 
-        var agent = await new AgentBuilder(CreateConfig(store), new TestProviderRegistry(chatClient))
+        var agent = await new AgentBuilder(CreateConfig(repository), new TestProviderRegistry(chatClient))
             .WithName("audio-function-validation-agent")
             .WithToolHarness<MathToolHarness>()
             .BuildAsync();
@@ -40,7 +40,7 @@ public sealed class AudioFunctionCallingValidationTests
             "audio-function-session",
             "main");
 
-        var document = await store.LoadBranchDocumentAsync("audio-function-session", "main");
+        var document = await repository.LoadBranchDocumentAsync("audio-function-session", "main");
         Assert.NotNull(document);
 
         var starts = document.Events.OfType<ToolCallStartEvent>().ToArray();
@@ -98,7 +98,7 @@ public sealed class AudioFunctionCallingValidationTests
                 Assert.Contains("20", result.Result.Text ?? string.Empty);
             });
 
-        var branch = await store.LoadBranchAsync("audio-function-session", "main");
+        var branch = await repository.LoadBranchAsync("audio-function-session", "main");
         Assert.NotNull(branch);
         var finalAssistantMessage = Assert.Single(branch.Messages, message =>
             message.Role == ChatRole.Assistant &&
@@ -107,12 +107,12 @@ public sealed class AudioFunctionCallingValidationTests
         Assert.Equal(3, chatClient.CapturedRequests.Count);
     }
 
-    private static AgentConfig CreateConfig(ISessionStore store)
+    private static AgentConfig CreateConfig(ISessionRepository repository)
         => new()
         {
             Name = "AudioFunctionValidationAgent",
             MaxAgenticIterations = 10,
-            SessionStore = store,
+            SessionRepository = repository,
             Clients = new AgentClientConfig
             {
                 Chat = new ClientProviderConfig

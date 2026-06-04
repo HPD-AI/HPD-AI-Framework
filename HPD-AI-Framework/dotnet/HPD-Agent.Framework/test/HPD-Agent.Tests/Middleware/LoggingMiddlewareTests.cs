@@ -532,7 +532,7 @@ public class LoggingMiddlewareTests
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
-                    ["IsCollapse"] = true,
+                    ["IsToolHarnessContainer"] = true,
                     ["ToolHarnessName"] = "CodingToolHarness",
                     ["FunctionNames"] = new List<string> { "ReadFile", "WriteFile" }
                 }
@@ -569,7 +569,7 @@ public class LoggingMiddlewareTests
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
-                    ["IsCollapse"] = true,
+                    ["IsToolHarnessContainer"] = true,
                     ["ToolHarnessName"] = "CodingToolHarness"
                 }
             });
@@ -603,7 +603,7 @@ public class LoggingMiddlewareTests
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
-                    ["IsCollapse"] = true,
+                    ["IsToolHarnessContainer"] = true,
                     ["ToolHarnessName"] = "CodingToolHarness"
                 }
             });
@@ -639,7 +639,7 @@ public class LoggingMiddlewareTests
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
-                    ["IsCollapse"] = true,
+                    ["IsToolHarnessContainer"] = true,
                     ["ToolHarnessName"] = "CodingToolHarness"
                 }
             });
@@ -686,7 +686,7 @@ public class LoggingMiddlewareTests
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["IsContainer"] = true,
-                    ["IsCollapse"] = true,
+                    ["IsToolHarnessContainer"] = true,
                     ["ToolHarnessName"] = "CodingToolHarness"
                 }
             });

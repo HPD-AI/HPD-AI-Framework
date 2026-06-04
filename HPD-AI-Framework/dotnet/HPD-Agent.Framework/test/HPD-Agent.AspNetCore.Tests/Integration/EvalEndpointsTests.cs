@@ -40,30 +40,35 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
         _factory.ScoreStore.WriteScoreAsync(record).AsTask();
 
     // =========================================================================
-    // Category A — 503 when no IScoreStore registered
+    // Category A — workspace-backed score store defaults
     // =========================================================================
 
     [Fact]
-    public async Task GET_evals_scores_Returns503_WhenNoStoreRegistered()
+    public async Task GET_evals_scores_UsesWorkspaceScoreStoreByDefault()
     {
-        // Use a separate factory instance that does NOT register IScoreStore
-        using var noStoreFactory = new TestWebApplicationFactory();
-        var client = noStoreFactory.CreateClient();
+        using var defaultWorkspaceFactory = new TestWebApplicationFactory();
+        var client = defaultWorkspaceFactory.CreateClient();
 
         var response = await client.GetAsync("/evals/scores?evaluatorName=X");
 
-        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement
+            .GetArrayLength()
+            .Should().Be(0);
     }
 
     [Fact]
-    public async Task GET_evals_evaluators_Returns503_WhenNoStoreRegistered()
+    public async Task GET_evals_evaluators_UsesWorkspaceScoreStoreByDefault()
     {
-        using var noStoreFactory = new TestWebApplicationFactory();
-        var client = noStoreFactory.CreateClient();
+        using var defaultWorkspaceFactory = new TestWebApplicationFactory();
+        var client = defaultWorkspaceFactory.CreateClient();
 
         var response = await client.GetAsync("/evals/analytics/evaluators");
 
-        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement
+            .GetArrayLength()
+            .Should().Be(0);
     }
 
     [Fact]
@@ -94,14 +99,23 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task GET_evals_safetyAnalytics_Returns503_WhenNoStoreRegistered()
+    public async Task GET_evals_safetyAnalytics_UsesWorkspaceScoreStoreByDefault()
     {
         using var noStoreFactory = new TestWebApplicationFactory();
         var client = noStoreFactory.CreateClient();
 
         var response = await client.GetAsync("/evals/analytics/safety");
 
-        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("totalCount").GetInt32().Should().Be(0);
+        body.GetProperty("passedCount").GetInt32().Should().Be(0);
+        body.GetProperty("failedCount").GetInt32().Should().Be(0);
+        body.GetProperty("passRate").GetDouble().Should().Be(0);
+        body.GetProperty("averageSafetyScore").GetDouble().Should().Be(0);
+        body.GetProperty("byCategory").EnumerateObject().Should().BeEmpty();
+        body.GetProperty("bySeverity").EnumerateObject().Should().BeEmpty();
+        body.GetProperty("byRecommendedAction").EnumerateObject().Should().BeEmpty();
     }
 
     // =========================================================================
@@ -790,14 +804,19 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task GET_evals_redTeamAnalytics_Returns503_WhenNoStoreRegistered()
+    public async Task GET_evals_redTeamAnalytics_UsesWorkspaceScoreStoreByDefault()
     {
         using var noStoreFactory = new TestWebApplicationFactory();
         var client = noStoreFactory.CreateClient();
 
         var response = await client.GetAsync("/evals/analytics/red-team");
 
-        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("attackSuccessRate").GetDouble().Should().Be(0);
+        body.GetProperty("attackSuccessRateByPlugin").EnumerateObject().Should().BeEmpty();
+        body.GetProperty("attackSuccessRateByStrategy").EnumerateObject().Should().BeEmpty();
+        body.GetProperty("findingCount").GetInt32().Should().Be(0);
     }
 
     // =========================================================================
@@ -837,14 +856,17 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task GET_evals_runs_Returns503_WhenNoScoreStoreRegistered()
+    public async Task GET_evals_runs_UsesWorkspaceScoreStoreByDefault()
     {
-        using var noStoreFactory = new TestWebApplicationFactory();
-        var client = noStoreFactory.CreateClient();
+        using var defaultWorkspaceFactory = new TestWebApplicationFactory();
+        var client = defaultWorkspaceFactory.CreateClient();
 
         var response = await client.GetAsync("/evals/runs");
 
-        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement
+            .GetArrayLength()
+            .Should().Be(0);
     }
 
     [Fact]
@@ -973,30 +995,38 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task GET_evals_datasets_Returns503_WhenNoDatasetStoreRegistered()
+    public async Task GET_evals_datasets_UsesWorkspaceDatasetStoreByDefault()
     {
-        using var noStoreFactory = new TestWebApplicationFactory();
-        var client = noStoreFactory.CreateClient();
+        using var defaultWorkspaceFactory = new TestWebApplicationFactory();
+        var client = defaultWorkspaceFactory.CreateClient();
 
         var response = await client.GetAsync("/evals/datasets");
 
-        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        doc.GetArrayLength().Should().Be(0);
     }
 
     [Fact]
-    public async Task POST_evals_datasets_Returns503_WhenNoDatasetStoreRegistered()
+    public async Task POST_evals_datasets_UsesWorkspaceDatasetStoreByDefault()
     {
-        using var noStoreFactory = new TestWebApplicationFactory();
-        var client = noStoreFactory.CreateClient();
+        using var defaultWorkspaceFactory = new TestWebApplicationFactory();
+        var client = defaultWorkspaceFactory.CreateClient();
 
         var response = await client.PostAsJsonAsync("/evals/datasets", new
         {
-            datasetId = "missing-store",
+            datasetId = "workspace-default-store",
             version = "v1",
-            cases = Array.Empty<object>(),
+            cases = new[] { new { caseId = "case-a", input = "hello" } },
         });
 
-        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var getResponse = await client.GetAsync("/evals/datasets/workspace-default-store/versions/v1");
+        getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var doc = JsonDocument.Parse(await getResponse.Content.ReadAsStringAsync()).RootElement;
+        doc.GetProperty("datasetId").GetString().Should().Be("workspace-default-store");
+        doc.GetProperty("version").GetString().Should().Be("v1");
     }
 
     [Fact]
@@ -1339,22 +1369,20 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
         (string CaseId, string Input, string GroundTruth)[] cases,
         DateTimeOffset? registeredAt)
     {
-        await _factory.DatasetStore.RegisterDatasetVersionAsync(
-            new HPD.Agent.Evaluations.Batch.Dataset<string>
+        var response = await _client.PostAsJsonAsync("/evals/datasets", new
+        {
+            datasetId,
+            version,
+            registeredAt,
+            cases = cases.Select(c => new
             {
-                DatasetId = datasetId,
-                Version = version,
-                Cases = cases.Select(c => new HPD.Agent.Evaluations.Batch.EvalCase<string>
-                {
-                    CaseId = c.CaseId,
-                    Version = version,
-                    Input = c.Input,
-                    GroundTruth = c.GroundTruth,
-                }).ToList(),
-            },
-            new DatasetRegistrationOptions<string>
-            {
-                RegisteredAt = registeredAt,
-            });
+                caseId = c.CaseId,
+                version,
+                input = c.Input,
+                groundTruth = c.GroundTruth,
+            }).ToArray(),
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
     }
 }

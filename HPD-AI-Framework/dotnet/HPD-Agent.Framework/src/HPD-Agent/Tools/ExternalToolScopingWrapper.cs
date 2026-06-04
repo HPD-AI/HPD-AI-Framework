@@ -91,11 +91,8 @@ public static class ExternalToolCollapsingWrapper
                     ["FunctionCount"] = allFunctionNames.Count,
                     ["SourceType"] = "MCP",
                     ["MCPServerName"] = serverName,
-                    // Dual-context architecture: FunctionResult for ephemeral, SystemPrompt for persistent
                     ["FunctionResult"] = FunctionResult,
-                    ["SystemPrompt"] = SystemPrompt,
-                    // Legacy key for backward compatibility with ContainerMiddleware
-                    ["Instructions"] = SystemPrompt
+                    ["SystemPrompt"] = SystemPrompt
                 }
             });
 
@@ -246,11 +243,8 @@ public static class ExternalToolCollapsingWrapper
                     ["FunctionNames"] = allFunctionNames.ToArray(),
                     ["FunctionCount"] = allFunctionNames.Count,
                     ["SourceType"] = "clientToolHarness",
-                    // Dual-context architecture: FunctionResult for ephemeral, SystemPrompt for persistent
                     ["FunctionResult"] = FunctionResult,
-                    ["SystemPrompt"] = SystemPrompt,
-                    // Legacy key for backward compatibility with ContainerMiddleware
-                    ["Instructions"] = SystemPrompt
+                    ["SystemPrompt"] = SystemPrompt
                 }
             });
 
@@ -264,7 +258,7 @@ public static class ExternalToolCollapsingWrapper
     /// Wraps OpenAPI functions behind a container nested inside a parent toolharness.
     /// Used when <c>CollapseWithinToolHarness = true</c> on <c>OpenApiConfig</c>.
     /// The container gets <c>["ParentContainer"] = parentContainer</c> so
-    /// <c>IsCollapseContainerVisible()</c> enforces parent-first visibility.
+    /// <c>IsToolHarnessContainerContainerVisible()</c> enforces parent-first visibility.
     /// </summary>
     public static (AIFunction container, List<AIFunction> CollapsedTools) WrapOpenApiTools(
         string containerName,

@@ -73,14 +73,13 @@ public static class SubAgentRuntime
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
 
-        var store = agent.Config?.SessionStore
-            ?? throw new InvalidOperationException("No session store configured.");
+        var repository = agent.Config?.SessionRepository
+            ?? throw new InvalidOperationException("No session repository configured.");
 
-        var session = await store.LoadSessionAsync(sessionId, cancellationToken).ConfigureAwait(false)
+        var session = await repository.LoadSessionAsync(sessionId, cancellationToken).ConfigureAwait(false)
             ?? throw new SessionNotFoundException(sessionId);
-        session.Store = store;
 
-        if (await store.LoadBranchAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false) != null)
+        if (await repository.LoadBranchAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false) != null)
             throw new InvalidOperationException($"Branch '{branchId}' already exists in session '{sessionId}'.");
 
         var branch = new Branch(sessionId, branchId) { Session = session };
@@ -91,8 +90,8 @@ public static class SubAgentRuntime
         }
 
         session.LastActivity = branch.LastActivity;
-        await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
-        await store.SaveInitialBranchAsync(sessionId, branch, cancellationToken).ConfigureAwait(false);
+        await repository.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
+        await repository.SaveInitialBranchAsync(sessionId, branch, cancellationToken).ConfigureAwait(false);
         return branch.Id;
     }
 
@@ -123,9 +122,9 @@ public static class SubAgentRuntime
             {
                 var sessionId = subAgent.ExecutionPolicy.SharedSessionId
                     ?? throw new InvalidOperationException("SharedSessionId is required.");
-                var store = agent.Config?.SessionStore
-                    ?? throw new InvalidOperationException("No session store configured.");
-                var existing = await store.LoadSessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
+                var repository = agent.Config?.SessionRepository
+                    ?? throw new InvalidOperationException("No session repository configured.");
+                var existing = await repository.LoadSessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
                 if (existing == null)
                 {
                     await agent.CreateSessionAsync(
@@ -162,9 +161,9 @@ public static class SubAgentRuntime
             {
                 var branchId = policy.ExistingBranchId
                     ?? throw new InvalidOperationException("ExistingBranchId is required.");
-                var store = agent.Config?.SessionStore
-                    ?? throw new InvalidOperationException("No session store configured.");
-                _ = await store.LoadBranchAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false)
+                var repository = agent.Config?.SessionRepository
+                    ?? throw new InvalidOperationException("No session repository configured.");
+                _ = await repository.LoadBranchAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false)
                     ?? throw new InvalidOperationException($"Existing branch '{branchId}' not found in session '{sessionId}'.");
                 return branchId;
             }
@@ -182,9 +181,9 @@ public static class SubAgentRuntime
                     ?? throw new InvalidOperationException("ForkFromParentBranch subagents require a parent SessionId.");
                 var parentBranchId = functionContext.BranchId
                     ?? throw new InvalidOperationException("ForkFromParentBranch subagents require a parent BranchId.");
-                var store = agent.Config?.SessionStore
-                    ?? throw new InvalidOperationException("No session store configured.");
-                var parentBranch = await store.LoadBranchAsync(parentSessionId, parentBranchId, cancellationToken)
+                var repository = agent.Config?.SessionRepository
+                    ?? throw new InvalidOperationException("No session repository configured.");
+                var parentBranch = await repository.LoadBranchAsync(parentSessionId, parentBranchId, cancellationToken)
                     .ConfigureAwait(false)
                     ?? throw new InvalidOperationException($"Parent branch '{parentBranchId}' not found in session '{parentSessionId}'.");
                 var forkPoint = parentBranch.Messages.LastOrDefault()?.MessageId

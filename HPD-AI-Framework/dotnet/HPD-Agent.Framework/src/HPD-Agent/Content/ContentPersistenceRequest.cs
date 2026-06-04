@@ -1,7 +1,7 @@
 namespace HPD.Agent;
 
 /// <summary>
-/// Describes how an agent event should be persisted into the content store.
+/// Describes how an agent event should be persisted into the workspace store.
 /// This is event type policy, not serialized event payload.
 /// </summary>
 public sealed record ContentPersistenceRequest
@@ -12,9 +12,14 @@ public sealed record ContentPersistenceRequest
     public string? Scope { get; init; }
 
     /// <summary>
-    /// Content folder tag, such as /memory/events or /artifacts.
+    /// Workspace content role, such as memory or artifact.
     /// </summary>
-    public required string Folder { get; init; }
+    public required string Role { get; init; }
+
+    /// <summary>
+    /// Agent-facing path hint, such as /memory/events or /artifacts.
+    /// </summary>
+    public string? PathHint { get; init; }
 
     /// <summary>
     /// Content item name.
@@ -37,16 +42,17 @@ public sealed record ContentPersistenceRequest
     public ContentSource Origin { get; init; } = ContentSource.System;
 
     /// <summary>
-    /// Additional tags to merge with standard event and folder tags.
+    /// Additional tags to merge with standard event tags.
     /// </summary>
     public IReadOnlyDictionary<string, string>? Tags { get; init; }
 
     /// <summary>
-    /// Explicit content write behavior. Defaults to create-only with name collision protection.
+    /// Optional expected attachment version when replacing an existing event content attachment.
     /// </summary>
-    public ContentWriteOptions Options { get; init; } = new()
-    {
-        Mode = ContentWriteMode.Create,
-        FailIfNameExists = true
-    };
+    public string? IfMatchAttachmentVersion { get; init; }
+
+    /// <summary>
+    /// Optional expected content version when replacing an existing event content object.
+    /// </summary>
+    public string? IfMatchContentVersion { get; init; }
 }

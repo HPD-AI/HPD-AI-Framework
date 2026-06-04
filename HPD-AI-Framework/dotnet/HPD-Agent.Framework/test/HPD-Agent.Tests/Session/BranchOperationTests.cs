@@ -6,30 +6,30 @@ using HPD.Agent.Tests.Infrastructure;
 namespace HPD.Agent.Tests.Session;
 
 /// <summary>
-/// Tests for Branch operations on ISessionStore implementations.
+/// Tests for Branch operations on session repository implementations.
 /// Covers CRUD, forking, isolation, middleware state scoping, and serialization.
 /// </summary>
 public class BranchOperationTests : AgentTestBase
 {
     //──────────────────────────────────────────────────────────────────
-    // INMEMORY STORE - BRANCH CRUD
+    // INMEMORY WORKSPACE REPOSITORY - BRANCH CRUD
     //──────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task InMemoryStore_SaveAndLoadBranch_RoundTrip()
+    public async Task InMemoryWorkspaceRepository_SaveAndLoadBranch_RoundTrip()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
+        await repository.SaveSessionAsync(session);
 
         var branch = session.CreateBranch("main");
         branch.AddMessage(UserMessage("Hello"));
         branch.AddMessage(AssistantMessage("Hi there!"));
 
         // Act
-        await store.SaveInitialBranchAsync("test-session", branch);
-        var loaded = await store.LoadBranchAsync("test-session", "main");
+        await repository.SaveInitialBranchAsync("test-session", branch);
+        var loaded = await repository.LoadBranchAsync("test-session", "main");
 
         // Assert
         Assert.NotNull(loaded);
@@ -39,52 +39,52 @@ public class BranchOperationTests : AgentTestBase
     }
 
     [Fact]
-    public async Task InMemoryStore_LoadBranch_NonExistent_ReturnsNull()
+    public async Task InMemoryWorkspaceRepository_LoadBranch_NonExistent_ReturnsNull()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
 
         // Act
-        var result = await store.LoadBranchAsync("no-session", "no-branch");
+        var result = await repository.LoadBranchAsync("no-session", "no-branch");
 
         // Assert
         Assert.Null(result);
     }
 
     [Fact]
-    public async Task InMemoryStore_DeleteBranch_RemovesBranch()
+    public async Task InMemoryWorkspaceRepository_DeleteBranch_RemovesBranch()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
+        await repository.SaveSessionAsync(session);
 
         var branch = session.CreateBranch("to-delete");
         branch.AddMessage(UserMessage("Hello"));
-        await store.SaveInitialBranchAsync("test-session", branch);
+        await repository.SaveInitialBranchAsync("test-session", branch);
 
         // Act
-        await store.DeleteBranchAsync("test-session", "to-delete");
-        var loaded = await store.LoadBranchAsync("test-session", "to-delete");
+        await repository.DeleteBranchAsync("test-session", "to-delete");
+        var loaded = await repository.LoadBranchAsync("test-session", "to-delete");
 
         // Assert
         Assert.Null(loaded);
     }
 
     [Fact]
-    public async Task InMemoryStore_ListBranchIds_ReturnsAllBranches()
+    public async Task InMemoryWorkspaceRepository_ListBranchIds_ReturnsAllBranches()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
+        await repository.SaveSessionAsync(session);
 
-        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
-        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("formal"));
-        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("casual"));
+        await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
+        await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("formal"));
+        await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("casual"));
 
         // Act
-        var ids = await store.ListBranchIdsAsync("test-session");
+        var ids = await repository.ListBranchIdsAsync("test-session");
 
         // Assert
         Assert.Equal(3, ids.Count);
@@ -94,34 +94,34 @@ public class BranchOperationTests : AgentTestBase
     }
 
     [Fact]
-    public async Task InMemoryStore_DeleteSession_AlsoDeletesAllBranches()
+    public async Task InMemoryWorkspaceRepository_DeleteSession_AlsoDeletesAllBranches()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
-        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
-        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("formal"));
+        await repository.SaveSessionAsync(session);
+        await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
+        await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("formal"));
 
         // Act
-        await store.DeleteSessionAsync("test-session");
+        await repository.DeleteSessionAsync("test-session");
 
         // Assert
-        var branches = await store.ListBranchIdsAsync("test-session");
+        var branches = await repository.ListBranchIdsAsync("test-session");
         Assert.Empty(branches);
     }
 
     //──────────────────────────────────────────────────────────────────
-    // INMEMORY STORE - BRANCH ISOLATION
+    // INMEMORY WORKSPACE REPOSITORY - BRANCH ISOLATION
     //──────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task InMemoryStore_MultipleBranches_MessageIsolation()
+    public async Task InMemoryWorkspaceRepository_MultipleBranches_MessageIsolation()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
+        await repository.SaveSessionAsync(session);
 
         var branch1 = session.CreateBranch("branch-1");
         branch1.AddMessage(UserMessage("Branch 1 message"));
@@ -130,12 +130,12 @@ public class BranchOperationTests : AgentTestBase
         branch2.AddMessage(UserMessage("Branch 2 message"));
         branch2.AddMessage(AssistantMessage("Branch 2 response"));
 
-        await store.SaveInitialBranchAsync("test-session", branch1);
-        await store.SaveInitialBranchAsync("test-session", branch2);
+        await repository.SaveInitialBranchAsync("test-session", branch1);
+        await repository.SaveInitialBranchAsync("test-session", branch2);
 
         // Act
-        var loaded1 = await store.LoadBranchAsync("test-session", "branch-1");
-        var loaded2 = await store.LoadBranchAsync("test-session", "branch-2");
+        var loaded1 = await repository.LoadBranchAsync("test-session", "branch-1");
+        var loaded2 = await repository.LoadBranchAsync("test-session", "branch-2");
 
         // Assert
         Assert.Single(loaded1!.Messages);
@@ -143,67 +143,67 @@ public class BranchOperationTests : AgentTestBase
     }
 
     [Fact]
-    public async Task InMemoryStore_DeleteBranch_DoesNotAffectOtherBranches()
+    public async Task InMemoryWorkspaceRepository_DeleteBranch_DoesNotAffectOtherBranches()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
+        await repository.SaveSessionAsync(session);
 
-        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("keep"));
-        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("remove"));
+        await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("keep"));
+        await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("remove"));
 
         // Act
-        await store.DeleteBranchAsync("test-session", "remove");
+        await repository.DeleteBranchAsync("test-session", "remove");
 
         // Assert
-        var kept = await store.LoadBranchAsync("test-session", "keep");
+        var kept = await repository.LoadBranchAsync("test-session", "keep");
         Assert.NotNull(kept);
-        var removed = await store.LoadBranchAsync("test-session", "remove");
+        var removed = await repository.LoadBranchAsync("test-session", "remove");
         Assert.Null(removed);
     }
 
     [Fact]
-    public async Task InMemoryStore_DeleteBranch_SessionRemains()
+    public async Task InMemoryWorkspaceRepository_DeleteBranch_SessionRemains()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
         session.AddMetadata("project", "test");
-        await store.SaveSessionAsync(session);
-        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
+        await repository.SaveSessionAsync(session);
+        await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
 
         // Act
-        await store.DeleteBranchAsync("test-session", "main");
+        await repository.DeleteBranchAsync("test-session", "main");
 
         // Assert - session still exists
-        var loadedSession = await store.LoadSessionAsync("test-session");
+        var loadedSession = await repository.LoadSessionAsync("test-session");
         Assert.NotNull(loadedSession);
         Assert.Equal("test-session", loadedSession.Id);
     }
 
     //──────────────────────────────────────────────────────────────────
-    // JSON STORE - BRANCH CRUD
+    // JSON WORKSPACE STORE - BRANCH CRUD
     //──────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task JsonStore_SaveAndLoadBranch_RoundTrip()
+    public async Task JsonWorkspaceStore_SaveAndLoadBranch_RoundTrip()
     {
         // Arrange
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-test-{Guid.NewGuid():N}");
         try
         {
-            var store = new JsonSessionStore(tempDir);
+            var repository = CreateJsonWorkspaceSessionRepository(tempDir);
             var session = new HPD.Agent.Session("test-session");
-            await store.SaveSessionAsync(session);
+            await repository.SaveSessionAsync(session);
 
             var branch = session.CreateBranch("main");
             branch.AddMessage(UserMessage("Hello"));
             branch.AddMessage(AssistantMessage("Hi there!"));
 
             // Act
-            await store.SaveInitialBranchAsync("test-session", branch);
-            var loaded = await store.LoadBranchAsync("test-session", "main");
+            await repository.SaveInitialBranchAsync("test-session", branch);
+            var loaded = await repository.LoadBranchAsync("test-session", "main");
 
             // Assert
             Assert.NotNull(loaded);
@@ -219,21 +219,21 @@ public class BranchOperationTests : AgentTestBase
     }
 
     [Fact]
-    public async Task JsonStore_ListBranchIds_ReturnsAllBranches()
+    public async Task JsonWorkspaceStore_ListBranchIds_ReturnsAllBranches()
     {
         // Arrange
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-test-{Guid.NewGuid():N}");
         try
         {
-            var store = new JsonSessionStore(tempDir);
+            var repository = CreateJsonWorkspaceSessionRepository(tempDir);
             var session = new HPD.Agent.Session("test-session");
-            await store.SaveSessionAsync(session);
+            await repository.SaveSessionAsync(session);
 
-            await store.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
-            await store.SaveInitialBranchAsync("test-session", session.CreateBranch("formal"));
+            await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
+            await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("formal"));
 
             // Act
-            var ids = await store.ListBranchIdsAsync("test-session");
+            var ids = await repository.ListBranchIdsAsync("test-session");
 
             // Assert
             Assert.Equal(2, ids.Count);
@@ -248,21 +248,21 @@ public class BranchOperationTests : AgentTestBase
     }
 
     [Fact]
-    public async Task JsonStore_DeleteBranch_RemovesBranch()
+    public async Task JsonWorkspaceStore_DeleteBranch_RemovesBranch()
     {
         // Arrange
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-test-{Guid.NewGuid():N}");
         try
         {
-            var store = new JsonSessionStore(tempDir);
+            var repository = CreateJsonWorkspaceSessionRepository(tempDir);
             var session = new HPD.Agent.Session("test-session");
-            await store.SaveSessionAsync(session);
+            await repository.SaveSessionAsync(session);
 
-            await store.SaveInitialBranchAsync("test-session", session.CreateBranch("to-delete"));
+            await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("to-delete"));
 
             // Act
-            await store.DeleteBranchAsync("test-session", "to-delete");
-            var loaded = await store.LoadBranchAsync("test-session", "to-delete");
+            await repository.DeleteBranchAsync("test-session", "to-delete");
+            var loaded = await repository.LoadBranchAsync("test-session", "to-delete");
 
             // Assert
             Assert.Null(loaded);
@@ -282,16 +282,16 @@ public class BranchOperationTests : AgentTestBase
     public async Task Branch_Description_SetAndRetrieved()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
+        await repository.SaveSessionAsync(session);
 
         var branch = session.CreateBranch("formal");
         branch.Description = "Formal tone approach";
 
         // Act
-        await store.SaveInitialBranchAsync("test-session", branch);
-        var loaded = await store.LoadBranchAsync("test-session", "formal");
+        await repository.SaveInitialBranchAsync("test-session", branch);
+        var loaded = await repository.LoadBranchAsync("test-session", "formal");
 
         // Assert
         Assert.Equal("Formal tone approach", loaded!.Description);
@@ -301,16 +301,16 @@ public class BranchOperationTests : AgentTestBase
     public async Task Branch_Tags_SetAndRetrieved()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
+        await repository.SaveSessionAsync(session);
 
         var branch = session.CreateBranch("experiment");
         branch.Tags = ["v1", "draft", "formal-tone"];
 
         // Act
-        await store.SaveInitialBranchAsync("test-session", branch);
-        var loaded = await store.LoadBranchAsync("test-session", "experiment");
+        await repository.SaveInitialBranchAsync("test-session", branch);
+        var loaded = await repository.LoadBranchAsync("test-session", "experiment");
 
         // Assert
         Assert.NotNull(loaded!.Tags);
@@ -364,9 +364,9 @@ public class BranchOperationTests : AgentTestBase
     public async Task ForkBranch_CreatesNewBranch_WithCorrectLineage()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
+        await repository.SaveSessionAsync(session);
 
         var source = session.CreateBranch("main");
         source.AddMessage(UserMessage("Message 1"));
@@ -374,10 +374,10 @@ public class BranchOperationTests : AgentTestBase
         source.AddMessage(UserMessage("Message 2"));
         source.AddMessage(AssistantMessage("Response 2"));
         source.AddMessage(UserMessage("Message 3"));
-        await store.SaveInitialBranchAsync("test-session", source);
+        await repository.SaveInitialBranchAsync("test-session", source);
 
         // Act - fork at message 3 (after "Response 2")
-        var forked = await ForkBranchViaStore(store, session, "main", "formal", source.Messages[3].MessageId!);
+        var forked = await ForkBranchViaStore(repository, session, "main", "formal", source.Messages[3].MessageId!);
 
         // Assert
         Assert.Equal("formal", forked.Id);
@@ -393,18 +393,18 @@ public class BranchOperationTests : AgentTestBase
     public async Task ForkBranch_CopiesMessages_UpToForkPoint()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
+        await repository.SaveSessionAsync(session);
 
         var source = session.CreateBranch("main");
         source.AddMessage(UserMessage("First"));
         source.AddMessage(AssistantMessage("Second"));
         source.AddMessage(UserMessage("Third"));
-        await store.SaveInitialBranchAsync("test-session", source);
+        await repository.SaveInitialBranchAsync("test-session", source);
 
         // Act - fork at message 1 (after "Second")
-        var forked = await ForkBranchViaStore(store, session, "main", "alt", source.Messages[1].MessageId!);
+        var forked = await ForkBranchViaStore(repository, session, "main", "alt", source.Messages[1].MessageId!);
 
         // Assert - should have messages 0 and 1
         Assert.Equal(2, forked.Messages.Count);
@@ -414,18 +414,18 @@ public class BranchOperationTests : AgentTestBase
     public async Task ForkBranch_CopiesBranchMiddlewareState()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
+        await repository.SaveSessionAsync(session);
 
         var source = session.CreateBranch("main");
         source.MiddlewareState["PlanModePersistentState"] = "{\"step\":3}";
         source.MiddlewareState["CompactionState"] = "{\"cached\":true}";
         source.AddMessage(UserMessage("Hello"));
-        await store.SaveInitialBranchAsync("test-session", source);
+        await repository.SaveInitialBranchAsync("test-session", source);
 
         // Act
-        var forked = await ForkBranchViaStore(store, session, "main", "alt", source.Messages[0].MessageId!);
+        var forked = await ForkBranchViaStore(repository, session, "main", "alt", source.Messages[0].MessageId!);
 
         // Assert - branch-scoped state copied
         Assert.Equal("{\"step\":3}", forked.MiddlewareState["PlanModePersistentState"]);
@@ -436,26 +436,32 @@ public class BranchOperationTests : AgentTestBase
     public async Task ForkBranch_BranchStateDivergesAfterFork()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
+        await repository.SaveSessionAsync(session);
 
         var source = session.CreateBranch("main");
         source.MiddlewareState["PlanModePersistentState"] = "{\"step\":1}";
         source.AddMessage(UserMessage("Hello"));
-        await store.SaveInitialBranchAsync("test-session", source);
+        await repository.SaveInitialBranchAsync("test-session", source);
 
-        var forked = await ForkBranchViaStore(store, session, "main", "alt", source.Messages[0].MessageId!);
+        var forked = await ForkBranchViaStore(repository, session, "main", "alt", source.Messages[0].MessageId!);
 
         // Act - modify forked branch state
         forked.MiddlewareState["PlanModePersistentState"] = "{\"step\":5}";
-        await store.SaveInitialBranchAsync("test-session", forked);
+        await repository.AppendBranchEventAsync(
+            "test-session",
+            forked.Id,
+            BranchEventFactory.BranchMiddlewareStateCommitted(
+                "test-session",
+                forked.Id,
+                forked.MiddlewareState));
 
         // Assert - source unchanged
-        var reloadedSource = await store.LoadBranchAsync("test-session", "main");
+        var reloadedSource = await repository.LoadBranchAsync("test-session", "main");
         Assert.Equal("{\"step\":1}", reloadedSource!.MiddlewareState["PlanModePersistentState"]);
 
-        var reloadedForked = await store.LoadBranchAsync("test-session", "alt");
+        var reloadedForked = await repository.LoadBranchAsync("test-session", "alt");
         Assert.Equal("{\"step\":5}", reloadedForked!.MiddlewareState["PlanModePersistentState"]);
     }
 
@@ -467,16 +473,16 @@ public class BranchOperationTests : AgentTestBase
     public async Task SessionMiddlewareState_SharedAcrossBranches()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
         session.MiddlewareState["PermissionPersistentState"] = "{\"Bash\":\"AlwaysAllow\"}";
-        await store.SaveSessionAsync(session);
+        await repository.SaveSessionAsync(session);
 
-        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("branch-1"));
-        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("branch-2"));
+        await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("branch-1"));
+        await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("branch-2"));
 
         // Act - load session (session state is shared, not per-branch)
-        var loadedSession = await store.LoadSessionAsync("test-session");
+        var loadedSession = await repository.LoadSessionAsync("test-session");
 
         // Assert - session-scoped state accessible regardless of branch
         Assert.Equal("{\"Bash\":\"AlwaysAllow\"}", loadedSession!.MiddlewareState["PermissionPersistentState"]);
@@ -486,9 +492,9 @@ public class BranchOperationTests : AgentTestBase
     public async Task BranchMiddlewareState_IsolatedPerBranch()
     {
         // Arrange
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
+        await repository.SaveSessionAsync(session);
 
         var branch1 = session.CreateBranch("branch-1");
         branch1.MiddlewareState["PlanModePersistentState"] = "{\"plan\":\"A\"}";
@@ -496,47 +502,16 @@ public class BranchOperationTests : AgentTestBase
         var branch2 = session.CreateBranch("branch-2");
         branch2.MiddlewareState["PlanModePersistentState"] = "{\"plan\":\"B\"}";
 
-        await store.SaveInitialBranchAsync("test-session", branch1);
-        await store.SaveInitialBranchAsync("test-session", branch2);
+        await repository.SaveInitialBranchAsync("test-session", branch1);
+        await repository.SaveInitialBranchAsync("test-session", branch2);
 
         // Act
-        var loaded1 = await store.LoadBranchAsync("test-session", "branch-1");
-        var loaded2 = await store.LoadBranchAsync("test-session", "branch-2");
+        var loaded1 = await repository.LoadBranchAsync("test-session", "branch-1");
+        var loaded2 = await repository.LoadBranchAsync("test-session", "branch-2");
 
         // Assert
         Assert.Equal("{\"plan\":\"A\"}", loaded1!.MiddlewareState["PlanModePersistentState"]);
         Assert.Equal("{\"plan\":\"B\"}", loaded2!.MiddlewareState["PlanModePersistentState"]);
-    }
-
-    //──────────────────────────────────────────────────────────────────
-    // UNCOMMITTED TURN + BRANCH INTEGRATION
-    //──────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public async Task UncommittedTurn_BranchId_PreservedCorrectly()
-    {
-        // Arrange
-        var store = new InMemorySessionStore();
-        var turn = new UncommittedTurn
-        {
-            SessionId = "test-session",
-            BranchId = "formal",
-            TurnId = "turn-formal",
-            Iteration = 1,
-            CompletedFunctions = System.Collections.Immutable.ImmutableHashSet<string>.Empty,
-            MiddlewareState = new MiddlewareState(),
-            IsTerminated = false,
-            CreatedAt = DateTime.UtcNow,
-            LastUpdatedAt = DateTime.UtcNow,
-        };
-
-        // Act
-        await store.SaveUncommittedTurnAsync(turn);
-        var loaded = await store.LoadUncommittedTurnAsync("test-session");
-
-        // Assert
-        Assert.NotNull(loaded);
-        Assert.Equal("formal", loaded.BranchId);
     }
 
     //──────────────────────────────────────────────────────────────────
@@ -600,7 +575,6 @@ public class BranchOperationTests : AgentTestBase
         Assert.Equal("my-session", session.Id);
         Assert.Empty(session.Metadata);
         Assert.Empty(session.MiddlewareState);
-        Assert.Null(session.Store);
     }
 
     //──────────────────────────────────────────────────────────────────
@@ -610,13 +584,13 @@ public class BranchOperationTests : AgentTestBase
     [Fact]
     public async Task LoadSessionAndBranch_SingleBranch_DefaultsToMain()
     {
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
-        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
+        await repository.SaveSessionAsync(session);
+        await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
 
         var agent = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
-            .WithSessionStore(store)
+            .WithSessionRepository(repository)
             .BuildAsync(CancellationToken.None).GetAwaiter().GetResult();
 
         // No branchId specified, single branch → should default to "main"
@@ -629,14 +603,14 @@ public class BranchOperationTests : AgentTestBase
     [Fact]
     public async Task LoadSessionAndBranch_MultipleBranches_NoBranchId_ThrowsAmbiguousBranchException()
     {
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
-        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
-        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("formal"));
+        await repository.SaveSessionAsync(session);
+        await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
+        await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("formal"));
 
         var agent = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
-            .WithSessionStore(store)
+            .WithSessionRepository(repository)
             .BuildAsync(CancellationToken.None).GetAwaiter().GetResult();
 
         // No branchId specified, multiple branches → should throw
@@ -652,14 +626,14 @@ public class BranchOperationTests : AgentTestBase
     [Fact]
     public async Task LoadSessionAndBranch_MultipleBranches_ExplicitBranchId_Works()
     {
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var session = new HPD.Agent.Session("test-session");
-        await store.SaveSessionAsync(session);
-        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
-        await store.SaveInitialBranchAsync("test-session", session.CreateBranch("formal"));
+        await repository.SaveSessionAsync(session);
+        await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("main"));
+        await repository.SaveInitialBranchAsync("test-session", session.CreateBranch("formal"));
 
         var agent = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
-            .WithSessionStore(store)
+            .WithSessionRepository(repository)
             .BuildAsync(CancellationToken.None).GetAwaiter().GetResult();
 
         // Explicit branchId, multiple branches → should work fine
@@ -670,12 +644,12 @@ public class BranchOperationTests : AgentTestBase
     }
 
     [Fact]
-    public async Task LoadSessionAndBranch_SessionNotInStore_ThrowsSessionNotFoundException()
+    public async Task LoadSessionAndBranch_SessionNotInRepository_ThrowsSessionNotFoundException()
     {
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
 
         var agent = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
-            .WithSessionStore(store)
+            .WithSessionRepository(repository)
             .BuildAsync(CancellationToken.None).GetAwaiter().GetResult();
 
         // Session was never created — should throw, not silently create
@@ -687,12 +661,12 @@ public class BranchOperationTests : AgentTestBase
     }
 
     [Fact]
-    public async Task LoadSessionAndBranch_BranchNotInStore_ThrowsSessionNotFoundException()
+    public async Task LoadSessionAndBranch_BranchNotInRepository_ThrowsSessionNotFoundException()
     {
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
 
         var agent = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
-            .WithSessionStore(store)
+            .WithSessionRepository(repository)
             .BuildAsync(CancellationToken.None).GetAwaiter().GetResult();
 
         // Session exists but branch does not
@@ -714,13 +688,13 @@ public class BranchOperationTests : AgentTestBase
     /// Used when we don't have a full Agent instance in tests.
     /// </summary>
     private static async Task<Branch> ForkBranchViaStore(
-        ISessionStore store,
+        ISessionRepository repository,
         HPD.Agent.Session session,
         string sourceBranchId,
         string newBranchId,
         string fromMessageId)
     {
-        var source = await store.LoadBranchAsync(session.Id, sourceBranchId);
+        var source = await repository.LoadBranchAsync(session.Id, sourceBranchId);
         Assert.NotNull(source);
 
         var fromMessageIndex = source.Messages.FindIndex(message =>
@@ -744,7 +718,10 @@ public class BranchOperationTests : AgentTestBase
             newBranch.MiddlewareState[kvp.Key] = kvp.Value;
         }
 
-        await store.SaveInitialBranchAsync(session.Id, newBranch);
+        await repository.SaveInitialBranchAsync(session.Id, newBranch);
         return newBranch;
     }
+
+    private static ISessionRepository CreateJsonWorkspaceSessionRepository(string path)
+        => new WorkspaceSessionRepository(new JsonWorkspaceStore(path));
 }

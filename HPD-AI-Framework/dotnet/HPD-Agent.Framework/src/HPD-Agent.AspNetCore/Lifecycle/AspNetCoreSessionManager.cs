@@ -16,10 +16,10 @@ internal class AspNetCoreSessionManager : SessionManager
     private readonly string _name;
 
     internal AspNetCoreSessionManager(
-        ISessionStore store,
+        ISessionRepository repository,
         IOptionsMonitor<HPDAgentConfig> optionsMonitor,
         string name)
-        : base(store)
+        : base(repository)
     {
         _optionsMonitor = optionsMonitor ?? throw new ArgumentNullException(nameof(optionsMonitor));
         _name = name ?? throw new ArgumentNullException(nameof(name));

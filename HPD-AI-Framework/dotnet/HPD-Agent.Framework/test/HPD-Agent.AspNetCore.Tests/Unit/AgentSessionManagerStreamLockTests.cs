@@ -13,14 +13,14 @@ namespace HPD.Agent.AspNetCore.Tests.Unit;
 /// </summary>
 public class AgentSessionManagerBranchOperationLockTests : IDisposable
 {
-    private readonly InMemorySessionStore _store;
+    private readonly ISessionRepository _repository;
     private readonly AspNetCoreSessionManagerTestable _manager;
 
     public AgentSessionManagerBranchOperationLockTests()
     {
-        _store = new InMemorySessionStore();
+        _repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var optionsMonitor = new OptionsMonitorWrapper();
-        _manager = new AspNetCoreSessionManagerTestable(_store, optionsMonitor, Options.DefaultName);
+        _manager = new AspNetCoreSessionManagerTestable(_repository, optionsMonitor, Options.DefaultName);
     }
 
     public void Dispose() => _manager.Dispose();
@@ -193,10 +193,10 @@ public class AgentSessionManagerBranchOperationLockTests : IDisposable
     // ──────────────────────────────────────────────────────────────────
 
     private class AspNetCoreSessionManagerTestable(
-        ISessionStore store,
+        ISessionRepository repository,
         IOptionsMonitor<HPDAgentConfig> optionsMonitor,
         string name)
-        : AspNetCoreSessionManager(store, optionsMonitor, name);
+        : AspNetCoreSessionManager(repository, optionsMonitor, name);
 
     private class OptionsMonitorWrapper : IOptionsMonitor<HPDAgentConfig>
     {

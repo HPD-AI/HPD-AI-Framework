@@ -17,7 +17,7 @@ public sealed class AudioRuntimeOptionsCompilerTests
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Disabled,
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.Auto,
             AssistantOutputPushTextAggregationMode = PushTextInputAggregationMode.ProviderDefault,
-            AssistantOutputArtifactCapturePolicy = AssistantAudioArtifactCapturePolicy.ContentStoreArtifact,
+            AssistantOutputArtifactCapturePolicy = AssistantAudioArtifactCapturePolicy.WorkspaceArtifact,
             EnableAssistantOutputPlayback = false
         };
         var agentAudio = new AudioConfig
@@ -65,7 +65,7 @@ public sealed class AudioRuntimeOptionsCompilerTests
             InputMode = AudioInputMode.BatchSpeechToText,
             OutputMode = AudioOutputMode.TextToSpeech,
             AssistantOutputMode = AssistantOutputSynthesisMode.Progressive,
-            ArtifactCapturePolicy = AssistantAudioArtifactCapturePolicy.ContentStoreArtifact,
+            ArtifactCapturePolicy = AssistantAudioArtifactCapturePolicy.WorkspaceArtifact,
             EnablePlayback = false
         };
         var runAudio = new AudioRunConfig

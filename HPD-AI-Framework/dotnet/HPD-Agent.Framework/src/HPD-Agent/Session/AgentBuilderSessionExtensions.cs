@@ -5,72 +5,45 @@ namespace HPD.Agent;
 /// </summary>
 public static class AgentBuilderSessionExtensions
 {
-    /// <summary>
-    /// Configures the session store for the agent.
-    /// Auto-save after each turn is enabled by default when a store is explicitly configured.
-    /// Crash recovery via uncommitted turns is automatic when a store is configured.
-    /// </summary>
-    public static AgentBuilder WithSessionStore(
+    public static AgentBuilder WithSessionRepository(
         this AgentBuilder builder,
-        ISessionStore store)
+        ISessionRepository repository)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(repository);
 
-        builder.Config.SessionStore = store;
-        builder.Config.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = true };
+        builder.Config.SessionRepository = repository;
+        builder.Config.SessionRepositoryOptions = new SessionRepositoryOptions { PersistAfterTurn = true };
         return builder;
     }
 
-    /// <summary>
-    /// Configures the session store for the agent with optional auto-persistence.
-    /// Crash recovery via uncommitted turns is automatic when a store is configured.
-    /// </summary>
-    public static AgentBuilder WithSessionStore(
+    public static AgentBuilder WithSessionRepository(
         this AgentBuilder builder,
-        ISessionStore store,
+        ISessionRepository repository,
         bool persistAfterTurn)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(repository);
 
-        builder.Config.SessionStore = store;
-        builder.Config.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = persistAfterTurn };
+        builder.Config.SessionRepository = repository;
+        builder.Config.SessionRepositoryOptions = new SessionRepositoryOptions { PersistAfterTurn = persistAfterTurn };
         return builder;
     }
 
-    /// <summary>
-    /// Configures the session store for the agent with full options control.
-    /// </summary>
-    public static AgentBuilder WithSessionStore(
+    public static AgentBuilder WithSessionRepository(
         this AgentBuilder builder,
-        ISessionStore store,
-        Action<SessionStoreOptions> configure)
+        ISessionRepository repository,
+        Action<SessionRepositoryOptions> configure)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(configure);
 
-        var options = new SessionStoreOptions();
+        var options = new SessionRepositoryOptions();
         configure(options);
 
-        builder.Config.SessionStore = store;
-        builder.Config.SessionStoreOptions = options;
+        builder.Config.SessionRepository = repository;
+        builder.Config.SessionRepositoryOptions = options;
         return builder;
-    }
-
-    /// <summary>
-    /// Convenience overload with file-based storage.
-    /// </summary>
-    public static AgentBuilder WithSessionStore(
-        this AgentBuilder builder,
-        string storagePath,
-        bool persistAfterTurn = true)
-    {
-        ArgumentNullException.ThrowIfNull(builder);
-        ArgumentException.ThrowIfNullOrWhiteSpace(storagePath);
-
-        var store = new JsonSessionStore(storagePath);
-        return builder.WithSessionStore(store, persistAfterTurn);
     }
 }

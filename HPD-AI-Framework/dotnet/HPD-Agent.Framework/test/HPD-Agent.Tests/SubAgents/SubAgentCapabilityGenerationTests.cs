@@ -42,22 +42,22 @@ public class SubAgentCapabilityGenerationTests
 
         code.Should().Contain("subAgentDef.SourceKind == SubAgentSourceKind.StoredAgent");
         code.Should().Contain("new AgentBuilder().WithAgentId(subAgentDef.AgentId)");
-        code.Should().Contain("functionContext?.GetParentAgentStore()");
+        code.Should().Contain("functionContext?.GetParentAgentRepository()");
         code.Should().Contain("subAgentDef.SourceKind == SubAgentSourceKind.InlineConfig");
         code.Should().Contain("new AgentBuilder(subAgentDef.AgentConfig)");
     }
 
     [Fact]
-    public void GeneratedCode_AttachesParentSessionStoreBeforeBuildAsync()
+    public void GeneratedCode_AttachesParentSessionRepositoryBeforeBuildAsync()
     {
         var code = MakeCapability().GenerateRegistrationCode(MakeToolHarness());
 
-        var storeAttachIndex = code.IndexOf("WithSessionStore(parentStore)", StringComparison.Ordinal);
+        var repositoryAttachIndex = code.IndexOf("WithSessionRepository(parentRepository)", StringComparison.Ordinal);
         var buildAsyncIndex = code.IndexOf("BuildAsync()", StringComparison.Ordinal);
 
-        storeAttachIndex.Should().BeGreaterThan(-1);
+        repositoryAttachIndex.Should().BeGreaterThan(-1);
         buildAsyncIndex.Should().BeGreaterThan(-1);
-        storeAttachIndex.Should().BeLessThan(buildAsyncIndex);
+        repositoryAttachIndex.Should().BeLessThan(buildAsyncIndex);
     }
 
     [Fact]

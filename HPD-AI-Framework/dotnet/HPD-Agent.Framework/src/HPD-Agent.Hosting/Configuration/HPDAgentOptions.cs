@@ -9,29 +9,22 @@ namespace HPD.Agent.Hosting.Configuration;
 public class HPDAgentConfig
 {
     /// <summary>
-    /// The session store to use for this agent.
-    /// Owns session lifecycle (list, create, delete) and is shared with the agent for branch persistence.
-    /// Defaults to <see cref="InMemorySessionStore"/> if not set.
-    /// Use <see cref="JsonSessionStore"/> for persistence across restarts.
+    /// Workspace store used as the single persistence substrate for hosted sessions,
+    /// branches, stored agents, framework documents, and content attachments.
+    /// Defaults to <see cref="InMemoryWorkspaceStore"/>.
     /// </summary>
-    /// <remarks>
-    /// The hosting layer owns the store, not the AgentBuilder. The store is created at startup
-    /// so that session/branch endpoints work before any agent is built. When a stream request
-    /// arrives, the same store is passed into the AgentBuilder automatically — do not also
-    /// call WithSessionStore() inside <see cref="ConfigureAgent"/>.
-    /// </remarks>
-    /// <summary>
-    /// Path to a directory where sessions are persisted as JSON files.
-    /// When set, a <see cref="JsonSessionStore"/> is created automatically.
-    /// Ignored when <see cref="SessionStore"/> is set explicitly.
-    /// </summary>
-    public string? SessionStorePath { get; set; }
+    public IWorkspaceStore? WorkspaceStore { get; set; }
 
-    public ISessionStore? SessionStore { get; set; }
+    /// <summary>
+    /// Path to a directory where the workspace is persisted as JSON.
+    /// Prefer <see cref="UseJsonWorkspace"/> for fluent configuration.
+    /// Ignored when <see cref="WorkspaceStore"/> is set explicitly.
+    /// </summary>
+    public string? WorkspaceStorePath { get; set; }
 
     /// <summary>
     /// Whether to automatically persist conversation history after each completed turn.
-    /// Only meaningful when <see cref="SessionStore"/> is a durable store (e.g. <see cref="JsonSessionStore"/>).
+    /// Uses the configured workspace-backed session repository.
     /// Default: false.
     /// </summary>
     public bool PersistAfterTurn { get; set; } = false;
@@ -66,14 +59,8 @@ public class HPDAgentConfig
     }
 
     /// <summary>
-    /// Agent store for resolving stored agent definitions.
-    /// Defaults to <see cref="InMemoryAgentStore"/> if not set.
-    /// </summary>
-    public IAgentStore? AgentStore { get; set; }
-
-    /// <summary>
     /// Whether hosted agent builds should persist synthesized or updated definitions back
-    /// to the configured <see cref="AgentStore"/> after a successful build.
+    /// to the configured workspace-backed agent repository.
     /// Default: true.
     /// </summary>
     public bool PersistAgentDefinitionsOnBuild { get; set; } = true;
@@ -84,10 +71,9 @@ public class HPDAgentConfig
     /// Use this for runtime-only concerns (compiled type references, DI services).
     /// </summary>
     /// <remarks>
-    /// The AgentBuilder is pre-configured with the <see cref="SessionStore"/> and any
-    /// AgentConfig/AgentConfigPath settings. Use this callback for agent behavior only —
-    /// providers, tools, middleware, instructions. Do not call WithSessionStore() here;
-    /// set <see cref="SessionStore"/> directly instead.
+    /// The AgentBuilder is pre-configured with workspace-backed repositories and any
+    /// AgentConfig/AgentConfigPath settings. Use this callback for agent behavior only:
+    /// providers, tools, middleware, instructions.
     /// </remarks>
     public Action<AgentBuilder>? ConfigureAgent { get; set; }
 
@@ -106,4 +92,58 @@ public class HPDAgentConfig
     /// Default: false.
     /// </summary>
     public bool AllowRecursiveBranchDelete { get; set; } = false;
+}
+
+public static class HPDAgentConfigWorkspaceExtensions
+{
+    public static HPDAgentConfig UseDefaultAgent(
+        this HPDAgentConfig config,
+        AgentConfig agentConfig)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        config.DefaultAgentConfig = agentConfig ?? throw new ArgumentNullException(nameof(agentConfig));
+        config.DefaultAgentConfigPath = null;
+        return config;
+    }
+
+    public static HPDAgentConfig UseDefaultAgent(
+        this HPDAgentConfig config,
+        string agentConfigPath)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentConfigPath);
+
+        config.DefaultAgentConfig = null;
+        config.DefaultAgentConfigPath = agentConfigPath;
+        return config;
+    }
+
+    public static HPDAgentConfig UseWorkspaceStore(
+        this HPDAgentConfig config,
+        IWorkspaceStore workspaceStore)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        config.WorkspaceStore = workspaceStore ?? throw new ArgumentNullException(nameof(workspaceStore));
+        return config;
+    }
+
+    public static HPDAgentConfig UseInMemoryWorkspace(this HPDAgentConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        config.WorkspaceStore = new InMemoryWorkspaceStore();
+        config.WorkspaceStorePath = null;
+        return config;
+    }
+
+    public static HPDAgentConfig UseJsonWorkspace(
+        this HPDAgentConfig config,
+        string workspacePath)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspacePath);
+
+        config.WorkspaceStore = new JsonWorkspaceStore(workspacePath);
+        config.WorkspaceStorePath = workspacePath;
+        return config;
+    }
 }

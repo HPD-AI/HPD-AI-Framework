@@ -12,13 +12,13 @@ namespace HPD.Agent.Hosting.Tests.Lifecycle;
 /// </summary>
 public class AgentManagerTests : IDisposable
 {
-    private readonly InMemoryAgentStore _store;
+    private readonly IAgentRepository _repository;
     private readonly TestAgentManagerImpl _manager;
 
     public AgentManagerTests()
     {
-        _store = new InMemoryAgentStore();
-        _manager = new TestAgentManagerImpl(_store);
+        _repository = new WorkspaceAgentRepository(new InMemoryWorkspaceStore());
+        _manager = new TestAgentManagerImpl(_repository);
     }
 
     public void Dispose() => _manager.Dispose();
@@ -37,7 +37,7 @@ public class AgentManagerTests : IDisposable
         stored.Name.Should().Be("Agent A");
         stored.Config.Should().BeSameAs(config);
 
-        var loaded = await _store.LoadAsync(stored.Id);
+        var loaded = await _repository.LoadAsync(stored.Id);
         loaded.Should().NotBeNull();
         loaded!.Name.Should().Be("Agent A");
     }
@@ -80,8 +80,8 @@ public class AgentManagerTests : IDisposable
         updated.Config.Should().BeSameAs(newConfig);
         updated.UpdatedAt.Should().BeOnOrAfter(stored.UpdatedAt);
 
-        var fromStore = await _store.LoadAsync(stored.Id);
-        fromStore!.Config.Should().BeSameAs(newConfig);
+        var fromStore = await _repository.LoadAsync(stored.Id);
+        fromStore!.Config.Name.Should().Be(newConfig.Name);
     }
 
     [Fact]
@@ -351,7 +351,7 @@ public class AgentManagerTests : IDisposable
         public Action? OnBuildStarted { get; set; }
         public Func<Task>? OnBuildWait { get; set; }
 
-        public TestAgentManagerImpl(IAgentStore store) : base(store) { }
+        public TestAgentManagerImpl(IAgentRepository repository) : base(repository) { }
 
         protected override async Task<Agent> BuildAgentAsync(string agentId, CancellationToken ct)
         {
@@ -361,7 +361,7 @@ public class AgentManagerTests : IDisposable
 
             BuildCallCount++;
 
-            var stored = await AgentStore.LoadAsync(agentId, ct)
+            var stored = await AgentRepository.LoadAsync(agentId, ct)
                 ?? new StoredAgent
                 {
                     Id = agentId,
@@ -373,7 +373,7 @@ public class AgentManagerTests : IDisposable
             var registry = new TestProviderRegistry(chatClient);
             return await new AgentBuilder(stored.Config, registry)
                 .WithAgentId(stored.Id)
-                .WithSessionStore(new InMemorySessionStore())
+                .WithSessionRepository(new WorkspaceSessionRepository(new InMemoryWorkspaceStore()))
                 .BuildAsync(ct);
         }
 

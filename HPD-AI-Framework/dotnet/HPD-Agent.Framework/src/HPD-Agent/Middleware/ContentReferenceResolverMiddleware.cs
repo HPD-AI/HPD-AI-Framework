@@ -16,8 +16,7 @@ namespace HPD.Agent.Middleware;
 /// Resolution order:
 /// </para>
 /// <list type="number">
-/// <item>Temporary direct URI from the content store.</item>
-/// <item>Provider hosted file upload from the content stream.</item>
+/// <item>Provider hosted file upload from the workspace content stream.</item>
 /// <item>Buffered `DataContent` fallback.</item>
 /// </list>
 /// </remarks>
@@ -25,18 +24,18 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
 {
     public const string ContentUriScheme = "hpd-content";
 
-    private readonly IContentStore? _contentStore;
+    private readonly IWorkspaceStore? _workspaceStore;
 
-    public ContentReferenceResolverMiddleware(IContentStore? contentStore = null)
+    public ContentReferenceResolverMiddleware(IWorkspaceStore? workspaceStore = null)
     {
-        _contentStore = contentStore;
+        _workspaceStore = workspaceStore;
     }
 
     public async Task BeforeIterationAsync(
         BeforeIterationContext context,
         CancellationToken cancellationToken)
     {
-        if (_contentStore == null || context.Session == null)
+        if (_workspaceStore == null || context.Session == null)
             return;
 
         for (var i = 0; i < context.Messages.Count; i++)
@@ -98,34 +97,17 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
 
         try
         {
-            var info = await _contentStore!.StatAsync(
-                scope: session.Id,
-                contentId: contentId,
+            var info = await _workspaceStore!.StatContentAsync(
+                WorkspacePrincipalRef.System,
+                contentId,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
 
             if (info == null)
             {
                 context.Emit(new ContentReferenceResolutionFailedEvent(
                     ContentUri: uriContent.Uri,
-                    Error: $"Content not found in store: {contentId}"));
+                    Error: $"Content not found in workspace: {contentId}"));
                 return null;
-            }
-
-            var directUri = await _contentStore.CreateReadUriAsync(
-                scope: session.Id,
-                contentId: contentId,
-                expiresIn: TimeSpan.FromMinutes(15),
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            if (directUri != null)
-            {
-                context.Emit(new ContentReferenceResolvedEvent(
-                    ContentUri: uriContent.Uri,
-                    ResolutionKind: ContentReferenceResolutionKind.DirectUri,
-                    MediaType: info.ContentType,
-                    SizeBytes: info.SizeBytes));
-
-                return new UriContent(directUri, info.ContentType);
             }
 
             var hostedFileClient = GetHostedFileClient(context);
@@ -134,7 +116,6 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
                 var hosted = await UploadToHostedFileAsync(
                     context,
                     hostedFileClient,
-                    session.Id,
                     contentId,
                     info,
                     uriContent.Uri,
@@ -146,7 +127,6 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
 
             return await BufferAsDataContentAsync(
                 context,
-                session.Id,
                 contentId,
                 info,
                 uriContent.Uri,
@@ -164,13 +144,16 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
     private async Task<AIContent?> UploadToHostedFileAsync(
         BeforeIterationContext context,
         IHostedFileClient hostedFileClient,
-        string scope,
         string contentId,
-        ContentInfo info,
+        WorkspaceContentInfo info,
         Uri sourceUri,
         CancellationToken cancellationToken)
     {
-        await using var stream = await _contentStore!.OpenReadAsync(scope, contentId, cancellationToken)
+        await using var stream = await _workspaceStore!.OpenContentAsync(
+                WorkspacePrincipalRef.System,
+                contentId,
+                info.Version,
+                cancellationToken)
             .ConfigureAwait(false);
         if (stream == null)
             return null;
@@ -195,20 +178,23 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
         catch (Exception ex)
         {
             context.Emit(new HostedFileUploadFailedEvent(
-                Error: $"Hosted upload from content store failed: {ex.Message}"));
+                Error: $"Hosted upload from workspace content failed: {ex.Message}"));
             return null;
         }
     }
 
     private async Task<AIContent?> BufferAsDataContentAsync(
         HookContext context,
-        string scope,
         string contentId,
-        ContentInfo info,
+        WorkspaceContentInfo info,
         Uri sourceUri,
         CancellationToken cancellationToken)
     {
-        await using var stream = await _contentStore!.OpenReadAsync(scope, contentId, cancellationToken)
+        await using var stream = await _workspaceStore!.OpenContentAsync(
+                WorkspacePrincipalRef.System,
+                contentId,
+                info.Version,
+                cancellationToken)
             .ConfigureAwait(false);
         if (stream == null)
             return null;

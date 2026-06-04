@@ -6,13 +6,13 @@ namespace HPD.Agent.Hosting.Tests.Lifecycle;
 
 public class AgentSessionServiceTests : IDisposable
 {
-    private readonly InMemorySessionStore _store = new();
+    private readonly ISessionRepository _repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
     private readonly TestSessionManager _manager;
     private readonly AgentSessionService _service;
 
     public AgentSessionServiceTests()
     {
-        _manager = new TestSessionManager(_store);
+        _manager = new TestSessionManager(_repository);
         _service = new AgentSessionService(_manager);
     }
 
@@ -24,7 +24,7 @@ public class AgentSessionServiceTests : IDisposable
         var session = await _service.CreateSessionAsync();
 
         session.Id.Should().NotBeNullOrWhiteSpace();
-        (await _store.LoadBranchAsync(session.Id, "main")).Should().NotBeNull();
+        (await _repository.LoadBranchAsync(session.Id, "main")).Should().NotBeNull();
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class AgentSessionServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task DeleteSessionAsync_DeletesStoreData_AndCleansLocks()
+    public async Task DeleteSessionAsync_DeletesRepositoryData_AndCleansLocks()
     {
         var created = await _service.CreateSessionAsync(new CreateSessionRequest("delete-me", null));
         _manager.TryAcquireBranchOperationLock(created.Id, "main").Should().BeTrue();
@@ -84,12 +84,12 @@ public class AgentSessionServiceTests : IDisposable
 
         (await _service.DeleteSessionAsync(created.Id)).Should().BeTrue();
 
-        (await _store.LoadSessionAsync(created.Id)).Should().BeNull();
+        (await _repository.LoadSessionAsync(created.Id)).Should().BeNull();
         _manager.TryAcquireBranchOperationLock(created.Id, "main").Should().BeTrue();
     }
 
     private sealed class TestSessionManager : SessionManager
     {
-        public TestSessionManager(ISessionStore store) : base(store) { }
+        public TestSessionManager(ISessionRepository repository) : base(repository) { }
     }
 }

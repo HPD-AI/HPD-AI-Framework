@@ -22,7 +22,7 @@ public sealed class AgentSessionService : IAgentSessionService
             request?.Metadata,
             cancellationToken);
 
-        var session = await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken)
+        var session = await _sessionManager.Repository.LoadSessionAsync(sessionId, cancellationToken)
             ?? throw new InvalidOperationException($"Session '{sessionId}' not found after creation.");
 
         return ToDto(session);
@@ -32,12 +32,12 @@ public sealed class AgentSessionService : IAgentSessionService
         SearchSessionsRequest? request = null,
         CancellationToken cancellationToken = default)
     {
-        var sessionIds = await _sessionManager.Store.ListSessionIdsAsync(cancellationToken);
+        var sessionIds = await _sessionManager.Repository.ListSessionIdsAsync(cancellationToken);
         var sessions = new List<SessionDto>();
 
         foreach (var sessionId in sessionIds)
         {
-            var session = await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken);
+            var session = await _sessionManager.Repository.LoadSessionAsync(sessionId, cancellationToken);
             if (session == null || !MatchesMetadata(session.Metadata, request?.Metadata))
                 continue;
 
@@ -60,7 +60,7 @@ public sealed class AgentSessionService : IAgentSessionService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        var session = await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken);
+        var session = await _sessionManager.Repository.LoadSessionAsync(sessionId, cancellationToken);
         return session == null ? null : ToDto(session);
     }
 
@@ -84,11 +84,11 @@ public sealed class AgentSessionService : IAgentSessionService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        var session = await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken);
+        var session = await _sessionManager.Repository.LoadSessionAsync(sessionId, cancellationToken);
         if (session == null)
             return false;
 
-        await _sessionManager.Store.DeleteSessionAsync(sessionId, cancellationToken);
+        await _sessionManager.Repository.DeleteSessionAsync(sessionId, cancellationToken);
         _sessionManager.RemoveSession(sessionId);
         return true;
     }
@@ -98,11 +98,9 @@ public sealed class AgentSessionService : IAgentSessionService
         UpdateSessionRequest request,
         CancellationToken cancellationToken)
     {
-        var session = await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken);
+        var session = await _sessionManager.Repository.LoadSessionAsync(sessionId, cancellationToken);
         if (session == null)
             return null;
-
-        session.Store = _sessionManager.Store;
 
         if (request.Metadata != null)
         {
@@ -116,7 +114,7 @@ public sealed class AgentSessionService : IAgentSessionService
         }
 
         session.LastActivity = DateTime.UtcNow;
-        await _sessionManager.Store.SaveSessionAsync(session, cancellationToken);
+        await _sessionManager.Repository.SaveSessionAsync(session, cancellationToken);
 
         return ToDto(session);
     }

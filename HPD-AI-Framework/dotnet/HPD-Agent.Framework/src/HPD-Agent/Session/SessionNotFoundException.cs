@@ -1,9 +1,9 @@
 namespace HPD.Agent;
 
 /// <summary>
-/// Thrown when a session or branch cannot be found in the configured store.
-/// This indicates the session was never created, has been deleted, or the store
-/// has been cleared since the session was created.
+/// Thrown when a session or branch cannot be found in the configured repository.
+/// This indicates the session was never created, has been deleted, or the
+/// workspace state has been cleared since the session was created.
 /// </summary>
 /// <remarks>
 /// Use <c>agent.CreateSessionAsync(sessionId)</c> to explicitly create a session
@@ -18,14 +18,14 @@ public class SessionNotFoundException : InvalidOperationException
     public string? BranchId { get; }
 
     public SessionNotFoundException(string sessionId)
-        : base($"Session '{sessionId}' was not found in the store. " +
+        : base($"Session '{sessionId}' was not found in the repository. " +
                $"Call agent.CreateSessionAsync(\"{sessionId}\") before running.")
     {
         SessionId = sessionId;
     }
 
     public SessionNotFoundException(string sessionId, string branchId)
-        : base($"Branch '{branchId}' in session '{sessionId}' was not found in the store.")
+        : base($"Branch '{branchId}' in session '{sessionId}' was not found in the repository.")
     {
         SessionId = sessionId;
         BranchId = branchId;

@@ -54,9 +54,9 @@ public static class DtoMappingExtensions
     }
 
     /// <summary>
-    /// Convert ContentInfo to ContentDto.
+    /// Convert WorkspaceContentInfo to ContentDto.
     /// </summary>
-    public static ContentDto ToDto(this ContentInfo content)
+    public static ContentDto ToDto(this WorkspaceContentInfo content)
     {
         ArgumentNullException.ThrowIfNull(content);
 

@@ -19,9 +19,9 @@ public class TeamsBotRegistrationTests
     {
         var services = new ServiceCollection();
         services.AddSingleton<SessionManager>(
-            new TestSessionManager(new InMemorySessionStore()));
+            new TestSessionManager());
         services.AddSingleton<AgentManager>(
-            new TestAgentManager(new InMemoryAgentStore()));
+            new TestAgentManager());
 
         extra?.Invoke(services);
 
@@ -131,9 +131,9 @@ public class TeamsBotRegistrationTests
     {
         var services = new ServiceCollection();
         services.AddSingleton<SessionManager>(
-            new TestSessionManager(new InMemorySessionStore()));
+            new TestSessionManager());
         services.AddSingleton<AgentManager>(
-            new TestAgentManager(new InMemoryAgentStore()));
+            new TestAgentManager());
 
         services.AddTeamsBot(config =>
         {

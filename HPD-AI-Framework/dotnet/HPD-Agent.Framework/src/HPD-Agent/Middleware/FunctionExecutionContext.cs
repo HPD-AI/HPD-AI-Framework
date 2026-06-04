@@ -19,9 +19,9 @@ public sealed class FunctionExecutionContext
     private readonly AgentLoopState _stateSnapshot;
     private readonly IChatClient? _parentChatClient;
     private readonly AgentMetadata? _parentAgentMetadata;
-    private readonly ISessionStore? _parentSessionStore;
-    private readonly IAgentStore? _parentAgentStore;
-    private readonly IContentStore? _contentStore;
+    private readonly ISessionRepository? _parentSessionRepository;
+    private readonly IAgentRepository? _parentAgentRepository;
+    private readonly IWorkspaceStore? _workspaceStore;
 
     internal FunctionExecutionContext(
         HookContext hookContext,
@@ -48,11 +48,11 @@ public sealed class FunctionExecutionContext
         BackgroundTasks = request.BackgroundTasks;
         Services = hookContext.Services;
         RuntimeCapabilities = hookContext.RuntimeCapabilities;
-        _contentStore = hookContext.ContentStore;
+        _workspaceStore = hookContext.WorkspaceStore;
         _parentChatClient = hookContext.GetParentChatClient();
         _parentAgentMetadata = hookContext.GetParentAgentMetadata();
-        _parentSessionStore = hookContext.Session?.Store;
-        _parentAgentStore = hookContext.GetParentAgentStore();
+        _parentSessionRepository = hookContext.Config?.SessionRepository;
+        _parentAgentRepository = hookContext.GetParentAgentRepository();
     }
 
     public FunctionInvocationSnapshot InvocationSnapshot { get; }
@@ -89,7 +89,7 @@ public sealed class FunctionExecutionContext
 
     public IRuntimeCapabilityRegistry RuntimeCapabilities { get; }
 
-    public IContentStore? ContentStore => _contentStore;
+    public IWorkspaceStore? WorkspaceStore => _workspaceStore;
 
     public IAgentBackgroundTaskRegistry? BackgroundTasks { get; }
 
@@ -153,12 +153,12 @@ public sealed class FunctionExecutionContext
         => _parentAgentMetadata;
 
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public ISessionStore? GetParentSessionStore()
-        => _parentSessionStore;
+    public ISessionRepository? GetParentSessionRepository()
+        => _parentSessionRepository;
 
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public IAgentStore? GetParentAgentStore()
-        => _parentAgentStore;
+    public IAgentRepository? GetParentAgentRepository()
+        => _parentAgentRepository;
 
     public void RegisterBackgroundTask(
         string name,

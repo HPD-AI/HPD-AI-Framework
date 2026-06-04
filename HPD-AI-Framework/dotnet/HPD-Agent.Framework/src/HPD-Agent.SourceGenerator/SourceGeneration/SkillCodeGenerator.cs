@@ -233,10 +233,9 @@ internal static class SkillCodeGenerator
                 var documentIds = skill.Options.DocumentUploads.Select(d => d.DocumentId)
                     .Concat(skill.Options.DocumentReferences.Select(r => r.DocumentId))
                     .Distinct().ToList();
-                var docPaths = string.Join(", ", documentIds.Select(id => $"content_read(\\\"/skills/{id}\\\")"));
-                var documentMessage = $"{skill.Name} skill activated. Available functions: {functionList}.\\n\\nReference documents available in the content store:\\n{string.Join("\\n", documentIds.Select(id => $"- content_read(\\\"/skills/{id}\\\")"))}";
-                var escapedDocumentMessage = documentMessage.Replace("\"", "\"\"");
-                sb.AppendLine($"                    return @\"{escapedDocumentMessage}\";");
+                var documentMessage = $"{skill.Name} skill activated. Available functions: {functionList}.\\n\\nReference documents available in the workspace content:\\n{string.Join("\\n", documentIds.Select(id => $"- content_read(\"\"{{__skillDocPath}}/{id}\"\")"))}";
+                sb.AppendLine("                    var __skillDocPath = HPD.Agent.WorkspaceContentPaths.AgentSkills(functionContext.AgentName);");
+                sb.AppendLine($"                    return $@\"{documentMessage}\";");
             }
             else
             {
@@ -258,9 +257,9 @@ internal static class SkillCodeGenerator
                 var documentIds = skill.Options.DocumentUploads.Select(d => d.DocumentId)
                     .Concat(skill.Options.DocumentReferences.Select(r => r.DocumentId))
                     .Distinct().ToList();
-                var documentMessage = $"{skill.Name} skill activated. Available functions: {functionList}.\\n\\nReference documents available in the content store:\\n{string.Join("\\n", documentIds.Select(id => $"- content_read(\\\"/skills/{id}\\\")"))}";
-                var escapedDocumentMessage = documentMessage.Replace("\"", "\"\"");
-                sb.AppendLine($"                    return @\"{escapedDocumentMessage}\";");
+                var documentMessage = $"{skill.Name} skill activated. Available functions: {functionList}.\\n\\nReference documents available in the workspace content:\\n{string.Join("\\n", documentIds.Select(id => $"- content_read(\"\"{{__skillDocPath}}/{id}\"\")"))}";
+                sb.AppendLine("                    var __skillDocPath = HPD.Agent.WorkspaceContentPaths.AgentSkills(functionContext.AgentName);");
+                sb.AppendLine($"                    return $@\"{documentMessage}\";");
             }
             else
             {
@@ -526,8 +525,8 @@ internal static class SkillCodeGenerator
     }
 
     /// <summary>
-    /// Generates the InitializeDocumentsAsync(IContentStore) method for the registration class.
-    /// Called by AgentBuilder.Build() to upload skill documents to the V3 content store at startup.
+    /// Generates the InitializeDocumentsAsync(IWorkspaceStore, agentName) method for the registration class.
+    /// Called by AgentBuilder.Build() to attach skill documents through the workspace at startup.
     /// Only generated when the toolharness has skills with document uploads or references.
     /// Versioned write semantics: same document ID + same content = no-op (startup-safe).
     /// </summary>
@@ -545,10 +544,10 @@ internal static class SkillCodeGenerator
 
         var sb = new StringBuilder();
         sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// Uploads skill documents to the V3 content store.");
+        sb.AppendLine("        /// Attaches skill documents through the workspace store.");
         sb.AppendLine("        /// Called by AgentBuilder.Build() at startup. Idempotent — safe to call every run.");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static async System.Threading.Tasks.Task InitializeDocumentsAsync(HPD.Agent.IContentStore store, System.Threading.CancellationToken cancellationToken = default)");
+        sb.AppendLine("        public static async System.Threading.Tasks.Task InitializeDocumentsAsync(HPD.Agent.IWorkspaceStore store, string agentName, System.Threading.CancellationToken cancellationToken = default)");
         sb.AppendLine("        {");
 
         // Emit uploads (AddDocumentFromFile and AddDocumentFromUrl)
@@ -568,6 +567,7 @@ internal static class SkillCodeGenerator
                 var escapedPath = doc.FilePath!.Replace("\\", "\\\\").Replace("\"", "\\\"");
                 sb.AppendLine($"            // From AddDocumentFromFile(\"{escapedPath}\", \"{escapedDesc}\")");
                 sb.AppendLine($"            await store.UploadSkillDocumentAsync(");
+                sb.AppendLine($"                agentName: agentName,");
                 sb.AppendLine($"                documentId: \"{docId}\",");
                 sb.AppendLine($"                content: await System.IO.File.ReadAllTextAsync(");
                 sb.AppendLine($"                    System.IO.Path.IsPathRooted(\"{escapedPath}\")");
@@ -586,6 +586,7 @@ internal static class SkillCodeGenerator
                 sb.AppendLine($"                __httpClient.Timeout = System.TimeSpan.FromSeconds(30);");
                 sb.AppendLine($"                var __content = await __httpClient.GetStringAsync(\"{escapedUrl}\", cancellationToken);");
                 sb.AppendLine($"                await store.UploadSkillDocumentAsync(");
+                sb.AppendLine($"                    agentName: agentName,");
                 sb.AppendLine($"                    documentId: \"{docId}\",");
                 sb.AppendLine($"                    content: __content,");
                 sb.AppendLine($"                    description: \"{escapedDesc}\",");
@@ -609,6 +610,7 @@ internal static class SkillCodeGenerator
 
             sb.AppendLine($"            // From AddDocument(\"{docRef.DocumentId}\")");
             sb.AppendLine($"            await store.LinkSkillDocumentAsync(");
+            sb.AppendLine($"                agentName: agentName,");
             sb.AppendLine($"                documentId: \"{docRef.DocumentId}\",");
             sb.AppendLine($"                skillName: \"{skillName}\",");
             if (!string.IsNullOrEmpty(escapedDesc))

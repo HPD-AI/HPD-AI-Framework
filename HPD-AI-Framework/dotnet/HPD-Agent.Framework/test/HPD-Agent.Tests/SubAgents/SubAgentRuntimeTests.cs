@@ -20,16 +20,16 @@ public class SubAgentRuntimeTests
     [Fact]
     public async Task DefaultPolicy_ForksParentBranch_WithSubAgentMetadata()
     {
-        var store = new InMemorySessionStore();
-        var agent = await BuildAgentAsync(store);
-        await agent.CreateSessionAsync("parent-session");
-
-        var parentBranch = (await store.LoadBranchAsync("parent-session", "main"))!;
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
+        var agent = await BuildAgentAsync(repository);
+        var session = new HPD.Agent.Session("parent-session");
+        var parentBranch = session.CreateBranch("main");
         parentBranch.AddMessage(new ChatMessage(ChatRole.User, "Parent context"));
         parentBranch.AddMessage(new ChatMessage(ChatRole.Assistant, "Parent answer"));
-        await store.SaveInitialBranchAsync("parent-session", parentBranch);
+        await repository.SaveSessionAsync(session);
+        await repository.SaveInitialBranchAsync("parent-session", parentBranch);
 
-        var context = await CreateFunctionContextAsync(store, "parent-session", "main");
+        var context = await CreateFunctionContextAsync(repository, "parent-session", "main");
         var subAgent = SubAgent.FromConfig(
             "Reviewer",
             "Reviews the current branch.",
@@ -42,17 +42,17 @@ public class SubAgentRuntimeTests
         route.SessionId.Should().Be("parent-session");
         route.BranchId.Should().StartWith("subagent/reviewer/");
 
-        var childBranch = await store.LoadBranchAsync(route.SessionId, route.BranchId);
+        var childBranch = await repository.LoadBranchAsync(route.SessionId, route.BranchId);
         childBranch.Should().NotBeNull();
         childBranch!.Messages.Should().HaveCount(parentBranch.Messages.Count);
-        childBranch.Metadata["kind"].Should().Be("subagent");
-        childBranch.Metadata["subAgentName"].Should().Be("Reviewer");
-        childBranch.Metadata["parentSessionId"].Should().Be("parent-session");
-        childBranch.Metadata["parentBranchId"].Should().Be("main");
-        childBranch.Metadata["sessionPolicy"].Should().Be(nameof(SubAgentSessionPolicy.ParentSession));
-        childBranch.Metadata["branchPolicy"].Should().Be(nameof(SubAgentBranchPolicy.ForkFromParentBranch));
-        childBranch.Metadata["visibility"].Should().Be("hidden");
-        childBranch.Metadata["purpose"].Should().Be("review-current-branch");
+        MetadataString(childBranch, "kind").Should().Be("subagent");
+        MetadataString(childBranch, "subAgentName").Should().Be("Reviewer");
+        MetadataString(childBranch, "parentSessionId").Should().Be("parent-session");
+        MetadataString(childBranch, "parentBranchId").Should().Be("main");
+        MetadataString(childBranch, "sessionPolicy").Should().Be(nameof(SubAgentSessionPolicy.ParentSession));
+        MetadataString(childBranch, "branchPolicy").Should().Be(nameof(SubAgentBranchPolicy.ForkFromParentBranch));
+        MetadataString(childBranch, "visibility").Should().Be("hidden");
+        MetadataString(childBranch, "purpose").Should().Be("review-current-branch");
 
         context.ResultMetadata.TryGet<string>("subAgentStatus", out var status).Should().BeTrue();
         status.Should().Be("started");
@@ -63,15 +63,15 @@ public class SubAgentRuntimeTests
     [Fact]
     public async Task FreshBranch_CreatesEmptyBranchInParentSession()
     {
-        var store = new InMemorySessionStore();
-        var agent = await BuildAgentAsync(store);
-        await agent.CreateSessionAsync("parent-session");
-
-        var parentBranch = (await store.LoadBranchAsync("parent-session", "main"))!;
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
+        var agent = await BuildAgentAsync(repository);
+        var session = new HPD.Agent.Session("parent-session");
+        var parentBranch = session.CreateBranch("main");
         parentBranch.AddMessage(new ChatMessage(ChatRole.User, "This should not be copied"));
-        await store.SaveInitialBranchAsync("parent-session", parentBranch);
+        await repository.SaveSessionAsync(session);
+        await repository.SaveInitialBranchAsync("parent-session", parentBranch);
 
-        var context = await CreateFunctionContextAsync(store, "parent-session", "main");
+        var context = await CreateFunctionContextAsync(repository, "parent-session", "main");
         var subAgent = SubAgent.FromConfig(
             "Researcher",
             "Starts without parent conversation history.",
@@ -83,20 +83,20 @@ public class SubAgentRuntimeTests
         route.SessionId.Should().Be("parent-session");
         route.BranchId.Should().StartWith("subagent/researcher/");
 
-        var childBranch = await store.LoadBranchAsync(route.SessionId, route.BranchId);
+        var childBranch = await repository.LoadBranchAsync(route.SessionId, route.BranchId);
         childBranch.Should().NotBeNull();
         childBranch!.Messages.Should().BeEmpty();
-        childBranch.Metadata["kind"].Should().Be("subagent");
-        childBranch.Metadata["branchPolicy"].Should().Be(nameof(SubAgentBranchPolicy.FreshBranch));
+        MetadataString(childBranch, "kind").Should().Be("subagent");
+        MetadataString(childBranch, "branchPolicy").Should().Be(nameof(SubAgentBranchPolicy.FreshBranch));
     }
 
     [Fact]
     public async Task ForkFromParentBranch_WithBranchCompactionEnabled_CompactsSubAgentBranch()
     {
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var strategy = new RetainLastMessagesCompactionStrategy(retainCount: 2);
         var agent = await BuildAgentAsync(
-            store,
+            repository,
             new CompactionMiddleware
             {
                 Strategy = strategy,
@@ -107,16 +107,16 @@ public class SubAgentRuntimeTests
                     Strategy = new MessageCountingCompactionOptions { TargetMessageCount = 2 }
                 }
             });
-        await agent.CreateSessionAsync("parent-session");
-
-        var parentBranch = (await store.LoadBranchAsync("parent-session", "main"))!;
+        var session = new HPD.Agent.Session("parent-session");
+        var parentBranch = session.CreateBranch("main");
         for (var i = 0; i < 4; i++)
         {
             parentBranch.AddMessage(new ChatMessage(ChatRole.User, $"Parent context {i}") { MessageId = $"message-{i}" });
         }
-        await store.SaveInitialBranchAsync("parent-session", parentBranch);
+        await repository.SaveSessionAsync(session);
+        await repository.SaveInitialBranchAsync("parent-session", parentBranch);
 
-        var context = await CreateFunctionContextAsync(store, "parent-session", "main");
+        var context = await CreateFunctionContextAsync(repository, "parent-session", "main");
         var subAgent = SubAgent.FromConfig(
             "Reviewer",
             "Reviews the current branch.",
@@ -125,7 +125,7 @@ public class SubAgentRuntimeTests
 
         var route = await SubAgentRuntime.ResolveRouteAsync(agent, subAgent, context, CancellationToken.None);
 
-        var childBranch = await store.LoadBranchAsync(route.SessionId, route.BranchId);
+        var childBranch = await repository.LoadBranchAsync(route.SessionId, route.BranchId);
         childBranch!.Messages.Select(message => message.MessageId)
             .Should().Equal("message-2", "message-3");
         strategy.CallCount.Should().Be(1);
@@ -134,10 +134,10 @@ public class SubAgentRuntimeTests
     [Fact]
     public async Task ForkFromParentBranch_WithBranchCompactionDisabled_SkipsGlobalForkCompaction()
     {
-        var store = new InMemorySessionStore();
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
         var strategy = new RetainLastMessagesCompactionStrategy(retainCount: 1);
         var agent = await BuildAgentAsync(
-            store,
+            repository,
             new CompactionMiddleware
             {
                 Strategy = strategy,
@@ -148,16 +148,16 @@ public class SubAgentRuntimeTests
                     Strategy = new MessageCountingCompactionOptions { TargetMessageCount = 1 }
                 }
             });
-        await agent.CreateSessionAsync("parent-session");
-
-        var parentBranch = (await store.LoadBranchAsync("parent-session", "main"))!;
+        var session = new HPD.Agent.Session("parent-session");
+        var parentBranch = session.CreateBranch("main");
         for (var i = 0; i < 3; i++)
         {
             parentBranch.AddMessage(new ChatMessage(ChatRole.User, $"Parent context {i}") { MessageId = $"message-{i}" });
         }
-        await store.SaveInitialBranchAsync("parent-session", parentBranch);
+        await repository.SaveSessionAsync(session);
+        await repository.SaveInitialBranchAsync("parent-session", parentBranch);
 
-        var context = await CreateFunctionContextAsync(store, "parent-session", "main");
+        var context = await CreateFunctionContextAsync(repository, "parent-session", "main");
         var subAgent = SubAgent.FromConfig(
             "Reviewer",
             "Reviews the current branch.",
@@ -166,18 +166,18 @@ public class SubAgentRuntimeTests
 
         var route = await SubAgentRuntime.ResolveRouteAsync(agent, subAgent, context, CancellationToken.None);
 
-        var childBranch = await store.LoadBranchAsync(route.SessionId, route.BranchId);
+        var childBranch = await repository.LoadBranchAsync(route.SessionId, route.BranchId);
         childBranch!.Messages.Select(message => message.MessageId)
             .Should().Equal("message-0", "message-1", "message-2");
         strategy.CallCount.Should().Be(0);
     }
 
     private static async Task<Agent> BuildAgentAsync(
-        InMemorySessionStore store,
+        ISessionRepository repository,
         params IAgentMiddleware[] middlewares)
     {
         var builder = new AgentBuilder(MinimalConfig(), new TestProviderRegistry(new FakeChatClient()))
-            .WithSessionStore(store);
+            .WithSessionRepository(repository);
 
         foreach (var middleware in middlewares)
             builder.WithMiddleware(middleware);
@@ -185,8 +185,17 @@ public class SubAgentRuntimeTests
         return await builder.BuildAsync(CancellationToken.None);
     }
 
+    private static string MetadataString(Branch branch, string key) =>
+        branch.Metadata[key] switch
+        {
+            string value => value,
+            System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.String } value => value.GetString()!,
+            object value => value.ToString()!,
+            null => string.Empty
+        };
+
     private static async Task<FunctionExecutionContext> CreateFunctionContextAsync(
-        InMemorySessionStore store,
+        ISessionRepository repository,
         string sessionId,
         string branchId)
     {
@@ -194,9 +203,8 @@ public class SubAgentRuntimeTests
             (string query) => query,
             new AIFunctionFactoryOptions { Name = "call_subagent", Description = "Calls a subagent." });
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "ParentAgent");
-        var session = (await store.LoadSessionAsync(sessionId))!;
-        session.Store = store;
-        var branch = (await store.LoadBranchAsync(sessionId, branchId))!;
+        var session = (await repository.LoadSessionAsync(sessionId))!;
+        var branch = (await repository.LoadBranchAsync(sessionId, branchId))!;
         var agentContext = new AgentContext(
             "ParentAgent",
             "conversation-1",

@@ -11,6 +11,8 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using HPD.Agent.AspNetCore;
 using HPD.Agent.Hosting.Configuration;
+using HPD.Agent.Hosting.Lifecycle;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.AspNetCore.Tests.Integration;
 
@@ -40,7 +42,7 @@ public class RecursiveDeleteEnabledFactory : IDisposable
                 services.AddSingleton<IAgentFactory, TestWebApplicationAgentFactory>();
                 services.AddHPDAgent("test-agent", options =>
                 {
-                    options.SessionStorePath = Path.Combine(Path.GetTempPath(), $"hpd-recursive-{Guid.NewGuid()}");
+                    options.UseJsonWorkspace(Path.Combine(Path.GetTempPath(), $"hpd-recursive-{Guid.NewGuid()}"));
                     options.AllowRecursiveBranchDelete = true;
                 });
             })
@@ -56,6 +58,15 @@ public class RecursiveDeleteEnabledFactory : IDisposable
         _server = new TestServer(builder);
         _client = new HttpClient(_server.CreateHandler()) { BaseAddress = new Uri("http://localhost") };
         return _client;
+    }
+
+    public IServiceProvider Services
+    {
+        get
+        {
+            CreateClient();
+            return _server!.Services;
+        }
     }
 
     public void Dispose()
@@ -74,9 +85,11 @@ public class RecursiveDeleteEnabledFactory : IDisposable
 public class RecursiveBranchDeleteTests : IClassFixture<RecursiveDeleteEnabledFactory>
 {
     private readonly HttpClient _client;
+    private readonly RecursiveDeleteEnabledFactory _factory;
 
     public RecursiveBranchDeleteTests(RecursiveDeleteEnabledFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -103,21 +116,7 @@ public class RecursiveBranchDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
         if (!string.IsNullOrWhiteSpace(existing))
             return existing!;
 
-        var inputResponse = await _client.PostAsJsonAsync(
-            $"/agents/test-agent/sessions/{sessionId}/branches/{branchId}/inputs",
-            new StreamTextRequest("Seed fork message"));
-        inputResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
-
-        for (var i = 0; i < 50; i++)
-        {
-            var messageId = await TryGetFirstUserMessageIdAsync(sessionId, branchId);
-            if (!string.IsNullOrWhiteSpace(messageId))
-                return messageId!;
-
-            await Task.Delay(50);
-        }
-
-        throw new TimeoutException("Timed out waiting for a persisted fork message.");
+        return await SeedForkMessageAsync(sessionId, branchId);
     }
 
     private async Task<string?> TryGetFirstUserMessageIdAsync(string sessionId, string branchId)
@@ -140,6 +139,34 @@ public class RecursiveBranchDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
         }
 
         return null;
+    }
+
+    private async Task<string> SeedForkMessageAsync(string sessionId, string branchId)
+    {
+        var repository = _factory.Services.GetRequiredService<SessionManager>().Repository;
+        (await repository.LoadBranchAsync(sessionId, branchId)).Should().NotBeNull();
+
+        var messageId = $"seed-{Guid.NewGuid():N}";
+        var message = new ChatMessage(ChatRole.User, [new TextContent("Seed fork message")])
+        {
+            MessageId = messageId,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+
+        await repository.AppendBranchEventAsync(
+            sessionId,
+            branchId,
+            BranchEventFactory.MessageStarted(sessionId, branchId, message));
+        await repository.AppendBranchEventAsync(
+            sessionId,
+            branchId,
+            BranchEventFactory.ContentAdded(sessionId, branchId, messageId, message.Contents[0]));
+        await repository.AppendBranchEventAsync(
+            sessionId,
+            branchId,
+            BranchEventFactory.MessageCompleted(sessionId, branchId, messageId));
+
+        return messageId;
     }
 
     private async Task<BranchDto?> GetBranch(string sessionId, string branchId)
@@ -352,9 +379,11 @@ public class RecursiveBranchDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
 public class RecursiveBranchDeleteGuardTests : IClassFixture<TestWebApplicationFactory>
 {
     private readonly HttpClient _client;
+    private readonly TestWebApplicationFactory _factory;
 
     public RecursiveBranchDeleteGuardTests(TestWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -381,21 +410,7 @@ public class RecursiveBranchDeleteGuardTests : IClassFixture<TestWebApplicationF
         if (!string.IsNullOrWhiteSpace(existing))
             return existing!;
 
-        var inputResponse = await _client.PostAsJsonAsync(
-            $"/agents/test-agent/sessions/{sessionId}/branches/{branchId}/inputs",
-            new StreamTextRequest("Seed fork message"));
-        inputResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
-
-        for (var i = 0; i < 50; i++)
-        {
-            var messageId = await TryGetFirstUserMessageIdAsync(sessionId, branchId);
-            if (!string.IsNullOrWhiteSpace(messageId))
-                return messageId!;
-
-            await Task.Delay(50);
-        }
-
-        throw new TimeoutException("Timed out waiting for a persisted fork message.");
+        return await SeedForkMessageAsync(sessionId, branchId);
     }
 
     private async Task<string?> TryGetFirstUserMessageIdAsync(string sessionId, string branchId)
@@ -418,6 +433,34 @@ public class RecursiveBranchDeleteGuardTests : IClassFixture<TestWebApplicationF
         }
 
         return null;
+    }
+
+    private async Task<string> SeedForkMessageAsync(string sessionId, string branchId)
+    {
+        var repository = _factory.Server.Services.GetRequiredService<SessionManager>().Repository;
+        (await repository.LoadBranchAsync(sessionId, branchId)).Should().NotBeNull();
+
+        var messageId = $"seed-{Guid.NewGuid():N}";
+        var message = new ChatMessage(ChatRole.User, [new TextContent("Seed fork message")])
+        {
+            MessageId = messageId,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+
+        await repository.AppendBranchEventAsync(
+            sessionId,
+            branchId,
+            BranchEventFactory.MessageStarted(sessionId, branchId, message));
+        await repository.AppendBranchEventAsync(
+            sessionId,
+            branchId,
+            BranchEventFactory.ContentAdded(sessionId, branchId, messageId, message.Contents[0]));
+        await repository.AppendBranchEventAsync(
+            sessionId,
+            branchId,
+            BranchEventFactory.MessageCompleted(sessionId, branchId, messageId));
+
+        return messageId;
     }
 
     [Fact]

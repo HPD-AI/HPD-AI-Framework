@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Threading.Channels;
 using HPD.Agent;
@@ -23,7 +24,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_ProgressiveMode_YieldsOriginalUpdatesAndStoresSegments()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new FakeTextToSpeechClient();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -55,7 +56,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             return ValueTask.CompletedTask;
         });
 
-        var request = CreateModelRequest(contentStore, coordinator);
+        var request = CreateModelRequest(workspaceStore, coordinator);
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
 
         Assert.NotNull(stream);
@@ -81,7 +82,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             Assert.Equal("hpd-content", evt.Artifact.Store);
             Assert.NotNull(evt.Artifact.ArtifactId);
         });
-        Assert.Equal(2, (await contentStore.QueryAsync("session-progressive")).Count);
+        Assert.Equal(2, (await workspaceStore.QueryAsync("session-progressive")).Count);
         var completed = Assert.Single(completedEvents);
         Assert.Equal(2, completed.SegmentCount);
         Assert.False(completed.Played);
@@ -91,7 +92,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task AfterMessageTurn_ProgressiveWithFinalFallback_DoesNotDuplicateFinalSynthesisAfterSegment()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new FakeTextToSpeechClient();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -99,14 +100,14 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts"
         });
-        var request = CreateModelRequest(contentStore, new EventCoordinator());
+        var request = CreateModelRequest(workspaceStore, new EventCoordinator());
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
         {
         }
 
-        var afterContext = CreateAfterMessageTurnContext("Hello there. Second sentence.", contentStore);
+        var afterContext = CreateAfterMessageTurnContext("Hello there. Second sentence.", workspaceStore);
         await attachment.AfterMessageTurnAsync(afterContext, CancellationToken.None);
 
         Assert.Equal(2, tts.Texts.Count);
@@ -118,7 +119,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task AfterMessageTurn_ProgressiveWithFinalFallback_SynthesizesFinalTextForDifferentUnsynthesizedResponse()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new FakeTextToSpeechClient();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -126,7 +127,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts"
         });
-        var request = CreateModelRequest(contentStore, new EventCoordinator());
+        var request = CreateModelRequest(workspaceStore, new EventCoordinator());
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -135,7 +136,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
 
         var afterContext = CreateAfterMessageTurnContext(
             "Final response was produced without progressive synthesis.",
-            contentStore,
+            workspaceStore,
             responseId: "response-final-unsynthesized");
         await attachment.AfterMessageTurnAsync(afterContext, CancellationToken.None);
 
@@ -148,7 +149,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     }
 
     [Fact]
-    public async Task WrapModelTurnStreamingAsync_MissingContentStore_EmitsSegmentFailureWithoutAudioBytes()
+    public async Task WrapModelTurnStreamingAsync_MissingWorkspaceStore_EmitsSegmentFailureWithoutAudioBytes()
     {
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -157,13 +158,13 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "fake-tts"
         });
         var coordinator = new EventCoordinator();
-        var failedEvents = new List<AssistantAudioOutputSegmentFailedEvent>();
+        var failedEvents = new ConcurrentQueue<AssistantAudioOutputSegmentFailedEvent>();
         using var failedSub = coordinator.Subscribe<AssistantAudioOutputSegmentFailedEvent>(evt =>
         {
-            failedEvents.Add(evt);
+            failedEvents.Enqueue(evt);
             return ValueTask.CompletedTask;
         });
-        var request = CreateModelRequest(contentStore: null, coordinator);
+        var request = CreateModelRequest(workspaceStore: null, coordinator);
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -171,10 +172,11 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         }
 
         await WaitUntilAsync(() => failedEvents.Count > 0);
-        Assert.NotEmpty(failedEvents);
-        Assert.All(failedEvents, failed =>
+        var failedSnapshot = failedEvents.ToArray();
+        Assert.NotEmpty(failedSnapshot);
+        Assert.All(failedSnapshot, failed =>
         {
-            Assert.Equal("MissingContentStore", failed.Error?.Code);
+            Assert.Equal("MissingWorkspaceStore", failed.Error?.Code);
             Assert.Equal("fake-tts", failed.ProviderKey);
             Assert.Equal(nameof(OutputCommitDisposition.SynthesisFailedTextOnly), failed.Disposition);
             Assert.DoesNotContain("base64", failed.ToString(), StringComparison.OrdinalIgnoreCase);
@@ -182,7 +184,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     }
 
     [Fact]
-    public async Task WrapModelTurnStreamingAsync_DisabledArtifactCaptureWithoutContentStore_SynthesizesChunksWithoutArtifact()
+    public async Task WrapModelTurnStreamingAsync_DisabledArtifactCaptureWithoutWorkspaceStore_SynthesizesChunksWithoutArtifact()
     {
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -192,43 +194,44 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputArtifactCapturePolicy = AssistantAudioArtifactCapturePolicy.Disabled
         });
         var coordinator = new EventCoordinator();
-        var failedEvents = new List<AssistantAudioOutputSegmentFailedEvent>();
-        var chunkEvents = new List<AssistantAudioOutputChunkReadyEvent>();
-        var artifactEvents = new List<AssistantAudioOutputArtifactCapturedEvent>();
-        var completedEvents = new List<AssistantAudioOutputCompletedEvent>();
+        var failedEvents = new ConcurrentQueue<AssistantAudioOutputSegmentFailedEvent>();
+        var chunkEvents = new ConcurrentQueue<AssistantAudioOutputChunkReadyEvent>();
+        var artifactEvents = new ConcurrentQueue<AssistantAudioOutputArtifactCapturedEvent>();
+        var completedEvents = new ConcurrentQueue<AssistantAudioOutputCompletedEvent>();
         using var failedSub = coordinator.Subscribe<AssistantAudioOutputSegmentFailedEvent>(evt =>
         {
-            failedEvents.Add(evt);
+            failedEvents.Enqueue(evt);
             return ValueTask.CompletedTask;
         });
         using var chunkSub = coordinator.Subscribe<AssistantAudioOutputChunkReadyEvent>(evt =>
         {
-            chunkEvents.Add(evt);
+            chunkEvents.Enqueue(evt);
             return ValueTask.CompletedTask;
         });
         using var artifactSub = coordinator.Subscribe<AssistantAudioOutputArtifactCapturedEvent>(evt =>
         {
-            artifactEvents.Add(evt);
+            artifactEvents.Enqueue(evt);
             return ValueTask.CompletedTask;
         });
         using var completedSub = coordinator.Subscribe<AssistantAudioOutputCompletedEvent>(evt =>
         {
-            completedEvents.Add(evt);
+            completedEvents.Enqueue(evt);
             return ValueTask.CompletedTask;
         });
-        var request = CreateModelRequest(contentStore: null, coordinator);
+        var request = CreateModelRequest(workspaceStore: null, coordinator);
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
         {
         }
 
-        await WaitUntilAsync(() => completedEvents.Count == 1);
+        await WaitUntilAsync(() => completedEvents.Count == 1 && chunkEvents.Count == 2);
 
         Assert.Empty(failedEvents);
         Assert.Empty(artifactEvents);
-        Assert.Equal(2, chunkEvents.Count);
-        Assert.All(chunkEvents, evt =>
+        var chunkSnapshot = chunkEvents.ToArray();
+        Assert.Equal(2, chunkSnapshot.Length);
+        Assert.All(chunkSnapshot, evt =>
         {
             Assert.Equal("EncodedBytes", evt.PayloadKind);
             Assert.True(evt.SizeBytes > 0);
@@ -244,7 +247,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_PlaybackEnabled_EmitsSinkPlaybackTruth()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new FakeTextToSpeechClient();
         var sink = new CompletingAudioOutputSink();
         var structEvents = new StructEventHub();
@@ -289,7 +292,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             outputCompletedEvents.Add(evt);
             return ValueTask.CompletedTask;
         });
-        var request = CreateModelRequest(contentStore, coordinator, structEvents);
+        var request = CreateModelRequest(workspaceStore, coordinator, structEvents);
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -366,7 +369,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_PlaybackSinkRejectsStream_DoesNotWriteOrCompleteRejectedSink()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new FakeTextToSpeechClient();
         var sink = new RejectingAudioOutputSink();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
@@ -384,7 +387,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             failedEvents.Add(evt);
             return ValueTask.CompletedTask;
         });
-        var request = CreateModelRequest(contentStore, coordinator);
+        var request = CreateModelRequest(workspaceStore, coordinator);
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -408,7 +411,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_PlaybackSinkRejectsWithoutEvent_StillCommitsPlaybackFailed()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new FakeTextToSpeechClient();
         var sink = new RejectingAudioOutputSink(emitFailureEvent: false);
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
@@ -432,7 +435,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             outputCompletedEvents.Add(evt);
             return ValueTask.CompletedTask;
         });
-        var request = CreateModelRequest(contentStore, coordinator);
+        var request = CreateModelRequest(workspaceStore, coordinator);
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -461,7 +464,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_StructSampleTraceCapture_RequiresPolicy()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var structEvents = new StructEventHub();
         using var playoutInbox = structEvents.Route<AudioOutputPlayoutSample>().CreateInbox();
         using var queueDepthInbox = structEvents.Route<AudioOutputQueueDepthSample>().CreateInbox();
@@ -482,7 +485,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         });
 
         var stream = attachment.WrapModelTurnStreamingAsync(
-            CreateModelRequest(contentStore, new EventCoordinator(), structEvents),
+            CreateModelRequest(workspaceStore, new EventCoordinator(), structEvents),
             StreamingHandler,
             CancellationToken.None);
         await foreach (var _ in stream!)
@@ -504,7 +507,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_PlayedComplete_ProjectsCommittedAssistantOutputWhenPolicyAllows()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var branch = new InMemoryBranchProjectionSink();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -517,7 +520,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         });
 
         var stream = attachment.WrapModelTurnStreamingAsync(
-            CreateModelRequest(contentStore, new EventCoordinator()),
+            CreateModelRequest(workspaceStore, new EventCoordinator()),
             StreamingHandler,
             CancellationToken.None);
         await foreach (var _ in stream!)
@@ -542,7 +545,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_PlayedComplete_DoesNotProjectWhenPolicyDisablesAssistantOutputProjection()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var branch = new InMemoryBranchProjectionSink();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -562,7 +565,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         });
 
         var stream = attachment.WrapModelTurnStreamingAsync(
-            CreateModelRequest(contentStore, new EventCoordinator()),
+            CreateModelRequest(workspaceStore, new EventCoordinator()),
             StreamingHandler,
             CancellationToken.None);
         await foreach (var _ in stream!)
@@ -577,7 +580,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_PlaybackFailure_CommitsFailureTruth()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new FakeTextToSpeechClient();
         var error = new AudioErrorInfo
         {
@@ -626,7 +629,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             outputCompletedEvents.Add(evt);
             return ValueTask.CompletedTask;
         });
-        var request = CreateModelRequest(contentStore, coordinator);
+        var request = CreateModelRequest(workspaceStore, coordinator);
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -655,7 +658,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_PlaybackInterrupted_CommitsPlayedPrefixTruth()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new FakeTextToSpeechClient();
         var branch = new InMemoryBranchProjectionSink();
         var sink = new ScriptedAudioOutputSink(request =>
@@ -710,7 +713,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             interruptedEvents.Add(evt);
             return ValueTask.CompletedTask;
         });
-        var request = CreateModelRequest(contentStore, coordinator);
+        var request = CreateModelRequest(workspaceStore, coordinator);
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -741,7 +744,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_PlaybackCleared_CommitsQueuedUnplayedWithoutBranchProjection()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new FakeTextToSpeechClient();
         var branch = new InMemoryBranchProjectionSink();
         var sink = new ScriptedAudioOutputSink(request =>
@@ -791,7 +794,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         });
 
         var stream = attachment.WrapModelTurnStreamingAsync(
-            CreateModelRequest(contentStore, new EventCoordinator()),
+            CreateModelRequest(workspaceStore, new EventCoordinator()),
             StreamingHandler,
             CancellationToken.None);
         await foreach (var _ in stream!)
@@ -813,7 +816,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_OutOfOrderFinalCompletion_WaitsForEarlierSegments()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new FakeTextToSpeechClient();
         OutputPlaybackRequest? firstRequest = null;
         var sink = new ScriptedAudioOutputSink(request =>
@@ -846,7 +849,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         });
 
         var stream = attachment.WrapModelTurnStreamingAsync(
-            CreateModelRequest(contentStore, new EventCoordinator()),
+            CreateModelRequest(workspaceStore, new EventCoordinator()),
             StreamingHandler,
             CancellationToken.None);
         await foreach (var _ in stream!)
@@ -869,7 +872,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_SlowTts_DoesNotBlockNextModelUpdate()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new BlockingTextToSpeechClient();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -877,7 +880,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts"
         });
-        var request = CreateModelRequest(contentStore, new EventCoordinator());
+        var request = CreateModelRequest(workspaceStore, new EventCoordinator());
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
 
         Assert.NotNull(stream);
@@ -905,7 +908,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_MaxInFlight_AllowsConcurrentSynthesis()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new ConcurrentBlockingTextToSpeechClient();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -920,7 +923,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
                 }
             }
         });
-        var request = CreateModelRequest(contentStore, new EventCoordinator());
+        var request = CreateModelRequest(workspaceStore, new EventCoordinator());
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
 
         Assert.NotNull(stream);
@@ -966,13 +969,13 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "unsupported-tts"
         });
         var coordinator = new EventCoordinator();
-        var failedEvents = new List<AssistantAudioOutputSegmentFailedEvent>();
+        var failedEvents = new ConcurrentQueue<AssistantAudioOutputSegmentFailedEvent>();
         using var failedSub = coordinator.Subscribe<AssistantAudioOutputSegmentFailedEvent>(evt =>
         {
-            failedEvents.Add(evt);
+            failedEvents.Enqueue(evt);
             return ValueTask.CompletedTask;
         });
-        var request = CreateModelRequest(new InMemoryContentStore(), coordinator);
+        var request = CreateModelRequest(new InMemoryWorkspaceStore(), coordinator);
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -980,8 +983,9 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         }
 
         await WaitUntilAsync(() => failedEvents.Count > 0);
-        Assert.NotEmpty(failedEvents);
-        Assert.All(failedEvents, failed =>
+        var failedSnapshot = failedEvents.ToArray();
+        Assert.NotEmpty(failedSnapshot);
+        Assert.All(failedSnapshot, failed =>
         {
             Assert.Equal("UnsupportedTextToSpeechCapability", failed.Error?.Code);
             Assert.Equal("unsupported-tts", failed.ProviderKey);
@@ -994,7 +998,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_StreamingSpanTts_AssemblesAudioArtifact()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new StreamingOnlyTextToSpeechClient();
         var sink = new CompletingAudioOutputSink();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
@@ -1012,7 +1016,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             chunkEvents.Add(evt);
             return ValueTask.CompletedTask;
         });
-        var request = CreateModelRequest(contentStore, coordinator);
+        var request = CreateModelRequest(workspaceStore, coordinator);
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -1022,7 +1026,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         Assert.Equal(["Hello there.", "Second sentence."], tts.Texts);
         Assert.All(attachment.LastOutputResults, result =>
             Assert.Equal(AssistantTextToSpeechOutputStatus.SynthesizedNotPlayed, result.Status));
-        var artifacts = await contentStore.QueryAsync("session-progressive");
+        var artifacts = await workspaceStore.QueryAsync("session-progressive");
         Assert.Equal(2, artifacts.Count);
         await WaitUntilAsync(() => chunkEvents.Count == 4);
         Assert.Equal(4, chunkEvents.Count);
@@ -1034,7 +1038,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_AutoRoute_UsesPushTextWhenCapabilityAndFactoryExist()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new FakePushTextToSpeechClient();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -1043,7 +1047,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "push-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.Auto
         });
-        var request = CreateModelRequest(contentStore, new EventCoordinator());
+        var request = CreateModelRequest(workspaceStore, new EventCoordinator());
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -1060,13 +1064,13 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             .OfType<AudioTtsSynthesisTraceRecord>()
             .Where(trace => trace.Disposition == TtsSynthesisDisposition.Synthesized));
         Assert.NotNull(synthesizedTrace.ProviderFirstAudioAt);
-        Assert.Equal(1, (await contentStore.QueryAsync("session-progressive")).Count);
+        Assert.Equal(1, (await workspaceStore.QueryAsync("session-progressive")).Count);
     }
 
     [Fact]
     public async Task WrapModelTurnStreamingAsync_ForceSegment_IgnoresAvailablePushTextFactory()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new FakePushTextToSpeechClient();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -1075,7 +1079,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "push-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.ForceSegment
         });
-        var request = CreateModelRequest(contentStore, new EventCoordinator());
+        var request = CreateModelRequest(workspaceStore, new EventCoordinator());
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -1090,7 +1094,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_ForcePushText_FailsWhenProviderOnlySupportsSegments()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new FakeTextToSpeechClient();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -1099,7 +1103,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "fake-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.ForcePushText
         });
-        var request = CreateModelRequest(contentStore, new EventCoordinator());
+        var request = CreateModelRequest(workspaceStore, new EventCoordinator());
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -1110,13 +1114,13 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var result = Assert.Single(attachment.LastOutputResults);
         Assert.Equal(AssistantTextToSpeechOutputStatus.SynthesisFailedTextOnly, result.Status);
         Assert.Equal("PushTextTtsUnsupported", result.Error?.Code);
-        Assert.Empty(await contentStore.QueryAsync("session-progressive"));
+        Assert.Empty(await workspaceStore.QueryAsync("session-progressive"));
     }
 
     [Fact]
     public async Task WrapModelTurnStreamingAsync_AutoRoute_FallsBackWhenPushCapabilityLacksFactory()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new LyingPushTextToSpeechClient();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -1125,7 +1129,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "lying-push-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.Auto
         });
-        var request = CreateModelRequest(contentStore, new EventCoordinator());
+        var request = CreateModelRequest(workspaceStore, new EventCoordinator());
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -1140,7 +1144,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_AutoRoute_FallsBackWhenFactoryLacksPushCapability()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new FactoryOnlyPushTextToSpeechClient();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -1149,7 +1153,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "factory-only-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.Auto
         });
-        var request = CreateModelRequest(contentStore, new EventCoordinator());
+        var request = CreateModelRequest(workspaceStore, new EventCoordinator());
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -1165,7 +1169,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_ForcePushText_FailsWhenPushCapabilityLacksFactory()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new LyingPushTextToSpeechClient();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -1174,7 +1178,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "lying-push-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.ForcePushText
         });
-        var request = CreateModelRequest(contentStore, new EventCoordinator());
+        var request = CreateModelRequest(workspaceStore, new EventCoordinator());
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -1191,7 +1195,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_ForcePushText_FailsWhenFactoryLacksPushCapability()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var tts = new FactoryOnlyPushTextToSpeechClient();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -1200,7 +1204,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "factory-only-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.ForcePushText
         });
-        var request = CreateModelRequest(contentStore, new EventCoordinator());
+        var request = CreateModelRequest(workspaceStore, new EventCoordinator());
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -1218,7 +1222,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     [Fact]
     public async Task WrapModelTurnStreamingAsync_AutoRoute_FallsBackToSegmentsWhenPushFailsBeforeAudio()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var pushStream = new FakePushTextToSpeechStream
         {
             ThrowOnPushText = true
@@ -1231,7 +1235,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "push-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.Auto
         });
-        var request = CreateModelRequest(contentStore, new EventCoordinator());
+        var request = CreateModelRequest(workspaceStore, new EventCoordinator());
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -1241,13 +1245,13 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         Assert.Equal(["Hello there.", "Second sentence."], tts.Texts);
         Assert.All(attachment.LastOutputResults, result =>
             Assert.Equal(AssistantTextToSpeechOutputStatus.SynthesizedNotPlayed, result.Status));
-        Assert.Equal(2, await CountArtifactsAsync(contentStore));
+        Assert.Equal(2, await CountArtifactsAsync(workspaceStore));
     }
 
     [Fact]
     public async Task WrapModelTurnStreamingAsync_ForcePushText_DoesNotFallbackWhenPushFailsBeforeAudio()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var pushStream = new FakePushTextToSpeechStream
         {
             ThrowOnPushText = true
@@ -1260,7 +1264,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "push-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.ForcePushText
         });
-        var request = CreateModelRequest(contentStore, new EventCoordinator());
+        var request = CreateModelRequest(workspaceStore, new EventCoordinator());
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -1271,13 +1275,13 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var result = Assert.Single(attachment.LastOutputResults);
         Assert.Equal(AssistantTextToSpeechOutputStatus.SynthesisFailedTextOnly, result.Status);
         Assert.Equal("PushTextTtsFailed", result.Error?.Code);
-        Assert.Equal(0, await CountArtifactsAsync(contentStore));
+        Assert.Equal(0, await CountArtifactsAsync(workspaceStore));
     }
 
     [Fact]
     public async Task WrapModelTurnStreamingAsync_AutoRoute_DoesNotFallbackWhenPushFailsAfterAudio()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var pushStream = new FakePushTextToSpeechStream
         {
             ThrowAfterAudio = true
@@ -1290,7 +1294,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "push-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.Auto
         });
-        var request = CreateModelRequest(contentStore, new EventCoordinator());
+        var request = CreateModelRequest(workspaceStore, new EventCoordinator());
 
         var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
         await foreach (var _ in stream!)
@@ -1301,7 +1305,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var result = Assert.Single(attachment.LastOutputResults);
         Assert.Equal(AssistantTextToSpeechOutputStatus.SynthesisFailedTextOnly, result.Status);
         Assert.Equal("PushTextTtsFailed", result.Error?.Code);
-        Assert.Equal(0, await CountArtifactsAsync(contentStore));
+        Assert.Equal(0, await CountArtifactsAsync(workspaceStore));
     }
 
     private static async IAsyncEnumerable<AgentModelUpdate> StreamingHandler(AgentModelTurnRequest request)
@@ -1325,7 +1329,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     }
 
     private static AgentModelTurnRequest CreateModelRequest(
-        IContentStore? contentStore,
+        IWorkspaceStore? workspaceStore,
         EventCoordinator coordinator,
         IStructEventHub? structEvents = null)
     {
@@ -1338,7 +1342,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             State = AgentLoopState.InitialSafe([], "run-progressive", "conversation-progressive", "audio-test-agent"),
             Iteration = 0,
             Session = CreateSession("session-progressive"),
-            ContentStore = contentStore,
+            WorkspaceStore = workspaceStore,
             EventCoordinator = coordinator,
             EventFlows = coordinator.EventFlows,
             StructEvents = structEvents
@@ -1347,7 +1351,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
 
     private static AfterMessageTurnContext CreateAfterMessageTurnContext(
         string assistantText,
-        IContentStore? contentStore,
+        IWorkspaceStore? workspaceStore,
         string responseId = "response-progressive-1")
     {
         var state = AgentLoopState.InitialSafe([], "run-progressive", "conversation-progressive", "audio-test-agent");
@@ -1360,7 +1364,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             branch: null,
             CancellationToken.None,
             traceId: "00000000000000000000000000000003",
-            contentStore: contentStore);
+            workspaceStore: workspaceStore);
         var assistant = new ChatMessage(ChatRole.Assistant, assistantText);
         var finalResponse = new ChatResponse([assistant])
         {
@@ -1480,8 +1484,8 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         }
     }
 
-    private static async Task<int> CountArtifactsAsync(InMemoryContentStore contentStore) =>
-        (await contentStore.QueryAsync("session-progressive")).Count;
+    private static async Task<int> CountArtifactsAsync(InMemoryWorkspaceStore workspaceStore) =>
+        (await workspaceStore.QueryAsync("session-progressive")).Count;
 
     private sealed class ScriptedAudioOutputSink(
         Func<OutputPlaybackRequest, IReadOnlyList<OutputPlaybackEvent>> createEvents) : IAudioOutputSink

@@ -151,6 +151,93 @@ public sealed class AgentBuilderEvalExtensionsTests
         result.Should().BeSameAs(builder);
     }
 
+    [Fact]
+    public async Task UseWorkspaceScoreStore_WithoutRepositories_ConfiguresSharedWorkspaceRepositories()
+    {
+        var builder = MakeBuilder();
+
+        var result = builder.UseWorkspaceScoreStore();
+
+        result.Should().BeSameAs(builder);
+        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
+        middleware.ScoreStore.Should().NotBeNull();
+
+        await middleware.ScoreStore!.WriteScoreAsync(MakeScoreRecord("session-1"));
+
+        var sessionRepository = builder.Config.SessionRepository.Should().BeOfType<WorkspaceSessionRepository>().Subject;
+        var agentRepository = builder.Config.AgentRepository.Should().BeOfType<WorkspaceAgentRepository>().Subject;
+        ReferenceEquals(sessionRepository.Workspace, agentRepository.Workspace).Should().BeTrue();
+
+        var persisted = await CollectAsync(new WorkspaceScoreStore(sessionRepository.Workspace)
+            .GetScoresAsync(sessionId: "session-1"));
+        persisted.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task UseWorkspaceScoreStore_ReusesExistingWorkspaceRepository()
+    {
+        var workspace = new InMemoryWorkspaceStore();
+        var builder = MakeBuilder()
+            .WithSessionRepository(new WorkspaceSessionRepository(workspace));
+
+        builder.UseWorkspaceScoreStore();
+
+        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
+        await middleware.ScoreStore!.WriteScoreAsync(MakeScoreRecord("session-2"));
+
+        var sessionRepository = builder.Config.SessionRepository.Should().BeOfType<WorkspaceSessionRepository>().Subject;
+        var agentRepository = builder.Config.AgentRepository.Should().BeOfType<WorkspaceAgentRepository>().Subject;
+        ReferenceEquals(workspace, sessionRepository.Workspace).Should().BeTrue();
+        ReferenceEquals(workspace, agentRepository.Workspace).Should().BeTrue();
+
+        var persisted = await CollectAsync(new WorkspaceScoreStore(workspace)
+            .GetScoresAsync(sessionId: "session-2"));
+        persisted.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task UseWorkspaceScoreStore_RejectsSplitWorkspaceRepositories()
+    {
+        var builder = MakeBuilder()
+            .WithSessionRepository(new WorkspaceSessionRepository(new InMemoryWorkspaceStore()))
+            .WithAgentRepository(new WorkspaceAgentRepository(new InMemoryWorkspaceStore()));
+
+        builder.UseWorkspaceScoreStore();
+        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
+
+        var act = async () => await middleware.ScoreStore!.WriteScoreAsync(MakeScoreRecord("session-split"));
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*different session and agent workspaces*");
+    }
+
+    [Fact]
+    public async Task UseWorkspaceScoreStore_BeforeWithJsonWorkspace_WritesToJsonWorkspace()
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"hpd-eval-workspace-order-{Guid.NewGuid():N}");
+        try
+        {
+            var builder = MakeBuilder()
+                .UseWorkspaceScoreStore()
+                .WithJsonWorkspace(tempPath);
+            var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
+
+            await middleware.ScoreStore!.WriteScoreAsync(MakeScoreRecord("session-json"));
+
+            var sessionRepository = builder.Config.SessionRepository.Should().BeOfType<WorkspaceSessionRepository>().Subject;
+            var persisted = await CollectAsync(new WorkspaceScoreStore(sessionRepository.Workspace)
+                .GetScoresAsync(sessionId: "session-json"));
+
+            persisted.Should().ContainSingle();
+            File.Exists(Path.Combine(tempPath, "workspace.json")).Should().BeTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(tempPath))
+                Directory.Delete(tempPath, recursive: true);
+        }
+    }
+
     // ── UseEvalJudgeConfig ────────────────────────────────────────────────────
 
     [Fact]
@@ -279,6 +366,31 @@ public sealed class AgentBuilderEvalExtensionsTests
         var list = field!.GetValue(middleware) as System.Collections.IEnumerable;
         return list!.Cast<EvaluatorRegistration>().ToList();
     }
+
+    private static async Task<List<ScoreRecord>> CollectAsync(IAsyncEnumerable<ScoreRecord> source)
+    {
+        var list = new List<ScoreRecord>();
+        await foreach (var item in source)
+            list.Add(item);
+        return list;
+    }
+
+    private static ScoreRecord MakeScoreRecord(string sessionId) => new()
+    {
+        Id = Guid.NewGuid().ToString("N"),
+        EvaluatorName = "Score",
+        EvaluatorVersion = "1.0.0",
+        Result = new Microsoft.Extensions.AI.Evaluation.EvaluationResult(
+            new Microsoft.Extensions.AI.Evaluation.BooleanMetric("Pass") { Value = true }),
+        Source = EvaluationSource.Test,
+        SessionId = sessionId,
+        BranchId = "main",
+        TurnIndex = 0,
+        AgentName = "TestAgent",
+        Policy = EvalPolicy.TrackTrend,
+        CreatedAt = DateTimeOffset.UtcNow,
+        SamplingRate = 1.0,
+    };
 
     private sealed class CapturingJudgeAgent : IJudgeAgent
     {

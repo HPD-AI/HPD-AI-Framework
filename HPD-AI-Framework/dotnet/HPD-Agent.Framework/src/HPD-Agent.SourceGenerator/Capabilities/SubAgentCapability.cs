@@ -80,9 +80,9 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("            if (string.IsNullOrWhiteSpace(subAgentDef.AgentId))");
         sb.AppendLine("                throw new System.InvalidOperationException(\"Stored-agent subagents require AgentId.\");");
         sb.AppendLine("            agentBuilder = new AgentBuilder().WithAgentId(subAgentDef.AgentId);");
-        sb.AppendLine("            var parentAgentStore = functionContext?.GetParentAgentStore();");
-        sb.AppendLine("            if (parentAgentStore != null)");
-        sb.AppendLine("                agentBuilder.WithAgentStore(parentAgentStore);");
+        sb.AppendLine("            var parentAgentRepository = functionContext?.GetParentAgentRepository();");
+        sb.AppendLine("            if (parentAgentRepository != null)");
+        sb.AppendLine("                agentBuilder.WithAgentRepository(parentAgentRepository);");
         sb.AppendLine("        }");
         sb.AppendLine("        else");
         sb.AppendLine("        {");
@@ -116,11 +116,11 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("            : string.Empty;");
         sb.AppendLine();
 
-        sb.AppendLine("        // Use the parent session store when available so subagent branches remain inspectable");
-        sb.AppendLine("        var parentStore = functionContext?.GetParentSessionStore();");
-        sb.AppendLine("        if (parentStore != null)");
+        sb.AppendLine("        // Use the parent session repository when available so subagent branches remain inspectable");
+        sb.AppendLine("        var parentRepository = functionContext?.GetParentSessionRepository();");
+        sb.AppendLine("        if (parentRepository != null)");
         sb.AppendLine("        {");
-        sb.AppendLine("            agentBuilder.WithSessionStore(parentStore);");
+        sb.AppendLine("            agentBuilder.WithSessionRepository(parentRepository);");
         sb.AppendLine("        }");
         sb.AppendLine();
 
@@ -172,7 +172,7 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("            }, cancellationToken);");
         sb.AppendLine("            SubAgentRuntime.MarkCompleted(functionContext, route);");
         sb.AppendLine("            if (textResult.Length > 0) return textResult.ToString();");
-        sb.AppendLine("            var fallbackBranch = await agent.Config.SessionStore!.LoadBranchAsync(route.SessionId, route.BranchId, cancellationToken);");
+        sb.AppendLine("            var fallbackBranch = await agent.Config.SessionRepository!.LoadBranchAsync(route.SessionId, route.BranchId, cancellationToken);");
         sb.AppendLine("            return fallbackBranch?.Messages.LastOrDefault(m => m.Role == ChatRole.Assistant)?.Text ?? string.Empty;");
         sb.AppendLine("        }");
         sb.AppendLine("        catch (System.Exception ex)");

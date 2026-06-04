@@ -1026,11 +1026,11 @@ public partial class CodingToolHarness
         XmlWriter writer,
         ExecuteCommandOutputStoreMetadata outputMetadata)
     {
-        if (outputMetadata.Warning is null && outputMetadata.ContentStoreAvailable)
+        if (outputMetadata.Warning is null && outputMetadata.WorkspaceStoreAvailable)
             return;
 
         writer.WriteStartElement("output_store");
-        writer.WriteAttributeString("content_store_available", FormatBool(outputMetadata.ContentStoreAvailable));
+        writer.WriteAttributeString("workspace_store_available", FormatBool(outputMetadata.WorkspaceStoreAvailable));
         if (!string.IsNullOrWhiteSpace(outputMetadata.Warning))
             writer.WriteAttributeString("warning", outputMetadata.Warning);
         if (!string.IsNullOrWhiteSpace(outputMetadata.Metadata.ArtifactPath))
@@ -1451,7 +1451,7 @@ internal sealed record ExecuteCommandOutputStoreMetadata(
     ExecuteCommandOutputHandle Stderr,
     ExecuteCommandOutputHandle Combined,
     ExecuteCommandOutputHandle Metadata,
-    bool ContentStoreAvailable,
+    bool WorkspaceStoreAvailable,
     string? Warning);
 
 internal sealed record ExecuteCommandOutputHandle(
@@ -1816,8 +1816,9 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
     private readonly string _commandId;
     private readonly ExecuteCommandRequest _request;
     private readonly ExecuteCommandOptions _options;
-    private readonly IContentStore? _contentStore;
+    private readonly IWorkspaceStore? _workspaceStore;
     private readonly string? _sessionId;
+    private readonly string? _branchId;
     private readonly string _rootDirectory;
     private readonly CappedOutputFile _stdout;
     private readonly CappedOutputFile _stderr;
@@ -1828,15 +1829,17 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         string commandId,
         ExecuteCommandRequest request,
         ExecuteCommandOptions options,
-        IContentStore? contentStore,
+        IWorkspaceStore? workspaceStore,
         string? sessionId,
+        string? branchId,
         string rootDirectory)
     {
         _commandId = commandId;
         _request = request;
         _options = options;
-        _contentStore = contentStore;
+        _workspaceStore = workspaceStore;
         _sessionId = sessionId;
+        _branchId = branchId;
         _rootDirectory = rootDirectory;
         _stdout = new CappedOutputFile(Path.Combine(rootDirectory, "stdout.txt"), options.MaxPersistedOutputBytes);
         _stderr = new CappedOutputFile(Path.Combine(rootDirectory, "stderr.txt"), options.MaxPersistedOutputBytes);
@@ -1853,16 +1856,17 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         var rootDirectory = Path.Combine(Path.GetTempPath(), "hpd-command-results", commandId);
         Directory.CreateDirectory(rootDirectory);
 
-        var contentStore = context.SessionId is { Length: > 0 }
-            ? context.ContentStore
+        var workspaceStore = context.SessionId is { Length: > 0 }
+            ? context.WorkspaceStore
             : null;
 
         var session = new ExecuteCommandOutputStoreSession(
             commandId,
             request,
             options,
-            contentStore,
+            workspaceStore,
             context.SessionId,
+            context.BranchId,
             rootDirectory);
         await session.OpenAsync(cancellationToken).ConfigureAwait(false);
         return session;
@@ -1937,7 +1941,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             false,
             false);
 
-        if (_contentStore is not null && _sessionId is not null)
+        if (_workspaceStore is not null && _sessionId is not null)
         {
             try
             {
@@ -1957,7 +1961,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             stderr,
             combined,
             metadata,
-            _contentStore is not null,
+            _workspaceStore is not null,
             warning);
     }
 
@@ -2007,10 +2011,12 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         string stream,
         CancellationToken cancellationToken)
     {
-        if (local.LocalPath is null || _contentStore is null || _sessionId is null)
+        if (local.LocalPath is null || _workspaceStore is null || _sessionId is null)
             return local;
 
+        var branchId = string.IsNullOrWhiteSpace(_branchId) ? "main" : _branchId;
         var artifactName = $"commands/{_commandId}/{fileName}";
+        var branchSpace = await EnsureBranchSpaceAsync(branchId, cancellationToken).ConfigureAwait(false);
         await using var data = new FileStream(
             local.LocalPath,
             FileMode.Open,
@@ -2018,17 +2024,23 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             FileShare.Read | FileShare.Delete,
             bufferSize: 81920,
             useAsync: true);
-        var contentInfo = await _contentStore.WriteAsync(
-            _sessionId,
+        var attachment = await _workspaceStore.WriteContentAsync(
+            WorkspacePrincipalRef.System,
+            branchSpace.Id,
+            existingAttachmentId: null,
             data,
-            new ContentMetadata
+            new WriteWorkspaceSpaceContentRequest
             {
                 ContentType = local.ContentType,
+                Role = WorkspaceContentRoles.Artifact,
                 Name = artifactName,
-                Origin = ContentSource.Agent,
-                Tags = new Dictionary<string, string>
+                PathHint = WorkspaceContentPaths.BranchArtifacts(_sessionId, branchId),
+                Permission = WorkspacePermissions.ReadWrite,
+                ContentMetadata = new Dictionary<string, string>
                 {
-                    ["folder"] = "/artifacts",
+                    ["origin"] = ContentSource.Agent.ToString(),
+                    ["session-id"] = _sessionId,
+                    ["branch-id"] = branchId,
                     ["artifact-kind"] = "execute_command_output",
                     ["command-id"] = _commandId,
                     ["stream"] = stream,
@@ -2037,14 +2049,68 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
                     ["cwd"] = _request.WorkingDirectory
                 }
             },
-            new ContentWriteOptions { Mode = ContentWriteMode.Create },
             cancellationToken).ConfigureAwait(false);
 
         return local with
         {
-            ArtifactPath = $"/artifacts/{artifactName}",
-            ContentId = contentInfo.Id
+            ArtifactPath = WorkspaceContentPaths.BranchArtifact(_sessionId, branchId, artifactName),
+            ContentId = attachment.ContentId
         };
+    }
+
+    private async ValueTask<WorkspaceSpaceInfo> EnsureBranchSpaceAsync(
+        string branchId,
+        CancellationToken cancellationToken)
+    {
+        var sessionSpace = await EnsureSessionSpaceAsync(cancellationToken).ConfigureAwait(false);
+        var existing = await _workspaceStore!.FindSpaceAsync(
+            WorkspacePrincipalRef.System,
+            new WorkspaceSpaceQuery
+            {
+                Kind = WorkspaceSessionRepository.BranchKind,
+                ExternalId = branchId,
+                ParentSpaceId = sessionSpace.Id
+            },
+            cancellationToken).ConfigureAwait(false);
+        if (existing is not null)
+            return existing;
+
+        return await _workspaceStore.CreateChildSpaceAsync(
+            WorkspacePrincipalRef.System,
+            sessionSpace.Id,
+            new CreateWorkspaceSpaceRequest
+            {
+                Kind = WorkspaceSessionRepository.BranchKind,
+                ExternalId = branchId,
+                Name = branchId,
+                Slug = branchId
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<WorkspaceSpaceInfo> EnsureSessionSpaceAsync(CancellationToken cancellationToken)
+    {
+        var existing = await _workspaceStore!.FindSpaceAsync(
+            WorkspacePrincipalRef.System,
+            new WorkspaceSpaceQuery
+            {
+                Kind = WorkspaceSessionRepository.SessionKind,
+                ExternalId = _sessionId!
+            },
+            cancellationToken).ConfigureAwait(false);
+        if (existing is not null)
+            return existing;
+
+        return await _workspaceStore.CreateSpaceAsync(
+            WorkspacePrincipalRef.System,
+            new CreateWorkspaceSpaceRequest
+            {
+                Kind = WorkspaceSessionRepository.SessionKind,
+                ExternalId = _sessionId!,
+                Name = _sessionId!,
+                Slug = _sessionId!
+            },
+            cancellationToken).ConfigureAwait(false);
     }
 
     private byte[] BuildMetadataBytes(

@@ -37,6 +37,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../HPD-Execution/HPD-Execution.Contracts/HPD-Execution.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

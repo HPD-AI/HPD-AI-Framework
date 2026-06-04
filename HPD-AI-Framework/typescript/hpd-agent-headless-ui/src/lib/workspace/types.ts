@@ -70,7 +70,7 @@ export interface AgentClientLike {
 	deleteAgent(agentId: string): Promise<void>;
 
 	// Content upload
-	uploadContent(sessionId: string, file: File | Blob, name?: string): Promise<ContentReference>;
+	uploadContent(sessionId: string, branchId: string, file: File | Blob, name?: string): Promise<ContentReference>;
 }
 
 export interface CreateWorkspaceOptions {

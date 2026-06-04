@@ -8,5 +8,10 @@ namespace HPD.Agent.Bots.Tests.TestInfrastructure;
 /// </summary>
 internal sealed class TestSessionManager : SessionManager
 {
-    public TestSessionManager(ISessionStore store) : base(store) { }
+    public TestSessionManager()
+        : this(new WorkspaceSessionRepository(new InMemoryWorkspaceStore()))
+    {
+    }
+
+    public TestSessionManager(ISessionRepository repository) : base(repository) { }
 }

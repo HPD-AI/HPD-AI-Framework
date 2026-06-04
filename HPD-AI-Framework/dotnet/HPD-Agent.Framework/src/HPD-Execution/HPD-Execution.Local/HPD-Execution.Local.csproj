@@ -18,6 +18,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../HPD-Execution.Contracts/HPD-Execution.Contracts.csproj" />
+    <ProjectReference Include="../HPD-Execution.Runtime/HPD-Execution.Runtime.csproj" />
     <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
     <ProjectReference Include="../../../../shared/src/HPD-Events/HPD-Events.csproj" />
 

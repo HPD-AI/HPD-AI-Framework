@@ -10,10 +10,10 @@ public sealed class SseEventHandlerScopeTests
     [Fact]
     public async Task IsInRouteScopeAsync_AllowsSubAgentChildBranchEventsLinkedToObservedParentBranch()
     {
-        var store = new InMemorySessionStore();
-        var agent = await CreateAgentAsync(store);
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
+        var agent = await CreateAgentAsync(repository);
         await agent.CreateSessionAsync("session-1");
-        var forkMessageId = await SeedForkMessageAsync(agent, store, "session-1", "main");
+        var forkMessageId = await SeedForkMessageAsync(agent, repository, "session-1", "main");
         await agent.ForkBranchAsync(
             "session-1",
             "main",
@@ -45,10 +45,10 @@ public sealed class SseEventHandlerScopeTests
     [Fact]
     public async Task IsInRouteScopeAsync_RejectsUnrelatedBranchEvents()
     {
-        var store = new InMemorySessionStore();
-        var agent = await CreateAgentAsync(store);
+        var repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
+        var agent = await CreateAgentAsync(repository);
         await agent.CreateSessionAsync("session-1");
-        var forkMessageId = await SeedForkMessageAsync(agent, store, "session-1", "main");
+        var forkMessageId = await SeedForkMessageAsync(agent, repository, "session-1", "main");
         await agent.ForkBranchAsync(
             "session-1",
             "main",
@@ -72,7 +72,7 @@ public sealed class SseEventHandlerScopeTests
         inScope.Should().BeFalse();
     }
 
-    private static Task<Agent> CreateAgentAsync(ISessionStore store)
+    private static Task<Agent> CreateAgentAsync(ISessionRepository repository)
     {
         var config = new AgentConfig
         {
@@ -84,19 +84,19 @@ public sealed class SseEventHandlerScopeTests
         };
 
         return new AgentBuilder(config, new TestProviderRegistry(new FakeChatClient()))
-            .WithSessionStore(store)
+            .WithSessionRepository(repository)
             .BuildAsync();
     }
 
     private static async Task<string> SeedForkMessageAsync(
         Agent agent,
-        ISessionStore store,
+        ISessionRepository repository,
         string sessionId,
         string branchId)
     {
         await agent.RunAsync("seed fork message", sessionId, branchId);
 
-        var branch = await store.LoadBranchAsync(sessionId, branchId);
+        var branch = await repository.LoadBranchAsync(sessionId, branchId);
         var messageId = branch?.Messages.FirstOrDefault()?.MessageId;
         messageId.Should().NotBeNullOrWhiteSpace();
 

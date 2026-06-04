@@ -7,13 +7,13 @@ namespace HPD.Agent.Hosting.Tests.Lifecycle;
 
 public class AgentBranchRunServiceTests : IDisposable
 {
-    private readonly InMemorySessionStore _store = new();
+    private readonly ISessionRepository _repository = new WorkspaceSessionRepository(new InMemoryWorkspaceStore());
     private readonly TestSessionManager _manager;
     private readonly AgentBranchRunService _service;
 
     public AgentBranchRunServiceTests()
     {
-        _manager = new TestSessionManager(_store);
+        _manager = new TestSessionManager(_repository);
         _service = new AgentBranchRunService(_manager);
     }
 
@@ -28,7 +28,7 @@ public class AgentBranchRunServiceTests : IDisposable
         var token = ResponseContinuationToken.FromBytes(new byte[] { 1, 2, 3 });
 #pragma warning restore MEAI001
 
-        await _store.AppendBranchEventAsync("session-1", "main", new BranchRunStartedEvent(
+        await _repository.AppendBranchEventAsync("session-1", "main", new BranchRunStartedEvent(
             "run-1",
             "agent-1",
             DateTimeOffset.Parse("2026-05-28T10:00:00Z"))
@@ -36,7 +36,7 @@ public class AgentBranchRunServiceTests : IDisposable
             SessionId = "session-1",
             BranchId = "main"
         });
-        await _store.AppendBranchEventAsync("session-1", "main", new BackgroundOperationStartedEvent(
+        await _repository.AppendBranchEventAsync("session-1", "main", new BackgroundOperationStartedEvent(
             token,
             OperationStatus.InProgress,
             "op-1")
@@ -44,7 +44,7 @@ public class AgentBranchRunServiceTests : IDisposable
             SessionId = "session-1",
             BranchId = "main"
         });
-        await _store.AppendBranchEventAsync("session-1", "main", new ToolCallBackgroundTaskStartedEvent
+        await _repository.AppendBranchEventAsync("session-1", "main", new ToolCallBackgroundTaskStartedEvent
         {
             SessionId = "session-1",
             BranchId = "main",
@@ -53,7 +53,7 @@ public class AgentBranchRunServiceTests : IDisposable
             Invocation = Invocation(),
             StartedAt = DateTimeOffset.Parse("2026-05-28T10:00:01Z")
         });
-        await _store.AppendBranchEventAsync("session-1", "main", new ToolCallBackgroundTaskCompletedEvent
+        await _repository.AppendBranchEventAsync("session-1", "main", new ToolCallBackgroundTaskCompletedEvent
         {
             SessionId = "session-1",
             BranchId = "main",
@@ -63,7 +63,7 @@ public class AgentBranchRunServiceTests : IDisposable
             CompletedAt = DateTimeOffset.Parse("2026-05-28T10:00:02Z"),
             DurationMilliseconds = 1000
         });
-        await _store.AppendBranchEventAsync("session-1", "main", new BranchRunCompletedEvent(
+        await _repository.AppendBranchEventAsync("session-1", "main", new BranchRunCompletedEvent(
             "run-1",
             "agent-1",
             false)
@@ -103,8 +103,8 @@ public class AgentBranchRunServiceTests : IDisposable
         var session = new HPD.Agent.Session(sessionId);
         var branch = session.CreateBranch(branchId);
 
-        await _store.SaveSessionAsync(session);
-        await _store.SaveInitialBranchAsync(session.Id, branch);
+        await _repository.SaveSessionAsync(session);
+        await _repository.SaveInitialBranchAsync(session.Id, branch);
     }
 
     private static FunctionInvocationSnapshot Invocation() => new()
@@ -118,6 +118,6 @@ public class AgentBranchRunServiceTests : IDisposable
 
     private sealed class TestSessionManager : SessionManager
     {
-        public TestSessionManager(ISessionStore store) : base(store) { }
+        public TestSessionManager(ISessionRepository repository) : base(repository) { }
     }
 }

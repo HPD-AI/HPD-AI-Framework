@@ -19,9 +19,10 @@
 		// Controls which mode the toolharness uses
 		mode?: 'external' | 'internal';
 		sessionId?: string | null;
+		branchId?: string | null;
 		disabled?: boolean;
 		// Mock upload function — called by the state
-		uploadFn?: (sessionId: string, file: File) => Promise<ContentReference>;
+		uploadFn?: (sessionId: string, branchId: string, file: File) => Promise<ContentReference>;
 		// Mock client for internal mode
 		client?: AgentClientLike;
 	}
@@ -37,8 +38,9 @@
 	let {
 		mode = 'external',
 		sessionId = 'sess-test',
+		branchId = 'branch-test',
 		disabled = false,
-		uploadFn = async (_sid: string, _file: File) => DEFAULT_CONTENT,
+		uploadFn = async (_sid: string, _bid: string, _file: File) => DEFAULT_CONTENT,
 		client = undefined,
 	}: Props = $props();
 
@@ -46,6 +48,7 @@
 	const externalState = new FileAttachmentState({
 		uploadFn: boxWith(() => uploadFn),
 		sessionId: boxWith(() => sessionId),
+		branchId: boxWith(() => branchId),
 		disabled: boxWith(() => disabled),
 	});
 
@@ -99,7 +102,7 @@
 
 {:else}
 	<!-- Internal state mode: client + sessionId props -->
-	<FileAttachment.Root {client} {sessionId} {disabled} data-testid="root">
+	<FileAttachment.Root {client} {sessionId} {branchId} {disabled} data-testid="root">
 		{#snippet children(s)}
 			<span data-testid="has-attachments">{s.hasAttachments}</span>
 			<span data-testid="can-submit">{s.canSubmit}</span>

@@ -354,7 +354,7 @@ public sealed class TeamsBot(
         ITeamsTurn turn,
         CancellationToken ct)
     {
-        var session = await _sessionManager.Store.LoadSessionAsync(sessionId, ct);
+        var session = await _sessionManager.Repository.LoadSessionAsync(sessionId, ct);
         if (session is null)
             return;
 
@@ -368,7 +368,7 @@ public sealed class TeamsBot(
         if (TryBuildChannelContext(turn.Values) is { } channelContext)
             session.Metadata["teams.channelContext"] = channelContext;
 
-        await _sessionManager.Store.SaveSessionAsync(session, ct);
+        await _sessionManager.Repository.SaveSessionAsync(session, ct);
     }
 
     private static Dictionary<string, string>? TryBuildChannelContext(IReadOnlyDictionary<string, string> values)

@@ -104,8 +104,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
 
         var sourceResolver = new AgentInputContentSourceResolver(
             detections,
-            context.ContentStore,
-            context.SessionId ?? context.ConversationId);
+            context.WorkspaceStore);
         if (!context.RuntimeCapabilities.IsSealed)
         {
             context.RuntimeCapabilities.Set<IInputContentSourceResolver>(sourceResolver);
@@ -233,7 +232,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             return;
         }
 
-        var outputOptions = ResolveAssistantOutputOptions(options, context.Services, context.ClientSet, context.ContentStore);
+        var outputOptions = ResolveAssistantOutputOptions(options, context.Services, context.ClientSet, context.WorkspaceStore);
         var result = await _assistantOutputService.RunAsync(
             new AssistantFinalTextToSpeechOutputRequest
             {
@@ -277,7 +276,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         var branchRef = new BranchRef(sessionId.Value, "main");
         var responseId = new ResponseId($"response-{Guid.NewGuid():N}");
         var outputFlowId = new OutputFlowId($"output-{Guid.NewGuid():N}");
-        var outputOptions = ResolveAssistantOutputOptions(options, null, request.ClientSet, request.ContentStore);
+        var outputOptions = ResolveAssistantOutputOptions(options, null, request.ClientSet, request.WorkspaceStore);
         var eventFlowHandle = options.EnableAssistantOutputPlayback
             ? request.EventFlows?.Create(outputFlowId.Value)
             : null;
@@ -431,7 +430,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         AudioRuntimeAttachmentOptions options,
         IServiceProvider? services,
         AgentClientSet? clientSet,
-        IContentStore? contentStore)
+        IWorkspaceStore? workspaceStore)
     {
         var client = options.AssistantOutputTextToSpeechClient
             ?? options.AssistantOutputTextToSpeechClientFactory?.Invoke(services)
@@ -444,7 +443,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         return new AssistantTextToSpeechOutputOptions
         {
             TextToSpeechClient = client,
-            ContentStore = contentStore,
+            WorkspaceStore = workspaceStore,
             ArtifactCapturePolicy = options.AssistantOutputArtifactCapturePolicy,
             ProviderKey = options.AssistantOutputProviderKey,
             ModelId = options.AssistantOutputModelId,

@@ -10,10 +10,10 @@ public sealed record AssistantTextToSpeechOutputOptions
 {
     public required ITextToSpeechClient TextToSpeechClient { get; init; }
 
-    public required IContentStore? ContentStore { get; init; }
+    public required IWorkspaceStore? WorkspaceStore { get; init; }
 
     public AssistantAudioArtifactCapturePolicy ArtifactCapturePolicy { get; init; } =
-        AssistantAudioArtifactCapturePolicy.ContentStoreArtifact;
+        AssistantAudioArtifactCapturePolicy.WorkspaceArtifact;
 
     public string? ProviderKey { get; init; }
 

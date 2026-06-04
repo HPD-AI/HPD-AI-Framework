@@ -47,7 +47,7 @@ public sealed class AudioRuntimeAttachmentOptions
         PushTextInputAggregationMode.ProviderDefault;
 
     public AssistantAudioArtifactCapturePolicy AssistantOutputArtifactCapturePolicy { get; set; } =
-        AssistantAudioArtifactCapturePolicy.ContentStoreArtifact;
+        AssistantAudioArtifactCapturePolicy.WorkspaceArtifact;
 
     public IAudioOutputSink? AssistantAudioOutputSink { get; set; }
 

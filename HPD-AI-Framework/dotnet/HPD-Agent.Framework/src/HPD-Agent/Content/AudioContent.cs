@@ -27,7 +27,7 @@ namespace HPD.Agent;
 /// <para>
 /// <b>Middleware Behavior:</b>
 /// <list type="bullet">
-/// <item>ContentUploadMiddleware: Uploads to IContentStore with /uploads folder tag</item>
+/// <item>ContentUploadMiddleware: Uploads to workspace store with role=upload and path hint /uploads</item>
 /// <item>Audio runtime integration: Detects input audio before upload and preserves input-content identity</item>
 /// </list>
 /// </para>

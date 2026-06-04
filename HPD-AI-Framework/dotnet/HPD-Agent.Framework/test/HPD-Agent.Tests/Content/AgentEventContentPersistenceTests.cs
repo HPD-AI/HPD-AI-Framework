@@ -15,9 +15,9 @@ public class AgentEventContentPersistenceTests
     }
 
     [Fact]
-    public async Task PersistAsync_WhenEventRequestsContentPersistence_WritesSerializedEvent()
+    public async Task PersistAsync_WhenEventRequestsContentPersistence_WritesWorkspaceAttachment()
     {
-        var store = new InMemoryContentStore();
+        var workspace = new InMemoryWorkspaceStore();
         var evt = new PersistableContentTestEvent("hello")
         {
             EventId = "event-1",
@@ -33,26 +33,37 @@ public class AgentEventContentPersistenceTests
         };
 
         var info = await AgentEventContentPersistence.PersistAsync(
-            store,
+            workspace,
             evt,
             "default-scope");
 
         Assert.NotNull(info);
         Assert.Equal("event-1.json", info.Name);
         Assert.Equal("application/json", info.ContentType);
-        Assert.Equal(ContentSource.Agent, info.Origin);
-        Assert.Equal("/memory/events", info.Tags?["folder"]);
-        Assert.Equal("PERSISTABLE_CONTENT_TEST", info.Tags?["event.type"]);
-        Assert.Equal("event-1", info.Tags?["event.id"]);
-        Assert.Equal("session-1", info.Tags?["session"]);
-        Assert.Equal("branch-1", info.Tags?["branch"]);
-        Assert.Equal("trace-1", info.Tags?["trace"]);
-        Assert.Equal("span-1", info.Tags?["span"]);
-        Assert.Equal("TestAgent", info.Tags?["agent.name"]);
-        Assert.Equal("agent-1", info.Tags?["agent.id"]);
-        Assert.Equal("test", info.Tags?["kind"]);
+        Assert.Equal(ContentSource.Agent.ToString(), info.Metadata?["origin"]);
+        Assert.Equal("PERSISTABLE_CONTENT_TEST", info.Metadata?["event.type"]);
+        Assert.Equal("event-1", info.Metadata?["event.id"]);
+        Assert.Equal("session-1", info.Metadata?["session"]);
+        Assert.Equal("branch-1", info.Metadata?["branch"]);
+        Assert.Equal("trace-1", info.Metadata?["trace"]);
+        Assert.Equal("span-1", info.Metadata?["span"]);
+        Assert.Equal("TestAgent", info.Metadata?["agent.name"]);
+        Assert.Equal("agent-1", info.Metadata?["agent.id"]);
+        Assert.Equal("test", info.Metadata?["kind"]);
 
-        await using var stream = await store.OpenReadAsync("default-scope", info.Id);
+        var branchSpace = await ResolveBranchSpaceAsync(workspace);
+        var attachments = await workspace.ListContentAsync(
+            WorkspacePrincipalRef.System,
+            branchSpace.Id,
+            new WorkspaceContentAttachmentQuery { Role = WorkspaceContentRoles.Memory });
+        var attachment = Assert.Single(attachments);
+        Assert.Equal(info.Id, attachment.ContentId);
+        Assert.Equal("/memory/events", attachment.PathHint);
+
+        await using var stream = await workspace.OpenContentAsync(
+            WorkspacePrincipalRef.System,
+            info.Id,
+            info.Version);
         Assert.NotNull(stream);
         using var reader = new StreamReader(stream);
         var json = await reader.ReadToEndAsync();
@@ -64,15 +75,38 @@ public class AgentEventContentPersistenceTests
     [Fact]
     public async Task PersistAsync_WhenEventDoesNotRequestContentPersistence_DoesNothing()
     {
-        var store = new InMemoryContentStore();
+        var workspace = new InMemoryWorkspaceStore();
 
         var info = await AgentEventContentPersistence.PersistAsync(
-            store,
+            workspace,
             new TextDeltaEvent("hello", "message-1"),
             "default-scope");
 
         Assert.Null(info);
-        Assert.Empty(await store.QueryAsync("default-scope"));
+        Assert.Empty(await workspace.ListSpacesAsync(WorkspacePrincipalRef.System));
+    }
+
+    private static async Task<WorkspaceSpaceInfo> ResolveBranchSpaceAsync(IWorkspaceStore workspace)
+    {
+        var sessionSpace = await workspace.FindSpaceAsync(
+            WorkspacePrincipalRef.System,
+            new WorkspaceSpaceQuery
+            {
+                Kind = WorkspaceSessionRepository.SessionKind,
+                ExternalId = "session-1"
+            });
+        Assert.NotNull(sessionSpace);
+
+        var branchSpace = await workspace.FindSpaceAsync(
+            WorkspacePrincipalRef.System,
+            new WorkspaceSpaceQuery
+            {
+                Kind = WorkspaceSessionRepository.BranchKind,
+                ExternalId = "branch-1",
+                ParentSpaceId = sessionSpace.Id
+            });
+        Assert.NotNull(branchSpace);
+        return branchSpace;
     }
 }
 
@@ -80,7 +114,8 @@ internal sealed record PersistableContentTestEvent(string Value) : AgentEvent
 {
     public override ContentPersistenceRequest? GetContentPersistenceRequest() => new()
     {
-        Folder = "memory/events",
+        Role = WorkspaceContentRoles.Memory,
+        PathHint = "/memory/events",
         Name = "event-1.json",
         Description = "Persisted test event",
         Origin = ContentSource.Agent,

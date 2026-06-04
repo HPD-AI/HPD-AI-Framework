@@ -119,11 +119,11 @@ internal static class SseEventHandler
         string routeBranchId,
         CancellationToken cancellationToken)
     {
-        var store = agent.Config?.SessionStore;
-        if (store == null)
+        var repository = agent.Config?.SessionRepository;
+        if (repository == null)
             return false;
 
-        var branch = await store.LoadBranchAsync(eventSessionId, eventBranchId, cancellationToken)
+        var branch = await repository.LoadBranchAsync(eventSessionId, eventBranchId, cancellationToken)
             .ConfigureAwait(false);
         if (branch == null)
             return false;

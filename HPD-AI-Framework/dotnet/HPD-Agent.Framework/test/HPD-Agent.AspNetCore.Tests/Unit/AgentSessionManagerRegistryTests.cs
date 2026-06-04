@@ -21,10 +21,7 @@ public class AgentSessionManagerRegistryTests
         // Arrange
         var services = new ServiceCollection();
         services.AddOptions();
-        services.Configure<HPDAgentConfig>(Options.DefaultName, opts =>
-        {
-            opts.SessionStore = new InMemorySessionStore();
-        });
+        services.Configure<HPDAgentConfig>(Options.DefaultName, opts => opts.UseInMemoryWorkspace());
         var provider = services.BuildServiceProvider();
         var registry = new HPDAgentRegistry(provider);
 
@@ -43,10 +40,7 @@ public class AgentSessionManagerRegistryTests
         // Arrange
         var services = new ServiceCollection();
         services.AddOptions();
-        services.Configure<HPDAgentConfig>(Options.DefaultName, opts =>
-        {
-            opts.SessionStore = new InMemorySessionStore();
-        });
+        services.Configure<HPDAgentConfig>(Options.DefaultName, opts => opts.UseInMemoryWorkspace());
         var provider = services.BuildServiceProvider();
         var registry = new HPDAgentRegistry(provider);
 
@@ -65,14 +59,8 @@ public class AgentSessionManagerRegistryTests
         // Arrange
         var services = new ServiceCollection();
         services.AddOptions();
-        services.Configure<HPDAgentConfig>("agent1", opts =>
-        {
-            opts.SessionStore = new InMemorySessionStore();
-        });
-        services.Configure<HPDAgentConfig>("agent2", opts =>
-        {
-            opts.SessionStore = new InMemorySessionStore();
-        });
+        services.Configure<HPDAgentConfig>("agent1", opts => opts.UseInMemoryWorkspace());
+        services.Configure<HPDAgentConfig>("agent2", opts => opts.UseInMemoryWorkspace());
         var provider = services.BuildServiceProvider();
         var registry = new HPDAgentRegistry(provider);
 
@@ -92,7 +80,7 @@ public class AgentSessionManagerRegistryTests
         services.AddOptions();
         services.Configure<HPDAgentConfig>("test-agent", opts =>
         {
-            opts.SessionStore = new InMemorySessionStore();
+            opts.UseInMemoryWorkspace();
             opts.AgentIdleTimeout = TimeSpan.FromMinutes(60);
         });
         var provider = services.BuildServiceProvider();
@@ -112,10 +100,7 @@ public class AgentSessionManagerRegistryTests
         var services = new ServiceCollection();
         services.AddOptions();
         services.AddSingleton<IAgentFactory, TestAgentFactory>();
-        services.Configure<HPDAgentConfig>(Options.DefaultName, opts =>
-        {
-            opts.SessionStore = new InMemorySessionStore();
-        });
+        services.Configure<HPDAgentConfig>(Options.DefaultName, opts => opts.UseInMemoryWorkspace());
         var provider = services.BuildServiceProvider();
         var registry = new HPDAgentRegistry(provider);
 
@@ -127,7 +112,7 @@ public class AgentSessionManagerRegistryTests
     }
 
     [Fact]
-    public void CreatePair_CreatesJsonSessionStore_WhenPathProvided()
+    public void CreatePair_CreatesJsonWorkspaceStore_WhenWorkspacePathProvided()
     {
         // Arrange
         var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
@@ -135,7 +120,7 @@ public class AgentSessionManagerRegistryTests
         services.AddOptions();
         services.Configure<HPDAgentConfig>(Options.DefaultName, opts =>
         {
-            opts.SessionStorePath = tempPath;
+            opts.WorkspaceStorePath = tempPath;
         });
         var provider = services.BuildServiceProvider();
         var registry = new HPDAgentRegistry(provider);
@@ -145,7 +130,7 @@ public class AgentSessionManagerRegistryTests
 
         // Assert
         pair.Should().NotBeNull();
-        pair.SessionManager.Store.Should().NotBeNull();
+        pair.SessionManager.Repository.Should().BeOfType<WorkspaceSessionRepository>();
 
         // Cleanup
         if (Directory.Exists(tempPath))
@@ -153,7 +138,7 @@ public class AgentSessionManagerRegistryTests
     }
 
     [Fact]
-    public void CreatePair_CreatesInMemoryStore_WhenNoPathProvided()
+    public void CreatePair_CreatesWorkspaceBackedRepositories_WhenNoWorkspaceConfigured()
     {
         // Arrange
         var services = new ServiceCollection();
@@ -167,20 +152,17 @@ public class AgentSessionManagerRegistryTests
 
         // Assert
         pair.Should().NotBeNull();
-        pair.SessionManager.Store.Should().BeOfType<InMemorySessionStore>();
+        pair.SessionManager.Repository.Should().BeOfType<WorkspaceSessionRepository>();
+        pair.AgentManager.Repository.Should().BeOfType<WorkspaceAgentRepository>();
     }
 
     [Fact]
-    public void CreatePair_UsesProvidedStore_WhenAvailable()
+    public async Task CreatePair_UsesSameWorkspace_ForDefaultSessionAndAgentRepositories()
     {
         // Arrange
-        var customStore = new InMemorySessionStore();
         var services = new ServiceCollection();
         services.AddOptions();
-        services.Configure<HPDAgentConfig>(Options.DefaultName, opts =>
-        {
-            opts.SessionStore = customStore;
-        });
+        services.Configure<HPDAgentConfig>(Options.DefaultName, opts => { });
         var provider = services.BuildServiceProvider();
         var registry = new HPDAgentRegistry(provider);
 
@@ -188,7 +170,14 @@ public class AgentSessionManagerRegistryTests
         var pair = registry.Get(Options.DefaultName);
 
         // Assert
-        pair.SessionManager.Store.Should().BeSameAs(customStore);
+        await pair.SessionManager.CreateSessionAsync("session-1");
+        await pair.AgentManager.CreateDefinitionAsync(new AgentConfig { Name = "Researcher" }, "Researcher");
+
+        var sessionIds = await pair.SessionManager.Repository.ListSessionIdsAsync();
+        var definitions = await pair.AgentManager.ListDefinitionsAsync();
+
+        sessionIds.Should().Contain("session-1");
+        definitions.Should().ContainSingle(definition => definition.Name == "Researcher");
     }
 
     #endregion
@@ -199,7 +188,7 @@ public class AgentSessionManagerRegistryTests
     {
         public Task<HPD.Agent.Agent> CreateAgentAsync(
             string agentId,
-            ISessionStore store,
+            ISessionRepository sessionRepository,
             CancellationToken ct = default)
         {
             var config = new AgentConfig
@@ -215,7 +204,7 @@ public class AgentSessionManagerRegistryTests
             var providerRegistry = new HPD.Agent.AspNetCore.Tests.TestInfrastructure.TestProviderRegistry(chatClient);
 
             return new AgentBuilder(config, providerRegistry)
-                .WithSessionStore(store)
+                .WithSessionRepository(sessionRepository)
                 .BuildAsync(ct);
         }
     }

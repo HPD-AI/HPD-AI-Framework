@@ -12,5 +12,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Execution.AppleVirtualization.DevKit/HPD-Execution.AppleVirtualization.DevKit.csproj" />
+    <ProjectReference Include="../HPD-Execution.Contracts/HPD-Execution.Contracts.csproj" />
   </ItemGroup>
 </Project>

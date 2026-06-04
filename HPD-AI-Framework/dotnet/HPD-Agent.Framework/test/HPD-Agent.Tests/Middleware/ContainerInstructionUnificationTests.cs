@@ -3,7 +3,6 @@ using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 using System.Collections.Immutable;
 using Xunit;
-using CollapsingStateData = HPD.Agent.ContainerMiddlewareState;
 
 namespace HPD.Agent.Tests.Middleware;
 
@@ -126,7 +125,7 @@ public class ContainerInstructionUnificationTests
 
     #endregion
 
-    #region FunctionResult Tests (Legacy Behavior)
+    #region FunctionResult Tests
 
     [Fact]
     public async Task FunctionResult_NotInjectedByMiddleware_OnlyStoredInMetadata()
@@ -457,7 +456,7 @@ Use `decimal` type for precision.";
             {
                 MiddlewareState = new MiddlewareState().SetState(
                     "HPD.Agent.ContainerMiddlewareState",
-                    new CollapsingStateData { ActiveContainerInstructions = containerInstructions })
+                    new ContainerMiddlewareState { ActiveContainerInstructions = containerInstructions })
             };
 
         // Create dummy tools for the context (required by ContainerMiddleware)

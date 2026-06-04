@@ -52,7 +52,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
     [Fact]
     public async Task AfterMessageTurn_EnabledTts_SynthesizesArtifactWithoutPlaybackClaim()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.FinalText,
@@ -67,7 +67,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
         var subscriptions = new List<IDisposable>();
         var context = CreateAfterMessageTurnContext(
             "hello from assistant",
-            contentStore,
+            workspaceStore,
             coordinator =>
             {
                 subscriptions.Add(coordinator.Subscribe<AssistantAudioOutputArtifactCapturedEvent>(evt =>
@@ -95,18 +95,19 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
         Assert.Equal(4, artifactRef.SizeBytes);
         Assert.False(string.IsNullOrWhiteSpace(artifactRef.Sha256));
 
-        var storedInfo = await contentStore.StatAsync("session-output", artifactRef.ArtifactId);
+        var storedInfo = await workspaceStore.StatAsync("session-output", artifactRef.ArtifactId);
         Assert.NotNull(storedInfo);
         Assert.Equal("audio/mpeg", storedInfo.ContentType);
         Assert.Equal(4, storedInfo.SizeBytes);
         Assert.Equal(ContentSource.Agent, storedInfo.Origin);
-        Assert.Equal("/artifacts", storedInfo.Tags?["folder"]);
+        Assert.Equal(WorkspaceContentRoles.Artifact, storedInfo.Role);
+        Assert.Equal(WorkspaceContentPaths.BranchArtifacts("session-output", "main"), storedInfo.PathHint);
         Assert.Equal("assistant-audio", storedInfo.Tags?["kind"]);
         Assert.Equal("fake-tts", storedInfo.Tags?["provider"]);
         Assert.Equal("voice-model", storedInfo.Tags?["model"]);
         Assert.Equal("voice-1", storedInfo.Tags?["voice"]);
 
-        var storedBytes = await contentStore.ReadBytesAsync("session-output", artifactRef.ArtifactId);
+        var storedBytes = await workspaceStore.ReadBytesAsync("session-output", artifactRef.ArtifactId);
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, storedBytes);
 
         Assert.Contains(result.Ledger.OfType<AssistantOutputLedgerRecord>(), r =>
@@ -136,7 +137,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
     [Fact]
     public async Task AfterMessageTurn_TtsFailure_DegradesToTextOnlyAndDoesNotThrow()
     {
-        var contentStore = new InMemoryContentStore();
+        var workspaceStore = new InMemoryWorkspaceStore();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.FinalText,
@@ -148,7 +149,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
         var subscriptions = new List<IDisposable>();
         var context = CreateAfterMessageTurnContext(
             "still keep text",
-            contentStore,
+            workspaceStore,
             coordinator =>
             {
                 subscriptions.Add(coordinator.Subscribe<AssistantAudioOutputArtifactCapturedEvent>(evt =>
@@ -170,7 +171,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
         Assert.Equal("still keep text", result.Text);
         Assert.Equal(OutputCommitDisposition.SynthesisFailedTextOnly, result.Commit?.Disposition);
         Assert.NotNull(result.Error);
-        Assert.Empty(await contentStore.QueryAsync("session-output"));
+        Assert.Empty(await workspaceStore.QueryAsync("session-output"));
         Assert.Contains(result.Ledger.OfType<TtsSynthesisResultLedgerRecord>(), r =>
             r.Disposition == TtsSynthesisDisposition.Failed &&
             r.Error is not null);
@@ -188,7 +189,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
     }
 
     [Fact]
-    public async Task AfterMessageTurn_EnabledTtsWithoutContentStore_ReturnsClearTextOnlyFailure()
+    public async Task AfterMessageTurn_EnabledTtsWithoutWorkspaceStore_ReturnsClearTextOnlyFailure()
     {
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -201,7 +202,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
         var subscriptions = new List<IDisposable>();
         var context = CreateAfterMessageTurnContext(
             "still keep text",
-            contentStore: null,
+            workspaceStore: null,
             coordinator =>
             {
                 subscriptions.Add(coordinator.Subscribe<AssistantAudioOutputArtifactCapturedEvent>(evt =>
@@ -221,14 +222,14 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
         var result = Assert.Single(attachment.LastOutputResults);
         Assert.Equal(AssistantTextToSpeechOutputStatus.SynthesisFailedTextOnly, result.Status);
         Assert.Equal("still keep text", result.Text);
-        Assert.Equal("MissingContentStore", result.Error?.Code);
+        Assert.Equal("MissingWorkspaceStore", result.Error?.Code);
         Assert.Empty(result.Ledger.OfType<OutputArtifactLedgerRecord>());
 
         Assert.Empty(readyEvents);
     }
 
     [Fact]
-    public async Task AfterMessageTurn_DisabledArtifactCaptureWithoutContentStore_SynthesizesWithoutArtifact()
+    public async Task AfterMessageTurn_DisabledArtifactCaptureWithoutWorkspaceStore_SynthesizesWithoutArtifact()
     {
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
@@ -242,7 +243,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
         var subscriptions = new List<IDisposable>();
         var context = CreateAfterMessageTurnContext(
             "stream only",
-            contentStore: null,
+            workspaceStore: null,
             coordinator =>
             {
                 subscriptions.Add(coordinator.Subscribe<AssistantAudioOutputArtifactCapturedEvent>(evt =>
@@ -270,7 +271,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
 
     private static AfterMessageTurnContext CreateAfterMessageTurnContext(
         string assistantText,
-        IContentStore? contentStore = null,
+        IWorkspaceStore? workspaceStore = null,
         Action<EventCoordinator>? configureCoordinator = null)
     {
         var state = AgentLoopState.InitialSafe([], "run-audio-output", "conversation-output", "audio-test-agent");
@@ -285,7 +286,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
             branch: null,
             CancellationToken.None,
             traceId: "00000000000000000000000000000002",
-            contentStore: contentStore);
+            workspaceStore: workspaceStore);
         var assistant = new ChatMessage(ChatRole.Assistant, assistantText);
         var finalResponse = new ChatResponse([assistant])
         {

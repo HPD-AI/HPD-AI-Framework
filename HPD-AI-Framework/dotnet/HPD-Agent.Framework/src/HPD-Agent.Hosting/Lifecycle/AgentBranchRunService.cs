@@ -64,9 +64,9 @@ public sealed class AgentBranchRunService : IAgentBranchRunService
         string branchId,
         CancellationToken cancellationToken)
     {
-        var document = await _sessionManager.Store.LoadBranchDocumentAsync(sessionId, branchId, cancellationToken)
+        var document = await _sessionManager.Repository.LoadBranchDocumentAsync(sessionId, branchId, cancellationToken)
             .ConfigureAwait(false);
-        if (document == null && await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken)
+        if (document == null && await _sessionManager.Repository.LoadBranchAsync(sessionId, branchId, cancellationToken)
                 .ConfigureAwait(false) == null)
             return null;
 

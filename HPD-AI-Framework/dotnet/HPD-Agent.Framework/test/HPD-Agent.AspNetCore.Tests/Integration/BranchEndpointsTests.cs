@@ -4,6 +4,9 @@ using System.Text.Json;
 using FluentAssertions;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
+using HPD.Agent.Hosting.Lifecycle;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.AspNetCore.Tests.Integration;
 
@@ -15,9 +18,11 @@ namespace HPD.Agent.AspNetCore.Tests.Integration;
 public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
 {
     private readonly HttpClient _client;
+    private readonly TestWebApplicationFactory _factory;
 
     public BranchEndpointsTests(TestWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -34,21 +39,7 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
         if (!string.IsNullOrWhiteSpace(existing))
             return existing!;
 
-        var inputResponse = await _client.PostAsJsonAsync(
-            $"/agents/test-agent/sessions/{sessionId}/branches/{branchId}/inputs",
-            new StreamTextRequest("Seed fork message"));
-        inputResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
-
-        for (var i = 0; i < 50; i++)
-        {
-            var messageId = await TryGetFirstUserMessageIdAsync(sessionId, branchId);
-            if (!string.IsNullOrWhiteSpace(messageId))
-                return messageId!;
-
-            await Task.Delay(50);
-        }
-
-        throw new TimeoutException("Timed out waiting for a persisted fork message.");
+        return await SeedForkMessageAsync(sessionId, branchId);
     }
 
     private async Task<string?> TryGetFirstUserMessageIdAsync(string sessionId, string branchId)
@@ -71,6 +62,34 @@ public class BranchEndpointsTests : IClassFixture<TestWebApplicationFactory>
         }
 
         return null;
+    }
+
+    private async Task<string> SeedForkMessageAsync(string sessionId, string branchId)
+    {
+        var repository = _factory.Server.Services.GetRequiredService<SessionManager>().Repository;
+        (await repository.LoadBranchAsync(sessionId, branchId)).Should().NotBeNull();
+
+        var messageId = $"seed-{Guid.NewGuid():N}";
+        var message = new ChatMessage(ChatRole.User, [new TextContent("Seed fork message")])
+        {
+            MessageId = messageId,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+
+        await repository.AppendBranchEventAsync(
+            sessionId,
+            branchId,
+            BranchEventFactory.MessageStarted(sessionId, branchId, message));
+        await repository.AppendBranchEventAsync(
+            sessionId,
+            branchId,
+            BranchEventFactory.ContentAdded(sessionId, branchId, messageId, message.Contents[0]));
+        await repository.AppendBranchEventAsync(
+            sessionId,
+            branchId,
+            BranchEventFactory.MessageCompleted(sessionId, branchId, messageId));
+
+        return messageId;
     }
 
     #region GET /sessions/{sid}/branches

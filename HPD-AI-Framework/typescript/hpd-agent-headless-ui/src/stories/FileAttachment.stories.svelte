@@ -20,6 +20,10 @@
 				control: 'text',
 				description: 'Session ID passed to the upload function',
 			},
+			branchId: {
+				control: 'text',
+				description: 'Branch ID passed to the upload function',
+			},
 		},
 		parameters: {
 			docs: {
@@ -32,7 +36,7 @@ lifecycle (\`uploading\` → \`done\` | \`error\`), and exposes a list of \`reso
 include in \`workspace.send()\`.
 
 ## Key design points
-- **Pre-constructed state pattern**: create \`new FileAttachmentState({ uploadFn, sessionId, disabled })\`
+- **Pre-constructed state pattern**: create \`new FileAttachmentState({ uploadFn, sessionId, branchId, disabled })\`
   outside the component so that \`state.resolvedContent\` is readable without entering the snippet.
 - **Immediate upload**: calling \`add(files)\` kicks off uploads in parallel right away.
 - **canSubmit**: \`false\` while any upload is in-progress or any entry has an error status.
@@ -44,8 +48,9 @@ include in \`workspace.send()\`.
   import { FileAttachment, FileAttachmentState } from '@hpd/hpd-agent-headless-ui';
 
   const state = new FileAttachmentState({
-    uploadFn: { get current() { return (sid, file) => client.uploadContent(sid, file); } },
+    uploadFn: { get current() { return (sid, bid, file) => client.uploadContent(sid, bid, file); } },
     sessionId: { get current() { return activeSessionId; } },
+    branchId:  { get current() { return activeBranchId; } },
     disabled:  { get current() { return isStreaming; } },
   });
 <\/script>
@@ -77,6 +82,7 @@ include in \`workspace.send()\`.
 		uploadMode: 'success',
 		disabled: false,
 		sessionId: 'demo-session',
+		branchId: 'main',
 	}}
 />
 
@@ -87,6 +93,7 @@ include in \`workspace.send()\`.
 		uploadMode: 'error',
 		disabled: false,
 		sessionId: 'demo-session',
+		branchId: 'main',
 	}}
 />
 
@@ -97,6 +104,7 @@ include in \`workspace.send()\`.
 		uploadMode: 'slow',
 		disabled: false,
 		sessionId: 'demo-session',
+		branchId: 'main',
 	}}
 />
 
@@ -107,5 +115,6 @@ include in \`workspace.send()\`.
 		uploadMode: 'success',
 		disabled: true,
 		sessionId: 'demo-session',
+		branchId: 'main',
 	}}
 />

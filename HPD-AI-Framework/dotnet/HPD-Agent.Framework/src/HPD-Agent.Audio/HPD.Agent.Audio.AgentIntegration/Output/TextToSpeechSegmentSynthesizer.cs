@@ -107,12 +107,12 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                 trace);
         }
 
-        if (RequiresContentStoreArtifact(context.Options) && context.Options.ContentStore is null)
+        if (RequiresWorkspaceArtifact(context.Options) && context.Options.WorkspaceStore is null)
         {
             var missingStore = new AudioErrorInfo
             {
-                Code = "MissingContentStore",
-                Message = "Assistant TTS output synthesis requires IContentStore; no content store is configured.",
+                Code = "MissingWorkspaceStore",
+                Message = "Assistant TTS output synthesis requires IWorkspaceStore; no workspace store is configured.",
                 Category = "TextToSpeech",
                 IsRetryable = false
             };
@@ -302,11 +302,12 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                 chunk.SizeBytes,
                 chunk.Duration,
                 null);
-            if (RequiresContentStoreArtifact(context.Options))
+            if (RequiresWorkspaceArtifact(context.Options))
             {
                 var artifact = await _artifactWriter.WriteAssistantAudioArtifactAsync(
-                    context.Options.ContentStore!,
+                    context.Options.WorkspaceStore!,
                     context.SessionId,
+                    context.Branch,
                     outputFlow.Id,
                     requestWithProvider.ResponseId,
                     providerKey,
@@ -426,8 +427,8 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
         return FirstNonWhiteSpace(metadata?.ProviderName, "unknown")!;
     }
 
-    private static bool RequiresContentStoreArtifact(AssistantTextToSpeechOutputOptions options) =>
-        options.ArtifactCapturePolicy == AssistantAudioArtifactCapturePolicy.ContentStoreArtifact;
+    private static bool RequiresWorkspaceArtifact(AssistantTextToSpeechOutputOptions options) =>
+        options.ArtifactCapturePolicy == AssistantAudioArtifactCapturePolicy.WorkspaceArtifact;
 
     private static AudioErrorInfo ToErrorInfo(Exception exception)
     {
@@ -626,11 +627,12 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
             null,
             providerFirstAudioAt);
 
-        if (RequiresContentStoreArtifact(context.Options))
+        if (RequiresWorkspaceArtifact(context.Options))
         {
             var artifact = await _artifactWriter.WriteAssistantAudioArtifactAsync(
-                context.Options.ContentStore!,
+                context.Options.WorkspaceStore!,
                 context.SessionId,
+                context.Branch,
                 outputFlow.Id,
                 request.ResponseId,
                 providerKey,

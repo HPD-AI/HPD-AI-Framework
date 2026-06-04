@@ -35,7 +35,7 @@ public sealed record AgentModelTurnRequest
 
     public Session? Session { get; init; }
 
-    public IContentStore? ContentStore { get; init; }
+    public IWorkspaceStore? WorkspaceStore { get; init; }
 
     public AgentClientSet? ClientSet { get; init; }
 

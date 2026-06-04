@@ -7,33 +7,13 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace HPD.Agent.ClientTools;
 
 /// <summary>
-/// Registers Client skill documents into the V3 content store under the /skills folder.
+/// Registers client skill documents through the workspace with role=skill under the agent skill space.
 /// Uses the "client" origin tag to distinguish client-uploaded docs from compile-time skill docs.
 /// </summary>
-/// <remarks>
-/// <para><b>Document ID Namespace:</b></para>
-/// <para>
-/// Client documents are stored with a "client:" prefix in the document ID to prevent
-/// collision with compile-time skill documents. For example:
-/// - ClientSkillDocument with DocumentId="checkout-flow"
-/// - Stored as "client:checkout-flow" in the /skills folder
-/// - Agent retrieves via content_read("/skills/client:checkout-flow")
-/// </para>
-///
-/// <para><b>Usage:</b></para>
-/// <code>
-/// var registrar = new ClientSkillDocumentRegistrar(contentStore, logger);
-///
-/// // Register all documents from a toolharness
-/// await registrar.RegisterToolHarnessDocumentsAsync(ecommerceToolHarness, ct);
-///
-/// // Later, when toolharness is removed
-/// await registrar.UnregisterToolHarnessDocumentsAsync(ecommerceToolHarness, ct);
-/// </code>
-/// </remarks>
 public class ClientSkillDocumentRegistrar
 {
-    private readonly IContentStore _contentStore;
+    private readonly IWorkspaceStore _workspace;
+    private readonly string _agentName;
     private readonly ILogger _logger;
 
     /// <summary>
@@ -42,19 +22,22 @@ public class ClientSkillDocumentRegistrar
     public const string ClientDocumentPrefix = "client:";
 
     /// <summary>
-    /// Creates a new registrar backed by the V3 content store.
+    /// Creates a new registrar backed by the workspace store.
     /// </summary>
     public ClientSkillDocumentRegistrar(
-        IContentStore contentStore,
+        IWorkspaceStore workspace,
+        string agentName,
         ILogger? logger = null)
     {
-        _contentStore = contentStore ?? throw new ArgumentNullException(nameof(contentStore));
+        _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
+        _agentName = agentName;
         _logger = logger ?? NullLogger.Instance;
     }
 
     /// <summary>
     /// Registers all documents from all skills in a toolharness.
-    /// Uses versioned write semantics — idempotent, safe to call on reconnect.
+    /// Uses versioned write semantics; idempotent and safe to call on reconnect.
     /// </summary>
     public async Task<int> RegisterToolHarnessDocumentsAsync(
         clientToolHarnessDefinition toolharness,
@@ -77,7 +60,7 @@ public class ClientSkillDocumentRegistrar
             {
                 try
                 {
-                    await RegisterDocumentAsync(toolharness.Name, skill.Name, document, ct);
+                    await RegisterDocumentAsync(toolharness.Name, skill.Name, document, ct).ConfigureAwait(false);
                     registeredCount++;
                 }
                 catch (Exception ex)
@@ -107,6 +90,10 @@ public class ClientSkillDocumentRegistrar
         if (toolharness.Skills == null || toolharness.Skills.Count == 0)
             return 0;
 
+        var agentSpace = await ResolveAgentSpaceAsync(ct).ConfigureAwait(false);
+        if (agentSpace is null)
+            return 0;
+
         var unregisteredCount = 0;
 
         foreach (var skill in toolharness.Skills)
@@ -119,17 +106,27 @@ public class ClientSkillDocumentRegistrar
                 try
                 {
                     var storeId = GetStoreDocumentId(document.DocumentId);
-                    // Scope=null for global /skills folder (consistent with UploadSkillDocumentAsync)
-                    var existing = await _contentStore.QueryAsync(null, new ContentQuery { Name = storeId }, ct);
-                    if (existing.Count > 0)
-                    {
-                        await _contentStore.DeleteAsync(
-                            null,
-                            existing[0].Id,
-                            new ContentDeleteOptions { IfMatchVersion = existing[0].Version },
-                            ct);
-                        unregisteredCount++;
-                    }
+                    var attachments = await _workspace.ListContentAsync(
+                        WorkspacePrincipalRef.System,
+                        agentSpace.Id,
+                        new WorkspaceContentAttachmentQuery
+                        {
+                            Name = storeId,
+                            Role = WorkspaceContentRoles.Skill
+                        },
+                        ct).ConfigureAwait(false);
+                    var attachment = attachments.FirstOrDefault(candidate =>
+                        string.Equals(candidate.PathHint, WorkspaceContentPaths.AgentSkills(_agentName), StringComparison.Ordinal));
+                    if (attachment is null)
+                        continue;
+
+                    await _workspace.DetachContentAsync(
+                        WorkspacePrincipalRef.System,
+                        agentSpace.Id,
+                        attachment.Id,
+                        attachment.Version,
+                        ct).ConfigureAwait(false);
+                    unregisteredCount++;
                 }
                 catch (Exception ex)
                 {
@@ -147,9 +144,6 @@ public class ClientSkillDocumentRegistrar
         return unregisteredCount;
     }
 
-    /// <summary>
-    /// Registers a single document into the /skills folder of the content store.
-    /// </summary>
     private async Task RegisterDocumentAsync(
         string toolName,
         string skillName,
@@ -157,22 +151,20 @@ public class ClientSkillDocumentRegistrar
         CancellationToken ct)
     {
         var storeId = GetStoreDocumentId(document.DocumentId);
-        var content = await GetDocumentContentAsync(document, ct);
+        var content = await GetDocumentContentAsync(document, ct).ConfigureAwait(false);
 
-        await _contentStore.UploadSkillDocumentAsync(
+        await _workspace.UploadSkillDocumentAsync(
+            agentName: _agentName,
             documentId: storeId,
             content: content,
             description: document.Description,
-            cancellationToken: ct);
+            cancellationToken: ct).ConfigureAwait(false);
 
         _logger.LogDebug(
             "Registered client document '{StoreId}' from skill '{SkillName}' in toolharness '{ToolHarnessName}'",
             storeId, skillName, toolName);
     }
 
-    /// <summary>
-    /// Gets document content from either inline content or URL.
-    /// </summary>
     private async Task<string> GetDocumentContentAsync(
         ClientSkillDocument document,
         CancellationToken ct)
@@ -181,14 +173,11 @@ public class ClientSkillDocumentRegistrar
             return document.Content;
 
         if (!string.IsNullOrEmpty(document.Url))
-            return await FetchDocumentFromUrlAsync(document.Url, document.DocumentId, ct);
+            return await FetchDocumentFromUrlAsync(document.Url, document.DocumentId, ct).ConfigureAwait(false);
 
         throw new ArgumentException($"Document '{document.DocumentId}' has neither content nor URL");
     }
 
-    /// <summary>
-    /// Fetches document content from a URL.
-    /// </summary>
     private async Task<string> FetchDocumentFromUrlAsync(
         string url,
         string documentId,
@@ -198,9 +187,9 @@ public class ClientSkillDocumentRegistrar
         try
         {
             _logger.LogDebug("Fetching document '{DocumentId}' from URL: {Url}", documentId, url);
-            var response = await httpClient.GetAsync(url, ct);
+            var response = await httpClient.GetAsync(url, ct).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadAsStringAsync(ct);
+            return await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -209,21 +198,24 @@ public class ClientSkillDocumentRegistrar
         }
     }
 
-    /// <summary>
-    /// Returns the store document ID for a client document (prefixed).
-    /// </summary>
     public static string GetStoreDocumentId(string documentId)
         => $"{ClientDocumentPrefix}{documentId}";
 
-    /// <summary>
-    /// Strips the client prefix from a store document ID. Returns null if not a client document.
-    /// </summary>
     public static string? GetClientDocumentId(string storeId)
-        => storeId.StartsWith(ClientDocumentPrefix) ? storeId[ClientDocumentPrefix.Length..] : null;
+        => storeId.StartsWith(ClientDocumentPrefix, StringComparison.Ordinal)
+            ? storeId[ClientDocumentPrefix.Length..]
+            : null;
 
-    /// <summary>
-    /// Returns true if the store document ID belongs to a client-uploaded document.
-    /// </summary>
     public static bool IsClientDocument(string storeId)
-        => storeId.StartsWith(ClientDocumentPrefix);
+        => storeId.StartsWith(ClientDocumentPrefix, StringComparison.Ordinal);
+
+    private async Task<WorkspaceSpaceInfo?> ResolveAgentSpaceAsync(CancellationToken cancellationToken) =>
+        await _workspace.FindSpaceAsync(
+            WorkspacePrincipalRef.System,
+            new WorkspaceSpaceQuery
+            {
+                Kind = WorkspaceAgentRepository.AgentKind,
+                ExternalId = _agentName
+            },
+            cancellationToken).ConfigureAwait(false);
 }

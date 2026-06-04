@@ -54,32 +54,57 @@ public sealed class InputContentSourceResolverTests
     }
 
     [Fact]
-    public async Task OpenAsync_ContentStoreAudioRef_ReturnsReadableProviderNeutralSource()
+    public async Task OpenAsync_WorkspaceAudioRef_ReturnsReadableProviderNeutralSource()
     {
-        var store = new InMemoryContentStore();
+        var store = new InMemoryWorkspaceStore();
         var bytes = new byte[] { 4, 5, 6 };
+        var sessionSpace = await store.CreateSpaceAsync(
+            WorkspacePrincipalRef.System,
+            new CreateWorkspaceSpaceRequest
+            {
+                Kind = WorkspaceSessionRepository.SessionKind,
+                ExternalId = "session-audio",
+                Name = "session-audio",
+                Slug = "session-audio"
+            });
+        var branchSpace = await store.CreateChildSpaceAsync(
+            WorkspacePrincipalRef.System,
+            sessionSpace.Id,
+            new CreateWorkspaceSpaceRequest
+            {
+                Kind = WorkspaceSessionRepository.BranchKind,
+                ExternalId = "main",
+                Name = "main",
+                Slug = "main"
+            });
         await using var writeStream = new MemoryStream(bytes);
-        var info = await store.WriteAsync(
-            "session-audio",
+        var attachment = await store.WriteContentAsync(
+            WorkspacePrincipalRef.System,
+            branchSpace.Id,
+            existingAttachmentId: null,
             writeStream,
-            new ContentMetadata
+            new WriteWorkspaceSpaceContentRequest
             {
                 ContentType = "audio/webm",
                 Name = "stored.webm",
-                Origin = ContentSource.User
-            },
-            new ContentWriteOptions());
+                Role = WorkspaceContentRoles.Upload,
+                PathHint = WorkspaceContentPaths.BranchUploads("session-audio", "main"),
+                ContentMetadata = new Dictionary<string, string>
+                {
+                    ["origin"] = ContentSource.User.ToString()
+                }
+            });
 
         var inputContent = new InputContentRef
         {
             Id = new InputContentId("inputContent-audio-store"),
             Kind = InputContentKind.Audio,
-            SourceKind = InputContentSourceKind.ContentStore,
-            ContentStore = new InputContentStoreRef(
+            SourceKind = InputContentSourceKind.WorkspaceContent,
+            WorkspaceContent = new InputWorkspaceContentRef(
                 StoreKind: "hpd-content",
                 Scope: "session-audio",
-                ContentId: info.Id,
-                Version: info.Version,
+                ContentId: attachment.ContentId,
+                Version: attachment.ContentVersion,
                 ReadUri: null)
         };
         var resolver = new AgentInputContentSourceResolver([], store);

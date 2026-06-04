@@ -10,7 +10,6 @@ namespace HPD.Agent.AspNetCore.DependencyInjection;
 
 /// <summary>
 /// Registry for managing multiple named agent pairs (AgentManager + SessionManager).
-/// Replaces the old <c>AgentSessionManagerRegistry</c>.
 /// </summary>
 internal sealed class HPDAgentRegistry
 {
@@ -34,15 +33,20 @@ internal sealed class HPDAgentRegistry
         var optionsMonitor = _serviceProvider.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>();
         var options = optionsMonitor.Get(name);
 
-        ISessionStore sessionStore = options.SessionStore
-            ?? (options.SessionStorePath != null ? new JsonSessionStore(options.SessionStorePath) : new InMemorySessionStore());
-        IAgentStore agentStore = options.AgentStore ?? new InMemoryAgentStore();
+        var workspaceStorePath = options.WorkspaceStorePath;
+        var workspaceStore = options.WorkspaceStore
+            ?? (workspaceStorePath is not null ? new JsonWorkspaceStore(workspaceStorePath) : null);
+        if (workspaceStore is null)
+            workspaceStore = new InMemoryWorkspaceStore();
+
+        var sessionRepository = CreateWorkspaceSessionRepository(workspaceStore);
+        var agentRepository = CreateWorkspaceAgentRepository(workspaceStore);
 
         var agentFactory = _serviceProvider.GetService<IAgentFactory>();
 
-        var sessionManager = new AspNetCoreSessionManager(sessionStore, optionsMonitor, name);
+        var sessionManager = new AspNetCoreSessionManager(sessionRepository, optionsMonitor, name);
         var agentManager = new AspNetCoreAgentManager(
-            agentStore,
+            agentRepository,
             sessionManager,
             optionsMonitor,
             _serviceProvider,
@@ -53,7 +57,7 @@ internal sealed class HPDAgentRegistry
             new AgentSessionService(sessionManager),
             new AgentBranchService(sessionManager, agentManager),
             new AgentBranchRunService(sessionManager),
-            new AgentContentService(sessionManager),
+            new AgentContentService(sessionManager, workspaceStore),
             new AgentDefinitionService(agentManager),
             new AgentMiddlewareResponseService(sessionManager, agentManager),
             new AgentStreamingService(sessionManager, agentManager));
@@ -62,6 +66,22 @@ internal sealed class HPDAgentRegistry
             agentManager,
             sessionManager,
             hostingServices);
+    }
+
+    private static ISessionRepository? CreateWorkspaceSessionRepository(IWorkspaceStore? workspaceStore)
+    {
+        if (workspaceStore is null)
+            return null;
+
+        return new WorkspaceSessionRepository(workspaceStore);
+    }
+
+    private static IAgentRepository? CreateWorkspaceAgentRepository(IWorkspaceStore? workspaceStore)
+    {
+        if (workspaceStore is null)
+            return null;
+
+        return new WorkspaceAgentRepository(workspaceStore);
     }
 }
 

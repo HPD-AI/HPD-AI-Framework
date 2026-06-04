@@ -102,14 +102,14 @@ public class ServiceRegistrationTests
         // Act
         services.AddHPDAgent(opts =>
         {
-            opts.SessionStorePath = "./test";
+            opts.WorkspaceStorePath = "./test";
         });
         var provider = services.BuildServiceProvider();
 
         // Assert
         var optionsMonitor = provider.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>();
         var defaultOptions = optionsMonitor.Get(Options.DefaultName);
-        defaultOptions.SessionStorePath.Should().Be("./test");
+        defaultOptions.WorkspaceStorePath.Should().Be("./test");
     }
 
     [Fact]
@@ -154,7 +154,7 @@ public class ServiceRegistrationTests
     {
         public Task<HPD.Agent.Agent> CreateAgentAsync(
             string sessionId,
-            ISessionStore store,
+            ISessionRepository sessionRepository,
             CancellationToken ct = default)
         {
             var config = new AgentConfig
@@ -170,7 +170,7 @@ public class ServiceRegistrationTests
             var providerRegistry = new HPD.Agent.AspNetCore.Tests.TestInfrastructure.TestProviderRegistry(chatClient);
 
             return new AgentBuilder(config, providerRegistry)
-                .WithSessionStore(store)
+                .WithSessionRepository(sessionRepository)
                 .BuildAsync(ct);
         }
     }

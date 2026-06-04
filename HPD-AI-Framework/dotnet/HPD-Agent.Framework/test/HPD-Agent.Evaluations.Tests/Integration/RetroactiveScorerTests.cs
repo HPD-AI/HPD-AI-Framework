@@ -33,7 +33,7 @@ public sealed class RetroactiveScorerTests
     [Fact]
     public async Task ScoreBranch_MissingBranch_Throws()
     {
-        var store = new FakeSessionStore();
+        var store = new FakeSessionRepository();
 
         var act = async () => await RetroactiveScorer.ScoreBranchAsync(
             store, "sess-1", "nonexistent",
@@ -46,7 +46,7 @@ public sealed class RetroactiveScorerTests
     [Fact]
     public async Task ScoreBranch_OneTurn_OneReportCase()
     {
-        var store = new FakeSessionStore();
+        var store = new FakeSessionRepository();
         var branch = new BranchBuilder("sess-1", "branch-1")
             .AddUserMessage("What is 2+2?")
             .AddAssistantMessage("4")
@@ -63,7 +63,7 @@ public sealed class RetroactiveScorerTests
     [Fact]
     public async Task ScoreBranch_TwoTurns_TwoReportCases()
     {
-        var store = new FakeSessionStore();
+        var store = new FakeSessionRepository();
         var branch = new BranchBuilder("sess-1", "branch-1")
             .AddUserMessage("Turn 1")
             .AddAssistantMessage("Response 1")
@@ -82,7 +82,7 @@ public sealed class RetroactiveScorerTests
     [Fact]
     public async Task ScoreBranch_EvaluatorResult_InReportCase()
     {
-        var store = new FakeSessionStore();
+        var store = new FakeSessionRepository();
         var branch = new BranchBuilder("sess-1", "branch-1")
             .AddUserMessage("Q")
             .AddAssistantMessage("A")
@@ -102,7 +102,7 @@ public sealed class RetroactiveScorerTests
     [Fact]
     public async Task ScoreBranch_EmptyBranch_ReturnsEmptyReport()
     {
-        var store = new FakeSessionStore();
+        var store = new FakeSessionRepository();
         var branch = new Branch("sess-1", "b1"); // empty messages by default
         store.AddBranch("sess-1", branch);
 
@@ -118,16 +118,16 @@ public sealed class RetroactiveScorerTests
     [Fact]
     public async Task ScoreBranch_WithScoreStore_WritesRecord()
     {
-        var sessionStore = new FakeSessionStore();
+        var sessionRepository = new FakeSessionRepository();
         var scoreStore = new InMemoryScoreStore();
         var branch = new BranchBuilder("sess-1", "branch-1")
             .AddUserMessage("Q")
             .AddAssistantMessage("A")
             .Build();
-        sessionStore.AddBranch("sess-1", branch);
+        sessionRepository.AddBranch("sess-1", branch);
 
         await RetroactiveScorer.ScoreBranchAsync(
-            sessionStore, "sess-1", "branch-1",
+            sessionRepository, "sess-1", "branch-1",
             [new StubDeterministicEvaluator("Score")],
             scoreStore: scoreStore);
 
@@ -139,7 +139,7 @@ public sealed class RetroactiveScorerTests
     [Fact]
     public async Task ScoreBranch_WithJudgeEvaluator_WritesJudgeCallsToScoreRecord()
     {
-        var sessionStore = new FakeSessionStore();
+        var sessionRepository = new FakeSessionRepository();
         var scoreStore = new InMemoryScoreStore();
         var judge = new FakeJudgeChatClient();
         judge.EnqueueResponse("<S0>ok</S0><S1>retro captured</S1><S2>true</S2>");
@@ -147,10 +147,10 @@ public sealed class RetroactiveScorerTests
             .AddUserMessage("Q")
             .AddAssistantMessage("A")
             .Build();
-        sessionStore.AddBranch("sess-1", branch);
+        sessionRepository.AddBranch("sess-1", branch);
 
         await RetroactiveScorer.ScoreBranchAsync(
-            sessionStore,
+            sessionRepository,
             "sess-1",
             "branch-1",
             [new AspectCriticEvaluator("passes")],
@@ -168,24 +168,24 @@ public sealed class RetroactiveScorerTests
     [Fact]
     public async Task ScoreBranch_ForceRescore_False_SkipsAlreadyScoredTurns()
     {
-        var sessionStore = new FakeSessionStore();
+        var sessionRepository = new FakeSessionRepository();
         var scoreStore = new InMemoryScoreStore();
         var branch = new BranchBuilder("sess-1", "branch-1")
             .AddUserMessage("Q")
             .AddAssistantMessage("A")
             .Build();
-        sessionStore.AddBranch("sess-1", branch);
+        sessionRepository.AddBranch("sess-1", branch);
 
         // Score once
         await RetroactiveScorer.ScoreBranchAsync(
-            sessionStore, "sess-1", "branch-1",
+            sessionRepository, "sess-1", "branch-1",
             [new StubDeterministicEvaluator("Score")],
             scoreStore: scoreStore,
             options: new RetroactiveScorerOptions { ForceRescore = false });
 
         // Score again with ForceRescore=false → should skip the already-scored turn
         await RetroactiveScorer.ScoreBranchAsync(
-            sessionStore, "sess-1", "branch-1",
+            sessionRepository, "sess-1", "branch-1",
             [new StubDeterministicEvaluator("Score")],
             scoreStore: scoreStore,
             options: new RetroactiveScorerOptions { ForceRescore = false });
@@ -197,22 +197,22 @@ public sealed class RetroactiveScorerTests
     [Fact]
     public async Task ScoreBranch_ForceRescore_True_RescoresTurns()
     {
-        var sessionStore = new FakeSessionStore();
+        var sessionRepository = new FakeSessionRepository();
         var scoreStore = new InMemoryScoreStore();
         var branch = new BranchBuilder("sess-1", "branch-1")
             .AddUserMessage("Q")
             .AddAssistantMessage("A")
             .Build();
-        sessionStore.AddBranch("sess-1", branch);
+        sessionRepository.AddBranch("sess-1", branch);
 
         await RetroactiveScorer.ScoreBranchAsync(
-            sessionStore, "sess-1", "branch-1",
+            sessionRepository, "sess-1", "branch-1",
             [new StubDeterministicEvaluator("Score")],
             scoreStore: scoreStore);
 
         // ForceRescore=true → should score again regardless
         await RetroactiveScorer.ScoreBranchAsync(
-            sessionStore, "sess-1", "branch-1",
+            sessionRepository, "sess-1", "branch-1",
             [new StubDeterministicEvaluator("Score")],
             scoreStore: scoreStore,
             options: new RetroactiveScorerOptions { ForceRescore = true });
@@ -226,14 +226,14 @@ public sealed class RetroactiveScorerTests
     [Fact]
     public async Task CompareBranches_ReturnsTwoSubReports()
     {
-        var sessionStore = new FakeSessionStore();
+        var sessionRepository = new FakeSessionRepository();
         var b1 = new BranchBuilder("sess-1", "b1").AddUserMessage("Q").AddAssistantMessage("A1").Build();
         var b2 = new BranchBuilder("sess-1", "b2").AddUserMessage("Q").AddAssistantMessage("A2").Build();
-        sessionStore.AddBranch("sess-1", b1);
-        sessionStore.AddBranch("sess-1", b2);
+        sessionRepository.AddBranch("sess-1", b1);
+        sessionRepository.AddBranch("sess-1", b2);
 
         var comparison = await RetroactiveScorer.CompareBranchesAsync(
-            sessionStore, "sess-1", "b1", "b2",
+            sessionRepository, "sess-1", "b1", "b2",
             [new StubDeterministicEvaluator("Score")]);
 
         comparison.Branch1Report.Cases.Should().ContainSingle();
@@ -243,12 +243,12 @@ public sealed class RetroactiveScorerTests
     [Fact]
     public async Task CompareBranches_MissingBranch_Throws()
     {
-        var sessionStore = new FakeSessionStore();
+        var sessionRepository = new FakeSessionRepository();
         var b1 = new BranchBuilder("sess-1", "b1").AddUserMessage("Q").AddAssistantMessage("A").Build();
-        sessionStore.AddBranch("sess-1", b1);
+        sessionRepository.AddBranch("sess-1", b1);
 
         var act = async () => await RetroactiveScorer.CompareBranchesAsync(
-            sessionStore, "sess-1", "b1", "missing",
+            sessionRepository, "sess-1", "b1", "missing",
             [new StubDeterministicEvaluator("Score")]);
 
         await act.Should().ThrowAsync<ArgumentException>();
@@ -259,17 +259,17 @@ public sealed class RetroactiveScorerTests
     [Fact]
     public async Task Tournament_RanksDescendingByScore()
     {
-        var sessionStore = new FakeSessionStore();
+        var sessionRepository = new FakeSessionRepository();
 
         // b-pass: evaluator returns pass (score=1), b-fail: evaluator returns fail (score=0)
         var bPass = new BranchBuilder("sess-1", "b-pass").AddUserMessage("Q").AddAssistantMessage("A").Build();
         var bFail = new BranchBuilder("sess-1", "b-fail").AddUserMessage("Q").AddAssistantMessage("A").Build();
-        sessionStore.AddBranch("sess-1", bPass);
-        sessionStore.AddBranch("sess-1", bFail);
+        sessionRepository.AddBranch("sess-1", bPass);
+        sessionRepository.AddBranch("sess-1", bFail);
 
         // Use NumericMetric evaluator: pass branch gets 0.8, fail branch gets 0.0
         var tournament = await RetroactiveScorer.TournamentAsync(
-            sessionStore, "sess-1", ["b-pass", "b-fail"],
+            sessionRepository, "sess-1", ["b-pass", "b-fail"],
             new NumericStubEvaluator("Score", scoreForPass: 0.8));
 
         tournament.Rankings.Should().HaveCount(2);
@@ -283,12 +283,12 @@ public sealed class RetroactiveScorerTests
     [Fact]
     public async Task Tournament_SingleBranch_SingleEntry()
     {
-        var sessionStore = new FakeSessionStore();
+        var sessionRepository = new FakeSessionRepository();
         var branch = new BranchBuilder("sess-1", "only").AddUserMessage("Q").AddAssistantMessage("A").Build();
-        sessionStore.AddBranch("sess-1", branch);
+        sessionRepository.AddBranch("sess-1", branch);
 
         var result = await RetroactiveScorer.TournamentAsync(
-            sessionStore, "sess-1", ["only"],
+            sessionRepository, "sess-1", ["only"],
             new StubDeterministicEvaluator("Score"));
 
         result.Rankings.Should().ContainSingle();

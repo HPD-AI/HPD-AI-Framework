@@ -10,21 +10,18 @@ public sealed class AgentInputContentSourceResolver : IInputContentSourceResolve
     private const string DefaultMediaType = "application/octet-stream";
 
     private readonly Dictionary<InputContentId, InputContentDetection> _detections;
-    private readonly IContentStore? _contentStore;
-    private readonly string? _contentStoreScope;
+    private readonly IWorkspaceStore? _workspaceStore;
 
     public AgentInputContentSourceResolver(
         IEnumerable<InputContentDetection> detections,
-        IContentStore? contentStore = null,
-        string? contentStoreScope = null)
+        IWorkspaceStore? workspaceStore = null)
     {
         ArgumentNullException.ThrowIfNull(detections);
 
         _detections = detections.ToDictionary(
             d => d.InputContent.Id,
             d => d);
-        _contentStore = contentStore;
-        _contentStoreScope = contentStoreScope;
+        _workspaceStore = workspaceStore;
     }
 
     public async ValueTask<InputContentSourceOpenResult> OpenAsync(
@@ -47,11 +44,11 @@ public sealed class AgentInputContentSourceResolver : IInputContentSourceResolve
             return OpenDataContent(inputContent, dataContent);
         }
 
-        if (inputContent.ContentStore is not null)
+        if (inputContent.WorkspaceContent is not null)
         {
-            return await OpenContentStoreRefAsync(
+            return await OpenWorkspaceContentRefAsync(
                 inputContent,
-                inputContent.ContentStore,
+                inputContent.WorkspaceContent,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -92,23 +89,23 @@ public sealed class AgentInputContentSourceResolver : IInputContentSourceResolve
         });
     }
 
-    private async ValueTask<InputContentSourceOpenResult> OpenContentStoreRefAsync(
+    private async ValueTask<InputContentSourceOpenResult> OpenWorkspaceContentRefAsync(
         InputContentRef inputContent,
-        InputContentStoreRef storeRef,
+        InputWorkspaceContentRef storeRef,
         CancellationToken cancellationToken)
     {
-        if (_contentStore is null)
+        if (_workspaceStore is null)
         {
             return InputContentSourceOpenResult.NotResolved(
                 inputContent.Id,
                 InputContentSourceOpenStatus.UnsupportedSource,
-                "No content store was provided for this input content resolver.");
+                "No workspace store was provided for this input content resolver.");
         }
 
-        var scope = storeRef.Scope ?? _contentStoreScope;
-        var stat = await _contentStore.StatAsync(
-            scope,
+        var stat = await _workspaceStore.StatContentAsync(
+            WorkspacePrincipalRef.System,
             storeRef.ContentId,
+            storeRef.Version,
             cancellationToken).ConfigureAwait(false);
 
         if (stat is null)
@@ -116,7 +113,7 @@ public sealed class AgentInputContentSourceResolver : IInputContentSourceResolve
             return InputContentSourceOpenResult.NotResolved(
                 inputContent.Id,
                 InputContentSourceOpenStatus.NotFound,
-                $"Content store item '{storeRef.ContentId}' was not found.");
+                $"Workspace content item '{storeRef.ContentId}' was not found.");
         }
 
         var mediaType = inputContent.MediaType ?? stat.ContentType;
@@ -125,7 +122,7 @@ public sealed class AgentInputContentSourceResolver : IInputContentSourceResolve
             return InputContentSourceOpenResult.NotResolved(
                 inputContent.Id,
                 InputContentSourceOpenStatus.UnsupportedMedia,
-                $"Content store item '{storeRef.ContentId}' is not audio.");
+                $"Workspace content item '{storeRef.ContentId}' is not audio.");
         }
 
         return InputContentSourceOpenResult.Opened(new InputContentSource
@@ -137,14 +134,15 @@ public sealed class AgentInputContentSourceResolver : IInputContentSourceResolve
             Sha256 = inputContent.Sha256,
             OpenStreamAsync = async openCancellationToken =>
             {
-                var stream = await _contentStore.OpenReadAsync(
-                    scope,
+                var stream = await _workspaceStore.OpenContentAsync(
+                    WorkspacePrincipalRef.System,
                     storeRef.ContentId,
+                    storeRef.Version,
                     openCancellationToken).ConfigureAwait(false);
 
                 return stream
                     ?? throw new FileNotFoundException(
-                        $"Content store item '{storeRef.ContentId}' was not found.",
+                        $"Workspace content item '{storeRef.ContentId}' was not found.",
                         storeRef.ContentId);
             }
         });

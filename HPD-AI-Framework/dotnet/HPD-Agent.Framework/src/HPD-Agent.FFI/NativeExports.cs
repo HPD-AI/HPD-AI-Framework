@@ -11,8 +11,8 @@ using HPD.Agent.Serialization;
 namespace HPD.Agent.FFI;
 
 /// <summary>
-/// Wrapper holding V3 Session + Branch pair for FFI thread handles.
-/// FFI consumers see a single "thread" handle; internally we maintain the V3 split.
+/// Wrapper holding a session and branch pair for FFI thread handles.
+/// FFI consumers see a single "thread" handle; internally we maintain the session/branch split.
 /// Note: FFI has InternalsVisibleTo access and can use internal Session/Branch constructors.
 /// This is framework code, not user-facing, so internal API usage is appropriate.
 /// </summary>
@@ -609,7 +609,7 @@ public static partial class NativeExports
         }
     }
 
-    // V2 serialize_thread / deserialize_thread APIs removed — crash recovery is now automatic via UncommittedTurn.
+    // V2 serialize_thread / deserialize_thread APIs removed.
 
     //    
     // PERMISSION SYSTEM APIs (Human-in-the-Loop)

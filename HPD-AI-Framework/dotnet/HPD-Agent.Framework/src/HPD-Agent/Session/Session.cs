@@ -5,7 +5,7 @@ namespace HPD.Agent;
 
 /// <summary>
 /// Session represents a chat conversation container.
-/// Contains metadata, session-scoped middleware state, and provides access to the session store.
+/// Contains metadata and session-scoped middleware state.
 /// Does NOT contain messages - messages are in Branch objects.
 /// </summary>
 /// <remarks>
@@ -14,7 +14,6 @@ namespace HPD.Agent;
 /// Session is the top-level container that holds:
 /// - Metadata (user info, project context, etc.)
 /// - Session-scoped middleware state (permissions, user preferences - shared across all branches)
-/// - Reference to session store (for session and branch persistence)
 /// </para>
 ///
 /// <para><b>Relationship to Branch:</b></para>
@@ -23,7 +22,7 @@ namespace HPD.Agent;
 /// Each Branch references the same Session via SessionId.
 /// </para>
 ///
-/// <para><b>V3 Architecture:</b></para>
+/// <para><b>Session/branch architecture:</b></para>
 /// <para>
 /// Session holds metadata; Branch holds messages.
 /// This split enables multiple conversation paths (branches) within one session.
@@ -57,10 +56,6 @@ public class Session
     /// </list>
     /// </remarks>
     public Dictionary<string, string> MiddlewareState { get; init; }
-
-    /// <summary>Reference to session store (for session and branch persistence)</summary>
-    [JsonIgnore]
-    public ISessionStore? Store { get; set; }
 
     /// <summary>
     /// Creates a new session with a generated ID.
@@ -138,22 +133,6 @@ public class Session
     }
 
     /// <summary>
-    /// Convenience method to save this session to its associated store.
-    /// </summary>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown when Store is null.
-    /// </exception>
-    public async Task SaveAsync(CancellationToken cancellationToken = default)
-    {
-        if (Store == null)
-            throw new InvalidOperationException(
-                "Session has no associated store. " +
-                "Load the session using store.LoadSessionAsync() to set the store reference.");
-
-        await Store.SaveSessionAsync(this, cancellationToken);
-    }
-
-    /// <summary>
     /// Creates a new branch owned by this session.
     /// Internal - only the framework creates branches via Agent.LoadSessionAndBranchAsync() or Agent.ForkBranchAsync().
     /// </summary>
@@ -164,62 +143,4 @@ public class Session
         var id = branchId ?? Guid.NewGuid().ToString();
         return new Branch(Id, id) { Session = this };
     }
-}
-
-
-//──────────────────────────────────────────────────────────────────
-// SESSION SNAPSHOT: Lightweight session state (messages + metadata)
-// Legacy V2 type — kept for backward compatibility with existing stored data.
-//──────────────────────────────────────────────────────────────────
-
-/// <summary>
-/// Lightweight snapshot of session state (messages, metadata, middleware persistent state).
-/// Used for loading V2 session data and migration to V3 Session + Branch format.
-/// </summary>
-public record SessionSnapshot
-{
-    /// <summary>
-    /// Gets the identifier of the session this snapshot represents.
-    /// </summary>
-    public required string SessionId { get; init; }
-
-    /// <summary>
-    /// Unique identifier for this snapshot (for history tracking).
-    /// </summary>
-    public string? SessionSnapshotId { get; init; }
-
-    /// <summary>
-    /// Gets the ordered list of chat messages captured in the snapshot.
-    /// </summary>
-    public required IReadOnlyList<ChatMessage> Messages { get; init; }
-
-    /// <summary>
-    /// Gets the session metadata persisted with this snapshot.
-    /// </summary>
-    public required Dictionary<string, object> Metadata { get; init; }
-
-    /// <summary>
-    /// Gets optional persistent state maintained by middleware components.
-    /// </summary>
-    public Dictionary<string, string>? MiddlewarePersistentState { get; init; }
-
-    /// <summary>
-    /// Gets the UTC date/time when this session was created.
-    /// </summary>
-    public required DateTime CreatedAt { get; init; }
-
-    /// <summary>
-    /// Gets the UTC date/time of the last activity recorded in this snapshot.
-    /// </summary>
-    public required DateTime LastActivity { get; init; }
-
-    /// <summary>
-    /// Gets an optional conversation identifier associated with this snapshot.
-    /// </summary>
-    public string? ConversationId { get; init; }
-
-    /// <summary>
-    /// Version for schema evolution.
-    /// </summary>
-    public int Version { get; init; } = 1;
 }

@@ -6,8 +6,8 @@ using HPD.Agent.Tests.Infrastructure;
 namespace HPD.Agent.Tests.Session;
 
 /// <summary>
-/// Tests for V3 Session and Branch types.
-/// Covers construction, message operations, metadata, display name, execution state, and store property.
+/// Tests for session and branch types.
+/// Covers construction, message operations, metadata, display name, and execution state.
 /// </summary>
 public class AgentSessionTests : AgentTestBase
 {
@@ -241,50 +241,4 @@ public class AgentSessionTests : AgentTestBase
         Assert.Equal("run-123", branch.ExecutionState.RunId);
     }
 
-    //──────────────────────────────────────────────────────────────────
-    // SESSION - STORE PROPERTY
-    //──────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void Session_Store_DefaultsToNull()
-    {
-        // Arrange & Act
-        var session = new HPD.Agent.Session();
-
-        // Assert
-        Assert.Null(session.Store);
-    }
-
-    [Fact]
-    public void Session_Store_CanBeSet()
-    {
-        // Arrange
-        var session = new HPD.Agent.Session();
-        var store = new InMemorySessionStore();
-
-        // Act
-        session.Store = store;
-
-        // Assert
-        Assert.Same(store, session.Store);
-    }
-
-    [Fact]
-    public void Session_Store_NotSerializedToJson()
-    {
-        // Arrange
-        var session = new HPD.Agent.Session("test-session");
-        session.AddMetadata("key", "value");
-
-        // Set a store reference
-        var store = new InMemorySessionStore();
-        session.Store = store;
-
-        // Act — Serialize the session
-        var json = System.Text.Json.JsonSerializer.Serialize(session);
-
-        // Assert — JSON should NOT contain "Store" property
-        Assert.DoesNotContain("\"Store\"", json);
-        Assert.DoesNotContain("\"store\"", json, StringComparison.OrdinalIgnoreCase);
-    }
 }

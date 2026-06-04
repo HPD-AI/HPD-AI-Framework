@@ -181,8 +181,7 @@ internal static class ReflectionToolFactory
                         .Distinct(StringComparer.Ordinal)
                         .ToArray(),
                     ["SystemPrompt"] = skill.SystemPrompt,
-                    ["FunctionResult"] = skill.FunctionResult,
-                    ["Instructions"] = skill.FunctionResult
+                    ["FunctionResult"] = skill.FunctionResult
                 }
             });
     }
@@ -211,10 +210,10 @@ internal static class ReflectionToolFactory
                     agentBuilder.WithToolHarness(toolType);
                 }
 
-                var parentStore = functionContext?.GetParentSessionStore();
-                if (parentStore != null)
+                var parentRepository = functionContext?.GetParentSessionRepository();
+                if (parentRepository != null)
                 {
-                    agentBuilder.WithSessionStore(parentStore);
+                    agentBuilder.WithSessionRepository(parentRepository);
                 }
 
                 var agent = await agentBuilder.BuildAsync(cancellationToken).ConfigureAwait(false);
@@ -865,10 +864,10 @@ internal static class ReflectionToolFactory
         }
 
         var builder = new AgentBuilder().WithAgentId(subAgent.AgentId);
-        var parentAgentStore = functionContext?.GetParentAgentStore();
-        if (parentAgentStore != null)
+        var parentAgentRepository = functionContext?.GetParentAgentRepository();
+        if (parentAgentRepository != null)
         {
-            builder.WithAgentStore(parentAgentStore);
+            builder.WithAgentRepository(parentAgentRepository);
         }
 
         return builder;

@@ -141,12 +141,12 @@ internal sealed class StubDeterministicEvaluator : HpdDeterministicEvaluatorBase
     }
 }
 
-// ── FakeSessionStore ──────────────────────────────────────────────────────
+// ── FakeSessionRepository ─────────────────────────────────────────────────
 
 /// <summary>
-/// In-memory ISessionStore for RetroactiveScorer tests.
+/// In-memory ISessionRepository for RetroactiveScorer tests.
 /// </summary>
-internal sealed class FakeSessionStore : ISessionStore
+internal sealed class FakeSessionRepository : ISessionRepository
 {
     private readonly Dictionary<(string sessionId, string branchId), Branch> _branches = new();
 
@@ -157,13 +157,18 @@ internal sealed class FakeSessionStore : ISessionStore
         Task.FromResult(_branches.GetValueOrDefault((sessionId, branchId)));
     public Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default) => Task.FromResult<Session?>(null);
     public Task SaveSessionAsync(Session session, CancellationToken ct = default) => Task.CompletedTask;
-    public Task<List<string>> ListSessionIdsAsync(CancellationToken ct = default) => Task.FromResult(new List<string>());
+    public Task<IReadOnlyList<string>> ListSessionIdsAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<string>>([]);
     public Task DeleteSessionAsync(string sessionId, CancellationToken ct = default) => Task.CompletedTask;
-    public Task<List<string>> ListBranchIdsAsync(string sessionId, CancellationToken ct = default) => Task.FromResult(new List<string>());
+    public Task<BranchEventDocument?> LoadBranchDocumentAsync(string sessionId, string branchId, CancellationToken ct = default) => Task.FromResult<BranchEventDocument?>(null);
+    public Task SaveBranchDocumentAsync(BranchEventDocument document, long? expectedSequenceNumber = null, CancellationToken ct = default) => Task.CompletedTask;
+    public Task AppendBranchEventAsync(string sessionId, string branchId, AgentEvent evt, long? expectedSequenceNumber = null, CancellationToken ct = default) => Task.CompletedTask;
+    public async IAsyncEnumerable<AgentEvent> ReadBranchEventsAsync(string sessionId, string branchId, HPD.Events.ReplayReadOptions options, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await Task.CompletedTask;
+        yield break;
+    }
+    public Task<IReadOnlyList<string>> ListBranchIdsAsync(string sessionId, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<string>>([]);
     public Task DeleteBranchAsync(string sessionId, string branchId, CancellationToken ct = default) => Task.CompletedTask;
-    public Task<UncommittedTurn?> LoadUncommittedTurnAsync(string sessionId, CancellationToken ct = default) => Task.FromResult<UncommittedTurn?>(null);
-    public Task SaveUncommittedTurnAsync(UncommittedTurn turn, CancellationToken ct = default) => Task.CompletedTask;
-    public Task DeleteUncommittedTurnAsync(string sessionId, CancellationToken ct = default) => Task.CompletedTask;
     public Task<int> DeleteInactiveSessionsAsync(TimeSpan threshold, bool dryRun = false, CancellationToken ct = default) => Task.FromResult(0);
 }
 

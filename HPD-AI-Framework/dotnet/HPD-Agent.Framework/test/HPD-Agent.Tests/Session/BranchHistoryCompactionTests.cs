@@ -128,7 +128,7 @@ public class BranchHistoryCompactionTests
             compaction,
             new DeleteCompactedMessagesOptions())!;
 
-        var result = await new BranchHistoryCompactor().CompactAsync(branch, plan, CancellationToken.None);
+        var result = await new BranchHistoryCompactor().CompactAsync(branch, plan, null, CancellationToken.None);
 
         result.DurableCompactedMessageIds.Should().Equal("message-0", "message-1", "message-2");
         result.ReplacementMessageIds.Should().BeEmpty();
@@ -145,7 +145,7 @@ public class BranchHistoryCompactionTests
             compaction,
             new CompactBranchHistoryOptions())!;
 
-        var result = await new BranchHistoryCompactor().CompactAsync(branch, plan, CancellationToken.None);
+        var result = await new BranchHistoryCompactor().CompactAsync(branch, plan, null, CancellationToken.None);
 
         result.DurableCompactedMessageIds.Should().Equal("message-0", "message-1", "message-2");
         result.ReplacementMessageIds.Should().ContainSingle("summary");

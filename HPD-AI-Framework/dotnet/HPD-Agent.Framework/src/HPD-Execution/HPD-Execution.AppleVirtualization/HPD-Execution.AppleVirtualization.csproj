@@ -14,7 +14,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../HPD-Execution.Contracts/HPD-Execution.Contracts.csproj" />
+    <ProjectReference Include="../HPD-Execution.Runtime/HPD-Execution.Runtime.csproj" />
   </ItemGroup>
 
   <ItemGroup>

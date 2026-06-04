@@ -38,7 +38,7 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
     public IEventCoordinator EventCoordinator { get; }
     public IEventFlowRegistry EventFlows => EventCoordinator.EventFlows;
     public IStructEventHub StructEvents { get; }
-    public IContentStore? ContentStore { get; }
+    public IWorkspaceStore? WorkspaceStore { get; }
     public IRuntimeCapabilityRegistry RuntimeCapabilities { get; } = new RuntimeCapabilityRegistry();
     public string RuntimeId { get; }
     public DateTimeOffset CreatedAt { get; }
@@ -59,7 +59,7 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
         CancellationToken runtimeCancellationToken,
         AgentClientSet? clientSet = null,
         AgentRunConfig? runConfig = null,
-        IContentStore? contentStore = null)
+        IWorkspaceStore? workspaceStore = null)
     {
         AgentName = agentName ?? throw new ArgumentNullException(nameof(agentName));
         Config = config ?? throw new ArgumentNullException(nameof(config));
@@ -71,7 +71,7 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
         _hasActiveRuntimeTurns = hasActiveRuntimeTurns ?? throw new ArgumentNullException(nameof(hasActiveRuntimeTurns));
         ClientSet = clientSet;
         RunConfig = runConfig;
-        ContentStore = contentStore;
+        WorkspaceStore = workspaceStore;
         RuntimeCancellationToken = runtimeCancellationToken;
         RuntimeId = Guid.NewGuid().ToString("N");
         CreatedAt = DateTimeOffset.UtcNow;
@@ -366,7 +366,7 @@ public abstract class RuntimeHookContext
     public IEventCoordinator EventCoordinator => Base.EventCoordinator;
     public IEventFlowRegistry EventFlows => Base.EventFlows;
     public IStructEventHub StructEvents => Base.StructEvents;
-    public IContentStore? ContentStore => Base.ContentStore;
+    public IWorkspaceStore? WorkspaceStore => Base.WorkspaceStore;
     public IRuntimeCapabilityRegistry RuntimeCapabilities => Base.RuntimeCapabilities;
     public string RuntimeId => Base.RuntimeId;
     public DateTimeOffset CreatedAt => Base.CreatedAt;

@@ -35,10 +35,10 @@ public sealed class AgentContext
     private readonly IEventCoordinator _events;
     private readonly CancellationToken _cancellationToken;
     private readonly IChatClient? _parentChatClient;
-    private readonly IAgentStore? _parentAgentStore;
+    private readonly IAgentRepository? _parentAgentRepository;
     private readonly AgentConfig? _config;
     private readonly AgentClientSet? _clientSet;
-    private readonly IContentStore? _contentStore;
+    private readonly IWorkspaceStore? _workspaceStore;
     private readonly Session? _session;
     private readonly Branch? _branch;
     private readonly IServiceProvider? _services;
@@ -59,9 +59,9 @@ public sealed class AgentContext
     internal IChatClient? ParentChatClient => _parentChatClient;
 
     /// <summary>
-    /// Parent agent's definition store (for stored-agent subagent resolution).
+    /// Parent agent's definition repository (for stored-agent subagent resolution).
     /// </summary>
-    internal IAgentStore? ParentAgentStore => _parentAgentStore;
+    internal IAgentRepository? ParentAgentRepository => _parentAgentRepository;
 
     /// <summary>
     /// Agent configuration for middleware that needs agent-level client-family defaults.
@@ -74,10 +74,10 @@ public sealed class AgentContext
     internal AgentClientSet? ClientSet => _clientSet;
 
     /// <summary>
-    /// Explicit content store configured for this agent.
-    /// Content visibility is controlled by scope and folder metadata, not by the session store.
+    /// Workspace store configured for this agent.
+    /// Content visibility is controlled by workspace spaces, roles, and path hints, not by the session repository.
     /// </summary>
-    public IContentStore? ContentStore => _contentStore;
+    public IWorkspaceStore? WorkspaceStore => _workspaceStore;
 
     //
     // IDENTITY (immutable)
@@ -108,16 +108,16 @@ public sealed class AgentContext
     /// <para>
     /// Session contains metadata and session-scoped middleware state (permissions, preferences).
     /// Messages live in <see cref="Branch"/> instead.
-    /// Middleware should use <see cref="ContentStore"/> for uploads, artifacts, and other content.
+    /// Middleware should use <see cref="WorkspaceStore"/> for uploads, artifacts, and other content.
     /// </para>
     /// <para><b>Example:</b></para>
     /// <code>
     /// public async Task BeforeIterationAsync(BeforeIterationContext context, ...)
     /// {
-    ///     var contentStore = context.ContentStore;
-    ///     if (contentStore != null)
+    ///     var workspace = context.WorkspaceStore;
+    ///     if (workspace != null)
     ///     {
-    ///         // Upload/retrieve session-scoped content, etc.
+    ///         // Upload/retrieve branch-scoped content, etc.
     ///     }
     /// }
     /// </code>
@@ -424,24 +424,24 @@ public sealed class AgentContext
         IServiceProvider? services = null,
         IRuntimeCapabilityRegistry? runtimeCapabilities = null,
         string? traceId = null,
-        IAgentStore? parentAgentStore = null,
+        IAgentRepository? parentAgentRepository = null,
         AgentConfig? config = null,
         AgentClientSet? clientSet = null,
-        IContentStore? contentStore = null)
+        IWorkspaceStore? workspaceStore = null)
     {
         AgentName = agentName ?? throw new ArgumentNullException(nameof(agentName));
         ConversationId = conversationId;
         TraceId = traceId;
         _config = config;
         _clientSet = clientSet;
-        _contentStore = contentStore;
+        _workspaceStore = workspaceStore;
         _state = initialState ?? throw new ArgumentNullException(nameof(initialState));
         _events = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
         _session = session;
         _branch = branch;
         _cancellationToken = cancellationToken;
         _parentChatClient = parentChatClient;
-        _parentAgentStore = parentAgentStore;
+        _parentAgentRepository = parentAgentRepository;
         _services = services;
         _runtimeCapabilities = runtimeCapabilities ?? new RuntimeCapabilityRegistry();
     }

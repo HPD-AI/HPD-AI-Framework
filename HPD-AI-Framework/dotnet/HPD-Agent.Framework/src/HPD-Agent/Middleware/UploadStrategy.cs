@@ -6,7 +6,7 @@ namespace HPD.Agent.Middleware;
 public enum UploadStrategy
 {
     /// <summary>
-    /// Use provider's HostedFileClient if available, otherwise fall back to IContentStore.
+    /// Use provider's HostedFileClient if available, otherwise fall back to workspace store.
     /// This is the recommended default for maximum compatibility and automatic adaptation
     /// to provider capabilities.
     /// </summary>
@@ -20,9 +20,9 @@ public enum UploadStrategy
     Hosted = 1,
 
     /// <summary>
-    /// Force upload to IContentStore (framework-managed local/ephemeral storage).
-    /// Ignores provider capabilities and always uses ContentStore.
-    /// Throws InvalidOperationException if no IContentStore is configured.
+    /// Force upload to the configured workspace store facade.
+    /// Ignores provider capabilities and always writes through the workspace.
+    /// Throws InvalidOperationException if no workspace store is configured.
     /// </summary>
     Local = 2
 }

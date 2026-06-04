@@ -25,11 +25,11 @@ public interface IAgentFactory
     /// Create an agent for the given agent ID.
     /// </summary>
     /// <param name="agentId">The agent definition/runtime ID to create</param>
-    /// <param name="store">The session store (pass to AgentBuilder.WithSessionStore)</param>
+    /// <param name="sessionRepository">The session repository (pass to AgentBuilder.WithSessionRepository)</param>
     /// <param name="ct">Cancellation token</param>
     /// <returns>A configured and built Agent instance</returns>
     Task<Agent> CreateAgentAsync(
         string agentId,
-        ISessionStore store,
+        ISessionRepository sessionRepository,
         CancellationToken ct = default);
 }
