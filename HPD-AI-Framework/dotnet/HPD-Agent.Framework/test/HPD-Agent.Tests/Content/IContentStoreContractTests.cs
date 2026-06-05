@@ -151,7 +151,7 @@ public abstract class IContentStoreContractTests
             Name = "photo.jpg",
             Description = "A test photo",
             Origin = ContentSource.User,
-            Tags = new Dictionary<string, string> { ["folder"] = "/uploads" },
+            Tags = new Dictionary<string, string> { ["kind"] = "upload" },
             OriginalSource = "/tmp/photo.jpg"
         };
 
@@ -169,7 +169,7 @@ public abstract class IContentStoreContractTests
         Assert.Equal(ContentSource.User, info.Origin);
         Assert.Equal("/tmp/photo.jpg", info.OriginalSource);
         Assert.NotNull(info.Tags);
-        Assert.Equal("/uploads", info.Tags["folder"]);
+        Assert.Equal("upload", info.Tags["kind"]);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -376,16 +376,16 @@ public abstract class IContentStoreContractTests
     {
         var store = CreateStore();
         await store.WriteBytesAsync("scope-a", new byte[] { 1 }, "text/plain",
-            new ContentMetadata { Tags = new Dictionary<string, string> { ["folder"] = "/knowledge" } });
+            new ContentMetadata { Tags = new Dictionary<string, string> { ["kind"] = "knowledge" } });
         await store.WriteBytesAsync("scope-a", new byte[] { 2 }, "text/plain",
-            new ContentMetadata { Tags = new Dictionary<string, string> { ["folder"] = "/memory" } });
+            new ContentMetadata { Tags = new Dictionary<string, string> { ["kind"] = "memory" } });
         await store.WriteBytesAsync("scope-a", new byte[] { 3 }, "text/plain"); // no tag
 
         var results = await store.QueryAsync("scope-a",
-            new ContentQuery { Tags = new Dictionary<string, string> { ["folder"] = "/knowledge" } });
+            new ContentQuery { Tags = new Dictionary<string, string> { ["kind"] = "knowledge" } });
 
         Assert.Single(results);
-        Assert.Equal("/knowledge", results[0].Tags!["folder"]);
+        Assert.Equal("knowledge", results[0].Tags!["kind"]);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -416,25 +416,25 @@ public abstract class IContentStoreContractTests
     public async Task Query_CombinedFilters_AND_Logic()
     {
         var store = CreateStore();
-        // Only this one matches both ContentType=image/jpeg AND has folder=/uploads tag
+        // Only this one matches both ContentType=image/jpeg AND has kind=upload tag
         await store.WriteBytesAsync("scope-a", new byte[] { 1 }, "image/jpeg",
-            new ContentMetadata { Tags = new Dictionary<string, string> { ["folder"] = "/uploads" } });
+            new ContentMetadata { Tags = new Dictionary<string, string> { ["kind"] = "upload" } });
         // Wrong content type
         await store.WriteBytesAsync("scope-a", new byte[] { 2 }, "text/plain",
-            new ContentMetadata { Tags = new Dictionary<string, string> { ["folder"] = "/uploads" } });
+            new ContentMetadata { Tags = new Dictionary<string, string> { ["kind"] = "upload" } });
         // Wrong tag
         await store.WriteBytesAsync("scope-a", new byte[] { 3 }, "image/jpeg",
-            new ContentMetadata { Tags = new Dictionary<string, string> { ["folder"] = "/memory" } });
+            new ContentMetadata { Tags = new Dictionary<string, string> { ["kind"] = "memory" } });
 
         var results = await store.QueryAsync("scope-a", new ContentQuery
         {
             ContentType = "image/jpeg",
-            Tags = new Dictionary<string, string> { ["folder"] = "/uploads" }
+            Tags = new Dictionary<string, string> { ["kind"] = "upload" }
         });
 
         Assert.Single(results);
         Assert.Equal("image/jpeg", results[0].ContentType);
-        Assert.Equal("/uploads", results[0].Tags!["folder"]);
+        Assert.Equal("upload", results[0].Tags!["kind"]);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -467,7 +467,7 @@ public abstract class IContentStoreContractTests
             Name = "test-doc.md",
             Description = "Test description",
             Origin = ContentSource.Agent,
-            Tags = new Dictionary<string, string> { ["category"] = "notes", ["folder"] = "/memory" },
+            Tags = new Dictionary<string, string> { ["category"] = "notes", ["kind"] = "memory" },
             OriginalSource = "https://example.com/doc"
         };
 

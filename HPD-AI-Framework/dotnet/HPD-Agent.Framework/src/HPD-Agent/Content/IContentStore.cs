@@ -5,19 +5,9 @@ namespace HPD.Agent;
 /// Provides stream-first versioned writes, OpenRead/Delete/Query operations with scope-based isolation.
 /// </summary>
 /// <remarks>
-/// <para><b>V3 Design:</b></para>
 /// <para>
-/// One store, one interface. Scope and folder tags determine isolation:
-/// </para>
-/// <list type="bullet">
-/// <item><b>scope = agentName, folder = /skills</b> — skill instruction documents</item>
-/// <item><b>scope = agentName, folder = /knowledge</b> — agent knowledge base</item>
-/// <item><b>scope = agentName, folder = /memory</b> — agent working memory</item>
-/// <item><b>scope = sessionId, folder = /uploads</b> — user-uploaded files (ephemeral)</item>
-/// <item><b>scope = sessionId, folder = /artifacts</b> — agent-generated outputs (ephemeral)</item>
-/// </list>
-/// <para>
-/// Pass scope=null to QueryAsync to search across ALL scopes.
+/// Scope is backend isolation, commonly a session id, an agent name, or null for global content.
+/// Tags are generic metadata for filtering and policy. They do not define a public filesystem.
 /// </para>
 /// </remarks>
 public interface IContentStore
@@ -239,10 +229,10 @@ public record ContentInfo
     /// <summary>
     /// Store-specific extended metadata.
     /// Examples:
-    /// - Local content uploads: {"folder": "/uploads"} with scope=session-id
+    /// - Local content uploads: {"kind": "upload"} with a branch content scope
+    /// - Runtime artifacts: {"kind": "artifact", "artifact-kind": "execute_command_output"}
     /// - StaticMemoryStore: {"extractedTextLength": "15234"}
     /// - DynamicMemoryStore: {"title": "Meeting Notes"}
-    /// - IInstructionDocumentStore: {"version": "3", "contentHash": "abc123"}
     /// </summary>
     public IReadOnlyDictionary<string, object>? ExtendedMetadata { get; init; }
 

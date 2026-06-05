@@ -53,7 +53,7 @@ public class CodingToolHarnessAgentBuilderTests
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Use runInBackground for long-running servers or watchers.");
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Use ListBackground if you need to recover ids");
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("ReadOutput delayMilliseconds");
-        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("content_list/content_read under /artifacts");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("content IDs returned by ExecuteCommand");
     }
 
     [Fact]

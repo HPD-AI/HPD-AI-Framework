@@ -9,7 +9,7 @@ namespace HPD.Agent.AspNetCore.Tests.Integration;
 
 /// <summary>
 /// Integration tests for Content management endpoints.
-/// Tests: POST /sessions/{sid}/content, GET /sessions/{sid}/content, GET /sessions/{sid}/content/{contentId}, DELETE /sessions/{sid}/content/{contentId}
+/// Tests: POST /sessions/{sid}/branches/{bid}/content, GET /sessions/{sid}/branches/{bid}/content, GET /sessions/{sid}/branches/{bid}/content/{contentId}, DELETE /sessions/{sid}/branches/{bid}/content/{contentId}
 /// </summary>
 public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
 {
@@ -27,7 +27,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         return session!.Id;
     }
 
-    #region POST /sessions/{sid}/content
+    #region POST /sessions/{sid}/branches/{bid}/content
 
     [Fact]
     public async Task UploadContent_Returns201_WithContentDto()
@@ -40,7 +40,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         form.Add(fileContent, "file", "test.txt");
 
         // Act
-        var response = await _client.PostAsync($"/sessions/{sessionId}/content", form);
+        var response = await _client.PostAsync($"/sessions/{sessionId}/branches/main/content", form);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -63,7 +63,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         form.Add(fileContent, "file", "image.png");
 
         // Act
-        var response = await _client.PostAsync($"/sessions/{sessionId}/content", form);
+        var response = await _client.PostAsync($"/sessions/{sessionId}/branches/main/content", form);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -82,7 +82,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         form.Add(fileContent, "file", "data.json");
 
         // Act
-        var response = await _client.PostAsync($"/sessions/{sessionId}/content", form);
+        var response = await _client.PostAsync($"/sessions/{sessionId}/branches/main/content", form);
 
         // Assert
         var dto = await response.Content.ReadFromJsonAsync<ContentDto>();
@@ -100,7 +100,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         form.Add(fileContent, "file", "test.bin");
 
         // Act
-        var response = await _client.PostAsync($"/sessions/{sessionId}/content", form);
+        var response = await _client.PostAsync($"/sessions/{sessionId}/branches/main/content", form);
 
         // Assert
         var dto = await response.Content.ReadFromJsonAsync<ContentDto>();
@@ -116,7 +116,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         form.Add(fileContent, "file", "test.txt");
 
         // Act
-        var response = await _client.PostAsync("/sessions/nonexistent/content", form);
+        var response = await _client.PostAsync("/sessions/nonexistent/branches/main/content", form);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -132,7 +132,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         form.Add(fileContent, "file", "test.txt");
 
         // Act
-        var response = await _client.PostAsync($"/sessions/{sessionId}/content", form);
+        var response = await _client.PostAsync($"/sessions/{sessionId}/branches/main/content", form);
 
         // Assert - explicit hosting content store is available, so should succeed
         response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -146,7 +146,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         var form = new MultipartFormDataContent(); // Empty, no file
 
         // Act
-        var response = await _client.PostAsync($"/sessions/{sessionId}/content", form);
+        var response = await _client.PostAsync($"/sessions/{sessionId}/branches/main/content", form);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -154,7 +154,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
     #endregion
 
-    #region GET /sessions/{sid}/content
+    #region GET /sessions/{sid}/branches/{bid}/content
 
     [Fact]
     public async Task ListContent_ReturnsAllContent_ForSession()
@@ -168,11 +168,11 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
             var form = new MultipartFormDataContent();
             var fileContent = new ByteArrayContent(Encoding.UTF8.GetBytes($"File {i}"));
             form.Add(fileContent, "file", $"file{i}.txt");
-            await _client.PostAsync($"/sessions/{sessionId}/content", form);
+            await _client.PostAsync($"/sessions/{sessionId}/branches/main/content", form);
         }
 
         // Act
-        var response = await _client.GetAsync($"/sessions/{sessionId}/content");
+        var response = await _client.GetAsync($"/sessions/{sessionId}/branches/main/content");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -188,7 +188,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
 
         // Act
-        var response = await _client.GetAsync($"/sessions/{sessionId}/content");
+        var response = await _client.GetAsync($"/sessions/{sessionId}/branches/main/content");
 
         // Assert
         var items = await response.Content.ReadFromJsonAsync<List<ContentDto>>();
@@ -200,7 +200,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
     public async Task ListContent_Returns404_WhenSessionNotFound()
     {
         // Act
-        var response = await _client.GetAsync("/sessions/nonexistent/content");
+        var response = await _client.GetAsync("/sessions/nonexistent/branches/main/content");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -213,7 +213,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
 
         // Act
-        var response = await _client.GetAsync($"/sessions/{sessionId}/content");
+        var response = await _client.GetAsync($"/sessions/{sessionId}/branches/main/content");
 
         // Assert - Should succeed with InMemorySessionStore
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -221,7 +221,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
     #endregion
 
-    #region GET /sessions/{sid}/content/{contentId}
+    #region GET /sessions/{sid}/branches/{bid}/content/{contentId}
 
     [Fact]
     public async Task DownloadContent_ReturnsBinaryData_WithCorrectContentType()
@@ -234,11 +234,11 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
         uploadContent.Add(fileContent, "file", "test.txt");
 
-        var uploadResponse = await _client.PostAsync($"/sessions/{sessionId}/content", uploadContent);
+        var uploadResponse = await _client.PostAsync($"/sessions/{sessionId}/branches/main/content", uploadContent);
         var dto = await uploadResponse.Content.ReadFromJsonAsync<ContentDto>();
 
         // Act
-        var downloadResponse = await _client.GetAsync($"/sessions/{sessionId}/content/{dto!.ContentId}");
+        var downloadResponse = await _client.GetAsync($"/sessions/{sessionId}/branches/main/content/{dto!.ContentId}");
 
         // Assert
         downloadResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -254,7 +254,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
 
         // Act
-        var response = await _client.GetAsync($"/sessions/{sessionId}/content/nonexistent");
+        var response = await _client.GetAsync($"/sessions/{sessionId}/branches/main/content/nonexistent");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -264,7 +264,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
     public async Task DownloadContent_Returns404_WhenSessionNotFound()
     {
         // Act
-        var response = await _client.GetAsync("/sessions/nonexistent/content/content-id");
+        var response = await _client.GetAsync("/sessions/nonexistent/branches/main/content/content-id");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -279,11 +279,11 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         var fileContent = new ByteArrayContent(Encoding.UTF8.GetBytes("test"));
         uploadContent.Add(fileContent, "file", "download.txt");
 
-        var uploadResponse = await _client.PostAsync($"/sessions/{sessionId}/content", uploadContent);
+        var uploadResponse = await _client.PostAsync($"/sessions/{sessionId}/branches/main/content", uploadContent);
         var dto = await uploadResponse.Content.ReadFromJsonAsync<ContentDto>();
 
         // Act
-        var downloadResponse = await _client.GetAsync($"/sessions/{sessionId}/content/{dto!.ContentId}");
+        var downloadResponse = await _client.GetAsync($"/sessions/{sessionId}/branches/main/content/{dto!.ContentId}");
 
         // Assert
         downloadResponse.Content.Headers.ContentDisposition.Should().NotBeNull();
@@ -291,7 +291,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
     #endregion
 
-    #region DELETE /sessions/{sid}/content/{contentId}
+    #region DELETE /sessions/{sid}/branches/{bid}/content/{contentId}
 
     [Fact]
     public async Task DeleteContent_Returns204_OnSuccess()
@@ -302,11 +302,11 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         var fileContent = new ByteArrayContent(Encoding.UTF8.GetBytes("to delete"));
         uploadContent.Add(fileContent, "file", "delete.txt");
 
-        var uploadResponse = await _client.PostAsync($"/sessions/{sessionId}/content", uploadContent);
+        var uploadResponse = await _client.PostAsync($"/sessions/{sessionId}/branches/main/content", uploadContent);
         var dto = await uploadResponse.Content.ReadFromJsonAsync<ContentDto>();
 
         // Act
-        var deleteResponse = await _client.DeleteAsync($"/sessions/{sessionId}/content/{dto!.ContentId}");
+        var deleteResponse = await _client.DeleteAsync($"/sessions/{sessionId}/branches/main/content/{dto!.ContentId}");
 
         // Assert
         deleteResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -319,7 +319,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
 
         // Act
-        var response = await _client.DeleteAsync($"/sessions/{sessionId}/content/nonexistent");
+        var response = await _client.DeleteAsync($"/sessions/{sessionId}/branches/main/content/nonexistent");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -329,7 +329,7 @@ public class ContentEndpointsTests : IClassFixture<TestWebApplicationFactory>
     public async Task DeleteContent_Returns404_WhenSessionNotFound()
     {
         // Act
-        var response = await _client.DeleteAsync("/sessions/nonexistent/content/content-id");
+        var response = await _client.DeleteAsync("/sessions/nonexistent/branches/main/content/content-id");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);

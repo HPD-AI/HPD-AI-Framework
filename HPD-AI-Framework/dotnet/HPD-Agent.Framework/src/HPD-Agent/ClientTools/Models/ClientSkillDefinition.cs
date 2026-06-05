@@ -12,14 +12,12 @@ namespace HPD.Agent.ClientTools;
 /// <param name="FunctionResult">Ephemeral instructions returned in function result when skill is activated (one-time)</param>
 /// <param name="SystemPrompt">Persistent instructions injected into system prompt after activation (every iteration)</param>
 /// <param name="References">Tool references - these become visible when skill is activated</param>
-/// <param name="Documents">Optional documents the agent can read for detailed guidance</param>
 public record ClientSkillDefinition(
     string Name,
     string Description,
     string? FunctionResult = null,
     string? SystemPrompt = null,
-    IReadOnlyList<ClientSkillReference>? References = null,
-    IReadOnlyList<ClientSkillDocument>? Documents = null
+    IReadOnlyList<ClientSkillReference>? References = null
 )
 {
     /// <summary>
@@ -41,14 +39,6 @@ public record ClientSkillDefinition(
                 "SystemPrompt is injected into the system prompt persistently.",
                 nameof(FunctionResult));
 
-        // Validate documents if present
-        if (Documents != null)
-        {
-            foreach (var doc in Documents)
-            {
-                doc.Validate();
-            }
-        }
     }
 
     /// <summary>
@@ -116,35 +106,3 @@ public record ClientSkillReference(
     string ToolName,
     string? ToolsetName = null
 );
-
-/// <summary>
-/// Document attached to a skill that the agent can read on-demand.
-/// Supports inline content (for simple documents) or URLs (for large documents).
-/// </summary>
-/// <param name="DocumentId">Unique ID — retrievable via content_read("/skills/{DocumentId}")</param>
-/// <param name="Description">Tells agent what information this document contains</param>
-/// <param name="Content">Inline content (for documents under ~10KB)</param>
-/// <param name="Url">URL to fetch content from (for large documents)</param>
-public record ClientSkillDocument(
-    string DocumentId,
-    string Description,
-    string? Content = null,
-    string? Url = null
-)
-{
-    /// <summary>
-    /// Validates the document definition.
-    /// </summary>
-    /// <exception cref="ArgumentException">If validation fails</exception>
-    public void Validate()
-    {
-        if (string.IsNullOrWhiteSpace(DocumentId))
-            throw new ArgumentException("Document ID is required", nameof(DocumentId));
-
-        if (string.IsNullOrWhiteSpace(Description))
-            throw new ArgumentException("Document description is required", nameof(Description));
-
-        if (string.IsNullOrEmpty(Content) && string.IsNullOrEmpty(Url))
-            throw new ArgumentException("Document must have either Content or Url", nameof(Content));
-    }
-}

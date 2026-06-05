@@ -703,19 +703,6 @@ namespace HPD.Agent.Diagnostics {{
                 sb.AppendLine($"                CollectOpenApiSources: null,");
             }
 
-            //  Content store document initialization
-            sb.AppendLine($"                // ========== V3 CONTENT STORE DOCUMENTS ==========");
-            var hasSkillDocs = ToolHarness.SkillCapabilities.Any(s =>
-                s.Options.DocumentUploads.Any() || s.Options.DocumentReferences.Any());
-            if (hasSkillDocs)
-            {
-                sb.AppendLine($"                InitializeDocumentsAsync: {ToolHarness.Name}Registration.InitializeDocumentsAsync,");
-            }
-            else
-            {
-                sb.AppendLine($"                InitializeDocumentsAsync: null,");
-            }
-
             // ToolHarness-scoped middleware (015): emit CollapseMiddlewareFactories (parameterless ctors)
             sb.AppendLine($"                // ========== HARNESS-SCOPED MIDDLEWARE (015) ==========");
             if (ToolHarness.CollapseMiddlewareTypeNames != null && ToolHarness.CollapseMiddlewareTypeNames.Count > 0)

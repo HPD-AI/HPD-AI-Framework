@@ -363,16 +363,6 @@ internal static class CapabilityAnalyzer
             return null;
         }
 
-        // DIAGNOSTIC: Log document uploads found
-        if (options != null && options.DocumentUploads.Any())
-        {
-            System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Found {options.DocumentUploads.Count} document uploads in {methodName}:");
-            foreach (var upload in options.DocumentUploads)
-            {
-                System.Diagnostics.Debug.WriteLine($"  - {upload.FilePath} -> {upload.DocumentId}");
-            }
-        }
-
         // Extract function/skill references (remaining arguments)
         var references = new List<ReferenceInfo>();
         for (int i = referencesStartIndex; i < arguments.Count; i++)
@@ -1253,189 +1243,12 @@ internal static class CapabilityAnalyzer
     }
 
     /// <summary>
-    /// Extracts SkillOptions from object creation expression or method chain
-    /// Phase 5: Migrated from SkillAnalyzer - supports fluent API (AddDocument/AddDocumentFromFile calls)
+    /// Extracts SkillOptions from object creation expression or method chain.
+    /// SkillOptions currently has no source-generator-visible properties.
     /// </summary>
     private static SkillOptionsInfo ExtractSkillOptions(ExpressionSyntax expression, SemanticModel semanticModel)
     {
-        var options = new SkillOptionsInfo();
-
-        // Handle object creation with initializer (old style)
-        if (expression is ObjectCreationExpressionSyntax objectCreation)
-        {
-            if (objectCreation.Initializer != null)
-            {
-                foreach (var assignment in objectCreation.Initializer.Expressions.OfType<AssignmentExpressionSyntax>())
-                {
-                    var propertyName = (assignment.Left as IdentifierNameSyntax)?.Identifier.ValueText;
-                    var value = assignment.Right;
-
-                    switch (propertyName)
-                    {
-                        case "InstructionDocuments":
-                            // Extract array of strings
-                            if (value is ArrayCreationExpressionSyntax arrayCreation &&
-                                arrayCreation.Initializer != null)
-                            {
-                                options.InstructionDocuments = arrayCreation.Initializer.Expressions
-                                    .Select(expr => ExtractStringLiteral(expr, semanticModel))
-                                    .Where(s => s != null)
-                                    .ToList()!;
-                            }
-                            break;
-
-                        case "InstructionDocumentBaseDirectory":
-                            var baseDir = ExtractStringLiteral(value, semanticModel);
-                            if (baseDir != null)
-                                options.InstructionDocumentBaseDirectory = baseDir;
-                            break;
-                    }
-                }
-            }
-        }
-
-        // Handle fluent API method chains (new SkillOptions().AddDocument(...).AddDocumentFromFile(...))
-        // Walk up the expression tree to find all chained method calls
-        System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] ExtractSkillOptions() - Walking method chain");
-        var currentExpr = expression;
-        int chainDepth = 0;
-        while (currentExpr != null)
-        {
-            chainDepth++;
-            System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer]   Chain depth {chainDepth}: {currentExpr.GetType().Name}");
-
-            if (currentExpr is InvocationExpressionSyntax invocation)
-            {
-                var methodSymbol = semanticModel.GetSymbolInfo(invocation.Expression).Symbol as IMethodSymbol;
-                var methodName = methodSymbol?.Name;
-                System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer]   Method: {methodName}");
-
-                if (methodName == "AddDocument")
-                {
-                    System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer]   Found AddDocument() call");
-                    ExtractAddDocumentCall(invocation, semanticModel, options);
-                }
-                else if (methodName == "AddDocumentFromFile")
-                {
-                    System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer]   Found AddDocumentFromFile() call");
-                    ExtractAddDocumentFromFileCall(invocation, semanticModel, options);
-                }
-                else if (methodName == "AddDocumentFromUrl")
-                {
-                    System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer]   Found AddDocumentFromUrl() call");
-                    ExtractAddDocumentFromUrlCall(invocation, semanticModel, options);
-                }
-
-                // Move to the expression that this method is called on (the receiver)
-                if (invocation.Expression is MemberAccessExpressionSyntax memberAccess)
-                {
-                    currentExpr = memberAccess.Expression;
-                }
-                else
-                {
-                    break;
-                }
-            }
-            else
-            {
-                break;
-            }
-        }
-
-        System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] ExtractSkillOptions() - Final: {options.DocumentUploads.Count} uploads, {options.DocumentReferences.Count} references");
-
-        return options;
-    }
-
-    /// <summary>
-    /// Extracts AddDocument() call arguments (document reference by ID)
-    /// API signature: AddDocument(string documentId, string? descriptionOverride = null)
-    /// </summary>
-    private static void ExtractAddDocumentCall(InvocationExpressionSyntax invocation, SemanticModel semanticModel, SkillOptionsInfo options)
-    {
-        var args = invocation.ArgumentList.Arguments;
-        if (args.Count < 1)
-            return;
-
-        var documentId = ExtractStringLiteral(args[0].Expression, semanticModel);
-        if (string.IsNullOrWhiteSpace(documentId))
-            return;
-
-        string? descriptionOverride = null;
-        if (args.Count >= 2)
-        {
-            descriptionOverride = ExtractStringLiteral(args[1].Expression, semanticModel);
-        }
-
-        options.DocumentReferences.Add(new DocumentReferenceInfo
-        {
-            DocumentId = documentId,
-            DescriptionOverride = descriptionOverride
-        });
-    }
-
-    /// <summary>
-    /// Extracts AddDocumentFromFile() call arguments (file path)
-    /// API signature: AddDocumentFromFile(string filePath, string description, string? documentId = null)
-    /// </summary>
-    private static void ExtractAddDocumentFromFileCall(InvocationExpressionSyntax invocation, SemanticModel semanticModel, SkillOptionsInfo options)
-    {
-        var args = invocation.ArgumentList.Arguments;
-        if (args.Count < 2)
-            return;
-
-        // Extract arguments in correct order
-        var filePath = ExtractStringLiteral(args[0].Expression, semanticModel);
-        var description = ExtractStringLiteral(args[1].Expression, semanticModel);
-        var documentId = args.Count >= 3 ? ExtractStringLiteral(args[2].Expression, semanticModel) : null;
-
-        if (!string.IsNullOrWhiteSpace(filePath) && !string.IsNullOrWhiteSpace(description))
-        {
-            // Auto-derive document ID from filename if not provided (matches runtime behavior)
-            var effectiveDocumentId = string.IsNullOrWhiteSpace(documentId)
-                ? DeriveDocumentId(filePath)
-                : documentId;
-
-            options.DocumentUploads.Add(new DocumentUploadInfo
-            {
-                FilePath = filePath,
-                Description = description,
-                DocumentId = effectiveDocumentId,
-                SourceType = DocumentSourceType.FilePath
-            });
-        }
-    }
-
-    /// <summary>
-    /// Extracts AddDocumentFromUrl() call arguments (URL upload)
-    /// API signature: AddDocumentFromUrl(string url, string description, string? documentId = null)
-    /// </summary>
-    private static void ExtractAddDocumentFromUrlCall(InvocationExpressionSyntax invocation, SemanticModel semanticModel, SkillOptionsInfo options)
-    {
-        var args = invocation.ArgumentList.Arguments;
-        if (args.Count < 2)
-            return;
-
-        // Extract arguments in correct order
-        var url = ExtractStringLiteral(args[0].Expression, semanticModel);
-        var description = ExtractStringLiteral(args[1].Expression, semanticModel);
-        var documentId = args.Count >= 3 ? ExtractStringLiteral(args[2].Expression, semanticModel) : null;
-
-        if (!string.IsNullOrWhiteSpace(url) && !string.IsNullOrWhiteSpace(description))
-        {
-            // Auto-derive document ID from URL if not provided (matches runtime behavior)
-            var effectiveDocumentId = string.IsNullOrWhiteSpace(documentId)
-                ? DeriveDocumentIdFromUrl(url)
-                : documentId;
-
-            options.DocumentUploads.Add(new DocumentUploadInfo
-            {
-                Url = url,
-                Description = description,
-                DocumentId = effectiveDocumentId,
-                SourceType = DocumentSourceType.Url
-            });
-        }
+        return new SkillOptionsInfo();
     }
 
     /// <summary>
@@ -1468,39 +1281,4 @@ internal static class CapabilityAnalyzer
         return null;
     }
 
-    /// <summary>
-    /// Derives a document ID from a file path (matches runtime SkillOptions.DeriveDocumentId behavior)
-    /// Example: "./docs/debugging-workflow.md" -> "debugging-workflow"
-    /// </summary>
-    private static string DeriveDocumentId(string filePath)
-    {
-        var fileName = System.IO.Path.GetFileNameWithoutExtension(filePath);
-
-        // Normalize to lowercase-kebab-case
-        return fileName.ToLowerInvariant()
-            .Replace(" ", "-")
-            .Replace("_", "-");
-    }
-
-    /// <summary>
-    /// Derives a document ID from a URL (matches runtime SkillOptions.DeriveDocumentIdFromUrl behavior)
-    /// Example: "https://docs.company.com/sops/financial-health.md" -> "financial-health"
-    /// </summary>
-    private static string DeriveDocumentIdFromUrl(string url)
-    {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
-            return "unknown";
-
-        var fileName = System.IO.Path.GetFileNameWithoutExtension(uri.LocalPath);
-
-        if (string.IsNullOrWhiteSpace(fileName))
-        {
-            // If no filename, use host: "https://example.com" -> "example-com"
-            fileName = uri.Host.Replace(".", "-");
-        }
-
-        return fileName.ToLowerInvariant()
-            .Replace(" ", "-")
-            .Replace("_", "-");
-    }
 }

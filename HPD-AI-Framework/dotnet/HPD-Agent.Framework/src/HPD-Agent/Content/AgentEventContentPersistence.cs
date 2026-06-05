@@ -17,10 +17,10 @@ internal static class AgentEventContentPersistence
         if (contentStore == null || request == null)
             return null;
 
-        var folder = NormalizeFolder(request.Folder);
+        var kind = NormalizeKind(request.Kind);
         var tags = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["folder"] = folder,
+            ["kind"] = kind,
             ["event.type"] = AgentEventSerializer.GetEventTypeName(evt)
         };
 
@@ -65,10 +65,10 @@ internal static class AgentEventContentPersistence
             cancellationToken).ConfigureAwait(false);
     }
 
-    private static string NormalizeFolder(string folder)
+    private static string NormalizeKind(string kind)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(folder);
-        return folder[0] == '/' ? folder : "/" + folder;
+        ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+        return kind.Trim();
     }
 
     private static void AddIfPresent(Dictionary<string, string> tags, string key, string? value)

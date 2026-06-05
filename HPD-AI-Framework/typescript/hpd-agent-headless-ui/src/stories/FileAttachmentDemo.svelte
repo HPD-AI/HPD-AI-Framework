@@ -15,12 +15,13 @@
 		disabled = false,
 		uploadMode = 'success' as UploadMode,
 		sessionId = 'demo-session',
+		branchId = 'main',
 		...restProps
 	} = $props();
 
 	// Simulated upload functions
 	function makeUploadFn(mode: UploadMode) {
-		return async (sid: string, file: File): Promise<ContentReference> => {
+		return async (_sid: string, _bid: string, file: File): Promise<ContentReference> => {
 			if (mode === 'slow') {
 				await new Promise((r) => setTimeout(r, 2000));
 			}
@@ -43,6 +44,7 @@
 	const attachments = new FileAttachmentState({
 		uploadFn: boxWith(() => makeUploadFn(uploadMode)),
 		sessionId: boxWith(() => sessionId),
+		branchId: boxWith(() => branchId),
 		disabled: boxWith(() => disabled),
 	});
 

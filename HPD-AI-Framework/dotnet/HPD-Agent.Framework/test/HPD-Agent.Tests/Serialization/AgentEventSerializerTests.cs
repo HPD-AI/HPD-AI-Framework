@@ -325,13 +325,13 @@ public class AgentEventSerializerTests
         Assert.Contains("\"callId\":\"call-1\"", startJson);
         Assert.Contains("\"name\":\"Calculator\"", startJson);
         // Null optional fields omitted
-        Assert.DoesNotContain("\"toolharnessName\"", startJson);
+        Assert.DoesNotContain("\"toolHarnessName\"", startJson);
         Assert.DoesNotContain("\"callType\"", startJson);
 
         // ToolCallStartEvent — with toolharness and callType
         var startEvtFull = new ToolCallStartEvent("call-2", "Add", "msg-1", "MathToolHarness", ToolCallType.Function);
         var startJsonFull = AgentEventSerializer.ToJson(startEvtFull);
-        Assert.Contains("\"toolharnessName\":\"MathToolHarness\"", startJsonFull);
+        Assert.Contains("\"toolHarnessName\":\"MathToolHarness\"", startJsonFull);
         Assert.Contains("\"callType\":\"Function\"", startJsonFull);
 
         // ToolCallStartEvent — SubAgent type
@@ -355,13 +355,13 @@ public class AgentEventSerializerTests
         Assert.Contains("\"type\":\"TOOL_CALL_RESULT\"", resultJson);
         Assert.Contains("\"result\":", resultJson);
         Assert.Contains("\"text\":\"3\"", resultJson);
-        Assert.DoesNotContain("\"toolharnessName\"", resultJson);
+        Assert.DoesNotContain("\"toolHarnessName\"", resultJson);
         Assert.DoesNotContain("\"callType\"", resultJson);
 
         // ToolCallResultEvent — with toolharness and callType
         var resultEvtFull = new ToolCallResultEvent("call-2", new ToolResultPayload(Text: "42"), "MathToolHarness", ToolCallType.Function);
         var resultJsonFull = AgentEventSerializer.ToJson(resultEvtFull);
-        Assert.Contains("\"toolharnessName\":\"MathToolHarness\"", resultJsonFull);
+        Assert.Contains("\"toolHarnessName\":\"MathToolHarness\"", resultJsonFull);
         Assert.Contains("\"callType\":\"Function\"", resultJsonFull);
     }
 

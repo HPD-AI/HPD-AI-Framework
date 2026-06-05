@@ -23,7 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.Coding/HPD-Agent.ToolHarness.Coding.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj" />
   </ItemGroup>
 
 </Project>

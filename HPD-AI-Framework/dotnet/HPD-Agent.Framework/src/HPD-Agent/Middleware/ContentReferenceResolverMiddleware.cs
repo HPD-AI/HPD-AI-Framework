@@ -55,7 +55,6 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
                     var resolved = await ResolveContentReferenceAsync(
                         context,
                         uri,
-                        context.Session,
                         cancellationToken);
 
                     resolvedContent = resolved ?? content;
@@ -89,7 +88,6 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
     private async Task<AIContent?> ResolveContentReferenceAsync(
         BeforeIterationContext context,
         UriContent uriContent,
-        Session session,
         CancellationToken cancellationToken)
     {
         var contentId = ExtractContentId(uriContent.Uri);
@@ -98,8 +96,9 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
 
         try
         {
+            var scope = CreateScope(context);
             var info = await _contentStore!.StatAsync(
-                scope: session.Id,
+                scope: scope,
                 contentId: contentId,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
 
@@ -112,7 +111,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
             }
 
             var directUri = await _contentStore.CreateReadUriAsync(
-                scope: session.Id,
+                scope: scope,
                 contentId: contentId,
                 expiresIn: TimeSpan.FromMinutes(15),
                 cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -134,7 +133,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
                 var hosted = await UploadToHostedFileAsync(
                     context,
                     hostedFileClient,
-                    session.Id,
+                    scope,
                     contentId,
                     info,
                     uriContent.Uri,
@@ -146,7 +145,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
 
             return await BufferAsDataContentAsync(
                 context,
-                session.Id,
+                scope,
                 contentId,
                 info,
                 uriContent.Uri,
@@ -245,5 +244,13 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
         if (string.IsNullOrWhiteSpace(contentId))
             contentId = uri.AbsolutePath.TrimStart('/');
         return contentId;
+    }
+
+    private static string CreateScope(HookContext context)
+    {
+        if (context.SessionId is null || context.BranchId is null)
+            throw new InvalidOperationException("Content reference resolution requires an active session and branch.");
+
+        return ContentStoreScopes.ForBranch(context.SessionId, context.BranchId);
     }
 }

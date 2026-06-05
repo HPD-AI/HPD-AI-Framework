@@ -65,18 +65,12 @@ public record ContentQuery
 
     /// <summary>
     /// Filter by tags (must match ALL specified tags — AND logic).
-    /// Used for folder-based filtering: {"folder": "/knowledge"}, {"folder": "/uploads"}.
-    /// Example: {"folder": "/knowledge", "skill": "finance"} — only content in /knowledge tagged with skill=finance.
+    /// Examples: {"kind": "upload"}, {"kind": "artifact", "artifact-kind": "execute_command_output"}.
     /// </summary>
-    /// <remarks>
-    /// This is the primary mechanism for folder navigation in V3.
-    /// All stored content is tagged with ["folder"] = "/foldername" to enable path-based queries.
-    /// </remarks>
     public IReadOnlyDictionary<string, string>? Tags { get; init; }
 
     /// <summary>
     /// Filter by content name (exact match or prefix).
-    /// Used to look up a specific file within a folder: Name = "api-docs.md".
     /// Null = return all content in scope (subject to other filters).
     /// </summary>
     public string? Name { get; init; }

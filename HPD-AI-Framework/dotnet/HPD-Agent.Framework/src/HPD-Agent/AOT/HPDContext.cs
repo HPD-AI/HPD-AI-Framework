@@ -153,8 +153,6 @@ using System.Collections.Immutable;
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientSkillDefinition[]))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientSkillReference))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientSkillReference[]))]
-[JsonSerializable(typeof(HPD.Agent.ClientTools.ClientSkillDocument))]
-[JsonSerializable(typeof(HPD.Agent.ClientTools.ClientSkillDocument[]))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ContextItem))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ContextItem[]))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.AgentClientInput))]

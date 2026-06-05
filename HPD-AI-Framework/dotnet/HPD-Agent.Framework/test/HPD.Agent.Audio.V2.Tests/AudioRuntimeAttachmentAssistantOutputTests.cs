@@ -100,8 +100,8 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
         Assert.Equal("audio/mpeg", storedInfo.ContentType);
         Assert.Equal(4, storedInfo.SizeBytes);
         Assert.Equal(ContentSource.Agent, storedInfo.Origin);
-        Assert.Equal("/artifacts", storedInfo.Tags?["folder"]);
-        Assert.Equal("assistant-audio", storedInfo.Tags?["kind"]);
+        Assert.Equal("artifact", storedInfo.Tags?["kind"]);
+        Assert.Equal("assistant-audio", storedInfo.Tags?["artifact-kind"]);
         Assert.Equal("fake-tts", storedInfo.Tags?["provider"]);
         Assert.Equal("voice-model", storedInfo.Tags?["model"]);
         Assert.Equal("voice-1", storedInfo.Tags?["voice"]);

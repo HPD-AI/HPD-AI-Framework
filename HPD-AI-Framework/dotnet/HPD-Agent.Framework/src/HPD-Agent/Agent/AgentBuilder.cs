@@ -1034,8 +1034,8 @@ public class AgentBuilder
 
     /// <summary>
     /// Configure a custom content store for this agent.
-    /// The store provides unified storage for skills, knowledge, memory, uploads, and artifacts.
-    /// Use <see cref="UseDefaultContentStore"/> for automatic default folder setup.
+    /// The store provides framework-managed runtime content storage for uploads,
+    /// internal references, and artifacts.
     /// </summary>
     public AgentBuilder WithContentStore(IContentStore store)
     {
@@ -1052,51 +1052,6 @@ public class AgentBuilder
     {
         // _providerRegistry is readonly, so this is a noop setter for now
         // In future, we may make it settable or use dependency injection
-        return this;
-    }
-
-    /// <summary>
-    /// Configure the content store with default folders (/skills, /knowledge, /memory)
-    /// and auto-register FolderDiscoveryMiddleware and ContentStoreToolHarness.
-    /// This is the recommended one-liner for enabling the V3 content store system.
-    /// </summary>
-    /// <param name="store">
-    /// Optional custom store. Defaults to InMemoryContentStore if not provided.
-    /// For production use, pass a LocalFileContentStore or custom implementation.
-    /// </param>
-    public AgentBuilder UseDefaultContentStore(IContentStore? store = null)
-    {
-        _contentStore = store ?? new InMemoryContentStore();
-
-        // Register default folders
-        _contentStore.CreateFolder("skills", new FolderOptions
-        {
-            Permissions = ContentPermissions.Read,
-            Description = "Agent skill instructions and documentation"
-        });
-        _contentStore.CreateFolder("knowledge", new FolderOptions
-        {
-            Permissions = ContentPermissions.Read,
-            Description = "Agent knowledge base and expertise"
-        });
-        _contentStore.CreateFolder("memory", new FolderOptions
-        {
-            Permissions = ContentPermissions.ReadWrite,
-            Description = "Agent working memory and context"
-        });
-
-        // Auto-register FolderDiscoveryMiddleware and ContentStoreToolHarness
-        var toolharness = new ContentStoreToolHarness(_contentStore, AgentName ?? "agent");
-        var discoveryMiddleware = new Middleware.FolderDiscoveryMiddleware(_contentStore, AgentName);
-        discoveryMiddleware.SetToolHarness(toolharness);
-
-        _middlewares.Add(discoveryMiddleware);
-        // FolderDiscoveryMiddleware propagates session ID to the toolharness via SetToolHarness link.
-
-        // Register toolharness for AI function exposure
-        _instanceRegistrations.Add(new ToolInstanceRegistration(toolharness, nameof(ContentStoreToolHarness)));
-        _toolharnessContexts[nameof(ContentStoreToolHarness)] = null;
-
         return this;
     }
 
@@ -2588,22 +2543,6 @@ public class AgentBuilder
     /// </summary>
     private async Task<AgentBuildDependencies> BuildDependenciesAsync(CancellationToken cancellationToken)
     {
-        // ===  INITIALIZE SKILL DOCUMENTS VIA CONTENT STORE ===
-        // Each toolharness registration class with skill documents generates InitializeDocumentsAsync.
-        // Idempotent: same document ID + same content hash = no-op (startup-safe).
-        if (_contentStore != null)
-        {
-            var docLogger = _logger?.CreateLogger<AgentBuilder>();
-            foreach (var factory in _selectedToolHarnessFactories)
-            {
-                if (factory.InitializeDocumentsAsync != null)
-                {
-                    docLogger?.LogDebug("Initializing skill documents for toolharness {ToolHarness}", factory.Name);
-                    await factory.InitializeDocumentsAsync(_contentStore, cancellationToken).ConfigureAwait(false);
-                }
-            }
-        }
-
         // === TESTING BYPASS: If BaseClient is already set, skip provider resolution ===
         // This allows tests to inject fake clients without configuring a real provider
         if (_baseClient != null)

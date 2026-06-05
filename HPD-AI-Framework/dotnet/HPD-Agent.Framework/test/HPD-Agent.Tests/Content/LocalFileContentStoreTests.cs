@@ -255,7 +255,7 @@ public class LocalFileContentStoreTests : IDisposable
         var meta = new ContentMetadata
         {
             Name = "notes.md",
-            Tags = new Dictionary<string, string> { ["folder"] = "/memory" }
+            Tags = new Dictionary<string, string> { ["kind"] = "memory" }
         };
 
         {
@@ -266,7 +266,7 @@ public class LocalFileContentStoreTests : IDisposable
         var store2 = CreateStore();
         var results = await store2.QueryAsync("agent-x", new ContentQuery
         {
-            Tags = new Dictionary<string, string> { ["folder"] = "/memory" }
+            Tags = new Dictionary<string, string> { ["kind"] = "memory" }
         });
 
         Assert.Single(results);

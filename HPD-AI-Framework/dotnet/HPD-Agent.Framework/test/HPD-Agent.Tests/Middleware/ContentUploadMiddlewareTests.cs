@@ -49,7 +49,7 @@ public class ContentUploadMiddlewareTests
         Assert.Equal(ContentReferenceResolverMiddleware.ContentUriScheme, uriContent.Uri.Scheme);
         Assert.Equal("image/png", uriContent.MediaType);
 
-        var stored = await contentStore.ReadBytesAsync(session.Id, uriContent.Uri.Host);
+        var stored = await contentStore.ReadBytesAsync(ContentStoreScopes.ForBranch(session.Id, "main"), uriContent.Uri.Host);
         Assert.NotNull(stored);
         Assert.Equal(imageBytes, stored);
         Assert.Single(await capture.WaitForAsync<ContentUploadedEvent>());
@@ -131,7 +131,7 @@ public class ContentUploadMiddlewareTests
 
         Assert.IsType<HostedFileContent>(Assert.Single(context.UserMessage!.Contents));
         Assert.Single(hostedClient.Uploads);
-        Assert.Empty(await contentStore.QueryAsync(session.Id));
+        Assert.Empty(await contentStore.QueryAsync(ContentStoreScopes.ForBranch(session.Id, "main")));
     }
 
     [Fact]
@@ -153,7 +153,7 @@ public class ContentUploadMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         var uriContent = Assert.IsType<UriContent>(Assert.Single(context.UserMessage!.Contents));
-        var stored = await contentStore.ReadBytesAsync(session.Id, uriContent.Uri.Host);
+        var stored = await contentStore.ReadBytesAsync(ContentStoreScopes.ForBranch(session.Id, "main"), uriContent.Uri.Host);
         Assert.NotNull(stored);
         Assert.Equal(bytes, stored);
         Assert.Single(await capture.WaitForAsync<HostedFileUploadFailedEvent>());
@@ -232,7 +232,7 @@ public class ContentUploadMiddlewareTests
             state,
             coordinator,
             session,
-            new Branch(session.Id),
+            new Branch(session.Id, "main"),
             CancellationToken.None,
             clientSet: clientSet);
     }
@@ -336,7 +336,7 @@ public class ContentReferenceResolverMiddlewareTests
         var session = new SessionModel("test-session");
         var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
         var contentInfo = await contentStore.WriteBytesAsync(
-            session.Id,
+            ContentStoreScopes.ForBranch(session.Id, "main"),
             imageBytes,
             "image/png",
             new ContentMetadata { Origin = ContentSource.User });
@@ -414,11 +414,36 @@ public class ContentReferenceResolverMiddlewareTests
         Assert.Equal("image/png", resolved.MediaType);
     }
 
+    [Fact]
+    public async Task RoundTrip_ContentReference_DoesNotResolveFromSiblingBranchScope()
+    {
+        var contentStore = new InMemoryContentStore();
+        var uploadMiddleware = new ContentUploadMiddleware(providerRegistry: null, contentStore);
+        var resolveMiddleware = new ContentReferenceResolverMiddleware(contentStore);
+        var session = new SessionModel("test-session");
+        var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
+        var originalMessage = new ChatMessage(ChatRole.User, [new DataContent(imageBytes, "image/png")]);
+        using var capture = new EventCapture();
+        var runConfig = new AgentRunConfig { UploadStrategy = UploadStrategy.Local };
+        var context = CreateBeforeMessageTurnContext(session, originalMessage, capture.Coordinator, runConfig, "main");
+
+        await uploadMiddleware.BeforeMessageTurnAsync(context, CancellationToken.None);
+        var uploadedMessage = context.UserMessage!;
+        var contentReference = Assert.IsType<UriContent>(uploadedMessage.Contents[0]);
+
+        var siblingContext = CreateBeforeIterationContext(session, uploadedMessage, capture.Coordinator, runConfig, "alternate");
+        await resolveMiddleware.BeforeIterationAsync(siblingContext, CancellationToken.None);
+
+        Assert.Same(contentReference, Assert.Single(siblingContext.Messages[0].Contents));
+        Assert.Single(await capture.WaitForAsync<ContentReferenceResolutionFailedEvent>());
+    }
+
     private static BeforeIterationContext CreateBeforeIterationContext(
         SessionModel session,
         ChatMessage userMessage,
         EventCoordinator coordinator,
-        AgentRunConfig? runConfig = null)
+        AgentRunConfig? runConfig = null,
+        string branchId = "main")
     {
         var state = AgentLoopState.InitialSafe(
             new List<ChatMessage>(),
@@ -432,7 +457,7 @@ public class ContentReferenceResolverMiddlewareTests
             state,
             coordinator,
             session,
-            new Branch(session.Id),
+            new Branch(session.Id, branchId),
             CancellationToken.None);
 
         return context.AsBeforeIteration(
@@ -446,7 +471,8 @@ public class ContentReferenceResolverMiddlewareTests
         SessionModel session,
         ChatMessage userMessage,
         EventCoordinator coordinator,
-        AgentRunConfig? runConfig = null)
+        AgentRunConfig? runConfig = null,
+        string branchId = "main")
     {
         var state = AgentLoopState.InitialSafe(
             new List<ChatMessage>(),
@@ -460,7 +486,7 @@ public class ContentReferenceResolverMiddlewareTests
             state,
             coordinator,
             session,
-            new Branch(session.Id),
+            new Branch(session.Id, branchId),
             CancellationToken.None);
 
         return context.AsBeforeMessageTurn(userMessage, new List<ChatMessage>(), runConfig ?? new AgentRunConfig());

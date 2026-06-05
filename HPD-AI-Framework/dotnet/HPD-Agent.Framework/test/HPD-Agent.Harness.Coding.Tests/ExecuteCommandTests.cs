@@ -330,12 +330,12 @@ public sealed class ExecuteCommandTests : IDisposable
             command: "dotnet test");
 
         var xml = result.ToString();
-        xml.Should().Contain("artifact_path=\"/artifacts/commands/");
+        xml.Should().NotContain("artifact_path=");
         xml.Should().Contain("content_id=");
 
         var artifacts = await contentStore.QueryAsync("session-1", new ContentQuery
         {
-            Tags = new Dictionary<string, string> { ["folder"] = "/artifacts" }
+            Tags = new Dictionary<string, string> { ["kind"] = "artifact" }
         });
 
         artifacts.Select(item => item.Name).Should().Contain(name => name.EndsWith("/stdout.txt", StringComparison.Ordinal));

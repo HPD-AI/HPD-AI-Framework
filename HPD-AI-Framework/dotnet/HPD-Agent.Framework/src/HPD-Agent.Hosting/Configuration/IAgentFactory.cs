@@ -14,8 +14,8 @@ namespace HPD.Agent.Hosting.Configuration;
 ///
 /// Resolution priority (highest to lowest):
 /// 1. IAgentFactory from DI
-/// 2. AgentConfig object (serializable — from JSON, DB, admin UI)
-/// 3. AgentConfigPath file (serializable — loaded from disk)
+/// 2. DefaultAgent object (serializable — from JSON, DB, admin UI)
+/// 3. DefaultAgentPath file (serializable — loaded from disk)
 /// 4. ConfigureAgent callback (runtime-only concerns)
 /// 5. Empty builder (fallback)
 /// </remarks>

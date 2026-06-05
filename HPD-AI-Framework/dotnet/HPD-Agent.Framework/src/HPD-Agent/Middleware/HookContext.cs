@@ -76,7 +76,8 @@ public abstract class HookContext
     ///     var contentStore = context.ContentStore;
     ///     if (contentStore != null)
     ///     {
-    ///         var info = await contentStore.WriteBytesAsync(context.Session.Id, bytes,
+    ///         var info = await contentStore.WriteBytesAsync(
+    ///             ContentStoreScopes.ForBranch(context.SessionId!, context.BranchId!), bytes,
     ///             new ContentMetadata { ContentType = "image/jpeg" });
     ///     }
     /// }

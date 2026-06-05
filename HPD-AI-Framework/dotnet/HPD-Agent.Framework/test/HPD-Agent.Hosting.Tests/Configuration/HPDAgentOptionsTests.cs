@@ -26,7 +26,7 @@ public class HPDAgentConfigTests
     }
 
     [Fact]
-    public void AgentConfig_TakesPriority_OverAgentConfigPath()
+    public void DefaultAgent_TakesPriority_OverDefaultAgentPath()
     {
         // Arrange
         var config = new AgentConfig
@@ -37,13 +37,13 @@ public class HPDAgentConfigTests
 
         var options = new HPDAgentConfig
         {
-            AgentConfig = config,
-            AgentConfigPath = "./config.json" // Should be ignored
+            DefaultAgent = config,
+            DefaultAgentPath = "./config.json" // Should be ignored
         };
 
         // Assert
-        options.AgentConfig.Should().BeSameAs(config);
-        options.AgentConfigPath.Should().Be("./config.json"); // Still set, but not used
+        options.DefaultAgent.Should().BeSameAs(config);
+        options.DefaultAgentPath.Should().Be("./config.json"); // Still set, but not used
     }
 
     [Fact]
@@ -95,16 +95,16 @@ public class HPDAgentConfigTests
         {
             SessionStore = null,
             SessionStorePath = null,
-            AgentConfig = null,
-            AgentConfigPath = null,
+            DefaultAgent = null,
+            DefaultAgentPath = null,
             ConfigureAgent = null
         };
 
         // Assert - Should not throw
         options.SessionStore.Should().BeNull();
         options.SessionStorePath.Should().BeNull();
-        options.AgentConfig.Should().BeNull();
-        options.AgentConfigPath.Should().BeNull();
+        options.DefaultAgent.Should().BeNull();
+        options.DefaultAgentPath.Should().BeNull();
         options.ConfigureAgent.Should().BeNull();
     }
 }

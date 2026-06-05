@@ -1,5 +1,6 @@
 using HPD.Agent;
-using HPD.Execution.Local;
+using HPD.Agent.ToolHarness.Coding;
+using HPD.Agent.Sandbox.Local;
 using Microsoft.Extensions.AI;
 using System.Text.Json;
 
@@ -14,7 +15,7 @@ if (options.ShowHelp)
 var agentBuilder = new AgentBuilder()
     .WithAPIConfiguration(appsettingsPath ?? "appsettings.json", optional: true)
     .WithName("Coding CLI Test Agent")
-    .WithLocalExecution()
+    .WithLocalSandbox()
     .WithHarnessCollapsing()
     .WithToolHarness<CodingToolHarness>();
 
@@ -157,7 +158,7 @@ CliConsole.WriteErrorLine(
     $"Interactive coding CLI started. session={options.SessionId} branch={options.BranchId}. Type exit or quit to leave.");
 CliConsole.WriteErrorLine(
     ConsoleColor.DarkCyan,
-    "Execution profile: local HPD Execution providers");
+    "Execution profile: local HPD sandbox backend");
 
 var prompt = options.Prompt;
 while (true)

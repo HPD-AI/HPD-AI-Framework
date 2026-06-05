@@ -95,7 +95,6 @@ public class ContentUploadMiddleware : IAgentMiddleware
                 transformedContent = await RouteUploadAsync(
                     context,
                     data,
-                    session,
                     strategy,
                     cancellationToken);
             }
@@ -119,7 +118,6 @@ public class ContentUploadMiddleware : IAgentMiddleware
     private async Task<AIContent> RouteUploadAsync(
         BeforeMessageTurnContext context,
         DataContent data,
-        Session session,
         UploadStrategy strategy,
         CancellationToken cancellationToken)
     {
@@ -161,7 +159,6 @@ public class ContentUploadMiddleware : IAgentMiddleware
                 data,
                 hostedFileClient!,
                 mediaType,
-                session,
                 cancellationToken);
 
             if (result != null)
@@ -173,7 +170,6 @@ public class ContentUploadMiddleware : IAgentMiddleware
                 return await UploadToLocalAsync(
                     context,
                     data,
-                    session,
                     mediaType,
                     cancellationToken) ?? data;
             }
@@ -188,7 +184,6 @@ public class ContentUploadMiddleware : IAgentMiddleware
             return await UploadToLocalAsync(
                 context,
                 data,
-                session,
                 mediaType,
                 cancellationToken) ?? data;
         }
@@ -202,7 +197,6 @@ public class ContentUploadMiddleware : IAgentMiddleware
         DataContent data,
         IHostedFileClient hostedClient,
         string mediaType,
-        Session session,
         CancellationToken cancellationToken)
     {
         try
@@ -240,14 +234,13 @@ public class ContentUploadMiddleware : IAgentMiddleware
     private async Task<AIContent?> UploadToLocalAsync(
         BeforeMessageTurnContext context,
         DataContent data,
-        Session session,
         string mediaType,
         CancellationToken cancellationToken)
     {
         try
         {
             var info = await _contentStore!.WriteBytesAsync(
-                scope: session.Id,
+                scope: CreateScope(context),
                 data: data.Data.ToArray(),
                 metadata: new ContentMetadata
                 {
@@ -256,7 +249,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
                     Origin = ContentSource.User,
                     Tags = new Dictionary<string, string>
                     {
-                        ["folder"] = "/uploads"
+                        ["kind"] = "upload"
                     }
                 },
                 options: new ContentWriteOptions { Mode = ContentWriteMode.Create },
@@ -322,5 +315,13 @@ public class ContentUploadMiddleware : IAgentMiddleware
             content.AdditionalProperties.TryGetValue("filename", out var fn))
             return fn?.ToString();
         return null;
+    }
+
+    private static string CreateScope(HookContext context)
+    {
+        if (context.SessionId is null || context.BranchId is null)
+            throw new InvalidOperationException("Content upload requires an active session and branch.");
+
+        return ContentStoreScopes.ForBranch(context.SessionId, context.BranchId);
     }
 }

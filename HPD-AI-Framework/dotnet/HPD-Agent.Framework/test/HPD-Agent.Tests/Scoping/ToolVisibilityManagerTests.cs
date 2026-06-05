@@ -39,7 +39,7 @@ public class ToolVisibilityManagerTests
             ImmutableHashSet<string>.Empty); // No expanded skills
 
         // Assert
-        visibleTools.Should().HaveCount(2); // Only containers, no read_skill_document (no skills expanded)
+        visibleTools.Should().HaveCount(2); // Only containers
         visibleTools.Should().Contain(t => t.Name == "FinancialAnalysisToolHarness"); // Collapse container
         visibleTools.Should().Contain(t => t.Name == "FinancialAnalysisSkills"); // Collapse container
 
@@ -50,8 +50,6 @@ public class ToolVisibilityManagerTests
         // Should NOT contain individual skills
         visibleTools.Should().NotContain(t => t.Name == "QuickLiquidityAnalysis");
 
-        // Should NOT contain read_skill_document (no skills with documents expanded)
-        visibleTools.Should().NotContain(t => t.Name == "ReadSkillDocument");
     }
 
     #endregion
@@ -92,8 +90,6 @@ public class ToolVisibilityManagerTests
         // Should NOT show individual skills (parent Collapse not expanded)
         visibleTools.Should().NotContain(t => t.Name == "QuickLiquidityAnalysis");
 
-        // Should NOT contain read_skill_document (no skills with documents expanded)
-        visibleTools.Should().NotContain(t => t.Name == "ReadSkillDocument");
     }
 
     #endregion
@@ -132,9 +128,6 @@ public class ToolVisibilityManagerTests
         visibleTools.Should().NotContain(t => t.Name == "CalculateCurrentRatio");
         visibleTools.Should().NotContain(t => t.Name == "ComprehensiveBalanceSheetAnalysis");
 
-        // Should NOT contain read_skill_document (no skills expanded - only containers visible)
-        visibleTools.Should().NotContain(t => t.Name == "ReadSkillDocument");
-
         // Total: 1 ToolHarness container + 5 skills = 6
         visibleTools.Should().HaveCount(6);
     }
@@ -172,9 +165,6 @@ public class ToolVisibilityManagerTests
         // Orphan functions should be hidden (ToolHarness auto-registered, not explicit)
         visibleTools.Should().NotContain(t => t.Name == "ComprehensiveBalanceSheetAnalysis");
 
-        // Should NOT contain read_skill_document (no skills expanded - only skill containers visible)
-        visibleTools.Should().NotContain(t => t.Name == "ReadSkillDocument");
-        
         // Referenced functions hidden until skill expanded
         visibleTools.Should().NotContain(t => t.Name == "CalculateCurrentRatio");
     }
@@ -211,14 +201,11 @@ public class ToolVisibilityManagerTests
         // Individual skills hidden (parent Collapse not expanded)
         visibleTools.Should().NotContain(t => t.Name == "QuickLiquidityAnalysis");
 
-        // Should NOT contain read_skill_document (no skills expanded)
-        visibleTools.Should().NotContain(t => t.Name == "ReadSkillDocument");
-
         // ToolHarness functions hidden (orphans)
         visibleTools.Should().NotContain(t => t.Name == "ComprehensiveBalanceSheetAnalysis");
         visibleTools.Should().NotContain(t => t.Name == "CalculateCurrentRatio");
 
-        visibleTools.Should().HaveCount(1); // Only Collapse container, no read_skill_document
+        visibleTools.Should().HaveCount(1); // Only Collapse container
     }
 
     #endregion
@@ -250,7 +237,6 @@ public class ToolVisibilityManagerTests
         // Assert - Before expansion
         visibleToolsBeforeExpansion.Should().Contain(t => t.Name == "FinancialAnalysisToolHarness");
         visibleToolsBeforeExpansion.Should().NotContain(t => t.Name == "CalculateCurrentRatio");
-        visibleToolsBeforeExpansion.Should().NotContain(t => t.Name == "ReadSkillDocument"); // No skills expanded
         visibleToolsBeforeExpansion.Should().HaveCount(1); // Only ToolHarness container
 
         // Act - After expansion
@@ -262,8 +248,6 @@ public class ToolVisibilityManagerTests
         // Assert - After expansion, all functions visible
         visibleToolsAfterExpansion.Should().Contain(t => t.Name == "CalculateCurrentRatio");
         visibleToolsAfterExpansion.Should().Contain(t => t.Name == "ComprehensiveBalanceSheetAnalysis");
-        // Still no read_skill_document (no skills expanded, only ToolHarness expanded)
-        visibleToolsAfterExpansion.Should().NotContain(t => t.Name == "ReadSkillDocument");
     }
 
     #endregion
@@ -493,54 +477,6 @@ public class ToolVisibilityManagerTests
                 Name = name,
                 Description = $"{name} function"
             });
-    }
-
-    private IEnumerable<AIFunction> CreateSkillsWithDocuments(string? parentCollapse, bool withDocuments)
-    {
-        var skillNames = new[]
-        {
-            "QuickLiquidityAnalysis",
-            "CapitalStructureAnalysis"
-        };
-
-        return skillNames.Select(name =>
-        {
-            var props = new Dictionary<string, object>
-            {
-                ["IsContainer"] = true,
-                ["IsSkill"] = true,
-                ["ReferencedFunctions"] = GetReferencedFunctionsForSkill(name),
-                ["ReferencedToolHarnesses"] = new[] { "FinancialAnalysisToolHarness" }
-            };
-
-            if (parentCollapse != null)
-            {
-                props["ParentContainer"] = parentCollapse;
-            }
-
-            // Add documents metadata if requested
-            if (withDocuments)
-            {
-                props["DocumentUploads"] = new[]
-                {
-                    new Dictionary<string, string>
-                    {
-                        ["FilePath"] = $"./Skills/SOPs/{name}-SOP.md",
-                        ["DocumentId"] = $"{name.ToLower()}-sop",
-                        ["Description"] = $"SOP for {name}"
-                    }
-                };
-            }
-
-            return AIFunctionFactory.Create(
-                (object? args, CancellationToken ct) => Task.FromResult<object?>($"{name} executed"),
-                new AIFunctionFactoryOptions
-                {
-                    Name = name,
-                    Description = $"{name} skill",
-                    AdditionalProperties = props
-                });
-        });
     }
 
     #endregion

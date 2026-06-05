@@ -457,7 +457,7 @@ export type BranchEvent = AgentEvent & {
 };
 
 /**
- * Reference to an uploaded content (returned by POST /sessions/{sid}/content).
+ * Reference to an uploaded content (returned by POST /sessions/{sid}/branches/{bid}/content).
  * Passed as attachments in SendOptions; the workspace converts these to
  * UriContent references in the outgoing message.
  */

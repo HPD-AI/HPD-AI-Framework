@@ -68,15 +68,17 @@
 
 	// ── FileAttachment ───────────────────────────────────────────────────────
 	const activeSessionId = $derived(workspace.activeSessionId);
+	const activeBranchId = $derived(workspace.activeBranchId);
 	const isStreaming     = $derived(workspace.state?.streaming ?? false);
 
 	const attachments = new FileAttachmentState({
 		uploadFn:  boxWith(() => mockUpload),
 		sessionId: boxWith(() => activeSessionId),
+		branchId: boxWith(() => activeBranchId),
 		disabled:  boxWith(() => isStreaming),
 	});
 
-	async function mockUpload(_sid: string, file: File): Promise<ContentReference> {
+	async function mockUpload(_sid: string, _bid: string, file: File): Promise<ContentReference> {
 		await new Promise(r => setTimeout(r, 600));
 		return { contentId: `content-${Date.now()}`, version: 'rev:demo', contentType: file.type || 'application/octet-stream', name: file.name, sizeBytes: file.size };
 	}

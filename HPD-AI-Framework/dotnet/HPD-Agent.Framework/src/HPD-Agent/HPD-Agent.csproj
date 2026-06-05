@@ -34,7 +34,6 @@
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.5" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.5" />
-    <!-- Used by ContentStoreToolHarness for glob pattern matching on content names -->
     <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.5" />
     <PackageReference Include="NLayer" Version="1.16.0" />
 
@@ -62,7 +61,7 @@
     <InternalsVisibleTo Include="HPD-Agent.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Hosting.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Evaluations.Tests" />
-    <InternalsVisibleTo Include="HPD-Agent.ToolHarness.Coding.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.Tests" />
   </ItemGroup>
 
 </Project>

@@ -12,9 +12,9 @@ public sealed record ContentPersistenceRequest
     public string? Scope { get; init; }
 
     /// <summary>
-    /// Content folder tag, such as /memory/events or /artifacts.
+    /// Content kind tag, such as memory-event or artifact.
     /// </summary>
-    public required string Folder { get; init; }
+    public required string Kind { get; init; }
 
     /// <summary>
     /// Content item name.
@@ -37,7 +37,7 @@ public sealed record ContentPersistenceRequest
     public ContentSource Origin { get; init; } = ContentSource.System;
 
     /// <summary>
-    /// Additional tags to merge with standard event and folder tags.
+    /// Additional tags to merge with standard event and kind tags.
     /// </summary>
     public IReadOnlyDictionary<string, string>? Tags { get; init; }
 

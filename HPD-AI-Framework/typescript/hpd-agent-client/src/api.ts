@@ -474,10 +474,10 @@ export class AgentHttpApi {
     return this.readJson(response, 'Failed to get scores by version');
   }
 
-  async uploadContent(sessionId: string, file: File | Blob, name?: string): Promise<ContentReference> {
+  async uploadContent(sessionId: string, branchId: string, file: File | Blob, name?: string): Promise<ContentReference> {
     const form = new FormData();
     form.append('file', file, name ?? (file instanceof File ? file.name : 'upload'));
-    const response = await this.fetch(this.url(`/sessions/${sessionId}/content`), {
+    const response = await this.fetch(this.url(`/sessions/${sessionId}/branches/${branchId}/content`), {
       method: 'POST',
       body: form,
     });

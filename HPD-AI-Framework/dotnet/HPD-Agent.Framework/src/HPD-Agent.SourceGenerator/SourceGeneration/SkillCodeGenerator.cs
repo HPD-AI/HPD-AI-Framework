@@ -208,9 +208,6 @@ internal static class SkillCodeGenerator
         var baseMessage = $"{skill.Name} skill activated. Available functions: {functionList}";
         var escapedBaseMessage = baseMessage.Replace("\"", "\"\"");
 
-        // Determine if skill has documents
-        var hasDocuments = skill.Options.DocumentReferences.Any() || skill.Options.DocumentUploads.Any();
-
         // PHASE 5: SkillCapability uses FunctionResult instead of Instructions
         if (!string.IsNullOrEmpty(skill.FunctionResult))
         {
@@ -227,23 +224,9 @@ internal static class SkillCodeGenerator
             sb.AppendLine($"{escapedInstructions}\";");
             sb.AppendLine("                    }");
 
-            // Generate appropriate message based on whether skill has documents
-            if (hasDocuments)
-            {
-                var documentIds = skill.Options.DocumentUploads.Select(d => d.DocumentId)
-                    .Concat(skill.Options.DocumentReferences.Select(r => r.DocumentId))
-                    .Distinct().ToList();
-                var docPaths = string.Join(", ", documentIds.Select(id => $"content_read(\\\"/skills/{id}\\\")"));
-                var documentMessage = $"{skill.Name} skill activated. Available functions: {functionList}.\\n\\nReference documents available in the content store:\\n{string.Join("\\n", documentIds.Select(id => $"- content_read(\\\"/skills/{id}\\\")"))}";
-                var escapedDocumentMessage = documentMessage.Replace("\"", "\"\"");
-                sb.AppendLine($"                    return @\"{escapedDocumentMessage}\";");
-            }
-            else
-            {
-                var reinforcementMessage = $"{skill.Name} skill activated. Available functions: {functionList}.\\n\\nREMINDER: Follow the instructions provided for this skill when using its functions.";
-                var escapedReinforcementMessage = reinforcementMessage.Replace("\"", "\"\"");
-                sb.AppendLine($"                    return @\"{escapedReinforcementMessage}\";");
-            }
+            var reinforcementMessage = $"{skill.Name} skill activated. Available functions: {functionList}.\\n\\nREMINDER: Follow the instructions provided for this skill when using its functions.";
+            var escapedReinforcementMessage = reinforcementMessage.Replace("\"", "\"\"");
+            sb.AppendLine($"                    return @\"{escapedReinforcementMessage}\";");
             sb.AppendLine("                },");
         }
         else
@@ -252,20 +235,7 @@ internal static class SkillCodeGenerator
             sb.AppendLine("                async (arguments, functionContext, cancellationToken) =>");
             sb.AppendLine("                {");
 
-            // Generate appropriate message based on whether skill has documents
-            if (hasDocuments)
-            {
-                var documentIds = skill.Options.DocumentUploads.Select(d => d.DocumentId)
-                    .Concat(skill.Options.DocumentReferences.Select(r => r.DocumentId))
-                    .Distinct().ToList();
-                var documentMessage = $"{skill.Name} skill activated. Available functions: {functionList}.\\n\\nReference documents available in the content store:\\n{string.Join("\\n", documentIds.Select(id => $"- content_read(\\\"/skills/{id}\\\")"))}";
-                var escapedDocumentMessage = documentMessage.Replace("\"", "\"\"");
-                sb.AppendLine($"                    return @\"{escapedDocumentMessage}\";");
-            }
-            else
-            {
-                sb.AppendLine($"                    return @\"{escapedBaseMessage}\";");
-            }
+            sb.AppendLine($"                    return @\"{escapedBaseMessage}\";");
             sb.AppendLine("                },");
         }
         sb.AppendLine("                new HPDAIFunctionFactoryOptions");
@@ -514,131 +484,7 @@ internal static class SkillCodeGenerator
             sb.AppendLine(GenerateSkillContainerFunction(skill, ToolHarness));
         }
 
-        // Generate InitializeDocumentsAsync if any skill has document uploads or references
-        var initDocsCode = GenerateInitializeDocumentsAsync(ToolHarness);
-        if (!string.IsNullOrEmpty(initDocsCode))
-        {
-            sb.AppendLine();
-            sb.AppendLine(initDocsCode);
-        }
-
         return sb.ToString();
-    }
-
-    /// <summary>
-    /// Generates the InitializeDocumentsAsync(IContentStore) method for the registration class.
-    /// Called by AgentBuilder.Build() to upload skill documents to the V3 content store at startup.
-    /// Only generated when the toolharness has skills with document uploads or references.
-    /// Versioned write semantics: same document ID + same content = no-op (startup-safe).
-    /// </summary>
-    public static string GenerateInitializeDocumentsAsync(ToolHarnessInfo ToolHarness)
-    {
-        var allUploads = ToolHarness.SkillCapabilities
-            .SelectMany(s => s.Options.DocumentUploads)
-            .ToList();
-        var allReferences = ToolHarness.SkillCapabilities
-            .SelectMany(s => s.Options.DocumentReferences)
-            .ToList();
-
-        if (!allUploads.Any() && !allReferences.Any())
-            return string.Empty;
-
-        var sb = new StringBuilder();
-        sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// Uploads skill documents to the V3 content store.");
-        sb.AppendLine("        /// Called by AgentBuilder.Build() at startup. Idempotent — safe to call every run.");
-        sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static async System.Threading.Tasks.Task InitializeDocumentsAsync(HPD.Agent.IContentStore store, System.Threading.CancellationToken cancellationToken = default)");
-        sb.AppendLine("        {");
-
-        // Emit uploads (AddDocumentFromFile and AddDocumentFromUrl)
-        // Deduplicate by documentId — same doc may appear in multiple skills
-        var emittedIds = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
-        foreach (var doc in allUploads)
-        {
-            if (emittedIds.Contains(doc.DocumentId))
-                continue;
-            emittedIds.Add(doc.DocumentId);
-
-            var escapedDesc = doc.Description.Replace("\"", "\\\"");
-            var docId = doc.DocumentId;
-
-            if (doc.SourceType == HPD.Agent.SourceGenerator.Capabilities.DocumentSourceType.FilePath)
-            {
-                var escapedPath = doc.FilePath!.Replace("\\", "\\\\").Replace("\"", "\\\"");
-                sb.AppendLine($"            // From AddDocumentFromFile(\"{escapedPath}\", \"{escapedDesc}\")");
-                sb.AppendLine($"            await store.UploadSkillDocumentAsync(");
-                sb.AppendLine($"                documentId: \"{docId}\",");
-                sb.AppendLine($"                content: await System.IO.File.ReadAllTextAsync(");
-                sb.AppendLine($"                    System.IO.Path.IsPathRooted(\"{escapedPath}\")");
-                sb.AppendLine($"                        ? \"{escapedPath}\"");
-                sb.AppendLine($"                        : System.IO.Path.GetFullPath(\"{escapedPath}\"),");
-                sb.AppendLine($"                    cancellationToken),");
-                sb.AppendLine($"                description: \"{escapedDesc}\",");
-                sb.AppendLine($"                cancellationToken: cancellationToken);");
-            }
-            else // Url
-            {
-                var escapedUrl = doc.Url!.Replace("\"", "\\\"");
-                sb.AppendLine($"            // From AddDocumentFromUrl(\"{escapedUrl}\", \"{escapedDesc}\")");
-                sb.AppendLine($"            {{");
-                sb.AppendLine($"                using var __httpClient = new System.Net.Http.HttpClient();");
-                sb.AppendLine($"                __httpClient.Timeout = System.TimeSpan.FromSeconds(30);");
-                sb.AppendLine($"                var __content = await __httpClient.GetStringAsync(\"{escapedUrl}\", cancellationToken);");
-                sb.AppendLine($"                await store.UploadSkillDocumentAsync(");
-                sb.AppendLine($"                    documentId: \"{docId}\",");
-                sb.AppendLine($"                    content: __content,");
-                sb.AppendLine($"                    description: \"{escapedDesc}\",");
-                sb.AppendLine($"                    cancellationToken: cancellationToken);");
-                sb.AppendLine($"            }}");
-            }
-            sb.AppendLine();
-        }
-
-        // Emit link calls (AddDocument — reference existing documents with per-skill description override)
-        foreach (var docRef in allReferences)
-        {
-            // Find which skill owns this reference for skill name
-            var owningSkill = ToolHarness.SkillCapabilities
-                .FirstOrDefault(s => s.Options.DocumentReferences.Contains(docRef));
-            var skillName = owningSkill?.Name ?? ToolHarness.ClassName;
-
-            var escapedDesc = string.IsNullOrEmpty(docRef.DescriptionOverride)
-                ? string.Empty
-                : docRef.DescriptionOverride.Replace("\"", "\\\"");
-
-            sb.AppendLine($"            // From AddDocument(\"{docRef.DocumentId}\")");
-            sb.AppendLine($"            await store.LinkSkillDocumentAsync(");
-            sb.AppendLine($"                documentId: \"{docRef.DocumentId}\",");
-            sb.AppendLine($"                skillName: \"{skillName}\",");
-            if (!string.IsNullOrEmpty(escapedDesc))
-                sb.AppendLine($"                descriptionOverride: \"{escapedDesc}\",");
-            else
-                sb.AppendLine($"                descriptionOverride: string.Empty,");
-            sb.AppendLine($"                cancellationToken: cancellationToken);");
-            sb.AppendLine();
-        }
-
-        sb.AppendLine("        }");
-        sb.AppendLine();
-        sb.AppendLine("        /// <summary>True when this toolharness has skill documents to initialize.</summary>");
-        sb.AppendLine("        public static bool HasDocumentsToInitialize => true;");
-
-        return sb.ToString();
-    }
-
-    /// <summary>
-    /// Derives document ID from file path (matches SkillOptions logic)
-    /// </summary>
-    private static string DeriveDocumentIdFromPath(string filePath)
-    {
-        // "./docs/debugging-workflow.md" -> "debugging-workflow"
-        var fileName = System.IO.Path.GetFileNameWithoutExtension(filePath);
-
-        // Normalize to lowercase-kebab-case
-        return fileName.ToLowerInvariant()
-            .Replace(" ", "-")
-            .Replace("_", "-");
     }
 
     /// <summary>

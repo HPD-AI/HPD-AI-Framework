@@ -27,7 +27,7 @@ namespace HPD.Agent;
 /// <para>
 /// <b>Middleware Behavior:</b>
 /// <list type="bullet">
-/// <item>ContentUploadMiddleware: Uploads to IContentStore with /uploads folder tag, replaces with UriContent</item>
+/// <item>ContentUploadMiddleware: Uploads to IContentStore with kind=upload metadata, replaces with UriContent</item>
 /// <item>ImageMiddleware: Handles upload and future image generation</item>
 /// <item>Vision models: Sent as-is for native image understanding</item>
 /// </list>

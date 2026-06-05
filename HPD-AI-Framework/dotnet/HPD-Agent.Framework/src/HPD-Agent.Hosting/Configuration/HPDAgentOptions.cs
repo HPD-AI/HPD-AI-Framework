@@ -37,32 +37,54 @@ public class HPDAgentConfig
     public bool PersistAfterTurn { get; set; } = false;
 
     /// <summary>
-    /// Serializable agent configuration.
+    /// Serializable default agent definition.
     /// If set, seeds the AgentBuilder before ConfigureAgent runs.
     /// Because AgentConfig is JSON-serializable, it can be loaded from files,
     /// databases, or API payloads — enabling no-code agent definition.
-    /// Takes priority over AgentConfigPath.
+    /// Takes priority over <see cref="DefaultAgentPath"/>.
     /// </summary>
-    public AgentConfig? AgentConfig { get; set; }
+    public AgentConfig? DefaultAgent { get; set; }
 
-    /// <summary>Alias for <see cref="AgentConfig"/>. Used by the agent manager pipeline.</summary>
+    /// <summary>
+    /// Alias for <see cref="DefaultAgent"/> retained for callers that still use the
+    /// underlying DTO-oriented name.
+    /// </summary>
+    [Obsolete("Use DefaultAgent instead.")]
+    public AgentConfig? AgentConfig
+    {
+        get => DefaultAgent;
+        set => DefaultAgent = value;
+    }
+
+    /// <summary>Alias for <see cref="DefaultAgent"/>. Used by the agent manager pipeline.</summary>
     public AgentConfig? DefaultAgentConfig
     {
-        get => AgentConfig;
-        set => AgentConfig = value;
+        get => DefaultAgent;
+        set => DefaultAgent = value;
     }
 
     /// <summary>
-    /// Path to a JSON file containing an AgentConfig.
-    /// Loaded once per agent build. Ignored if AgentConfig is set.
+    /// Path to a JSON file containing the default agent definition.
+    /// Loaded once per agent build. Ignored if <see cref="DefaultAgent"/> is set.
     /// </summary>
-    public string? AgentConfigPath { get; set; }
+    public string? DefaultAgentPath { get; set; }
 
-    /// <summary>Alias for <see cref="AgentConfigPath"/>. Used by the agent manager pipeline.</summary>
+    /// <summary>
+    /// Alias for <see cref="DefaultAgentPath"/> retained for callers that still use the
+    /// underlying DTO-oriented name.
+    /// </summary>
+    [Obsolete("Use DefaultAgentPath instead.")]
+    public string? AgentConfigPath
+    {
+        get => DefaultAgentPath;
+        set => DefaultAgentPath = value;
+    }
+
+    /// <summary>Alias for <see cref="DefaultAgentPath"/>. Used by the agent manager pipeline.</summary>
     public string? DefaultAgentConfigPath
     {
-        get => AgentConfigPath;
-        set => AgentConfigPath = value;
+        get => DefaultAgentPath;
+        set => DefaultAgentPath = value;
     }
 
     /// <summary>
@@ -80,14 +102,14 @@ public class HPDAgentConfig
 
     /// <summary>
     /// Callback to configure the AgentBuilder for each new session.
-    /// Called after AgentConfig/AgentConfigPath are applied.
+    /// Called after DefaultAgent/DefaultAgentPath are applied.
     /// Use this for runtime-only concerns (compiled type references, DI services).
     /// </summary>
     /// <remarks>
     /// The AgentBuilder is pre-configured with the <see cref="SessionStore"/> and any
-    /// AgentConfig/AgentConfigPath settings. Use this callback for agent behavior only —
-    /// providers, tools, middleware, instructions. Do not call WithSessionStore() here;
-    /// set <see cref="SessionStore"/> directly instead.
+    /// default agent definition. Use this callback for runtime-only enrichment such as
+    /// DI-backed services, compiled tools, or server policy. Do not call WithSessionStore()
+    /// here; set <see cref="SessionStore"/> directly instead.
     /// </remarks>
     public Action<AgentBuilder>? ConfigureAgent { get; set; }
 

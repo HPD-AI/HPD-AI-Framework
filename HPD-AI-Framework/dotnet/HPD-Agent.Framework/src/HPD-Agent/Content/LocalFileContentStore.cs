@@ -5,7 +5,7 @@ namespace HPD.Agent;
 /// <summary>
 /// Local file system implementation of IContentStore.
 /// Stores content as individual files in a directory structure organized by scope.
-/// Supports folder-based organization via metadata tags, explicit versioned writes, and full ContentQuery filtering.
+/// Supports metadata-based organization, explicit versioned writes, and full ContentQuery filtering.
 /// </summary>
 /// <remarks>
 /// <para><b>Storage Layout:</b></para>
@@ -485,10 +485,10 @@ public class LocalFileContentStore : IContentStore
 
     private static string MakeNameKey(string? name, IReadOnlyDictionary<string, string>? tags)
     {
-        var folder = tags != null && tags.TryGetValue("folder", out var value)
+        var kind = tags != null && tags.TryGetValue("kind", out var value)
             ? value.Trim().Trim('/')
             : "";
-        return $"{folder}/{name}".ToLowerInvariant();
+        return $"{kind}/{name}".ToLowerInvariant();
     }
 
     // ═══════════════════════════════════════════════════════════════════

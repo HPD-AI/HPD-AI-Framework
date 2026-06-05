@@ -409,7 +409,7 @@ export class AgentClient {
     return this.api.getScoresByVersion(evaluatorName, version);
   }
 
-  uploadContent(sessionId: string, file: File | Blob, name?: string): Promise<ContentReference> {
-    return this.api.uploadContent(sessionId, file, name);
+  uploadContent(sessionId: string, branchId: string, file: File | Blob, name?: string): Promise<ContentReference> {
+    return this.api.uploadContent(sessionId, branchId, file, name);
   }
 }

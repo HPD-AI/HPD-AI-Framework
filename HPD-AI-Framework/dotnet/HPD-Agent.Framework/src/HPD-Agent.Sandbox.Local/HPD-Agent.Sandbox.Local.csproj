@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <RootNamespace>HPD.Agent.Sandbox.Local</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.Sandbox.Local</PackageId>
+    <Description>Direct local host sandbox backend for HPD Agent process execution.</Description>
+    <PackageTags>sandbox;local;process;execution</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
+
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Agent.Sandbox.Local.Tests" />
+  </ItemGroup>
+</Project>

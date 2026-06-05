@@ -62,19 +62,19 @@ describe('AgentClient.uploadContent() — AgentHttpApi', () => {
     vi.restoreAllMocks();
   });
 
-  it('calls POST /sessions/{sid}/content', async () => {
+  it('calls POST /sessions/{sid}/branches/{bid}/content', async () => {
     const spy = mockFetchJson(CONTENT_REFERENCE, 200);
-    await client.uploadContent('sess-1', makeFile());
+    await client.uploadContent('sess-1', 'main', makeFile());
 
     expect(vi.mocked(fetch)).toHaveBeenCalledOnce();
     const [url, init] = vi.mocked(fetch).mock.calls[0];
-    expect(String(url)).toBe(`${BASE}/sessions/sess-1/content`);
+    expect(String(url)).toBe(`${BASE}/sessions/sess-1/branches/main/content`);
     expect(init?.method).toBe('POST');
   });
 
   it('sends a FormData body (no Content-Type header — browser sets boundary)', async () => {
     mockFetchJson(CONTENT_REFERENCE);
-    await client.uploadContent('sess-1', makeFile());
+    await client.uploadContent('sess-1', 'main', makeFile());
 
     const [, init] = vi.mocked(fetch).mock.calls[0];
     expect(init?.body).toBeInstanceOf(FormData);
@@ -85,7 +85,7 @@ describe('AgentClient.uploadContent() — AgentHttpApi', () => {
 
   it('returns the parsed ContentReference from the response', async () => {
     mockFetchJson(CONTENT_REFERENCE);
-    const result = await client.uploadContent('sess-1', makeFile());
+    const result = await client.uploadContent('sess-1', 'main', makeFile());
 
     expect(result).toEqual(CONTENT_REFERENCE);
   });
@@ -93,7 +93,7 @@ describe('AgentClient.uploadContent() — AgentHttpApi', () => {
   it('uses the File name as the form field filename by default', async () => {
     mockFetchJson(CONTENT_REFERENCE);
     const file = makeFile('my-screenshot.png');
-    await client.uploadContent('sess-1', file);
+    await client.uploadContent('sess-1', 'main', file);
 
     const [, init] = vi.mocked(fetch).mock.calls[0];
     const form = init?.body as FormData;
@@ -103,7 +103,7 @@ describe('AgentClient.uploadContent() — AgentHttpApi', () => {
 
   it('uses "upload" as filename for a plain Blob', async () => {
     mockFetchJson(CONTENT_REFERENCE);
-    await client.uploadContent('sess-1', makeBlob());
+    await client.uploadContent('sess-1', 'main', makeBlob());
 
     const [, init] = vi.mocked(fetch).mock.calls[0];
     const form = init?.body as FormData;
@@ -113,7 +113,7 @@ describe('AgentClient.uploadContent() — AgentHttpApi', () => {
 
   it('uses the name param to override the filename', async () => {
     mockFetchJson(CONTENT_REFERENCE);
-    await client.uploadContent('sess-1', makeFile('original.png'), 'override.png');
+    await client.uploadContent('sess-1', 'main', makeFile('original.png'), 'override.png');
 
     const [, init] = vi.mocked(fetch).mock.calls[0];
     const form = init?.body as FormData;
@@ -129,7 +129,7 @@ describe('AgentClient.uploadContent() — AgentHttpApi', () => {
       text: async () => 'Payload Too Large',
     } as Response);
 
-    await expect(client.uploadContent('sess-1', makeFile())).rejects.toThrow('413');
+    await expect(client.uploadContent('sess-1', 'main', makeFile())).rejects.toThrow('413');
   });
 });
 

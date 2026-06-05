@@ -45,8 +45,6 @@ namespace HPD.Agent;
 [JsonSerializable(typeof(ClientSkillDefinition[]))]
 [JsonSerializable(typeof(ClientSkillReference))]
 [JsonSerializable(typeof(ClientSkillReference[]))]
-[JsonSerializable(typeof(ClientSkillDocument))]
-[JsonSerializable(typeof(ClientSkillDocument[]))]
 [JsonSerializable(typeof(ContextItem))]
 [JsonSerializable(typeof(ContextItem[]))]
 [JsonSerializable(typeof(ImmutableHashSet<string>))]

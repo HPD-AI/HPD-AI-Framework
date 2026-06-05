@@ -44,20 +44,20 @@ internal class AspNetCoreAgentManager : AgentManager
             return await _agentFactory.CreateAgentAsync(agentId, _sessionManager.Store, ct);
 
         // Priority 2: stored.Config loaded by AgentBuilder through IAgentStore
-        // Priority 3: DefaultAgentConfig object
-        // Priority 4: DefaultAgentConfigPath file
+        // Priority 3: DefaultAgent object
+        // Priority 4: DefaultAgentPath file
         // Priority 5: Empty builder (fallback)
         AgentBuilder builder;
-        if (opts.DefaultAgentConfig != null)
+        if (opts.DefaultAgent != null)
         {
-            builder = new AgentBuilder(opts.DefaultAgentConfig);
+            builder = new AgentBuilder(opts.DefaultAgent);
         }
-        else if (opts.DefaultAgentConfigPath != null)
+        else if (opts.DefaultAgentPath != null)
         {
-            var json = await File.ReadAllTextAsync(opts.DefaultAgentConfigPath, ct);
+            var json = await File.ReadAllTextAsync(opts.DefaultAgentPath, ct);
             var loaded = JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentConfig)
                 ?? throw new InvalidOperationException(
-                    $"Failed to deserialize AgentConfig from {opts.DefaultAgentConfigPath}");
+                    $"Failed to deserialize default agent definition from {opts.DefaultAgentPath}");
             builder = new AgentBuilder(loaded);
         }
         else
@@ -71,7 +71,7 @@ internal class AspNetCoreAgentManager : AgentManager
             .WithAgentStore(AgentStore, opts.PersistAgentDefinitionsOnBuild)
             .WithSessionStore(_sessionManager.Store, opts.PersistAfterTurn);
 
-        // ConfigureAgent always runs last — server enrichment for all agents
+        // ConfigureAgent always runs last — server runtime enrichment for all agents.
         opts.ConfigureAgent?.Invoke(builder);
 
         return await builder.BuildAsync(ct);

@@ -75,7 +75,7 @@ public sealed class AgentContext
 
     /// <summary>
     /// Explicit content store configured for this agent.
-    /// Content visibility is controlled by scope and folder metadata, not by the session store.
+    /// Content visibility is controlled by backend scope and metadata, not by the session store.
     /// </summary>
     public IContentStore? ContentStore => _contentStore;
 
@@ -117,7 +117,7 @@ public sealed class AgentContext
     ///     var contentStore = context.ContentStore;
     ///     if (contentStore != null)
     ///     {
-    ///         // Upload/retrieve session-scoped content, etc.
+    ///         // Upload/retrieve branch-scoped content, etc.
     ///     }
     /// }
     /// </code>

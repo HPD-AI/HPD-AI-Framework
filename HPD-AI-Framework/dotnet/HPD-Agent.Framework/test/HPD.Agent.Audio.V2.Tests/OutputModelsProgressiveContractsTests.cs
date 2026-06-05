@@ -167,13 +167,13 @@ public sealed class OutputModelsProgressiveContractsTests
         var finalSegmentId = new OutputSegmentId("segment-0002");
         var firstArtifact = new AudioArtifactRef(
             Store: "hpd-content",
-            ArtifactId: "session/artifacts/segment-0001.mp3",
+            ArtifactId: "content-segment-0001",
             MediaType: "audio/mpeg",
             SizeBytes: 100,
             Sha256: "sha-first");
         var finalArtifact = new AudioArtifactRef(
             Store: "hpd-content",
-            ArtifactId: "session/artifacts/segment-0002.mp3",
+            ArtifactId: "content-segment-0002",
             MediaType: "audio/mpeg",
             SizeBytes: 200,
             Sha256: "sha-final");
@@ -321,7 +321,7 @@ public sealed class OutputModelsProgressiveContractsTests
         var segmentId = ids.NextOutputSegmentId();
         var artifact = new AudioArtifactRef(
             Store: "hpd-content",
-            ArtifactId: "session-progressive/artifacts/segment-0001.mp3",
+            ArtifactId: "content-segment-0001",
             MediaType: "audio/mpeg",
             SizeBytes: 1234,
             Sha256: "abc123");

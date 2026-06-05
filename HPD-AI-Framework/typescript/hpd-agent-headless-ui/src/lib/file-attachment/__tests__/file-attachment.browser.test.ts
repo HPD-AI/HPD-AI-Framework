@@ -29,8 +29,9 @@ const DEFAULT_CONTENT: ContentReference = {
 function setup(props: {
 	mode?: 'external' | 'internal';
 	sessionId?: string | null;
+	branchId?: string | null;
 	disabled?: boolean;
-	uploadFn?: (sid: string, file: File) => Promise<ContentReference>;
+	uploadFn?: (sid: string, bid: string, file: File) => Promise<ContentReference>;
 } = {}) {
 	render(FileAttachmentTest, { props } as any);
 }

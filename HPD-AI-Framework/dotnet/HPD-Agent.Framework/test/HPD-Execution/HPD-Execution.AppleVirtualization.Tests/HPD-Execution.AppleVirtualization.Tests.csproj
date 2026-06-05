@@ -25,7 +25,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../../../src/HPD-Execution/HPD-Execution.AppleVirtualization/HPD-Execution.AppleVirtualization.csproj" />
-    <ProjectReference Include="../../../src/HPD-Execution/HPD-Execution.AppleVirtualization.DevKit/HPD-Execution.AppleVirtualization.DevKit.csproj" />
     <ProjectReference Include="../../../src/HPD-Agent/HPD-Agent.csproj" />
   </ItemGroup>
 </Project>

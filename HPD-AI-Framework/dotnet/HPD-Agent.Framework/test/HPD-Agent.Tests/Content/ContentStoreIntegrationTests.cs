@@ -188,7 +188,7 @@ public class ContentStoreIntegrationTests
             Name = "greeting.txt",
             Description = "A simple greeting",
             Origin = ContentSource.User,
-            Tags = new Dictionary<string, string> { ["folder"] = "/uploads" }
+            Tags = new Dictionary<string, string> { ["kind"] = "upload" }
         });
 
         var results = await store.QueryAsync("agent-1");
@@ -199,7 +199,7 @@ public class ContentStoreIntegrationTests
         Assert.Equal("A simple greeting", info.Description);
         Assert.Equal(ContentSource.User, info.Origin);
         Assert.Equal(data.Length, info.SizeBytes);
-        Assert.Equal("/uploads", info.Tags!["folder"]);
+        Assert.Equal("upload", info.Tags!["kind"]);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -213,19 +213,19 @@ public class ContentStoreIntegrationTests
 
         await store.WriteBytesAsync("agent-1", new byte[] { 1 }, "text/plain", new ContentMetadata
         {
-            Tags = new Dictionary<string, string> { ["folder"] = "/knowledge" }
+            Tags = new Dictionary<string, string> { ["kind"] = "knowledge" }
         });
         await store.WriteBytesAsync("agent-1", new byte[] { 2 }, "text/plain", new ContentMetadata
         {
-            Tags = new Dictionary<string, string> { ["folder"] = "/memory" }
+            Tags = new Dictionary<string, string> { ["kind"] = "memory" }
         });
 
         var knowledge = await store.QueryAsync("agent-1", new ContentQuery
         {
-            Tags = new Dictionary<string, string> { ["folder"] = "/knowledge" }
+            Tags = new Dictionary<string, string> { ["kind"] = "knowledge" }
         });
 
         Assert.Single(knowledge);
-        Assert.Equal("/knowledge", knowledge[0].Tags!["folder"]);
+        Assert.Equal("knowledge", knowledge[0].Tags!["kind"]);
     }
 }

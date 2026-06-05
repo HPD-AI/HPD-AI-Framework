@@ -41,7 +41,7 @@ public class AgentEventContentPersistenceTests
         Assert.Equal("event-1.json", info.Name);
         Assert.Equal("application/json", info.ContentType);
         Assert.Equal(ContentSource.Agent, info.Origin);
-        Assert.Equal("/memory/events", info.Tags?["folder"]);
+        Assert.Equal("memory-event", info.Tags?["kind"]);
         Assert.Equal("PERSISTABLE_CONTENT_TEST", info.Tags?["event.type"]);
         Assert.Equal("event-1", info.Tags?["event.id"]);
         Assert.Equal("session-1", info.Tags?["session"]);
@@ -50,7 +50,7 @@ public class AgentEventContentPersistenceTests
         Assert.Equal("span-1", info.Tags?["span"]);
         Assert.Equal("TestAgent", info.Tags?["agent.name"]);
         Assert.Equal("agent-1", info.Tags?["agent.id"]);
-        Assert.Equal("test", info.Tags?["kind"]);
+        Assert.Equal("test", info.Tags?["test-tag"]);
 
         await using var stream = await store.OpenReadAsync("default-scope", info.Id);
         Assert.NotNull(stream);
@@ -80,13 +80,13 @@ internal sealed record PersistableContentTestEvent(string Value) : AgentEvent
 {
     public override ContentPersistenceRequest? GetContentPersistenceRequest() => new()
     {
-        Folder = "memory/events",
+        Kind = "memory-event",
         Name = "event-1.json",
         Description = "Persisted test event",
         Origin = ContentSource.Agent,
         Tags = new Dictionary<string, string>
         {
-            ["kind"] = "test"
+            ["test-tag"] = "test"
         }
     };
 }

@@ -1243,7 +1243,7 @@ public sealed record ContentSelector { public required ContentSelectorKind Kind 
 public enum ContentSelectorKind { WorkspaceRole, WorkspacePath, ContentStoreQuery, Scratch, ProviderSource, HostPath }
 public sealed record HostPathSelection(HostPath Path, HostPathKind Kind = HostPathKind.Directory, bool RequireExists = true);
 public enum HostPathKind { File, Directory, Socket, Any }
-public sealed record ContentStoreSelection(string? Scope = null, string? Folder = null, string? Name = null, string? ContentType = null, IReadOnlyDictionary<string, string>? Tags = null);
+public sealed record ContentStoreSelection(string? Scope = null, string? Kind = null, string? Name = null, string? ContentType = null, IReadOnlyDictionary<string, string>? Tags = null);
 public sealed record ContentFilter(ContentFilterKind Kind, string? Value = null, DateTimeOffset? Since = null);
 public enum ContentFilterKind { NameEquals, PathPrefix, ContentTypeEquals, TagEquals, CreatedAfter, ModifiedAfter }
 public sealed record ScratchSelection(ByteSize SizeHint = default, bool MemoryBackedPreferred = false);

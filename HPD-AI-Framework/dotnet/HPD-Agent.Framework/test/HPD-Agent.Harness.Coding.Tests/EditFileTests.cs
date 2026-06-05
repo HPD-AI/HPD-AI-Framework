@@ -438,7 +438,7 @@ public sealed class EditFileTests : IDisposable
     {
         var source = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.Coding/CodingToolHarness.EditFile.cs"));
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/CodingHarness.EditFile.cs"));
 
         source.Should().NotContain("LanguageServer");
         source.Should().NotContain("LSP");

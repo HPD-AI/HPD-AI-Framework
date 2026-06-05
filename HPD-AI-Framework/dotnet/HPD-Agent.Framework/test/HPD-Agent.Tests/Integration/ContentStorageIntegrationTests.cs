@@ -100,8 +100,9 @@ public class ContentStorageIntegrationTests
 
             // Assert: Verify content was stored and is retrievable
             var contentId = uriContent.Uri.Host;
-            var retrievedContent = await contentStore.ReadBytesAsync(session.Id, contentId, CancellationToken.None);
-            var retrievedInfo = await contentStore.StatAsync(session.Id, contentId, CancellationToken.None);
+            var contentScope = ContentStoreScopes.ForBranch(session.Id, branch.Id);
+            var retrievedContent = await contentStore.ReadBytesAsync(contentScope, contentId, CancellationToken.None);
+            var retrievedInfo = await contentStore.StatAsync(contentScope, contentId, CancellationToken.None);
             Assert.NotNull(retrievedContent);
             Assert.NotNull(retrievedInfo);
             Assert.Equal(imageBytes, retrievedContent);
@@ -110,8 +111,8 @@ public class ContentStorageIntegrationTests
 
             // Assert: Verify content file exists on disk (exclude .meta companion files)
             // LocalFileContentStore stores at {basePath}/{scope}/{contentId}.ext
-            // basePath = {tempDir}/content, scope = sessionId
-            var contentFiles = Directory.GetFiles(Path.Combine(tempDir, "content", session.Id), $"{contentId}.*")
+            // basePath = {tempDir}/content, scope = branch-scoped content scope
+            var contentFiles = Directory.GetFiles(Path.Combine(tempDir, "content", contentScope), $"{contentId}.*")
                 .Where(f => !f.EndsWith(".meta") && !f.EndsWith(".nameindex"))
                 .ToArray();
             Assert.Single(contentFiles);
@@ -209,17 +210,18 @@ public class ContentStorageIntegrationTests
             Assert.Equal(3, uriContents.Count);
 
             // Assert: All content items retrievable
+            var contentScope = ContentStoreScopes.ForBranch(session.Id, branch.Id);
             foreach (var uriContent in uriContents)
             {
                 var contentId = uriContent.Uri.Host;
-                var content = await contentStore.ReadBytesAsync(session.Id, contentId, CancellationToken.None);
+                var content = await contentStore.ReadBytesAsync(contentScope, contentId, CancellationToken.None);
                 Assert.NotNull(content);
             }
 
             // Assert: Correct file extensions on disk
             // LocalFileContentStore stores at {basePath}/{scope}/{contentId}.ext
-            // basePath = {tempDir}/content, scope = sessionId
-            var contentDir = Path.Combine(tempDir, "content", session.Id);
+            // basePath = {tempDir}/content, scope = branch-scoped content scope
+            var contentDir = Path.Combine(tempDir, "content", contentScope);
             Assert.True(Directory.GetFiles(contentDir, "*.png").Length >= 1);
             Assert.True(Directory.GetFiles(contentDir, "*.jpg").Length >= 1);
             Assert.True(Directory.GetFiles(contentDir, "*.pdf").Length >= 1);
@@ -345,8 +347,9 @@ public class ContentStorageIntegrationTests
             Assert.Equal(contentId, uri2.Uri.Host);
 
             // Assert: Content still retrievable after roundtrip
-            var retrievedContent = await contentStore.ReadBytesAsync(session2.Id, contentId, CancellationToken.None);
-            var retrievedInfo = await contentStore.StatAsync(session2.Id, contentId, CancellationToken.None);
+            var contentScope = ContentStoreScopes.ForBranch(session2.Id, branch2.Id);
+            var retrievedContent = await contentStore.ReadBytesAsync(contentScope, contentId, CancellationToken.None);
+            var retrievedInfo = await contentStore.StatAsync(contentScope, contentId, CancellationToken.None);
             Assert.NotNull(retrievedContent);
             Assert.NotNull(retrievedInfo);
             Assert.Equal(imageBytes, retrievedContent);
@@ -447,7 +450,7 @@ public class ContentStorageIntegrationTests
         Assert.NotNull(wrappedHostedClient);
         Assert.Equal(1, wrappedHostedClient.UploadCount);
         Assert.Single(hostedClient.Uploads);
-        Assert.Empty(await contentStore.QueryAsync(session.Id));
+        Assert.Empty(await contentStore.QueryAsync(ContentStoreScopes.ForBranch(session.Id, branch.Id)));
 
         var uploadEvent = events.OfType<HostedFileUploadedEvent>().Single();
         Assert.Equal("file-1", uploadEvent.FileId);

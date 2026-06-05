@@ -432,16 +432,6 @@ public class ClientToolMiddleware : IAgentMiddleware
             returnMessage += $"\n\n{skill.FunctionResult}";
         }
 
-        // Build document reference list for activation message ( content_read paths)
-        if (skill.Documents != null && skill.Documents.Count > 0)
-        {
-            returnMessage += "\n\nReference documents available in the content store:";
-            foreach (var doc in skill.Documents)
-            {
-                returnMessage += $"\n- content_read(\"/skills/{doc.DocumentId}\") — {doc.Description}";
-            }
-        }
-
         // Build referenced function names for ToolVisibilityManager
         var referencedFunctions = Array.Empty<string>();
         var referencedToolHarnesses = Array.Empty<string>();

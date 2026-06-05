@@ -3,7 +3,6 @@ using System.Linq;
 using HPD.Agent.Middleware;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.Extensions.AI;
 using Xunit;
 
 namespace HPD.Agent.Tests.SourceGenerator;
@@ -12,25 +11,24 @@ public sealed class FunctionRuntimeContextSourceGeneratorTests
 {
     private static (string GeneratedCode, ImmutableArray<Diagnostic> Diagnostics) RunGenerator(string source)
     {
+        var parseOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest);
+        var references = AppDomain.CurrentDomain.GetAssemblies()
+            .Where(a => !a.IsDynamic && !string.IsNullOrEmpty(a.Location))
+            .Select(a => MetadataReference.CreateFromFile(a.Location))
+            .ToArray();
+
         var compilation = CSharpCompilation.Create(
             "FunctionRuntimeContextGeneratorTests",
-            new[] { CSharpSyntaxTree.ParseText(source) },
-            new[]
-            {
-                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(System.Runtime.CompilerServices.RuntimeHelpers).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(AIFunctionAttribute).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(AIFunctionArguments).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(FunctionExecutionContext).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(HPD.Events.IEventCoordinator).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(HPD.MultiAgent.AgentWorkflowInstance).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(System.Collections.Generic.List<>).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(System.Linq.Enumerable).Assembly.Location),
-            },
+            new[] { CSharpSyntaxTree.ParseText(source, parseOptions) },
+            references,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
         var generator = new global::HPDToolSourceGenerator();
-        CSharpGeneratorDriver.Create(generator)
+        CSharpGeneratorDriver.Create(
+                generators: new ISourceGenerator[] { generator.AsSourceGenerator() },
+                additionalTexts: Enumerable.Empty<AdditionalText>(),
+                parseOptions: parseOptions,
+                optionsProvider: null)
             .RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out var diagnostics);
 
         var generatedCode = string.Join(
@@ -139,8 +137,10 @@ public partial class RuntimeToolHarness
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
-        Assert.Contains("CreateJsonSchema", generatedCode);
-        Assert.Contains("typeof(SearchArgs)", generatedCode);
+        Assert.Contains("SchemaProvider = () =>", generatedCode);
+        Assert.Contains("JsonDocument.Parse", generatedCode);
+        Assert.Contains("public class SearchArgs", generatedCode);
+        Assert.Contains("ParseSearchArgs", generatedCode);
         Assert.DoesNotContain("CreateFunctionJsonSchema", generatedCode);
     }
 
@@ -168,7 +168,8 @@ public partial class RuntimeToolHarness
         Assert.Contains("public string query", generatedCode);
         Assert.DoesNotContain($"public {runtimeParameter}", generatedCode);
         Assert.DoesNotContain($"JsonPropertyName(\"{parameterName}\")", generatedCode);
-        Assert.Contains("typeof(SearchArgs)", generatedCode);
+        Assert.Contains("public class SearchArgs", generatedCode);
+        Assert.Contains("ParseSearchArgs", generatedCode);
     }
 
     [Fact]
@@ -190,8 +191,8 @@ public partial class RuntimeToolHarness
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
         Assert.Contains("Ping(functionContext, cancellationToken)", generatedCode);
         Assert.DoesNotContain("class PingArgs", generatedCode);
-        Assert.Contains("CreateJsonSchema(", generatedCode);
-        Assert.Contains("null,", generatedCode);
+        Assert.Contains("SchemaProvider = () =>", generatedCode);
+        Assert.Contains("JsonDocument.Parse", generatedCode);
     }
 
     [Fact]

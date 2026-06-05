@@ -14,8 +14,6 @@ namespace HPD.Agent.Tests.Skills;
 /// What these tests validate:
 /// 1. Skill methods execute correctly at runtime
 /// 2. SkillFactory.Create produces correct Skill objects
-/// 3. Fluent API methods (AddDocumentFromFile, AddDocumentReference) work at runtime
-/// 4. Document uploads and references are correctly populated
 /// </summary>
 public class Phase3SkillRuntimeTests
 {
@@ -80,65 +78,6 @@ public class Phase3SkillRuntimeTests
         Assert.Contains("ToolHarnessA.Function1", skill.References);
         Assert.Contains("ToolHarnessB.Function2", skill.References);
         Assert.Contains("ToolHarnessC.Function3", skill.References);
-    }
-
-    // ===== P0: SkillOptions Fluent API =====
-
-    [Fact]
-    public void SourceGenerator_ExtractsAddDocument_FromFluentAPI()
-    {
-        // Arrange
-        var ToolHarness = new TestSkillToolHarness();
-
-        // Act
-        var skill = ToolHarness.SkillWithDocumentReference();
-
-        // Assert
-        Assert.NotNull(skill);
-        Assert.NotNull(skill.Options);
-        Assert.NotNull(skill.Options.DocumentReferences);
-        Assert.Single(skill.Options.DocumentReferences);
-
-        var docRef = skill.Options.DocumentReferences[0];
-        Assert.Equal("test-document", docRef.DocumentId);
-    }
-
-    [Fact]
-    public void SourceGenerator_ExtractsAddDocumentFromFile_FromFluentAPI()
-    {
-        // Arrange
-        var ToolHarness = new TestSkillToolHarness();
-
-        // Act
-        var skill = ToolHarness.SkillWithDocumentUpload();
-
-        // Assert
-        Assert.NotNull(skill);
-        Assert.NotNull(skill.Options);
-        Assert.NotNull(skill.Options.DocumentUploads);
-        Assert.Single(skill.Options.DocumentUploads);
-
-        var upload = skill.Options.DocumentUploads[0];
-        Assert.Equal("./docs/test.md", upload.FilePath);
-        Assert.Equal("Test document", upload.Description);
-    }
-
-    [Fact]
-    public void SourceGenerator_HandlesChainedFluentAPI_MultipleDocuments()
-    {
-        // Arrange
-        var ToolHarness = new TestSkillToolHarness();
-
-        // Act
-        var skill = ToolHarness.SkillWithMultipleDocuments();
-
-        // Assert
-        Assert.NotNull(skill);
-        Assert.NotNull(skill.Options);
-
-        // Should have both references and uploads
-        Assert.Equal(2, skill.Options.DocumentReferences.Count);
-        Assert.Single(skill.Options.DocumentUploads);
     }
 
     // ===== P0: Method Signature Validation =====
@@ -267,44 +206,6 @@ public class Phase3SkillRuntimeTests
                 "ToolHarnessA.Function1",
                 "ToolHarnessB.Function2",
                 "ToolHarnessC.Function3");
-        }
-
-        [Skill]
-        public Skill SkillWithDocumentReference()
-        {
-            return SkillFactory.Create(
-                "DocRefSkill",
-                "Skill with document reference",
-                functionResult: "Skill activated",
-                systemPrompt: "Instructions",
-                options: new SkillOptions()
-                    .AddDocument("test-document"));
-        }
-
-        [Skill]
-        public Skill SkillWithDocumentUpload()
-        {
-            return SkillFactory.Create(
-                "DocUploadSkill",
-                "Skill with document upload",
-                functionResult: "Skill activated",
-                systemPrompt: "Instructions",
-                options: new SkillOptions()
-                    .AddDocumentFromFile("./docs/test.md", "Test document"));
-        }
-
-        [Skill]
-        public Skill SkillWithMultipleDocuments()
-        {
-            return SkillFactory.Create(
-                "MultiDocSkill",
-                "Skill with multiple documents",
-                functionResult: "Skill activated",
-                systemPrompt: "Instructions",
-                options: new SkillOptions()
-                    .AddDocument("doc1")
-                    .AddDocument("doc2")
-                    .AddDocumentFromFile("./docs/additional.md", "Additional doc", "doc3"));
         }
 
         [Skill]

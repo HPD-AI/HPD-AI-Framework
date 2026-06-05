@@ -2028,7 +2028,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
                 Origin = ContentSource.Agent,
                 Tags = new Dictionary<string, string>
                 {
-                    ["folder"] = "/artifacts",
+                    ["kind"] = "artifact",
                     ["artifact-kind"] = "execute_command_output",
                     ["command-id"] = _commandId,
                     ["stream"] = stream,
@@ -2042,7 +2042,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
 
         return local with
         {
-            ArtifactPath = $"/artifacts/{artifactName}",
+            ArtifactPath = null,
             ContentId = contentInfo.Id
         };
     }

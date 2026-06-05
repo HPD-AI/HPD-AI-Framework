@@ -497,54 +497,6 @@ public class ClientToolMiddlewareTests
     }
 
     [Fact]
-    public async Task BeforeIteration_SkillWithDocuments_IncludesDocumentInfoInDescription()
-    {
-        // Arrange
-        var middleware = new ClientToolMiddleware();
-
-        var skill = new ClientSkillDefinition(
-            Name: "CheckoutWorkflow",
-            Description: "Guides through checkout process",
-            SystemPrompt: "Follow these steps for checkout",
-            Documents: new[]
-            {
-                new ClientSkillDocument("checkout-guide", "Detailed checkout documentation", Content: "# Checkout Guide\n..."),
-                new ClientSkillDocument("payment-api", "Payment API reference", Content: "# Payment API\n...")
-            }
-        );
-
-        var ToolHarness = new clientToolHarnessDefinition(
-            Name: "ECommerce",
-            Description: "E-commerce tools",
-            Tools: new[] { CreateTestTool("AddToCart") },
-            Skills: new[] { skill },
-            StartCollapsed: false
-        );
-
-        var state = new ClientToolStateData()
-            .WithRegisteredToolHarness(ToolHarness)
-            .WithExpandedToolHarness("ECommerce");
-
-        var agentState = CreateEmptyState() with
-        {
-            MiddlewareState = new MiddlewareState().WithClientTool(state)
-        };
-
-        var context = CreateIterationContext(agentState);
-
-        // Act
-        await middleware.BeforeIterationAsync(context, CancellationToken.None);
-
-        // Assert - skill should be added and mention documents
-        var skillFunction = context.Options.Tools.OfType<AIFunction>()
-            .FirstOrDefault(f => f.Name == "CheckoutWorkflow");
-
-        Assert.NotNull(skillFunction);
-        // Skill description should be present (documents are referenced in activation)
-        Assert.Equal("Guides through checkout process", skillFunction.Description);
-    }
-
-    [Fact]
     public async Task BeforeMessageTurn_SkillWithInvalidReference_ThrowsValidationError()
     {
         // Arrange
@@ -788,47 +740,6 @@ public class ClientToolMiddlewareTests
                 FunctionResult: null,
                 SystemPrompt: null
             ).Validate());
-    }
-
-    [Fact]
-    public void SkillDocument_Validation_RequiresContentOrUrl()
-    {
-        // Act & Assert
-        Assert.Throws<ArgumentException>(() =>
-            new ClientSkillDocument(
-                DocumentId: "doc1",
-                Description: "A document",
-                Content: null,
-                Url: null
-            ).Validate());
-    }
-
-    [Fact]
-    public void SkillDocument_Validation_AcceptsContent()
-    {
-        // Arrange
-        var doc = new ClientSkillDocument(
-            DocumentId: "doc1",
-            Description: "A document",
-            Content: "# Document content"
-        );
-
-        // Act & Assert - should not throw
-        doc.Validate();
-    }
-
-    [Fact]
-    public void SkillDocument_Validation_AcceptsUrl()
-    {
-        // Arrange
-        var doc = new ClientSkillDocument(
-            DocumentId: "doc1",
-            Description: "A document",
-            Url: "https://example.com/doc.md"
-        );
-
-        // Act & Assert - should not throw
-        doc.Validate();
     }
 
     // ============================================

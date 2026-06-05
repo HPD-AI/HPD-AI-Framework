@@ -27,8 +27,8 @@ internal sealed class OutputArtifactWriter
         var name = $"assistant-output-{SanitizeNamePart(outputFlowId.Value)}-{SanitizeNamePart(responseId.Value)}{ExtensionFor(mediaType, options.OutputFormat)}";
         var tags = new Dictionary<string, string>
         {
-            ["folder"] = "/artifacts",
-            ["kind"] = "assistant-audio",
+            ["kind"] = "artifact",
+            ["artifact-kind"] = "assistant-audio",
             ["outputFlowId"] = outputFlowId.Value,
             ["responseId"] = responseId.Value,
             ["provider"] = providerKey

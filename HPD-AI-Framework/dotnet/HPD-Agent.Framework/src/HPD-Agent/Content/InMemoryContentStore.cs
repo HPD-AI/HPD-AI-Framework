@@ -5,7 +5,7 @@ namespace HPD.Agent;
 
 /// <summary>
 /// In-memory implementation of IContentStore (for testing and development).
-/// Supports folder-based organization via tags, explicit versioned writes, and full ContentQuery filtering.
+/// Supports metadata-based organization, explicit versioned writes, and full ContentQuery filtering.
 /// </summary>
 /// <remarks>
 /// <para><b>Use Cases:</b></para>
@@ -398,10 +398,10 @@ public class InMemoryContentStore : IContentStore
 
     private static string MakeNameKey(ContentMetadata metadata)
     {
-        var folder = metadata.Tags != null && metadata.Tags.TryGetValue("folder", out var value)
+        var kind = metadata.Tags != null && metadata.Tags.TryGetValue("kind", out var value)
             ? value.Trim().Trim('/')
             : "";
-        return $"{folder}/{metadata.Name}".ToLowerInvariant();
+        return $"{kind}/{metadata.Name}".ToLowerInvariant();
     }
 
     private static async Task<byte[]> ReadAllBytesAsync(Stream stream, CancellationToken cancellationToken)

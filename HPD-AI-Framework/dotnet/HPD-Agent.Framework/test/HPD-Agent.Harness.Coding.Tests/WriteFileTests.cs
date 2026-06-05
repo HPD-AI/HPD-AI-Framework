@@ -287,19 +287,15 @@ public sealed class WriteFileTests : IDisposable
     public async Task WriteFile_EmitsFileWriteAppliedEventWithSharedMutationData()
     {
         using var coordinator = new EventCoordinator();
-        var events = new List<FileWriteAppliedEvent>();
-        using var subscription = coordinator.Subscribe<FileWriteAppliedEvent>(evt =>
-        {
-            events.Add(evt);
-            return ValueTask.CompletedTask;
-        });
+        await using var inbox = coordinator.CreateInbox<FileWriteAppliedEvent>();
         var agentContext = CreateAgentContext(coordinator);
         var content = "class A {}\n";
 
         var result = await WriteFileTextAsync(agentContext, new CodingToolHarness(), "A.cs", content);
 
         result.Should().Contain("event_emitted=\"true\"");
-        var writeEvent = events.Should().ContainSingle().Subject;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var writeEvent = await inbox.Reader.ReadAsync(timeout.Token);
         writeEvent.ToolCallId.Should().Be("call-1");
         writeEvent.FunctionName.Should().Be(nameof(CodingToolHarness.WriteFile));
         writeEvent.Path.Should().Be(FullPath("A.cs"));

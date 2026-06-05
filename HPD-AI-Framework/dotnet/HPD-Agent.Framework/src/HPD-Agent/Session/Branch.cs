@@ -14,7 +14,7 @@ namespace HPD.Agent;
 /// Think of branches like ChatGPT's message editing feature:
 /// - User edits a message → creates a new branch from that point
 /// - Each branch is an independent conversation path
-/// - All branches share the same session (metadata, content, session-scoped state)
+/// - All branches share the same session (metadata and session-scoped state)
 /// </para>
 ///
 /// <para><b>Relationship to Session:</b></para>
@@ -22,14 +22,13 @@ namespace HPD.Agent;
 /// Branch belongs to a Session (via SessionId).
 /// Multiple branches can exist in one session, all sharing:
 /// - Session metadata
-/// - Session content (uploaded files)
 /// - Session-scoped middleware state (permissions, preferences)
 /// </para>
 ///
 /// <para><b>Branch-Scoped vs Session-Scoped:</b></para>
 /// <list type="bullet">
 /// <item><b>Branch-scoped:</b> Messages, plan progress, history cache (diverges per branch)</item>
-/// <item><b>Session-scoped:</b> Permissions, content, user preferences (shared across branches)</item>
+/// <item><b>Session-scoped:</b> Permissions and user preferences (shared across branches)</item>
 /// </list>
 /// </remarks>
 public class Branch

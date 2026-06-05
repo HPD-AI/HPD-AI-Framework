@@ -7,6 +7,7 @@
 		state: externalState,
 		client,
 		sessionId = null,
+		branchId = null,
 		disabled = false,
 		class: className,
 		child,
@@ -19,9 +20,10 @@
 	const internalState = new FileAttachmentState({
 		uploadFn: boxWith(() => {
 			if (!client) throw new Error('FileAttachment: provide either state or client');
-			return (sid: string, file: File) => client.uploadContent(sid, file);
+			return (sid: string, bid: string, file: File) => client.uploadContent(sid, bid, file);
 		}),
 		sessionId: boxWith(() => sessionId ?? null),
+		branchId: boxWith(() => branchId ?? null),
 		disabled: boxWith(() => disabled),
 	});
 	const state = $derived(externalState ?? internalState);

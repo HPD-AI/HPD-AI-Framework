@@ -201,7 +201,7 @@ class FakeAgentClient implements AgentClientLike {
 
 	// ---- Content upload ----
 
-	async uploadContent(_sessionId: string, _file: File | Blob, _name?: string): Promise<ContentReference> {
+	async uploadContent(_sessionId: string, _branchId: string, _file: File | Blob, _name?: string): Promise<ContentReference> {
 		throw new Error('not needed in permission tests');
 	}
 

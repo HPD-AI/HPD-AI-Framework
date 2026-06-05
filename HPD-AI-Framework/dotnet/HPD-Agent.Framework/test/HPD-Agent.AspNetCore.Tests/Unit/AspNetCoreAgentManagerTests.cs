@@ -54,9 +54,9 @@ public class AspNetCoreAgentManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task BuildAgentAsync_UsesDefaultAgentConfig_WhenProvided()
+    public async Task BuildAgentAsync_UsesDefaultAgent_WhenProvided()
     {
-        _optionsMonitor.CurrentValue.DefaultAgentConfig = MakeConfig("DefaultConfig Agent");
+        _optionsMonitor.CurrentValue.DefaultAgent = MakeConfig("Default Agent");
         _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
 
         var manager = MakeManager();
@@ -67,13 +67,13 @@ public class AspNetCoreAgentManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task BuildAgentAsync_UsesDefaultAgentConfigPath_WhenProvided()
+    public async Task BuildAgentAsync_UsesDefaultAgentPath_WhenProvided()
     {
         var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
         var config = MakeConfig("FileConfig Agent");
         await File.WriteAllTextAsync(tempPath, System.Text.Json.JsonSerializer.Serialize(config));
 
-        _optionsMonitor.CurrentValue.DefaultAgentConfigPath = tempPath;
+        _optionsMonitor.CurrentValue.DefaultAgentPath = tempPath;
         _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
 
         try
@@ -92,7 +92,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
     [Fact]
     public async Task BuildAgentAsync_FallsBackToEmptyBuilder_WhenNoConfig()
     {
-        // No DefaultAgentConfig, no path, no factory — falls back to empty AgentBuilder
+        // No DefaultAgent, no path, no factory — falls back to empty AgentBuilder
         _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
 
         var manager = MakeManager();
@@ -106,7 +106,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
     public async Task BuildAgentAsync_CallsConfigureAgent_AfterConfig()
     {
         var called = false;
-        _optionsMonitor.CurrentValue.DefaultAgentConfig = MakeConfig("X");
+        _optionsMonitor.CurrentValue.DefaultAgent = MakeConfig("X");
         _optionsMonitor.CurrentValue.ConfigureAgent = builder =>
         {
             called = true;
