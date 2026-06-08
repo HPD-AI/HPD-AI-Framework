@@ -45,7 +45,7 @@ public class BotDiagnosticsTests
         diagnostics.Should().NotContain(d => d.Id == "HPDA001");
     }
 
-    // ── HPDA002: [HpdWebhookHandler] must be private or internal ─────
+    // ── HPDA002: [HpdBotEventHandler] must be private or internal ─────
 
     [Fact]
     public void HPDA002_PublicHandler_EmitsError()
@@ -59,9 +59,9 @@ public class BotDiagnosticsTests
             [HpdBot("test")]
             public partial class MyBot
             {
-                [HpdWebhookHandler("message")]
-                public Task<IResult> HandleMessage(HttpContext ctx, byte[] body, CancellationToken ct)
-                    => Task.FromResult(Results.Ok());
+                [HpdBotEventHandler("message")]
+                public Task<BotAdapterResponse> HandleMessage(BotRequestContext ctx, byte[] body, CancellationToken ct)
+                    => Task.FromResult(BotAdapterResponse.Ok());
             }
             """;
 
@@ -82,9 +82,9 @@ public class BotDiagnosticsTests
             [HpdBot("test")]
             public partial class MyBot
             {
-                [HpdWebhookHandler("message")]
-                private Task<IResult> HandleMessage(HttpContext ctx, byte[] body, CancellationToken ct)
-                    => Task.FromResult(Results.Ok());
+                [HpdBotEventHandler("message")]
+                private Task<BotAdapterResponse> HandleMessage(BotRequestContext ctx, byte[] body, CancellationToken ct)
+                    => Task.FromResult(BotAdapterResponse.Ok());
             }
             """;
 
@@ -105,9 +105,9 @@ public class BotDiagnosticsTests
             [HpdBot("test")]
             public partial class MyBot
             {
-                [HpdWebhookHandler("message")]
-                internal Task<IResult> HandleMessage(HttpContext ctx, byte[] body, CancellationToken ct)
-                    => Task.FromResult(Results.Ok());
+                [HpdBotEventHandler("message")]
+                internal Task<BotAdapterResponse> HandleMessage(BotRequestContext ctx, byte[] body, CancellationToken ct)
+                    => Task.FromResult(BotAdapterResponse.Ok());
             }
             """;
 
@@ -266,13 +266,13 @@ public class BotDiagnosticsTests
         diagnostics.Should().NotContain(d => d.Id == "HPDA005");
     }
 
-    // ── HPDA006: [WebhookPayload] type must be a record ─────────────
+    // ── HPDA006: [HpdBotPayload] type must be a record ─────────────
 
     [Fact]
-    public void HPDA006_WebhookPayloadOnClass_EmitsError()
+    public void HPDA006_HpdBotPayloadOnClass_EmitsError()
     {
         // Note: the generator's predicate filters for RecordDeclarationSyntax,
-        // so a class decorated with [WebhookPayload] won't match the pipeline
+        // so a class decorated with [HpdBotPayload] won't match the pipeline
         // and won't emit a diagnostic from the generator itself.
         // HPDA006 is only emitted when the generator manually checks; currently
         // the predicate prevents classes from reaching that code path.
@@ -280,7 +280,7 @@ public class BotDiagnosticsTests
         var source = """
             using HPD.Agent.Bots;
             namespace Test;
-            [WebhookPayload]
+            [HpdBotPayload]
             public class NotARecord { }
             """;
 
@@ -292,13 +292,13 @@ public class BotDiagnosticsTests
     }
 
     [Fact]
-    public void HPDA006_WebhookPayloadOnRecord_NoDiagnostic()
+    public void HPDA006_HpdBotPayloadOnRecord_NoDiagnostic()
     {
         var source = """
             using HPD.Agent.Bots;
             using System.Text.Json.Serialization;
             namespace Test;
-            [WebhookPayload]
+            [HpdBotPayload]
             public record SlackEvent(
                 [property: JsonPropertyName("type")] string Type);
             """;
@@ -430,7 +430,7 @@ public class BotDiagnosticsTests
         d.GetMessage().Should().Contain("BadService");
     }
 
-    // ── HPDA009: [HpdPreDispatch] method signature ─────────────────────
+    // ── HPDA009: [HpdBotPreDispatch] method signature ─────────────────────
 
     [Fact]
     public void HPDA009_ValidPreDispatch_NoDiagnostic()
@@ -443,8 +443,8 @@ public class BotDiagnosticsTests
             [HpdBot("test")]
             public partial class MyBot
             {
-                [HpdPreDispatch]
-                private async Task<IResult?> VerifyAsync(HttpContext ctx, byte[] bodyBytes)
+                [HpdBotPreDispatch]
+                private async Task<BotAdapterResponse?> VerifyAsync(BotRequestContext ctx, byte[] bodyBytes)
                     => null;
             }
             """;
@@ -465,8 +465,8 @@ public class BotDiagnosticsTests
             [HpdBot("test")]
             public partial class MyBot
             {
-                [HpdPreDispatch]
-                public async Task<IResult?> VerifyAsync(HttpContext ctx, byte[] bodyBytes)
+                [HpdBotPreDispatch]
+                public async Task<BotAdapterResponse?> VerifyAsync(BotRequestContext ctx, byte[] bodyBytes)
                     => null;
             }
             """;
@@ -477,7 +477,7 @@ public class BotDiagnosticsTests
     }
 
     [Fact]
-    public void HPDA009_PreDispatchWithoutAsync_EmitsError()
+    public void HPDA009_PreDispatchWithoutAsyncSuffix_NoDiagnostic()
     {
         var source = """
             using HPD.Agent.Bots;
@@ -487,15 +487,15 @@ public class BotDiagnosticsTests
             [HpdBot("test")]
             public partial class MyBot
             {
-                [HpdPreDispatch]
-                private Task<IResult?> VerifyAsync(HttpContext ctx, byte[] bodyBytes)
-                    => Task.FromResult<IResult?>(null);
+                [HpdBotPreDispatch]
+                private Task<BotAdapterResponse?> Verify(BotRequestContext ctx, byte[] bodyBytes)
+                    => Task.FromResult<BotAdapterResponse?>(null);
             }
             """;
 
         var diagnostics = SourceGenHelper.GetDiagnostics(source);
 
-        diagnostics.Should().Contain(d => d.Id == "HPDA009" && d.Severity == DiagnosticSeverity.Error);
+        diagnostics.Should().NotContain(d => d.Id == "HPDA009");
     }
 
     [Fact]
@@ -509,8 +509,8 @@ public class BotDiagnosticsTests
             [HpdBot("test")]
             public partial class MyBot
             {
-                [HpdPreDispatch]
-                private async Task<bool> VerifyAsync(HttpContext ctx, byte[] bodyBytes)
+                [HpdBotPreDispatch]
+                private async Task<bool> VerifyAsync(BotRequestContext ctx, byte[] bodyBytes)
                     => true;
             }
             """;
@@ -531,8 +531,8 @@ public class BotDiagnosticsTests
             [HpdBot("test")]
             public partial class MyBot
             {
-                [HpdPreDispatch]
-                private async Task<IResult?> VerifyAsync(byte[] bodyBytes, HttpContext ctx)
+                [HpdBotPreDispatch]
+                private async Task<BotAdapterResponse?> VerifyAsync(byte[] bodyBytes, BotRequestContext ctx)
                     => null;
             }
             """;
@@ -553,12 +553,12 @@ public class BotDiagnosticsTests
             [HpdBot("test")]
             public partial class MyBot
             {
-                [HpdPreDispatch]
-                private async Task<IResult?> VerifyAAsync(HttpContext ctx, byte[] bodyBytes)
+                [HpdBotPreDispatch]
+                private async Task<BotAdapterResponse?> VerifyAAsync(BotRequestContext ctx, byte[] bodyBytes)
                     => null;
 
-                [HpdPreDispatch]
-                private async Task<IResult?> VerifyBAsync(HttpContext ctx, byte[] bodyBytes)
+                [HpdBotPreDispatch]
+                private async Task<BotAdapterResponse?> VerifyBAsync(BotRequestContext ctx, byte[] bodyBytes)
                     => null;
             }
             """;
@@ -568,7 +568,7 @@ public class BotDiagnosticsTests
         diagnostics.Should().Contain(d => d.Id == "HPDA009" && d.Severity == DiagnosticSeverity.Error);
     }
 
-    // ── HPDA010: [HpdBodyExtractor] method signature ───────────────────
+    // ── HPDA010: [HpdBotEnvelopeExtractor] method signature ───────────────────
 
     [Fact]
     public void HPDA010_ValidBodyExtractor_NoDiagnostic()
@@ -580,8 +580,8 @@ public class BotDiagnosticsTests
             [HpdBot("test")]
             public partial class MyBot
             {
-                [HpdBodyExtractor]
-                private (string? eventType, byte[] dispatchBytes) Extract(HttpContext ctx, byte[] bodyBytes)
+                [HpdBotEnvelopeExtractor]
+                private (string? eventType, byte[] dispatchBytes) Extract(BotRequestContext ctx, byte[] bodyBytes)
                     => (null, bodyBytes);
             }
             """;
@@ -601,8 +601,8 @@ public class BotDiagnosticsTests
             [HpdBot("test")]
             public partial class MyBot
             {
-                [HpdBodyExtractor]
-                public (string? eventType, byte[] dispatchBytes) Extract(HttpContext ctx, byte[] bodyBytes)
+                [HpdBotEnvelopeExtractor]
+                public (string? eventType, byte[] dispatchBytes) Extract(BotRequestContext ctx, byte[] bodyBytes)
                     => (null, bodyBytes);
             }
             """;
@@ -622,8 +622,8 @@ public class BotDiagnosticsTests
             [HpdBot("test")]
             public partial class MyBot
             {
-                [HpdBodyExtractor]
-                private string? Extract(HttpContext ctx, byte[] bodyBytes)
+                [HpdBotEnvelopeExtractor]
+                private string? Extract(BotRequestContext ctx, byte[] bodyBytes)
                     => null;
             }
             """;
@@ -643,8 +643,8 @@ public class BotDiagnosticsTests
             [HpdBot("test")]
             public partial class MyBot
             {
-                [HpdBodyExtractor]
-                private (string? eventType, byte[] dispatchBytes) Extract(byte[] bodyBytes, HttpContext ctx)
+                [HpdBotEnvelopeExtractor]
+                private (string? eventType, byte[] dispatchBytes) Extract(byte[] bodyBytes, BotRequestContext ctx)
                     => (null, bodyBytes);
             }
             """;
@@ -664,12 +664,12 @@ public class BotDiagnosticsTests
             [HpdBot("test")]
             public partial class MyBot
             {
-                [HpdBodyExtractor]
-                private (string? eventType, byte[] dispatchBytes) ExtractA(HttpContext ctx, byte[] bodyBytes)
+                [HpdBotEnvelopeExtractor]
+                private (string? eventType, byte[] dispatchBytes) ExtractA(BotRequestContext ctx, byte[] bodyBytes)
                     => (null, bodyBytes);
 
-                [HpdBodyExtractor]
-                private (string? eventType, byte[] dispatchBytes) ExtractB(HttpContext ctx, byte[] bodyBytes)
+                [HpdBotEnvelopeExtractor]
+                private (string? eventType, byte[] dispatchBytes) ExtractB(BotRequestContext ctx, byte[] bodyBytes)
                     => (null, bodyBytes);
             }
             """;
@@ -686,7 +686,7 @@ public class BotDiagnosticsTests
             using HPD.Agent.Bots;
             namespace Test;
             [HpdBot("test")]
-            [HpdWebhookMethods()]
+            [HpdHttpMethods()]
             public partial class MyBot { }
             """;
 
@@ -702,7 +702,7 @@ public class BotDiagnosticsTests
             using HPD.Agent.Bots;
             namespace Test;
             [HpdBot("test")]
-            [HpdWebhookMethods("GET", " ")]
+            [HpdHttpMethods("GET", " ")]
             public partial class MyBot { }
             """;
 

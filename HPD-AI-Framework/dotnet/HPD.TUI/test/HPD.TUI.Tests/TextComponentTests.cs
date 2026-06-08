@@ -35,6 +35,18 @@ public sealed class TextComponentTests
     }
 
     [Fact]
+    public void Measure_LongUnbrokenTextInsideNarrowWidth_DoesNotReportMinGreaterThanMax()
+    {
+        var text = new Text("cmd ok find . -not -path './bin/*' -not -path './obj/*' -type f");
+        var context = new RenderContext(24, 5, Theme.Default);
+
+        var measurement = text.Measure(in context, 24);
+
+        Assert.True(measurement.MinWidth <= measurement.MaxWidth);
+        Assert.InRange(measurement.MaxWidth, 0, 24);
+    }
+
+    [Fact]
     public void Frame_RendersMultilineChildWithSideBordersOnEveryRow()
     {
         var frame = Frame.Create(new Text("a\nb"));

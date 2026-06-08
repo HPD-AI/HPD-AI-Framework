@@ -62,7 +62,6 @@ internal static class AutoDiscovery
         TryInitializeByTypeName("HPD.Agent.Providers.OpenAI.OpenAIProviderModule, HPD-Agent.Providers.OpenAI");
         TryInitializeByTypeName("HPD.Agent.Providers.Anthropic.AnthropicProviderModule, HPD-Agent.Providers.Anthropic");
         TryInitializeByTypeName("HPD.Agent.Providers.GoogleAI.GoogleAIProviderModule, HPD-Agent.Providers.GoogleAI");
-        TryInitializeByTypeName("HPD.Agent.Providers.AzureAIInference.AzureAIInferenceProviderModule, HPD-Agent.Providers.AzureAIInference");
         TryInitializeByTypeName("HPD.Agent.Providers.Bedrock.BedrockProviderModule, HPD-Agent.Providers.Bedrock");
         TryInitializeByTypeName("HPD.Agent.Providers.Ollama.OllamaProviderModule, HPD-Agent.Providers.Ollama");
         TryInitializeByTypeName("HPD.Agent.Providers.Mistral.MistralProviderModule, HPD-Agent.Providers.Mistral");
@@ -82,7 +81,6 @@ internal static class AutoDiscovery
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.OpenAI.OpenAIProviderModule", "HPD-Agent.Providers.OpenAI")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Anthropic.AnthropicProviderModule", "HPD-Agent.Providers.Anthropic")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.GoogleAI.GoogleAIProviderModule", "HPD-Agent.Providers.GoogleAI")]
-    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.AzureAIInference.AzureAIInferenceProviderModule", "HPD-Agent.Providers.AzureAIInference")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Bedrock.BedrockProviderModule", "HPD-Agent.Providers.Bedrock")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Ollama.OllamaProviderModule", "HPD-Agent.Providers.Ollama")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Mistral.MistralProviderModule", "HPD-Agent.Providers.Mistral")]

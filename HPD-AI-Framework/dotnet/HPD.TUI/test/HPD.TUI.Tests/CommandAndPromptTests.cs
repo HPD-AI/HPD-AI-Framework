@@ -75,6 +75,114 @@ public sealed class CommandAndPromptTests
     }
 
     [Fact]
+    public void PromptController_EnterAcceptsVisibleAutocompleteSuggestion()
+    {
+        var model = new PromptModel();
+        var controller = new PromptController(model)
+        {
+            Autocomplete = new AutocompleteController()
+                .Register(new StaticAutocompleteProvider('/', [new AutocompleteSuggestion("open", "/open ")]))
+        };
+
+        controller.HandleInput(new KeyEvent(KeyCode.Character, new Rune('/')));
+        controller.HandleInput(new KeyEvent(KeyCode.Enter));
+
+        Assert.Equal("/open ", model.Value);
+    }
+
+    [Fact]
+    public void PromptController_EnterSubmitsAcceptedSuggestionWhenRequested()
+    {
+        ReadOnlyMemory<char> submitted = default;
+        var model = new PromptModel();
+        var controller = new PromptController(model)
+        {
+            Submitted = value => submitted = value,
+            Autocomplete = new AutocompleteController()
+                .Register(new StaticAutocompleteProvider(
+                    '/',
+                    [new AutocompleteSuggestion("open", "/open", SubmitOnAccept: true)]))
+        };
+
+        controller.HandleInput(new KeyEvent(KeyCode.Character, new Rune('/')));
+        controller.HandleInput(new KeyEvent(KeyCode.Enter));
+
+        Assert.Equal("/open", submitted.ToString());
+        Assert.Equal("", model.Value);
+    }
+
+    [Fact]
+    public void PromptController_TabDoesNotSubmitAcceptedSuggestion()
+    {
+        ReadOnlyMemory<char> submitted = default;
+        var model = new PromptModel();
+        var controller = new PromptController(model)
+        {
+            Submitted = value => submitted = value,
+            Autocomplete = new AutocompleteController()
+                .Register(new StaticAutocompleteProvider(
+                    '/',
+                    [new AutocompleteSuggestion("open", "/open", SubmitOnAccept: true)]))
+        };
+
+        controller.HandleInput(new KeyEvent(KeyCode.Character, new Rune('/')));
+        controller.HandleInput(new KeyEvent(KeyCode.Tab));
+
+        Assert.Equal("", submitted.ToString());
+        Assert.Equal("/open", model.Value);
+    }
+
+    [Fact]
+    public void SlashCommandAutocompleteProvider_CompletesCommandName()
+    {
+        var model = new PromptModel();
+        model.SetText("/he");
+        var autocomplete = new AutocompleteController()
+            .Register(new SlashCommandAutocompleteProvider(
+            [
+                new TuiSlashCommand("help", "Show help")
+            ]));
+
+        var active = autocomplete.Refresh(model);
+        Assert.True(autocomplete.SelectedSuggestion?.SubmitOnAccept);
+        var accepted = autocomplete.Accept(model);
+
+        Assert.True(active);
+        Assert.True(accepted);
+        Assert.Equal("/help", model.Value);
+    }
+
+    [Fact]
+    public void SlashCommandAutocompleteProvider_CompletesCommandArguments()
+    {
+        var model = new PromptModel();
+        model.SetText("/model dee");
+        var autocomplete = new AutocompleteController()
+            .Register(new SlashCommandAutocompleteProvider(
+            [
+                new TuiSlashCommand(
+                    "model",
+                    "Select model",
+                    CompleteArgumentsAsync: static (context, _) =>
+                    {
+                        context.Suggestions.Add(new AutocompleteSuggestion(
+                            "deepseek-chat",
+                            "deepseek-chat",
+                            ReplacementStart: context.Request.Cursor - context.ArgumentLength,
+                            ReplacementLength: context.ArgumentLength));
+                        return ValueTask.CompletedTask;
+                    })
+            ]));
+
+        var active = autocomplete.Refresh(model);
+        var accepted = autocomplete.Accept(model);
+
+        Assert.True(active);
+        Assert.True(accepted);
+        Assert.Equal("/model deepseek-chat", model.Value);
+    }
+
+    [Fact]
     public void PromptView_RendersPlaceholderAndCursor()
     {
         var model = new PromptModel { Placeholder = "Ask anything" };
@@ -89,6 +197,38 @@ public sealed class CommandAndPromptTests
         Assert.Equal("Ask anything", ReadLine(grid, 0));
         Assert.True(grid.HasTerminalCursor);
         Assert.Equal(0, grid.TerminalCursorX);
+    }
+
+    [Fact]
+    public void PromptView_RendersVisualCursorWhenEnabled()
+    {
+        var model = new PromptModel { Placeholder = "Ask anything", ShowVisualCursor = true };
+        var controller = new PromptController(model);
+        var view = new PromptView(model, controller) { IsFocused = true };
+        var context = new RenderContext(12, 1, Theme.Default);
+        using var grid = new TerminalGrid(12, 1);
+        var writer = new SegmentWriter(grid);
+
+        view.Render(in context, 12, ref writer);
+
+        Assert.Equal("|Ask anythin", ReadLine(grid, 0));
+    }
+
+    [Fact]
+    public void PromptView_RendersVisualCursorAtTextCursor()
+    {
+        var model = new PromptModel { ShowVisualCursor = true };
+        model.SetText("hello");
+        model.Cursor = 2;
+        var controller = new PromptController(model);
+        var view = new PromptView(model, controller) { IsFocused = true };
+        var context = new RenderContext(8, 1, Theme.Default);
+        using var grid = new TerminalGrid(8, 1);
+        var writer = new SegmentWriter(grid);
+
+        view.Render(in context, 8, ref writer);
+
+        Assert.Equal("he|llo  ", ReadLine(grid, 0));
     }
 
     [Fact]
@@ -127,17 +267,25 @@ public sealed class CommandAndPromptTests
             _suggestions = suggestions;
         }
 
-        public bool CanProvide(AutocompleteTrigger trigger) => trigger.Marker == _marker;
-
-        public IEnumerable<AutocompleteSuggestion> GetSuggestions(AutocompleteTrigger trigger)
+        public ValueTask GetSuggestionsAsync(
+            AutocompleteRequest request,
+            IAutocompleteSuggestionSink suggestions,
+            CancellationToken cancellationToken = default)
         {
+            if (request.Trigger is not { } trigger || trigger.Marker != _marker)
+            {
+                return ValueTask.CompletedTask;
+            }
+
             foreach (var suggestion in _suggestions)
             {
-                if (suggestion.Title.StartsWith(trigger.Query, StringComparison.OrdinalIgnoreCase))
+                if (request.SliceIsPrefixOf(trigger.QueryStart, trigger.QueryLength, suggestion.Title, StringComparison.OrdinalIgnoreCase))
                 {
-                    yield return suggestion;
+                    suggestions.Add(suggestion);
                 }
             }
+
+            return ValueTask.CompletedTask;
         }
     }
 }

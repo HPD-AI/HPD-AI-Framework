@@ -358,7 +358,6 @@ public class AgentBuilder
             "HPD-Agent.Providers.OpenRouter",
             "HPD-Agent.Providers.Anthropic",
             "HPD-Agent.Providers.AzureAI",
-            "HPD-Agent.Providers.AzureAIInference",
             "HPD-Agent.Providers.OpenAI",
             "HPD-Agent.Providers.Ollama",
             "HPD-Agent.Providers.GoogleAI",
@@ -1832,6 +1831,7 @@ public class AgentBuilder
     public async Task<Agent> BuildAsync(CancellationToken cancellationToken = default)
     {
         await ResolveStoredAgentDefinitionAsync(cancellationToken).ConfigureAwait(false);
+        EnsureAutoConfiguration();
 
         // Build the secret resolver chain FIRST (before BuildDependenciesAsync)
         // Providers need ISecretResolver available in the service provider during CreateChatClient
@@ -2577,36 +2577,15 @@ public class AgentBuilder
                 OwnedHttpClients: toolBuild.OwnedHttpClients);
         }
 
-        // ✨ AUTO-CONFIGURE: If no configuration provided, create default configuration
-        // Automatically loads from appsettings.json in the application directory
-        if (_configuration == null)
-        {
-            try
-            {
-                // Use AppContext.BaseDirectory for PublishSingleFile compatibility
-                // Falls back to current directory if BaseDirectory is not available
-                var basePath = AppContext.BaseDirectory ?? Directory.GetCurrentDirectory();
-
-                _configuration = new ConfigurationBuilder()
-                    .SetBasePath(basePath)
-                    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-                    .AddEnvironmentVariables()
-                    .Build();
-            }
-            catch (Exception ex)
-            {
-                // If auto-configuration fails, we'll continue without it
-                // and provide helpful error message later if API key is missing
-                Console.WriteLine($"[AgentBuilder] Auto-configuration warning: {ex.Message}");
-            }
-        }
+        EnsureAutoConfiguration();
 
         // ✨ PRIORITY 1: Try to resolve from Providers section (recommended pattern)
         if (_configuration != null && !string.IsNullOrEmpty(chatProviderConfig.ProviderKey))
         {
             var providerName = chatProviderConfig.ProviderKey;
-            var providerSection = _configuration.GetSection($"Providers:{providerName}")
-                               ?? _configuration.GetSection($"Providers:{Capitalize(providerName)}");
+            var providerSection = _configuration.GetSection($"Providers:{providerName}");
+            if (!providerSection.Exists())
+                providerSection = _configuration.GetSection($"Providers:{Capitalize(providerName)}");
 
             if (providerSection.Exists())
             {
@@ -2818,6 +2797,47 @@ public class AgentBuilder
             builtTools.MergedOptions,
             errorHandler,
             builtTools.OwnedHttpClients);
+    }
+
+    private void EnsureAutoConfiguration()
+    {
+        if (_configuration != null)
+            return;
+
+        try
+        {
+            // Load from the output directory for normal app execution and from the
+            // current directory for `dotnet run` from a project folder.
+            var basePath = AppContext.BaseDirectory ?? Directory.GetCurrentDirectory();
+            var currentPath = Directory.GetCurrentDirectory();
+
+            var configuration = new ConfigurationBuilder()
+                .SetBasePath(basePath)
+                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
+
+            if (!string.Equals(basePath, currentPath, StringComparison.Ordinal))
+            {
+                configuration.AddJsonFile(
+                    Path.Combine(currentPath, "appsettings.json"),
+                    optional: true,
+                    reloadOnChange: true);
+            }
+
+            if (Assembly.GetEntryAssembly() is { } entryAssembly)
+            {
+                configuration.AddUserSecrets(entryAssembly, optional: true, reloadOnChange: true);
+            }
+
+            _configuration = configuration
+                .AddEnvironmentVariables()
+                .Build();
+        }
+        catch (Exception ex)
+        {
+            // If auto-configuration fails, we'll continue without it
+            // and provide helpful error message later if API key is missing.
+            Console.WriteLine($"[AgentBuilder] Auto-configuration warning: {ex.Message}");
+        }
     }
 
     public bool IsProviderRegistered(string providerKey) => _providerRegistry.IsRegistered(providerKey);

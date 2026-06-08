@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Channels;
-using HPD.Execution.Contracts;
+using HPD.Environment.Contracts;
 using HPD.Agent.Sandbox.Network;
 using HPD.Agent.Sandbox.ProcessIsolation;
 using HPD.Agent.Sandbox.Security;
@@ -258,7 +258,7 @@ internal sealed class MacOSProcessIsolationBackend : ISandboxBackend
     /// </summary>
     private IEnumerable<string> GetMandatoryDenyPatterns()
     {
-        var cwd = Environment.CurrentDirectory;
+        var cwd = System.Environment.CurrentDirectory;
         var patterns = new List<string>();
 
         // Dangerous files in CWD and subtree
@@ -393,7 +393,7 @@ internal sealed class MacOSProcessIsolationBackend : ISandboxBackend
 
     private static string GetShellPath()
     {
-        var shell = Environment.GetEnvironmentVariable("SHELL");
+        var shell = System.Environment.GetEnvironmentVariable("SHELL");
         if (!string.IsNullOrEmpty(shell) && File.Exists(shell))
             return shell;
 

@@ -477,6 +477,8 @@ export interface ToolResultPayload {
 export interface ToolCallResultEvent extends BaseEvent {
   type: typeof EventTypes.TOOL_CALL_RESULT;
   callId: string;
+  /** The tool/function name, when provided by the runtime. */
+  name?: string;
   result: ToolResultPayload;
   /** The toolharness that owns this tool, if any. */
   toolharnessName?: string;

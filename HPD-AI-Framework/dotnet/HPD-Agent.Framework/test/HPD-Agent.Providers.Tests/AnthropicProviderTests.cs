@@ -76,7 +76,7 @@ public class AnthropicProviderTests
     {
         // Arrange
         var builder = new AgentBuilder();
-        Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", "env-api-key");
+        System.Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", "env-api-key");
 
         try
         {
@@ -94,7 +94,7 @@ public class AnthropicProviderTests
         finally
         {
             // Cleanup
-            Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", null);
+            System.Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", null);
         }
     }
 
@@ -103,7 +103,7 @@ public class AnthropicProviderTests
     {
         // Arrange
         var builder = new AgentBuilder();
-        Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", "env-api-key");
+        System.Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", "env-api-key");
 
         try
         {
@@ -116,7 +116,7 @@ public class AnthropicProviderTests
         finally
         {
             // Cleanup
-            Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", null);
+            System.Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", null);
         }
     }
 

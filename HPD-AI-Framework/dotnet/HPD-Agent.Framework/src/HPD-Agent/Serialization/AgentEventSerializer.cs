@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
+using System.Runtime.CompilerServices;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
@@ -97,6 +98,11 @@ public static partial class AgentEventSerializer
         [typeof(ClarificationRequestEvent)] = EventTypes.Clarification.CLARIFICATION_REQUEST,
         [typeof(ClarificationResponseEvent)] = EventTypes.Clarification.CLARIFICATION_RESPONSE,
 
+        // Client Tool Events
+        [typeof(ClientTools.ClientToolInvokeRequestEvent)] = EventTypes.ClientTool.CLIENT_TOOL_INVOKE_REQUEST,
+        [typeof(ClientTools.ClientToolInvokeResponseEvent)] = EventTypes.ClientTool.CLIENT_TOOL_INVOKE_RESPONSE,
+        [typeof(ClientTools.clientToolHarnessesRegisteredEvent)] = EventTypes.ClientTool.CLIENT_TOOL_GROUPS_REGISTERED,
+
         // Middleware Events
         [typeof(MiddlewareErrorEvent)] = EventTypes.Middleware.MIDDLEWARE_ERROR,
         [typeof(CompactionEvent)] = EventTypes.Middleware.COMPACTION,
@@ -175,6 +181,9 @@ public static partial class AgentEventSerializer
                 options.TypeInfoResolverChain.Add(resolver);
             }
         }
+
+        if (RuntimeFeature.IsDynamicCodeSupported)
+            options.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
 
         options.AddAIContentType<ImageContent>("hpd:image");
         options.AddAIContentType<AudioContent>("hpd:audio");

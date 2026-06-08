@@ -561,10 +561,10 @@ namespace HPD.Agent.Diagnostics {{
     private static string GenerateToolHarnessRegistry(List<ToolHarnessInfo> ToolHarnesses)
     {
         // Filter to only include ToolHarnesses that can be instantiated via the registry:
-        // 1. Must have parameterless constructor OR ISecretResolver-only constructor
+        // 1. Must have parameterless constructor, config constructor, or ISecretResolver-only constructor
         // 2. Must be publicly accessible (private/internal test classes are excluded)
         var instantiableToolHarnesses = ToolHarnesses
-            .Where(p => (p.HasParameterlessConstructor || p.HasSecretsConstructor) && p.IsPubliclyAccessible)
+            .Where(p => (p.HasParameterlessConstructor || p.HasSecretsConstructor || !string.IsNullOrEmpty(p.ConfigConstructorTypeName)) && p.IsPubliclyAccessible)
             .OrderBy(p => p.Name)
             .ToList();
         var sb = new StringBuilder();
@@ -576,6 +576,7 @@ namespace HPD.Agent.Diagnostics {{
         sb.AppendLine("using System.Collections.Generic;");
         sb.AppendLine("using System.Runtime.CompilerServices;");
         sb.AppendLine("using System.Text.Json;");
+        sb.AppendLine("using System.Text.Json.Serialization.Metadata;");
         sb.AppendLine("using Microsoft.Extensions.AI;");
         sb.AppendLine("using HPD.Agent;  // For ToolHarnessFactory and IToolMetadata types");
         sb.AppendLine();
@@ -609,6 +610,8 @@ namespace HPD.Agent.Diagnostics {{
             sb.AppendLine($"                ToolHarnessType: typeof({fullTypeName}),");
             if (ToolHarness.HasParameterlessConstructor)
                 sb.AppendLine($"                CreateInstance: () => new {fullTypeName}(),  // Direct instantiation (AOT-safe)");
+            else if (!string.IsNullOrEmpty(ToolHarness.ConfigConstructorTypeName))
+                sb.AppendLine($"                CreateInstance: () => throw new InvalidOperationException(\"{fullTypeName} requires config — use CreateFromConfig\"),");
             else
                 sb.AppendLine($"                CreateInstance: () => throw new InvalidOperationException(\"{fullTypeName} requires ISecretResolver — use CreateWithSecrets\"),");
 
@@ -653,7 +656,8 @@ namespace HPD.Agent.Diagnostics {{
             if (!string.IsNullOrEmpty(ToolHarness.ConfigConstructorTypeName))
             {
                 sb.AppendLine($"                ConfigType: typeof({ToolHarness.ConfigConstructorTypeName}),");
-                sb.AppendLine($"                CreateFromConfig: json => new {fullTypeName}(System.Text.Json.JsonSerializer.Deserialize<{ToolHarness.ConfigConstructorTypeName}>(json.GetRawText())!),");
+                sb.AppendLine($"                // No JSON metadata is registered for tool harness config type");
+                sb.AppendLine($"                CreateFromConfig: json => new {fullTypeName}(JsonSerializer.Deserialize(json, GetJsonTypeInfo<{ToolHarness.ConfigConstructorTypeName}>())!),");
             }
             else
             {
@@ -666,7 +670,8 @@ namespace HPD.Agent.Diagnostics {{
             if (!string.IsNullOrEmpty(ToolHarness.MetadataTypeName))
             {
                 sb.AppendLine($"                MetadataType: typeof({ToolHarness.MetadataTypeName}),");
-                sb.AppendLine($"                DeserializeMetadata: json => System.Text.Json.JsonSerializer.Deserialize<{ToolHarness.MetadataTypeName}>(json.GetRawText()),");
+                sb.AppendLine($"                // No JSON metadata is registered for tool metadata type");
+                sb.AppendLine($"                DeserializeMetadata: json => JsonSerializer.Deserialize(json, GetJsonTypeInfo<{ToolHarness.MetadataTypeName}>()),");
             }
             else
             {
@@ -730,7 +735,7 @@ namespace HPD.Agent.Diagnostics {{
                     sb.AppendLine($"                    new global::HPD.Agent.CollapseMiddlewareConfigFactory(");
                     sb.AppendLine($"                        MiddlewareTypeName: \"{entry.SimpleName}\",");
                     sb.AppendLine($"                        Factory: static json => new {entry.FullyQualifiedTypeName}(");
-                    sb.AppendLine($"                            global::System.Text.Json.JsonSerializer.Deserialize<{entry.ConfigTypeFqn}>(json.GetRawText())!)),");
+                    sb.AppendLine($"                            JsonSerializer.Deserialize(json, GetJsonTypeInfo<{entry.ConfigTypeFqn}>())!)),");
                 }
                 sb.AppendLine($"                }}");
             }
@@ -743,6 +748,20 @@ namespace HPD.Agent.Diagnostics {{
         }
 
         sb.AppendLine("        };");
+        sb.AppendLine();
+        sb.AppendLine("        private static JsonTypeInfo<T> GetJsonTypeInfo<T>()");
+        sb.AppendLine("        {");
+        sb.AppendLine("            foreach (var resolver in AIJsonUtilities.DefaultOptions.TypeInfoResolverChain)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                if (resolver.GetTypeInfo(typeof(T), AIJsonUtilities.DefaultOptions) is JsonTypeInfo<T> typeInfo)");
+        sb.AppendLine("                    return typeInfo;");
+        sb.AppendLine("            }");
+        sb.AppendLine();
+        sb.AppendLine("            if (HPDJsonContext.Default.GetTypeInfo(typeof(T)) is JsonTypeInfo<T> hpdTypeInfo)");
+        sb.AppendLine("                return hpdTypeInfo;");
+        sb.AppendLine();
+        sb.AppendLine("            throw new NotSupportedException($\"No JSON metadata is registered for tool harness config type '{typeof(T).FullName}'. No JSON metadata is registered for tool metadata type '{typeof(T).FullName}'. No JSON metadata is registered for collapse middleware config type '{typeof(T).FullName}'.\");");
+        sb.AppendLine("        }");
         sb.AppendLine();
         sb.AppendLine("#pragma warning disable CA2255");
         sb.AppendLine("        [ModuleInitializer]");
@@ -876,6 +895,9 @@ namespace HPD.Agent.Diagnostics {{
         sb.AppendLine("using System.Collections.Generic;");
         sb.AppendLine("using System.Runtime.CompilerServices;");
         sb.AppendLine("using System.Text.Json;");
+        sb.AppendLine("using System.Text.Json.Serialization.Metadata;");
+        sb.AppendLine("using Microsoft.Extensions.AI;");
+        sb.AppendLine("using HPD.Agent;");
         sb.AppendLine("using HPD.Agent.Middleware;  // For MiddlewareFactory and IAgentMiddleware");
         sb.AppendLine();
         sb.AppendLine("namespace HPD.Agent.Generated");
@@ -919,7 +941,8 @@ namespace HPD.Agent.Diagnostics {{
             if (!string.IsNullOrEmpty(m.ConfigConstructorTypeName))
             {
                 sb.AppendLine($"                ConfigType: typeof({m.ConfigConstructorTypeName}),");
-                sb.AppendLine($"                CreateFromConfig: json => new {fullTypeName}(System.Text.Json.JsonSerializer.Deserialize<{m.ConfigConstructorTypeName}>(json.GetRawText())!),");
+                sb.AppendLine($"                // No JSON metadata is registered for middleware config type");
+                sb.AppendLine($"                CreateFromConfig: json => new {fullTypeName}(JsonSerializer.Deserialize(json, GetJsonTypeInfo<{m.ConfigConstructorTypeName}>())!),");
             }
             else
             {
@@ -932,6 +955,20 @@ namespace HPD.Agent.Diagnostics {{
         }
 
         sb.AppendLine("        };");
+        sb.AppendLine();
+        sb.AppendLine("        private static JsonTypeInfo<T> GetJsonTypeInfo<T>()");
+        sb.AppendLine("        {");
+        sb.AppendLine("            foreach (var resolver in AIJsonUtilities.DefaultOptions.TypeInfoResolverChain)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                if (resolver.GetTypeInfo(typeof(T), AIJsonUtilities.DefaultOptions) is JsonTypeInfo<T> typeInfo)");
+        sb.AppendLine("                    return typeInfo;");
+        sb.AppendLine("            }");
+        sb.AppendLine();
+        sb.AppendLine("            if (HPDJsonContext.Default.GetTypeInfo(typeof(T)) is JsonTypeInfo<T> hpdTypeInfo)");
+        sb.AppendLine("                return hpdTypeInfo;");
+        sb.AppendLine();
+        sb.AppendLine("            throw new NotSupportedException($\"No JSON metadata is registered for middleware config type '{typeof(T).FullName}'.\");");
+        sb.AppendLine("        }");
         sb.AppendLine();
         sb.AppendLine("#pragma warning disable CA2255");
         sb.AppendLine("        [ModuleInitializer]");

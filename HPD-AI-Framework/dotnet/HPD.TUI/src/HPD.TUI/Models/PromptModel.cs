@@ -20,6 +20,10 @@ public sealed class PromptModel
 
     public char? MaskCharacter { get; set; }
 
+    public bool ShowVisualCursor { get; set; }
+
+    public char VisualCursorCharacter { get; set; } = '|';
+
     public string Value => Text.ToString();
 
     public void SetText(string value)

@@ -1,4 +1,4 @@
-namespace HPD.Agent.Audio.Output;
+namespace HPD.Agent.Audio;
 
 public enum AssistantOutputSynthesisMode
 {

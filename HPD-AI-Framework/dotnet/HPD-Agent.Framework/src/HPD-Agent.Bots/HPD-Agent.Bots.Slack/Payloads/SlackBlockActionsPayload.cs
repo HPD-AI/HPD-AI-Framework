@@ -5,7 +5,7 @@ namespace HPD.Agent.Bots.Slack.Payloads;
 
 // Arrives as form-urlencoded with a JSON `payload` field.
 // The generator detects Content-Type and routes accordingly.
-[WebhookPayload]
+[HpdBotPayload]
 public record SlackBlockActionsPayload(
     [property: JsonPropertyName("type")]         string Type,
     [property: JsonPropertyName("trigger_id")]   string TriggerId,

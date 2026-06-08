@@ -6,9 +6,9 @@ namespace HPD.Agent.Bots.AspNetCore;
 /// by <c>MapHPDBots()</c>.
 /// </summary>
 /// <remarks>
-/// The source generator emits an implementation of this interface
-/// (<c>GeneratedBotRegistryProvider</c>) and registers it automatically
-/// when <c>AddXxxBot()</c> is called.
+/// Generated adapters register a generated implementation of this interface
+/// when <c>AddXxxBot()</c> is called. Hand-written platform adapters can
+/// implement and register their own provider.
 /// </remarks>
 public interface IBotRegistryProvider
 {

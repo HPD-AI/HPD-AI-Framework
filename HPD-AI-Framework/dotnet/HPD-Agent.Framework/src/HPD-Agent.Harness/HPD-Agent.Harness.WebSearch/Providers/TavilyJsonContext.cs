@@ -153,7 +153,7 @@ public class TavilySearchResponse
     
     /// <summary>
     /// Query-related images (if include_images was true)
-    /// Can be List<string> or List<TavilyImageResult> depending on include_image_descriptions
+    /// Can be a list of strings or Tavily image result objects depending on include_image_descriptions.
     /// </summary>
     [JsonPropertyName("images")]
     public List<object>? Images { get; set; }

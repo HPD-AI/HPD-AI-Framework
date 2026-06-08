@@ -12,6 +12,58 @@ namespace HPD.Agent.Audio.V2.Tests;
 public sealed class OpenAIAudioProviderTests
 {
     [Fact]
+    public void BuilderExtensions_ConfigureAudioProviderFamilies()
+    {
+        var builder = new AgentBuilder()
+            .WithOpenAISpeechToText(
+                model: "gpt-4o-transcribe",
+                apiKey: "sk-stt",
+                configure: config => config.Prompt = "names may be product codenames")
+            .WithOpenAITextToSpeech(
+                model: "gpt-4o-mini-tts",
+                apiKey: "sk-tts",
+                voice: "nova",
+                outputFormat: "wav",
+                configure: config => config.Speed = 1.2f)
+            .WithOpenAIRealtime(
+                model: "gpt-realtime",
+                apiKey: "sk-realtime",
+                configure: config => config.OrganizationId = "org_123");
+
+        var sttConfig = builder.Config.Clients?.SpeechToText;
+        Assert.NotNull(sttConfig);
+        Assert.Equal(OpenAIAudioProvider.Key, sttConfig.ProviderKey);
+        Assert.Equal("gpt-4o-transcribe", sttConfig.ModelName);
+        Assert.Equal("sk-stt", sttConfig.ApiKey);
+        var sttProviderConfig = sttConfig.GetProviderConfig<OpenAISttConfig>(ProviderClientFamily.SpeechToText);
+        Assert.NotNull(sttProviderConfig);
+        Assert.Equal("gpt-4o-transcribe", sttProviderConfig.DefaultModelId);
+        Assert.Equal("names may be product codenames", sttProviderConfig.Prompt);
+
+        var ttsConfig = builder.Config.Clients.TextToSpeech;
+        Assert.NotNull(ttsConfig);
+        Assert.Equal(OpenAIAudioProvider.Key, ttsConfig.ProviderKey);
+        Assert.Equal("gpt-4o-mini-tts", ttsConfig.ModelName);
+        Assert.Equal("sk-tts", ttsConfig.ApiKey);
+        var ttsProviderConfig = ttsConfig.GetProviderConfig<OpenAITtsConfig>(ProviderClientFamily.TextToSpeech);
+        Assert.NotNull(ttsProviderConfig);
+        Assert.Equal("gpt-4o-mini-tts", ttsProviderConfig.DefaultModelId);
+        Assert.Equal("nova", ttsProviderConfig.DefaultVoiceId);
+        Assert.Equal("wav", ttsProviderConfig.OutputFormat);
+        Assert.Equal(1.2f, ttsProviderConfig.Speed);
+
+        var realtimeConfig = builder.Config.Clients.Realtime;
+        Assert.NotNull(realtimeConfig);
+        Assert.Equal(OpenAIAudioProvider.Key, realtimeConfig.ProviderKey);
+        Assert.Equal("gpt-realtime", realtimeConfig.ModelName);
+        Assert.Equal("sk-realtime", realtimeConfig.ApiKey);
+        var realtimeProviderConfig = realtimeConfig.GetProviderConfig<OpenAIRealtimeConfig>(ProviderClientFamily.Realtime);
+        Assert.NotNull(realtimeProviderConfig);
+        Assert.Equal("gpt-realtime", realtimeProviderConfig.DefaultModelId);
+        Assert.Equal("org_123", realtimeProviderConfig.OrganizationId);
+    }
+
+    [Fact]
     public void Metadata_ExposesSpeechToTextFamily()
     {
         var provider = new OpenAIAudioProvider();
@@ -276,6 +328,96 @@ public sealed class OpenAIAudioProviderTests
         Assert.Equal("verbose_json", roundTripped.ResponseFormat);
         Assert.Equal(["word", "segment"], roundTripped.TimestampGranularities);
         Assert.True(roundTripped.IncludeLogprobs);
+    }
+
+    [SkippableFact]
+    public async Task LiveTextToSpeech_WithConfiguredApiKey_ReturnsAudio()
+    {
+        Skip.IfNot(
+            string.Equals(
+                System.Environment.GetEnvironmentVariable("HPD_AUDIO_LIVE_SMOKE"),
+                "1",
+                StringComparison.Ordinal),
+            "Set HPD_AUDIO_LIVE_SMOKE=1 and OPENAI_API_KEY to run the credentialed OpenAI audio smoke test.");
+        var apiKey = System.Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        Skip.If(
+            string.IsNullOrWhiteSpace(apiKey),
+            "Set OPENAI_API_KEY to run the credentialed OpenAI audio smoke test.");
+
+        var provider = new OpenAIAudioProvider();
+        using var client = provider.CreateTextToSpeechClient(
+            new ClientProviderConfig
+            {
+                ProviderKey = "openai",
+                ApiKey = apiKey,
+                ModelName = System.Environment.GetEnvironmentVariable("OPENAI_TTS_MODEL") ??
+                    OpenAIAudioProvider.DefaultTextToSpeechModel
+            });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+
+        var response = await client.GetAudioAsync(
+            System.Environment.GetEnvironmentVariable("OPENAI_TTS_SMOKE_TEXT") ?? "HPD audio smoke.",
+            new TextToSpeechOptions
+            {
+                VoiceId = System.Environment.GetEnvironmentVariable("OPENAI_TTS_VOICE") ??
+                    OpenAIAudioProvider.DefaultTextToSpeechVoice,
+                AudioFormat = "mp3"
+            },
+            cts.Token);
+
+        var audio = Assert.Single(response.Contents.OfType<DataContent>());
+        Assert.Equal("audio/mpeg", audio.MediaType);
+        Assert.NotEmpty(audio.Data.ToArray());
+    }
+
+    [SkippableFact]
+    public async Task LiveRealtimeAgentTurn_WithConfiguredApiKey_ReturnsText()
+    {
+        Skip.IfNot(
+            string.Equals(
+                System.Environment.GetEnvironmentVariable("HPD_REALTIME_LIVE_SMOKE"),
+                "1",
+                StringComparison.Ordinal),
+            "Set HPD_REALTIME_LIVE_SMOKE=1 and OPENAI_API_KEY to run the credentialed OpenAI realtime smoke test.");
+        var apiKey = System.Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        Skip.If(
+            string.IsNullOrWhiteSpace(apiKey),
+            "Set OPENAI_API_KEY to run the credentialed OpenAI realtime smoke test.");
+
+        var provider = new OpenAIAudioProvider();
+        using var realtimeClient = provider.CreateRealtimeClient(
+            new ClientProviderConfig
+            {
+                ProviderKey = "openai",
+                ApiKey = apiKey,
+                ModelName = System.Environment.GetEnvironmentVariable("OPENAI_REALTIME_MODEL") ??
+                    OpenAIAudioProvider.DefaultRealtimeModel
+            });
+        var agent = await AgentBuilder
+            .Create()
+            .WithDeferredProvider()
+            .BuildAsync();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+
+        try
+        {
+            var result = await agent.RunAsync(
+                System.Environment.GetEnvironmentVariable("OPENAI_REALTIME_SMOKE_PROMPT") ??
+                    "Reply with exactly three words.",
+                runConfig: new AgentRunConfig
+                {
+                    ModelTransport = AgentModelTransportMode.Realtime,
+                    OverrideRealtimeClient = realtimeClient
+                },
+                cancellationToken: cts.Token);
+
+            Assert.NotNull(result);
+            Assert.False(string.IsNullOrWhiteSpace(result.Text));
+        }
+        finally
+        {
+            agent.Dispose();
+        }
     }
 }
 

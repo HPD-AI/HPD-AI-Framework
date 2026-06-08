@@ -3,6 +3,7 @@
 
 using System.ClientModel;
 using System.Runtime.CompilerServices;
+using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using Microsoft.Extensions.AI;
 using OpenAI.Audio;

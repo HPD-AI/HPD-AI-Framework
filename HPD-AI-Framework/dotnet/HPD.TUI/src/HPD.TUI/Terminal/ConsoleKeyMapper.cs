@@ -38,8 +38,20 @@ internal static class ConsoleKeyMapper
             ConsoleKey.DownArrow => new KeyEvent(KeyCode.DownArrow, default, modifiers),
             ConsoleKey.LeftArrow => new KeyEvent(KeyCode.LeftArrow, default, modifiers),
             ConsoleKey.RightArrow => new KeyEvent(KeyCode.RightArrow, default, modifiers),
-            _ when key.KeyChar != '\0' => new KeyEvent(KeyCode.Character, new Rune(key.KeyChar), modifiers),
+            _ when TryCreateRune(key.KeyChar, out var rune) => new KeyEvent(KeyCode.Character, rune, modifiers),
             _ => new KeyEvent(KeyCode.Unknown, default, modifiers)
         };
+    }
+
+    private static bool TryCreateRune(char value, out Rune rune)
+    {
+        rune = default;
+        if (value == '\0' || char.IsControl(value) || char.IsSurrogate(value))
+        {
+            return false;
+        }
+
+        rune = new Rune(value);
+        return true;
     }
 }

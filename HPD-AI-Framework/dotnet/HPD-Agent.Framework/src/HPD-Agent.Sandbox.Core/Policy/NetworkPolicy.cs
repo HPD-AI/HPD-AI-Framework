@@ -1,6 +1,6 @@
 namespace HPD.Agent.Sandbox.Policy;
 
-using HPD.Execution.Contracts;
+using HPD.Environment.Contracts;
 
 internal sealed record NetworkPolicy
 {

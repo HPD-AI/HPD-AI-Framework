@@ -663,7 +663,7 @@ public sealed class RipgrepWrapperTests
         var binaryPath = Path.Combine(temp.Path, "rg");
         await File.WriteAllTextAsync(binaryPath, "not a real binary\n");
         var hash = Sha256(binaryPath);
-        Environment.SetEnvironmentVariable("IVY_RIPGREP_VERSION", "99.99.99");
+        System.Environment.SetEnvironmentVariable("IVY_RIPGREP_VERSION", "99.99.99");
 
         try
         {
@@ -692,7 +692,7 @@ public sealed class RipgrepWrapperTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("IVY_RIPGREP_VERSION", null);
+            System.Environment.SetEnvironmentVariable("IVY_RIPGREP_VERSION", null);
         }
     }
 
@@ -889,7 +889,7 @@ public sealed class RipgrepWrapperTests
 
         using var temp = TempDirectory.Create();
         var script = await CreateScriptAsync(temp.Path, "envcheck", "printf '%s\\n' \"${RIPGREP_CONFIG_PATH:-cleared}\"");
-        Environment.SetEnvironmentVariable("RIPGREP_CONFIG_PATH", "/tmp/should-not-leak");
+        System.Environment.SetEnvironmentVariable("RIPGREP_CONFIG_PATH", "/tmp/should-not-leak");
 
         try
         {
@@ -904,7 +904,7 @@ public sealed class RipgrepWrapperTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("RIPGREP_CONFIG_PATH", null);
+            System.Environment.SetEnvironmentVariable("RIPGREP_CONFIG_PATH", null);
         }
     }
 

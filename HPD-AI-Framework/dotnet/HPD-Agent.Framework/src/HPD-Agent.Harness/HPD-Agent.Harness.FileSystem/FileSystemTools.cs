@@ -91,14 +91,14 @@ public partial class FileSystemTools
                     return $"Error: Offset {start} is out of range. File has {lines.Length} lines.";
 
                 var selectedLines = lines.Skip(start).Take(count).ToArray();
-                var result = string.Join(Environment.NewLine, selectedLines);
+                var result = string.Join(System.Environment.NewLine, selectedLines);
 
-                return $"--- File: {absolutePath} (lines {start + 1}-{start + selectedLines.Length} of {lines.Length}) ---{Environment.NewLine}{result}";
+                return $"--- File: {absolutePath} (lines {start + 1}-{start + selectedLines.Length} of {lines.Length}) ---{System.Environment.NewLine}{result}";
             }
 
             // Return full file
-            var content = string.Join(Environment.NewLine, lines);
-            return $"--- File: {absolutePath} ({lines.Length} lines, {fileInfo.Length} bytes) ---{Environment.NewLine}{content}";
+            var content = string.Join(System.Environment.NewLine, lines);
+            return $"--- File: {absolutePath} ({lines.Length} lines, {fileInfo.Length} bytes) ---{System.Environment.NewLine}{content}";
         }
         catch (Exception ex)
         {

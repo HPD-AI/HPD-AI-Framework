@@ -19,6 +19,16 @@ public class AgentGraphContext : GraphContext
     private readonly Dictionary<string, AgentNodeOptions> _agentOptions;
 
     /// <summary>
+    /// Workflow name used for public metadata and conversation routing.
+    /// </summary>
+    public string WorkflowName { get; }
+
+    /// <summary>
+    /// Resolves durable session and branch routes for node agent runs.
+    /// </summary>
+    public IMultiAgentConversationRuntime Conversation { get; }
+
+    /// <summary>
     /// The original user input that started the workflow.
     /// Also available via SharedData["input"] for all handlers.
     /// </summary>
@@ -52,11 +62,15 @@ public class AgentGraphContext : GraphContext
         Dictionary<string, AgentNodeOptions> agentOptions,
         IGraphChannelSet? channels = null,
         IManagedContext? managed = null,
-        string? originalInput = null)
+        string? originalInput = null,
+        string? workflowName = null,
+        IMultiAgentConversationRuntime? conversation = null)
         : base(executionId, graph, services, channels, managed, enableSharedData: true)
     {
         _agents = agents ?? throw new ArgumentNullException(nameof(agents));
         _agentOptions = agentOptions ?? throw new ArgumentNullException(nameof(agentOptions));
+        WorkflowName = string.IsNullOrWhiteSpace(workflowName) ? graph.Name ?? "Workflow" : workflowName!;
+        Conversation = conversation ?? NoopMultiAgentConversationRuntime.Instance;
 
         // Store original input in SharedData so it's available to all nodes
         if (!string.IsNullOrEmpty(originalInput) && SharedData != null)
@@ -105,7 +119,9 @@ public class AgentGraphContext : GraphContext
             _agentOptions, // Options are shared (immutable)
             CloneChannelsInternal(),
             Managed,
-            OriginalInput) // Will be copied to SharedData in constructor
+            OriginalInput, // Will be copied to SharedData in constructor
+            WorkflowName,
+            Conversation)
         {
             CurrentLayerIndex = CurrentLayerIndex,
             // CRITICAL: Share the event coordinator so events from parallel nodes are streamed

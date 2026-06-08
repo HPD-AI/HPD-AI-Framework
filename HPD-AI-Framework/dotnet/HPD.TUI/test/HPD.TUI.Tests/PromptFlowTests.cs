@@ -151,6 +151,10 @@ public sealed class PromptFlowTests
         {
         }
 
+        public void Flush()
+        {
+        }
+
         public bool TryReadKey(out KeyEvent key)
         {
             if (_keys.Count == 0)

@@ -1,0 +1,37 @@
+{
+  "id": "tui-console-agent",
+  "name": "TUI Console Agent",
+  "config": {
+    "name": "TUI Console Agent",
+    "systemInstructions": "You are a server-hosted HPD Agent. Be concise and helpful.",
+    "maxAgenticIterations": 10,
+    "continuationExtensionAmount": 3,
+    "clients": {
+      "chat": {
+        "providerKey": "openrouter",
+        "modelName": "google/gemini-3.1-flash-lite-preview",
+        "apiKey": ""
+      }
+    },
+    "messages": {
+      "maxIterationsReached": "Maximum iteration limit reached ({maxIterations} iterations). The agent was unable to complete the task within the allowed number of turns.",
+      "circuitBreakerTriggered": "Circuit breaker triggered: \u0027{toolName}\u0027 called {count} times with the same arguments. This may indicate the agent is stuck in a loop.",
+      "maxConsecutiveErrors": "Exceeded maximum consecutive errors ({maxErrors}). The agent is unable to proceed due to repeated failures.",
+      "permissionDeniedDefault": "Permission denied by user."
+    },
+    "collapsing": {
+      "enabled": true,
+      "collapseClientTools": false,
+      "maxFunctionNamesInDescription": 10,
+      "skillInstructionMode": 1,
+      "persistSystemPromptInjections": false,
+      "enableErrorRecovery": true
+    },
+    "toolharnesses": [],
+    "middlewares": [],
+    "includeReasoningInModelHistory": false,
+    "coalesceDeltas": false
+  },
+  "createdAt": "2026-06-06T00:14:02.65901Z",
+  "updatedAt": "2026-06-06T00:14:02.659019Z"
+}

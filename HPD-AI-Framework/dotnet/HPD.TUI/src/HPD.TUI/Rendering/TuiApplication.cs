@@ -6,6 +6,8 @@ namespace HPD.TUI.Rendering;
 
 public sealed class TuiApplication : IDisposable
 {
+    private static readonly char[] EnterAlternateScreen = ['\x1b', '[', '?', '1', '0', '4', '9', 'h', '\x1b', '[', '2', 'J', '\x1b', '[', 'H'];
+    private static readonly char[] LeaveAlternateScreen = ['\x1b', '[', '?', '1', '0', '4', '9', 'l'];
     public static readonly TimeSpan DefaultFrameInterval = TimeSpan.FromMilliseconds(16);
     private readonly ITerminal _terminal;
     private readonly TuiRenderer _renderer;
@@ -77,6 +79,7 @@ public sealed class TuiApplication : IDisposable
             throw new ArgumentOutOfRangeException(nameof(frameInterval), "Frame interval must be positive.");
         }
 
+        _terminal.Write(EnterAlternateScreen);
         _terminal.HideCursor();
 
         try
@@ -105,6 +108,7 @@ public sealed class TuiApplication : IDisposable
         finally
         {
             _terminal.ShowCursor();
+            _terminal.Write(LeaveAlternateScreen);
         }
     }
 

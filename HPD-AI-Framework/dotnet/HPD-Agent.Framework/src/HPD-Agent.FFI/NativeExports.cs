@@ -70,6 +70,33 @@ public class NativeFunctionInfo
 /// </summary>
 public static partial class NativeExports
 {
+    internal static IntPtr RegisterManagedAgentForTesting(HPD.Agent.Agent agent) =>
+        ObjectManager.Add(agent);
+
+    internal static void DestroyHandleForTesting(IntPtr handle) =>
+        ObjectManager.Remove(handle);
+
+    internal static IntPtr CreateConversationThreadForTesting() =>
+        CreateConversationThreadCore();
+
+    internal static int GetMessageCountForTesting(IntPtr threadHandle) =>
+        GetMessageCountCore(threadHandle);
+
+    internal static int RunAgentStreamingForTesting(
+        IntPtr agentHandle,
+        string input,
+        IntPtr threadHandle,
+        StreamCallback callback,
+        IntPtr context) =>
+        RunAgentStreamingCore(agentHandle, input, threadHandle, callback, context);
+
+    internal static int RespondToPermissionForTesting(
+        IntPtr agentHandle,
+        string permissionId,
+        int approved,
+        int permissionChoice) =>
+        RespondToPermissionCore(agentHandle, permissionId, approved, permissionChoice);
+
     /// <summary>
     /// Test function to verify FFI communication between C# and Rust.
     /// Accepts a UTF-8 string from Rust and returns a response.
@@ -321,6 +348,11 @@ public static partial class NativeExports
     [UnmanagedCallersOnly(EntryPoint = "create_conversation_thread")]
     public static IntPtr CreateAgentSession()
     {
+        return CreateConversationThreadCore();
+    }
+
+    private static IntPtr CreateConversationThreadCore()
+    {
         try
         {
             var thread = new FFIConversationThread();
@@ -372,6 +404,11 @@ public static partial class NativeExports
     /// <returns>Number of messages, or -1 on failure</returns>
     [UnmanagedCallersOnly(EntryPoint = "get_message_count")]
     public static int GetMessageCount(IntPtr threadHandle)
+    {
+        return GetMessageCountCore(threadHandle);
+    }
+
+    private static int GetMessageCountCore(IntPtr threadHandle)
     {
         try
         {
@@ -478,13 +515,17 @@ public static partial class NativeExports
     [UnmanagedCallersOnly(EntryPoint = "run_agent")]
     public static IntPtr RunAgent(IntPtr agentHandle, IntPtr inputPtr, IntPtr threadHandle)
     {
+        string? input = Marshal.PtrToStringUTF8(inputPtr);
+        if (string.IsNullOrEmpty(input)) return IntPtr.Zero;
+        return RunAgentCore(agentHandle, input, threadHandle);
+    }
+
+    private static IntPtr RunAgentCore(IntPtr agentHandle, string input, IntPtr threadHandle)
+    {
         try
         {
             var agent = ObjectManager.Get<HPD.Agent.Agent>(agentHandle);
             if (agent == null) return IntPtr.Zero;
-
-            string? input = Marshal.PtrToStringUTF8(inputPtr);
-            if (string.IsNullOrEmpty(input)) return IntPtr.Zero;
 
             // Create user message
             var userMessage = new ChatMessage(ChatRole.User, input);
@@ -542,18 +583,28 @@ public static partial class NativeExports
     public static int RunAgentStreaming(IntPtr agentHandle, IntPtr inputPtr, IntPtr threadHandle,
         IntPtr callbackPtr, IntPtr context)
     {
+        string? input = Marshal.PtrToStringUTF8(inputPtr);
+        if (string.IsNullOrEmpty(input)) return 0;
+
+        if (callbackPtr == IntPtr.Zero) return 0;
+
+        var callback = Marshal.GetDelegateForFunctionPointer<StreamCallback>(callbackPtr);
+        return RunAgentStreamingCore(agentHandle, input, threadHandle, callback, context);
+    }
+
+    private static int RunAgentStreamingCore(
+        IntPtr agentHandle,
+        string input,
+        IntPtr threadHandle,
+        StreamCallback callback,
+        IntPtr context)
+    {
         try
         {
             var agent = ObjectManager.Get<HPD.Agent.Agent>(agentHandle);
             if (agent == null) return 0;
 
-            string? input = Marshal.PtrToStringUTF8(inputPtr);
             if (string.IsNullOrEmpty(input)) return 0;
-
-            if (callbackPtr == IntPtr.Zero) return 0;
-
-            // Marshal the callback
-            var callback = Marshal.GetDelegateForFunctionPointer<StreamCallback>(callbackPtr);
 
             // Create user message
             var userMessage = new ChatMessage(ChatRole.User, input);
@@ -631,12 +682,22 @@ public static partial class NativeExports
         int approved,
         int permissionChoice)
     {
+        string? permissionId = Marshal.PtrToStringUTF8(permissionIdPtr);
+        if (string.IsNullOrEmpty(permissionId)) return 0;
+        return RespondToPermissionCore(agentHandle, permissionId, approved, permissionChoice);
+    }
+
+    private static int RespondToPermissionCore(
+        IntPtr agentHandle,
+        string permissionId,
+        int approved,
+        int permissionChoice)
+    {
         try
         {
             var agent = ObjectManager.Get<HPD.Agent.Agent>(agentHandle);
             if (agent == null) return 0;
 
-            string? permissionId = Marshal.PtrToStringUTF8(permissionIdPtr);
             if (string.IsNullOrEmpty(permissionId)) return 0;
 
             // Map integer to PermissionChoice enum

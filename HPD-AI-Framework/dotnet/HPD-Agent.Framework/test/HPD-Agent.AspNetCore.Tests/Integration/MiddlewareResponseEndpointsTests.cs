@@ -1,16 +1,19 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
 using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.ClientTools;
 using HPD.Agent.Hosting.Data;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent.AspNetCore.Tests.Integration;
 
 /// <summary>
 /// Integration tests for middleware response endpoints using event-based responses.
-/// Tests: POST /agents/{agentId}/sessions/{sid}/branches/{bid}/permissions/respond, POST /agents/{agentId}/sessions/{sid}/branches/{bid}/client-tools/respond
+/// Tests: POST /agents/{agentId}/sessions/{sid}/branches/{bid}/responses
 /// </summary>
 public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplicationFactory>
 {
@@ -28,10 +31,10 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
         return session!.Id;
     }
 
-    #region POST /agents/{agentId}/sessions/{sid}/branches/{bid}/permissions/respond
+    #region POST /agents/{agentId}/sessions/{sid}/branches/{bid}/responses
 
     [Fact]
-    public async Task RespondToPermission_AcceptsPermissionResponseEvent_Returns200()
+    public async Task Respond_AcceptsPermissionResponseEvent_ReturnsConflictWhenRuntimeInactive()
     {
         // Arrange
         var sessionId = await CreateTestSession();
@@ -43,97 +46,57 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
             Choice: PermissionChoice.Ask);
 
         // Act
-        var response = await _client.PostAsJsonAsync(
-             $"/agents/test-agent/sessions/{sessionId}/branches/main/permissions/respond",
+        var response = await PostEventAsync(
+            $"/agents/test-agent/sessions/{sessionId}/branches/main/responses",
             evt);
 
-        // Assert - Returns 200 or 404 depending on whether agent is running
-        // In a real scenario with running agent, would return 200
-        response.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.NotFound);
+        // Assert - the branch exists, but no live branch runtime is waiting for this response.
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("errors").TryGetProperty("BranchRuntimeNotActive", out _).Should().BeTrue();
     }
 
     [Fact]
-    public async Task RespondToPermission_WithApprovedFlag_Succeeds()
+    public async Task Respond_AcceptsContinuationResponseEvent()
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var evt = new PermissionResponseEvent(
-            PermissionId: "perm-123",
+        var evt = new ContinuationResponseEvent(
+            ContinuationId: "cont-123",
             SourceName: "TestSource",
             Approved: true);
 
         // Act
-        var response = await _client.PostAsJsonAsync(
-             $"/agents/test-agent/sessions/{sessionId}/branches/main/permissions/respond",
+        var response = await PostEventAsync(
+             $"/agents/test-agent/sessions/{sessionId}/branches/main/responses",
             evt);
 
         // Assert
-        response.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.NotFound);
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     [Fact]
-    public async Task RespondToPermission_WithDenialAndReason_Succeeds()
+    public async Task Respond_AcceptsClarificationResponseEvent()
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var evt = new PermissionResponseEvent(
-            PermissionId: "perm-456",
+        var evt = new ClarificationResponseEvent(
+            RequestId: "clar-456",
             SourceName: "TestSource",
-            Approved: false,
-            Reason: "Permission denied for security reasons");
+            Question: "Which environment?",
+            Answer: "staging");
 
         // Act
-        var response = await _client.PostAsJsonAsync(
-             $"/agents/test-agent/sessions/{sessionId}/branches/main/permissions/respond",
+        var response = await PostEventAsync(
+             $"/agents/test-agent/sessions/{sessionId}/branches/main/responses",
             evt);
 
         // Assert
-        response.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.NotFound);
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     [Fact]
-    public async Task RespondToPermission_Returns404_WhenSessionMissing()
-    {
-        // Arrange
-        var evt = new PermissionResponseEvent(
-            PermissionId: "perm-missing-session",
-            SourceName: "TestSource",
-            Approved: true);
-
-        // Act
-        var response = await _client.PostAsJsonAsync(
-            "/agents/test-agent/sessions/missing-session/branches/main/permissions/respond",
-            evt);
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
-    }
-
-    [Fact]
-    public async Task RespondToPermission_Returns404_WhenBranchMissing()
-    {
-        // Arrange
-        var sessionId = await CreateTestSession();
-        var evt = new PermissionResponseEvent(
-            PermissionId: "perm-missing-branch",
-            SourceName: "TestSource",
-            Approved: true);
-
-        // Act
-        var response = await _client.PostAsJsonAsync(
-            $"/agents/test-agent/sessions/{sessionId}/branches/missing-branch/permissions/respond",
-            evt);
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
-    }
-
-    #endregion
-
-    #region POST /agents/{agentId}/sessions/{sid}/branches/{bid}/client-tools/respond
-
-    [Fact]
-    public async Task RespondToClientTool_WithTextResult_Returns200()
+    public async Task Respond_AcceptsClientToolResponseEvent()
     {
         // Arrange
         var sessionId = await CreateTestSession();
@@ -143,76 +106,86 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
             Success: true);
 
         // Act
-        var response = await _client.PostAsJsonAsync(
-             $"/agents/test-agent/sessions/{sessionId}/branches/main/client-tools/respond",
+        var response = await PostEventAsync(
+             $"/agents/test-agent/sessions/{sessionId}/branches/main/responses",
             evt);
 
         // Assert
-        response.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.NotFound);
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     [Fact]
-    public async Task RespondToClientTool_WithMultipleContents_Succeeds()
+    public async Task Respond_Returns404_WhenSessionMissing()
     {
         // Arrange
-        var sessionId = await CreateTestSession();
-        var contents = new IToolResultContent[]
-        {
-            new TextContent("Result data"),
-            new TextContent("Additional result")
-        };
-        var evt = new ClientToolInvokeResponseEvent(
-            RequestId: "tool-req-456",
-            Content: contents,
-            Success: true);
+        var evt = new PermissionResponseEvent(
+            PermissionId: "perm-missing-session",
+            SourceName: "TestSource",
+            Approved: true);
 
         // Act
-        var response = await _client.PostAsJsonAsync(
-             $"/agents/test-agent/sessions/{sessionId}/branches/main/client-tools/respond",
-            evt);
-
-        // Assert
-        response.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.NotFound);
-    }
-
-    [Fact]
-    public async Task RespondToClientTool_WithErrorMessage_Succeeds()
-    {
-        // Arrange
-        var sessionId = await CreateTestSession();
-        var evt = new ClientToolInvokeResponseEvent(
-            RequestId: "tool-req-789",
-            Content: new[] { new TextContent("") },
-            Success: false,
-            ErrorMessage: "Tool execution failed: invalid parameters");
-
-        // Act
-        var response = await _client.PostAsJsonAsync(
-             $"/agents/test-agent/sessions/{sessionId}/branches/main/client-tools/respond",
-            evt);
-
-        // Assert
-        response.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.NotFound);
-    }
-
-    [Fact]
-    public async Task RespondToClientTool_Returns404_WhenBranchMissing()
-    {
-        // Arrange
-        var sessionId = await CreateTestSession();
-        var evt = new ClientToolInvokeResponseEvent(
-            RequestId: "tool-missing-branch",
-            Content: new[] { new TextContent("Tool execution succeeded") },
-            Success: true);
-
-        // Act
-        var response = await _client.PostAsJsonAsync(
-            $"/agents/test-agent/sessions/{sessionId}/branches/missing-branch/client-tools/respond",
+        var response = await PostEventAsync(
+            "/agents/test-agent/sessions/missing-session/branches/main/responses",
             evt);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task Respond_Returns404_WhenBranchMissing()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var evt = new PermissionResponseEvent(
+            PermissionId: "perm-missing-branch",
+            SourceName: "TestSource",
+            Approved: true);
+
+        // Act
+        var response = await PostEventAsync(
+            $"/agents/test-agent/sessions/{sessionId}/branches/missing-branch/responses",
+            evt);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Respond_Returns400_ForNonBidirectionalEvent()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var evt = new TextDeltaEvent("not a response", "message-1");
+
+        // Act
+        var response = await PostEventAsync(
+             $"/agents/test-agent/sessions/{sessionId}/branches/main/responses",
+            evt);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Respond_Returns400_ForInvalidEnvelope()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+
+        // Act
+        var response = await _client.PostAsync(
+            $"/agents/test-agent/sessions/{sessionId}/branches/main/responses",
+            new StringContent("{\"hello\":\"world\"}", Encoding.UTF8, "application/json"));
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
     #endregion
+
+    private Task<HttpResponseMessage> PostEventAsync(string requestUri, AgentEvent evt) =>
+        _client.PostAsync(
+            requestUri,
+            new StringContent(AgentEventSerializer.ToJson(evt), Encoding.UTF8, "application/json"));
 }

@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace HPD.Agent.Bots.Slack.Payloads;
 
-[WebhookPayload]
+[HpdBotPayload]
 public record SlackReactionEvent(
     [property: JsonPropertyName("type")]      string Type,
     [property: JsonPropertyName("user")]      string User,

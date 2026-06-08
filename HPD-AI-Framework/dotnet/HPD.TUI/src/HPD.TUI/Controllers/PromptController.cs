@@ -24,7 +24,7 @@ public sealed class PromptController
 
     public bool HandleInput(in KeyEvent key)
     {
-        if (Autocomplete is { Suggestions.Count: > 0 })
+        if (Autocomplete is { SuggestionCount: > 0 })
         {
             switch (key.Key)
             {
@@ -36,6 +36,14 @@ public sealed class PromptController
                     return true;
                 case KeyCode.Tab:
                     Autocomplete.Accept(_model);
+                    return true;
+                case KeyCode.Enter:
+                    var submitOnAccept = Autocomplete.SelectedSuggestion?.SubmitOnAccept == true;
+                    if (Autocomplete.Accept(_model) && submitOnAccept)
+                    {
+                        Submit();
+                    }
+
                     return true;
             }
         }

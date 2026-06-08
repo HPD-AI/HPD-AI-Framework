@@ -30,20 +30,20 @@ public class AttributeTests
         usage.ValidOn.Should().HaveFlag(AttributeTargets.Class);
     }
 
-    // ── HpdWebhookHandlerAttribute ────────────────────────────────────
+    // ── HpdBotEventHandlerAttribute ────────────────────────────────────
 
     [Fact]
-    public void HpdWebhookHandlerAttribute_StoresEventType()
+    public void HpdBotEventHandlerAttribute_StoresEventType()
     {
-        var attr = new HpdWebhookHandlerAttribute("app_mention");
+        var attr = new HpdBotEventHandlerAttribute("app_mention");
 
         attr.EventType.Should().Be("app_mention");
     }
 
     [Fact]
-    public void HpdWebhookHandlerAttribute_AllowMultiple_IsTrue()
+    public void HpdBotEventHandlerAttribute_AllowMultiple_IsTrue()
     {
-        var usage = (AttributeUsageAttribute)typeof(HpdWebhookHandlerAttribute)
+        var usage = (AttributeUsageAttribute)typeof(HpdBotEventHandlerAttribute)
             .GetCustomAttributes(typeof(AttributeUsageAttribute), false)
             .Single();
 
@@ -51,49 +51,49 @@ public class AttributeTests
     }
 
     [Fact]
-    public void HpdWebhookHandlerAttribute_TargetsMethod()
+    public void HpdBotEventHandlerAttribute_TargetsMethod()
     {
-        var usage = (AttributeUsageAttribute)typeof(HpdWebhookHandlerAttribute)
+        var usage = (AttributeUsageAttribute)typeof(HpdBotEventHandlerAttribute)
             .GetCustomAttributes(typeof(AttributeUsageAttribute), false)
             .Single();
 
         usage.ValidOn.Should().HaveFlag(AttributeTargets.Method);
     }
 
-    // ── HpdWebhookMethodsAttribute ────────────────────────────────────
+    // ── HpdHttpMethodsAttribute ────────────────────────────────────
 
     [Fact]
-    public void HpdWebhookMethodsAttribute_StoresMethods()
+    public void HpdHttpMethodsAttribute_StoresMethods()
     {
-        var attr = new HpdWebhookMethodsAttribute("GET", "POST");
+        var attr = new HpdHttpMethodsAttribute("GET", "POST");
 
         attr.Methods.Should().Equal("GET", "POST");
     }
 
     [Fact]
-    public void HpdWebhookMethodsAttribute_TargetsClass()
+    public void HpdHttpMethodsAttribute_TargetsClass()
     {
-        var usage = (AttributeUsageAttribute)typeof(HpdWebhookMethodsAttribute)
+        var usage = (AttributeUsageAttribute)typeof(HpdHttpMethodsAttribute)
             .GetCustomAttributes(typeof(AttributeUsageAttribute), false)
             .Single();
 
         usage.ValidOn.Should().HaveFlag(AttributeTargets.Class);
     }
 
-    // ── HpdPreDispatchAttribute ───────────────────────────────────────
+    // ── HpdBotPreDispatchAttribute ───────────────────────────────────────
 
     [Fact]
-    public void HpdPreDispatchAttribute_CanBeInstantiated()
+    public void HpdBotPreDispatchAttribute_CanBeInstantiated()
     {
-        var act = () => new HpdPreDispatchAttribute();
+        var act = () => new HpdBotPreDispatchAttribute();
 
         act.Should().NotThrow();
     }
 
     [Fact]
-    public void HpdPreDispatchAttribute_TargetsMethod()
+    public void HpdBotPreDispatchAttribute_TargetsMethod()
     {
-        var usage = (AttributeUsageAttribute)typeof(HpdPreDispatchAttribute)
+        var usage = (AttributeUsageAttribute)typeof(HpdBotPreDispatchAttribute)
             .GetCustomAttributes(typeof(AttributeUsageAttribute), false)
             .Single();
 
@@ -101,29 +101,29 @@ public class AttributeTests
     }
 
     [Fact]
-    public void HpdPreDispatchAttribute_AllowMultiple_IsFalse()
+    public void HpdBotPreDispatchAttribute_AllowMultiple_IsFalse()
     {
-        var usage = (AttributeUsageAttribute)typeof(HpdPreDispatchAttribute)
+        var usage = (AttributeUsageAttribute)typeof(HpdBotPreDispatchAttribute)
             .GetCustomAttributes(typeof(AttributeUsageAttribute), false)
             .Single();
 
         usage.AllowMultiple.Should().BeFalse();
     }
 
-    // ── HpdBodyExtractorAttribute ─────────────────────────────────────
+    // ── HpdBotEnvelopeExtractorAttribute ─────────────────────────────────────
 
     [Fact]
-    public void HpdBodyExtractorAttribute_CanBeInstantiated()
+    public void HpdBotEnvelopeExtractorAttribute_CanBeInstantiated()
     {
-        var act = () => new HpdBodyExtractorAttribute();
+        var act = () => new HpdBotEnvelopeExtractorAttribute();
 
         act.Should().NotThrow();
     }
 
     [Fact]
-    public void HpdBodyExtractorAttribute_TargetsMethod()
+    public void HpdBotEnvelopeExtractorAttribute_TargetsMethod()
     {
-        var usage = (AttributeUsageAttribute)typeof(HpdBodyExtractorAttribute)
+        var usage = (AttributeUsageAttribute)typeof(HpdBotEnvelopeExtractorAttribute)
             .GetCustomAttributes(typeof(AttributeUsageAttribute), false)
             .Single();
 
@@ -131,9 +131,9 @@ public class AttributeTests
     }
 
     [Fact]
-    public void HpdBodyExtractorAttribute_AllowMultiple_IsFalse()
+    public void HpdBotEnvelopeExtractorAttribute_AllowMultiple_IsFalse()
     {
-        var usage = (AttributeUsageAttribute)typeof(HpdBodyExtractorAttribute)
+        var usage = (AttributeUsageAttribute)typeof(HpdBotEnvelopeExtractorAttribute)
             .GetCustomAttributes(typeof(AttributeUsageAttribute), false)
             .Single();
 
@@ -216,12 +216,12 @@ public class AttributeTests
         act.Should().NotThrow();
     }
 
-    // ── WebhookPayloadAttribute ───────────────────────────────────────
+    // ── HpdBotPayloadAttribute ───────────────────────────────────────
 
     [Fact]
-    public void WebhookPayloadAttribute_CanBeInstantiated()
+    public void HpdBotPayloadAttribute_CanBeInstantiated()
     {
-        var act = () => new WebhookPayloadAttribute();
+        var act = () => new HpdBotPayloadAttribute();
 
         act.Should().NotThrow();
     }

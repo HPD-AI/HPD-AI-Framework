@@ -6,7 +6,7 @@ namespace HPD.Agent.Bots.Tests.SourceGen;
 /// <summary>
 /// Tests for the <see cref="HPD.Agent.Bots.SourceGenerator.BotSourceGenerator"/> pipeline —
 /// how it resolves <c>BotInfo</c>, <c>StreamingInfo</c>,
-/// <c>HandlerInfo</c>, and <c>WebhookPayloadInfo</c> from symbol metadata.
+/// <c>HandlerInfo</c>, and <c>HpdBotPayloadInfo</c> from symbol metadata.
 /// These tests inspect generated output to verify the pipeline extracted the right values.
 /// </summary>
 public class PipelineTests
@@ -70,8 +70,8 @@ public class PipelineTests
             [HpdBot("slack")]
             public partial class SlackBot
             {
-                [HpdPreDispatch]
-                private async Task<IResult?> PreDispatchAsync(HttpContext ctx, byte[] bodyBytes)
+                [HpdBotPreDispatch]
+                private async Task<BotAdapterResponse?> PreDispatchAsync(BotRequestContext ctx, byte[] bodyBytes)
                     => null;
             }
             """;
@@ -94,8 +94,8 @@ public class PipelineTests
             [HpdBot("discord")]
             public partial class DiscordBot
             {
-                [HpdPreDispatch]
-                private async Task<IResult?> VerifyDiscordAsync(HttpContext ctx, byte[] bodyBytes)
+                [HpdBotPreDispatch]
+                private async Task<BotAdapterResponse?> VerifyDiscordAsync(BotRequestContext ctx, byte[] bodyBytes)
                     => null;
             }
             """;
@@ -117,8 +117,8 @@ public class PipelineTests
             [HpdBot("slack")]
             public partial class SlackBot
             {
-                [HpdBodyExtractor]
-                private (string? eventType, byte[] dispatchBytes) ExtractDispatch(HttpContext ctx, byte[] bodyBytes)
+                [HpdBotEnvelopeExtractor]
+                private (string? eventType, byte[] dispatchBytes) ExtractDispatch(BotRequestContext ctx, byte[] bodyBytes)
                     => (null, bodyBytes);
             }
             """;
@@ -140,9 +140,9 @@ public class PipelineTests
             [HpdBot("github")]
             public partial class GitHubBot
             {
-                [HpdBodyExtractor]
-                private (string? eventType, byte[] dispatchBytes) ExtractGitHubEvent(HttpContext ctx, byte[] bodyBytes)
-                    => (ctx.Request.Headers["x-github-event"].ToString(), bodyBytes);
+                [HpdBotEnvelopeExtractor]
+                private (string? eventType, byte[] dispatchBytes) ExtractGitHubEvent(BotRequestContext ctx, byte[] bodyBytes)
+                    => (ctx.Header("x-github-event"), bodyBytes);
             }
             """;
 
@@ -190,10 +190,10 @@ public class PipelineTests
             [HpdBot("slack")]
             public partial class SlackBot
             {
-                [HpdWebhookHandler("message")]
-                [HpdWebhookHandler("app_mention")]
-                private Task<IResult> Handle(HttpContext ctx, byte[] body, CancellationToken ct)
-                    => Task.FromResult(Results.Ok());
+                [HpdBotEventHandler("message")]
+                [HpdBotEventHandler("app_mention")]
+                private Task<BotAdapterResponse> Handle(BotRequestContext ctx, byte[] body, CancellationToken ct)
+                    => Task.FromResult(BotAdapterResponse.Ok());
             }
             """;
 
@@ -238,7 +238,7 @@ public class PipelineTests
         var source = """
             using HPD.Agent.Bots;
             namespace Test;
-            [WebhookPayload]
+            [HpdBotPayload]
             public record MyEvent(string Type);
             """;
 
@@ -246,7 +246,7 @@ public class PipelineTests
         var names  = SourceGenHelper.GetGeneratedFileNames(result);
 
         // JsonContextGenerator is a no-op (STJ source gen cannot consume Roslyn generator output)
-        // so [WebhookPayload]-only source produces no generated files at all.
+        // so [HpdBotPayload]-only source produces no generated files at all.
         names.Should().NotContain(n => n.Contains("Registration") || n.Contains("Dispatch") || n == "BotRegistry.g.cs");
         names.Should().NotContain("BotsJsonSerializerContext.g.cs");
     }
@@ -374,6 +374,51 @@ public class PipelineTests
     }
 
     [Fact]
+    public void Pipeline_GeneratedBot_CanBeInvokedThroughNeutralAdapterContract()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            using System.Text;
+            using System.Threading;
+            using System.Threading.Tasks;
+
+            namespace Test;
+
+            [HpdBot("slack")]
+            public partial class SlackBot
+            {
+            }
+
+            public class SlackBotConfig
+            {
+                public string SigningSecret { get; set; } = "";
+            }
+
+            public static class WorkerDispatch
+            {
+                public static Task<BotAdapterResponse> DispatchAsync(CancellationToken cancellationToken)
+                {
+                    IBotAdapter adapter = new SlackBot();
+                    return adapter.HandleAsync(
+                        new BotInboundEnvelope
+                        {
+                            Method = "WORKER",
+                            Path = "slack/replay",
+                            Body = Encoding.UTF8.GetBytes("{\"type\":\"message\"}"),
+                        },
+                        cancellationToken);
+                }
+            }
+            """;
+
+        SourceGenHelper.RunGenerator(source, out var outputCompilation);
+        var errors = SourceGenHelper.GetCompilationErrors(outputCompilation);
+
+        errors.Should().BeEmpty(
+            because: "generated bot adapters should be callable without an ASP.NET endpoint");
+    }
+
+    [Fact]
     public void Pipeline_MultipleBotsAndPayloads_AllFilesEmitted()
     {
         var source = """
@@ -381,8 +426,8 @@ public class PipelineTests
             namespace Test;
             [HpdBot("slack")]  public partial class SlackBot { }
             [HpdBot("teams")]  public partial class TeamsBot { }
-            [WebhookPayload] public record EventA(string Type);
-            [WebhookPayload] public record EventB(string Type);
+            [HpdBotPayload] public record EventA(string Type);
+            [HpdBotPayload] public record EventB(string Type);
             """;
 
         var result = SourceGenHelper.RunGenerator(source, out _);

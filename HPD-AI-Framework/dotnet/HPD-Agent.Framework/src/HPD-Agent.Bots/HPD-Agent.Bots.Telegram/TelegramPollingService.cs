@@ -71,10 +71,10 @@ public sealed class TelegramPollingService(
     }
 
     internal static bool IsLikelyServerlessRuntime()
-        => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("VERCEL")) ||
-            !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AWS_LAMBDA_FUNCTION_NAME")) ||
-            (Environment.GetEnvironmentVariable("AWS_EXECUTION_ENV")?.Contains("AWS_Lambda", StringComparison.OrdinalIgnoreCase) == true) ||
-            !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FUNCTIONS_WORKER_RUNTIME")) ||
-            !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("NETLIFY")) ||
-            !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("K_SERVICE"));
+        => !string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable("VERCEL")) ||
+            !string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable("AWS_LAMBDA_FUNCTION_NAME")) ||
+            (System.Environment.GetEnvironmentVariable("AWS_EXECUTION_ENV")?.Contains("AWS_Lambda", StringComparison.OrdinalIgnoreCase) == true) ||
+            !string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable("FUNCTIONS_WORKER_RUNTIME")) ||
+            !string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable("NETLIFY")) ||
+            !string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable("K_SERVICE"));
 }

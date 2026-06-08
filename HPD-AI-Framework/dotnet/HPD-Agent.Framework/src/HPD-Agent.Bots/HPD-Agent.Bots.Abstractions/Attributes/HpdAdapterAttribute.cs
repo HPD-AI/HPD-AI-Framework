@@ -3,8 +3,8 @@ namespace HPD.Agent.Bots;
 /// <summary>
 /// Marks a class as an HPD platform adapter.
 /// The source generator will produce <c>AddXxxBot()</c> and <c>MapXxxWebhook()</c>
-/// extension methods, a <c>HandleWebhookAsync</c> dispatch entry point, and an
-/// <c>BotRegistry</c> entry for this adapter.
+/// extension methods, a transport-neutral adapter dispatch entry point, an
+/// ASP.NET bridge, and a <c>BotRegistry</c> entry for this adapter.
 /// </summary>
 /// <param name="name">
 /// Lowercase platform identifier (e.g. "slack", "teams", "discord").

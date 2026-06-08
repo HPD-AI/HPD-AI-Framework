@@ -85,7 +85,7 @@ public sealed class DiscordGatewayService(
                 Token: _config.GatewayToken ?? _config.BotToken,
                 Intents: DiscordGatewayIntents.Required,
                 Properties: new DiscordGatewayIdentifyProperties(
-                    Os: Environment.OSVersion.Platform.ToString(),
+                    Os: global::System.Environment.OSVersion.Platform.ToString(),
                     Browser: "hpd-agent",
                     Device: "hpd-agent")),
                     DiscordBotJsonContext.Default.DiscordGatewayIdentifyPayload)), ct);

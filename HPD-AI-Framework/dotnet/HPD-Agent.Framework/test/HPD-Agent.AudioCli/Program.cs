@@ -2,13 +2,14 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.Audio;
-using HPD.Agent.Audio.AgentIntegration;
+using HPD.Agent.Audio.Output;
+using HPD.Agent.Audio;
 using HPD.Agent.Audio.AgentIntegration.Branch;
 using HPD.Agent.Audio.AgentIntegration.Middleware;
 using HPD.Agent.Audio.AgentIntegration.Output;
 using HPD.Agent.Audio.Interaction;
 using HPD.Agent.Audio.Ledger;
-using HPD.Agent.Audio.Output;
+using HPD.Agent.Audio;
 using HPD.Agent.Audio.Runtime.Output;
 using HPD.Agent.Audio.Trace;
 using HPD.Agent.Providers;
@@ -42,10 +43,16 @@ using var appsettings = LoadAppSettings(options.AppSettingsPath);
 var audioPaths = options.AudioPaths.Count > 0
     ? options.AudioPaths
     : SplitList(GetConfigString(appsettings, "AudioCli", "AudioPath"));
+var sttProvider = FirstNonWhiteSpace(
+    options.SttProvider,
+    GetConfigString(appsettings, "AudioCli", "SttProvider"),
+    OpenAIAudioProvider.Key)!;
 var sttModel = FirstNonWhiteSpace(
     options.SttModel,
     GetConfigString(appsettings, "AudioCli", "SttModel"),
-    OpenAIAudioProvider.DefaultSpeechToTextModel)!;
+    string.Equals(sttProvider, ElevenLabsAudioProvider.Key, StringComparison.OrdinalIgnoreCase)
+        ? ElevenLabsAudioProvider.DefaultSpeechToTextModel
+        : OpenAIAudioProvider.DefaultSpeechToTextModel)!;
 var chatModel = FirstNonWhiteSpace(
     options.ChatModel,
     GetConfigString(appsettings, "AudioCli", "ChatModel"),
@@ -139,8 +146,8 @@ var apiKey = FirstNonWhiteSpace(
     GetConfigString(appsettings, "openai", "ApiKey"),
     GetConfigString(appsettings, "OpenAI", "ApiKey"),
     GetConfigString(appsettings, "Providers", "OpenAI", "ApiKey"),
-    Environment.GetEnvironmentVariable("OPENAI_API_KEY"));
-if (string.IsNullOrWhiteSpace(apiKey))
+    System.Environment.GetEnvironmentVariable("OPENAI_API_KEY"));
+if (!options.SttStreamingSmoke && string.IsNullOrWhiteSpace(apiKey))
 {
     Console.Error.WriteLine("OpenAI API key is required. Pass --openai-key, set OPENAI_API_KEY, or add openai:ApiKey to appsettings.json.");
     return 2;
@@ -223,7 +230,7 @@ var elevenLabsApiKey = FirstNonWhiteSpace(
     GetConfigString(appsettings, "elevenlabs", "ApiKey"),
     GetConfigString(appsettings, "ElevenLabs", "ApiKey"),
     GetConfigString(appsettings, "Providers", "ElevenLabs", "ApiKey"),
-    Environment.GetEnvironmentVariable("ELEVENLABS_API_KEY"));
+    System.Environment.GetEnvironmentVariable("ELEVENLABS_API_KEY"));
 var benchmarkEnabled = options.Benchmark ||
     !string.IsNullOrWhiteSpace(options.BenchmarkOutputPath) ||
     (GetConfigBool(appsettings, "AudioCli", "Benchmark") ?? false);
@@ -259,6 +266,34 @@ if (ttsRequested && string.Equals(ttsProvider, ElevenLabsAudioProvider.Key, Stri
     ttsFormat = FirstNonWhiteSpace(ttsFormat, ElevenLabsAudioProvider.DefaultOutputFormat);
 }
 
+var sttUsesOpenAI = string.Equals(sttProvider, OpenAIAudioProvider.Key, StringComparison.OrdinalIgnoreCase);
+var sttUsesElevenLabs = string.Equals(sttProvider, ElevenLabsAudioProvider.Key, StringComparison.OrdinalIgnoreCase);
+if (!sttUsesOpenAI && !sttUsesElevenLabs)
+{
+    Console.Error.WriteLine($"Unsupported STT provider '{sttProvider}'. Supported providers: {OpenAIAudioProvider.Key}, {ElevenLabsAudioProvider.Key}.");
+    return 2;
+}
+
+if (options.SttStreamingSmoke && sttUsesOpenAI && string.IsNullOrWhiteSpace(apiKey))
+{
+    Console.Error.WriteLine("OpenAI API key is required for --stt-streaming-smoke with --stt-provider openai. Pass --openai-key, set OPENAI_API_KEY, or add openai:ApiKey to appsettings.json.");
+    return 2;
+}
+
+if (sttUsesElevenLabs && string.IsNullOrWhiteSpace(elevenLabsApiKey))
+{
+    Console.Error.WriteLine("ElevenLabs API key is required for --stt-provider elevenlabs. Pass --elevenlabs-key, set ELEVENLABS_API_KEY, or add elevenlabs:ApiKey to appsettings.json.");
+    return 2;
+}
+
+if (options.SttStreamingSmoke &&
+    sttUsesElevenLabs &&
+    string.IsNullOrWhiteSpace(options.SttModel) &&
+    string.IsNullOrWhiteSpace(GetConfigString(appsettings, "AudioCli", "SttModel")))
+{
+    sttModel = ElevenLabsAudioProvider.DefaultRealtimeSpeechToTextModel;
+}
+
 var textOnlyTurns = new List<string>();
 if (audioPaths.Count == 0 && !string.IsNullOrWhiteSpace(text))
 {
@@ -287,6 +322,10 @@ var sessionStore = new InMemorySessionStore();
 var contentStore = new InMemoryContentStore();
 var builder = AgentBuilder.Create();
 builder.ProviderRegistry.Register(new OpenAIAudioProvider());
+if (sttUsesElevenLabs || ttsRequested)
+{
+    builder.ProviderRegistry.Register(new ElevenLabsAudioProvider());
+}
 
 var realtimeMathTools = realtimeMathToolsRequested
     ? CreateRealtimeMathTools()
@@ -335,27 +374,93 @@ if (ttsRequested)
         return 2;
     }
 
-    builder.ProviderRegistry.Register(new ElevenLabsAudioProvider());
-    builder.Config.SetClientConfig(
-        ProviderClientFamily.TextToSpeech,
-        new ClientProviderConfig
+    var ttsProviderConfig = new ClientProviderConfig
+    {
+        ProviderKey = ElevenLabsAudioProvider.Key,
+        ModelName = ttsModel!,
+        ApiKey = elevenLabsApiKey
+    };
+    ttsProviderConfig.SetProviderConfig(
+        new ElevenLabsTtsConfig
         {
-            ProviderKey = ElevenLabsAudioProvider.Key,
-            ModelName = ttsModel!,
-            ApiKey = elevenLabsApiKey,
-            ProviderOptionsJson = JsonSerializer.Serialize(new ElevenLabsTtsConfig
-            {
-                DefaultModelId = ttsModel,
-                DefaultVoiceId = ttsVoice,
-                OutputFormat = ttsFormat,
-                Speed = ttsSpeed,
-                WebSocketBaseUrl = elevenLabsWebSocketBaseUrl,
-                EnablePushTextStreaming = ttsPushTextRequested,
-                PushTextAggregationMode = ttsPushAggregationMode == PushTextInputAggregationMode.ProviderDefault
-                    ? PushTextInputAggregationMode.Sentence
-                    : ttsPushAggregationMode
-            })
-        });
+            DefaultModelId = ttsModel,
+            DefaultVoiceId = ttsVoice,
+            OutputFormat = ttsFormat,
+            Speed = ttsSpeed,
+            WebSocketBaseUrl = elevenLabsWebSocketBaseUrl,
+            EnablePushTextStreaming = ttsPushTextRequested,
+            PushTextAggregationMode = ttsPushAggregationMode == PushTextInputAggregationMode.ProviderDefault
+                ? PushTextInputAggregationMode.Sentence
+                : ttsPushAggregationMode
+        },
+        ProviderClientFamily.TextToSpeech);
+    builder.Config.SetClientConfig(ProviderClientFamily.TextToSpeech, ttsProviderConfig);
+}
+
+var sttProviderConfig = sttUsesElevenLabs
+    ? new ClientProviderConfig
+    {
+        ProviderKey = ElevenLabsAudioProvider.Key,
+        ModelName = sttModel,
+        ApiKey = elevenLabsApiKey
+    }
+    : new ClientProviderConfig
+    {
+        ProviderKey = OpenAIAudioProvider.Key,
+        ModelName = sttModel,
+        ApiKey = apiKey,
+        Endpoint = openAIEndpoint
+    };
+if (sttUsesElevenLabs)
+{
+    sttProviderConfig.SetProviderConfig(
+        new ElevenLabsSttConfig
+        {
+            DefaultModelId = sttModel,
+            RealtimeModelId = options.SttStreamingSmoke
+                ? sttModel
+                : null,
+            LanguageCode = language,
+            WebSocketBaseUrl = elevenLabsWebSocketBaseUrl,
+            AudioFormat = options.SttStreamingSmoke
+                ? FirstNonWhiteSpace(mediaType, "pcm_16000")
+                : null,
+            CommitStrategy = options.SttStreamingSmoke
+                ? "manual"
+                : null,
+            IncludeTimestamps = options.SttStreamingSmoke,
+            IncludeLanguageDetection = options.SttStreamingSmoke,
+            TimestampsGranularity = sttTimestampGranularities.Count > 0
+                ? sttTimestampGranularities[0]
+                : null
+        },
+        ProviderClientFamily.SpeechToText);
+}
+else
+{
+    sttProviderConfig.SetProviderConfig(
+        new OpenAISttConfig
+        {
+            DefaultModelId = sttModel,
+            Prompt = sttPrompt,
+            Temperature = sttTemperature,
+            ResponseFormat = sttResponseFormat,
+            TimestampGranularities = sttTimestampGranularities.Count > 0 ? [.. sttTimestampGranularities] : null,
+            IncludeLogprobs = includeLogprobs
+        },
+        ProviderClientFamily.SpeechToText);
+}
+builder.Config.SetClientConfig(ProviderClientFamily.SpeechToText, sttProviderConfig);
+
+if (options.SttStreamingSmoke)
+{
+    await RunStreamingSttSmokeAsync(
+        builder.ProviderRegistry,
+        sttProviderConfig,
+        audioPaths,
+        options.SttSampleRate,
+        language);
+    return 0;
 }
 
 var benchmark = new AudioCliBenchmarkCollector(benchmarkEnabled);
@@ -401,26 +506,11 @@ audioOptions.UseSpeechToTextProvider(
     builder.ProviderRegistry,
     new InputMediaSpeechToTextProviderOptions
     {
-        ProviderKey = OpenAIAudioProvider.Key,
+        ProviderKey = sttProviderConfig.ProviderKey,
         ModelId = sttModel,
         SpeechLanguage = language,
         TextLanguage = textLanguage,
-        ProviderConfig = new ClientProviderConfig
-        {
-            ProviderKey = OpenAIAudioProvider.Key,
-            ModelName = sttModel,
-            ApiKey = apiKey,
-            Endpoint = openAIEndpoint,
-            ProviderOptionsJson = JsonSerializer.Serialize(new OpenAISttConfig
-            {
-                DefaultModelId = sttModel,
-                Prompt = sttPrompt,
-                Temperature = sttTemperature,
-                ResponseFormat = sttResponseFormat,
-                TimestampGranularities = sttTimestampGranularities.Count > 0 ? [.. sttTimestampGranularities] : null,
-                IncludeLogprobs = includeLogprobs
-            })
-        }
+        ProviderConfig = sttProviderConfig
     });
 var audioAttachment = new AudioRuntimeAttachment(audioOptions);
 
@@ -501,7 +591,7 @@ using var anySubscription = agent.SubscribeAny(evt =>
     }
 });
 
-Console.WriteLine($"[audio-cli] stt=openai/{sttModel}");
+Console.WriteLine($"[audio-cli] stt={sttProvider}/{sttModel}");
 Console.WriteLine($"[audio-cli] chat=openai/{chatModel}");
 if (realtimeRequested)
 {
@@ -950,6 +1040,44 @@ static string ExtensionFor(string mediaType) =>
         _ => ".bin"
     };
 
+static async Task RunStreamingSttSmokeAsync(
+    IProviderRegistry providerRegistry,
+    ClientProviderConfig providerConfig,
+    IReadOnlyList<string> audioPaths,
+    int? sampleRate,
+    string? language)
+{
+    if (audioPaths.Count == 0)
+    {
+        Console.Error.WriteLine("--stt-streaming-smoke requires at least one --audio path.");
+        return;
+    }
+
+    var provider = providerRegistry.GetRequiredProvider<ISpeechToTextClientProvider>(
+        providerConfig.ProviderKey ?? throw new InvalidOperationException("STT provider key is required."));
+    using var client = provider.CreateSpeechToTextClient(providerConfig);
+
+    Console.WriteLine($"[stt-streaming-smoke] provider={providerConfig.ProviderKey} model={providerConfig.ModelName} sampleRate={sampleRate ?? 16000}");
+
+    for (var index = 0; index < audioPaths.Count; index++)
+    {
+        var audioPath = audioPaths[index];
+        Console.WriteLine($"[stt-streaming-smoke] input={index + 1}/{audioPaths.Count} path={audioPath}");
+        await using var stream = File.OpenRead(audioPath);
+        await foreach (var update in client.GetStreamingTextAsync(
+            stream,
+            new SpeechToTextOptions
+            {
+                ModelId = providerConfig.ModelName,
+                SpeechLanguage = language,
+                SpeechSampleRate = sampleRate ?? 16000
+            }))
+        {
+            Console.WriteLine($"[stt-streaming-smoke] {update.Kind}: {Preview(update.Text)}");
+        }
+    }
+}
+
 static JsonDocument? LoadAppSettings(string? explicitPath)
 {
     var path = FirstNonWhiteSpace(explicitPath, FindUpward("appsettings.json"));
@@ -1138,7 +1266,8 @@ static void PrintUsage()
       --openai-key <key>      OpenAI API key. Defaults to OPENAI_API_KEY.
       --openai-endpoint <url> Optional OpenAI-compatible endpoint.
       --appsettings <path>    Optional appsettings.json path. Defaults to nearest file upward.
-      --stt-model <model>     STT model. Default: whisper-1.
+      --stt-provider <key>    STT provider: openai or elevenlabs. Default: openai.
+      --stt-model <model>     STT model. Defaults: whisper-1 for OpenAI, scribe_v1 for ElevenLabs.
       --chat-model <model>    Chat model. Default: appsettings AudioCli:ChatModel or gpt-5.5.
       --language <locale>     STT language/locale hint, e.g. en-US.
       --text-language <locale> Target text language for translation-capable STT clients.
@@ -1147,6 +1276,8 @@ static void PrintUsage()
       --stt-response-format <f> OpenAI STT format: text, json, verbose_json, srt, vtt.
       --stt-timestamps <list> OpenAI timestamp granularities: word,segment.
       --stt-logprobs          Include OpenAI STT logprobs when supported.
+      --stt-streaming-smoke   Call ISpeechToTextClient.GetStreamingTextAsync directly and print updates.
+      --stt-sample-rate <hz>  Speech sample rate for STT streaming smoke. Default: 16000.
       --realtime              Use realtime model transport for the model turn.
       --realtime-model <m>    Realtime model. Default: gpt-realtime.
       --realtime-voice <id>   Optional realtime output voice.
@@ -1192,6 +1323,7 @@ file sealed record AudioCliOptions(
     string? OpenAIApiKey,
     string? OpenAIEndpoint,
     string? AppSettingsPath,
+    string? SttProvider,
     string? SttModel,
     string? ChatModel,
     string? Language,
@@ -1201,6 +1333,8 @@ file sealed record AudioCliOptions(
     string? SttResponseFormat,
     IReadOnlyList<string> SttTimestampGranularities,
     bool? IncludeLogprobs,
+    bool SttStreamingSmoke,
+    int? SttSampleRate,
     bool RealtimeEnabled,
     string? RealtimeModel,
     string? RealtimeVoice,
@@ -1245,6 +1379,7 @@ file sealed record AudioCliOptions(
         string? openAIApiKey = null;
         string? openAIEndpoint = null;
         string? appSettingsPath = null;
+        string? sttProvider = null;
         string? sttModel = null;
         string? chatModel = null;
         string? language = null;
@@ -1254,6 +1389,8 @@ file sealed record AudioCliOptions(
         string? sttResponseFormat = null;
         var sttTimestampGranularities = new List<string>();
         bool? includeLogprobs = null;
+        var sttStreamingSmoke = false;
+        int? sttSampleRate = null;
         var realtimeEnabled = false;
         string? realtimeModel = null;
         string? realtimeVoice = null;
@@ -1319,6 +1456,9 @@ file sealed record AudioCliOptions(
                 case "--appsettings":
                     appSettingsPath = RequireValue(args, ref i, arg);
                     break;
+                case "--stt-provider":
+                    sttProvider = RequireValue(args, ref i, arg);
+                    break;
                 case "--stt-model":
                     sttModel = RequireValue(args, ref i, arg);
                     break;
@@ -1345,6 +1485,12 @@ file sealed record AudioCliOptions(
                     break;
                 case "--stt-logprobs":
                     includeLogprobs = true;
+                    break;
+                case "--stt-streaming-smoke":
+                    sttStreamingSmoke = true;
+                    break;
+                case "--stt-sample-rate":
+                    sttSampleRate = int.Parse(RequireValue(args, ref i, arg));
                     break;
                 case "--realtime":
                     realtimeEnabled = true;
@@ -1492,6 +1638,7 @@ file sealed record AudioCliOptions(
             openAIApiKey,
             openAIEndpoint,
             appSettingsPath,
+            sttProvider,
             sttModel,
             chatModel,
             language,
@@ -1501,6 +1648,8 @@ file sealed record AudioCliOptions(
             sttResponseFormat,
             sttTimestampGranularities,
             includeLogprobs,
+            sttStreamingSmoke,
+            sttSampleRate,
             realtimeEnabled,
             realtimeModel,
             realtimeVoice,
@@ -2041,7 +2190,7 @@ file sealed class AudioCliBenchmarkCollector(bool enabled)
                 Directory.CreateDirectory(dir);
             }
 
-            await File.AppendAllTextAsync(outputPath, json + Environment.NewLine);
+            await File.AppendAllTextAsync(outputPath, json + System.Environment.NewLine);
         }
     }
 

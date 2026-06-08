@@ -162,7 +162,39 @@ public sealed class LanguageServerMiddlewareTests
         await File.WriteAllTextAsync(path, "class A { }\n");
         var coordinator = new CapturingEventCoordinator();
         var agentContext = CreateAgentContext(coordinator);
-        var service = new FakeLanguageServerService { HasServer = true, Opened = true };
+        var service = new FakeLanguageServerService
+        {
+            HasServer = true,
+            Opened = true,
+            Diagnostics =
+            [
+                new LanguageServerDiagnosticSet
+                {
+                    Path = path,
+                    ServerId = "csharp",
+                    Source = LanguageServerDiagnosticSource.DocumentPull,
+                    ReceivedAt = DateTimeOffset.UtcNow,
+                    Diagnostics =
+                    [
+                        new LanguageServerDiagnostic
+                        {
+                            Severity = LanguageServerDiagnosticSeverity.Error,
+                            Line = 3,
+                            Character = 7,
+                            Code = "CS1002",
+                            Message = "Missing semicolon"
+                        },
+                        new LanguageServerDiagnostic
+                        {
+                            Severity = LanguageServerDiagnosticSeverity.Information,
+                            Line = 5,
+                            Character = 1,
+                            Message = "Analyzer information"
+                        }
+                    ]
+                }
+            ]
+        };
         var middleware = new CodingLanguageServerMiddleware(new LanguageServerOptions(), service);
         var context = CreateMutationAfterFunctionContext(
             agentContext,
@@ -186,7 +218,21 @@ public sealed class LanguageServerMiddlewareTests
             coordinator.Captured.OfType<LanguageServerWatchedFileChangedEvent>()
                 .Should().ContainSingle(evt => evt.ChangeKind == LanguageServerWatchedFileChangeKind.Changed);
             coordinator.Captured.OfType<LanguageServerDiagnosticsReceivedEvent>()
-                .Should().ContainSingle();
+                .Should().ContainSingle()
+                .Which.Should().Match<LanguageServerDiagnosticsReceivedEvent>(evt =>
+                    evt.ErrorCount == 1 &&
+                    evt.WarningCount == 0 &&
+                    evt.InformationCount == 1 &&
+                    evt.HintCount == 0 &&
+                    evt.DiagnosticSetCount == 1 &&
+                    evt.Diagnostics.Count == 2 &&
+                    !evt.DiagnosticsTruncated &&
+                    evt.Diagnostics[0].ServerId == "csharp" &&
+                    evt.Diagnostics[0].Severity == LanguageServerDiagnosticSeverity.Error &&
+                    evt.Diagnostics[0].Line == 3 &&
+                    evt.Diagnostics[0].Character == 7 &&
+                    evt.Diagnostics[0].Code == "CS1002" &&
+                    evt.Diagnostics[0].Message == "Missing semicolon");
         }
         finally
         {
@@ -880,7 +926,7 @@ public sealed class LanguageServerMiddlewareTests
     public async Task LanguageServerService_TypeScriptSmoke_StartsRealLanguageServerWhenEnabled()
     {
         if (!string.Equals(
-                Environment.GetEnvironmentVariable("HPD_LSP_SMOKE"),
+                System.Environment.GetEnvironmentVariable("HPD_LSP_SMOKE"),
                 "1",
                 StringComparison.Ordinal))
         {
@@ -963,7 +1009,7 @@ public sealed class LanguageServerMiddlewareTests
     public async Task CodingLanguageServerMiddleware_TypeScriptSmoke_WritesReturnedMutationResultWhenEnabled()
     {
         if (!string.Equals(
-                Environment.GetEnvironmentVariable("HPD_LSP_SMOKE"),
+                System.Environment.GetEnvironmentVariable("HPD_LSP_SMOKE"),
                 "1",
                 StringComparison.Ordinal))
         {
@@ -1296,7 +1342,7 @@ public sealed class LanguageServerMiddlewareTests
 
     private static string? ResolveTypeScriptSmokeRoot()
     {
-        var configuredRoot = Environment.GetEnvironmentVariable("HPD_LSP_SMOKE_TYPESCRIPT_ROOT");
+        var configuredRoot = System.Environment.GetEnvironmentVariable("HPD_LSP_SMOKE_TYPESCRIPT_ROOT");
         if (!string.IsNullOrWhiteSpace(configuredRoot))
             return Path.GetFullPath(configuredRoot, Directory.GetCurrentDirectory());
 
@@ -1333,7 +1379,7 @@ public sealed class LanguageServerMiddlewareTests
 
     private static string? FindPathExecutable(string name)
     {
-        var path = Environment.GetEnvironmentVariable("PATH");
+        var path = System.Environment.GetEnvironmentVariable("PATH");
         if (string.IsNullOrWhiteSpace(path))
             return null;
 
@@ -1369,7 +1415,7 @@ public sealed class LanguageServerMiddlewareTests
         if (!OperatingSystem.IsWindows() || !string.IsNullOrEmpty(Path.GetExtension(name)))
             yield break;
 
-        var pathExt = Environment.GetEnvironmentVariable("PATHEXT");
+        var pathExt = System.Environment.GetEnvironmentVariable("PATHEXT");
         foreach (var extension in string.IsNullOrWhiteSpace(pathExt)
             ? [".COM", ".EXE", ".BAT", ".CMD"]
             : pathExt.Split(';'))
@@ -1417,7 +1463,7 @@ public sealed class LanguageServerMiddlewareTests
 
         lines.Add("  </diagnostic_sets>");
         lines.Add("</middleware_smoke_result>");
-        return string.Join(Environment.NewLine, lines);
+        return string.Join(System.Environment.NewLine, lines);
     }
 
     private static string EscapeXml(string value)

@@ -5,7 +5,7 @@ using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
-using HPD.Execution.Contracts;
+using HPD.Environment.Contracts;
 using HPD.Agent.Sandbox.Policy;
 using Microsoft.Extensions.Logging;
 

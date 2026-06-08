@@ -22,13 +22,21 @@ public sealed class ActivityGroupView : IComponent
     public Measurement Measure(in RenderContext context, int maxWidth)
     {
         var width = string.IsNullOrEmpty(_model.Title) ? 0 : UnicodeWidth.GetWidth(_model.Title);
-        foreach (var activity in _model.GetVisibleActivities())
+        var activities = _model.GetVisibleActivities();
+        foreach (var activity in activities)
         {
             width = Math.Max(width, new ActivityView(activity).Measure(in context, maxWidth).MaxWidth);
         }
 
         width = Math.Min(width, maxWidth);
-        return new Measurement(width, width);
+
+        var height = string.IsNullOrEmpty(_model.Title) ? 0 : 1;
+        if (activities.Count > 0)
+        {
+            height += Mode == ActivityGroupDisplayMode.Compact ? 1 : activities.Count;
+        }
+
+        return new Measurement(width, width, height);
     }
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)

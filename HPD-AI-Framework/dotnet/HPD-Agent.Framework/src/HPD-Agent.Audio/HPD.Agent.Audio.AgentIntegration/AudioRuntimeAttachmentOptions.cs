@@ -7,7 +7,7 @@ using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio.Providers;
 using Microsoft.Extensions.AI;
 
-namespace HPD.Agent.Audio.AgentIntegration;
+namespace HPD.Agent.Audio;
 
 #pragma warning disable MEAI001
 

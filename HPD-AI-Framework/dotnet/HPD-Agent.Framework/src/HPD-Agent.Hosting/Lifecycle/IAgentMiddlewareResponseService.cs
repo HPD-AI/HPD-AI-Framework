@@ -1,35 +1,13 @@
-using HPD.Agent.ClientTools;
-using HPD.Agent.Middleware;
+using HPD.Events;
 
 namespace HPD.Agent.Hosting.Lifecycle;
 
 public interface IAgentMiddlewareResponseService
 {
-    Task<AgentServiceResult> RespondToPermissionAsync(
+    Task<AgentServiceResult> RespondAsync(
         string agentId,
         string sessionId,
         string branchId,
-        PermissionResponseEvent response,
-        CancellationToken cancellationToken = default);
-
-    Task<AgentServiceResult> RespondToContinuationAsync(
-        string agentId,
-        string sessionId,
-        string branchId,
-        ContinuationResponseEvent response,
-        CancellationToken cancellationToken = default);
-
-    Task<AgentServiceResult> RespondToClarificationAsync(
-        string agentId,
-        string sessionId,
-        string branchId,
-        ClarificationResponseEvent response,
-        CancellationToken cancellationToken = default);
-
-    Task<AgentServiceResult> RespondToClientToolAsync(
-        string agentId,
-        string sessionId,
-        string branchId,
-        ClientToolInvokeResponseEvent response,
+        IBidirectionalEvent response,
         CancellationToken cancellationToken = default);
 }

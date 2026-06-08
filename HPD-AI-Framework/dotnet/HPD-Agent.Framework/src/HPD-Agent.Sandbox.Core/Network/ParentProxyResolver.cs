@@ -1,6 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
-using HPD.Execution.Contracts;
+using HPD.Environment.Contracts;
 using HPD.Agent.Sandbox.Policy;
 
 namespace HPD.Agent.Sandbox.Network;
@@ -115,8 +115,8 @@ internal static class ParentProxyResolver
             return null;
         }
 
-        return Environment.GetEnvironmentVariable(name) ??
-            Environment.GetEnvironmentVariable(name.ToLowerInvariant());
+        return System.Environment.GetEnvironmentVariable(name) ??
+            System.Environment.GetEnvironmentVariable(name.ToLowerInvariant());
     }
 
     private static bool IsLoopbackDestination(Uri destination)

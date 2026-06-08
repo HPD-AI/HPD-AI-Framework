@@ -3,7 +3,7 @@ namespace HPD.Agent.Sandbox;
 /// <summary>
 /// Structured process invocation before platform process-isolation wrapping.
 /// </summary>
-internal sealed record CommandInvocation(
+public sealed record CommandInvocation(
     string FileName,
     IReadOnlyList<string> ArgumentList)
 {

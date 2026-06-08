@@ -1,9 +1,10 @@
 using HPD.Agent;
+using HPD.Agent.Audio.AgentIntegration;
 using HPD.Agent.Audio.AgentIntegration.Branch;
 using HPD.Agent.Audio.AgentIntegration.Middleware;
 using HPD.Agent.Audio.Ledger;
 
-namespace HPD.Agent.Audio.AgentIntegration;
+namespace HPD.Agent.Audio;
 
 public static class AgentBuilderAudioRuntimeExtensions
 {

@@ -373,7 +373,7 @@ public class ValidationException : Exception
 
     private static string FormatMessage(IReadOnlyList<string> errors)
     {
-        return $"Validation failed with {errors.Count} error(s):{Environment.NewLine}" +
-               string.Join(Environment.NewLine, errors.Select(e => $"  - {e}"));
+        return $"Validation failed with {errors.Count} error(s):{System.Environment.NewLine}" +
+               string.Join(System.Environment.NewLine, errors.Select(e => $"  - {e}"));
     }
 }

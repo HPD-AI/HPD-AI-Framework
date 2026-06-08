@@ -97,8 +97,8 @@ public partial class SlackBot(
 
     // ── Pre-dispatch: signature verification ───────────────────────────────────
 
-    [HpdPreDispatch]
-    private async Task<IResult?> PreDispatchAsync(HttpContext ctx, byte[] bodyBytes)
+    [HpdBotPreDispatch]
+    private async Task<BotAdapterResponse?> PreDispatchAsync(BotRequestContext ctx, byte[] bodyBytes)
     {
         // url_verification challenge must respond without signature check (Slack sends none)
         var quickType = ExtractJsonType(bodyBytes);
@@ -108,13 +108,13 @@ public partial class SlackBot(
         if (!WebhookSignatureVerifier.Verify(
             HmacFormat.V0TimestampBody,
             bodyBytes,
-            ctx.Request.Headers,
+            ctx.Headers,
             _config.SigningSecret,
             "X-Slack-Signature",
             "X-Slack-Request-Timestamp",
             300))
         {
-            return Results.Unauthorized();
+            return BotAdapterResponse.Status(401);
         }
 
         return null; // verified — continue
@@ -122,12 +122,12 @@ public partial class SlackBot(
 
     // ── Body extractor: form-urlencoded interactive payloads ───────────────────
 
-    [HpdBodyExtractor]
+    [HpdBotEnvelopeExtractor]
     private (string? eventType, byte[] dispatchBytes) ExtractDispatch(
-        HttpContext ctx, byte[] bodyBytes)
+        BotRequestContext ctx, byte[] bodyBytes)
     {
         // Slack sends interactive payloads (block_actions, view_submission, etc.) as form-urlencoded
-        var contentType = ctx.Request.ContentType ?? "";
+        var contentType = ctx.Header("Content-Type") ?? "";
         if (contentType.Contains("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase))
         {
             var form = Encoding.UTF8.GetString(bodyBytes);
@@ -188,94 +188,93 @@ public partial class SlackBot(
     public event Action<SlackAssistantContextChangedReceivedEvent>? OnAssistantContextChanged;
     public event Action<SlackAppHomeOpenedReceivedEvent>? OnAppHomeOpened;
 
-    // ── Webhook handlers ───────────────────────────────────────────────────────
+    // ── Bot event handlers ───────────────────────────────────────────────────────
 
-    [HpdWebhookHandler("url_verification")]
-    private async Task<IResult> HandleUrlVerificationAsync(
-        HttpContext ctx, SlackEventEnvelope envelope)
+    [HpdBotEventHandler("url_verification")]
+    private Task<BotAdapterResponse> HandleUrlVerificationAsync(
+        BotRequestContext ctx, SlackEventEnvelope envelope)
     {
-        // Write directly — Results.Text appends "; charset=utf-8" causing challenge_failed,
-        // and Results.Json with anonymous types serializes to empty in some ASP.NET configs.
         var body = System.Text.Encoding.UTF8.GetBytes($"{{\"challenge\":\"{envelope.Challenge}\"}}");
-        ctx.Response.StatusCode = 200;
-        ctx.Response.ContentType = "application/json";
-        ctx.Response.ContentLength = body.Length;
-        await ctx.Response.Body.WriteAsync(body, ctx.RequestAborted);
-        return Results.Empty;
+        _ = ctx;
+        return Task.FromResult(new BotAdapterResponse
+        {
+            ContentType = "application/json",
+            Body = body,
+        });
     }
 
-    [HpdWebhookHandler("app_mention")]
-    [HpdWebhookHandler("message")]
-    private async Task<IResult> HandleMessageAsync(
-        HttpContext ctx, SlackEventEnvelope envelope)
+    [HpdBotEventHandler("app_mention")]
+    [HpdBotEventHandler("message")]
+    private async Task<BotAdapterResponse> HandleMessageAsync(
+        BotRequestContext ctx, SlackEventEnvelope envelope)
     {
         var ev = DeserializeEvent<SlackMessageEvent>(envelope.Event);
-        if (ShouldSkip(ev)) return Results.Ok();
+        if (ShouldSkip(ev)) return BotAdapterResponse.Ok();
 
         var threadTs    = GetThreadTs(ev!);
         var platformKey = SlackThreadId.Format(ev!.Channel!, threadTs);
-        var (sessionId, branchId) = await sessionMapper.ResolveAsync(platformKey, ctx.RequestAborted);
-        var input = await BuildInputAsync(ev, ctx.RequestAborted);
+        var (sessionId, branchId) = await sessionMapper.ResolveAsync(platformKey, ctx.CancellationToken);
+        var input = await BuildInputAsync(ev, ctx.CancellationToken);
 
         Console.WriteLine($"[SLACK] HandleMessageAsync: channel={ev.Channel} channelType={ev.ChannelType} user={ev.User} botId={ev.BotId} subtype={ev.Subtype} text={ev.Text} threadTs={threadTs} sessionId={sessionId} branchId={branchId}");
 
         // Fire-and-forget: Slack requires 200 within 3 seconds.
         _ = StreamToSlackAsync(sessionId, branchId, input, ev.Channel!, threadTs, CancellationToken.None);
-        return Results.Ok();
+        return BotAdapterResponse.Ok();
     }
 
-    [HpdWebhookHandler("reaction_added")]
-    [HpdWebhookHandler("reaction_removed")]
-    private Task<IResult> HandleReactionAsync(
-        HttpContext ctx, SlackEventEnvelope envelope)
+    [HpdBotEventHandler("reaction_added")]
+    [HpdBotEventHandler("reaction_removed")]
+    private Task<BotAdapterResponse> HandleReactionAsync(
+        BotRequestContext ctx, SlackEventEnvelope envelope)
     {
         var ev = DeserializeEvent<SlackReactionEvent>(envelope.Event);
         OnReaction?.Invoke(new SlackReactionReceivedEvent(ev!, envelope.TeamId));
-        return Task.FromResult(Results.Ok());
+        return Task.FromResult(BotAdapterResponse.Ok());
     }
 
-    [HpdWebhookHandler("assistant_thread_started")]
-    private async Task<IResult> HandleAssistantThreadStartedAsync(
-        HttpContext ctx, SlackEventEnvelope envelope)
+    [HpdBotEventHandler("assistant_thread_started")]
+    private async Task<BotAdapterResponse> HandleAssistantThreadStartedAsync(
+        BotRequestContext ctx, SlackEventEnvelope envelope)
     {
         var ev     = DeserializeEvent<SlackAssistantThreadStartedEvent>(envelope.Event);
         var thread = ev!.AssistantThread;
         var platformKey = SlackThreadId.Format(thread.ChannelId, thread.ThreadTs);
-        await sessionMapper.ResolveAsync(platformKey, ctx.RequestAborted); // ensure session exists
-        await api.TrySetAssistantStatusAsync(thread.ChannelId, thread.ThreadTs, "Ready", ctx.RequestAborted);
-        return Results.Ok();
+        await sessionMapper.ResolveAsync(platformKey, ctx.CancellationToken); // ensure session exists
+        await api.TrySetAssistantStatusAsync(thread.ChannelId, thread.ThreadTs, "Ready", ctx.CancellationToken);
+        return BotAdapterResponse.Ok();
     }
 
-    [HpdWebhookHandler("assistant_thread_context_changed")]
-    private Task<IResult> HandleAssistantContextChangedAsync(
-        HttpContext ctx, SlackEventEnvelope envelope)
+    [HpdBotEventHandler("assistant_thread_context_changed")]
+    private Task<BotAdapterResponse> HandleAssistantContextChangedAsync(
+        BotRequestContext ctx, SlackEventEnvelope envelope)
     {
         var ev = DeserializeEvent<SlackAssistantContextChangedEvent>(envelope.Event);
         OnAssistantContextChanged?.Invoke(new SlackAssistantContextChangedReceivedEvent(ev!));
-        return Task.FromResult(Results.Ok());
+        return Task.FromResult(BotAdapterResponse.Ok());
     }
 
-    [HpdWebhookHandler("app_home_opened")]
-    private Task<IResult> HandleAppHomeOpenedAsync(
-        HttpContext ctx, SlackEventEnvelope envelope)
+    [HpdBotEventHandler("app_home_opened")]
+    private Task<BotAdapterResponse> HandleAppHomeOpenedAsync(
+        BotRequestContext ctx, SlackEventEnvelope envelope)
     {
         var ev = DeserializeEvent<SlackAppHomeOpenedPayload>(envelope.Event);
         if (ev?.Tab == "home")
             OnAppHomeOpened?.Invoke(new SlackAppHomeOpenedReceivedEvent(ev));
-        return Task.FromResult(Results.Ok());
+        return Task.FromResult(BotAdapterResponse.Ok());
     }
 
     // Slash commands arrive as form-urlencoded with a `command` field (no `payload` wrapper).
     // The generator detects form-urlencoded Content-Type + `command` field and routes here.
     // TriggerId (valid 3s) and ResponseUrl (valid 30min) are preserved in Extensions.
 
-    [HpdWebhookHandler("slash_command")]
-    private async Task<IResult> HandleSlashCommandAsync(
-        HttpContext ctx, SlackSlashCommandPayload payload)
+    [HpdBotEventHandler("slash_command")]
+    private async Task<BotAdapterResponse> HandleSlashCommandAsync(
+        BotRequestContext ctx, SlackSlashCommandPayload payload)
     {
-        var userName    = await userCache.GetDisplayNameAsync(payload.UserId, ctx.RequestAborted);
+        var userName    = await userCache.GetDisplayNameAsync(payload.UserId, ctx.CancellationToken);
         var platformKey = SlackThreadId.Format(payload.ChannelId, ""); // slash commands have no thread
-        var (sessionId, branchId) = await sessionMapper.ResolveAsync(platformKey, ctx.RequestAborted);
+        var (sessionId, branchId) = await sessionMapper.ResolveAsync(platformKey, ctx.CancellationToken);
 
         var input = new AgentInput(
             Text:      $"{payload.Command} {payload.Text}".Trim(),
@@ -290,15 +289,15 @@ public partial class SlackBot(
 
         // Fire-and-forget: Slack requires 200 within 3 seconds.
         _ = StreamToSlackAsync(sessionId, branchId, input, payload.ChannelId, "", CancellationToken.None);
-        return Results.Ok();
+        return BotAdapterResponse.Ok();
     }
 
     // Interactive payloads arrive as form-urlencoded with a `payload` JSON field.
     // The generator detects Content-Type and routes accordingly.
 
-    [HpdWebhookHandler("block_actions")]
-    private async Task<IResult> HandleBlockActionsAsync(
-        HttpContext ctx, SlackBlockActionsPayload payload)
+    [HpdBotEventHandler("block_actions")]
+    private async Task<BotAdapterResponse> HandleBlockActionsAsync(
+        BotRequestContext ctx, SlackBlockActionsPayload payload)
     {
         foreach (var action in payload.Actions)
         {
@@ -320,12 +319,12 @@ public partial class SlackBot(
 
             OnBlockAction?.Invoke(new SlackBlockActionReceivedEvent(action, payload));
         }
-        return Results.Ok();
+        return BotAdapterResponse.Ok();
     }
 
-    [HpdWebhookHandler("view_submission")]
-    private Task<IResult> HandleViewSubmissionAsync(
-        HttpContext ctx, SlackViewSubmissionPayload payload)
+    [HpdBotEventHandler("view_submission")]
+    private Task<BotAdapterResponse> HandleViewSubmissionAsync(
+        BotRequestContext ctx, SlackViewSubmissionPayload payload)
     {
         var (contextId, privateMetadata) = SlackModalConverter.DecodeMetadata(payload.View.PrivateMetadata);
         var values = FlattenViewState(payload.View.State.Values);
@@ -336,12 +335,12 @@ public partial class SlackBot(
             PrivateMetadata: privateMetadata,
             ContextId:       contextId,
             User:            payload.User));
-        return Task.FromResult(Results.Ok());
+        return Task.FromResult(BotAdapterResponse.Ok());
     }
 
-    [HpdWebhookHandler("view_closed")]
-    private Task<IResult> HandleViewClosedAsync(
-        HttpContext ctx, SlackViewClosedPayload payload)
+    [HpdBotEventHandler("view_closed")]
+    private Task<BotAdapterResponse> HandleViewClosedAsync(
+        BotRequestContext ctx, SlackViewClosedPayload payload)
     {
         var (contextId, privateMetadata) = SlackModalConverter.DecodeMetadata(payload.View.PrivateMetadata);
         OnViewClosed?.Invoke(new SlackViewClosedEvent(
@@ -350,7 +349,7 @@ public partial class SlackBot(
             PrivateMetadata: privateMetadata,
             ContextId:       contextId,
             User:            payload.User));
-        return Task.FromResult(Results.Ok());
+        return Task.FromResult(BotAdapterResponse.Ok());
     }
 
     // ── Permission handler ─────────────────────────────────────────────────────
@@ -756,7 +755,7 @@ public partial class SlackBot(
 /// </summary>
 // Socket Mode envelope
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackSocketEnvelope))]
-// Inbound webhook payloads
+// Inbound bot payloads
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackEventEnvelope))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackMessageEvent))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SlackReactionEvent))]

@@ -148,7 +148,7 @@ public class SecretNotFoundExceptionTests
         // by checking that EnvironmentSecretResolver follows the same pattern
 
         // Arrange
-        Environment.SetEnvironmentVariable(expectedEnvVar, "test-value");
+        System.Environment.SetEnvironmentVariable(expectedEnvVar, "test-value");
         var envResolver = new EnvironmentSecretResolver();
 
         try
@@ -162,7 +162,7 @@ public class SecretNotFoundExceptionTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable(expectedEnvVar, null);
+            System.Environment.SetEnvironmentVariable(expectedEnvVar, null);
         }
     }
 
@@ -179,7 +179,7 @@ public class SecretNotFoundExceptionTests
         // Validates that hyphenated scopes are converted to underscores
 
         // Arrange
-        Environment.SetEnvironmentVariable(expectedEnvVar, "test-value");
+        System.Environment.SetEnvironmentVariable(expectedEnvVar, "test-value");
         var envResolver = new EnvironmentSecretResolver();
 
         try
@@ -193,7 +193,7 @@ public class SecretNotFoundExceptionTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable(expectedEnvVar, null);
+            System.Environment.SetEnvironmentVariable(expectedEnvVar, null);
         }
     }
 

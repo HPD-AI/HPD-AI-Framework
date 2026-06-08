@@ -8,6 +8,8 @@ public interface ITerminal : IDisposable
 
     void Write(ReadOnlySpan<char> text);
 
+    void Flush();
+
     bool TryReadKey(out KeyEvent key);
 
     void HideCursor();

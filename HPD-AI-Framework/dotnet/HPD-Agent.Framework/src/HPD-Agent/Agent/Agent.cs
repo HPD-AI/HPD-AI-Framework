@@ -439,7 +439,7 @@ public sealed class Agent
     /// Agent owns the subscription pump; callers do not need to run the event coordinator.
     /// </summary>
     public IDisposable ObserveStruct<TEvent>(Func<TEvent, ValueTask> handler)
-        where TEvent : struct, IStructEvent
+        where TEvent : struct, AgentStructEvent
     {
         ArgumentNullException.ThrowIfNull(handler);
 
@@ -490,7 +490,7 @@ public sealed class Agent
     /// Agent owns the subscription pump; callers do not need to run the event coordinator.
     /// </summary>
     public IDisposable ObserveStruct<TEvent>(Action<TEvent> handler)
-        where TEvent : struct, IStructEvent
+        where TEvent : struct, AgentStructEvent
     {
         ArgumentNullException.ThrowIfNull(handler);
         return ObserveStruct<TEvent>(evt =>
@@ -1559,7 +1559,7 @@ public sealed class Agent
     public ValueTask RunAsync<TEvent>(
         TEvent input,
         CancellationToken cancellationToken = default)
-        where TEvent : struct, IStructEvent
+        where TEvent : struct, AgentStructEvent
     {
         var structEvents = GetActiveStructEvents();
         structEvents.Route<TEvent>().CreateEmitter().Emit(input);
@@ -1625,8 +1625,10 @@ public sealed class Agent
         var previousRootAgent = RootAgent;
         RootAgent ??= this;
 
-        // Initialize root orchestrator execution context if this is the root agent
-        if (RootAgent == this && AgentMetadata == null)
+        // Initialize execution context if this agent does not already have one.
+        // SubAgent wrappers stamp child metadata before running; direct/root agent
+        // runs get a root metadata record here.
+        if (AgentMetadata == null)
         {
             AgentMetadata = new AgentMetadata
             {
@@ -1851,10 +1853,13 @@ public sealed class Agent
                 services: _serviceProvider,     // Pass service provider for DI
                 runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
                 traceId: traceId,                // Propagate trace ID to all middleware-emitted events
+                agentId: AgentId,
+                parentAgentMetadata: AgentMetadata,
                 parentAgentStore: Config?.AgentStore,
                 config: Config,
                 clientSet: _clientSet,
-                contentStore: _contentStore);
+                contentStore: _contentStore,
+                structEvents: GetActiveStructEvents());
 
             // IMPORTANT: Create runConfig instance ONCE and reuse it throughout the entire turn
             // Middleware may modify runConfig (e.g., AgentPlanAgentMiddleware sets AdditionalSystemInstructions)
@@ -2981,6 +2986,9 @@ public sealed class Agent
                         var callIdToCallType = toolRequests.ToDictionary(
                             tr => tr.CallId,
                             tr => LookupCallType(tr.Name));
+                        var callIdToName = toolRequests.ToDictionary(
+                            tr => tr.CallId,
+                            tr => tr.Name);
 
                         // EMIT TOOL RESULT EVENTS
                         foreach (var content in toolResultMessage.Contents)
@@ -2990,13 +2998,14 @@ public sealed class Agent
                                 yield return new ToolCallEndEvent(result.CallId) { TraceId = traceId };
                                 callIdToToolHarness.TryGetValue(result.CallId, out var toolharnessName);
                                 callIdToCallType.TryGetValue(result.CallId, out var callType);
+                                callIdToName.TryGetValue(result.CallId, out var toolName);
                                 if (!executionResult.ResultPayloads.TryGetValue(result.CallId, out var resultPayload))
                                 {
                                     throw new InvalidOperationException(
                                         $"Missing normalized tool result payload for call '{result.CallId}'.");
                                 }
 
-                                yield return new ToolCallResultEvent(result.CallId, resultPayload, toolharnessName, callType) { TraceId = traceId };
+                                yield return new ToolCallResultEvent(result.CallId, resultPayload, toolharnessName, callType, toolName) { TraceId = traceId };
                             }
                         }
                         // Shared reference: state.CurrentMessages already sees the changes via MessagesRef
@@ -5338,6 +5347,52 @@ public sealed class Agent
         return id;
     }
 
+    /// <summary>
+    /// Creates an empty branch in an existing session.
+    /// </summary>
+    /// <param name="sessionId">Session identifier.</param>
+    /// <param name="branchId">Branch identifier. If null, a new GUID is generated.</param>
+    /// <param name="name">Optional display name for the branch.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The created branch ID.</returns>
+    public async Task<string> CreateBranchAsync(
+        string sessionId,
+        string? branchId = null,
+        string? name = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+
+        var store = Config.SessionStore
+            ?? throw new InvalidOperationException(
+                "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
+
+        var session = await store.LoadSessionAsync(sessionId, cancellationToken)
+            ?? throw new InvalidOperationException($"Session '{sessionId}' not found.");
+        session.Store = store;
+
+        var id = string.IsNullOrWhiteSpace(branchId) ? Guid.NewGuid().ToString() : branchId;
+        if (await store.LoadBranchAsync(sessionId, id, cancellationToken).ConfigureAwait(false) is not null)
+        {
+            throw new InvalidOperationException(
+                $"Branch '{id}' already exists in session '{sessionId}'.");
+        }
+
+        var branch = session.CreateBranch(id);
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            branch.Name = name;
+        }
+
+        session.LastActivity = DateTime.UtcNow;
+        await store.SaveInitialBranchAsync(sessionId, branch, cancellationToken)
+            .ConfigureAwait(false);
+        await store.SaveSessionAsync(session, cancellationToken)
+            .ConfigureAwait(false);
+
+        return id;
+    }
+
     //
     // V3 BRANCH MANAGEMENT (Session + Branch Architecture)
     //
@@ -5556,10 +5611,13 @@ public sealed class Agent
                 parentChatClient: _baseClient,
                 services: _serviceProvider,
                 runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
+                agentId: AgentId,
+                parentAgentMetadata: AgentMetadata,
                 parentAgentStore: Config?.AgentStore,
                 config: Config,
                 clientSet: _clientSet,
-                contentStore: _contentStore);
+                contentStore: _contentStore,
+                structEvents: GetActiveStructEvents());
 
             var beforeForkCommitContext = forkContext.AsBeforeBranchForkCommit(
                 sourceBranch,
@@ -7645,7 +7703,7 @@ internal class FunctionCallProcessor
 
         // Function bodies and WrapFunctionCall middleware may run in parallel because they only receive
         // FunctionRequest and the narrow FunctionExecutionContext, not a live mutable HookContext.
-        var maxParallel = _agenticLoopConfig?.MaxParallelFunctions ?? Environment.ProcessorCount * 4;
+        var maxParallel = _agenticLoopConfig?.MaxParallelFunctions ?? System.Environment.ProcessorCount * 4;
         using var semaphore = new SemaphoreSlim(maxParallel);
 
         var bodyTasks = preparations

@@ -51,6 +51,8 @@ public sealed class TuiApplicationTests
         Assert.True(terminal.WriteCount > 0);
         Assert.True(terminal.CursorHidden);
         Assert.True(terminal.CursorShown);
+        Assert.Contains("\x1b[?1049h", terminal.Output);
+        Assert.Contains("\x1b[?1049l", terminal.Output);
     }
 
     [Fact]
@@ -64,13 +66,17 @@ public sealed class TuiApplicationTests
         await app.RunAsync(TimeSpan.FromMilliseconds(1));
 
         Assert.True(terminal.CursorShown);
+        Assert.Contains("\x1b[?1049l", terminal.Output);
     }
 
     private sealed class TestTerminal : ITerminal
     {
         private readonly Queue<KeyEvent> _keys = new();
+        private readonly StringBuilder _output = new();
 
         public int WriteCount { get; private set; }
+
+        public string Output => _output.ToString();
 
         public bool CursorHidden { get; private set; }
 
@@ -83,6 +89,11 @@ public sealed class TuiApplicationTests
         public void Write(ReadOnlySpan<char> text)
         {
             WriteCount++;
+            _output.Append(text);
+        }
+
+        public void Flush()
+        {
         }
 
         public bool TryReadKey(out KeyEvent key)

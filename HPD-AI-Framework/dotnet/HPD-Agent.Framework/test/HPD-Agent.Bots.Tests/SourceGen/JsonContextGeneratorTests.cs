@@ -36,7 +36,7 @@ public class JsonContextGeneratorTests
         var source = """
             using HPD.Agent.Bots;
             namespace Test;
-            [WebhookPayload]
+            [HpdBotPayload]
             public record SlackEvent(string Type);
             """;
 
@@ -53,9 +53,9 @@ public class JsonContextGeneratorTests
         var source = """
             using HPD.Agent.Bots;
             namespace Test;
-            [WebhookPayload] public record EventA(string Type);
-            [WebhookPayload] public record EventB(string Type);
-            [WebhookPayload] public record EventC(string Type);
+            [HpdBotPayload] public record EventA(string Type);
+            [HpdBotPayload] public record EventB(string Type);
+            [HpdBotPayload] public record EventC(string Type);
             """;
 
         var result = SourceGenHelper.RunGenerator(source, out _);
@@ -73,7 +73,7 @@ public class JsonContextGeneratorTests
             [HpdBot("slack")]
             public partial class SlackBot { }
 
-            [WebhookPayload]
+            [HpdBotPayload]
             public record SlackEvent(string Type);
             """;
 
@@ -94,7 +94,7 @@ public class JsonContextGeneratorTests
         var source = """
             using HPD.Agent.Bots;
             namespace Test;
-            [WebhookPayload]
+            [HpdBotPayload]
             public record Payload(string Type);
             """;
 

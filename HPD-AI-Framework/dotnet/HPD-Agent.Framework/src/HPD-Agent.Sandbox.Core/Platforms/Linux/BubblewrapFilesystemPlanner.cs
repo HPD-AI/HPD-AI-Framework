@@ -288,19 +288,19 @@ internal static class BubblewrapFilesystemPlanner
 
         if (normalized == "~")
         {
-            normalized = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            normalized = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
         }
         else if (normalized.StartsWith("~/", StringComparison.Ordinal))
         {
             normalized = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
                 normalized[2..]);
         }
 
-        normalized = Environment.ExpandEnvironmentVariables(normalized);
+        normalized = System.Environment.ExpandEnvironmentVariables(normalized);
         return Path.IsPathRooted(normalized)
             ? Path.GetFullPath(normalized)
-            : Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, normalized));
+            : Path.GetFullPath(Path.Combine(System.Environment.CurrentDirectory, normalized));
     }
 
     private static string? GetGlobSearchRoot(string pattern)
@@ -311,7 +311,7 @@ internal static class BubblewrapFilesystemPlanner
 
         var slash = pattern.LastIndexOf(Path.DirectorySeparatorChar, firstGlob);
         if (slash < 0)
-            return Environment.CurrentDirectory;
+            return System.Environment.CurrentDirectory;
 
         if (slash == 0)
             return Path.DirectorySeparatorChar.ToString();

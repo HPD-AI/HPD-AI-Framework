@@ -1,11 +1,11 @@
 using System.Reflection;
 using HPD.Agent;
-using HPD.Agent.Audio.AgentIntegration;
+using HPD.Agent.Audio;
+using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio.AgentIntegration.Branch;
 using HPD.Agent.Audio.AgentIntegration.Middleware;
 using HPD.Agent.Audio.Interaction;
 using HPD.Agent.Audio.Media;
-using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio.Policies;
 using HPD.Agent.Audio.Providers;
 using HPD.Agent.Audio.Runtime.Providers;
@@ -648,13 +648,14 @@ public sealed class AudioRuntimeAttachmentBranchProjectionTests
         AgentRunConfig? runConfig = null)
     {
         var state = AgentLoopState.InitialSafe([], "run-audio-middleware", conversationId, "audio-test-agent");
+        var branch = session is null ? null : CreateBranch(session, "main");
         var agentContext = new AgentContext(
             "audio-test-agent",
             conversationId,
             state,
             new EventCoordinator(),
             session: session,
-            branch: null,
+            branch: branch,
             CancellationToken.None,
             traceId: "00000000000000000000000000000001");
 
@@ -704,6 +705,16 @@ public sealed class AudioRuntimeAttachmentBranchProjectionTests
             ?? throw new MissingMethodException(nameof(Session), ".ctor(string)");
 
         return (Session)constructor.Invoke([sessionId]);
+    }
+
+    private static Branch CreateBranch(Session session, string branchId)
+    {
+        var factory = typeof(Session).GetMethod(
+            "CreateBranch",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(Session), "CreateBranch");
+
+        return (Branch)factory.Invoke(session, [branchId])!;
     }
 
     private static int IndexOfMiddleware<TMiddleware>(IReadOnlyList<IAgentMiddleware> middlewares)

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <RootNamespace>HPD.Agent.ModelsDev</RootNamespace>
+    <AssemblyName>HPD-Agent.ModelsDev</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.ModelsDev</PackageId>
+    <Description>models.dev catalog adapter for HPD Agent model selection.</Description>
+    <PackageTags>ai;agent;models;catalog;modelsdev;hpd</PackageTags>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../HPD-Agent.TUI/HPD-Agent.TUI.csproj" />
+  </ItemGroup>
+
+</Project>

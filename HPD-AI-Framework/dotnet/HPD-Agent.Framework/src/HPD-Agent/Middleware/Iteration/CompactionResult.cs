@@ -219,7 +219,7 @@ internal static class CompactionMementoBuilder
         var summaryText = summaryMessage.Text ?? string.Empty;
         var text = summaryText.StartsWith(HandoffPrefix, StringComparison.Ordinal)
             ? summaryText
-            : $"{HandoffPrefix}{Environment.NewLine}{Environment.NewLine}{summaryText}";
+            : $"{HandoffPrefix}{System.Environment.NewLine}{System.Environment.NewLine}{summaryText}";
 
         return new ChatMessage(ChatRole.Assistant, text)
         {

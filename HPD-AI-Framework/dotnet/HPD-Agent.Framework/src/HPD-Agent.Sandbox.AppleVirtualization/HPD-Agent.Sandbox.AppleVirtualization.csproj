@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <RootNamespace>HPD.Agent.Sandbox.AppleVirtualization</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.Sandbox.AppleVirtualization</PackageId>
+    <Description>Agent-facing Apple Virtualization sandbox integration for HPD Agent.</Description>
+    <PackageTags>agent;sandbox;execution;apple;virtualization;macos;vm;hpd</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-Environment/HPD-Environment.AppleVirtualization/HPD-Environment.AppleVirtualization.csproj" />
+  </ItemGroup>
+</Project>

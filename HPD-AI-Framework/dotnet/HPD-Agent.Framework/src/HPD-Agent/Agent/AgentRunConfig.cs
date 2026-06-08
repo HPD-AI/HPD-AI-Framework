@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;

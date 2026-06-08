@@ -215,9 +215,114 @@ namespace Ns
         Assert.Contains(@"MiddlewareTypeName: ""ConfigCtorMiddleware""", generatedCode);
         Assert.Contains("Factory: static json => new", generatedCode);
         Assert.Contains("ConfigCtorMiddleware(", generatedCode);
-        Assert.Contains("JsonSerializer.Deserialize<", generatedCode);
+        AssertDoesNotContainGenericRawTextDeserialize(generatedCode, "Ns.MyConfig", "MyConfig");
+        Assert.Contains("JsonSerializer.Deserialize(json, GetJsonTypeInfo<Ns.MyConfig>())", StripGlobalQualifiers(generatedCode));
+        Assert.Contains("No JSON metadata is registered for collapse middleware config type", generatedCode);
         // Parameterless bucket must be null (no parameterless-ctor middlewares)
         Assert.Contains("CollapseMiddlewareFactories: null,", generatedCode);
+    }
+
+    [Fact]
+    public void SourceGen_ToolHarnessConfigFactory_UsesJsonTypeInfoLookup()
+    {
+        var source = @"
+using HPD.Agent;
+using System;
+
+namespace Ns
+{
+    public class ToolHarnessConfig
+    {
+        public string? Model { get; set; }
+    }
+
+    public partial class ConfiguredToolHarness
+    {
+        public ConfiguredToolHarness(ToolHarnessConfig config) { }
+
+        [AIFunction]
+        public string Ping() => ""pong"";
+    }
+}
+";
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+        Assert.NotNull(generatedCode);
+        AssertDoesNotContainGenericRawTextDeserialize(generatedCode, "Ns.ToolHarnessConfig", "ToolHarnessConfig");
+        Assert.Contains("JsonSerializer.Deserialize(json, GetJsonTypeInfo<Ns.ToolHarnessConfig>())", StripGlobalQualifiers(generatedCode));
+        Assert.Contains("No JSON metadata is registered for tool harness config type", generatedCode);
+        Assert.Contains("typeof(T).FullName", generatedCode);
+    }
+
+    [Fact]
+    public void SourceGen_ToolHarnessMetadataFactory_UsesJsonTypeInfoLookup()
+    {
+        var source = @"
+using HPD.Agent;
+using System;
+using System.Collections.Generic;
+
+namespace Ns
+{
+    public class SearchMetadata : IToolMetadata
+    {
+        public string? Tenant { get; set; }
+
+        public T? GetProperty<T>(string propertyName, T? defaultValue = default) => defaultValue;
+
+        public bool HasProperty(string propertyName) => propertyName == nameof(Tenant);
+
+        public IEnumerable<string> GetPropertyNames() => new[] { nameof(Tenant) };
+    }
+
+    public partial class MetadataToolHarness
+    {
+        [AIFunction<SearchMetadata>]
+        public string Search(string query) => query;
+    }
+}
+";
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+        Assert.NotNull(generatedCode);
+        AssertDoesNotContainGenericRawTextDeserialize(generatedCode, "Ns.SearchMetadata", "SearchMetadata");
+        Assert.Contains("JsonSerializer.Deserialize(json, GetJsonTypeInfo<Ns.SearchMetadata>())", StripGlobalQualifiers(generatedCode));
+        Assert.Contains("No JSON metadata is registered for tool metadata type", generatedCode);
+        Assert.Contains("typeof(T).FullName", generatedCode);
+    }
+
+    [Fact]
+    public void SourceGen_MiddlewareConfigFactory_UsesJsonTypeInfoLookup()
+    {
+        var source = @"
+using HPD.Agent;
+using HPD.Agent.Middleware;
+using System;
+
+namespace Ns
+{
+    public class StandaloneConfig
+    {
+        public int Limit { get; set; }
+    }
+
+    [Middleware]
+    public class ConfiguredStandaloneMiddleware : IAgentMiddleware
+    {
+        public ConfiguredStandaloneMiddleware(StandaloneConfig config) { }
+    }
+}
+";
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+        Assert.NotNull(generatedCode);
+        AssertDoesNotContainGenericRawTextDeserialize(generatedCode, "Ns.StandaloneConfig", "StandaloneConfig");
+        Assert.Contains("JsonSerializer.Deserialize(json, GetJsonTypeInfo<Ns.StandaloneConfig>())", StripGlobalQualifiers(generatedCode));
+        Assert.Contains("No JSON metadata is registered for middleware config type", generatedCode);
+        Assert.Contains("typeof(T).FullName", generatedCode);
     }
 
     // ── T048 ─────────────────────────────────────────────────────────────────
@@ -288,5 +393,20 @@ namespace Ns
         var (generatedCode, diagnostics) = RunGenerator(source);
 
         Assert.Contains(diagnostics, d => d.Id == "HPDAG0204" && d.Severity == DiagnosticSeverity.Error);
+    }
+
+    private static string StripGlobalQualifiers(string? generatedCode)
+    {
+        return generatedCode?.Replace("global::", "") ?? "";
+    }
+
+    private static void AssertDoesNotContainGenericRawTextDeserialize(string? generatedCode, params string[] typeNames)
+    {
+        var normalizedCode = StripGlobalQualifiers(generatedCode);
+
+        foreach (var typeName in typeNames)
+        {
+            Assert.DoesNotContain($"JsonSerializer.Deserialize<{typeName}>(json.GetRawText())", normalizedCode);
+        }
     }
 }

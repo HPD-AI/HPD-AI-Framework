@@ -439,8 +439,8 @@ public partial class FileSystemTools
             // Validate occurrences
             if (replacementResult.occurrences == 0)
             {
-                return $"Error: Could not find the specified text in the file.{Environment.NewLine}" +
-                       $"Looking for: {oldString.Substring(0, Math.Min(100, oldString.Length))}...{Environment.NewLine}" +
+                return $"Error: Could not find the specified text in the file.{System.Environment.NewLine}" +
+                       $"Looking for: {oldString.Substring(0, Math.Min(100, oldString.Length))}...{System.Environment.NewLine}" +
                        $"Tried: exact match, flexible whitespace matching, and regex fuzzy matching.";
             }
 
@@ -464,10 +464,10 @@ public partial class FileSystemTools
             // Get stats
             var linesChanged = diff.Lines.Count(l => l.Type != ChangeType.Unchanged);
 
-            return $"✓ File edited successfully: {filePath}{Environment.NewLine}" +
-                   $"Strategy: {replacementResult.strategy}{Environment.NewLine}" +
-                   $"Changed {linesChanged} lines{Environment.NewLine}{Environment.NewLine}" +
-                   $"--- Diff ---{Environment.NewLine}{diffDisplay}";
+            return $"✓ File edited successfully: {filePath}{System.Environment.NewLine}" +
+                   $"Strategy: {replacementResult.strategy}{System.Environment.NewLine}" +
+                   $"Changed {linesChanged} lines{System.Environment.NewLine}{System.Environment.NewLine}" +
+                   $"--- Diff ---{System.Environment.NewLine}{diffDisplay}";
         }
         catch (Exception ex)
         {

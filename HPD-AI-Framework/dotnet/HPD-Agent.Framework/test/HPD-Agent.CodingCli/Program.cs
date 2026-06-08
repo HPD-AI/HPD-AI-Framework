@@ -236,7 +236,7 @@ static bool TryConfigureProvider(
     {
         ProviderKey = "openrouter",
         ModelName = options.Model
-            ?? Environment.GetEnvironmentVariable("OPENROUTER_MODEL")
+            ?? System.Environment.GetEnvironmentVariable("OPENROUTER_MODEL")
             ?? "deepseek/deepseek-v4-pro",
         ApiKey = apiKey
     });
@@ -247,7 +247,7 @@ static bool TryConfigureProvider(
 
 static string? ResolveOpenRouterApiKey(string? appsettingsPath)
 {
-    var environmentKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
+    var environmentKey = System.Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
     if (!string.IsNullOrWhiteSpace(environmentKey))
         return environmentKey;
 

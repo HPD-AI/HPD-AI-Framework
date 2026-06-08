@@ -95,7 +95,7 @@ public sealed class LanguageServerToolResolver : ILanguageServerToolResolver
         if (localBin is not null)
             return ValueTask.FromResult<string?>(localBin);
 
-        foreach (var directory in SplitPath(Environment.GetEnvironmentVariable("PATH")))
+        foreach (var directory in SplitPath(System.Environment.GetEnvironmentVariable("PATH")))
         {
             var candidate = FindExecutableInDirectory(directory, name);
             if (candidate is not null)
@@ -191,7 +191,7 @@ public sealed class LanguageServerToolResolver : ILanguageServerToolResolver
         if (!string.IsNullOrEmpty(extension))
             yield break;
 
-        var pathExt = Environment.GetEnvironmentVariable("PATHEXT");
+        var pathExt = System.Environment.GetEnvironmentVariable("PATHEXT");
         foreach (var item in string.IsNullOrWhiteSpace(pathExt)
             ? [".COM", ".EXE", ".BAT", ".CMD"]
             : pathExt.Split(';'))

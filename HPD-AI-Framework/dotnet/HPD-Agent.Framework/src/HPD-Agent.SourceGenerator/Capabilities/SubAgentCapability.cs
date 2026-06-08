@@ -137,8 +137,7 @@ internal class SubAgentCapability : BaseCapability
 
         // Build execution context for event attribution
         sb.AppendLine("        // Build hierarchical execution context for event attribution");
-        sb.AppendLine("        var currentAgent = HPD.Agent.Agent.RootAgent;");
-        sb.AppendLine("        var parenTMetadata = currentAgent?.AgentMetadata;");
+        sb.AppendLine("        var parenTMetadata = functionContext?.GetParentAgentMetadata();");
         sb.AppendLine("        var agentId = agent.AgentId;");
         sb.AppendLine();
         sb.AppendLine("        var agentChain = parenTMetadata != null");

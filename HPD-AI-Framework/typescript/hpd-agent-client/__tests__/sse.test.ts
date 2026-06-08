@@ -86,7 +86,7 @@ describe('SseTransport runtime', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/agents/a1/sessions/s1/branches/main/permissions/respond',
+      'http://localhost:5135/agents/a1/sessions/s1/branches/main/responses',
       expect.objectContaining({ method: 'POST' }),
     );
   });
@@ -111,6 +111,38 @@ describe('SseTransport runtime', () => {
     })).rejects.toMatchObject({
       name: 'AgentError',
       code: 'STALE_RESPONSE',
+    } satisfies Partial<AgentError>);
+  });
+
+  it('preserves server-provided middleware response conflict codes', async () => {
+    const transport = new SseTransport('http://localhost:5135');
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({ ok: true, body: stream(), text: async () => '' } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          title: 'Branch runtime is not active',
+          errors: {
+            BranchRuntimeNotActive: ['The branch exists, but no runtime is waiting for this response.'],
+          },
+        }),
+      } as Response);
+
+    await transport.connect({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
+
+    await expect(transport.submitInput({
+      type: EventTypes.PERMISSION_RESPONSE,
+      permissionId: 'p1',
+      sourceName: 'permission',
+      approved: true,
+    })).rejects.toMatchObject({
+      name: 'AgentError',
+      code: 'BranchRuntimeNotActive',
+      statusCode: 409,
+      details: {
+        BranchRuntimeNotActive: ['The branch exists, but no runtime is waiting for this response.'],
+      },
     } satisfies Partial<AgentError>);
   });
 

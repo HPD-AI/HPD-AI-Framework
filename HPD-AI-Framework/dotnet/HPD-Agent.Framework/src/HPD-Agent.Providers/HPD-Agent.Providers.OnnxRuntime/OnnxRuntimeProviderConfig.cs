@@ -240,6 +240,14 @@ public class OnnxRuntimeProviderConfig
     [JsonPropertyName("enableCaching")]
     public bool EnableCaching { get; set; }
 
+    /// <summary>
+    /// Enables HPD's experimental structured tool-calling adapter for ONNX Runtime GenAI.
+    /// When enabled, HPD asks the local model for a constrained JSON tool-call envelope and
+    /// converts that envelope into <c>FunctionCallContent</c>. HPD still performs tool execution.
+    /// </summary>
+    [JsonPropertyName("enableStructuredToolCalling")]
+    public bool EnableStructuredToolCalling { get; set; }
+
     //
     // CONSTRAINED DECODING
     //
@@ -275,7 +283,7 @@ public class OnnxRuntimeProviderConfig
     //
 
     /// <summary>
-    /// List of execution providers to use (e.g., "cuda", "cpu", "dml", "qnn", "openvino", "trt", "webgpu").
+    /// List of environment providers to use (e.g., "cuda", "cpu", "dml", "qnn", "openvino", "trt", "webgpu").
     /// If not specified, ONNX Runtime will use the default providers for the platform.
     /// The order matters - providers are tried in the order specified.
     /// Example: ["cuda", "cpu"] tries CUDA first, falls back to CPU.

@@ -35,6 +35,7 @@ public static class KeyParser
                 '\x7f' or '\b' => new KeyEvent(KeyCode.Backspace),
                 '\t' => new KeyEvent(KeyCode.Tab),
                 _ when data[0] < ' ' => new KeyEvent(KeyCode.Unknown, default, KeyModifiers.Ctrl),
+                _ when char.IsSurrogate(data[0]) => new KeyEvent(KeyCode.Unknown),
                 _ => new KeyEvent(KeyCode.Character, new Rune(data[0]))
             };
         }

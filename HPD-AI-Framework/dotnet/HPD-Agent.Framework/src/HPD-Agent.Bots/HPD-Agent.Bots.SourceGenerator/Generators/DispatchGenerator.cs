@@ -8,13 +8,6 @@ namespace HPD.Agent.Bots.SourceGenerator.Generators;
 
 /// <summary>
 /// Generates {BotName}Dispatch.g.cs for each [HpdBot] class.
-///
-/// The generated HandleWebhookAsync method:
-///   1. Reads body once
-///   2. Calls [HpdPreDispatch] hook if declared (adapter owns verification / challenge bypass)
-///   3. Calls [HpdBodyExtractor] hook if declared, else uses default JSON "type" extraction
-///   4. Dispatches to the [HpdWebhookHandler] method matching the event type
-///   5. Maps known adapter exceptions to HTTP status codes
 /// </summary>
 internal static class DispatchGenerator
 {
@@ -37,35 +30,29 @@ internal static class DispatchGenerator
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
         sb.AppendLine("using System;");
+        sb.AppendLine("using System.Collections.Generic;");
         sb.AppendLine("using System.Threading;");
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using Microsoft.AspNetCore.Http;");
-        sb.AppendLine("using Microsoft.AspNetCore.Http.Extensions;");
         sb.AppendLine("using HPD.Agent.Bots;");
         sb.AppendLine("using HPD.Agent.Bots.Contracts;");
         sb.AppendLine("using System.Text.Json;");
         sb.AppendLine();
         sb.AppendLine($"namespace {adapter.Namespace};");
         sb.AppendLine();
-        sb.AppendLine($"public partial class {adapter.ClassName}");
+        sb.AppendLine($"public partial class {adapter.ClassName} : IBotAdapter");
         sb.AppendLine("{");
-        sb.AppendLine("    /// <summary>Generated webhook dispatch entry point.</summary>");
-        sb.AppendLine("    public async Task<IResult> HandleWebhookAsync(HttpContext ctx)");
+        sb.AppendLine($"    public string Name => \"{adapter.Name}\";");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Generated transport-neutral bot dispatch entry point.</summary>");
+        sb.AppendLine("    public async Task<BotAdapterResponse> HandleAsync(");
+        sb.AppendLine("        BotInboundEnvelope envelope,");
+        sb.AppendLine("        CancellationToken cancellationToken = default)");
         sb.AppendLine("    {");
-        sb.AppendLine("        var ct = ctx.RequestAborted;");
+        sb.AppendLine("        var ctx = new BotRequestContext(envelope, cancellationToken);");
+        sb.AppendLine("        var bodyBytes = envelope.Body;");
         sb.AppendLine();
 
-        // ── Read body once ────────────────────────────────────────────────────
-        sb.AppendLine("        // Read body once — reused for both pre-dispatch hook and deserialization");
-        sb.AppendLine("        byte[] bodyBytes;");
-        sb.AppendLine("        using (var ms = new System.IO.MemoryStream())");
-        sb.AppendLine("        {");
-        sb.AppendLine("            await ctx.Request.Body.CopyToAsync(ms, ct);");
-        sb.AppendLine("            bodyBytes = ms.ToArray();");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
-        // ── Pre-dispatch hook ─────────────────────────────────────────────────
         if (adapter.PreDispatchMethodName is not null)
         {
             sb.AppendLine($"        var preResult = await {adapter.PreDispatchMethodName}(ctx, bodyBytes);");
@@ -73,7 +60,6 @@ internal static class DispatchGenerator
             sb.AppendLine();
         }
 
-        // ── Body extraction ───────────────────────────────────────────────────
         if (adapter.BodyExtractorMethodName is not null)
         {
             sb.AppendLine($"        var (eventType, dispatchBytes) = {adapter.BodyExtractorMethodName}(ctx, bodyBytes);");
@@ -85,20 +71,78 @@ internal static class DispatchGenerator
         }
         sb.AppendLine();
 
-        // ── Exception wrapper + dispatch ──────────────────────────────────────
         sb.AppendLine("        try");
         sb.AppendLine("        {");
-        sb.AppendLine("            return await DispatchByTypeAsync(ctx, dispatchBytes, eventType, ct);");
+        sb.AppendLine("            return await DispatchByTypeAsync(ctx, dispatchBytes, eventType);");
         sb.AppendLine("        }");
-        sb.AppendLine("        catch (BotValidationException)      { return Results.BadRequest(); }");
-        sb.AppendLine("        catch (BotAuthenticationException)  { return Results.Unauthorized(); }");
-        sb.AppendLine("        catch (BotRateLimitException)       { return Results.StatusCode(429); }");
-        sb.AppendLine("        catch (BotPermissionException)      { return Results.Forbid(); }");
-        sb.AppendLine("        catch (BotNotFoundException)        { return Results.NotFound(); }");
+        sb.AppendLine("        catch (BotValidationException)      { return BotAdapterResponse.Status(400); }");
+        sb.AppendLine("        catch (BotAuthenticationException)  { return BotAdapterResponse.Status(401); }");
+        sb.AppendLine("        catch (BotRateLimitException)       { return BotAdapterResponse.Status(429); }");
+        sb.AppendLine("        catch (BotPermissionException)      { return BotAdapterResponse.Status(403); }");
+        sb.AppendLine("        catch (BotNotFoundException)        { return BotAdapterResponse.Status(404); }");
         sb.AppendLine("    }");
         sb.AppendLine();
 
-        // ── Default ExtractEventType helper (only when no body extractor) ─────
+        sb.AppendLine("    /// <summary>Generated ASP.NET bridge for existing webhook endpoint mapping.</summary>");
+        sb.AppendLine("    public async Task<IResult> HandleWebhookAsync(HttpContext httpContext)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var envelope = await CreateEnvelopeAsync(httpContext);");
+        sb.AppendLine("        var response = await HandleAsync(envelope, httpContext.RequestAborted);");
+        sb.AppendLine("        return new BotAdapterHttpResult(response);");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        sb.AppendLine("    private static async Task<BotInboundEnvelope> CreateEnvelopeAsync(HttpContext httpContext)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        byte[] bodyBytes;");
+        sb.AppendLine("        using (var ms = new System.IO.MemoryStream())");
+        sb.AppendLine("        {");
+        sb.AppendLine("            await httpContext.Request.Body.CopyToAsync(ms, httpContext.RequestAborted);");
+        sb.AppendLine("            bodyBytes = ms.ToArray();");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine("        var headers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);");
+        sb.AppendLine("        foreach (var pair in httpContext.Request.Headers)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            var values = new string[pair.Value.Count];");
+        sb.AppendLine("            for (var i = 0; i < pair.Value.Count; i++) values[i] = pair.Value[i] ?? string.Empty;");
+        sb.AppendLine("            headers[pair.Key] = values;");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine("        var query = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);");
+        sb.AppendLine("        foreach (var pair in httpContext.Request.Query)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            var values = new string[pair.Value.Count];");
+        sb.AppendLine("            for (var i = 0; i < pair.Value.Count; i++) values[i] = pair.Value[i] ?? string.Empty;");
+        sb.AppendLine("            query[pair.Key] = values;");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine("        return new BotInboundEnvelope");
+        sb.AppendLine("        {");
+        sb.AppendLine("            Method = httpContext.Request.Method,");
+        sb.AppendLine("            Path = httpContext.Request.Path.Value,");
+        sb.AppendLine("            Body = bodyBytes,");
+        sb.AppendLine("            Headers = headers,");
+        sb.AppendLine("            Query = query,");
+        sb.AppendLine("        };");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        sb.AppendLine("    private sealed class BotAdapterHttpResult(BotAdapterResponse response) : IResult");
+        sb.AppendLine("    {");
+        sb.AppendLine("        public async Task ExecuteAsync(HttpContext httpContext)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            httpContext.Response.StatusCode = response.StatusCode;");
+        sb.AppendLine("            if (response.ContentType is not null)");
+        sb.AppendLine("                httpContext.Response.ContentType = response.ContentType;");
+        sb.AppendLine("            foreach (var header in response.Headers)");
+        sb.AppendLine("                httpContext.Response.Headers[header.Key] = header.Value;");
+        sb.AppendLine("            if (response.Body is { Length: > 0 })");
+        sb.AppendLine("                await httpContext.Response.Body.WriteAsync(response.Body, httpContext.RequestAborted);");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
         if (adapter.BodyExtractorMethodName is null)
         {
             sb.AppendLine("    private static string? ExtractEventType(byte[] bodyBytes)");
@@ -108,9 +152,7 @@ internal static class DispatchGenerator
             sb.AppendLine("            using var doc = JsonDocument.Parse(bodyBytes);");
             sb.AppendLine("            var root = doc.RootElement;");
             sb.AppendLine("            if (root.TryGetProperty(\"type\", out var outerType))");
-            sb.AppendLine("            {");
             sb.AppendLine("                return outerType.GetString();");
-            sb.AppendLine("            }");
             sb.AppendLine("        }");
             sb.AppendLine("        catch { }");
             sb.AppendLine("        return null;");
@@ -118,9 +160,8 @@ internal static class DispatchGenerator
             sb.AppendLine();
         }
 
-        // ── Switch dispatch ───────────────────────────────────────────────────
-        sb.AppendLine("    private async Task<IResult> DispatchByTypeAsync(");
-        sb.AppendLine("        HttpContext ctx, byte[] bodyBytes, string? eventType, CancellationToken ct)");
+        sb.AppendLine("    private async Task<BotAdapterResponse> DispatchByTypeAsync(");
+        sb.AppendLine("        BotRequestContext ctx, byte[] bodyBytes, string? eventType)");
         sb.AppendLine("    {");
         sb.AppendLine("        switch (eventType)");
         sb.AppendLine("        {");
@@ -133,12 +174,12 @@ internal static class DispatchGenerator
             }
             sb.AppendLine("            {");
             sb.AppendLine($"                var payload = JsonSerializer.Deserialize(bodyBytes, {adapter.ClassName}JsonContext.Default.{handler.PayloadJsonTypeInfoProperty});");
-            sb.AppendLine($"                if (payload is null) return Results.Ok();");
+            sb.AppendLine("                if (payload is null) return BotAdapterResponse.Ok();");
             sb.AppendLine($"                return await {handler.MethodName}(ctx, payload);");
             sb.AppendLine("            }");
         }
 
-        sb.AppendLine("            default: return Results.Ok(); // unknown event types → ACK and ignore");
+        sb.AppendLine("            default: return BotAdapterResponse.Ok();");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
         sb.AppendLine("}");

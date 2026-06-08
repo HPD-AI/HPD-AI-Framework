@@ -140,6 +140,7 @@ internal class OpenRouterProvider : IChatClientProvider
     /// ✨ PERFORMANCE: Set OPENROUTER_SKIP_VALIDATION=true to skip validation entirely
     /// </summary>
     /// <param name="config">The provider configuration containing the API key.</param>
+    /// <param name="family">The provider client family being validated.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>A validation result indicating if the key is valid.</returns>
     public async Task<ProviderValidationResult> ValidateConfigurationAsync(ClientProviderConfig config, ProviderClientFamily family, CancellationToken cancellationToken = default)
@@ -149,7 +150,7 @@ internal class OpenRouterProvider : IChatClientProvider
             return basicValidation;
 
         // ✨ PERFORMANCE: Allow skipping expensive validation entirely
-        if (Environment.GetEnvironmentVariable("OPENROUTER_SKIP_VALIDATION")?.ToLowerInvariant() == "true")
+        if (System.Environment.GetEnvironmentVariable("OPENROUTER_SKIP_VALIDATION")?.ToLowerInvariant() == "true")
         {
             return ProviderValidationResult.Success(); // Validation skipped for performance
         }
@@ -171,7 +172,7 @@ internal class OpenRouterProvider : IChatClientProvider
                 return ProviderValidationResult.Failure("Invalid API key or insufficient permissions");
 
             // Check credit status (2nd network call) - but make this optional
-            if (Environment.GetEnvironmentVariable("OPENROUTER_CHECK_CREDITS")?.ToLowerInvariant() != "false")
+            if (System.Environment.GetEnvironmentVariable("OPENROUTER_CHECK_CREDITS")?.ToLowerInvariant() != "false")
             {
                 var keyInfo = await testClient.GetKeyInfoAsync(timeoutCts.Token).ConfigureAwait(false);
                 if (keyInfo.Data.LimitRemaining.HasValue && keyInfo.Data.LimitRemaining <= 0)
@@ -272,7 +273,7 @@ internal class OpenRouterProvider : IChatClientProvider
                 return currentDirectory.Contains("bin") || 
                        currentDirectory.Contains("Debug") || 
                        currentDirectory.Contains("obj") ||
-                       Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == null;
+                       System.Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == null;
             }
             catch
             {

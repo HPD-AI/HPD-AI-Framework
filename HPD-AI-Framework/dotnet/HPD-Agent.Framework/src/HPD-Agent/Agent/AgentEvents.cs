@@ -667,7 +667,8 @@ public record ToolCallResultEvent(
     string CallId,
     ToolResultPayload Result,
     string? ToolHarnessName = null,
-    ToolCallType? CallType = null) : AgentEvent
+    ToolCallType? CallType = null,
+    string? Name = null) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
     public override bool ShouldPersistToBranch() => true;

@@ -8,6 +8,8 @@ namespace HPDOS.ToolHarnesses.Middleware;
 public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAsyncDisposable
 {
     private const int MaxOpenDocumentBytes = 1024 * 1024;
+    private const int MaxDiagnosticSummariesPerEvent = 20;
+
     private static readonly HashSet<string> ObservedFunctionNames = new(StringComparer.Ordinal)
     {
         "ReadFile",
@@ -452,7 +454,13 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
             ErrorCount = diagnostics.Sum(set => set.Diagnostics.Count(diagnostic =>
                 diagnostic.Severity == LanguageServerDiagnosticSeverity.Error)),
             WarningCount = diagnostics.Sum(set => set.Diagnostics.Count(diagnostic =>
-                diagnostic.Severity == LanguageServerDiagnosticSeverity.Warning))
+                diagnostic.Severity == LanguageServerDiagnosticSeverity.Warning)),
+            InformationCount = diagnostics.Sum(set => set.Diagnostics.Count(diagnostic =>
+                diagnostic.Severity == LanguageServerDiagnosticSeverity.Information)),
+            HintCount = diagnostics.Sum(set => set.Diagnostics.Count(diagnostic =>
+                diagnostic.Severity == LanguageServerDiagnosticSeverity.Hint)),
+            Diagnostics = CreateDiagnosticSummaries(diagnostics, MaxDiagnosticSummariesPerEvent),
+            DiagnosticsTruncated = diagnostics.Sum(set => set.Diagnostics.Count) > MaxDiagnosticSummariesPerEvent
         });
 
         await RefreshUnavailableServersAsync(context, cancellationToken).ConfigureAwait(false);
@@ -608,6 +616,39 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 CreatedAt = DateTimeOffset.UtcNow
             });
         }
+    }
+
+    private static IReadOnlyList<LanguageServerDiagnosticSummary> CreateDiagnosticSummaries(
+        IReadOnlyList<LanguageServerDiagnosticSet> diagnostics,
+        int maxSummaries)
+    {
+        if (diagnostics.Count == 0 || maxSummaries <= 0)
+            return [];
+
+        var summaries = new List<LanguageServerDiagnosticSummary>(Math.Min(maxSummaries, 8));
+
+        foreach (var set in diagnostics)
+        {
+            foreach (var diagnostic in set.Diagnostics)
+            {
+                if (summaries.Count >= maxSummaries)
+                    return summaries;
+
+                summaries.Add(new LanguageServerDiagnosticSummary
+                {
+                    Path = set.Path,
+                    ServerId = set.ServerId,
+                    Source = set.Source,
+                    Severity = diagnostic.Severity,
+                    Line = diagnostic.Line,
+                    Character = diagnostic.Character,
+                    Code = diagnostic.Code,
+                    Message = diagnostic.Message
+                });
+            }
+        }
+
+        return summaries;
     }
 
     private static bool IsObservedCodingFunction(string? toolharnessName, string? functionName)

@@ -13,7 +13,7 @@ namespace HPD.Agent.Providers.OnnxRuntime;
 
 /// <summary>
 /// ONNX Runtime GenAI provider implementation for local model inference.
-/// Supports CPU, CUDA, DirectML, QNN, OpenVINO, TensorRT, and WebGPU execution providers.
+/// Supports CPU, CUDA, DirectML, QNN, OpenVINO, TensorRT, and WebGPU environment providers.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -48,7 +48,7 @@ internal class OnnxRuntimeProvider : IChatClientProvider
         var onnxConfig = config.GetProviderConfig<OnnxRuntimeProviderConfig>();
 
         // Resolve model path
-        string? modelPath = onnxConfig?.ModelPath ?? Environment.GetEnvironmentVariable("ONNX_MODEL_PATH");
+        string? modelPath = onnxConfig?.ModelPath ?? System.Environment.GetEnvironmentVariable("ONNX_MODEL_PATH");
 
         if (string.IsNullOrEmpty(modelPath))
         {
@@ -68,7 +68,7 @@ internal class OnnxRuntimeProvider : IChatClientProvider
         {
             modelConfig = new Config(modelPath);
 
-            // Configure execution providers
+            // Configure environment providers
             if (onnxConfig.Providers != null && onnxConfig.Providers.Count > 0)
             {
                 modelConfig.ClearProviders();
@@ -127,6 +127,11 @@ internal class OnnxRuntimeProvider : IChatClientProvider
 
         // Apply client factory middleware if provided
         IChatClient finalClient = wrappedClient;
+        if (onnxConfig?.EnableStructuredToolCalling == true)
+        {
+            finalClient = new StructuredToolCallingOnnxRuntimeChatClient(finalClient);
+        }
+
         return finalClient;
     }
 
@@ -166,7 +171,7 @@ internal class OnnxRuntimeProvider : IChatClientProvider
         var onnxConfig = config.GetProviderConfig<OnnxRuntimeProviderConfig>();
 
         // Validate model path
-        string? modelPath = onnxConfig?.ModelPath ?? Environment.GetEnvironmentVariable("ONNX_MODEL_PATH");
+        string? modelPath = onnxConfig?.ModelPath ?? System.Environment.GetEnvironmentVariable("ONNX_MODEL_PATH");
 
         if (string.IsNullOrEmpty(modelPath))
         {

@@ -198,4 +198,21 @@ public class RegistryGeneratorTests
 
         registry!.Should().Contain("public static readonly BotRegistration[] All");
     }
+
+    [Fact]
+    public void Registry_EmitsGeneratedProvider()
+    {
+        var source = """
+            using HPD.Agent.Bots;
+            namespace Test;
+            [HpdBot("slack")]
+            public partial class SlackBot { }
+            """;
+
+        var result   = SourceGenHelper.RunGenerator(source, out _);
+        var registry = SourceGenHelper.GetGeneratedFile(result, "BotRegistry.g.cs");
+
+        registry!.Should().Contain("internal sealed class GeneratedBotRegistryProvider : IBotRegistryProvider");
+        registry.Should().Contain("=> BotRegistry.All");
+    }
 }

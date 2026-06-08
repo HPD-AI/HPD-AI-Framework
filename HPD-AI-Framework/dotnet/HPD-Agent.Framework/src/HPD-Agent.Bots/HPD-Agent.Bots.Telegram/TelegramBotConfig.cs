@@ -21,19 +21,19 @@ public sealed class TelegramBotConfig
     public int? StreamingDebounceMs { get; set; }
 
     internal string ResolveBotToken()
-        => FirstNonWhiteSpace(BotToken, Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"))
+        => FirstNonWhiteSpace(BotToken, System.Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"))
             ?? throw new InvalidOperationException(
                 "TelegramBotConfig.BotToken is required. Set TELEGRAM_BOT_TOKEN or configure it explicitly.");
 
     internal string? ResolveSecretToken()
-        => FirstNonWhiteSpace(SecretToken, Environment.GetEnvironmentVariable("TELEGRAM_WEBHOOK_SECRET_TOKEN"));
+        => FirstNonWhiteSpace(SecretToken, System.Environment.GetEnvironmentVariable("TELEGRAM_WEBHOOK_SECRET_TOKEN"));
 
     internal string ResolveApiBaseUrl()
-        => (FirstNonWhiteSpace(ApiBaseUrl, Environment.GetEnvironmentVariable("TELEGRAM_API_BASE_URL"))
+        => (FirstNonWhiteSpace(ApiBaseUrl, System.Environment.GetEnvironmentVariable("TELEGRAM_API_BASE_URL"))
             ?? "https://api.telegram.org").TrimEnd('/');
 
     internal string? ResolveUserName()
-        => FirstNonWhiteSpace(UserName, Environment.GetEnvironmentVariable("TELEGRAM_BOT_USERNAME"));
+        => FirstNonWhiteSpace(UserName, System.Environment.GetEnvironmentVariable("TELEGRAM_BOT_USERNAME"));
 
     internal string ResolveAgentId()
         => FirstNonWhiteSpace(AgentId)

@@ -142,6 +142,18 @@ namespace HPD.Agent.TextExtraction
 
         private void RegisterDefaultDecoders(ILoggerFactory? loggerFactory)
         {
+            // Text-like formats
+            var textDecoder = new TextContentDecoder(loggerFactory);
+            RegisterDecoder(
+                textDecoder,
+                MimeTypes.PlainText,
+                MimeTypes.MarkDown,
+                MimeTypes.MarkDownOld1,
+                MimeTypes.MarkDownOld2,
+                MimeTypes.Json,
+                MimeTypes.XML,
+                MimeTypes.XML2);
+
             // PDF
             var pdfDecoder = new PdfDecoder(loggerFactory);
             RegisterDecoder(pdfDecoder, MimeTypes.Pdf);
@@ -177,6 +189,18 @@ namespace HPD.Agent.TextExtraction
             if (decoderType == typeof(PdfDecoder))
             {
                 RegisterDecoder(decoder, MimeTypes.Pdf);
+            }
+            else if (decoderType == typeof(TextContentDecoder))
+            {
+                RegisterDecoder(
+                    decoder,
+                    MimeTypes.PlainText,
+                    MimeTypes.MarkDown,
+                    MimeTypes.MarkDownOld1,
+                    MimeTypes.MarkDownOld2,
+                    MimeTypes.Json,
+                    MimeTypes.XML,
+                    MimeTypes.XML2);
             }
             else if (decoderType == typeof(MsWordDecoder))
             {
@@ -232,6 +256,7 @@ namespace HPD.Agent.TextExtraction
 
             // Register individual decoders
             services.AddSingleton<PdfDecoder>();
+            services.AddSingleton<TextContentDecoder>();
             services.AddSingleton<MsWordDecoder>();
             services.AddSingleton<MsExcelDecoder>();
             services.AddSingleton<MsPowerPointDecoder>();
@@ -240,6 +265,7 @@ namespace HPD.Agent.TextExtraction
 
             // Register them as IContentDecoder
             services.AddSingleton<IContentDecoder>(sp => sp.GetRequiredService<PdfDecoder>());
+            services.AddSingleton<IContentDecoder>(sp => sp.GetRequiredService<TextContentDecoder>());
             services.AddSingleton<IContentDecoder>(sp => sp.GetRequiredService<MsWordDecoder>());
             services.AddSingleton<IContentDecoder>(sp => sp.GetRequiredService<MsExcelDecoder>());
             services.AddSingleton<IContentDecoder>(sp => sp.GetRequiredService<MsPowerPointDecoder>());

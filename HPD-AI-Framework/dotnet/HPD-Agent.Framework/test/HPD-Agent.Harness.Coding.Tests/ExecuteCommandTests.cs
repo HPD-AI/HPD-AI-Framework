@@ -3,7 +3,7 @@ using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
-using HPD.Execution.Contracts;
+using HPD.Environment.Contracts;
 using HPD.Events;
 using HPD.Events.Core;
 using Microsoft.Extensions.AI;

@@ -44,7 +44,7 @@ public class BedrockProviderTests
     public void ValidateConfiguration_WithValidConfigAndEnvVar_ShouldSucceed()
     {
         // Arrange
-        Environment.SetEnvironmentVariable("AWS_REGION", "us-east-1");
+        System.Environment.SetEnvironmentVariable("AWS_REGION", "us-east-1");
         try
         {
             var config = new ClientProviderConfig
@@ -62,7 +62,7 @@ public class BedrockProviderTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("AWS_REGION", null);
+            System.Environment.SetEnvironmentVariable("AWS_REGION", null);
         }
     }
 

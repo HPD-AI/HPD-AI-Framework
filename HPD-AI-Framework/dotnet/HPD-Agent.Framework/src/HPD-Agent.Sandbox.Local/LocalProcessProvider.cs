@@ -5,8 +5,10 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading.Channels;
-using HPD.Execution.Contracts;
-using HPD.Execution.Runtime;
+using HPD.Agent.Sandbox;
+using HPD.Agent.Sandbox.ProcessIsolation;
+using HPD.Environment.Contracts;
+using HPD.Environment.Runtime;
 
 public sealed class LocalProcessProviderModule : IProviderModule
 {
@@ -20,23 +22,28 @@ public sealed class LocalProcessProviderModule : IProviderModule
     internal LocalProcessProviderModule(IProcessProvider provider)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
+        ProviderContractKind contractKinds = ProviderContractKind.ProcessInvocation;
+        if (provider is LocalProcessProvider { SupportsProcessIsolation: true })
+            contractKinds |= ProviderContractKind.ProcessIsolation;
+
+        Descriptor = new ProviderDescriptor
+        {
+            Id = LocalProcessProvider.LocalProviderId,
+            DisplayName = "HPD Local Process Provider",
+            ContractVersion = new SemanticVersion(1, 0, 0),
+            ProviderVersion = new SemanticVersion(1, 0, 0),
+            ContractKinds = contractKinds,
+            TrustLevel = ProviderTrustLevel.BuiltIn,
+            DefaultActivationScope = ProviderActivationScope.Runtime,
+            ActivationModels =
+            [
+                new ProviderActivationModel(ProviderActivationKind.InProcess, ProviderActivationScope.Runtime, ProviderTransportKind.None),
+            ],
+            HostPlatforms = [LocalProcessProvider.CurrentPlatform()],
+        };
     }
 
-    public ProviderDescriptor Descriptor { get; } = new()
-    {
-        Id = LocalProcessProvider.LocalProviderId,
-        DisplayName = "HPD Local Process Provider",
-        ContractVersion = new SemanticVersion(1, 0, 0),
-        ProviderVersion = new SemanticVersion(1, 0, 0),
-        ContractKinds = ProviderContractKind.ProcessInvocation,
-        TrustLevel = ProviderTrustLevel.BuiltIn,
-        DefaultActivationScope = ProviderActivationScope.Runtime,
-        ActivationModels =
-        [
-            new ProviderActivationModel(ProviderActivationKind.InProcess, ProviderActivationScope.Runtime, ProviderTransportKind.None),
-        ],
-        HostPlatforms = [LocalProcessProvider.CurrentPlatform()],
-    };
+    public ProviderDescriptor Descriptor { get; }
 
     public void Register(IProviderRegistrationBuilder builder)
     {
@@ -52,8 +59,22 @@ public sealed class LocalProcessProviderModule : IProviderModule
 public sealed class LocalProcessProvider : IProcessProvider
 {
     public static ProviderId LocalProviderId { get; } = new("hpd.execution.local.process");
+    private readonly ISandboxPlanner? _sandboxPlanner;
+    private readonly ISandboxApplicator? _sandboxApplicator;
+
+    public LocalProcessProvider()
+    {
+    }
+
+    public LocalProcessProvider(ISandboxPlanner sandboxPlanner, ISandboxApplicator sandboxApplicator)
+    {
+        _sandboxPlanner = sandboxPlanner ?? throw new ArgumentNullException(nameof(sandboxPlanner));
+        _sandboxApplicator = sandboxApplicator ?? throw new ArgumentNullException(nameof(sandboxApplicator));
+    }
 
     public ProviderId ProviderId => LocalProviderId;
+
+    public bool SupportsProcessIsolation => _sandboxPlanner is not null && _sandboxApplicator is not null;
 
     internal static PlatformSpec CurrentPlatform() =>
         new(
@@ -68,7 +89,8 @@ public sealed class LocalProcessProvider : IProcessProvider
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(spec);
-        var handle = new LocalProcessInvocationHandle(spec, output);
+        ProcessInvocationSpec prepared = await PrepareSandboxAsync(spec, cancellationToken).ConfigureAwait(false);
+        var handle = new LocalProcessInvocationHandle(prepared, output);
         await handle.StartAsync(cancellationToken).ConfigureAwait(false);
         return handle;
     }
@@ -80,6 +102,64 @@ public sealed class LocalProcessProvider : IProcessProvider
     {
         await using IProcessInvocationHandle handle = await StartAsync(spec, output, cancellationToken).ConfigureAwait(false);
         return await handle.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<ProcessInvocationSpec> PrepareSandboxAsync(
+        ProcessInvocationSpec spec,
+        CancellationToken cancellationToken)
+    {
+        if (spec.Isolation.Mode is ProcessIsolationMode.Disabled)
+            return spec;
+
+        if (_sandboxPlanner is null || _sandboxApplicator is null)
+        {
+            if (spec.Isolation.Mode is ProcessIsolationMode.Isolated)
+                throw new InvalidOperationException("Process isolation was required, but the local process provider was not created with a sandbox planner and applicator.");
+
+            return spec;
+        }
+
+        PlatformSpec platform = CurrentPlatform();
+        SandboxPlanEnvelope plan = await _sandboxPlanner.PlanAsync(
+            spec,
+            new SandboxExecutionContext
+            {
+                HostPlatform = platform,
+                ExecutionPlatform = platform,
+                EnforcementLocation = SandboxEnforcementLocation.Host,
+                Scope = spec.Target.Route.Scope,
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        PreparedSandboxCommand command = await _sandboxApplicator.ApplyAsync(
+            CommandInvocation.From(spec.Command.FileName, spec.Command.Arguments),
+            plan,
+            cancellationToken).ConfigureAwait(false);
+
+        return spec with
+        {
+            Command = spec.Command with
+            {
+                FileName = command.FileName,
+                Arguments = command.ArgumentList,
+                Environment = MergeEnvironment(spec.Command.Environment, command.Environment),
+            },
+            ProviderExtensions = spec.ProviderExtensions.Concat(plan.ProviderExtensions).ToArray(),
+        };
+    }
+
+    private static IReadOnlyDictionary<string, string?> MergeEnvironment(
+        IReadOnlyDictionary<string, string?> invocation,
+        IReadOnlyDictionary<string, string> sandbox)
+    {
+        if (sandbox.Count == 0)
+            return invocation;
+
+        var merged = new Dictionary<string, string?>(invocation, StringComparer.Ordinal);
+        foreach (var (key, value) in sandbox)
+            merged[key] = value;
+
+        return merged;
     }
 
     public ValueTask SignalAsync(
@@ -110,7 +190,7 @@ public sealed class LocalProcessProvider : IProcessProvider
 
 public static class LocalProcessRegistrationExtensions
 {
-    public static ExecutionProviderRegistry RegisterLocalProcessProvider(this ExecutionProviderRegistry registry)
+    public static EnvironmentProviderRegistry RegisterLocalProcessProvider(this EnvironmentProviderRegistry registry)
     {
         ArgumentNullException.ThrowIfNull(registry);
         registry.RegisterModule(new LocalProcessProviderModule());

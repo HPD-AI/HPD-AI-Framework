@@ -298,7 +298,7 @@ public sealed class DefaultRipgrepBinaryProvider : IRipgrepBinaryProvider
     private readonly string _baseDirectory;
 
     public DefaultRipgrepBinaryProvider(RipgrepBinaryProviderOptions? options = null)
-        : this(options, Environment.GetEnvironmentVariable("PATH"), AppContext.BaseDirectory)
+        : this(options, System.Environment.GetEnvironmentVariable("PATH"), AppContext.BaseDirectory)
     {
     }
 
@@ -578,7 +578,7 @@ public sealed class DefaultRipgrepBinaryProvider : IRipgrepBinaryProvider
     private static IReadOnlyList<string> EnumerateWindowsExecutableNames()
     {
         var names = new List<string> { "rg.exe" };
-        var pathExt = Environment.GetEnvironmentVariable("PATHEXT");
+        var pathExt = System.Environment.GetEnvironmentVariable("PATHEXT");
         if (string.IsNullOrWhiteSpace(pathExt))
             return names;
 

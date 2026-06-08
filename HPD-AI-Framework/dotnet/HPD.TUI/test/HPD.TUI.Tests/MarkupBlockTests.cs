@@ -14,7 +14,7 @@ public sealed class MarkupBlockTests
         Assert.Equal(ContentBlockKind.Markup, block.Kind);
         Assert.Equal(3, block.Runs.Length);
         Assert.Equal("Done", block.Runs[0].Text);
-        Assert.Equal(Color.Green, block.Runs[0].Style.Foreground);
+        Assert.Equal(Theme.Default.Success.Foreground, block.Runs[0].Style.Foreground);
         Assert.Equal(" ", block.Runs[1].Text);
         Assert.Equal("now", block.Runs[2].Text);
         Assert.True(block.Runs[2].Style.Attributes.HasFlag(TextAttributes.Bold));
@@ -26,15 +26,15 @@ public sealed class MarkupBlockTests
         var block = new MarkupBlock("[red]outer [bold]inner[/] outer[/]");
 
         Assert.Equal("outer ", block.Runs[0].Text);
-        Assert.Equal(Color.Red, block.Runs[0].Style.Foreground);
+        Assert.Equal(Theme.Default.Error.Foreground, block.Runs[0].Style.Foreground);
         Assert.False(block.Runs[0].Style.Attributes.HasFlag(TextAttributes.Bold));
 
         Assert.Equal("inner", block.Runs[1].Text);
-        Assert.Equal(Color.Red, block.Runs[1].Style.Foreground);
+        Assert.Equal(Theme.Default.Error.Foreground, block.Runs[1].Style.Foreground);
         Assert.True(block.Runs[1].Style.Attributes.HasFlag(TextAttributes.Bold));
 
         Assert.Equal(" outer", block.Runs[2].Text);
-        Assert.Equal(Color.Red, block.Runs[2].Style.Foreground);
+        Assert.Equal(Theme.Default.Error.Foreground, block.Runs[2].Style.Foreground);
         Assert.False(block.Runs[2].Style.Attributes.HasFlag(TextAttributes.Bold));
     }
 

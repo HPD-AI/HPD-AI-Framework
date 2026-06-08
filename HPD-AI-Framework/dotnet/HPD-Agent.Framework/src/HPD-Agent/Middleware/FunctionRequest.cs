@@ -1,4 +1,5 @@
 using Microsoft.Extensions.AI;
+using HPD.Events.Struct;
 
 namespace HPD.Agent.Middleware;
 
@@ -127,6 +128,12 @@ public sealed record FunctionRequest
     /// </code>
     /// </remarks>
     public HPD.Events.IEventCoordinator? EventCoordinator { get; init; }
+
+    /// <summary>
+    /// Process-local struct event hub available to function bodies for realtime sample lanes.
+    /// May be null for direct/test execution paths that are not running inside an agent runtime.
+    /// </summary>
+    public IStructEventHub? StructEvents { get; init; }
 
     /// <summary>
     /// Runtime-owned background task registry available to function bodies.

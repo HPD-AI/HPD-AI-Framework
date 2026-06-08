@@ -42,7 +42,7 @@ public class SlackMultiWorkspaceTests
         var t2Key = SlackThreadId.Format("C123", "1234.0");
 
         // Both use same format -- team discrimination happens at resolver level
-        t1Key.Should().Be(t2Key);  // Format is the same, team_id is in webhook payload
+        t1Key.Should().Be(t2Key);  // Format is the same, team_id is in bot payload
     }
 
     [Fact]

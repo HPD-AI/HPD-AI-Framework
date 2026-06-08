@@ -60,7 +60,7 @@ public static class SecretAliasRegistry
     ///
     /// foreach (var envVar in aliases ?? Array.Empty&lt;string&gt;())
     /// {
-    ///     var value = Environment.GetEnvironmentVariable(envVar);
+    ///     var value = System.Environment.GetEnvironmentVariable(envVar);
     ///     if (!string.IsNullOrEmpty(value))
     ///         return new ResolvedSecret { Value = value, Source = $"env:{envVar}" };
     /// }

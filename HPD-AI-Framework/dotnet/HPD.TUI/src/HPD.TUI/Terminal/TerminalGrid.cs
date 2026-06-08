@@ -6,7 +6,6 @@ namespace HPD.TUI.Terminal;
 
 public sealed class TerminalGrid : ISegmentSink, IDisposable
 {
-    private static readonly char[] ResetSequence = ['\x1b', '[', '0', 'm'];
     private readonly ArrayPool<Cell> _pool;
     private Cell[]? _cells;
     private int _cursorX;
@@ -131,122 +130,6 @@ public sealed class TerminalGrid : ISegmentSink, IDisposable
         TerminalCursorY = y;
     }
 
-    public int WriteAnsi(Span<char> destination)
-    {
-        ThrowIfDisposed();
-
-        var written = 0;
-        Style? currentStyle = null;
-        Span<char> styleBuffer = stackalloc char[64];
-        Span<char> runeBuffer = stackalloc char[2];
-
-        for (var y = 0; y < Height; y++)
-        {
-            for (var x = 0; x < Width; x++)
-            {
-                var cell = GetCell(x, y);
-                if (cell.IsContinuation)
-                {
-                    continue;
-                }
-
-                if (currentStyle != cell.Style)
-                {
-                    if (currentStyle is not null && !TryAppend(destination, ref written, ResetSequence))
-                    {
-                        return written;
-                    }
-
-                    var styleLength = cell.Style.WriteAnsiPrefix(styleBuffer);
-                    if (styleLength == 0 || !TryAppend(destination, ref written, styleBuffer[..styleLength]))
-                    {
-                        return written;
-                    }
-
-                    currentStyle = cell.Style;
-                }
-
-                if (!cell.Rune.TryEncodeToUtf16(runeBuffer, out var charsWritten) ||
-                    !TryAppend(destination, ref written, runeBuffer[..charsWritten]))
-                {
-                    return written;
-                }
-            }
-
-            if (currentStyle is not null && !TryAppend(destination, ref written, ResetSequence))
-            {
-                return written;
-            }
-
-            currentStyle = null;
-
-            if (y < Height - 1 && !TryAppend(destination, ref written, "\r\n"))
-            {
-                return written;
-            }
-        }
-
-        return written;
-    }
-
-    public int WriteDifferentialAnsi(TerminalGrid? previous, Span<char> destination)
-    {
-        ThrowIfDisposed();
-
-        if (previous is null || previous.Width != Width || previous.Height != Height)
-        {
-            return WriteAnsi(destination);
-        }
-
-        previous.ThrowIfDisposed();
-
-        var written = 0;
-        Style? currentStyle = null;
-        Span<char> styleBuffer = stackalloc char[64];
-        Span<char> runeBuffer = stackalloc char[2];
-
-        for (var y = 0; y < Height; y++)
-        {
-            for (var x = 0; x < Width; x++)
-            {
-                var cell = GetCell(x, y);
-                if (cell.IsContinuation || cell == previous.GetCell(x, y))
-                {
-                    continue;
-                }
-
-                if (!TryAppendCursorMove(destination, ref written, x, y))
-                {
-                    return written;
-                }
-
-                if (currentStyle != cell.Style)
-                {
-                    var styleLength = cell.Style.WriteAnsiPrefix(styleBuffer);
-                    if (styleLength == 0 || !TryAppend(destination, ref written, styleBuffer[..styleLength]))
-                    {
-                        return written;
-                    }
-
-                    currentStyle = cell.Style;
-                }
-
-                if (!cell.Rune.TryEncodeToUtf16(runeBuffer, out var charsWritten) ||
-                    !TryAppend(destination, ref written, runeBuffer[..charsWritten]))
-                {
-                    return written;
-                }
-            }
-        }
-
-        if (currentStyle is not null)
-        {
-            TryAppend(destination, ref written, ResetSequence);
-        }
-
-        return written;
-    }
-
     public void Dispose()
     {
         var cells = _cells;
@@ -308,44 +191,4 @@ public sealed class TerminalGrid : ISegmentSink, IDisposable
         ObjectDisposedException.ThrowIf(_cells is null, this);
     }
 
-    private static bool TryAppend(Span<char> destination, ref int written, ReadOnlySpan<char> value)
-    {
-        if (destination.Length - written < value.Length)
-        {
-            return false;
-        }
-
-        value.CopyTo(destination[written..]);
-        written += value.Length;
-        return true;
-    }
-
-    private static bool TryAppendCursorMove(Span<char> destination, ref int written, int x, int y)
-    {
-        if (!TryAppend(destination, ref written, "\x1b["))
-        {
-            return false;
-        }
-
-        if (!TryAppendInt(destination, ref written, y + 1) ||
-            !TryAppend(destination, ref written, ";") ||
-            !TryAppendInt(destination, ref written, x + 1) ||
-            !TryAppend(destination, ref written, "H"))
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-    private static bool TryAppendInt(Span<char> destination, ref int written, int value)
-    {
-        if (!value.TryFormat(destination[written..], out var charsWritten))
-        {
-            return false;
-        }
-
-        written += charsWritten;
-        return true;
-    }
 }

@@ -63,7 +63,11 @@ public abstract class AgentFactory
     /// <summary>
     /// Build the agent, optionally with a fallback chat client.
     /// </summary>
-    public abstract Task<Agent.Agent> BuildAsync(IChatClient? fallbackChatClient, CancellationToken cancellationToken);
+    public abstract Task<Agent.Agent> BuildAsync(
+        IChatClient? fallbackChatClient,
+        ISessionStore? workflowSessionStore,
+        bool requireWorkflowSessionStore,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Return the AgentConfig backing this factory, if available.
@@ -81,8 +85,20 @@ internal sealed class PrebuiltAgentFactory : AgentFactory
 
     public PrebuiltAgentFactory(Agent.Agent agent) => _agent = agent;
 
-    public override Task<Agent.Agent> BuildAsync(IChatClient? fallbackChatClient, CancellationToken cancellationToken)
-        => Task.FromResult(_agent);
+    public override Task<Agent.Agent> BuildAsync(
+        IChatClient? fallbackChatClient,
+        ISessionStore? workflowSessionStore,
+        bool requireWorkflowSessionStore,
+        CancellationToken cancellationToken)
+    {
+        if (requireWorkflowSessionStore && !ReferenceEquals(_agent.Config?.SessionStore, workflowSessionStore))
+        {
+            throw new InvalidOperationException(
+                $"Pre-built agent '{_agent.Name}' must use the workflow session store when multi-agent conversation policies are enabled.");
+        }
+
+        return Task.FromResult(_agent);
+    }
 
     internal override AgentConfig? GetConfig() => _agent.Config;
 }
@@ -101,9 +117,23 @@ internal sealed class ConfigAgentFactory : AgentFactory
         _builderAction = builderAction;
     }
 
-    public override async Task<Agent.Agent> BuildAsync(IChatClient? fallbackChatClient, CancellationToken cancellationToken)
+    public override async Task<Agent.Agent> BuildAsync(
+        IChatClient? fallbackChatClient,
+        ISessionStore? workflowSessionStore,
+        bool requireWorkflowSessionStore,
+        CancellationToken cancellationToken)
     {
         var builder = new AgentBuilder(_config);
+
+        if (workflowSessionStore != null)
+        {
+            builder.WithSessionStore(workflowSessionStore);
+        }
+        else if (requireWorkflowSessionStore)
+        {
+            throw new InvalidOperationException(
+                "A workflow session store is required when multi-agent conversation policies are enabled.");
+        }
 
         // Apply custom builder action if provided
         _builderAction?.Invoke(builder);
@@ -131,6 +161,7 @@ public sealed class AgentWorkflowInstance
     private readonly IServiceProvider _serviceProvider;
     private readonly string _workflowName;
     private readonly WorkflowSettingsConfig _settings;
+    private readonly ISessionStore? _workflowSessionStore;
     private readonly WorkflowEventCoordinator _eventCoordinator = new();
 
     // Cache of built agents (built lazily on first execution)
@@ -142,7 +173,8 @@ public sealed class AgentWorkflowInstance
         Dictionary<string, AgentNodeOptions> options,
         IServiceProvider serviceProvider,
         string? workflowName = null,
-        WorkflowSettingsConfig? settings = null)
+        WorkflowSettingsConfig? settings = null,
+        ISessionStore? workflowSessionStore = null)
     {
         _graph = graph;
         _agentFactories = agentFactories;
@@ -150,6 +182,7 @@ public sealed class AgentWorkflowInstance
         _serviceProvider = serviceProvider;
         _workflowName = workflowName ?? graph.Name ?? "Workflow";
         _settings = settings ?? new WorkflowSettingsConfig();
+        _workflowSessionStore = workflowSessionStore;
     }
 
     // Legacy constructor for backward compatibility
@@ -251,9 +284,26 @@ public sealed class AgentWorkflowInstance
             return _builtAgents;
 
         var agents = new Dictionary<string, Agent.Agent>();
+        var requireWorkflowSessionStore = _settings.Conversation.Mode != MultiAgentConversationMode.None;
         foreach (var (id, factory) in _agentFactories)
         {
-            agents[id] = await factory.BuildAsync(fallbackChatClient, cancellationToken);
+            agents[id] = await factory.BuildAsync(
+                fallbackChatClient,
+                _workflowSessionStore,
+                requireWorkflowSessionStore,
+                cancellationToken);
+        }
+
+        if (requireWorkflowSessionStore)
+        {
+            foreach (var (id, agent) in agents)
+            {
+                if (!ReferenceEquals(agent.Config?.SessionStore, _workflowSessionStore))
+                {
+                    throw new InvalidOperationException(
+                        $"Agent node '{id}' must use the workflow session store when multi-agent conversation policies are enabled.");
+                }
+            }
         }
 
         // Cache for subsequent executions (only if no fallback was used, as different parents may have different clients)
@@ -430,7 +480,8 @@ public sealed class AgentWorkflowInstance
         }
 
         // Build workflow-level execution context
-        var randomId = Guid.NewGuid().ToString("N")[..8];
+        var executionId = Guid.NewGuid().ToString("N");
+        var randomId = executionId[..8];
         var sanitizedWorkflowName = System.Text.RegularExpressions.Regex.Replace(
             _workflowName, @"[^a-zA-Z0-9]", "_");
 
@@ -460,14 +511,18 @@ public sealed class AgentWorkflowInstance
             };
         }
 
+        var conversationRuntime = CreateConversationRuntime(executionId, input);
+
         // Create context
         var context = new AgentGraphContext(
-            executionId: Guid.NewGuid().ToString(),
+            executionId: executionId,
             graph: _graph,
             services: _serviceProvider,
             agents: agents,
             agentOptions: _options,
-            originalInput: input)
+            originalInput: input,
+            workflowName: _workflowName,
+            conversation: conversationRuntime)
         {
             EventCoordinator = eventCoordinator,
             FallbackChatClient = parentChatClient
@@ -535,6 +590,29 @@ public sealed class AgentWorkflowInstance
 
         // Wait for execution to complete
         await executionTask;
+    }
+
+    private IMultiAgentConversationRuntime CreateConversationRuntime(
+        string executionId,
+        string input)
+    {
+        if (_settings.Conversation.Mode == MultiAgentConversationMode.None)
+        {
+            return NoopMultiAgentConversationRuntime.Instance;
+        }
+
+        if (_workflowSessionStore == null)
+        {
+            throw new InvalidOperationException(
+                "A session store is required when multi-agent conversation policies are enabled.");
+        }
+
+        return new MultiAgentConversationRuntime(
+            _settings.Conversation,
+            _workflowSessionStore,
+            _workflowName,
+            executionId,
+            input);
     }
 
     /// <summary>

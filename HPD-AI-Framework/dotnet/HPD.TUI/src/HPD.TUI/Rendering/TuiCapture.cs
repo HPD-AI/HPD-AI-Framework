@@ -24,6 +24,22 @@ public static class TuiCapture
         return grid;
     }
 
+    public static void RenderToGrid(
+        IComponent component,
+        TerminalGrid grid,
+        Theme? theme = null,
+        ColorSystem colorSystem = ColorSystem.TrueColor,
+        TimeSpan elapsed = default)
+    {
+        ArgumentNullException.ThrowIfNull(component);
+        ArgumentNullException.ThrowIfNull(grid);
+
+        grid.Clear();
+        var context = new RenderContext(grid.Width, grid.Height, theme ?? Theme.Default, colorSystem, elapsed);
+        var writer = new SegmentWriter(grid);
+        component.Render(in context, grid.Width, ref writer);
+    }
+
     public static string[] RenderToLines(
         IComponent component,
         int width,
@@ -153,18 +169,9 @@ public static class TuiCapture
     {
         ArgumentNullException.ThrowIfNull(grid);
 
-        var size = Math.Max(64, grid.Width * grid.Height * 80);
-        while (true)
-        {
-            var buffer = new char[size];
-            var written = grid.WriteAnsi(buffer);
-            if (written < buffer.Length)
-            {
-                return new string(buffer, 0, written);
-            }
-
-            size *= 2;
-        }
+        using var output = new AnsiFrameWriter();
+        AnsiGridRenderer.WriteFull(grid, output);
+        return output.ToString();
     }
 
     private static bool IsBlankLine(TerminalGrid grid, int y)

@@ -9,6 +9,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Primitives;
 
 namespace HPD.Agent.Bots.Tests.TestInfrastructure;
 
@@ -42,6 +43,9 @@ internal static class SourceGenHelper
         // ASP.NET Core assemblies — use typeof() anchors; they live in the shared framework
         // folder and cannot be loaded by name on all platforms.
         var aspNetCoreHttp        = MetadataReference.CreateFromFile(typeof(HttpContext).Assembly.Location);
+        var aspNetCoreHttpFeatures = MetadataReference.CreateFromFile(
+            Path.Combine(Path.GetDirectoryName(typeof(HttpContext).Assembly.Location)!,
+                "Microsoft.AspNetCore.Http.Features.dll"));
         // Results class lives in Microsoft.AspNetCore.Http.Results.dll (separate from HttpContext)
         var aspNetCoreHttpResults = MetadataReference.CreateFromFile(typeof(Results).Assembly.Location);
         // IResult lives alongside Results
@@ -62,8 +66,9 @@ internal static class SourceGenHelper
         var extensionsDi      = MetadataReference.CreateFromFile(typeof(ServiceCollection).Assembly.Location);
         var extensionsDiAbstr = MetadataReference.CreateFromFile(typeof(IServiceCollection).Assembly.Location);
         var extensionsOptions = MetadataReference.CreateFromFile(typeof(IOptions<>).Assembly.Location);
+        var extensionsPrimitives = MetadataReference.CreateFromFile(typeof(StringValues).Assembly.Location);
 
-        // HPD adapter attribute assembly (HpdBotAttribute, HpdWebhookHandlerAttribute, etc.)
+        // HPD adapter attribute assembly (HpdBotAttribute, HpdBotEventHandlerAttribute, etc.)
         var abstractions = MetadataReference.CreateFromFile(typeof(HpdBotAttribute).Assembly.Location);
 
         // HPD adapter AspNetCore assembly (WebhookSignatureVerifier, BotRegistration, etc.)
@@ -83,6 +88,7 @@ internal static class SourceGenHelper
             systemComponentModel,
             systemWeb,
             aspNetCoreHttp,
+            aspNetCoreHttpFeatures,
             aspNetCoreHttpResults,
             aspNetCoreHttpAbstr,
             aspNetCoreAuthAbstr,
@@ -93,6 +99,7 @@ internal static class SourceGenHelper
             extensionsDi,
             extensionsDiAbstr,
             extensionsOptions,
+            extensionsPrimitives,
             abstractions,
             aspNetCoreBots,
         ];

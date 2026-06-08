@@ -1,11 +1,11 @@
 using HPD.Agent;
-using HPD.Execution.Contracts;
+using HPD.Environment.Contracts;
 
 namespace HPD.Agent.Sandbox.Events;
 
 public sealed record ProcessIsolationViolationEvent : AgentEvent
 {
-    public string SourceName => "SandboxIsolationProvider";
+    public string SourceName => "HostSandboxApplicator";
     public string ProcessId { get; init; } = string.Empty;
     public ProcessIsolationViolationType ViolationType { get; init; }
     public string Message { get; init; } = string.Empty;

@@ -1,0 +1,60 @@
+using HPD.Agent.TUI.Models;
+using HPD.Agent.TUI.Runtime;
+
+namespace HPD.Agent.TUI.Composition;
+
+public sealed class AgentTuiEventContext
+{
+    public AgentTuiEventContext(
+        AgentTuiRuntimeScope scope,
+        ChatShellModel shell,
+        AgentTuiNavigationModel navigation,
+        HpdAgentTuiRegistry registry,
+        AgentTuiStateBag state)
+    {
+        Scope = scope ?? throw new ArgumentNullException(nameof(scope));
+        Shell = shell ?? throw new ArgumentNullException(nameof(shell));
+        Navigation = navigation ?? throw new ArgumentNullException(nameof(navigation));
+        Registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        State = state ?? throw new ArgumentNullException(nameof(state));
+    }
+
+    public AgentTuiRuntimeScope Scope { get; }
+
+    public ChatShellModel Shell { get; }
+
+    public AgentTuiNavigationModel Navigation { get; }
+
+    public HpdAgentTuiRegistry Registry { get; }
+
+    public AgentTuiStateBag State { get; }
+}
+
+public interface IAgentTuiEventHandler
+{
+    bool CanHandle(AgentEvent evt);
+
+    ValueTask HandleAsync(
+        AgentEvent evt,
+        AgentTuiEventContext context,
+        CancellationToken cancellationToken);
+}
+
+public abstract class AgentTuiEventHandler<TEvent> : IAgentTuiEventHandler
+    where TEvent : AgentEvent
+{
+    public bool CanHandle(AgentEvent evt) => evt is TEvent;
+
+    public abstract ValueTask HandleAsync(
+        TEvent evt,
+        AgentTuiEventContext context,
+        CancellationToken cancellationToken);
+
+    ValueTask IAgentTuiEventHandler.HandleAsync(
+        AgentEvent evt,
+        AgentTuiEventContext context,
+        CancellationToken cancellationToken)
+        => evt is TEvent typed
+            ? HandleAsync(typed, context, cancellationToken)
+            : ValueTask.CompletedTask;
+}

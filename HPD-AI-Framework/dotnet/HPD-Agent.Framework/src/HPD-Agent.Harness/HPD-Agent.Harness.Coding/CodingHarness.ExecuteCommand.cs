@@ -8,7 +8,7 @@ using System.Xml;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
-using HPD.Execution.Contracts;
+using HPD.Environment.Contracts;
 using HPD.Events;
 using HPD.Events.Core;
 using HPDOS.ToolHarnesses.Middleware;
@@ -1901,7 +1901,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
 
         var lines = await File.ReadAllLinesAsync(path, cancellationToken).ConfigureAwait(false);
         return string.Join(
-            Environment.NewLine,
+            System.Environment.NewLine,
             lines.Length <= tailLines ? lines : lines[^tailLines..]);
     }
 

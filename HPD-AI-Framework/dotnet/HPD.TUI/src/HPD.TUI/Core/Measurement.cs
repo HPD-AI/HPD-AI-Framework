@@ -2,9 +2,10 @@ namespace HPD.TUI.Core;
 
 public readonly record struct Measurement
 {
-    public Measurement(int minWidth, int maxWidth)
+    public Measurement(int minWidth, int maxWidth, int height = 1)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(minWidth);
+        ArgumentOutOfRangeException.ThrowIfNegative(height);
 
         if (maxWidth < minWidth)
         {
@@ -13,9 +14,12 @@ public readonly record struct Measurement
 
         MinWidth = minWidth;
         MaxWidth = maxWidth;
+        Height = height;
     }
 
     public int MinWidth { get; }
 
     public int MaxWidth { get; }
+
+    public int Height { get; }
 }

@@ -25,8 +25,8 @@ public class DispatchGeneratorTests
         [HpdBot("slack")]
         public partial class SlackBot
         {
-            [HpdPreDispatch]
-            private async Task<IResult?> PreDispatchAsync(HttpContext ctx, byte[] bodyBytes)
+            [HpdBotPreDispatch]
+            private async Task<BotAdapterResponse?> PreDispatchAsync(BotRequestContext ctx, byte[] bodyBytes)
                 => null;
         }
         """;
@@ -39,8 +39,8 @@ public class DispatchGeneratorTests
         [HpdBot("discord")]
         public partial class DiscordBot
         {
-            [HpdPreDispatch]
-            private async Task<IResult?> VerifyDiscordAsync(HttpContext ctx, byte[] bodyBytes)
+            [HpdBotPreDispatch]
+            private async Task<BotAdapterResponse?> VerifyDiscordAsync(BotRequestContext ctx, byte[] bodyBytes)
                 => null;
         }
         """;
@@ -52,8 +52,8 @@ public class DispatchGeneratorTests
         [HpdBot("slack")]
         public partial class SlackBot
         {
-            [HpdBodyExtractor]
-            private (string? eventType, byte[] dispatchBytes) ExtractDispatch(HttpContext ctx, byte[] bodyBytes)
+            [HpdBotEnvelopeExtractor]
+            private (string? eventType, byte[] dispatchBytes) ExtractDispatch(BotRequestContext ctx, byte[] bodyBytes)
                 => (null, bodyBytes);
         }
         """;
@@ -65,9 +65,9 @@ public class DispatchGeneratorTests
         [HpdBot("github")]
         public partial class GitHubBot
         {
-            [HpdBodyExtractor]
-            private (string? eventType, byte[] dispatchBytes) ExtractGitHubEvent(HttpContext ctx, byte[] bodyBytes)
-                => (ctx.Request.Headers["x-github-event"].ToString(), bodyBytes);
+            [HpdBotEnvelopeExtractor]
+                private (string? eventType, byte[] dispatchBytes) ExtractGitHubEvent(BotRequestContext ctx, byte[] bodyBytes)
+                    => (ctx.Header("x-github-event"), bodyBytes);
         }
         """;
 
@@ -79,12 +79,12 @@ public class DispatchGeneratorTests
         [HpdBot("slack")]
         public partial class SlackBot
         {
-            [HpdPreDispatch]
-            private async Task<IResult?> PreDispatchAsync(HttpContext ctx, byte[] bodyBytes)
+            [HpdBotPreDispatch]
+            private async Task<BotAdapterResponse?> PreDispatchAsync(BotRequestContext ctx, byte[] bodyBytes)
                 => null;
 
-            [HpdBodyExtractor]
-            private (string? eventType, byte[] dispatchBytes) ExtractDispatch(HttpContext ctx, byte[] bodyBytes)
+            [HpdBotEnvelopeExtractor]
+            private (string? eventType, byte[] dispatchBytes) ExtractDispatch(BotRequestContext ctx, byte[] bodyBytes)
                 => (null, bodyBytes);
         }
         """;
@@ -98,9 +98,9 @@ public class DispatchGeneratorTests
         [HpdBot("slack")]
         public partial class SlackBot
         {
-            [HpdWebhookHandler("app_mention")]
-            private Task<IResult> HandleMention(HttpContext ctx, byte[] body, CancellationToken ct)
-                => Task.FromResult(Results.Ok());
+            [HpdBotEventHandler("app_mention")]
+            private Task<BotAdapterResponse> HandleMention(BotRequestContext ctx, byte[] body, CancellationToken ct)
+                => Task.FromResult(BotAdapterResponse.Ok());
         }
         """;
 
@@ -113,17 +113,17 @@ public class DispatchGeneratorTests
         [HpdBot("slack")]
         public partial class SlackBot
         {
-            [HpdWebhookHandler("app_mention")]
-            private Task<IResult> HandleMention(HttpContext ctx, byte[] body, CancellationToken ct)
-                => Task.FromResult(Results.Ok());
+            [HpdBotEventHandler("app_mention")]
+            private Task<BotAdapterResponse> HandleMention(BotRequestContext ctx, byte[] body, CancellationToken ct)
+                => Task.FromResult(BotAdapterResponse.Ok());
 
-            [HpdWebhookHandler("message")]
-            private Task<IResult> HandleMessage(HttpContext ctx, byte[] body, CancellationToken ct)
-                => Task.FromResult(Results.Ok());
+            [HpdBotEventHandler("message")]
+            private Task<BotAdapterResponse> HandleMessage(BotRequestContext ctx, byte[] body, CancellationToken ct)
+                => Task.FromResult(BotAdapterResponse.Ok());
 
-            [HpdWebhookHandler("block_actions")]
-            private Task<IResult> HandleBlockAction(HttpContext ctx, byte[] body, CancellationToken ct)
-                => Task.FromResult(Results.Ok());
+            [HpdBotEventHandler("block_actions")]
+            private Task<BotAdapterResponse> HandleBlockAction(BotRequestContext ctx, byte[] body, CancellationToken ct)
+                => Task.FromResult(BotAdapterResponse.Ok());
         }
         """;
 
@@ -141,7 +141,10 @@ public class DispatchGeneratorTests
     {
         var dispatch = GetDispatch(MinimalBot);
 
-        dispatch.Should().Contain("public async Task<IResult> HandleWebhookAsync(HttpContext ctx)");
+        dispatch.Should().Contain("public async Task<BotAdapterResponse> HandleAsync(");
+        dispatch.Should().Contain("BotInboundEnvelope envelope,");
+        dispatch.Should().Contain("CancellationToken cancellationToken = default)");
+        dispatch.Should().Contain("public async Task<IResult> HandleWebhookAsync(HttpContext httpContext)");
     }
 
     [Fact]
@@ -287,7 +290,7 @@ public class DispatchGeneratorTests
         var dispatch = GetDispatch(MinimalBot);
 
         dispatch.Should().Contain("BotAuthenticationException");
-        dispatch.Should().Contain("Results.Unauthorized()");
+        dispatch.Should().Contain("BotAdapterResponse.Status(401)");
     }
 
     [Fact]
@@ -296,7 +299,7 @@ public class DispatchGeneratorTests
         var dispatch = GetDispatch(MinimalBot);
 
         dispatch.Should().Contain("BotRateLimitException");
-        dispatch.Should().Contain("Results.StatusCode(429)");
+        dispatch.Should().Contain("BotAdapterResponse.Status(429)");
     }
 
     [Fact]
@@ -305,7 +308,7 @@ public class DispatchGeneratorTests
         var dispatch = GetDispatch(MinimalBot);
 
         dispatch.Should().Contain("BotPermissionException");
-        dispatch.Should().Contain("Results.Forbid()");
+        dispatch.Should().Contain("BotAdapterResponse.Status(403)");
     }
 
     [Fact]
@@ -314,7 +317,7 @@ public class DispatchGeneratorTests
         var dispatch = GetDispatch(MinimalBot);
 
         dispatch.Should().Contain("BotNotFoundException");
-        dispatch.Should().Contain("Results.NotFound()");
+        dispatch.Should().Contain("BotAdapterResponse.Status(404)");
     }
 
     // ── Event dispatch switch ─────────────────────────────────────────
@@ -353,7 +356,7 @@ public class DispatchGeneratorTests
     {
         var dispatch = GetDispatch(MinimalBot);
 
-        dispatch.Should().Contain("default: return Results.Ok()");
+        dispatch.Should().Contain("default: return BotAdapterResponse.Ok()");
     }
 
     [Fact]
@@ -368,10 +371,10 @@ public class DispatchGeneratorTests
             [HpdBot("slack")]
             public partial class SlackBot
             {
-                [HpdWebhookHandler("message")]
-                [HpdWebhookHandler("app_mention")]
-                private Task<IResult> HandleBoth(HttpContext ctx, byte[] body, CancellationToken ct)
-                    => Task.FromResult(Results.Ok());
+                [HpdBotEventHandler("message")]
+                [HpdBotEventHandler("app_mention")]
+                private Task<BotAdapterResponse> HandleBoth(BotRequestContext ctx, byte[] body, CancellationToken ct)
+                    => Task.FromResult(BotAdapterResponse.Ok());
             }
             """;
 

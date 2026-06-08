@@ -214,7 +214,7 @@ describe('AgentClient', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/permissions/respond',
+      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/responses',
       expect.objectContaining({ method: 'POST' })
     );
   });
@@ -261,7 +261,7 @@ describe('AgentClient', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(fetchSpy).toHaveBeenLastCalledWith(
-      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/client-tools/respond',
+      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/responses',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({

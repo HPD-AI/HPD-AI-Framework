@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using Microsoft.Extensions.AI;
 

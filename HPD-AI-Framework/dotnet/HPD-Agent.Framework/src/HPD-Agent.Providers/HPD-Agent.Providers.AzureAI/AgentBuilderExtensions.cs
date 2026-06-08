@@ -128,7 +128,7 @@ public static class AgentBuilderExtensions
     /// // Set AZURE_AI_ENDPOINT and optionally AZURE_AI_API_KEY
     /// var agent = new AgentBuilder()
     ///     .WithAzureAI(
-    ///         endpoint: Environment.GetEnvironmentVariable("AZURE_AI_ENDPOINT")!,
+    ///         endpoint: System.Environment.GetEnvironmentVariable("AZURE_AI_ENDPOINT")!,
     ///         model: "gpt-4")
     ///     .Build();
     /// </code>

@@ -20,4 +20,12 @@ public sealed class KeyParserTests
         Assert.Equal(KeyCode.Character, key.Key);
         Assert.Equal(new Rune(0x1F600), key.Character);
     }
+
+    [Fact]
+    public void Parse_UnpairedSurrogateReturnsUnknown()
+    {
+        var key = KeyParser.Parse("\ud83d");
+
+        Assert.Equal(KeyCode.Unknown, key.Key);
+    }
 }

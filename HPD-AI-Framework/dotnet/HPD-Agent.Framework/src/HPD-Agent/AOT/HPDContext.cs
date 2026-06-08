@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent;
+using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio.Policies;
 using HPD.Agent.ClientTools;

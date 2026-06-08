@@ -19,7 +19,6 @@
     <Project Path="src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj" />
     <Project Path="src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj" />
     <Project Path="src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj" />
-    <Project Path="src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAIInference/HPD-Agent.Providers.AzureAIInference.csproj" />
     <Project Path="src/HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/HPD-Agent.Providers.GoogleAI.csproj" />
     <Project Path="src/HPD-Agent.Providers/HPD-Agent.Providers.HuggingFace/HPD-Agent.Providers.HuggingFace.csproj" />
     <Project Path="src/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj" />
@@ -51,18 +50,24 @@
     <Project Path="src/HPD-Agent.Harness/HPD-Agent.Harness.FileSystem/HPD-Agent.Harness.FileSystem.csproj" />
     <Project Path="src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj" />
     <Project Path="src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj" />
+    <Project Path="src/HPD-Agent.Harness/HPD-Agent.Harness.Coding.TUI/HPD-Agent.Harness.Coding.TUI.csproj" />
     <Project Path="src/HPD-Agent.Harness/HPD-Agent.Harness.Coding.SourceGenerator/HPD-Agent.Harness.Coding.SourceGenerator.csproj" />
   </Folder>
   <Folder Name="/Specialized/">
     <Project Path="src/HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj" />
     <Project Path="src/HPD-Agent.FFI/HPD-Agent.FFI.csproj" />
     <Project Path="src/HPD-Agent.MCP/HPD-Agent.MCP.csproj" />
-    <Project Path="src/HPD-Execution/HPD-Execution.AppleVirtualization/HPD-Execution.AppleVirtualization.csproj" />
     <Project Path="src/HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj" />
     <Project Path="src/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj" />
+    <Project Path="src/HPD-Agent.Sandbox.AppleVirtualization/HPD-Agent.Sandbox.AppleVirtualization.csproj" />
     <Project Path="src/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj" />
   </Folder>
+  <Folder Name="/TUI/">
+    <Project Path="src/HPD-Agent.TUI/HPD-Agent.TUI.csproj" />
+    <Project Path="src/HPD-Agent.ModelsDev/HPD-Agent.ModelsDev.csproj" />
+  </Folder>
   <Folder Name="/Shared/">
+    <Project Path="../shared/src/HPD-Environment/HPD-Environment.AppleVirtualization/HPD-Environment.AppleVirtualization.csproj" />
     <Project Path="../shared/src/HPD-Events/HPD-Events.csproj" />
     <Project Path="../shared/src/HPD-Graph/HPD-Graph.Core/HPD-Graph.Core.csproj" />
     <Project Path="../shared/src/HPD.OpenApi.Core/HPD.OpenApi.Core.csproj" />
@@ -77,12 +82,17 @@
     <Project Path="test/HPD-Agent.Hosting.Tests/HPD-Agent.Hosting.Tests.csproj" />
     <Project Path="test/HPD-Agent.Bots.Tests/HPD-Agent.Bots.Tests.csproj" />
     <Project Path="test/HPD.Agent.Audio.V2.Tests/HPD.Agent.Audio.V2.Tests.csproj" />
-    <Project Path="test/HPD-Execution/HPD-Execution.AppleVirtualization.Tests/HPD-Execution.AppleVirtualization.Tests.csproj" />
+    <Project Path="test/HPD-Environment/HPD-Environment.AppleVirtualization.Tests/HPD-Environment.AppleVirtualization.Tests.csproj" />
     <Project Path="test/HPD-Agent.Sandbox.Core.Tests/HPD-Agent.Sandbox.Core.Tests.csproj" />
     <Project Path="test/HPD-Agent.Sandbox.Local.Tests/HPD-Agent.Sandbox.Local.Tests.csproj" />
+    <Project Path="test/HPD-Agent.Sandbox.AppleVirtualization.Tests/HPD-Agent.Sandbox.AppleVirtualization.Tests.csproj" />
     <Project Path="test/HPD-Agent.Harness.Coding.Tests/HPD-Agent.Harness.Coding.Tests.csproj" />
+    <Project Path="test/HPD-Agent.Harness.Coding.TUI.Tests/HPD-Agent.Harness.Coding.TUI.Tests.csproj" />
+    <Project Path="test/HPD-Agent.TUI.Tests/HPD-Agent.TUI.Tests.csproj" />
+    <Project Path="test/HPD-Agent.ModelsDev.Tests/HPD-Agent.ModelsDev.Tests.csproj" />
     <Project Path="test/HPD-Agent.DevApp/HPD-Agent.DevApp.csproj" />
     <Project Path="test/HPD-Agent.CodingCli/HPD-Agent.CodingCli.csproj" />
     <Project Path="test/HPD-Agent.AudioCli/HPD-Agent.AudioCli.csproj" />
+    <Project Path="test/HPD-Agent.TUI.Console/HPD-Agent.TUI.Console.csproj" />
   </Folder>
 </Solution>

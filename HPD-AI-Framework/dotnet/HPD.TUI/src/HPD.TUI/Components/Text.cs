@@ -30,10 +30,16 @@ public sealed class Text : IComponent
 
     public Measurement Measure(in RenderContext context, int maxWidth)
     {
+        if (maxWidth <= 0)
+        {
+            return new Measurement(0, 0);
+        }
+
         var maxLine = 0;
         var currentLine = 0;
         var maxWord = 0;
         var currentWord = 0;
+        var height = 1;
 
         var enumerator = new RuneEnumerator(_value);
         while (enumerator.MoveNext())
@@ -50,11 +56,17 @@ public sealed class Text : IComponent
                 maxWord = Math.Max(maxWord, currentWord);
                 currentLine = 0;
                 currentWord = 0;
+                height++;
                 continue;
             }
 
             var width = UnicodeWidth.GetWidth(rune);
             currentLine += width;
+            if (maxWidth > 0 && lineWidthWouldWrap(currentLine, width, maxWidth))
+            {
+                height++;
+                currentLine = width;
+            }
 
             if (Rune.IsWhiteSpace(rune))
             {
@@ -70,7 +82,12 @@ public sealed class Text : IComponent
         maxLine = Math.Max(maxLine, currentLine);
         maxWord = Math.Max(maxWord, currentWord);
 
-        return new Measurement(Math.Min(maxWidth, maxWord), Math.Min(maxWidth, maxLine));
+        var minMeasuredWidth = Math.Min(maxWidth, maxWord);
+        var maxMeasuredWidth = Math.Min(maxWidth, Math.Max(maxLine, maxWord));
+        return new Measurement(minMeasuredWidth, maxMeasuredWidth, height);
+
+        static bool lineWidthWouldWrap(int currentLine, int width, int maxWidth)
+            => currentLine > width && currentLine > maxWidth;
     }
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)

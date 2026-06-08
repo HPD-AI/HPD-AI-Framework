@@ -1,7 +1,7 @@
 namespace HPD.Agent.Sandbox.Tests.ProcessIsolation;
 
 using FluentAssertions;
-using HPD.Execution.Contracts;
+using HPD.Environment.Contracts;
 using HPD.Agent.Sandbox.Platforms.Linux;
 using HPD.Agent.Sandbox.Platforms.MacOS;
 using HPD.Agent.Sandbox.ProcessIsolation;

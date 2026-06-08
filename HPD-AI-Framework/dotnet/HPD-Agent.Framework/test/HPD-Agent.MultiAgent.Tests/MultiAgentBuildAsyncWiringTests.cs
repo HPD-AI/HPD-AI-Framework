@@ -3,6 +3,9 @@ using HPD.Agent;
 using HPD.MultiAgent;
 using HPD.MultiAgent.Config;
 using HPDAgent.Graph.Abstractions;
+using HPDAgent.Graph.Abstractions.Checkpointing;
+using HPDAgent.Graph.Abstractions.Storage;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.MultiAgent.Tests;
 
@@ -23,6 +26,14 @@ public class MultiAgentBuildAsyncWiringTests
             .GetField("_settings", BindingFlags.NonPublic | BindingFlags.Instance);
         field.Should().NotBeNull("_settings must exist on AgentWorkflowInstance");
         return (WorkflowSettingsConfig)field!.GetValue(instance)!;
+    }
+
+    private static IServiceProvider GetServiceProvider(AgentWorkflowInstance instance)
+    {
+        var field = typeof(AgentWorkflowInstance)
+            .GetField("_serviceProvider", BindingFlags.NonPublic | BindingFlags.Instance);
+        field.Should().NotBeNull("_serviceProvider must exist on AgentWorkflowInstance");
+        return (IServiceProvider)field!.GetValue(instance)!;
     }
 
     // ── 4.1  IterationOptions forwarded when set ──────────────────────────────
@@ -103,6 +114,34 @@ public class MultiAgentBuildAsyncWiringTests
         var act = async () => await AgentWorkflow.FromConfig(config).BuildAsync();
         await act.Should().NotThrowAsync(
             "missing checkpoint store must be handled gracefully");
+    }
+
+    [Fact]
+    public async Task BuildAsync_WithCheckpointing_EnablesSetting()
+    {
+        var instance = await AgentWorkflow.Create()
+            .AddAgent("a", Cfg())
+            .WithCheckpointing()
+            .BuildAsync();
+
+        GetSettings(instance).EnableCheckpointing.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task BuildAsync_WithInMemoryWorkflowStore_RegistersStoreInterfaces()
+    {
+        var instance = await AgentWorkflow.Create()
+            .AddAgent("a", Cfg())
+            .WithInMemoryWorkflowStore(MultiAgentCheckpointRetention.FullHistory)
+            .BuildAsync();
+
+        var services = GetServiceProvider(instance);
+        var store = services.GetService<IGraphStore>();
+
+        store.Should().NotBeNull();
+        services.GetService<IGraphDefinitionStore>().Should().BeSameAs(store);
+        services.GetService<IGraphCheckpointStore>().Should().BeSameAs(store);
+        store!.RetentionMode.Should().Be(CheckpointRetentionMode.FullHistory);
     }
 
     // ── 4.5  Predicate edge forwarded to graph ────────────────────────────────

@@ -34,7 +34,7 @@ internal sealed record HandlerInfo(
     string PayloadTypeFqn,
     string PayloadJsonTypeInfoProperty);
 
-internal sealed record WebhookPayloadInfo(
+internal sealed record HpdBotPayloadInfo(
     string FullyQualifiedName,
     string SimpleName);
 
@@ -57,15 +57,15 @@ internal sealed record ThreadIdPropertyInfo(
 public sealed class BotSourceGenerator : IIncrementalGenerator
 {
     private const string HpdBotAttribute           = "HPD.Agent.Bots.HpdBotAttribute";
-    private const string HpdWebhookHandlerAttribute    = "HPD.Agent.Bots.HpdWebhookHandlerAttribute";
+    private const string HpdBotEventHandlerAttribute    = "HPD.Agent.Bots.HpdBotEventHandlerAttribute";
     private const string HpdStreamingAttribute         = "HPD.Agent.Bots.HpdStreamingAttribute";
-    private const string HpdWebhookMethodsAttribute    = "HPD.Agent.Bots.HpdWebhookMethodsAttribute";
+    private const string HpdHttpMethodsAttribute    = "HPD.Agent.Bots.HpdHttpMethodsAttribute";
     private const string HpdPermissionHandlerAttribute = "HPD.Agent.Bots.HpdPermissionHandlerAttribute";
-    private const string WebhookPayloadAttribute       = "HPD.Agent.Bots.WebhookPayloadAttribute";
+    private const string HpdBotPayloadAttribute       = "HPD.Agent.Bots.HpdBotPayloadAttribute";
     private const string HpdSocketTransportAttribute   = "HPD.Agent.Bots.HpdSocketTransportAttribute";
     private const string BotWebSocketServiceFqn    = "HPD.Agent.Bots.BotWebSocketService";
-    private const string HpdPreDispatchAttribute       = "HPD.Agent.Bots.HpdPreDispatchAttribute";
-    private const string HpdBodyExtractorAttribute     = "HPD.Agent.Bots.HpdBodyExtractorAttribute";
+    private const string HpdBotPreDispatchAttribute       = "HPD.Agent.Bots.HpdBotPreDispatchAttribute";
+    private const string HpdBotEnvelopeExtractorAttribute     = "HPD.Agent.Bots.HpdBotEnvelopeExtractorAttribute";
     private const string ThreadIdAttribute             = "HPD.Agent.Bots.ThreadIdAttribute";
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -78,10 +78,10 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
                 transform: static (ctx, _) => (ClassDeclarationSyntax)ctx.TargetNode)
             .Collect();
 
-        // ── Pipeline: [WebhookPayload] records ────────────────────────────────
+        // ── Pipeline: [HpdBotPayload] records ────────────────────────────────
         var payloadRecords = context.SyntaxProvider
             .ForAttributeWithMetadataName(
-                WebhookPayloadAttribute,
+                HpdBotPayloadAttribute,
                 predicate: static (node, _) => node is RecordDeclarationSyntax,
                 transform: static (ctx, _) => ctx.TargetSymbol as INamedTypeSymbol)
             .Where(static s => s is not null)
@@ -145,7 +145,7 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
         // ── Resolve payload infos ─────────────────────────────────────────────
         var payloads = payloadSymbols
             .Where(s => s is not null)
-            .Select(s => new WebhookPayloadInfo(
+            .Select(s => new HpdBotPayloadInfo(
                 FullyQualifiedName: s!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 SimpleName: s.Name))
             .ToList();
@@ -216,7 +216,7 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
 
         var webhookMethods = ResolveWebhookMethods(context, node, symbol);
 
-        // Read [HpdWebhookHandler] methods — HPD-A002: must be private or internal
+        // Read [HpdBotEventHandler] methods — HPD-A002: must be private or internal
         var handlers                = new List<HandlerInfo>();
         var permissionHandlers      = 0;
         var preDispatchMethods      = new List<IMethodSymbol>();
@@ -231,20 +231,20 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
                 .Any(a => a.AttributeClass?.ToDisplayString() == HpdPermissionHandlerAttribute);
             if (hasPermAttr) permissionHandlers++;
 
-            // Detect [HpdPreDispatch] — HPDA009 validates the complete hook contract.
-            if (member.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == HpdPreDispatchAttribute))
+            // Detect [HpdBotPreDispatch] — HPDA009 validates the complete hook contract.
+            if (member.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == HpdBotPreDispatchAttribute))
             {
                 preDispatchMethods.Add(member);
             }
 
-            // Detect [HpdBodyExtractor] — HPDA010 validates the complete hook contract.
-            if (member.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == HpdBodyExtractorAttribute))
+            // Detect [HpdBotEnvelopeExtractor] — HPDA010 validates the complete hook contract.
+            if (member.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == HpdBotEnvelopeExtractorAttribute))
             {
                 bodyExtractorMethods.Add(member);
             }
 
             var handlerAttrs = member.GetAttributes()
-                .Where(a => a.AttributeClass?.ToDisplayString() == HpdWebhookHandlerAttribute)
+                .Where(a => a.AttributeClass?.ToDisplayString() == HpdBotEventHandlerAttribute)
                 .ToList();
             if (handlerAttrs.Count == 0) continue;
 
@@ -265,7 +265,7 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
                 .Where(s => s.Length > 0)
                 .ToList();
 
-            // Second parameter (after HttpContext) is the payload type to deserialize.
+            // Second parameter (after BotRequestContext) is the payload type to deserialize.
             var payloadParam = member.Parameters.Length >= 2 ? member.Parameters[1] : null;
             var payloadFqn   = payloadParam?.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
                                ?? "global::System.Text.Json.JsonElement";
@@ -371,7 +371,7 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
         INamedTypeSymbol symbol)
     {
         var attr = symbol.GetAttributes()
-            .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == HpdWebhookMethodsAttribute);
+            .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == HpdHttpMethodsAttribute);
         if (attr is null)
             return Array.Empty<string>();
 
@@ -424,18 +424,17 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
     private static bool IsValidPreDispatchHook(IMethodSymbol method)
     {
         return IsPrivateOrInternal(method)
-               && method.IsAsync
                && method.Parameters.Length == 2
-               && IsHttpContext(method.Parameters[0].Type)
+               && IsBotRequestContext(method.Parameters[0].Type)
                && IsByteArray(method.Parameters[1].Type)
-               && IsTaskOfIResult(method.ReturnType);
+               && IsTaskOfBotAdapterResponse(method.ReturnType);
     }
 
     private static bool IsValidBodyExtractorHook(IMethodSymbol method)
     {
         return IsPrivateOrInternal(method)
                && method.Parameters.Length == 2
-               && IsHttpContext(method.Parameters[0].Type)
+               && IsBotRequestContext(method.Parameters[0].Type)
                && IsByteArray(method.Parameters[1].Type)
                && IsStringByteArrayTuple(method.ReturnType);
     }
@@ -444,25 +443,25 @@ public sealed class BotSourceGenerator : IIncrementalGenerator
         method.DeclaredAccessibility == Accessibility.Private ||
         method.DeclaredAccessibility == Accessibility.Internal;
 
-    private static bool IsHttpContext(ITypeSymbol type) =>
-        type.ToDisplayString() == "Microsoft.AspNetCore.Http.HttpContext";
+    private static bool IsBotRequestContext(ITypeSymbol type) =>
+        type.ToDisplayString() == "HPD.Agent.Bots.BotRequestContext";
 
     private static bool IsByteArray(ITypeSymbol type) =>
         type is IArrayTypeSymbol { ElementType.SpecialType: SpecialType.System_Byte, Rank: 1 };
 
-    private static bool IsTaskOfIResult(ITypeSymbol type)
+    private static bool IsTaskOfBotAdapterResponse(ITypeSymbol type)
     {
         if (type is not INamedTypeSymbol named || named.TypeArguments.Length != 1)
             return false;
 
         return named.Name == "Task" &&
                named.ContainingNamespace.ToDisplayString() == "System.Threading.Tasks" &&
-               IsIResult(named.TypeArguments[0]);
+               IsBotAdapterResponse(named.TypeArguments[0]);
     }
 
-    private static bool IsIResult(ITypeSymbol type) =>
-        type.Name == "IResult" &&
-        type.ContainingNamespace.ToDisplayString() == "Microsoft.AspNetCore.Http";
+    private static bool IsBotAdapterResponse(ITypeSymbol type) =>
+        type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+            .TrimEnd('?') == "global::HPD.Agent.Bots.BotAdapterResponse";
 
     private static bool IsStringByteArrayTuple(ITypeSymbol type)
     {

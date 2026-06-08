@@ -480,7 +480,7 @@ public sealed class SeatbeltProfileBuilder
         _profile.AppendLine("(allow file-write* (subpath \"/private/tmp\"))");
 
         // Handle macOS TMPDIR pattern
-        var tmpdir = Environment.GetEnvironmentVariable("TMPDIR");
+        var tmpdir = System.Environment.GetEnvironmentVariable("TMPDIR");
         if (!string.IsNullOrEmpty(tmpdir) && tmpdir.Contains("/var/folders/"))
         {
             var parent = Path.GetDirectoryName(tmpdir.TrimEnd('/'));

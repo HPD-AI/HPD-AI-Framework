@@ -150,7 +150,8 @@ public enum SubAgentBranchCompaction
 {
     Inherit,
     Enabled,
-    Disabled
+    Disabled,
+    PreferCache
 }
 
 public sealed record SubAgentExecutionPolicy(

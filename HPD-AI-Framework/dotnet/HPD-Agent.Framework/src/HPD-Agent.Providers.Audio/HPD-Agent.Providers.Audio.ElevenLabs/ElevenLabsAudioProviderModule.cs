@@ -21,6 +21,11 @@ public static class ElevenLabsAudioProviderModule
             ProviderClientFamily.TextToSpeech,
             json => JsonSerializer.Deserialize(json, ElevenLabsTtsJsonContext.Default.ElevenLabsTtsConfig),
             config => JsonSerializer.Serialize(config, ElevenLabsTtsJsonContext.Default.ElevenLabsTtsConfig));
+        ProviderDiscovery.RegisterProviderConfigType<ElevenLabsSttConfig>(
+            ElevenLabsAudioProvider.Key,
+            ProviderClientFamily.SpeechToText,
+            json => JsonSerializer.Deserialize(json, ElevenLabsTtsJsonContext.Default.ElevenLabsSttConfig),
+            config => JsonSerializer.Serialize(config, ElevenLabsTtsJsonContext.Default.ElevenLabsSttConfig));
 
         SecretAliasRegistry.Register("elevenlabs:ApiKey", "ELEVENLABS_API_KEY");
     }

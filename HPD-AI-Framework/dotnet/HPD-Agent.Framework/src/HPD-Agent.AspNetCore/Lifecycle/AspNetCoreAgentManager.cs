@@ -43,12 +43,17 @@ internal class AspNetCoreAgentManager : AgentManager
         if (_agentFactory != null)
             return await _agentFactory.CreateAgentAsync(agentId, _sessionManager.Store, ct);
 
-        // Priority 2: stored.Config loaded by AgentBuilder through IAgentStore
+        // Priority 2: stored.Config loaded from the hosted agent store
         // Priority 3: DefaultAgent object
         // Priority 4: DefaultAgentPath file
         // Priority 5: Empty builder (fallback)
         AgentBuilder builder;
-        if (opts.DefaultAgent != null)
+        var stored = await AgentStore.LoadAsync(agentId, ct).ConfigureAwait(false);
+        if (stored?.Config != null)
+        {
+            builder = new AgentBuilder(stored.Config);
+        }
+        else if (opts.DefaultAgent != null)
         {
             builder = new AgentBuilder(opts.DefaultAgent);
         }

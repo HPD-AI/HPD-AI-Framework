@@ -16,6 +16,7 @@ public partial class CodingToolHarness
     private const int MaxEventSnapshotChars = 500_000;
     private const int MaxEventTextEditChars = 100_000;
     private const int MaxEventHunks = 200;
+    private const int FileMutationDiffContextLines = 3;
     private const int MaxMutationEventNotes = 50;
 
     private static ResolvedMutationPath ResolveMutationPath(string path)
@@ -262,33 +263,142 @@ public partial class CodingToolHarness
     {
         truncated = false;
         var diff = InlineDiffBuilder.Diff(before, after);
-        var lines = new List<string>();
+        var lines = new List<FileMutationDiffLine>();
+        var oldLine = 1;
+        var newLine = 1;
         foreach (var line in diff.Lines)
         {
-            if (lines.Count >= MaxEventHunks)
+            var entry = line.Type switch
+            {
+                ChangeType.Inserted => new FileMutationDiffLine(
+                    '+',
+                    line.Text,
+                    OldLine: null,
+                    NewLine: newLine++),
+                ChangeType.Deleted => new FileMutationDiffLine(
+                    '-',
+                    line.Text,
+                    OldLine: oldLine++,
+                    NewLine: null),
+                _ => new FileMutationDiffLine(
+                    ' ',
+                    line.Text,
+                    OldLine: oldLine++,
+                    NewLine: newLine++)
+            };
+
+            lines.Add(entry);
+        }
+
+        var windows = BuildDiffWindows(lines, FileMutationDiffContextLines);
+        if (windows.Count == 0 && lines.Count > 0)
+        {
+            windows.Add(new FileMutationDiffWindow(0, Math.Min(lines.Count - 1, MaxEventHunks - 1)));
+        }
+
+        var hunks = new List<FileMutationHunk>();
+        var emittedLines = 0;
+        foreach (var window in windows)
+        {
+            if (emittedLines >= MaxEventHunks)
             {
                 truncated = true;
                 break;
             }
 
-            var prefix = line.Type switch
+            var windowLines = lines
+                .Skip(window.Start)
+                .Take(window.End - window.Start + 1)
+                .ToList();
+            var remaining = MaxEventHunks - emittedLines;
+            if (windowLines.Count > remaining)
             {
-                ChangeType.Inserted => "+",
-                ChangeType.Deleted => "-",
-                _ => " "
-            };
-            lines.Add(prefix + line.Text);
+                windowLines = windowLines.Take(remaining).ToList();
+                truncated = true;
+            }
+
+            if (windowLines.Count == 0)
+            {
+                continue;
+            }
+
+            hunks.Add(new FileMutationHunk(
+                GetHunkOldStart(windowLines),
+                windowLines.Count(static line => line.OldLine.HasValue),
+                GetHunkNewStart(windowLines),
+                windowLines.Count(static line => line.NewLine.HasValue),
+                windowLines.Select(static line => $"{line.Sign}{line.Text}").ToArray()));
+            emittedLines += windowLines.Count;
+
+            if (truncated)
+            {
+                break;
+            }
         }
 
-        return
-        [
-            new FileMutationHunk(
-                1,
-                SplitMutationLines(before).Count,
-                1,
-                SplitMutationLines(after).Count,
-                lines)
-        ];
+        return hunks;
+    }
+
+    private static List<FileMutationDiffWindow> BuildDiffWindows(
+        IReadOnlyList<FileMutationDiffLine> lines,
+        int contextLines)
+    {
+        var windows = new List<FileMutationDiffWindow>();
+        for (var i = 0; i < lines.Count; i++)
+        {
+            if (lines[i].Sign is not ('+' or '-'))
+            {
+                continue;
+            }
+
+            var start = Math.Max(0, i - contextLines);
+            var end = Math.Min(lines.Count - 1, i + contextLines);
+            if (windows.Count > 0 && start <= windows[^1].End + 1)
+            {
+                windows[^1] = windows[^1] with { End = Math.Max(windows[^1].End, end) };
+                continue;
+            }
+
+            windows.Add(new FileMutationDiffWindow(start, end));
+        }
+
+        return windows;
+    }
+
+    private static int GetHunkOldStart(IReadOnlyList<FileMutationDiffLine> lines)
+    {
+        foreach (var line in lines)
+        {
+            if (line.OldLine.HasValue)
+            {
+                return line.OldLine.Value;
+            }
+        }
+
+        var insertedLine = 1;
+        foreach (var line in lines)
+        {
+            if (line.NewLine.HasValue)
+            {
+                insertedLine = line.NewLine.Value;
+                break;
+            }
+        }
+
+        return Math.Max(0, insertedLine - 1);
+    }
+
+    private static int GetHunkNewStart(IReadOnlyList<FileMutationDiffLine> lines)
+    {
+        foreach (var line in lines)
+        {
+            if (line.NewLine.HasValue)
+            {
+                return line.NewLine.Value;
+            }
+        }
+
+        return 1;
     }
 
     internal async Task<FileMutationResult> ApplyTextMutationAsync(FileMutationRequest request, CancellationToken cancellationToken = default)
@@ -772,6 +882,14 @@ internal sealed record FileMutationEventBuildRequest(
     bool HunksTruncated,
     FileMutationDiffStat DiffStat,
     IReadOnlyList<FileMutationNote> Notes);
+
+internal sealed record FileMutationDiffLine(
+    char Sign,
+    string Text,
+    int? OldLine,
+    int? NewLine);
+
+internal sealed record FileMutationDiffWindow(int Start, int End);
 
 internal sealed record FileMutationResult(
     string Path,

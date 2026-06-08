@@ -4,7 +4,8 @@ public enum BranchForkCompactionIntent
 {
     Inherit,
     Enabled,
-    Disabled
+    Disabled,
+    PreferCache
 }
 
 public sealed record BranchForkOptions

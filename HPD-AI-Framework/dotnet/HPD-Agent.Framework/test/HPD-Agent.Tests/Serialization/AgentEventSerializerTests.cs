@@ -1,6 +1,6 @@
 using System.Text.Json;
 using HPD.Agent;
-using HPD.Agent.Audio.Output;
+using HPD.Agent.Audio;
 using HPD.Agent.Middleware;
 using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
@@ -363,6 +363,17 @@ public class AgentEventSerializerTests
         var resultJsonFull = AgentEventSerializer.ToJson(resultEvtFull);
         Assert.Contains("\"toolHarnessName\":\"MathToolHarness\"", resultJsonFull);
         Assert.Contains("\"callType\":\"Function\"", resultJsonFull);
+        Assert.DoesNotContain("\"name\"", resultJsonFull);
+
+        // ToolCallResultEvent — with name
+        var resultEvtNamed = new ToolCallResultEvent(
+            "call-3",
+            new ToolResultPayload(Text: "read"),
+            "CodingToolHarness",
+            ToolCallType.Function,
+            "ReadFile");
+        var resultJsonNamed = AgentEventSerializer.ToJson(resultEvtNamed);
+        Assert.Contains("\"name\":\"ReadFile\"", resultJsonNamed);
     }
 
     [Fact]
@@ -382,7 +393,7 @@ public class AgentEventSerializerTests
     [Fact]
     public void ToolCallResultEvent_RoundTrip_PreservesAllFields()
     {
-        var evt = new ToolCallResultEvent("call-rt", new ToolResultPayload(Text: "42"), "MathToolHarness", ToolCallType.SubAgent);
+        var evt = new ToolCallResultEvent("call-rt", new ToolResultPayload(Text: "42"), "MathToolHarness", ToolCallType.SubAgent, "Add");
         var json = AgentEventSerializer.ToJson(evt);
         var result = Assert.IsType<ToolCallResultEvent>(AgentEventSerializer.FromJson(json));
 
@@ -390,6 +401,7 @@ public class AgentEventSerializerTests
         Assert.Equal("42", result.Result.Text);
         Assert.Equal("MathToolHarness", result.ToolHarnessName);
         Assert.Equal(ToolCallType.SubAgent, result.CallType);
+        Assert.Equal("Add", result.Name);
     }
 
     [Theory]

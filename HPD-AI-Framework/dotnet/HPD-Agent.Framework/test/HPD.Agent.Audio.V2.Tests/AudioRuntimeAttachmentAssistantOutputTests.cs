@@ -1,10 +1,10 @@
 using System.Reflection;
 using HPD.Agent;
-using HPD.Agent.Audio.AgentIntegration;
+using HPD.Agent.Audio;
+using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio.AgentIntegration.Middleware;
 using HPD.Agent.Audio.AgentIntegration.Output;
 using HPD.Agent.Audio.Ledger;
-using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio.Trace;
 using HPD.Agent.Middleware;
 using HPD.Events.Core;

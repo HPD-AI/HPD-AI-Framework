@@ -1,5 +1,3 @@
-using HPD.Agent.ClientTools;
-using HPD.Agent.Middleware;
 using HPD.Events;
 
 namespace HPD.Agent.Hosting.Lifecycle;
@@ -15,51 +13,23 @@ public sealed class AgentMiddlewareResponseService : IAgentMiddlewareResponseSer
         _agentManager = agentManager ?? throw new ArgumentNullException(nameof(agentManager));
     }
 
-    public Task<AgentServiceResult> RespondToPermissionAsync(
-        string agentId,
-        string sessionId,
-        string branchId,
-        PermissionResponseEvent response,
-        CancellationToken cancellationToken = default) =>
-        RespondAsync(agentId, sessionId, branchId, response, cancellationToken);
-
-    public Task<AgentServiceResult> RespondToContinuationAsync(
-        string agentId,
-        string sessionId,
-        string branchId,
-        ContinuationResponseEvent response,
-        CancellationToken cancellationToken = default) =>
-        RespondAsync(agentId, sessionId, branchId, response, cancellationToken);
-
-    public Task<AgentServiceResult> RespondToClarificationAsync(
-        string agentId,
-        string sessionId,
-        string branchId,
-        ClarificationResponseEvent response,
-        CancellationToken cancellationToken = default) =>
-        RespondAsync(agentId, sessionId, branchId, response, cancellationToken);
-
-    public Task<AgentServiceResult> RespondToClientToolAsync(
-        string agentId,
-        string sessionId,
-        string branchId,
-        ClientToolInvokeResponseEvent response,
-        CancellationToken cancellationToken = default) =>
-        RespondAsync(agentId, sessionId, branchId, response, cancellationToken);
-
-    private async Task<AgentServiceResult> RespondAsync(
+    public async Task<AgentServiceResult> RespondAsync(
         string agentId,
         string sessionId,
         string branchId,
         IBidirectionalEvent response,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
         if (!await RouteScopeExistsAsync(sessionId, branchId, cancellationToken))
             return AgentServiceResult.NotFound;
 
-        var agent = _agentManager.GetAgent(agentId);
+        var agent = _agentManager.GetRuntimeAgent(agentId, sessionId, branchId);
         if (agent == null)
-            return AgentServiceResult.NotFound;
+        {
+            return AgentServiceResult.ConflictWith(
+                "BranchRuntimeNotActive",
+                $"Branch '{branchId}' in session '{sessionId}' does not have an active runtime for agent '{agentId}'.");
+        }
 
         return await agent.TryRespondAsync(response, cancellationToken)
             ? AgentServiceResult.Success

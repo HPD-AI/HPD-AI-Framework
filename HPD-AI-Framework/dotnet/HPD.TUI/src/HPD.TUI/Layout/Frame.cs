@@ -7,6 +7,7 @@ namespace HPD.TUI.Layout;
 public sealed class Frame : IComponent
 {
     private readonly IComponent _child;
+    private Terminal.TerminalGrid? _childGrid;
 
     public Frame(IComponent child)
     {
@@ -100,6 +101,7 @@ public sealed class Frame : IComponent
             : new Measurement(0, 0);
         var min = child.MinWidth + edgeWidth + Padding.Horizontal;
         var max = child.MaxWidth + edgeWidth + Padding.Horizontal;
+        var height = child.Height + (Border.IsVisible ? 2 : 0) + Padding.Vertical;
 
         if (Header is { } header)
         {
@@ -119,7 +121,7 @@ public sealed class Frame : IComponent
 
         min = Math.Min(min, maxWidth);
         max = Math.Min(max, maxWidth);
-        return new Measurement(Math.Min(min, max), max);
+        return new Measurement(Math.Min(min, max), max, height);
     }
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
@@ -195,7 +197,8 @@ public sealed class Frame : IComponent
             (showBorder ? 2 : 0) +
             Padding.Vertical;
         var childHeight = Math.Max(1, ResolveHeight(in context) - reservedRows);
-        using var childGrid = TuiCapture.RenderToGrid(_child, childWidth, childHeight, context.Theme, context.ColorSystem, context.Elapsed);
+        var childGrid = RentChildGrid(childWidth, childHeight);
+        TuiCapture.RenderToGrid(_child, childGrid, context.Theme, context.ColorSystem, context.Elapsed);
         var rows = TuiCapture.GetUsedLineCount(childGrid);
 
         for (var y = 0; y < rows; y++)
@@ -207,6 +210,20 @@ public sealed class Frame : IComponent
             WriteSide(showBorder, Border.Glyphs.Right, borderStyle, ref output);
             output.WriteLineBreak();
         }
+    }
+
+    private Terminal.TerminalGrid RentChildGrid(int width, int height)
+    {
+        if (_childGrid is { } grid &&
+            grid.Width == width &&
+            grid.Height == height)
+        {
+            return grid;
+        }
+
+        _childGrid?.Dispose();
+        _childGrid = new Terminal.TerminalGrid(width, height);
+        return _childGrid;
     }
 
     private void WriteVerticalPadding(int count, int innerWidth, bool showBorder, Style borderStyle, Style contentStyle, ref SegmentWriter output)

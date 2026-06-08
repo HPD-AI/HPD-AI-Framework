@@ -1,3 +1,4 @@
+using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using RealtimeAudioFormat = HPD.Audio.Primitives.AudioFormat;
 using RealtimeAudioFrame = HPD.Audio.Primitives.AudioFrame;

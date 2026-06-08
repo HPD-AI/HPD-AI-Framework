@@ -98,11 +98,17 @@ public sealed class ExtensionRegistryTests
 
     private sealed class StaticAutocompleteProvider : IAutocompleteProvider
     {
-        public bool CanProvide(AutocompleteTrigger trigger) => trigger.Marker == '/';
-
-        public IEnumerable<AutocompleteSuggestion> GetSuggestions(AutocompleteTrigger trigger)
+        public ValueTask GetSuggestionsAsync(
+            AutocompleteRequest request,
+            IAutocompleteSuggestionSink suggestions,
+            CancellationToken cancellationToken = default)
         {
-            yield return new AutocompleteSuggestion("help", "/help");
+            if (request.Trigger is { Marker: '/' })
+            {
+                suggestions.Add(new AutocompleteSuggestion("help", "/help"));
+            }
+
+            return ValueTask.CompletedTask;
         }
     }
 

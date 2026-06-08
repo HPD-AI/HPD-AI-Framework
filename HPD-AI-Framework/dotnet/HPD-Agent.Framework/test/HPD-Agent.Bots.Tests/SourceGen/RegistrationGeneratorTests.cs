@@ -77,6 +77,15 @@ public class RegistrationGeneratorTests
     }
 
     [Fact]
+    public void Registration_AddBot_RegistersGeneratedRegistryProvider()
+    {
+        var result = SourceGenHelper.RunGenerator(MinimalSlackBot, out _);
+        var source = SourceGenHelper.GetGeneratedFile(result, "SlackBotRegistration.g.cs");
+
+        source!.Should().Contain("TryAddEnumerable(ServiceDescriptor.Singleton<HPD.Agent.Bots.AspNetCore.IBotRegistryProvider, HPD.Agent.Bots.Generated.GeneratedBotRegistryProvider>()");
+    }
+
+    [Fact]
     public void Registration_AddBot_CallsServicesConfigure()
     {
         var result = SourceGenHelper.RunGenerator(MinimalSlackBot, out _);
@@ -164,7 +173,7 @@ public class RegistrationGeneratorTests
             using HPD.Agent.Bots;
             namespace My.Bots;
             [HpdBot("whatsapp")]
-            [HpdWebhookMethods("GET", "POST")]
+            [HpdHttpMethods("GET", "POST")]
             public partial class WhatsAppBot { }
             """;
 
@@ -184,7 +193,7 @@ public class RegistrationGeneratorTests
             using HPD.Agent.Bots;
             namespace My.Bots;
             [HpdBot("whatsapp")]
-            [HpdWebhookMethods("get", "POST", "GET")]
+            [HpdHttpMethods("get", "POST", "GET")]
             public partial class WhatsAppBot { }
             """;
 

@@ -7,7 +7,7 @@ namespace HPD.Agent.Bots.SourceGenerator.Generators;
 
 /// <summary>
 /// Generates BotRegistry.g.cs — one assembly-scoped file listing every [HpdBot]
-/// class. Used by MapHPDBots() to wire all adapters without reflection.
+/// class plus an IBotRegistryProvider bridge for MapHPDBots().
 /// </summary>
 internal static class RegistryGenerator
 {
@@ -54,6 +54,13 @@ internal static class RegistryGenerator
         }
 
         sb.AppendLine("    ];");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("/// <summary>DI bridge that exposes the generated adapter catalog to MapHPDBots().</summary>");
+        sb.AppendLine("internal sealed class GeneratedBotRegistryProvider : IBotRegistryProvider");
+        sb.AppendLine("{");
+        sb.AppendLine("    public global::System.Collections.Generic.IEnumerable<BotRegistration> GetAll()");
+        sb.AppendLine("        => BotRegistry.All;");
         sb.AppendLine("}");
 
         return sb.ToString();

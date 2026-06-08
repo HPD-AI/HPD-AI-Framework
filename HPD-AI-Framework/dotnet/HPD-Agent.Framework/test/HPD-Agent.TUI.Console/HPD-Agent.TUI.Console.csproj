@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>HPD.Agent.TUI.Console</RootNamespace>
+    <AssemblyName>HPD-Agent.TUI.Console</AssemblyName>
+    <UserSecretsId>hpd-agent-tui-console</UserSecretsId>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>$(NoWarn);CS1591;HPDAUDIO001;MEAI001;IL2026;IL3050</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Harness/HPD-Agent.Harness.Coding.TUI/HPD-Agent.Harness.Coding.TUI.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.ModelsDev/HPD-Agent.ModelsDev.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Bedrock/HPD-Agent.Providers.Bedrock.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/HPD-Agent.Providers.GoogleAI.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.HuggingFace/HPD-Agent.Providers.HuggingFace.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/HPD-Agent.Providers.Ollama.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.TUI/HPD-Agent.TUI.csproj" />
+    <ProjectReference Include="../../../HPD.TUI/src/HPD.TUI/HPD.TUI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

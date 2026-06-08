@@ -15,7 +15,7 @@ public sealed class TuiRendererTests
 
         renderer.Render(new Text("Hello"));
 
-        Assert.Contains("\x1b[H", terminal.Output);
+        Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
         Assert.Contains("Hello", terminal.Output);
     }
 
@@ -37,10 +37,25 @@ public sealed class TuiRendererTests
         Assert.DoesNotContain("Hello", terminal.Output);
     }
 
+    [Fact]
+    public void Render_WhenTerminalSizeChanges_ClearsBeforeFullRedraw()
+    {
+        using var terminal = new TestTerminal(20, 4);
+        using var renderer = new TuiRenderer(terminal);
+
+        renderer.Render(new Text("Hello"));
+        terminal.ClearOutput();
+        terminal.SetSize(12, 3);
+        renderer.Render(new Text("Hi"));
+
+        Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
+        Assert.Contains("Hi", terminal.Output);
+    }
+
     private sealed class TestTerminal : ITerminal
     {
-        private readonly TerminalSize _size;
         private readonly StringBuilder _output = new();
+        private TerminalSize _size;
 
         public TestTerminal(int width, int height)
         {
@@ -51,11 +66,20 @@ public sealed class TuiRendererTests
 
         public void ClearOutput() => _output.Clear();
 
+        public void SetSize(int width, int height)
+        {
+            _size = new TerminalSize(width, height);
+        }
+
         public TerminalSize GetSize() => _size;
 
         public void Write(ReadOnlySpan<char> text)
         {
             _output.Append(text);
+        }
+
+        public void Flush()
+        {
         }
 
         public bool TryReadKey(out KeyEvent key)

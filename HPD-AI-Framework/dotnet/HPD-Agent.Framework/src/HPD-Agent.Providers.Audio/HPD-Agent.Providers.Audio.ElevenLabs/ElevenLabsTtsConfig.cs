@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 using System.Text.Json.Serialization;
+using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 
 namespace HPD.Agent.Providers.Audio.ElevenLabs;

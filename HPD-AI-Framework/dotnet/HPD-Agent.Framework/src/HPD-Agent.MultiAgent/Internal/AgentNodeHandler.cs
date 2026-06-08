@@ -205,7 +205,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         return result;
     }
 
-    private static async Task<Dictionary<string, object>> RunStringModeAsync(
+    private async Task<Dictionary<string, object>> RunStringModeAsync(
         Agent.Agent agent,
         AgentGraphContext context,
         string input,
@@ -230,10 +230,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
             return ValueTask.CompletedTask;
         }))
         {
-            await agent.RunAsync(new UserMessagesInputEvent(messages)
-            {
-                RunConfig = runConfig
-            }, ct);
+            await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct);
         }
 
         var outputKey = options.OutputKey ?? "answer";
@@ -243,7 +240,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         };
     }
 
-    private static async Task<Dictionary<string, object>> RunStructuredModeAsync(
+    private async Task<Dictionary<string, object>> RunStructuredModeAsync(
         Agent.Agent agent,
         AgentGraphContext context,
         string input,
@@ -292,16 +289,13 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
             return ValueTask.CompletedTask;
         }))
         {
-            await agent.RunAsync(new UserMessagesInputEvent(messages)
-            {
-                RunConfig = runConfig
-            }, ct);
+            await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct);
         }
 
         return FlattenToOutputs(result, options.StructuredType);
     }
 
-    private static async Task<Dictionary<string, object>> RunUnionModeAsync(
+    private async Task<Dictionary<string, object>> RunUnionModeAsync(
         Agent.Agent agent,
         AgentGraphContext context,
         string input,
@@ -351,10 +345,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
             return ValueTask.CompletedTask;
         }))
         {
-            await agent.RunAsync(new UserMessagesInputEvent(messages)
-            {
-                RunConfig = runConfig
-            }, ct);
+            await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct);
         }
 
         var outputs = FlattenToOutputs(result, matchedType);
@@ -368,7 +359,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         return outputs;
     }
 
-    private static async Task<Dictionary<string, object>> RunHandoffModeAsync(
+    private async Task<Dictionary<string, object>> RunHandoffModeAsync(
         Agent.Agent agent,
         AgentGraphContext context,
         string input,
@@ -424,10 +415,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
             return ValueTask.CompletedTask;
         }))
         {
-            await agent.RunAsync(new UserMessagesInputEvent(messages)
-            {
-                RunConfig = runConfig
-            }, ct);
+            await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct);
         }
 
         if (selectedHandoff == null)
@@ -449,6 +437,37 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         }
 
         return outputs;
+    }
+
+    private static async Task RunAgentAsync(
+        Agent.Agent agent,
+        AgentGraphContext context,
+        string nodeId,
+        string input,
+        AgentNodeOptions options,
+        IReadOnlyList<ChatMessage> messages,
+        AgentRunConfig runConfig,
+        CancellationToken ct)
+    {
+        var route = await context.Conversation.ResolveRouteAsync(
+            new MultiAgentConversationContext(
+                context.ExecutionId,
+                context.WorkflowName,
+                nodeId,
+                agent,
+                input,
+                context,
+                options),
+            ct).ConfigureAwait(false);
+
+        await using var routeLease = await context.Conversation.EnterRouteAsync(route, ct).ConfigureAwait(false);
+
+        await agent.RunAsync(new UserMessagesInputEvent(messages)
+        {
+            SessionId = route.SessionId,
+            BranchId = route.BranchId,
+            RunConfig = runConfig
+        }, ct).ConfigureAwait(false);
     }
 
     private static AgentRunConfig BuildRunConfig(AgentNodeOptions options, AgentGraphContext? graphContext = null)

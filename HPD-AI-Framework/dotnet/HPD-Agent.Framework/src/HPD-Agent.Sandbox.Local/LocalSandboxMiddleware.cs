@@ -3,8 +3,8 @@ namespace HPD.Agent.Sandbox.Local;
 using HPD.Agent;
 using HPD.Agent.Middleware;
 using HPD.Events;
-using HPD.Execution.Contracts;
-using HPD.Execution.Runtime;
+using HPD.Environment.Contracts;
+using HPD.Environment.Runtime;
 using HPD.Agent.Sandbox;
 using HPD.Agent.Sandbox.Events;
 using HPD.Agent.Sandbox.Platforms;
@@ -21,8 +21,8 @@ public sealed class LocalSandboxMiddleware : IAgentMiddleware, IAsyncDisposable
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private SandboxIsolationManager? _processIsolationManager;
     private LocalProcessProvider? _processProvider;
-    private ExecutionProviderRegistry? _registry;
-    private IExecutionRuntime? _runtime;
+    private EnvironmentProviderRegistry? _registry;
+    private IEnvironmentRuntime? _runtime;
     private bool _initialized;
 
     public LocalSandboxMiddleware(ILogger<LocalSandboxMiddleware>? logger = null)
@@ -32,9 +32,9 @@ public sealed class LocalSandboxMiddleware : IAgentMiddleware, IAsyncDisposable
 
     public bool IsInitialized => _initialized;
 
-    public ExecutionProviderRegistry? Registry => _registry;
+    public EnvironmentProviderRegistry? Registry => _registry;
 
-    public IExecutionRuntime? Runtime => _runtime;
+    public IEnvironmentRuntime? Runtime => _runtime;
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) =>
         EnsureInitializedAsync(cancellationToken);
@@ -52,7 +52,7 @@ public sealed class LocalSandboxMiddleware : IAgentMiddleware, IAsyncDisposable
 
     public async Task BeforeMessageTurnAsync(BeforeMessageTurnContext context, CancellationToken cancellationToken)
     {
-        if (context.RuntimeCapabilities.TryGet<IExecutionRuntime>(out _))
+        if (context.RuntimeCapabilities.TryGet<IEnvironmentRuntime>(out _))
             return;
 
         await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
@@ -77,13 +77,14 @@ public sealed class LocalSandboxMiddleware : IAgentMiddleware, IAsyncDisposable
                 return;
 
             _processIsolationManager = new SandboxIsolationManager(_logger);
-            _processProvider = new LocalProcessProvider();
-            _registry = new ExecutionProviderRegistry();
-            _registry.RegisterSandboxIsolation(_processIsolationManager);
+            _processProvider = new LocalProcessProvider(
+                new SandboxIsolationPlanner(),
+                new HostSandboxApplicator(_processIsolationManager));
+            _registry = new EnvironmentProviderRegistry();
             _registry.RegisterModule(new LocalProcessProviderModule(_processProvider));
-            _runtime = new InMemoryExecutionRuntime(_registry);
+            _runtime = new InMemoryEnvironmentRuntime(_registry);
             _initialized = true;
-            _logger?.LogInformation("Local HPD execution providers initialized.");
+            _logger?.LogInformation("Local HPD environment providers initialized.");
         }
         finally
         {

@@ -172,6 +172,104 @@ public class SubAgentRuntimeTests
         strategy.CallCount.Should().Be(0);
     }
 
+    [Fact]
+    public async Task ForkFromParentBranch_WithBranchCompactionPreferCache_UsesMatchingCopiedCompactionState()
+    {
+        var store = new InMemorySessionStore();
+        var strategy = new RetainLastMessagesCompactionStrategy(retainCount: 1);
+        var agent = await BuildAgentAsync(
+            store,
+            new CompactionMiddleware
+            {
+                Strategy = strategy,
+                Config = new CompactionConfig
+                {
+                    Enabled = true,
+                    CompactOnFork = false,
+                    Strategy = new MessageCountingCompactionOptions { TargetMessageCount = 1 }
+                }
+            });
+        await agent.CreateSessionAsync("parent-session");
+
+        var parentBranch = (await store.LoadBranchAsync("parent-session", "main"))!;
+        for (var i = 0; i < 4; i++)
+        {
+            parentBranch.AddMessage(new ChatMessage(ChatRole.User, $"Parent context {i}") { MessageId = $"message-{i}" });
+        }
+
+        var cachedResult = CompactionResult.FromOriginalAndCompacted(
+            parentBranch.Messages,
+            parentBranch.Messages.TakeLast(2).ToList(),
+            new MessageCountingCompactionOptions { TargetMessageCount = 2 });
+        new MiddlewareState()
+            .WithCompaction(new CompactionStateData().WithCompaction(CompactionSnapshot.FromResult(cachedResult)))
+            .SaveToBranch(parentBranch, agent.StateFactories);
+        await store.SaveInitialBranchAsync("parent-session", parentBranch);
+
+        var context = await CreateFunctionContextAsync(store, "parent-session", "main");
+        var subAgent = SubAgent.FromConfig(
+            "Reviewer",
+            "Reviews the current branch.",
+            MinimalConfig(),
+            SubAgentExecutionPolicies.ParentSessionForkedBranch(SubAgentBranchCompaction.PreferCache));
+
+        var route = await SubAgentRuntime.ResolveRouteAsync(agent, subAgent, context, CancellationToken.None);
+
+        var childBranch = await store.LoadBranchAsync(route.SessionId, route.BranchId);
+        childBranch!.Messages.Select(message => message.MessageId)
+            .Should().Equal("message-2", "message-3");
+        strategy.CallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ForkFromParentBranch_WithBranchCompactionPreferCache_FallsBackWhenCacheDoesNotMatch()
+    {
+        var store = new InMemorySessionStore();
+        var strategy = new RetainLastMessagesCompactionStrategy(retainCount: 1);
+        var agent = await BuildAgentAsync(
+            store,
+            new CompactionMiddleware
+            {
+                Strategy = strategy,
+                Config = new CompactionConfig
+                {
+                    Enabled = true,
+                    CompactOnFork = false,
+                    Strategy = new MessageCountingCompactionOptions { TargetMessageCount = 1 }
+                }
+            });
+        await agent.CreateSessionAsync("parent-session");
+
+        var parentBranch = (await store.LoadBranchAsync("parent-session", "main"))!;
+        for (var i = 0; i < 3; i++)
+        {
+            parentBranch.AddMessage(new ChatMessage(ChatRole.User, $"Parent context {i}") { MessageId = $"message-{i}" });
+        }
+
+        var cachedResult = CompactionResult.FromOriginalAndCompacted(
+            parentBranch.Messages.Take(2).ToList(),
+            parentBranch.Messages.Take(1).ToList(),
+            new MessageCountingCompactionOptions { TargetMessageCount = 1 });
+        new MiddlewareState()
+            .WithCompaction(new CompactionStateData().WithCompaction(CompactionSnapshot.FromResult(cachedResult)))
+            .SaveToBranch(parentBranch, agent.StateFactories);
+        await store.SaveInitialBranchAsync("parent-session", parentBranch);
+
+        var context = await CreateFunctionContextAsync(store, "parent-session", "main");
+        var subAgent = SubAgent.FromConfig(
+            "Reviewer",
+            "Reviews the current branch.",
+            MinimalConfig(),
+            SubAgentExecutionPolicies.ParentSessionForkedBranch(SubAgentBranchCompaction.PreferCache));
+
+        var route = await SubAgentRuntime.ResolveRouteAsync(agent, subAgent, context, CancellationToken.None);
+
+        var childBranch = await store.LoadBranchAsync(route.SessionId, route.BranchId);
+        childBranch!.Messages.Select(message => message.MessageId)
+            .Should().Equal("message-2");
+        strategy.CallCount.Should().Be(1);
+    }
+
     private static async Task<Agent> BuildAgentAsync(
         InMemorySessionStore store,
         params IAgentMiddleware[] middlewares)

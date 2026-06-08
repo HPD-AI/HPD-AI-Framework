@@ -308,6 +308,34 @@ public sealed class FileMutationTests : IDisposable
         eventFactoryCalled.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task ApplyTextMutationAsync_EmitsCompactHunkAroundChangedRegion()
+    {
+        var before = string.Join('\n', Enumerable.Range(1, 80).Select(line => $"line {line}")) + "\n";
+        var after = before.Replace("line 50", "line 50 changed", StringComparison.Ordinal);
+        FileMutationEventBuildRequest? eventRequest = null;
+        await File.WriteAllTextAsync("A.cs", before);
+        var toolharness = new CodingToolHarness();
+
+        await toolharness.ApplyTextMutationAsync(CreateRequest(
+            "A.cs",
+            after,
+            allowCreate: false,
+            eventFactory: request =>
+            {
+                eventRequest = request;
+                return CreateWriteEvent(request);
+            }));
+
+        var hunk = eventRequest!.Hunks.Should().ContainSingle().Subject;
+        hunk.OldStart.Should().BeGreaterThan(1);
+        hunk.OldStart.Should().BeLessThanOrEqualTo(50);
+        hunk.Lines.Should().Contain("-line 50");
+        hunk.Lines.Should().Contain("+line 50 changed");
+        hunk.Lines.Should().NotContain(" line 1");
+        hunk.Lines.Should().NotContain(" line 80");
+    }
+
     private static FileMutationRequest CreateRequest(
         string path,
         string updatedText,

@@ -1,4 +1,5 @@
 using HPD.Events;
+using HPD.Events.Struct;
 using Microsoft.Extensions.AI;
 using HPD.Agent;
 using System.ComponentModel;
@@ -45,6 +46,7 @@ public sealed class FunctionExecutionContext
         RunConfig = request.RunConfig;
         ResultMetadata = request.ResultMetadata;
         EventCoordinator = request.EventCoordinator;
+        StructEvents = request.StructEvents;
         BackgroundTasks = request.BackgroundTasks;
         Services = hookContext.Services;
         RuntimeCapabilities = hookContext.RuntimeCapabilities;
@@ -84,6 +86,8 @@ public sealed class FunctionExecutionContext
     public IEventCoordinator? EventCoordinator { get; }
 
     public IEventFlowRegistry? EventFlows => EventCoordinator?.EventFlows;
+
+    public IStructEventHub? StructEvents { get; }
 
     public IServiceProvider? Services { get; }
 
@@ -150,7 +154,7 @@ public sealed class FunctionExecutionContext
 
     [EditorBrowsable(EditorBrowsableState.Never)]
     public AgentMetadata? GetParentAgentMetadata()
-        => _parentAgentMetadata;
+        => _parentAgentMetadata ?? Agent.RootAgent?.AgentMetadata;
 
     [EditorBrowsable(EditorBrowsableState.Never)]
     public ISessionStore? GetParentSessionStore()

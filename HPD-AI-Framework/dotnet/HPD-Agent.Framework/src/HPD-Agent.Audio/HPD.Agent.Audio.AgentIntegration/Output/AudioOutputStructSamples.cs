@@ -12,7 +12,7 @@ public readonly record struct AudioOutputPlayoutSample(
     int PlayedTextLength,
     long TimestampNs,
     long SequenceNumber = 0) :
-    IStructEvent,
+    AgentStructEvent,
     ISequencedStructEvent<AudioOutputPlayoutSample>
 {
     public EventKind Kind => EventKind.Diagnostic;
@@ -29,7 +29,7 @@ public readonly record struct AudioOutputQueueDepthSample(
     long QueuedDurationNs,
     long TimestampNs,
     long SequenceNumber = 0) :
-    IStructEvent,
+    AgentStructEvent,
     ISequencedStructEvent<AudioOutputQueueDepthSample>
 {
     public EventKind Kind => EventKind.Diagnostic;
@@ -46,7 +46,7 @@ public readonly record struct AudioOutputUnderrunSample(
     long UnderrunDurationNs,
     long TimestampNs,
     long SequenceNumber = 0) :
-    IStructEvent,
+    AgentStructEvent,
     ISequencedStructEvent<AudioOutputUnderrunSample>
 {
     public EventKind Kind => EventKind.Diagnostic;

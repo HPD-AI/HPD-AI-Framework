@@ -9,6 +9,8 @@ namespace HPD.TUI.Views;
 public sealed class TableView<T> : IFocusable
 {
     private readonly TableModel<T> _model;
+    private readonly List<TableColumn<T>> _gridColumns = [];
+    private readonly List<TableColumn<T>> _stackedColumns = [];
 
     public TableView(TableModel<T> model)
     {
@@ -188,10 +190,10 @@ public sealed class TableView<T> : IFocusable
 
     private void RenderStacked(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
+        var visibleColumns = GetStackedColumns();
         for (var rowIndex = 0; rowIndex < _model.Rows.Count; rowIndex++)
         {
             var row = _model.Rows[rowIndex];
-            var visibleColumns = GetStackedColumns(maxWidth);
 
             for (var i = 0; i < visibleColumns.Count; i++)
             {
@@ -214,37 +216,43 @@ public sealed class TableView<T> : IFocusable
         }
     }
 
-    private List<TableColumn<T>> GetStackedColumns(int maxWidth)
+    private List<TableColumn<T>> GetStackedColumns()
     {
-        var result = new List<TableColumn<T>>();
-        foreach (var column in _model.Columns.OrderBy(static c => c.Priority))
+        _stackedColumns.Clear();
+        foreach (var column in _model.Columns)
         {
-            result.Add(column);
+            _stackedColumns.Add(column);
         }
 
-        return result;
+        _stackedColumns.Sort(static (left, right) => left.Priority.CompareTo(right.Priority));
+        return _stackedColumns;
     }
 
     private List<TableColumn<T>> GetVisibleGridColumns(int maxWidth)
     {
-        var columns = new List<TableColumn<T>>(_model.Columns);
-        while (columns.Count > 1 && GetNaturalLineWidth(columns) > maxWidth)
+        _gridColumns.Clear();
+        foreach (var column in _model.Columns)
+        {
+            _gridColumns.Add(column);
+        }
+
+        while (_gridColumns.Count > 1 && GetNaturalLineWidth(_gridColumns) > maxWidth)
         {
             var removeIndex = 0;
-            var removePriority = columns[0].Priority;
-            for (var i = 1; i < columns.Count; i++)
+            var removePriority = _gridColumns[0].Priority;
+            for (var i = 1; i < _gridColumns.Count; i++)
             {
-                if (columns[i].Priority > removePriority)
+                if (_gridColumns[i].Priority > removePriority)
                 {
-                    removePriority = columns[i].Priority;
+                    removePriority = _gridColumns[i].Priority;
                     removeIndex = i;
                 }
             }
 
-            columns.RemoveAt(removeIndex);
+            _gridColumns.RemoveAt(removeIndex);
         }
 
-        return columns;
+        return _gridColumns;
     }
 
     private void CalculateWidths(IReadOnlyList<TableColumn<T>> columns, int maxWidth, Span<int> widths)
@@ -394,7 +402,7 @@ public sealed class TableView<T> : IFocusable
         var borderStyle = _model.Border.ResolveStyle(in context);
         if (_model.Border.IsVisible)
         {
-            output.Write(_model.Border.Glyphs.Left.ToString().AsSpan(), borderStyle);
+            output.Write(_model.Border.Glyphs.Left, borderStyle);
         }
 
         var written = 0;
@@ -420,7 +428,7 @@ public sealed class TableView<T> : IFocusable
         WriteSpaces(lineWidth - written, context.Theme.Text, ref output);
         if (_model.Border.IsVisible)
         {
-            output.Write(_model.Border.Glyphs.Right.ToString().AsSpan(), borderStyle);
+            output.Write(_model.Border.Glyphs.Right, borderStyle);
         }
     }
 
@@ -514,8 +522,8 @@ public sealed class TableView<T> : IFocusable
 
     private static void WriteBorderLine(char left, char fill, char right, int innerWidth, Style style, ref SegmentWriter output)
     {
-        output.Write(left.ToString().AsSpan(), style);
+        output.Write(left, style);
         WriteRepeated(fill, innerWidth, style, ref output);
-        output.Write(right.ToString().AsSpan(), style);
+        output.Write(right, style);
     }
 }

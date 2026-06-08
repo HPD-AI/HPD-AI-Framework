@@ -13,11 +13,11 @@ using System.Text.RegularExpressions;
 namespace HPD.Agent.SourceGenerator;
 
 /// <summary>
-/// Incremental source generator for custom AgentEvent types.
-/// Auto-discovers user-defined events extending AgentEvent and generates:
+/// Incremental source generator for custom AgentEvent and AgentStructEvent types.
+/// Auto-discovers user-defined events extending AgentEvent or implementing AgentStructEvent and generates:
 /// - EventTypes constants (SCREAMING_SNAKE_CASE)
 /// - TypeNames dictionary registrations
-/// - JsonSerializable attributes for Native AOT
+/// - Serializer registration
 /// </summary>
 [Generator]
 public class CustomEventSourceGenerator : IIncrementalGenerator
@@ -57,7 +57,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        // Find all record types that inherit from AgentEvent
+        // Find all record types that inherit from AgentEvent or implement AgentStructEvent.
         var customEvents = context.SyntaxProvider
             .CreateSyntaxProvider(
                 predicate: static (node, ct) => IsCustomEventCandidate(node),
@@ -88,8 +88,10 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         if (baseList == null)
             return false;
 
-        // Check if any base type contains "AgentEvent"
-        return baseList.Types.Any(t => t.Type.ToString().Contains("AgentEvent"));
+        // Check if any base type references one of the supported event contracts.
+        return baseList.Types.Any(t =>
+            t.Type.ToString().Contains("AgentEvent") ||
+            t.Type.ToString().Contains("AgentStructEvent"));
     }
 
     #endregion
@@ -112,8 +114,8 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
 
         var diagnostics = new List<Diagnostic>();
 
-        // Skip AgentEvent itself
-        if (typeSymbol.Name == "AgentEvent")
+        // Skip framework contracts themselves.
+        if (typeSymbol.Name == "AgentEvent" || typeSymbol.Name == "AgentStructEvent")
             return null;
 
         // Skip framework events (HPD.Agent namespace)
@@ -133,6 +135,7 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
                 Namespace: namespaceName,
                 FullTypeName: typeSymbol.ToDisplayString(),
                 ScreamingSnakeCaseName: "",
+                Kind: EventRegistrationKind.AgentEvent,
                 IsValid: false,
                 Diagnostics: diagnostics);
         }
@@ -149,12 +152,13 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
                 Namespace: namespaceName,
                 FullTypeName: typeSymbol.ToDisplayString(),
                 ScreamingSnakeCaseName: "",
+                Kind: EventRegistrationKind.AgentEvent,
                 IsValid: false,
                 Diagnostics: diagnostics);
         }
 
-        // Verify it actually inherits from AgentEvent
-        if (!InheritsFromAgentEvent(typeSymbol))
+        var eventKind = GetEventRegistrationKind(typeSymbol);
+        if (eventKind is null)
             return null;
 
         // Check for [EventType("CUSTOM_NAME")] attribute override
@@ -166,22 +170,40 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             Namespace: namespaceName,
             FullTypeName: typeSymbol.ToDisplayString(),
             ScreamingSnakeCaseName: discriminator,
+            Kind: eventKind.Value,
             IsValid: true,
             Diagnostics: diagnostics);
     }
 
     /// <summary>
-    /// Checks if a type inherits from AgentEvent (directly or indirectly).
+    /// Gets the registration kind for a supported custom event type.
     /// </summary>
-    private static bool InheritsFromAgentEvent(INamedTypeSymbol typeSymbol)
+    private static EventRegistrationKind? GetEventRegistrationKind(INamedTypeSymbol typeSymbol)
     {
         var baseType = typeSymbol.BaseType;
         while (baseType != null)
         {
             if (baseType.Name == "AgentEvent")
-                return true;
+                return EventRegistrationKind.AgentEvent;
             baseType = baseType.BaseType;
         }
+
+        if (!typeSymbol.IsValueType)
+            return null;
+
+        return ImplementsInterface(typeSymbol, "AgentStructEvent")
+            ? EventRegistrationKind.AgentStructEvent
+            : null;
+    }
+
+    private static bool ImplementsInterface(INamedTypeSymbol typeSymbol, string interfaceName)
+    {
+        foreach (var iface in typeSymbol.AllInterfaces)
+        {
+            if (iface.Name == interfaceName)
+                return true;
+        }
+
         return false;
     }
 
@@ -260,15 +282,26 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         if (validEvents.Count == 0)
             return;
 
-        // Check for duplicate type discriminators
-        var duplicates = validEvents
+        var validAgentEvents = validEvents
+            .Where(e => e.Kind == EventRegistrationKind.AgentEvent)
+            .ToList();
+        var validStructEvents = validEvents
+            .Where(e => e.Kind == EventRegistrationKind.AgentStructEvent)
+            .ToList();
+
+        // Check for duplicate type discriminators within each serializer surface.
+        var agentDuplicates = validAgentEvents
+            .GroupBy(e => e.ScreamingSnakeCaseName)
+            .Where(g => g.Count() > 1)
+            .ToList();
+        var structDuplicates = validStructEvents
             .GroupBy(e => e.ScreamingSnakeCaseName)
             .Where(g => g.Count() > 1)
             .ToList();
 
-        if (duplicates.Any())
+        if (agentDuplicates.Any() || structDuplicates.Any())
         {
-            foreach (var group in duplicates)
+            foreach (var group in agentDuplicates.Concat(structDuplicates))
             {
                 var types = string.Join(", ", group.Select(e => e.FullTypeName));
                 context.ReportDiagnostic(Diagnostic.Create(
@@ -280,17 +313,23 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
             return; // Don't generate code with conflicts
         }
 
-        // Generate EventTypes partial class
-        context.AddSource("CustomEventTypes.g.cs",
-            GenerateEventTypesPartial(validEvents));
+        if (validAgentEvents.Count > 0)
+        {
+            context.AddSource("CustomEventTypes.g.cs",
+                GenerateEventTypesPartial(validAgentEvents));
 
-        // Generate AgentEventSerializer partial class
-        context.AddSource("CustomEventSerializer.g.cs",
-            GenerateSerializerPartial(validEvents));
+            context.AddSource("CustomEventSerializer.g.cs",
+                GenerateSerializerPartial(validAgentEvents));
+        }
 
-        // Generate AgentEventJsonContext partial class
-        context.AddSource("CustomEventJsonContext.g.cs",
-            GenerateJsonContextPartial(validEvents));
+        if (validStructEvents.Count > 0)
+        {
+            context.AddSource("CustomStructEventTypes.g.cs",
+                GenerateStructEventTypesPartial(validStructEvents));
+
+            context.AddSource("CustomStructEventSerializer.g.cs",
+                GenerateStructSerializerPartial(validStructEvents));
+        }
     }
 
     /// <summary>
@@ -304,28 +343,50 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine("namespace HPD.Agent.Serialization;");
         sb.AppendLine();
-        sb.AppendLine("public static partial class EventTypes");
+        sb.AppendLine("internal static class CustomEventTypes");
         sb.AppendLine("{");
         sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// Auto-generated constants for custom event types.");
+        sb.AppendLine("    /// Auto-generated constants for custom event type discriminators.");
         sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    public static class Custom");
-        sb.AppendLine("    {");
 
         foreach (var evt in events.OrderBy(e => e.ScreamingSnakeCaseName))
         {
-            sb.AppendLine($"        /// <summary>Auto-generated from {evt.FullTypeName}</summary>");
-            sb.AppendLine($"        public const string {evt.ScreamingSnakeCaseName} = \"{evt.ScreamingSnakeCaseName}\";");
+            sb.AppendLine($"    /// <summary>Auto-generated from {evt.FullTypeName}</summary>");
+            sb.AppendLine($"    public const string {evt.ScreamingSnakeCaseName} = \"{evt.ScreamingSnakeCaseName}\";");
         }
 
-        sb.AppendLine("    }");
+        sb.AppendLine("}");
+
+        return sb.ToString();
+    }
+
+    private static string GenerateStructEventTypesPartial(List<CustomEventInfo> events)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("// <auto-generated/>");
+        sb.AppendLine("#nullable enable");
+        sb.AppendLine();
+        sb.AppendLine("namespace HPD.Agent.Serialization;");
+        sb.AppendLine();
+        sb.AppendLine("internal static class CustomStructEventTypes");
+        sb.AppendLine("{");
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// Auto-generated constants for custom struct event type discriminators.");
+        sb.AppendLine("    /// </summary>");
+
+        foreach (var evt in events.OrderBy(e => e.ScreamingSnakeCaseName))
+        {
+            sb.AppendLine($"    /// <summary>Auto-generated from {evt.FullTypeName}</summary>");
+            sb.AppendLine($"    public const string {evt.ScreamingSnakeCaseName} = \"{evt.ScreamingSnakeCaseName}\";");
+        }
+
         sb.AppendLine("}");
 
         return sb.ToString();
     }
 
     /// <summary>
-    /// Generates partial AgentEventSerializer with auto-registration.
+    /// Generates module initializer registration for custom events.
     /// </summary>
     private static string GenerateSerializerPartial(List<CustomEventInfo> events)
     {
@@ -333,28 +394,26 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         sb.AppendLine("// <auto-generated/>");
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
+        sb.AppendLine("using System.Runtime.CompilerServices;");
+        sb.AppendLine();
         sb.AppendLine("namespace HPD.Agent.Serialization;");
         sb.AppendLine();
-        sb.AppendLine("public static partial class AgentEventSerializer");
+        sb.AppendLine("internal static class CustomEventSerializerRegistration");
         sb.AppendLine("{");
         sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// Static constructor to register custom events.");
-        sb.AppendLine("    /// Called automatically when the class is first accessed.");
+        sb.AppendLine("    /// Registers all auto-discovered custom events when the assembly loads.");
         sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    static AgentEventSerializer()");
-        sb.AppendLine("    {");
-        sb.AppendLine("        RegisterCustomEvents();");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-        sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// Registers all auto-discovered custom events.");
-        sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    private static void RegisterCustomEvents()");
+        sb.AppendLine("#pragma warning disable CA2255");
+        sb.AppendLine("    [ModuleInitializer]");
+        sb.AppendLine("    internal static void RegisterCustomEvents()");
+        sb.AppendLine("#pragma warning restore CA2255");
         sb.AppendLine("    {");
 
         foreach (var evt in events.OrderBy(e => e.FullTypeName))
         {
-            sb.AppendLine($"        RegisterEventType(typeof({evt.FullTypeName}), EventTypes.Custom.{evt.ScreamingSnakeCaseName});");
+            sb.AppendLine($"        AgentEventSerializer.RegisterEventType(");
+            sb.AppendLine($"            typeof(global::{evt.FullTypeName}),");
+            sb.AppendLine($"            CustomEventTypes.{evt.ScreamingSnakeCaseName});");
         }
 
         sb.AppendLine("    }");
@@ -363,27 +422,36 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         return sb.ToString();
     }
 
-    /// <summary>
-    /// Generates partial AgentEventJsonContext with JsonSerializable attributes.
-    /// </summary>
-    private static string GenerateJsonContextPartial(List<CustomEventInfo> events)
+    private static string GenerateStructSerializerPartial(List<CustomEventInfo> events)
     {
         var sb = new StringBuilder();
         sb.AppendLine("// <auto-generated/>");
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
-        sb.AppendLine("using System.Text.Json.Serialization;");
+        sb.AppendLine("using System.Runtime.CompilerServices;");
         sb.AppendLine();
         sb.AppendLine("namespace HPD.Agent.Serialization;");
         sb.AppendLine();
-        sb.AppendLine("// Partial context for custom events (Native AOT)");
+        sb.AppendLine("internal static class CustomStructEventSerializerRegistration");
+        sb.AppendLine("{");
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// Registers all auto-discovered custom struct events when the assembly loads.");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("#pragma warning disable CA2255");
+        sb.AppendLine("    [ModuleInitializer]");
+        sb.AppendLine("    internal static void RegisterCustomStructEvents()");
+        sb.AppendLine("#pragma warning restore CA2255");
+        sb.AppendLine("    {");
 
         foreach (var evt in events.OrderBy(e => e.FullTypeName))
         {
-            sb.AppendLine($"[JsonSerializable(typeof({evt.FullTypeName}))]");
+            sb.AppendLine($"        AgentStructEventSerializer.RegisterEventType(");
+            sb.AppendLine($"            typeof(global::{evt.FullTypeName}),");
+            sb.AppendLine($"            CustomStructEventTypes.{evt.ScreamingSnakeCaseName});");
         }
 
-        sb.AppendLine("internal partial class AgentEventJsonContext : System.Text.Json.Serialization.JsonSerializerContext { }");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
 
         return sb.ToString();
     }
@@ -400,8 +468,15 @@ public class CustomEventSourceGenerator : IIncrementalGenerator
         string Namespace,
         string FullTypeName,
         string ScreamingSnakeCaseName,
+        EventRegistrationKind Kind,
         bool IsValid,
         List<Diagnostic> Diagnostics);
+
+    private enum EventRegistrationKind
+    {
+        AgentEvent,
+        AgentStructEvent
+    }
 
     #endregion
 }

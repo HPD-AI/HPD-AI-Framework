@@ -67,28 +67,28 @@ public partial class DiscordBot(
     public event Action<DiscordReactionEvent>? OnReaction;
     public event Action<DiscordAutocompleteEvent>? OnAutocomplete;
 
-    [HpdPreDispatch]
-    private async Task<IResult?> VerifyDiscordRequestAsync(HttpContext ctx, byte[] bodyBytes)
+    [HpdBotPreDispatch]
+    private async Task<BotAdapterResponse?> VerifyDiscordRequestAsync(BotRequestContext ctx, byte[] bodyBytes)
     {
         await Task.CompletedTask;
 
-        var gatewayToken = ctx.Request.Headers["X-Discord-Gateway-Token"].ToString();
+        var gatewayToken = ctx.Header("X-Discord-Gateway-Token") ?? "";
         if (!string.IsNullOrEmpty(gatewayToken))
-            return CryptographicEquals(gatewayToken, _config.BotToken) ? null : Results.Unauthorized();
+            return CryptographicEquals(gatewayToken, _config.BotToken) ? null : BotAdapterResponse.Status(401);
 
-        var signature = ctx.Request.Headers["X-Signature-Ed25519"].ToString();
-        var timestamp = ctx.Request.Headers["X-Signature-Timestamp"].ToString();
+        var signature = ctx.Header("X-Signature-Ed25519") ?? "";
+        var timestamp = ctx.Header("X-Signature-Timestamp") ?? "";
 
         return DiscordSignatureVerifier.Verify(bodyBytes, signature, timestamp, _config.PublicKey)
             ? null
-            : Results.Unauthorized();
+            : BotAdapterResponse.Status(401);
     }
 
-    [HpdBodyExtractor]
+    [HpdBotEnvelopeExtractor]
     private (string? eventType, byte[] dispatchBytes) ExtractDiscordEvent(
-        HttpContext ctx, byte[] bodyBytes)
+        BotRequestContext ctx, byte[] bodyBytes)
     {
-        var gatewayEventType = ctx.Request.Headers["X-Discord-Gateway-Event"].ToString();
+        var gatewayEventType = ctx.Header("X-Discord-Gateway-Event") ?? "";
         if (!string.IsNullOrEmpty(gatewayEventType))
             return (gatewayEventType, bodyBytes);
 
@@ -117,16 +117,16 @@ public partial class DiscordBot(
         return (null, bodyBytes);
     }
 
-    [HpdWebhookHandler("ping")]
-    private Task<IResult> HandlePingAsync(HttpContext ctx, DiscordInteraction payload)
+    [HpdBotEventHandler("ping")]
+    private Task<BotAdapterResponse> HandlePingAsync(BotRequestContext ctx, DiscordInteraction payload)
     {
         _ = ctx;
         _ = payload;
         return Task.FromResult(JsonResponse(new DiscordInteractionResponse(Type: 1)));
     }
 
-    [HpdWebhookHandler("application_command")]
-    private async Task<IResult> HandleSlashCommandAsync(HttpContext ctx, DiscordInteraction payload)
+    [HpdBotEventHandler("application_command")]
+    private async Task<BotAdapterResponse> HandleSlashCommandAsync(BotRequestContext ctx, DiscordInteraction payload)
     {
         var user = GetUser(payload);
         if (user is null)
@@ -137,7 +137,7 @@ public partial class DiscordBot(
 
         if (sessionMapper is not null)
         {
-            var (sessionId, branchId) = await sessionMapper.ResolveAsync(threadId, ctx.RequestAborted);
+            var (sessionId, branchId) = await sessionMapper.ResolveAsync(threadId, ctx.CancellationToken);
             _ = StreamToDiscordAsync(
                 sessionId,
                 branchId,
@@ -151,17 +151,17 @@ public partial class DiscordBot(
         return JsonResponse(new DiscordInteractionResponse(Type: 5));
     }
 
-    [HpdWebhookHandler("message_component")]
-    private Task<IResult> HandleButtonClickAsync(HttpContext ctx, DiscordInteraction payload)
+    [HpdBotEventHandler("message_component")]
+    private Task<BotAdapterResponse> HandleButtonClickAsync(BotRequestContext ctx, DiscordInteraction payload)
     {
         _ = ctx;
         var user = GetUser(payload);
-        if (user is null) return Task.FromResult(Results.Ok());
+        if (user is null) return Task.FromResult(BotAdapterResponse.Ok());
 
         var customId = payload.Data is { } data && data.TryGetProperty("custom_id", out var cid)
             ? cid.GetString()
             : null;
-        if (customId is null) return Task.FromResult(Results.Ok());
+        if (customId is null) return Task.FromResult(BotAdapterResponse.Ok());
 
         OnButtonClick?.Invoke(new DiscordButtonClickEvent(
             CustomId: customId,
@@ -173,12 +173,12 @@ public partial class DiscordBot(
         return Task.FromResult(JsonResponse(new DiscordInteractionResponse(Type: 6)));
     }
 
-    [HpdWebhookHandler("modal_submit")]
-    private Task<IResult> HandleModalSubmitAsync(HttpContext ctx, DiscordInteraction payload)
+    [HpdBotEventHandler("modal_submit")]
+    private Task<BotAdapterResponse> HandleModalSubmitAsync(BotRequestContext ctx, DiscordInteraction payload)
     {
         _ = ctx;
         var user = GetUser(payload);
-        if (user is null) return Task.FromResult(Results.Ok());
+        if (user is null) return Task.FromResult(BotAdapterResponse.Ok());
 
         var customId = payload.Data is { } data && data.TryGetProperty("custom_id", out var cid)
             ? cid.GetString() ?? ""
@@ -193,8 +193,8 @@ public partial class DiscordBot(
         return Task.FromResult(JsonResponse(new DiscordInteractionResponse(Type: 6)));
     }
 
-    [HpdWebhookHandler("application_command_autocomplete")]
-    private Task<IResult> HandleAutocompleteAsync(HttpContext ctx, DiscordInteraction payload)
+    [HpdBotEventHandler("application_command_autocomplete")]
+    private Task<BotAdapterResponse> HandleAutocompleteAsync(BotRequestContext ctx, DiscordInteraction payload)
     {
         _ = ctx;
         var user = GetUser(payload);
@@ -202,19 +202,19 @@ public partial class DiscordBot(
         return Task.FromResult(JsonResponse(new DiscordInteractionResponse(Type: 8)));
     }
 
-    [HpdWebhookHandler("GATEWAY_MESSAGE_CREATE")]
-    private async Task<IResult> HandleGatewayMessageAsync(HttpContext ctx, DiscordGatewayMessage data)
+    [HpdBotEventHandler("GATEWAY_MESSAGE_CREATE")]
+    private async Task<BotAdapterResponse> HandleGatewayMessageAsync(BotRequestContext ctx, DiscordGatewayMessage data)
     {
-        if (data.Author.Bot == true) return Results.Ok();
-        if (!IsMentioned(data)) return Results.Ok();
+        if (data.Author.Bot == true) return BotAdapterResponse.Ok();
+        if (!IsMentioned(data)) return BotAdapterResponse.Ok();
 
         var guildId = data.GuildId ?? "@me";
-        var threadId = await ResolveGatewayThreadIdAsync(guildId, data, ctx.RequestAborted);
+        var threadId = await ResolveGatewayThreadIdAsync(guildId, data, ctx.CancellationToken);
         var input = BuildGatewayInput(data);
 
         if (sessionMapper is not null)
         {
-            var (sessionId, branchId) = await sessionMapper.ResolveAsync(threadId, ctx.RequestAborted);
+            var (sessionId, branchId) = await sessionMapper.ResolveAsync(threadId, ctx.CancellationToken);
             var sourceMessageId = data.ChannelType is 11 or 12 ? null : data.Id;
 
             _ = StreamToDiscordAsync(
@@ -227,20 +227,20 @@ public partial class DiscordBot(
                 CancellationToken.None);
         }
 
-        return Results.Ok(new { ok = true });
+        return BotAdapterResponse.Ok();
     }
 
-    [HpdWebhookHandler("GATEWAY_MESSAGE_REACTION_ADD")]
-    [HpdWebhookHandler("GATEWAY_MESSAGE_REACTION_REMOVE")]
-    private async Task<IResult> HandleGatewayReactionAsync(HttpContext ctx, DiscordGatewayReaction data)
+    [HpdBotEventHandler("GATEWAY_MESSAGE_REACTION_ADD")]
+    [HpdBotEventHandler("GATEWAY_MESSAGE_REACTION_REMOVE")]
+    private async Task<BotAdapterResponse> HandleGatewayReactionAsync(BotRequestContext ctx, DiscordGatewayReaction data)
     {
         var user = data.User ?? data.Member?.User;
-        if (user is null || user.Bot == true) return Results.Ok();
+        if (user is null || user.Bot == true) return BotAdapterResponse.Ok();
 
-        var added = ctx.Request.Headers["X-Discord-Gateway-Event"].ToString()
+        var added = (ctx.Header("X-Discord-Gateway-Event") ?? "")
             == "GATEWAY_MESSAGE_REACTION_ADD";
         var guildId = data.GuildId ?? "@me";
-        var threadId = await ResolveGatewayReactionThreadIdAsync(guildId, data, ctx.RequestAborted);
+        var threadId = await ResolveGatewayReactionThreadIdAsync(guildId, data, ctx.CancellationToken);
 
         OnReaction?.Invoke(new DiscordReactionEvent(
             ThreadId: threadId,
@@ -249,7 +249,7 @@ public partial class DiscordBot(
             Added: added,
             User: MapUser(user)));
 
-        return Results.Ok(new { ok = true });
+        return BotAdapterResponse.Ok();
     }
 
     private bool IsMentioned(DiscordGatewayMessage data)
@@ -597,8 +597,8 @@ public partial class DiscordBot(
         return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
     }
 
-    private static IResult JsonResponse(DiscordInteractionResponse response)
-        => Results.Json(response, DiscordBotJsonContext.Default.DiscordInteractionResponse);
+    private static BotAdapterResponse JsonResponse(DiscordInteractionResponse response)
+        => BotAdapterResponse.Json(response, DiscordBotJsonContext.Default.DiscordInteractionResponse);
 
     private record AgentInput(
         string Text,

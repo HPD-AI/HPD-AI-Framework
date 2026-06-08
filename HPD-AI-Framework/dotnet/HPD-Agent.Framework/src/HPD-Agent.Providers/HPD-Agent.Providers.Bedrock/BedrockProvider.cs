@@ -54,8 +54,8 @@ internal class BedrockProvider : IChatClientProvider
 
         // Resolve region from multiple sources
         string? region = bedrockConfig?.Region
-            ?? Environment.GetEnvironmentVariable("AWS_REGION")
-            ?? Environment.GetEnvironmentVariable("AWS_DEFAULT_REGION");
+            ?? System.Environment.GetEnvironmentVariable("AWS_REGION")
+            ?? System.Environment.GetEnvironmentVariable("AWS_DEFAULT_REGION");
 
         if (string.IsNullOrEmpty(region))
         {
@@ -205,8 +205,8 @@ internal class BedrockProvider : IChatClientProvider
 
         // Validate region from multiple sources
         string? region = bedrockConfig?.Region
-            ?? Environment.GetEnvironmentVariable("AWS_REGION")
-            ?? Environment.GetEnvironmentVariable("AWS_DEFAULT_REGION");
+            ?? System.Environment.GetEnvironmentVariable("AWS_REGION")
+            ?? System.Environment.GetEnvironmentVariable("AWS_DEFAULT_REGION");
 
         if (string.IsNullOrEmpty(region))
             errors.Add("AWS Region is required for Bedrock. Configure it via BedrockProviderConfig.Region, AWS_REGION, or AWS_DEFAULT_REGION environment variable.");

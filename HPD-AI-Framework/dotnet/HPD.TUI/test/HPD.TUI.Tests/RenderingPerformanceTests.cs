@@ -58,6 +58,10 @@ public sealed class RenderingPerformanceTests
         {
         }
 
+        public void Flush()
+        {
+        }
+
         public bool TryReadKey(out KeyEvent key)
         {
             key = default;

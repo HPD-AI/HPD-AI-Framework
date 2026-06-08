@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace HPD.Agent.Bots.Discord.Payloads;
 
-[WebhookPayload]
+[HpdBotPayload]
 public record DiscordInteraction(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("application_id")] string ApplicationId,
@@ -18,7 +18,7 @@ public record DiscordInteraction(
     [property: JsonPropertyName("user")] DiscordUser? User,
     [property: JsonPropertyName("message")] DiscordMessage? Message);
 
-[WebhookPayload]
+[HpdBotPayload]
 public record DiscordCommandOption(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("type")] int Type,

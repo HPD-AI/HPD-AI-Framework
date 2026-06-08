@@ -16,6 +16,11 @@ public class ConsoleTerminal : ITerminal
         Console.Out.Write(text);
     }
 
+    public void Flush()
+    {
+        Console.Out.Flush();
+    }
+
     public bool TryReadKey(out KeyEvent key)
     {
         key = default;

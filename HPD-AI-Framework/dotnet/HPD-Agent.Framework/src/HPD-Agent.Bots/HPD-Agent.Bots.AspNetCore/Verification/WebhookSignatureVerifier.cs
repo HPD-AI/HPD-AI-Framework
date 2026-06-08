@@ -41,6 +41,31 @@ public static class WebhookSignatureVerifier
         };
     }
 
+    /// <summary>
+    /// Verifies a webhook request signature using transport-neutral header values.
+    /// </summary>
+    public static bool Verify(
+        HmacFormat format,
+        byte[] body,
+        IReadOnlyDictionary<string, string[]> headers,
+        string secret,
+        string signatureHeader,
+        string timestampHeader,
+        int windowSeconds)
+    {
+        return format switch
+        {
+            HmacFormat.V0TimestampBody => VerifyV0TimestampBody(
+                body,
+                name => headers.TryGetValue(name, out var values) ? values.FirstOrDefault() : null,
+                secret,
+                signatureHeader,
+                timestampHeader,
+                windowSeconds),
+            _ => false,
+        };
+    }
+
     // ── V0TimestampBody (Slack-style) ─────────────────────────────────────────
 
     private static bool VerifyV0TimestampBody(
@@ -50,14 +75,29 @@ public static class WebhookSignatureVerifier
         string signatureHeader,
         string timestampHeader,
         int windowSeconds)
+        => VerifyV0TimestampBody(
+            body,
+            name => headers[name].FirstOrDefault(),
+            secret,
+            signatureHeader,
+            timestampHeader,
+            windowSeconds);
+
+    private static bool VerifyV0TimestampBody(
+        byte[] body,
+        Func<string, string?> getHeader,
+        string secret,
+        string signatureHeader,
+        string timestampHeader,
+        int windowSeconds)
     {
-        var signature = headers[signatureHeader].FirstOrDefault();
+        var signature = getHeader(signatureHeader);
         if (string.IsNullOrEmpty(signature))
             return false;
 
         var timestamp = string.IsNullOrEmpty(timestampHeader)
             ? null
-            : headers[timestampHeader].FirstOrDefault();
+            : getHeader(timestampHeader);
 
         // Replay-attack window check (only when timestamp header is configured)
         if (!string.IsNullOrEmpty(timestampHeader))

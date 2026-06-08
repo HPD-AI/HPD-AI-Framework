@@ -136,6 +136,12 @@ public class CompactionMiddleware : IAgentMiddleware
             return;
         }
 
+        if (context.ForkOptions.CompactionIntent == BranchForkCompactionIntent.PreferCache &&
+            TryApplyCachedForkCompaction(context, conversationMessages, systemMessages, startTime))
+        {
+            return;
+        }
+
         var result = await Strategy.ReduceAsync(conversationMessages, cancellationToken).ConfigureAwait(false);
 
         context.TargetBranch.Messages.Clear();
@@ -159,9 +165,63 @@ public class CompactionMiddleware : IAgentMiddleware
         context.ForkOptions.CompactionIntent switch
         {
             BranchForkCompactionIntent.Enabled => true,
+            BranchForkCompactionIntent.PreferCache => true,
             BranchForkCompactionIntent.Disabled => false,
             _ => Config.CompactOnFork
         };
+
+    private bool TryApplyCachedForkCompaction(
+        BeforeBranchForkCommitContext context,
+        IReadOnlyList<ChatMessage> conversationMessages,
+        IReadOnlyList<ChatMessage> systemMessages,
+        DateTimeOffset startTime)
+    {
+        var cached = context.GetMiddlewareState<CompactionStateData>()?.LastCompaction;
+        if (cached is null)
+            return false;
+
+        var currentOriginalIds = GetMessageIds(conversationMessages);
+        if (!currentOriginalIds.SequenceEqual(cached.OriginalMessageIds, StringComparer.Ordinal))
+            return false;
+
+        var messagesById = conversationMessages
+            .Where(message => !string.IsNullOrWhiteSpace(message.MessageId))
+            .ToDictionary(message => message.MessageId!, StringComparer.Ordinal);
+
+        var modelVisibleMessages = new List<ChatMessage>(cached.ModelVisibleMessageIds.Count);
+        foreach (var messageId in cached.ModelVisibleMessageIds)
+        {
+            if (!messagesById.TryGetValue(messageId, out var message))
+                return false;
+
+            modelVisibleMessages.Add(message);
+        }
+
+        context.TargetBranch.Messages.Clear();
+        foreach (var message in systemMessages.Concat(modelVisibleMessages))
+            context.TargetBranch.Messages.Add(message);
+
+        context.UpdateMiddlewareState<CompactionStateData>(state =>
+            state.WithCompactionApplied(DateTimeOffset.UtcNow));
+
+        EmitCompactionEvent(context, CompactionStatus.CacheHit,
+            startTime: startTime,
+            originalMessageCount: conversationMessages.Count,
+            compactedMessageCount: modelVisibleMessages.Count,
+            messagesRemoved: cached.ModelCompactedMessageIds.Count,
+            summaryContent: cached.SummaryContent,
+            cacheAge: DateTimeOffset.UtcNow - cached.CreatedAt,
+            reason: "Reused cached fork compaction result");
+
+        return true;
+    }
+
+    private static IReadOnlyList<string> GetMessageIds(IEnumerable<ChatMessage> messages) =>
+        messages
+            .Select(message => message.MessageId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .ToList();
 
     private CompactionTriggerDecision GetTriggerDecision(
         BeforeMessageTurnContext context,

@@ -56,6 +56,7 @@ public class SubAgentExecutionPolicyTests
     [Theory]
     [InlineData(SubAgentBranchCompaction.Enabled)]
     [InlineData(SubAgentBranchCompaction.Disabled)]
+    [InlineData(SubAgentBranchCompaction.PreferCache)]
     public void ParentSessionForkedBranch_CanSetBranchCompaction(SubAgentBranchCompaction branchCompaction)
     {
         var policy = SubAgentExecutionPolicies.ParentSessionForkedBranch(branchCompaction);

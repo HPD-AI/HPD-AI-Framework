@@ -199,6 +199,21 @@ public abstract class AgentManager : IDisposable
     }
 
     /// <summary>
+    /// Return the cached branch-owned runtime <see cref="Agent"/> instance without building.
+    /// Hosted interactive responses must target this runtime cache because request waiters
+    /// live on the branch runtime that emitted the request.
+    /// </summary>
+    public Agent? GetRuntimeAgent(string agentId, string sessionId, string branchId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+
+        var cacheKey = RuntimeCacheKey(agentId, sessionId, branchId);
+        return _agents.TryGetValue(cacheKey, out var entry) ? entry.Agent : null;
+    }
+
+    /// <summary>
     /// Seeds a definition with the exact <paramref name="agentId"/> into the store.
     /// Use this for synthesizing fallback definitions when no stored definition exists.
     /// </summary>

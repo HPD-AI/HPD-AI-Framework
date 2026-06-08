@@ -220,9 +220,10 @@ export class AgentState {
 		}
 	}
 
-	onToolCallResult(callId: string, result: ToolResultPayload) {
+	onToolCallResult(callId: string, result: ToolResultPayload, name?: string) {
 		this.#replaceToolCall(callId, (t) => ({
 			...t,
+			name: name ?? t.name,
 			result,
 			resultText: formatToolResultPayload(result),
 			status: 'complete',
@@ -360,7 +361,7 @@ export class AgentState {
 				this.onToolCallEnd(known.callId);
 				break;
 			case 'TOOL_CALL_RESULT':
-				this.onToolCallResult(known.callId, known.result);
+				this.onToolCallResult(known.callId, known.result, known.name);
 				break;
 			case 'MESSAGE_TURN_STARTED':
 				this.onMessageTurnStarted(known.messageTurnId, known.conversationId, known.agentName, known.timestamp);

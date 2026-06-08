@@ -22,7 +22,7 @@ public sealed class EnvironmentSecretResolver : ISecretResolver
         {
             foreach (var alias in registeredAliases)
             {
-                var value = Environment.GetEnvironmentVariable(alias);
+                var value = System.Environment.GetEnvironmentVariable(alias);
                 if (!string.IsNullOrWhiteSpace(value))
                     return new(new ResolvedSecret { Value = value, Source = $"env:{alias}" });
             }
@@ -34,7 +34,7 @@ public sealed class EnvironmentSecretResolver : ISecretResolver
 
         foreach (var envName in envNames)
         {
-            var value = Environment.GetEnvironmentVariable(envName);
+            var value = System.Environment.GetEnvironmentVariable(envName);
             if (!string.IsNullOrWhiteSpace(value))
                 return new(new ResolvedSecret { Value = value, Source = $"env:{envName}" });
         }

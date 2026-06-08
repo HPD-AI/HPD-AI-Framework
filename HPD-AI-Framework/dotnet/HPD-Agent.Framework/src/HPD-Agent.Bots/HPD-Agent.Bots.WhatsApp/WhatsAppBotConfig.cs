@@ -60,27 +60,27 @@ public sealed class WhatsAppBotConfig
     public string? AgentId { get; set; }
 
     internal string ResolveAccessToken()
-        => FirstNonWhiteSpace(AccessToken, Environment.GetEnvironmentVariable("WHATSAPP_ACCESS_TOKEN"))
+        => FirstNonWhiteSpace(AccessToken, System.Environment.GetEnvironmentVariable("WHATSAPP_ACCESS_TOKEN"))
             ?? throw new InvalidOperationException(
                 "WhatsAppBotConfig.AccessToken is required. Set WHATSAPP_ACCESS_TOKEN or configure it explicitly.");
 
     internal string ResolveAppSecret()
-        => FirstNonWhiteSpace(AppSecret, Environment.GetEnvironmentVariable("WHATSAPP_APP_SECRET"))
+        => FirstNonWhiteSpace(AppSecret, System.Environment.GetEnvironmentVariable("WHATSAPP_APP_SECRET"))
             ?? throw new InvalidOperationException(
                 "WhatsAppBotConfig.AppSecret is required. Set WHATSAPP_APP_SECRET or configure it explicitly.");
 
     internal string ResolvePhoneNumberId()
-        => FirstNonWhiteSpace(PhoneNumberId, Environment.GetEnvironmentVariable("WHATSAPP_PHONE_NUMBER_ID"))
+        => FirstNonWhiteSpace(PhoneNumberId, System.Environment.GetEnvironmentVariable("WHATSAPP_PHONE_NUMBER_ID"))
             ?? throw new InvalidOperationException(
                 "WhatsAppBotConfig.PhoneNumberId is required. Set WHATSAPP_PHONE_NUMBER_ID or configure it explicitly.");
 
     internal string ResolveVerifyToken()
-        => FirstNonWhiteSpace(VerifyToken, Environment.GetEnvironmentVariable("WHATSAPP_VERIFY_TOKEN"))
+        => FirstNonWhiteSpace(VerifyToken, System.Environment.GetEnvironmentVariable("WHATSAPP_VERIFY_TOKEN"))
             ?? throw new InvalidOperationException(
                 "WhatsAppBotConfig.VerifyToken is required. Set WHATSAPP_VERIFY_TOKEN or configure it explicitly.");
 
     internal string ResolveUserName()
-        => FirstNonWhiteSpace(UserName, Environment.GetEnvironmentVariable("WHATSAPP_BOT_USERNAME"))
+        => FirstNonWhiteSpace(UserName, System.Environment.GetEnvironmentVariable("WHATSAPP_BOT_USERNAME"))
             ?? "whatsapp-bot";
 
     internal string ResolveAgentId()
@@ -88,7 +88,7 @@ public sealed class WhatsAppBotConfig
             ?? throw new InvalidOperationException("WhatsAppBotConfig.AgentId is required.");
 
     internal string ResolveApiUrl()
-        => (FirstNonWhiteSpace(ApiUrl, Environment.GetEnvironmentVariable("WHATSAPP_API_URL"))
+        => (FirstNonWhiteSpace(ApiUrl, System.Environment.GetEnvironmentVariable("WHATSAPP_API_URL"))
                 ?? "https://graph.facebook.com")
             .TrimEnd('/');
 

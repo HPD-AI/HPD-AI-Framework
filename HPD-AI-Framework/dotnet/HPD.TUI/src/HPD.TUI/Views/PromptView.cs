@@ -24,7 +24,18 @@ public sealed class PromptView : IFocusable
     public Measurement Measure(in RenderContext context, int maxWidth)
     {
         var width = _model.Text.Length == 0 ? _model.Placeholder.Length : _model.Text.Length;
-        return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth));
+        if (_model.ShowVisualCursor && IsFocused)
+        {
+            width++;
+        }
+
+        var height = 1;
+        if (_controller.Autocomplete is { SuggestionCount: > 0 } autocomplete)
+        {
+            height += autocomplete.SuggestionCount;
+        }
+
+        return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth), height);
     }
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
@@ -37,9 +48,15 @@ public sealed class PromptView : IFocusable
         var startX = output.CursorX;
         var startY = output.CursorY;
         var visibleStart = Math.Max(0, _model.Cursor - maxWidth + 1);
-        var visibleLength = Math.Min(maxWidth, _model.Text.Length - visibleStart);
+        var visualCursor = _model.ShowVisualCursor && IsFocused;
+        var availableWidth = visualCursor ? Math.Max(0, maxWidth - 1) : maxWidth;
+        var visibleLength = Math.Min(availableWidth, _model.Text.Length - visibleStart);
 
-        if (_model.Text.Length == 0 && _model.Placeholder.Length > 0)
+        if (visualCursor)
+        {
+            RenderWithVisualCursor(in context, maxWidth, visibleStart, ref output);
+        }
+        else if (_model.Text.Length == 0 && _model.Placeholder.Length > 0)
         {
             WriteClipped(_model.Placeholder, maxWidth, context.Theme.Border, ref output);
         }
@@ -49,25 +66,28 @@ public sealed class PromptView : IFocusable
         }
         else if (visibleLength > 0)
         {
-            output.Write(_model.Text.ToString(visibleStart, visibleLength).AsSpan(), context.Theme.Text);
+            output.Write(_model.Text, visibleStart, visibleLength, context.Theme.Text);
         }
 
-        var used = _model.Text.Length == 0 && _model.Placeholder.Length > 0
-            ? Math.Min(maxWidth, _model.Placeholder.Length)
-            : visibleLength;
-        WriteSpaces(maxWidth - used, context.Theme.Text, ref output);
+        if (!visualCursor)
+        {
+            var used = _model.Text.Length == 0 && _model.Placeholder.Length > 0
+                ? Math.Min(maxWidth, _model.Placeholder.Length)
+                : visibleLength;
+            WriteSpaces(maxWidth - used, context.Theme.Text, ref output);
+        }
 
         if (IsFocused)
         {
             output.SetTerminalCursor(startX + Math.Clamp(_model.Cursor - visibleStart, 0, Math.Max(0, maxWidth - 1)), startY);
         }
 
-        if (_controller.Autocomplete is { Suggestions.Count: > 0 } autocomplete)
+        if (_controller.Autocomplete is { SuggestionCount: > 0 } autocomplete)
         {
             output.WriteLineBreak();
-            for (var i = 0; i < autocomplete.Suggestions.Count; i++)
+            for (var i = 0; i < autocomplete.SuggestionCount; i++)
             {
-                var suggestion = autocomplete.Suggestions[i];
+                var suggestion = autocomplete.GetSuggestion(i);
                 var selected = i == autocomplete.SelectedIndex;
                 var style = selected ? context.Theme.Accent : context.Theme.Text;
                 output.Write(selected ? "> " : "  ", style);
@@ -79,12 +99,67 @@ public sealed class PromptView : IFocusable
                     output.Write(suggestion.Description.AsSpan(), context.Theme.Border);
                 }
 
-                if (i < autocomplete.Suggestions.Count - 1)
+                if (i < autocomplete.SuggestionCount - 1)
                 {
                     output.WriteLineBreak();
                 }
             }
         }
+    }
+
+    private void RenderWithVisualCursor(in RenderContext context, int maxWidth, int visibleStart, ref SegmentWriter output)
+    {
+        var used = 0;
+        var cursorColumn = Math.Clamp(_model.Cursor - visibleStart, 0, Math.Max(0, maxWidth - 1));
+
+        if (_model.Text.Length == 0)
+        {
+            output.Write(_model.VisualCursorCharacter, context.Theme.Accent);
+            used++;
+            if (_model.Placeholder.Length > 0 && used < maxWidth)
+            {
+                var length = Math.Min(maxWidth - used, _model.Placeholder.Length);
+                output.Write(_model.Placeholder.AsSpan(0, length), context.Theme.Border);
+                used += length;
+            }
+
+            WriteSpaces(maxWidth - used, context.Theme.Text, ref output);
+            return;
+        }
+
+        var beforeLength = Math.Min(cursorColumn, Math.Max(0, _model.Text.Length - visibleStart));
+        if (beforeLength > 0)
+        {
+            WritePromptText(visibleStart, beforeLength, in context, ref output);
+            used += beforeLength;
+        }
+
+        if (used < maxWidth)
+        {
+            output.Write(_model.VisualCursorCharacter, context.Theme.Accent);
+            used++;
+        }
+
+        var afterStart = visibleStart + beforeLength;
+        var afterLength = Math.Min(maxWidth - used, Math.Max(0, _model.Text.Length - afterStart));
+        if (afterLength > 0)
+        {
+            WritePromptText(afterStart, afterLength, in context, ref output);
+            used += afterLength;
+        }
+
+        WriteSpaces(maxWidth - used, context.Theme.Text, ref output);
+    }
+
+    private void WritePromptText(int start, int length, in RenderContext context, ref SegmentWriter output)
+    {
+        if (_model.MaskCharacter is { } mask)
+        {
+            WriteRepeated(mask, length, context.Theme.Text, ref output);
+            return;
+        }
+
+        output.Write(_model.Text, start, length, context.Theme.Text);
     }
 
     public void HandleInput(in KeyEvent key)
@@ -100,12 +175,14 @@ public sealed class PromptView : IFocusable
         string placeholder = "",
         Action<ReadOnlyMemory<char>>? submitted = null,
         AutocompleteController? autocomplete = null,
-        bool multiline = false)
+        bool multiline = false,
+        bool visualCursor = false)
     {
         var model = new PromptModel
         {
             Placeholder = placeholder,
-            IsMultiline = multiline
+            IsMultiline = multiline,
+            ShowVisualCursor = visualCursor
         };
         var controller = new PromptController(model)
         {

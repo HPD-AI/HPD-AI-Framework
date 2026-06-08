@@ -1,4 +1,5 @@
 using HPD.Agent;
+using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using Microsoft.Extensions.AI;
 

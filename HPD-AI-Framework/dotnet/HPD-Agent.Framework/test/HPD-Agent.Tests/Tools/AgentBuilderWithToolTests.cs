@@ -1,5 +1,7 @@
+using HPD.Agent.Tests.Infrastructure;
 using HPD.Agent.Tests.TestToolHarnesses;
 using HPD.MultiAgent;
+using Microsoft.Extensions.AI;
 using Xunit;
 
 namespace HPD.Agent.Tests.Tools;
@@ -151,6 +153,123 @@ public class AgentBuilderWithToolTests
         Assert.Equal("Escalates support questions to a specialist.", subAgent.Description);
         Assert.True((bool)subAgent.AdditionalProperties!["IsSubAgent"]!);
         Assert.False((bool)subAgent.AdditionalProperties!["IsContainer"]!);
+    }
+
+    [Fact]
+    public async Task GeneratedSubAgent_AttachesHierarchicalAgentMetadata()
+    {
+        var client = new FakeChatClient();
+        client.EnqueueToolCall(
+            "support_escalation",
+            "call-subagent",
+            new Dictionary<string, object?> { ["query"] = "help with this order" });
+        client.EnqueueTextResponse("child handled escalation");
+        client.EnqueueTextResponse("parent saw escalation");
+
+        var config = new AgentConfig
+        {
+            Name = "Support Parent",
+            MaxAgenticIterations = 5,
+            Clients = new AgentClientConfig
+            {
+                Chat = new ClientProviderConfig
+                {
+                    ProviderKey = "test",
+                    ModelName = "test-model"
+                }
+            },
+            AgenticLoop = new AgenticLoopConfig
+            {
+                MaxTurnDuration = TimeSpan.FromSeconds(20)
+            }
+        };
+
+        var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
+            .WithToolHarness<ReflectionAdvancedToolHarness>()
+            .BuildAsync(CancellationToken.None);
+        var events = new List<AgentEvent>();
+
+        using var subscription = agent.SubscribeAny(evt =>
+        {
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        await agent.RunAsync(new UserTextInputEvent("Please escalate this."), CancellationToken.None);
+
+        var childText = Assert.Single(events.OfType<TextDeltaEvent>(),
+            evt => evt.Text == "child handled escalation");
+
+        Assert.NotNull(childText.Metadata);
+        Assert.Equal("support_escalation", childText.Metadata.AgentName);
+        Assert.Equal(agent.AgentId, childText.Metadata.ParentAgentId);
+        Assert.Equal(1, childText.Metadata.Depth);
+        Assert.Equal(["Support Parent", "support_escalation"], childText.Metadata.AgentChain);
+    }
+
+    [Fact]
+    public async Task ReflectionFallbackSubAgent_AttachesHierarchicalAgentMetadata()
+    {
+        Assert.True(ReflectionToolFactory.TryCreateToolHarnessFactory(
+            typeof(ReflectionAdvancedToolHarness),
+            out var factory,
+            out var error));
+
+        Assert.Null(error);
+
+        var subAgentFunction = Assert.Single(
+            factory.CreateFunctions(new ReflectionAdvancedToolHarness(), null, null),
+            f => f.Name == "support_escalation");
+        var client = new FakeChatClient();
+        client.EnqueueToolCall(
+            "support_escalation",
+            "call-subagent",
+            new Dictionary<string, object?> { ["query"] = "help with this order" });
+        client.EnqueueTextResponse("child handled escalation");
+        client.EnqueueTextResponse("parent saw escalation");
+
+        var config = new AgentConfig
+        {
+            Name = "Support Parent",
+            MaxAgenticIterations = 5,
+            Clients = new AgentClientConfig
+            {
+                Chat = new ClientProviderConfig
+                {
+                    ProviderKey = "test",
+                    ModelName = "test-model",
+                    DefaultChatOptions = new ChatOptions
+                    {
+                        Tools = [subAgentFunction]
+                    }
+                }
+            },
+            AgenticLoop = new AgenticLoopConfig
+            {
+                MaxTurnDuration = TimeSpan.FromSeconds(20)
+            }
+        };
+
+        var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
+            .BuildAsync(CancellationToken.None);
+        var events = new List<AgentEvent>();
+
+        using var subscription = agent.SubscribeAny(evt =>
+        {
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        await agent.RunAsync(new UserTextInputEvent("Please escalate this."), CancellationToken.None);
+
+        var childText = Assert.Single(events.OfType<TextDeltaEvent>(),
+            evt => evt.Text == "child handled escalation");
+
+        Assert.NotNull(childText.Metadata);
+        Assert.Equal("support_escalation", childText.Metadata.AgentName);
+        Assert.Equal(agent.AgentId, childText.Metadata.ParentAgentId);
+        Assert.Equal(1, childText.Metadata.Depth);
+        Assert.Equal(["Support Parent", "support_escalation"], childText.Metadata.AgentChain);
     }
 
     [Fact]

@@ -314,8 +314,9 @@ public static class BranchEventFactory
         ToolResultPayload result,
         string? toolharnessName,
         ToolCallType? callType,
-        int iteration) =>
-        Scope(sessionId, branchId, new ToolCallResultEvent(callId, result, toolharnessName, callType)
+        int iteration,
+        string? name = null) =>
+        Scope(sessionId, branchId, new ToolCallResultEvent(callId, result, toolharnessName, callType, name)
         {
             EventFlowId = messageTurnId,
             MessageId = messageId

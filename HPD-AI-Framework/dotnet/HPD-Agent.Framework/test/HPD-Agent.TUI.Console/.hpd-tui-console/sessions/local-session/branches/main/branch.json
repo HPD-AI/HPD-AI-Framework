@@ -1,0 +1,279 @@
+{
+  "schema": "hpd.agent.branch.events",
+  "version": 2,
+  "sessionId": "local-session",
+  "branchId": "main",
+  "createdAt": "2026-06-06T00:14:20.489467+00:00",
+  "updatedAt": "2026-06-06T00:14:20.999312+00:00",
+  "nextSequenceNumber": 35,
+  "events": [
+    {
+      "type": "BRANCH_CREATED",
+      "name": "main",
+      "createdAt": "2026-06-06T00:14:20.489467Z",
+      "eventId": "e09e6a7106a1443a9d4d5dcbb33a220b",
+      "sequenceNumber": 1,
+      "timestamp": "2026-06-06T00:14:20.999022+00:00"
+    },
+    {
+      "type": "BRANCH_METADATA_UPDATED",
+      "name": "main",
+      "eventId": "63a8988cf3e14829a6f97438dc6ca1a5",
+      "sequenceNumber": 2,
+      "timestamp": "2026-06-06T00:14:20.999023+00:00"
+    },
+    {
+      "type": "BRANCH_TREE_UPDATED",
+      "siblingIndex": 0,
+      "totalSiblings": 1,
+      "isOriginal": true,
+      "childBranches": [],
+      "eventId": "a0dba4d9c7ad4434815771429451b5c2",
+      "sequenceNumber": 3,
+      "timestamp": "2026-06-06T00:14:20.999025+00:00"
+    },
+    {
+      "type": "MESSAGE_STARTED",
+      "messageId": "7ea91217-ad30-41b5-81d2-0ba977c0b8eb",
+      "role": "user",
+      "createdAt": "2026-06-06T00:14:05.538247+00:00",
+      "eventId": "153855d62b5944ab939a65fbde524eab",
+      "sequenceNumber": 4,
+      "timestamp": "2026-06-06T00:14:20.999027+00:00"
+    },
+    {
+      "type": "TEXT_MESSAGE_START",
+      "messageId": "7ea91217-ad30-41b5-81d2-0ba977c0b8eb",
+      "role": "user",
+      "eventId": "3d43aeaa173a424c8243d2887fa0b497",
+      "sequenceNumber": 5,
+      "timestamp": "2026-06-06T00:14:20.999029+00:00"
+    },
+    {
+      "type": "TEXT_DELTA",
+      "text": "who are you",
+      "messageId": "7ea91217-ad30-41b5-81d2-0ba977c0b8eb",
+      "eventId": "3ea29d40ef3b4741997ad3708a511e33",
+      "sequenceNumber": 6,
+      "timestamp": "2026-06-06T00:14:20.999029+00:00"
+    },
+    {
+      "type": "TEXT_MESSAGE_END",
+      "messageId": "7ea91217-ad30-41b5-81d2-0ba977c0b8eb",
+      "eventId": "a53a7f5c726e4aca9200e230137f5c53",
+      "sequenceNumber": 7,
+      "timestamp": "2026-06-06T00:14:20.99903+00:00"
+    },
+    {
+      "type": "MESSAGE_COMPLETED",
+      "messageId": "7ea91217-ad30-41b5-81d2-0ba977c0b8eb",
+      "eventId": "5697c65ce7bc4b939145b5bf7f9a21c3",
+      "sequenceNumber": 8,
+      "timestamp": "2026-06-06T00:14:20.99903+00:00"
+    },
+    {
+      "type": "MESSAGE_STARTED",
+      "messageId": "94e880d0-c103-4c64-862a-22934df71820",
+      "role": "assistant",
+      "createdAt": "2026-06-06T00:14:05+00:00",
+      "eventId": "dbb63eabc30e44c388cec08fc0fbcfa8",
+      "sequenceNumber": 9,
+      "timestamp": "2026-06-06T00:14:20.999033+00:00"
+    },
+    {
+      "type": "TEXT_MESSAGE_START",
+      "messageId": "94e880d0-c103-4c64-862a-22934df71820",
+      "role": "assistant",
+      "eventId": "c53b3e6daadf4f148b90ee4ab5bff1f5",
+      "sequenceNumber": 10,
+      "timestamp": "2026-06-06T00:14:20.999033+00:00"
+    },
+    {
+      "type": "TEXT_DELTA",
+      "text": "I am an HPD Agent, a server-hosted AI assistant designed to provide concise and helpful support. How can I assist you today?",
+      "messageId": "94e880d0-c103-4c64-862a-22934df71820",
+      "eventId": "aa6d7aad831d436ca64b4a0b232b96a1",
+      "sequenceNumber": 11,
+      "timestamp": "2026-06-06T00:14:20.999033+00:00"
+    },
+    {
+      "type": "TEXT_MESSAGE_END",
+      "messageId": "94e880d0-c103-4c64-862a-22934df71820",
+      "eventId": "503e2cbe2b374aa08eda71352620d706",
+      "sequenceNumber": 12,
+      "timestamp": "2026-06-06T00:14:20.999033+00:00"
+    },
+    {
+      "type": "MESSAGE_COMPLETED",
+      "messageId": "94e880d0-c103-4c64-862a-22934df71820",
+      "eventId": "69b59991bb7d4d2b9d9b04c2bec5449a",
+      "sequenceNumber": 13,
+      "timestamp": "2026-06-06T00:14:20.999034+00:00"
+    },
+    {
+      "type": "MESSAGE_STARTED",
+      "messageId": "cfe2c962-f91f-4f2b-b0d4-bf7192dfe93d",
+      "role": "user",
+      "createdAt": "2026-06-06T00:14:13.913617+00:00",
+      "eventId": "4f04328e065c4985af7b6ec908a4e176",
+      "sequenceNumber": 14,
+      "timestamp": "2026-06-06T00:14:20.999034+00:00"
+    },
+    {
+      "type": "TEXT_MESSAGE_START",
+      "messageId": "cfe2c962-f91f-4f2b-b0d4-bf7192dfe93d",
+      "role": "user",
+      "eventId": "e1b544b60dab47ba9cea2385954e59b9",
+      "sequenceNumber": 15,
+      "timestamp": "2026-06-06T00:14:20.999035+00:00"
+    },
+    {
+      "type": "TEXT_DELTA",
+      "text": "my name is earl",
+      "messageId": "cfe2c962-f91f-4f2b-b0d4-bf7192dfe93d",
+      "eventId": "c429ca4ab07e449d9f244de3cede77a8",
+      "sequenceNumber": 16,
+      "timestamp": "2026-06-06T00:14:20.999035+00:00"
+    },
+    {
+      "type": "TEXT_MESSAGE_END",
+      "messageId": "cfe2c962-f91f-4f2b-b0d4-bf7192dfe93d",
+      "eventId": "768d1ec1518a4efb9672c50fed28f1ed",
+      "sequenceNumber": 17,
+      "timestamp": "2026-06-06T00:14:20.999036+00:00"
+    },
+    {
+      "type": "MESSAGE_COMPLETED",
+      "messageId": "cfe2c962-f91f-4f2b-b0d4-bf7192dfe93d",
+      "eventId": "cfbd2af119414aa0bff5d28b40bd6ef3",
+      "sequenceNumber": 18,
+      "timestamp": "2026-06-06T00:14:20.999036+00:00"
+    },
+    {
+      "type": "MESSAGE_STARTED",
+      "messageId": "06680f10-c40e-49b1-a678-ffbe21d223da",
+      "role": "assistant",
+      "createdAt": "2026-06-06T00:14:13+00:00",
+      "eventId": "93ff4a5014c94fcb8bdadc8e94398e59",
+      "sequenceNumber": 19,
+      "timestamp": "2026-06-06T00:14:20.999036+00:00"
+    },
+    {
+      "type": "TEXT_MESSAGE_START",
+      "messageId": "06680f10-c40e-49b1-a678-ffbe21d223da",
+      "role": "assistant",
+      "eventId": "18d174a15f8d4bffa66f87b776713c7c",
+      "sequenceNumber": 20,
+      "timestamp": "2026-06-06T00:14:20.999037+00:00"
+    },
+    {
+      "type": "TEXT_DELTA",
+      "text": "Hello, Earl. How can I assist you today?",
+      "messageId": "06680f10-c40e-49b1-a678-ffbe21d223da",
+      "eventId": "e70b5c8cc34c4563bbcc5288c3cbdd21",
+      "sequenceNumber": 21,
+      "timestamp": "2026-06-06T00:14:20.999037+00:00"
+    },
+    {
+      "type": "TEXT_MESSAGE_END",
+      "messageId": "06680f10-c40e-49b1-a678-ffbe21d223da",
+      "eventId": "1fdb34b876b042fd9c68e25d63c0da65",
+      "sequenceNumber": 22,
+      "timestamp": "2026-06-06T00:14:20.999037+00:00"
+    },
+    {
+      "type": "MESSAGE_COMPLETED",
+      "messageId": "06680f10-c40e-49b1-a678-ffbe21d223da",
+      "eventId": "5e2af777f53644f7bf1fb4f3a1c91176",
+      "sequenceNumber": 23,
+      "timestamp": "2026-06-06T00:14:20.999038+00:00"
+    },
+    {
+      "type": "MESSAGE_STARTED",
+      "messageId": "d504282f-335f-4b18-8062-3ab84d818f4d",
+      "role": "user",
+      "createdAt": "2026-06-06T00:14:20.489956+00:00",
+      "eventId": "f3fa1e87ea864361a20b2ba7b643d45c",
+      "sequenceNumber": 24,
+      "timestamp": "2026-06-06T00:14:20.999038+00:00"
+    },
+    {
+      "type": "TEXT_MESSAGE_START",
+      "messageId": "d504282f-335f-4b18-8062-3ab84d818f4d",
+      "role": "user",
+      "eventId": "de70f842a1ad4745be4ea66eabfe7dcd",
+      "sequenceNumber": 25,
+      "timestamp": "2026-06-06T00:14:20.999038+00:00"
+    },
+    {
+      "type": "TEXT_DELTA",
+      "text": "what is my name",
+      "messageId": "d504282f-335f-4b18-8062-3ab84d818f4d",
+      "eventId": "0f49967eecb34775990f3f1335c283a1",
+      "sequenceNumber": 26,
+      "timestamp": "2026-06-06T00:14:20.999039+00:00"
+    },
+    {
+      "type": "TEXT_MESSAGE_END",
+      "messageId": "d504282f-335f-4b18-8062-3ab84d818f4d",
+      "eventId": "78d5162541c041cc8fd90964fed5d7a0",
+      "sequenceNumber": 27,
+      "timestamp": "2026-06-06T00:14:20.999039+00:00"
+    },
+    {
+      "type": "MESSAGE_COMPLETED",
+      "messageId": "d504282f-335f-4b18-8062-3ab84d818f4d",
+      "eventId": "41f562eb55054160910ca2229333efca",
+      "sequenceNumber": 28,
+      "timestamp": "2026-06-06T00:14:20.999039+00:00"
+    },
+    {
+      "type": "MESSAGE_STARTED",
+      "messageId": "a710182e-a5c1-430f-8792-9c21df858e42",
+      "role": "assistant",
+      "createdAt": "2026-06-06T00:14:20+00:00",
+      "eventId": "37c17ce37c474e558d1c3fbdd836285a",
+      "sequenceNumber": 29,
+      "timestamp": "2026-06-06T00:14:20.99904+00:00"
+    },
+    {
+      "type": "TEXT_MESSAGE_START",
+      "messageId": "a710182e-a5c1-430f-8792-9c21df858e42",
+      "role": "assistant",
+      "eventId": "8d6317e9a1bc4636a02b20e5e9ec8728",
+      "sequenceNumber": 30,
+      "timestamp": "2026-06-06T00:14:20.99904+00:00"
+    },
+    {
+      "type": "TEXT_DELTA",
+      "text": "Your name is Earl.",
+      "messageId": "a710182e-a5c1-430f-8792-9c21df858e42",
+      "eventId": "dc3bad51a6de401c9abbf5deb77ea65a",
+      "sequenceNumber": 31,
+      "timestamp": "2026-06-06T00:14:20.999041+00:00"
+    },
+    {
+      "type": "TEXT_MESSAGE_END",
+      "messageId": "a710182e-a5c1-430f-8792-9c21df858e42",
+      "eventId": "3fb9ddb929de439394d577cae6e361d2",
+      "sequenceNumber": 32,
+      "timestamp": "2026-06-06T00:14:20.999041+00:00"
+    },
+    {
+      "type": "MESSAGE_COMPLETED",
+      "messageId": "a710182e-a5c1-430f-8792-9c21df858e42",
+      "eventId": "1b1ef40c4ca74149bc6ec6188302fea7",
+      "sequenceNumber": 33,
+      "timestamp": "2026-06-06T00:14:20.999041+00:00"
+    },
+    {
+      "type": "BRANCH_RUN_COMPLETED",
+      "runtimeRunId": "17fa6a01847d4641875b5e60a6328b20",
+      "agentId": "tui-console-agent",
+      "cancelled": false,
+      "eventId": "86bfb2a5ecd243028277c7035c97f60b",
+      "sequenceNumber": 34,
+      "timestamp": "2026-06-06T00:14:20.999312+00:00"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 namespace HPD.Agent.Sandbox.ProcessIsolation;
 
-using HPD.Execution.Contracts;
+using HPD.Environment.Contracts;
 
 internal static class SandboxPlanProjection
 {

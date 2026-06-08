@@ -66,28 +66,33 @@ public sealed class Stack : IComponent
     {
         var min = 0;
         var max = 0;
+        var height = 0;
         foreach (var child in _children)
         {
             var measurement = child.Measure(in context, maxWidth);
             min = Math.Max(min, measurement.MinWidth);
             max = Math.Max(max, measurement.MaxWidth);
+            height += measurement.Height;
         }
 
-        return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth));
+        height += Math.Max(0, _children.Count - 1) * (Gap + 1);
+        return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);
     }
 
     private Measurement MeasureHorizontal(in RenderContext context, int maxWidth)
     {
         var min = Math.Max(0, (_children.Count - 1) * Gap);
         var max = min;
+        var height = 0;
         foreach (var child in _children)
         {
             var measurement = child.Measure(in context, maxWidth);
             min += measurement.MinWidth;
             max += measurement.MaxWidth;
+            height = Math.Max(height, measurement.Height);
         }
 
-        return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth));
+        return new Measurement(Math.Min(min, maxWidth), Math.Min(max, maxWidth), height);
     }
 
     private void RenderVertical(in RenderContext context, int maxWidth, ref SegmentWriter output)

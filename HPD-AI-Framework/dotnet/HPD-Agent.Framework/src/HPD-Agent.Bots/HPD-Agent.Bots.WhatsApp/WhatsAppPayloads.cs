@@ -3,22 +3,22 @@ using HPD.Agent.Bots;
 
 namespace HPD.Agent.Bots.WhatsApp;
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppWebhookPayload(
     [property: JsonPropertyName("object")] string Object,
     [property: JsonPropertyName("entry")] WhatsAppWebhookEntry[] Entry);
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppWebhookEntry(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("changes")] WhatsAppWebhookChange[] Changes);
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppWebhookChange(
     [property: JsonPropertyName("field")] string Field,
     [property: JsonPropertyName("value")] WhatsAppWebhookValue Value);
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppWebhookValue(
     [property: JsonPropertyName("messaging_product")] string MessagingProduct,
     [property: JsonPropertyName("metadata")] WhatsAppMetadata Metadata,
@@ -26,21 +26,21 @@ public sealed record WhatsAppWebhookValue(
     [property: JsonPropertyName("messages")] WhatsAppInboundMessage[]? Messages = null,
     [property: JsonPropertyName("statuses")] WhatsAppStatus[]? Statuses = null);
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppMetadata(
     [property: JsonPropertyName("display_phone_number")] string DisplayPhoneNumber,
     [property: JsonPropertyName("phone_number_id")] string PhoneNumberId);
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppContact(
     [property: JsonPropertyName("profile")] WhatsAppProfile Profile,
     [property: JsonPropertyName("wa_id")] string WaId);
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppProfile(
     [property: JsonPropertyName("name")] string Name);
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppInboundMessage(
     [property: JsonPropertyName("from")] string From,
     [property: JsonPropertyName("id")] string Id,
@@ -59,18 +59,18 @@ public sealed record WhatsAppInboundMessage(
     [property: JsonPropertyName("reaction")] WhatsAppReactionContent? Reaction = null,
     [property: JsonPropertyName("context")] WhatsAppContext? Context = null);
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppTextContent(
     [property: JsonPropertyName("body")] string Body);
 
-[WebhookPayload]
+[HpdBotPayload]
 public record WhatsAppMediaContent(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("mime_type")] string? MimeType = null,
     [property: JsonPropertyName("sha256")] string? Sha256 = null,
     [property: JsonPropertyName("caption")] string? Caption = null);
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppDocumentContent : WhatsAppMediaContent
 {
     public WhatsAppDocumentContent(
@@ -87,41 +87,41 @@ public sealed record WhatsAppDocumentContent : WhatsAppMediaContent
     public string? FileName { get; init; }
 }
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppLocationContent(
     [property: JsonPropertyName("latitude")] double Latitude,
     [property: JsonPropertyName("longitude")] double Longitude,
     [property: JsonPropertyName("name")] string? Name = null,
     [property: JsonPropertyName("address")] string? Address = null);
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppInteractiveReply(
     [property: JsonPropertyName("type")] string Type,
     [property: JsonPropertyName("button_reply")] WhatsAppReply? ButtonReply = null,
     [property: JsonPropertyName("list_reply")] WhatsAppReply? ListReply = null);
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppReply(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("title")] string Title,
     [property: JsonPropertyName("description")] string? Description = null);
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppButtonReply(
     [property: JsonPropertyName("payload")] string Payload,
     [property: JsonPropertyName("text")] string Text);
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppReactionContent(
     [property: JsonPropertyName("message_id")] string MessageId,
     [property: JsonPropertyName("emoji")] string? Emoji);
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppContext(
     [property: JsonPropertyName("from")] string? From = null,
     [property: JsonPropertyName("id")] string? Id = null);
 
-[WebhookPayload]
+[HpdBotPayload]
 public sealed record WhatsAppStatus(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("status")] string Status,

@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace HPD.Agent.Bots.Discord.Payloads;
 
-[WebhookPayload]
+[HpdBotPayload]
 public record DiscordGatewayMessage(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("channel_id")] string ChannelId,
@@ -17,7 +17,7 @@ public record DiscordGatewayMessage(
     [property: JsonPropertyName("thread")] DiscordThreadRef? Thread,
     [property: JsonPropertyName("is_mention")] bool? IsMention);
 
-[WebhookPayload]
+[HpdBotPayload]
 public record DiscordGatewayReaction(
     [property: JsonPropertyName("user_id")] string UserId,
     [property: JsonPropertyName("channel_id")] string ChannelId,

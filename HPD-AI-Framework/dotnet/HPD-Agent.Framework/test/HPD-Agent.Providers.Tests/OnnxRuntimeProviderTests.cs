@@ -3,6 +3,7 @@ using HPD.Agent;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
 using HPD.Agent.Providers.OnnxRuntime;
+using Microsoft.Extensions.AI;
 using Xunit;
 
 namespace HPD.Agent.Tests.Providers;
@@ -391,6 +392,45 @@ public class OnnxRuntimeProviderTests
         // Assert
         result.IsValid.Should().BeTrue();
         result.Errors.Should().BeEmpty();
+    }
+
+    [SkippableFact]
+    public async Task LiveModel_GetResponseAsync_WithConfiguredModelPath_ReturnsText()
+    {
+        var modelPath = global::System.Environment.GetEnvironmentVariable("ONNX_MODEL_PATH");
+        Skip.If(
+            string.IsNullOrWhiteSpace(modelPath),
+            "Set ONNX_MODEL_PATH to a real ONNX Runtime GenAI model directory to run this smoke test.");
+        Skip.IfNot(
+            Directory.Exists(modelPath),
+            $"ONNX_MODEL_PATH does not point to an existing directory: {modelPath}");
+
+        var config = new ClientProviderConfig
+        {
+            ProviderKey = "onnx-runtime",
+            ModelName = global::System.Environment.GetEnvironmentVariable("ONNX_MODEL_NAME") ?? "local-onnx-runtime"
+        };
+        config.SetProviderConfig(new OnnxRuntimeProviderConfig
+        {
+            ModelPath = modelPath,
+            MaxLength = ReadPositiveInt("ONNX_SMOKE_MAX_LENGTH") ?? 32,
+            Temperature = 0
+        });
+
+        using var client = _provider.CreateChatClient(config);
+        using var cts = new CancellationTokenSource(
+            TimeSpan.FromSeconds(ReadPositiveInt("ONNX_SMOKE_TIMEOUT_SECONDS") ?? 120));
+
+        var response = await client.GetResponseAsync(
+            [new ChatMessage(ChatRole.User, global::System.Environment.GetEnvironmentVariable("ONNX_SMOKE_PROMPT") ?? "Reply with one short sentence.")],
+            new ChatOptions
+            {
+                MaxOutputTokens = ReadPositiveInt("ONNX_SMOKE_OUTPUT_TOKENS") ?? 16,
+                Temperature = 0
+            },
+            cts.Token);
+
+        response.Text.Should().NotBeNullOrWhiteSpace();
     }
 
     #endregion
@@ -813,4 +853,12 @@ public class OnnxRuntimeProviderTests
     }
 
     #endregion
+
+    private static int? ReadPositiveInt(string name)
+    {
+        var value = global::System.Environment.GetEnvironmentVariable(name);
+        return int.TryParse(value, out var parsed) && parsed > 0
+            ? parsed
+            : null;
+    }
 }

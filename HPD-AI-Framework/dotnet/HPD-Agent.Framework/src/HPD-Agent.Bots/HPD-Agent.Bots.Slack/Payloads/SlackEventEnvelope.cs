@@ -8,7 +8,7 @@ namespace HPD.Agent.Bots.Slack.Payloads;
 /// The inner <c>event</c> field is kept as <see cref="JsonElement"/> so each handler
 /// can deserialize it to the specific event type it expects.
 /// </summary>
-[WebhookPayload]
+[HpdBotPayload]
 public record SlackEventEnvelope(
     [property: JsonPropertyName("type")]      string Type,
     [property: JsonPropertyName("team_id")]   string? TeamId,

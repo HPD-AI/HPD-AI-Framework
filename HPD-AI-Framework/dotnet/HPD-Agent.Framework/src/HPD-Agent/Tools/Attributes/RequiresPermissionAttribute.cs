@@ -1,8 +1,8 @@
 using System;
 
 /// <summary>
-/// Marks a capability (AIFunction, Skill, or SubAgent) as requiring user permission before execution.
-/// Capabilities with this attribute will trigger permission requests to the configured handler.
+/// Marks a capability (AIFunction, Skill, or SubAgent) with permission metadata.
+/// Permission middleware decides how this metadata is enforced.
 ///
 /// Note: SubAgents always require permission by default (this attribute is implicit).
 /// For AIFunctions and Skills, this attribute must be explicitly added.

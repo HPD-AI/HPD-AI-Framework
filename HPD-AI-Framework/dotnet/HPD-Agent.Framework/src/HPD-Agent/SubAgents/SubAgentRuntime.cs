@@ -197,6 +197,7 @@ public static class SubAgentRuntime
                     {
                         SubAgentBranchCompaction.Enabled => BranchForkCompactionIntent.Enabled,
                         SubAgentBranchCompaction.Disabled => BranchForkCompactionIntent.Disabled,
+                        SubAgentBranchCompaction.PreferCache => BranchForkCompactionIntent.PreferCache,
                         _ => BranchForkCompactionIntent.Inherit
                     }
                 };

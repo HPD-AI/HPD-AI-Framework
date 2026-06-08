@@ -1,9 +1,43 @@
 namespace HPD.Agent.Sandbox.ProcessIsolation;
 
-using HPD.Execution.Contracts;
+using HPD.Environment.Contracts;
 using HPD.Agent.Sandbox.Policy;
 
-internal static class SandboxIsolationCompiler
+public sealed class SandboxIsolationPlanner : ISandboxPlanner
+{
+    public ValueTask<SandboxPlanEnvelope> PlanAsync(
+        ProcessInvocationSpec invocation,
+        SandboxExecutionContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(invocation);
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        SandboxIsolationPlan plan = SandboxIsolationCompiler.Compile(invocation.Isolation);
+        Diagnostic[] diagnostics =
+        [
+            new Diagnostic
+            {
+                Code = new DiagnosticCode("hpd.agent.sandbox.plan.created"),
+                Severity = DiagnosticSeverity.Info,
+                Message = $"Sandbox plan created for {context.ExecutionPlatform.OperatingSystem}/{context.ExecutionPlatform.Architecture} at {context.EnforcementLocation}.",
+            },
+        ];
+
+        return ValueTask.FromResult(new SandboxPlanEnvelope
+        {
+            SchemaId = SandboxPlanEnvelope.DefaultSchemaId,
+            ExecutionPlatform = context.ExecutionPlatform,
+            EnforcementLocation = context.EnforcementLocation,
+            Plan = plan,
+            Diagnostics = diagnostics,
+            ProviderExtensions = plan.ProviderExtensions,
+        });
+    }
+}
+
+public static class SandboxIsolationCompiler
 {
     public static SandboxIsolationPlan Compile(ProcessInvocationSpec invocation)
     {
@@ -99,7 +133,7 @@ internal static class SandboxIsolationCompiler
     {
         DomainPattern pattern = DomainPattern.Parse(rule.Pattern);
         EnsureDomainKind(rule, pattern);
-        return new SandboxDomainRule(rule, pattern);
+        return new SandboxDomainRule(rule, pattern.Canonical);
     }
 
     private static void EnsureDomainKind(DomainRule rule, DomainPattern pattern)

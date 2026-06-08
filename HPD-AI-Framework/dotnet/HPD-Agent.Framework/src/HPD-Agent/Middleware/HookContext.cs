@@ -357,7 +357,7 @@ public abstract class HookContext
     [EditorBrowsable(EditorBrowsableState.Never)]
     public AgentMetadata? GetParentAgentMetadata()
     {
-        return Agent.RootAgent?.AgentMetadata;
+        return Base.ParentAgentMetadata ?? Agent.RootAgent?.AgentMetadata;
     }
 
     //

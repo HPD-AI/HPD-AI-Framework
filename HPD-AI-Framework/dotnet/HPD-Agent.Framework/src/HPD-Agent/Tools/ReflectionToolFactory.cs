@@ -225,6 +225,8 @@ internal static class ReflectionToolFactory
                     agent.EventCoordinator.SetParent(parentCoordinator);
                 }
 
+                agent.AgentMetadata = CreateSubAgentMetadata(agent, subAgent, functionContext?.GetParentAgentMetadata());
+
                 var textResult = new StringBuilder();
                 var route = await SubAgentRuntime.ResolveRouteAsync(agent, subAgent, functionContext, cancellationToken)
                     .ConfigureAwait(false);
@@ -274,6 +276,25 @@ internal static class ReflectionToolFactory
                     ["RequiresPermission"] = true
                 }
             });
+    }
+
+    private static AgentMetadata CreateSubAgentMetadata(
+        Agent agent,
+        SubAgent subAgent,
+        AgentMetadata? parentMetadata)
+    {
+        var agentChain = parentMetadata is not null
+            ? parentMetadata.AgentChain.Concat([subAgent.Name]).ToArray()
+            : [subAgent.Name];
+
+        return new AgentMetadata
+        {
+            AgentName = subAgent.Name,
+            AgentId = agent.AgentId,
+            ParentAgentId = parentMetadata?.AgentId,
+            AgentChain = agentChain,
+            Depth = (parentMetadata?.Depth ?? -1) + 1
+        };
     }
 
     private static AIFunction CreateMultiAgent(

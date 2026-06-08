@@ -9,7 +9,7 @@ public class PathNormalizerTests
     [Fact]
     public void Normalize_ExpandsTilde()
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var home = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
         var result = PathNormalizer.Normalize("~/test");
 
         Assert.StartsWith(home, result);
@@ -19,7 +19,7 @@ public class PathNormalizerTests
     [Fact]
     public void Normalize_ExpandsTildeAlone()
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var home = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
         var result = PathNormalizer.Normalize("~");
 
         Assert.Equal(home, result);

@@ -4,50 +4,96 @@ namespace HPD.TUI.Core;
 
 public readonly record struct Style(Color Foreground, Color Background, TextAttributes Attributes = TextAttributes.None)
 {
-    public static Style Default { get; } = new(Color.White, Color.Default);
+    public static Style Default { get; } = new(Color.Default, Color.Default);
 
     public int WriteAnsiPrefix(Span<char> destination)
     {
         Span<byte> bytes = stackalloc byte[3];
         var pos = 0;
 
-        if (!TryAppend(destination, ref pos, "\x1b[38;2;") ||
-            !TryAppendByte(destination, ref pos, bytes, Foreground.R) ||
-            !TryAppend(destination, ref pos, ";") ||
-            !TryAppendByte(destination, ref pos, bytes, Foreground.G) ||
-            !TryAppend(destination, ref pos, ";") ||
-            !TryAppendByte(destination, ref pos, bytes, Foreground.B))
+        if (!TryAppend(destination, ref pos, "\x1b["))
         {
             return 0;
         }
 
-        if (!Background.IsDefault &&
-            (!TryAppend(destination, ref pos, ";48;2;") ||
+        var hasCode = false;
+
+        if (!Foreground.IsDefault)
+        {
+            if (!TryAppend(destination, ref pos, "38;2;") ||
+                !TryAppendByte(destination, ref pos, bytes, Foreground.R) ||
+                !TryAppend(destination, ref pos, ";") ||
+                !TryAppendByte(destination, ref pos, bytes, Foreground.G) ||
+                !TryAppend(destination, ref pos, ";") ||
+                !TryAppendByte(destination, ref pos, bytes, Foreground.B))
+            {
+                return 0;
+            }
+
+            hasCode = true;
+        }
+
+        if (!Background.IsDefault)
+        {
+            if (!AppendSeparatorIfNeeded(destination, ref pos, hasCode) ||
+                !TryAppend(destination, ref pos, "48;2;") ||
             !TryAppendByte(destination, ref pos, bytes, Background.R) ||
             !TryAppend(destination, ref pos, ";") ||
             !TryAppendByte(destination, ref pos, bytes, Background.G) ||
             !TryAppend(destination, ref pos, ";") ||
-            !TryAppendByte(destination, ref pos, bytes, Background.B)))
-        {
-            return 0;
+                !TryAppendByte(destination, ref pos, bytes, Background.B))
+            {
+                return 0;
+            }
+
+            hasCode = true;
         }
 
-        if ((Attributes & TextAttributes.Bold) != 0 && !TryAppend(destination, ref pos, ";1"))
+        if ((Attributes & TextAttributes.Bold) != 0)
         {
-            return 0;
+            if (!AppendSeparatorIfNeeded(destination, ref pos, hasCode) ||
+                !TryAppend(destination, ref pos, "1"))
+            {
+                return 0;
+            }
+
+            hasCode = true;
         }
 
-        if ((Attributes & TextAttributes.Italic) != 0 && !TryAppend(destination, ref pos, ";3"))
+        if ((Attributes & TextAttributes.Italic) != 0)
         {
-            return 0;
+            if (!AppendSeparatorIfNeeded(destination, ref pos, hasCode) ||
+                !TryAppend(destination, ref pos, "3"))
+            {
+                return 0;
+            }
+
+            hasCode = true;
         }
 
-        if ((Attributes & TextAttributes.Underline) != 0 && !TryAppend(destination, ref pos, ";4"))
+        if ((Attributes & TextAttributes.Underline) != 0)
         {
-            return 0;
+            if (!AppendSeparatorIfNeeded(destination, ref pos, hasCode) ||
+                !TryAppend(destination, ref pos, "4"))
+            {
+                return 0;
+            }
+
+            hasCode = true;
         }
 
-        if ((Attributes & TextAttributes.Strikethrough) != 0 && !TryAppend(destination, ref pos, ";9"))
+        if ((Attributes & TextAttributes.Strikethrough) != 0)
+        {
+            if (!AppendSeparatorIfNeeded(destination, ref pos, hasCode) ||
+                !TryAppend(destination, ref pos, "9"))
+            {
+                return 0;
+            }
+
+            hasCode = true;
+        }
+
+        if (!hasCode && !TryAppend(destination, ref pos, "0"))
         {
             return 0;
         }
@@ -59,6 +105,9 @@ public readonly record struct Style(Color Foreground, Color Background, TextAttr
 
         return pos;
     }
+
+    private static bool AppendSeparatorIfNeeded(Span<char> destination, ref int pos, bool hasCode)
+        => !hasCode || TryAppend(destination, ref pos, ";");
 
     private static bool TryAppend(Span<char> destination, ref int pos, ReadOnlySpan<char> value)
     {

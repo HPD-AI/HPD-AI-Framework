@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Net.WebSockets;
 using HPD.Agent;
+using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
@@ -15,6 +16,62 @@ namespace HPD.Agent.Audio.V2.Tests;
 public sealed class ElevenLabsAudioProviderTests
 {
     [Fact]
+    public void BuilderExtension_ConfiguresTextToSpeechProviderFamily()
+    {
+        var builder = new AgentBuilder()
+            .WithElevenLabsTextToSpeech(
+                model: "eleven_multilingual_v2",
+                apiKey: "el-test",
+                voice: "voice_123",
+                outputFormat: "mp3_44100_128",
+                configure: config =>
+                {
+                    config.Stability = 0.4;
+                    config.EnablePushTextStreaming = true;
+                });
+
+        var ttsConfig = builder.Config.Clients?.TextToSpeech;
+        Assert.NotNull(ttsConfig);
+        Assert.Equal(ElevenLabsAudioProvider.Key, ttsConfig.ProviderKey);
+        Assert.Equal("eleven_multilingual_v2", ttsConfig.ModelName);
+        Assert.Equal("el-test", ttsConfig.ApiKey);
+
+        var providerConfig = ttsConfig.GetProviderConfig<ElevenLabsTtsConfig>(ProviderClientFamily.TextToSpeech);
+        Assert.NotNull(providerConfig);
+        Assert.Equal("eleven_multilingual_v2", providerConfig.DefaultModelId);
+        Assert.Equal("voice_123", providerConfig.DefaultVoiceId);
+        Assert.Equal("mp3_44100_128", providerConfig.OutputFormat);
+        Assert.Equal(0.4, providerConfig.Stability);
+        Assert.True(providerConfig.EnablePushTextStreaming);
+    }
+
+    [Fact]
+    public void BuilderExtension_ConfiguresSpeechToTextProviderFamily()
+    {
+        var builder = new AgentBuilder()
+            .WithElevenLabsSpeechToText(
+                model: "scribe_v2",
+                apiKey: "el-test",
+                configure: config =>
+                {
+                    config.LanguageCode = "en";
+                    config.Diarize = true;
+                });
+
+        var sttConfig = builder.Config.Clients?.SpeechToText;
+        Assert.NotNull(sttConfig);
+        Assert.Equal(ElevenLabsAudioProvider.Key, sttConfig.ProviderKey);
+        Assert.Equal("scribe_v2", sttConfig.ModelName);
+        Assert.Equal("el-test", sttConfig.ApiKey);
+
+        var providerConfig = sttConfig.GetProviderConfig<ElevenLabsSttConfig>(ProviderClientFamily.SpeechToText);
+        Assert.NotNull(providerConfig);
+        Assert.Equal("scribe_v2", providerConfig.DefaultModelId);
+        Assert.Equal("en", providerConfig.LanguageCode);
+        Assert.True(providerConfig.Diarize);
+    }
+
+    [Fact]
     public void Metadata_ExposesTextToSpeechFamily()
     {
         var provider = new ElevenLabsAudioProvider();
@@ -26,6 +83,105 @@ public sealed class ElevenLabsAudioProviderTests
         Assert.Equal(ProviderClientFamily.TextToSpeech, family.Family);
         Assert.Equal(ElevenLabsAudioProvider.DefaultTextToSpeechModel, family.DefaultModelId);
         Assert.True((bool)Assert.Contains("SupportsAudio", family.Capabilities!)!);
+    }
+
+    [Fact]
+    public void Metadata_ExposesSpeechToTextFamily()
+    {
+        var provider = new ElevenLabsAudioProvider();
+        var metadata = provider.GetMetadata();
+
+        var family = Assert.Contains(ProviderClientFamily.SpeechToText, metadata.Families);
+        Assert.Equal(ProviderClientFamily.SpeechToText, family.Family);
+        Assert.Equal(ElevenLabsAudioProvider.DefaultSpeechToTextModel, family.DefaultModelId);
+        Assert.Contains("scribe_v2", family.SupportedModels);
+        Assert.Contains(ElevenLabsAudioProvider.DefaultRealtimeSpeechToTextModel, family.SupportedModels);
+        Assert.True((bool)Assert.Contains("SupportsAudio", family.Capabilities!)!);
+        Assert.True((bool)Assert.Contains("SupportsStreamingSpeechToText", family.Capabilities!)!);
+        Assert.True((bool)Assert.Contains("SupportsRealtimeSpeechToText", family.Capabilities!)!);
+    }
+
+    [Fact]
+    public void StreamingTextUpdate_MapsSessionStarted()
+    {
+        var payload = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            message_type = "session_started",
+            session_id = "session_123"
+        });
+
+        var update = ElevenLabsSpeechToTextClient.ToStreamingTextUpdate(
+            payload,
+            ElevenLabsAudioProvider.DefaultRealtimeSpeechToTextModel);
+
+        Assert.NotNull(update);
+        Assert.Equal(SpeechToTextResponseUpdateKind.SessionOpen, update.Kind);
+        Assert.Equal("session_123", update.ResponseId);
+        Assert.Equal(ElevenLabsAudioProvider.DefaultRealtimeSpeechToTextModel, update.ModelId);
+    }
+
+    [Fact]
+    public void StreamingTextUpdate_MapsPartialTranscript()
+    {
+        var payload = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            message_type = "partial_transcript",
+            text = "hello wor"
+        });
+
+        var update = ElevenLabsSpeechToTextClient.ToStreamingTextUpdate(
+            payload,
+            ElevenLabsAudioProvider.DefaultRealtimeSpeechToTextModel);
+
+        Assert.NotNull(update);
+        Assert.Equal(SpeechToTextResponseUpdateKind.TextUpdating, update.Kind);
+        Assert.Equal("hello wor", update.Text);
+    }
+
+    [Fact]
+    public void StreamingTextUpdate_MapsCommittedTranscriptWithTimestamps()
+    {
+        var payload = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            message_type = "committed_transcript_with_timestamps",
+            text = "hello world",
+            language_code = "en",
+            words = new[]
+            {
+                new { text = "hello", start = 0.1, end = 0.4, type = "word" },
+                new { text = "world", start = 0.5, end = 0.9, type = "word" }
+            }
+        });
+
+        var update = ElevenLabsSpeechToTextClient.ToStreamingTextUpdate(
+            payload,
+            ElevenLabsAudioProvider.DefaultRealtimeSpeechToTextModel);
+
+        Assert.NotNull(update);
+        Assert.Equal(SpeechToTextResponseUpdateKind.TextUpdated, update.Kind);
+        Assert.Equal("hello world", update.Text);
+        Assert.Equal(TimeSpan.FromSeconds(0.1), update.StartTime);
+        Assert.Equal(TimeSpan.FromSeconds(0.9), update.EndTime);
+        Assert.Equal("en", update.AdditionalProperties?["languageCode"]);
+    }
+
+    [Fact]
+    public void StreamingTextUpdate_MapsError()
+    {
+        var payload = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            message_type = "scribe_error",
+            error = "bad audio"
+        });
+
+        var update = ElevenLabsSpeechToTextClient.ToStreamingTextUpdate(
+            payload,
+            ElevenLabsAudioProvider.DefaultRealtimeSpeechToTextModel);
+
+        Assert.NotNull(update);
+        Assert.Equal(SpeechToTextResponseUpdateKind.Error, update.Kind);
+        Assert.Equal("scribe_error", update.AdditionalProperties?["messageType"]);
+        Assert.Equal("bad audio", update.AdditionalProperties?["error"]);
     }
 
     [Fact]
@@ -62,6 +218,22 @@ public sealed class ElevenLabsAudioProviderTests
     }
 
     [Fact]
+    public void ValidateConfiguration_AcceptsSpeechToTextApiKeyFromProviderOptionsJson()
+    {
+        var provider = new ElevenLabsAudioProvider();
+
+        var result = provider.ValidateConfiguration(
+            new ClientProviderConfig
+            {
+                ProviderKey = "elevenlabs",
+                ProviderOptionsJson = "{\"apiKey\":\"el-test\",\"defaultModelId\":\"scribe_v2\"}"
+            },
+            ProviderClientFamily.SpeechToText);
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
     public void ValidateConfiguration_WrongFamilyFails()
     {
         var provider = new ElevenLabsAudioProvider();
@@ -72,10 +244,10 @@ public sealed class ElevenLabsAudioProviderTests
                 ProviderKey = "elevenlabs",
                 ApiKey = "el-test"
             },
-            ProviderClientFamily.SpeechToText);
+            ProviderClientFamily.Realtime);
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, error => error.Contains("SpeechToText", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error => error.Contains("Realtime", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -105,6 +277,17 @@ public sealed class ElevenLabsAudioProviderTests
         registry.Register(provider);
 
         Assert.Same(provider, registry.GetProvider<ITextToSpeechClientProvider>("elevenlabs"));
+    }
+
+    [Fact]
+    public void ProviderRegistry_ResolvesSpeechToTextProvider()
+    {
+        var registry = new ProviderRegistry();
+        var provider = new ElevenLabsAudioProvider();
+
+        registry.Register(provider);
+
+        Assert.Same(provider, registry.GetProvider<ISpeechToTextClientProvider>("elevenlabs"));
     }
 
     [Fact]
@@ -299,6 +482,105 @@ public sealed class ElevenLabsAudioProviderTests
     }
 
     [Fact]
+    public void CreateSpeechToTextClient_MissingApiKeyThrowsUsefulError()
+    {
+        using var env = new EnvironmentVariableScope("ELEVENLABS_API_KEY", null);
+        var provider = new ElevenLabsAudioProvider();
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            provider.CreateSpeechToTextClient(
+                new ClientProviderConfig
+                {
+                    ProviderKey = "elevenlabs"
+                }));
+
+        Assert.Contains("ElevenLabs API key is required", exception.Message);
+        Assert.Contains("speech-to-text", exception.Message);
+        Assert.Contains("ELEVENLABS_API_KEY", exception.Message);
+    }
+
+    [Fact]
+    public void CreateSpeechToTextClient_WithFakeApiKeyReturnsMeaiClient()
+    {
+        var provider = new ElevenLabsAudioProvider();
+
+        using var client = provider.CreateSpeechToTextClient(
+            new ClientProviderConfig
+            {
+                ProviderKey = "elevenlabs",
+                ModelName = "scribe_v2",
+                ApiKey = "el-test"
+            });
+
+        Assert.NotNull(client);
+        var metadata = Assert.IsType<SpeechToTextClientMetadata>(
+            client.GetService(typeof(SpeechToTextClientMetadata)));
+        Assert.Equal("elevenlabs", metadata.ProviderName);
+        Assert.Equal("scribe_v2", metadata.DefaultModelId);
+    }
+
+    [Fact]
+    public async Task SpeechToTextClient_PostsMultipartRequestAndMapsResponse()
+    {
+        var handler = new CapturingMessageHandler(
+            """
+            {
+              "language_code": "en",
+              "language_probability": 0.98,
+              "text": "hello world",
+              "words": [
+                { "text": "hello", "start": 0.1, "end": 0.4, "type": "word" },
+                { "text": "world", "start": 0.5, "end": 0.9, "type": "word" }
+              ]
+            }
+            """);
+        using var httpClient = new HttpClient(handler);
+        using var client = new ElevenLabsSpeechToTextClient(
+            "el-test",
+            new ElevenLabsSttConfig
+            {
+                BaseUrl = "https://api.example.test/v1",
+                DefaultModelId = "scribe_v1",
+                Diarize = true,
+                TagAudioEvents = false,
+                TimestampsGranularity = "word"
+            },
+            httpClient);
+
+        var response = await client.GetTextAsync(
+            new MemoryStream([1, 2, 3, 4]),
+            new SpeechToTextOptions
+            {
+                ModelId = "scribe_v2",
+                SpeechLanguage = "en",
+                AdditionalProperties = new AdditionalPropertiesDictionary
+                {
+                    ["fileName"] = "clip.wav",
+                    ["contentType"] = "audio/wav"
+                }
+            });
+
+        Assert.Equal("hello world", response.Text);
+        Assert.Equal("scribe_v2", response.ModelId);
+        Assert.Equal(TimeSpan.FromSeconds(0.1), response.StartTime);
+        Assert.Equal(TimeSpan.FromSeconds(0.9), response.EndTime);
+        Assert.Equal("en", response.AdditionalProperties!["languageCode"]);
+        Assert.Equal(0.98, response.AdditionalProperties!["languageProbability"]);
+
+        Assert.Equal(HttpMethod.Post, handler.Method);
+        Assert.Equal("https://api.example.test/v1/speech-to-text", handler.RequestUri?.ToString());
+        Assert.Equal("el-test", handler.ApiKey);
+        Assert.Equal("scribe_v2", handler.FormValues["model_id"]);
+        Assert.Equal("en", handler.FormValues["language_code"]);
+        Assert.Equal("true", handler.FormValues["diarize"]);
+        Assert.Equal("false", handler.FormValues["tag_audio_events"]);
+        Assert.Equal("word", handler.FormValues["timestamps_granularity"]);
+        Assert.Equal("clip.wav", handler.FileName);
+        Assert.Equal("audio/wav", handler.FileContentType);
+        Assert.Equal([1, 2, 3, 4], handler.FileBytes);
+    }
+
+    [Fact]
     public void CreateTextToSpeechClient_AdvertisesHonestBatchOnlyTtsCapabilities()
     {
         var provider = new ElevenLabsAudioProvider();
@@ -468,6 +750,67 @@ public sealed class ElevenLabsAudioProviderTests
     }
 
     [Fact]
+    public void ProviderConfigRegistration_RoundTripsSttConfig()
+    {
+        var config = new ElevenLabsSttConfig
+        {
+            ApiKey = "el-test",
+            BaseUrl = "https://example.test/v1",
+            WebSocketBaseUrl = "wss://example.test/v1",
+            DefaultModelId = "scribe_v2",
+            RealtimeModelId = "scribe_v2_realtime",
+            LanguageCode = "en",
+            Diarize = true,
+            TagAudioEvents = false,
+            TimestampsGranularity = "word",
+            AudioFormat = "pcm_16000",
+            CommitStrategy = "manual",
+            IncludeTimestamps = true,
+            IncludeLanguageDetection = true,
+            Keyterms = ["hpd", "agent"],
+            NoVerbatim = true,
+            VadSilenceThresholdSeconds = 1.2,
+            VadThreshold = 0.5,
+            MinSpeechDurationMilliseconds = 120,
+            MinSilenceDurationMilliseconds = 150,
+            EnableLogging = false,
+            StreamingChunkSizeBytes = 4096
+        };
+
+        var json = ProviderDiscovery.SerializeProviderConfig(
+            "elevenlabs",
+            ProviderClientFamily.SpeechToText,
+            config);
+        var deserialized = ProviderDiscovery.DeserializeProviderConfig(
+            "elevenlabs",
+            ProviderClientFamily.SpeechToText,
+            json);
+
+        var roundTripped = Assert.IsType<ElevenLabsSttConfig>(deserialized);
+        Assert.Equal("el-test", roundTripped.ApiKey);
+        Assert.Equal("https://example.test/v1", roundTripped.BaseUrl);
+        Assert.Equal("wss://example.test/v1", roundTripped.WebSocketBaseUrl);
+        Assert.Equal("scribe_v2", roundTripped.DefaultModelId);
+        Assert.Equal("scribe_v2_realtime", roundTripped.RealtimeModelId);
+        Assert.Equal("en", roundTripped.LanguageCode);
+        Assert.True(roundTripped.Diarize);
+        Assert.False(roundTripped.TagAudioEvents);
+        Assert.Equal("word", roundTripped.TimestampsGranularity);
+        Assert.Equal("pcm_16000", roundTripped.AudioFormat);
+        Assert.Equal("manual", roundTripped.CommitStrategy);
+        Assert.True(roundTripped.IncludeTimestamps);
+        Assert.True(roundTripped.IncludeLanguageDetection);
+        Assert.Equal(["hpd", "agent"], roundTripped.Keyterms);
+        Assert.True(roundTripped.NoVerbatim);
+        Assert.Equal(1.2, roundTripped.VadSilenceThresholdSeconds);
+        Assert.Equal(0.5, roundTripped.VadThreshold);
+        Assert.Equal(120, roundTripped.MinSpeechDurationMilliseconds);
+        Assert.Equal(150, roundTripped.MinSilenceDurationMilliseconds);
+        Assert.False(roundTripped.EnableLogging);
+        Assert.Equal(4096, roundTripped.StreamingChunkSizeBytes);
+    }
+
+    [Fact]
     public void ProviderConfigRegistration_RoundTripsTtsConfig()
     {
         var config = new ElevenLabsTtsConfig
@@ -502,10 +845,99 @@ public sealed class ElevenLabsAudioProviderTests
         Assert.Equal(PushTextInputAggregationMode.Sentence, roundTripped.PushTextAggregationMode);
     }
 
+    [SkippableFact]
+    public async Task LiveTextToSpeech_WithConfiguredApiKey_ReturnsAudio()
+    {
+        Skip.IfNot(
+            string.Equals(
+                System.Environment.GetEnvironmentVariable("HPD_AUDIO_LIVE_SMOKE"),
+                "1",
+                StringComparison.Ordinal),
+            "Set HPD_AUDIO_LIVE_SMOKE=1 and ELEVENLABS_API_KEY to run the credentialed ElevenLabs audio smoke test.");
+        var apiKey = System.Environment.GetEnvironmentVariable("ELEVENLABS_API_KEY");
+        Skip.If(
+            string.IsNullOrWhiteSpace(apiKey),
+            "Set ELEVENLABS_API_KEY to run the credentialed ElevenLabs audio smoke test.");
+
+        var provider = new ElevenLabsAudioProvider();
+        using var client = provider.CreateTextToSpeechClient(
+            new ClientProviderConfig
+            {
+                ProviderKey = "elevenlabs",
+                ApiKey = apiKey,
+                ModelName = System.Environment.GetEnvironmentVariable("ELEVENLABS_TTS_MODEL") ??
+                    ElevenLabsAudioProvider.DefaultTextToSpeechModel,
+                ProviderOptionsJson = JsonSerializer.Serialize(
+                    new ElevenLabsTtsConfig
+                    {
+                        DefaultVoiceId = System.Environment.GetEnvironmentVariable("ELEVENLABS_VOICE_ID") ??
+                            ElevenLabsAudioProvider.DefaultVoiceId,
+                        OutputFormat = "mp3"
+                    },
+                    ElevenLabsTtsJsonContext.Default.ElevenLabsTtsConfig)
+            });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+
+        var response = await client.GetAudioAsync(
+            System.Environment.GetEnvironmentVariable("ELEVENLABS_TTS_SMOKE_TEXT") ?? "HPD audio smoke.",
+            new TextToSpeechOptions
+            {
+                AudioFormat = "mp3"
+            },
+            cts.Token);
+
+        var audio = Assert.Single(response.Contents.OfType<DataContent>());
+        Assert.Equal("audio/mpeg", audio.MediaType);
+        Assert.NotEmpty(audio.Data.ToArray());
+    }
+
     private sealed class SecretServiceProvider(ISecretResolver resolver) : IServiceProvider
     {
         public object? GetService(Type serviceType) =>
             serviceType == typeof(ISecretResolver) ? resolver : null;
+    }
+
+    private sealed class CapturingMessageHandler(string responseJson) : HttpMessageHandler
+    {
+        public HttpMethod? Method { get; private set; }
+        public Uri? RequestUri { get; private set; }
+        public string? ApiKey { get; private set; }
+        public Dictionary<string, string> FormValues { get; } = new(StringComparer.Ordinal);
+        public string? FileName { get; private set; }
+        public string? FileContentType { get; private set; }
+        public byte[]? FileBytes { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Method = request.Method;
+            RequestUri = request.RequestUri;
+            ApiKey = request.Headers.TryGetValues("xi-api-key", out var apiKeyValues)
+                ? apiKeyValues.SingleOrDefault()
+                : null;
+
+            var multipart = Assert.IsType<MultipartFormDataContent>(request.Content);
+            foreach (var part in multipart)
+            {
+                var name = part.Headers.ContentDisposition?.Name?.Trim('"');
+                if (string.Equals(name, "file", StringComparison.Ordinal))
+                {
+                    FileName = part.Headers.ContentDisposition?.FileName?.Trim('"');
+                    FileContentType = part.Headers.ContentType?.MediaType;
+                    FileBytes = await part.ReadAsByteArrayAsync(cancellationToken);
+                }
+                else if (!string.IsNullOrWhiteSpace(name))
+                {
+                    FormValues[name] = await part.ReadAsStringAsync(cancellationToken);
+                }
+            }
+
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(responseJson, System.Text.Encoding.UTF8, "application/json")
+            };
+        }
     }
 
     private sealed class EnvironmentVariableScope : IDisposable
@@ -516,12 +948,12 @@ public sealed class ElevenLabsAudioProviderTests
         public EnvironmentVariableScope(string name, string? value)
         {
             _name = name;
-            _previousValue = Environment.GetEnvironmentVariable(name);
-            Environment.SetEnvironmentVariable(name, value);
+            _previousValue = System.Environment.GetEnvironmentVariable(name);
+            System.Environment.SetEnvironmentVariable(name, value);
         }
 
         public void Dispose() =>
-            Environment.SetEnvironmentVariable(_name, _previousValue);
+            System.Environment.SetEnvironmentVariable(_name, _previousValue);
     }
 }
 

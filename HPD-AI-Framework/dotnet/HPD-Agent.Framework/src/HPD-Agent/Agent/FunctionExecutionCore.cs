@@ -421,6 +421,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 ToolHarnessName = preparation.ToolHarnessName,
                 SkillName = null,
                 EventCoordinator = agentContext.EventCoordinator,
+                StructEvents = agentContext.StructEvents,
                 BackgroundTasks = _getBackgroundTaskRegistry()
             };
 

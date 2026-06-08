@@ -15,11 +15,11 @@ internal static class BotDiagnostics
         defaultSeverity:    DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    /// <summary>HPDA002: [HpdWebhookHandler] method must be private or internal.</summary>
+    /// <summary>HPDA002: [HpdBotEventHandler] method must be private or internal.</summary>
     public static readonly DiagnosticDescriptor HandlerNotPrivate = new(
         id:                 "HPDA002",
-        title:              "[HpdWebhookHandler] method must be private or internal",
-        messageFormat:      "Webhook handler '{0}' must be private or internal — the generator produces the public dispatch entry point",
+        title:              "[HpdBotEventHandler] method must be private or internal",
+        messageFormat:      "Bot event handler '{0}' must be private or internal — the generator produces the public dispatch entry point",
         category:           Category,
         defaultSeverity:    DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -51,11 +51,11 @@ internal static class BotDiagnostics
         defaultSeverity:    DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    /// <summary>HPDA006: [WebhookPayload] type must be a record.</summary>
-    public static readonly DiagnosticDescriptor WebhookPayloadNotRecord = new(
+    /// <summary>HPDA006: [HpdBotPayload] type must be a record.</summary>
+    public static readonly DiagnosticDescriptor HpdBotPayloadNotRecord = new(
         id:                 "HPDA006",
-        title:              "[WebhookPayload] type must be a record",
-        messageFormat:      "Type '{0}' decorated with [WebhookPayload] must be a record for AOT-safe JSON serialization",
+        title:              "[HpdBotPayload] type must be a record",
+        messageFormat:      "Type '{0}' decorated with [HpdBotPayload] must be a record for AOT-safe JSON serialization",
         category:           Category,
         defaultSeverity:    DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -78,29 +78,29 @@ internal static class BotDiagnostics
         defaultSeverity:    DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    /// <summary>HPDA009: [HpdPreDispatch] method has wrong signature.</summary>
+    /// <summary>HPDA009: [HpdBotPreDispatch] method has wrong signature.</summary>
     public static readonly DiagnosticDescriptor PreDispatchWrongSignature = new(
         id:                 "HPDA009",
-        title:              "[HpdPreDispatch] method has wrong signature",
-        messageFormat:      "Method '{0}' decorated with [HpdPreDispatch] must be 'private/internal async Task<IResult?>(HttpContext ctx, byte[] bodyBytes)'",
+        title:              "[HpdBotPreDispatch] method has wrong signature",
+        messageFormat:      "Method '{0}' decorated with [HpdBotPreDispatch] must be 'private/internal Task<BotAdapterResponse?>(BotRequestContext ctx, byte[] bodyBytes)'",
         category:           Category,
         defaultSeverity:    DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    /// <summary>HPDA010: [HpdBodyExtractor] method has wrong signature.</summary>
+    /// <summary>HPDA010: [HpdBotEnvelopeExtractor] method has wrong signature.</summary>
     public static readonly DiagnosticDescriptor BodyExtractorWrongSignature = new(
         id:                 "HPDA010",
-        title:              "[HpdBodyExtractor] method has wrong signature",
-        messageFormat:      "Method '{0}' decorated with [HpdBodyExtractor] must be 'private/internal (string? eventType, byte[] dispatchBytes)(HttpContext ctx, byte[] bodyBytes)'",
+        title:              "[HpdBotEnvelopeExtractor] method has wrong signature",
+        messageFormat:      "Method '{0}' decorated with [HpdBotEnvelopeExtractor] must be 'private/internal (string? eventType, byte[] dispatchBytes)(BotRequestContext ctx, byte[] bodyBytes)'",
         category:           Category,
         defaultSeverity:    DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    /// <summary>HPDA011: [HpdWebhookMethods] must contain at least one non-empty method.</summary>
+    /// <summary>HPDA011: [HpdHttpMethods] must contain at least one non-empty method.</summary>
     public static readonly DiagnosticDescriptor InvalidWebhookMethods = new(
         id:                 "HPDA011",
-        title:              "[HpdWebhookMethods] method list is invalid",
-        messageFormat:      "Bot class '{0}' has [HpdWebhookMethods] but no non-empty HTTP methods",
+        title:              "[HpdHttpMethods] method list is invalid",
+        messageFormat:      "Bot class '{0}' has [HpdHttpMethods] but no non-empty HTTP methods",
         category:           Category,
         defaultSeverity:    DiagnosticSeverity.Error,
         isEnabledByDefault: true);

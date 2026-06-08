@@ -6,7 +6,7 @@ namespace HPD.Agent.Bots.Slack.Payloads;
 /// Slash command payload. Arrives as form-urlencoded — NOT inside an <c>event_callback</c> envelope.
 /// The generator detects form-urlencoded bodies with a <c>command</c> field and routes here.
 /// </summary>
-[WebhookPayload]
+[HpdBotPayload]
 public record SlackSlashCommandPayload(
     [property: JsonPropertyName("command")]      string Command,     // e.g. "/ask"
     [property: JsonPropertyName("text")]         string Text,        // everything after the command

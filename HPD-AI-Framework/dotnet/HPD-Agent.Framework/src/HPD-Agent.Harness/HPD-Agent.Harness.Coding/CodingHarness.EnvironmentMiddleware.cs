@@ -336,7 +336,7 @@ public sealed record EnvironmentContext
 
     private static ShellInfo DetectPosixShellInfo(List<DetectedShell> candidates)
     {
-        var shell = Environment.GetEnvironmentVariable("SHELL");
+        var shell = System.Environment.GetEnvironmentVariable("SHELL");
         AddPosixCandidate(candidates, shell, "SHELL");
         AddPosixCandidate(candidates, "/bin/zsh", "well_known");
         AddPosixCandidate(candidates, "/bin/bash", "well_known");
@@ -354,7 +354,7 @@ public sealed record EnvironmentContext
         AddWindowsPathCandidate(candidates, "pwsh", "PATH");
         AddWindowsPathCandidate(candidates, "powershell.exe", "PATH");
 
-        var systemRoot = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        var systemRoot = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Windows);
         if (!string.IsNullOrWhiteSpace(systemRoot))
         {
             AddWindowsFileCandidate(
@@ -363,7 +363,7 @@ public sealed record EnvironmentContext
                 "well_known");
         }
 
-        var comSpec = Environment.GetEnvironmentVariable("ComSpec");
+        var comSpec = System.Environment.GetEnvironmentVariable("ComSpec");
         AddWindowsFileCandidate(candidates, comSpec, "ComSpec");
         AddWindowsPathCandidate(candidates, "cmd.exe", "PATH");
 
@@ -473,7 +473,7 @@ public sealed record EnvironmentContext
         if (Path.IsPathRooted(executable))
             return File.Exists(executable) ? executable : null;
 
-        var path = Environment.GetEnvironmentVariable("PATH");
+        var path = System.Environment.GetEnvironmentVariable("PATH");
         if (string.IsNullOrWhiteSpace(path))
             return null;
 
@@ -496,7 +496,7 @@ public sealed record EnvironmentContext
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || Path.HasExtension(executable))
             return [executable];
 
-        var pathExt = Environment.GetEnvironmentVariable("PATHEXT");
+        var pathExt = System.Environment.GetEnvironmentVariable("PATHEXT");
         var extensions = string.IsNullOrWhiteSpace(pathExt)
             ? [".exe", ".cmd", ".bat", ".ps1"]
             : pathExt.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

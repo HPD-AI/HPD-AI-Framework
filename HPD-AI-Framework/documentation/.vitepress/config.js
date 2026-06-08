@@ -21,6 +21,7 @@ export default defineConfig({
           { text: 'Middleware', link: '/hpd-agent/Middleware/04.1 Middleware Lifecycle' },
           { text: 'Events', link: '/hpd-agent/Events/05.1 Events Overview' },
           { text: 'Multi-Agent', link: '/hpd-agent/Multi-Agent/06.1 Overview' },
+          { text: 'Terminal UI', link: '/hpd-agent/Guides/HPD-Agent.TUI/00 Overview' },
           { text: 'Cookbook', link: '/hpd-agent/Cookbook/01 Hello World Chat Loop' },
         ]
       },
@@ -102,6 +103,24 @@ export default defineConfig({
           ]
         },
         {
+          text: 'Guides',
+          collapsed: false,
+          items: [
+            {
+              text: 'HPD-Agent.TUI',
+              collapsed: false,
+              items: [
+                { text: 'Overview', link: '/hpd-agent/Guides/HPD-Agent.TUI/00 Overview' },
+                { text: 'Getting Started', link: '/hpd-agent/Guides/HPD-Agent.TUI/01 Getting Started' },
+                { text: 'Runtime Modes', link: '/hpd-agent/Guides/HPD-Agent.TUI/02 Runtime Modes' },
+                { text: 'Events And Transcript', link: '/hpd-agent/Guides/HPD-Agent.TUI/03 Events And Transcript' },
+                { text: 'Composition', link: '/hpd-agent/Guides/HPD-Agent.TUI/04 Composition' },
+                { text: 'Models, Providers, And Coding Harness', link: '/hpd-agent/Guides/HPD-Agent.TUI/05 Models Providers And Coding Harness' },
+              ]
+            }
+          ]
+        },
+        {
           text: 'Cookbook',
           collapsed: false,
           items: [
@@ -143,6 +162,13 @@ export default defineConfig({
                 { text: 'ONNX Runtime', link: '/hpd-agent/Agent Builder & Config/Providers/OnnxRuntime' },
               ]
             }
+          ]
+        },
+        {
+          text: 'API Reference',
+          collapsed: false,
+          items: [
+            { text: 'HPD-Agent.TUI', link: '/hpd-agent/API Reference/HPD-Agent.TUI' },
           ]
         }
       ],

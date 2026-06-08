@@ -38,22 +38,22 @@ public static class PathNormalizer
         // 1. Expand tilde
         if (normalized == "~")
         {
-            normalized = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            normalized = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
         }
         else if (normalized.StartsWith("~/"))
         {
             normalized = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
                 normalized[2..]);
         }
 
         // 2. Expand environment variables
-        normalized = Environment.ExpandEnvironmentVariables(normalized);
+        normalized = System.Environment.ExpandEnvironmentVariables(normalized);
 
         // 3. Convert to absolute path
         if (!Path.IsPathRooted(normalized))
         {
-            normalized = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, normalized));
+            normalized = Path.GetFullPath(Path.Combine(System.Environment.CurrentDirectory, normalized));
         }
         else
         {

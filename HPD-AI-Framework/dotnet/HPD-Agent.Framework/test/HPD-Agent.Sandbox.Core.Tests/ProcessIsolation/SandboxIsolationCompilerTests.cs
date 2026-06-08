@@ -1,7 +1,7 @@
 namespace HPD.Agent.Sandbox.Tests.ProcessIsolation;
 
 using FluentAssertions;
-using HPD.Execution.Contracts;
+using HPD.Environment.Contracts;
 using HPD.Agent.Sandbox.Policy;
 using HPD.Agent.Sandbox.ProcessIsolation;
 using Xunit;
@@ -90,9 +90,11 @@ public sealed class SandboxIsolationCompilerTests
         plan.Filesystem.Rules.Should().Contain(rule => rule.Kind == PathAccessRuleKind.DenyRead && rule.Path.Value == "/home/agent/.ssh");
         plan.Network.Mode.Should().Be(NetworkEgressMode.Filtered);
         plan.Network.AllowedDomains.Should().HaveCount(2);
-        plan.Network.AllowedDomains[0].Pattern.Kind.Should().Be(DomainPatternKind.ExactHost);
-        plan.Network.AllowedDomains[1].Pattern.Kind.Should().Be(DomainPatternKind.WildcardSubdomain);
-        plan.Network.DeniedDomains.Single().Pattern.Kind.Should().Be(DomainPatternKind.IpLiteral);
+        plan.Network.AllowedDomains[0].Source.Kind.Should().Be(DomainRuleKind.ExactHost);
+        plan.Network.AllowedDomains[0].CanonicalPattern.Should().Be("registry.npmjs.org");
+        plan.Network.AllowedDomains[1].Source.Kind.Should().Be(DomainRuleKind.WildcardSubdomain);
+        plan.Network.AllowedDomains[1].CanonicalPattern.Should().Be("github.com");
+        plan.Network.DeniedDomains.Single().Source.Kind.Should().Be(DomainRuleKind.IpLiteral);
         plan.Network.RequireProxyMediation.Should().BeTrue();
         plan.UnixSockets.AllowedSockets.Single().AuthorityClass.Should().Be(SensitiveAuthorityClass.RootlessEngineControl);
         plan.Environment.InjectedVariables.Should().ContainKey("HTTPS_PROXY");

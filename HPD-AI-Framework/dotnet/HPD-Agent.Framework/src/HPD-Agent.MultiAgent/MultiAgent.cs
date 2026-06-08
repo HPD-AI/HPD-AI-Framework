@@ -4,8 +4,11 @@ using HPD.MultiAgent.Config;
 using HPD.MultiAgent.Internal;
 using HPD.MultiAgent.Routing;
 using HPDAgent.Graph.Abstractions;
+using HPDAgent.Graph.Abstractions.Checkpointing;
 using HPDAgent.Graph.Abstractions.Graph;
+using HPDAgent.Graph.Abstractions.Storage;
 using HPDAgent.Graph.Core.Builders;
+using HPDAgent.Graph.Core.Storage;
 using MultiAgentEdgeBuilder = HPD.MultiAgent.Routing.EdgeBuilder;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -22,7 +25,9 @@ public class MultiAgent
     private readonly Dictionary<string, AgentNodeOptions> _options = new();
     private readonly HashSet<(string From, string To)> _declaredEdges = new();
 
-    private readonly WorkflowSettingsConfig _settings;
+    private WorkflowSettingsConfig _settings;
+    private ISessionStore? _sessionStore;
+    private readonly List<Action<IServiceCollection>> _serviceConfigurators = new();
     private string? _workflowName;
 
     /// <summary>
@@ -64,6 +69,70 @@ public class MultiAgent
     public MultiAgent WithName(string name)
     {
         _workflowName = name;
+        return this;
+    }
+
+    /// <summary>
+    /// Enable or disable checkpointing for workflow execution.
+    /// </summary>
+    public MultiAgent WithCheckpointing(bool enabled = true)
+    {
+        _settings = _settings with { EnableCheckpointing = enabled };
+        return this;
+    }
+
+    /// <summary>
+    /// Use an in-memory workflow store for workflow definitions and checkpoints.
+    /// </summary>
+    public MultiAgent WithInMemoryWorkflowStore(
+        MultiAgentCheckpointRetention retentionMode = MultiAgentCheckpointRetention.LatestOnly)
+    {
+        return ConfigureWorkflowStore(new InMemoryGraphStore(MapRetentionMode(retentionMode)));
+    }
+
+    /// <summary>
+    /// Use a JSON file-backed workflow store for workflow definitions and checkpoints.
+    /// </summary>
+    public MultiAgent WithJsonWorkflowStore(
+        string rootDirectory,
+        MultiAgentCheckpointRetention retentionMode = MultiAgentCheckpointRetention.LatestOnly)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
+        return ConfigureWorkflowStore(new JsonGraphStore(rootDirectory, MapRetentionMode(retentionMode)));
+    }
+
+    /// <summary>
+    /// Use a session store for multi-agent conversation policies.
+    /// This is separate from the workflow store used for definitions and checkpoints.
+    /// </summary>
+    public MultiAgent WithSessionStore(ISessionStore store)
+    {
+        _sessionStore = store ?? throw new ArgumentNullException(nameof(store));
+        return this;
+    }
+
+    /// <summary>
+    /// Use an in-memory session store for multi-agent conversation policies.
+    /// </summary>
+    public MultiAgent WithInMemorySessionStore()
+        => WithSessionStore(new InMemorySessionStore());
+
+    /// <summary>
+    /// Use a JSON file-backed session store for multi-agent conversation policies.
+    /// </summary>
+    public MultiAgent WithJsonSessionStore(string rootDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
+        return WithSessionStore(new JsonSessionStore(rootDirectory));
+    }
+
+    /// <summary>
+    /// Configure how workflow node agents write transcripts into HPD sessions and branches.
+    /// </summary>
+    public MultiAgent WithConversation(MultiAgentConversationConfig conversation)
+    {
+        ArgumentNullException.ThrowIfNull(conversation);
+        _settings = _settings with { Conversation = conversation };
         return this;
     }
 
@@ -203,6 +272,13 @@ public class MultiAgent
     /// </summary>
     public Task<AgentWorkflowInstance> BuildAsync(CancellationToken cancellationToken = default)
     {
+        if (_settings.Conversation.Mode != MultiAgentConversationMode.None && _sessionStore == null)
+        {
+            throw new InvalidOperationException(
+                "A session store is required when multi-agent conversation policies are enabled. " +
+                "Call WithSessionStore(), WithInMemorySessionStore(), or WithJsonSessionStore().");
+        }
+
         // Create agent factories for deferred building (agents are built at execution time
         // so they can inherit the parent's chat client when no provider is configured)
         var factories = new Dictionary<string, AgentFactory>();
@@ -282,13 +358,25 @@ public class MultiAgent
         // Create service provider with handlers
         var services = new ServiceCollection();
 
+        foreach (var configureServices in _serviceConfigurators)
+        {
+            configureServices(services);
+        }
+
         foreach (var id in GetAllAgentIds())
         {
             var handler = new AgentNodeHandler(id);
             services.AddSingleton<HPDAgent.Graph.Abstractions.Handlers.IGraphNodeHandler<AgentGraphContext>>(handler);
         }
 
-        return Task.FromResult(new AgentWorkflowInstance(graph, factories, _options, services.BuildServiceProvider(), _workflowName, _settings));
+        return Task.FromResult(new AgentWorkflowInstance(
+            graph,
+            factories,
+            _options,
+            services.BuildServiceProvider(),
+            _workflowName,
+            _settings,
+            _sessionStore));
     }
 
     /// <summary>
@@ -378,6 +466,28 @@ public class MultiAgent
     {
         return _agents.Keys.Union(_agentConfigs.Keys).Distinct();
     }
+
+    private MultiAgent ConfigureWorkflowStore(IGraphStore store)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+
+        _serviceConfigurators.Add(services =>
+        {
+            services.AddSingleton<IGraphStore>(store);
+            services.AddSingleton<IGraphDefinitionStore>(store);
+            services.AddSingleton<IGraphCheckpointStore>(store);
+        });
+
+        return this;
+    }
+
+    private static CheckpointRetentionMode MapRetentionMode(MultiAgentCheckpointRetention retentionMode)
+        => retentionMode switch
+        {
+            MultiAgentCheckpointRetention.LatestOnly => CheckpointRetentionMode.LatestOnly,
+            MultiAgentCheckpointRetention.FullHistory => CheckpointRetentionMode.FullHistory,
+            _ => throw new ArgumentOutOfRangeException(nameof(retentionMode), retentionMode, null)
+        };
 
     private static EdgeCondition MapCondition(Config.ConditionConfig c) => new EdgeCondition
     {

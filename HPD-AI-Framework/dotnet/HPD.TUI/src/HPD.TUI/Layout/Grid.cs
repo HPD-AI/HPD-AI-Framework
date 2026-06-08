@@ -7,6 +7,7 @@ public sealed class Grid : IComponent
 {
     private readonly List<GridColumn> _columns = [];
     private readonly List<GridRow> _rows = [];
+    private Terminal.TerminalGrid? _scratchGrid;
 
     public int ColumnGap { get; init; } = 1;
 
@@ -70,7 +71,17 @@ public sealed class Grid : IComponent
 
         width += Math.Max(0, (_columns.Count - 1) * ColumnGap);
         width = Math.Min(width, maxWidth);
-        return new Measurement(Math.Min(width, maxWidth), width);
+
+        var height = 0;
+        Span<int> rowWidths = _columns.Count <= 32 ? stackalloc int[_columns.Count] : new int[_columns.Count];
+        CalculateColumnWidths(in context, maxWidth, rowWidths);
+        for (var i = 0; i < _rows.Count; i++)
+        {
+            height += CalculateRowHeight(in context, _rows[i], rowWidths, context.Height);
+        }
+
+        height += Math.Max(0, _rows.Count - 1) * RowGap;
+        return new Measurement(Math.Min(width, maxWidth), width, height);
     }
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
@@ -232,14 +243,14 @@ public sealed class Grid : IComponent
                 continue;
             }
 
-            using var grid = TuiCapture.RenderToGrid(row.Cells[columnIndex], cellWidth, maxHeight, context.Theme, context.ColorSystem, context.Elapsed);
-            height = Math.Max(height, TuiCapture.GetUsedLineCount(grid) + column.Padding.Vertical);
+            var measurement = row.Cells[columnIndex].Measure(in context, cellWidth);
+            height = Math.Max(height, measurement.Height + column.Padding.Vertical);
         }
 
         return Math.Max(1, Math.Min(height, maxHeight));
     }
 
-    private static void RenderCell(IComponent cell, GridColumn column, LayoutRect rect, in RenderContext context, ref SegmentWriter output)
+    private void RenderCell(IComponent cell, GridColumn column, LayoutRect rect, in RenderContext context, ref SegmentWriter output)
     {
         if (rect.IsEmpty)
         {
@@ -252,7 +263,8 @@ public sealed class Grid : IComponent
             return;
         }
 
-        using var grid = TuiCapture.RenderToGrid(cell, contentRect.Width, contentRect.Height, context.Theme, context.ColorSystem, context.Elapsed);
+        var grid = RentScratchGrid(contentRect.Width, contentRect.Height);
+        TuiCapture.RenderToGrid(cell, grid, context.Theme, context.ColorSystem, context.Elapsed);
         var usedLines = Math.Min(contentRect.Height, TuiCapture.GetUsedLineCount(grid));
 
         for (var y = 0; y < usedLines; y++)
@@ -268,6 +280,20 @@ public sealed class Grid : IComponent
             output.MoveTo(contentRect.X + offset, contentRect.Y + y);
             WriteCapturedLineTo(grid, y, Math.Max(0, contentRect.Width - offset), ref output);
         }
+    }
+
+    private Terminal.TerminalGrid RentScratchGrid(int width, int height)
+    {
+        if (_scratchGrid is { } grid &&
+            grid.Width == width &&
+            grid.Height == height)
+        {
+            return grid;
+        }
+
+        _scratchGrid?.Dispose();
+        _scratchGrid = new Terminal.TerminalGrid(width, height);
+        return _scratchGrid;
     }
 
     private static int MeasureCapturedLine(Terminal.TerminalGrid grid, int y)

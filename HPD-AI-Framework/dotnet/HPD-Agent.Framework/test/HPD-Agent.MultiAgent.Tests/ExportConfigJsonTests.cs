@@ -56,7 +56,7 @@ public class ExportConfigJsonTests
         var json = workflow.ExportConfigJson();
 
         // Indented JSON always contains newlines
-        json.Should().Contain(Environment.NewLine);
+        json.Should().Contain(System.Environment.NewLine);
     }
 
     // ── 2. workflow-level fields ───────────────────────────────────────────────

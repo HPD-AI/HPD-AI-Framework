@@ -3,7 +3,7 @@ using HPD.Agent.Bots.Slack;
 
 namespace HPD.Agent.Bots.Slack.Payloads;
 
-[WebhookPayload]
+[HpdBotPayload]
 public record SlackViewSubmissionPayload(
     [property: JsonPropertyName("type")]       string Type,
     [property: JsonPropertyName("trigger_id")] string TriggerId,
@@ -11,7 +11,7 @@ public record SlackViewSubmissionPayload(
     [property: JsonPropertyName("view")]       SlackView View
 );
 
-[WebhookPayload]
+[HpdBotPayload]
 public record SlackViewClosedPayload(
     [property: JsonPropertyName("type")] string Type,
     [property: JsonPropertyName("user")] SlackUser User,

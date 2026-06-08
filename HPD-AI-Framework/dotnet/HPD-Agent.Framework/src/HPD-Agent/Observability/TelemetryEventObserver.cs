@@ -47,6 +47,15 @@ public class TelemetryEventObserver : IDisposable
     private readonly Histogram<int> _compactionTokenSavingsHistogram;
     private readonly Histogram<int> _nestingDepthHistogram;
     private readonly Histogram<int> _checkpointSizeHistogram;
+    private readonly Histogram<long> _usageInputTokensHistogram;
+    private readonly Histogram<long> _usageOutputTokensHistogram;
+    private readonly Histogram<long> _usageTotalTokensHistogram;
+    private readonly Histogram<long> _usageCachedInputTokensHistogram;
+    private readonly Histogram<long> _usageReasoningTokensHistogram;
+    private readonly Histogram<long> _usageInputAudioTokensHistogram;
+    private readonly Histogram<long> _usageInputTextTokensHistogram;
+    private readonly Histogram<long> _usageOutputAudioTokensHistogram;
+    private readonly Histogram<long> _usageOutputTextTokensHistogram;
 
     public TelemetryEventObserver(string sourceName = "HPD.Agent")
     {
@@ -195,6 +204,51 @@ public class TelemetryEventObserver : IDisposable
             "agent.checkpoint.size",
             unit: "bytes",
             description: "Distribution of checkpoint sizes");
+
+        _usageInputTokensHistogram = _meter.CreateHistogram<long>(
+            "agent.usage.input_tokens",
+            unit: "tokens",
+            description: "Input tokens used across a completed agent message turn");
+
+        _usageOutputTokensHistogram = _meter.CreateHistogram<long>(
+            "agent.usage.output_tokens",
+            unit: "tokens",
+            description: "Output tokens used across a completed agent message turn");
+
+        _usageTotalTokensHistogram = _meter.CreateHistogram<long>(
+            "agent.usage.total_tokens",
+            unit: "tokens",
+            description: "Total tokens used across a completed agent message turn");
+
+        _usageCachedInputTokensHistogram = _meter.CreateHistogram<long>(
+            "agent.usage.cached_input_tokens",
+            unit: "tokens",
+            description: "Cached input tokens used across a completed agent message turn");
+
+        _usageReasoningTokensHistogram = _meter.CreateHistogram<long>(
+            "agent.usage.reasoning_tokens",
+            unit: "tokens",
+            description: "Reasoning tokens used across a completed agent message turn");
+
+        _usageInputAudioTokensHistogram = _meter.CreateHistogram<long>(
+            "agent.usage.input_audio_tokens",
+            unit: "tokens",
+            description: "Audio input tokens used across a completed agent message turn");
+
+        _usageInputTextTokensHistogram = _meter.CreateHistogram<long>(
+            "agent.usage.input_text_tokens",
+            unit: "tokens",
+            description: "Text input tokens used across a completed agent message turn");
+
+        _usageOutputAudioTokensHistogram = _meter.CreateHistogram<long>(
+            "agent.usage.output_audio_tokens",
+            unit: "tokens",
+            description: "Audio output tokens used across a completed agent message turn");
+
+        _usageOutputTextTokensHistogram = _meter.CreateHistogram<long>(
+            "agent.usage.output_text_tokens",
+            unit: "tokens",
+            description: "Text output tokens used across a completed agent message turn");
     }
 
     public ValueTask HandleAsync(AgentEvent evt)
@@ -409,6 +463,7 @@ public class TelemetryEventObserver : IDisposable
                 _messageTurnDuration.Record(e.Duration.TotalMilliseconds,
                     new KeyValuePair<string, object?>("agent.id", e.AgentId),
                     new KeyValuePair<string, object?>("agent.name", e.AgentName));
+                RecordTurnUsage(e);
                 break;
 
             // Delta sending activation
@@ -428,6 +483,45 @@ public class TelemetryEventObserver : IDisposable
         }
 
         return ValueTask.CompletedTask;
+    }
+
+    private void RecordTurnUsage(MessageTurnFinishedEvent evt)
+    {
+        var usage = evt.Usage;
+        if (usage is null)
+            return;
+
+        var tags = new KeyValuePair<string, object?>[]
+        {
+            new("agent.id", evt.AgentId),
+            new("agent.name", evt.AgentName)
+        };
+
+        RecordIfPresent(_usageInputTokensHistogram, usage.InputTokenCount, tags);
+        RecordIfPresent(_usageOutputTokensHistogram, usage.OutputTokenCount, tags);
+        RecordIfPresent(_usageCachedInputTokensHistogram, usage.CachedInputTokenCount, tags);
+        RecordIfPresent(_usageReasoningTokensHistogram, usage.ReasoningTokenCount, tags);
+        RecordIfPresent(_usageInputAudioTokensHistogram, usage.InputAudioTokenCount, tags);
+        RecordIfPresent(_usageInputTextTokensHistogram, usage.InputTextTokenCount, tags);
+        RecordIfPresent(_usageOutputAudioTokensHistogram, usage.OutputAudioTokenCount, tags);
+        RecordIfPresent(_usageOutputTextTokensHistogram, usage.OutputTextTokenCount, tags);
+
+        var totalTokens = usage.TotalTokenCount;
+        if (totalTokens is null && (usage.InputTokenCount.HasValue || usage.OutputTokenCount.HasValue))
+        {
+            totalTokens = (usage.InputTokenCount ?? 0) + (usage.OutputTokenCount ?? 0);
+        }
+
+        RecordIfPresent(_usageTotalTokensHistogram, totalTokens, tags);
+    }
+
+    private static void RecordIfPresent(
+        Histogram<long> histogram,
+        long? value,
+        KeyValuePair<string, object?>[] tags)
+    {
+        if (value.HasValue)
+            histogram.Record(value.Value, tags);
     }
 
     public void Dispose()

@@ -76,7 +76,11 @@ public sealed class BranchPersistableCodingEventsTests
         roundTrip!.Events.Should().HaveCount(3);
         roundTrip.Events[0].Should().BeOfType<ExecuteCommandProcessStartedEvent>();
         roundTrip.Events[1].Should().BeOfType<FileWriteAppliedEvent>();
-        roundTrip.Events[2].Should().BeOfType<LanguageServerDiagnosticsReceivedEvent>();
+        roundTrip.Events[2].Should().BeOfType<LanguageServerDiagnosticsReceivedEvent>()
+            .Which.Diagnostics.Should().ContainSingle(diagnostic =>
+                diagnostic.ServerId == "csharp" &&
+                diagnostic.Severity == LanguageServerDiagnosticSeverity.Error &&
+                diagnostic.Code == "CS1002");
     }
 
     [Fact]
@@ -243,6 +247,22 @@ public sealed class BranchPersistableCodingEventsTests
         Uri = "file:///repo/A.cs",
         ErrorCount = 1,
         WarningCount = 2,
-        DiagnosticSetCount = 3
+        InformationCount = 3,
+        HintCount = 4,
+        DiagnosticSetCount = 3,
+        Diagnostics =
+        [
+            new LanguageServerDiagnosticSummary
+            {
+                Path = "/repo/A.cs",
+                ServerId = "csharp",
+                Source = LanguageServerDiagnosticSource.Publish,
+                Severity = LanguageServerDiagnosticSeverity.Error,
+                Line = 10,
+                Character = 4,
+                Code = "CS1002",
+                Message = "Missing semicolon"
+            }
+        ]
     };
 }

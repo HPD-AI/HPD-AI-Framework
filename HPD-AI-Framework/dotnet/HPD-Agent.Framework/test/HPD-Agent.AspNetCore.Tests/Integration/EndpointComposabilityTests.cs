@@ -252,10 +252,7 @@ public class EndpointComposabilityTests
 
     private sealed class UnsupportedMiddlewareResponseService : IAgentMiddlewareResponseService
     {
-        public Task<AgentServiceResult> RespondToPermissionAsync(string agentId, string sessionId, string branchId, PermissionResponseEvent response, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult> RespondToContinuationAsync(string agentId, string sessionId, string branchId, ContinuationResponseEvent response, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult> RespondToClarificationAsync(string agentId, string sessionId, string branchId, ClarificationResponseEvent response, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult> RespondToClientToolAsync(string agentId, string sessionId, string branchId, ClientToolInvokeResponseEvent response, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult> RespondAsync(string agentId, string sessionId, string branchId, HPD.Events.IBidirectionalEvent response, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class UnsupportedStreamingService : IAgentStreamingService

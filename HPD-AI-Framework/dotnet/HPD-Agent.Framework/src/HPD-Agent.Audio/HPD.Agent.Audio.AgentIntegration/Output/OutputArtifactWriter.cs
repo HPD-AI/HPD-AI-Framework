@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using HPD.Agent;
 using HPD.Agent.Audio.Media;
+using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 
 namespace HPD.Agent.Audio.AgentIntegration.Output;

@@ -36,5 +36,21 @@ public sealed record LanguageServerDiagnosticsReceivedEvent : LanguageServerEven
 {
     public int ErrorCount { get; init; }
     public int WarningCount { get; init; }
+    public int InformationCount { get; init; }
+    public int HintCount { get; init; }
     public int DiagnosticSetCount { get; init; }
+    public IReadOnlyList<LanguageServerDiagnosticSummary> Diagnostics { get; init; } = [];
+    public bool DiagnosticsTruncated { get; init; }
+}
+
+public sealed record LanguageServerDiagnosticSummary
+{
+    public required string Path { get; init; }
+    public required string ServerId { get; init; }
+    public required LanguageServerDiagnosticSource Source { get; init; }
+    public required LanguageServerDiagnosticSeverity Severity { get; init; }
+    public int Line { get; init; }
+    public int Character { get; init; }
+    public string? Code { get; init; }
+    public required string Message { get; init; }
 }

@@ -295,16 +295,6 @@ Handles AWS Bedrock errors:
 -  Handles model not ready errors
 -  Extracts service quota information
 
-### AzureAIInferenceErrorHandler (`HPD-Agent.Providers.AzureAIInference/AzureAIInferenceErrorHandler.cs`)
-
-Handles Azure AI Inference errors:
-
-**Capabilities:**
--  Parses throttling errors
--  Detects resource busy states
--  Handles quota exceeded errors
--  Extracts authentication failures
-
 ### MistralErrorHandler (`HPD-Agent.Providers.Mistral/MistralErrorHandler.cs`)
 
 Handles Mistral AI API errors:
@@ -333,7 +323,7 @@ Handles ONNX Runtime model errors:
 -  Detects model initialization failures
 -  Handles out-of-memory errors
 -  Parses invalid input errors
--  Detects execution provider issues
+-  Detects environment provider issues
 
 ### GenericErrorHandler (`ErrorHandling/GenericErrorHandler.cs`)
 
@@ -486,7 +476,6 @@ private static IProviderErrorHandler CreateProviderHandler(ChatProvider? provide
         ChatProvider.Ollama => new OllamaErrorHandler(),
         ChatProvider.OpenRouter => new OpenRouterErrorHandler(),
         ChatProvider.Bedrock => new BedrockErrorHandler(),
-        ChatProvider.AzureAIInference => new AzureAIInferenceErrorHandler(),
         ChatProvider.Mistral => new MistralErrorHandler(),
         ChatProvider.HuggingFace => new HuggingFaceErrorHandler(),
         ChatProvider.OnnxRuntime => new OnnxRuntimeErrorHandler(),

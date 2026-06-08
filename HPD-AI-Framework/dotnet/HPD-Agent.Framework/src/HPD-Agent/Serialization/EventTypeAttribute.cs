@@ -24,7 +24,7 @@ namespace HPD.Agent.Serialization;
 /// </code>
 /// </example>
 /// </remarks>
-[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, AllowMultiple = false, Inherited = false)]
 public sealed class EventTypeAttribute : Attribute
 {
     /// <summary>

@@ -195,7 +195,25 @@ export class SseTransport implements AgentTransport {
     });
 
     if (!response.ok) {
+      const body = await response.json().catch(() => null);
+
       if (response.status === 409) {
+        const details = body?.errors as Record<string, string[]> | undefined;
+        const serverCode = details ? Object.keys(details)[0] : undefined;
+
+        if (details && serverCode) {
+          const messages = details[serverCode];
+
+          throw new AgentError(
+            messages?.[0] ?? body?.title ?? 'Response was not accepted',
+            serverCode,
+            {
+              statusCode: response.status,
+              details,
+            },
+          );
+        }
+
         throw new AgentError(
           'Response was not accepted because the request is no longer pending',
           'STALE_RESPONSE',
@@ -203,24 +221,16 @@ export class SseTransport implements AgentTransport {
         );
       }
 
-      const body = await response.json().catch(() => null);
       throw parseErrorResponse(response, body);
     }
   }
 
   private endpointForResponse(input: AgentRunInputEvent): string {
-    switch (input.type) {
-      case EventTypes.PERMISSION_RESPONSE:
-        return `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/permissions/respond`;
-      case EventTypes.CONTINUATION_RESPONSE:
-        return `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/continuation/respond`;
-      case EventTypes.CLARIFICATION_RESPONSE:
-        return `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/clarifications/respond`;
-      case EventTypes.CLIENT_TOOL_INVOKE_RESPONSE:
-        return `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/client-tools/respond`;
-      default:
-        throw new Error(`Unknown response type: ${(input as { type: string }).type}`);
+    if (!this.isResponseInput(input)) {
+      throw new Error(`Unknown response type: ${(input as { type: string }).type}`);
     }
+
+    return `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/responses`;
   }
 
   private combineSignals(...signals: AbortSignal[]): AbortSignal {

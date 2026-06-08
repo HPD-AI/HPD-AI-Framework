@@ -274,6 +274,32 @@ public class AgentManagerTests : IDisposable
         _manager.GetAgent(stored.Id).Should().BeSameAs(built);
     }
 
+    [Fact]
+    public async Task GetRuntimeAgent_ReturnsNull_WhenRuntimeNotBuilt()
+    {
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+
+        _manager.GetRuntimeAgent(stored.Id, "session-1", "branch-1").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetRuntimeAgent_ReturnsBranchRuntime_AfterBuild()
+    {
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var built = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-1");
+
+        _manager.GetRuntimeAgent(stored.Id, "session-1", "branch-1").Should().BeSameAs(built);
+    }
+
+    [Fact]
+    public async Task GetRuntimeAgent_DoesNotReturnUnscopedAgent()
+    {
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        await _manager.GetOrBuildAgentAsync(stored.Id);
+
+        _manager.GetRuntimeAgent(stored.Id, "session-1", "branch-1").Should().BeNull();
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Idle eviction — purely time-based, no IsStreaming guard
     // ──────────────────────────────────────────────────────────────────────────

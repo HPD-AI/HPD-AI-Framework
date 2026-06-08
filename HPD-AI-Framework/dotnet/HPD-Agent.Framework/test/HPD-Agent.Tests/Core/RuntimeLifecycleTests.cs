@@ -144,7 +144,7 @@ public class RuntimeLifecycleTests : AgentTestBase
     private readonly record struct TestStructFrame(
         int Value,
         long SequenceNumber = 0,
-        long TimestampNs = 0) : IStructEvent
+        long TimestampNs = 0) : AgentStructEvent
     {
         public EventKind Kind => EventKind.Content;
     }

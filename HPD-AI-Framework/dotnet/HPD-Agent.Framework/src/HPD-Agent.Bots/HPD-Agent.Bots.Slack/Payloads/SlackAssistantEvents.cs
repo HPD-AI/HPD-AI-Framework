@@ -2,14 +2,14 @@ using System.Text.Json.Serialization;
 
 namespace HPD.Agent.Bots.Slack.Payloads;
 
-[WebhookPayload]
+[HpdBotPayload]
 public record SlackAssistantThreadStartedEvent(
     [property: JsonPropertyName("type")]             string Type,
     [property: JsonPropertyName("assistant_thread")] SlackAssistantThread AssistantThread,
     [property: JsonPropertyName("event_ts")]         string EventTs
 );
 
-[WebhookPayload]
+[HpdBotPayload]
 public record SlackAssistantContextChangedEvent(
     [property: JsonPropertyName("type")]             string Type,
     [property: JsonPropertyName("assistant_thread")] SlackAssistantThread AssistantThread,

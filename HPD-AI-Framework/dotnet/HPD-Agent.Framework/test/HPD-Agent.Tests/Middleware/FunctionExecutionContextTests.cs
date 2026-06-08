@@ -1,6 +1,8 @@
 using FluentAssertions;
 using HPD.Agent.Middleware;
+using HPD.Agent.Tests.Infrastructure;
 using HPD.Events.Core;
+using HPD.Events.Struct;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Tests.Middleware;
@@ -104,6 +106,51 @@ public sealed class FunctionExecutionContextTests
         context.EventCoordinator.Should().BeSameAs(coordinator);
         context.EventFlows.Should().BeSameAs(coordinator.EventFlows);
         context.GetParentEventCoordinator().Should().BeSameAs(coordinator);
+    }
+
+    [Fact]
+    public void FunctionExecutionContext_ExposesStructEvents()
+    {
+        var structEvents = new StructEventHub();
+        var context = CreateContext(structEvents: structEvents);
+
+        context.StructEvents.Should().BeSameAs(structEvents);
+    }
+
+    [Fact]
+    public async Task ToolFunction_CanEmitStructEventThroughFunctionExecutionContext()
+    {
+        var chatClient = new FakeChatClient();
+        chatClient.EnqueueToolCall("emit_struct_sample", "call-struct");
+        chatClient.EnqueueTextResponse("done");
+
+        var observed = new TaskCompletionSource<ToolStructSample>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var tool = HPDAIFunctionFactory.Create(
+            (_, context, _) =>
+            {
+                var result = context.StructEvents!
+                    .Route<ToolStructSample>()
+                    .CreateEmitter()
+                    .Emit(new ToolStructSample(context.FunctionCallId));
+
+                result.Accepted.Should().BeTrue();
+                return Task.FromResult<object?>("sample emitted");
+            },
+            new HPDAIFunctionFactoryOptions { Name = "emit_struct_sample" });
+
+        var agent = TestAgentFactory.Create(chatClient: chatClient, tools: tool);
+        using var subscription = agent.ObserveStruct<ToolStructSample>(sample =>
+        {
+            observed.TrySetResult(sample);
+            return ValueTask.CompletedTask;
+        });
+
+        await agent.RunAsync("emit a struct sample");
+
+        var sample = await observed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        sample.FunctionCallId.Should().Be("call-struct");
     }
 
     [Fact]
@@ -214,6 +261,7 @@ public sealed class FunctionExecutionContextTests
         string? traceId = null,
         IServiceProvider? services = null,
         IAgentBackgroundTaskRegistry? backgroundTasks = null,
+        IStructEventHub? structEvents = null,
         AgentRunConfig? runConfig = null)
     {
         runConfig ??= new AgentRunConfig();
@@ -256,6 +304,7 @@ public sealed class FunctionExecutionContextTests
             Invocation = invocation,
             ResultMetadata = metadata ?? new ToolResultMetadata(),
             EventCoordinator = eventCoordinator,
+            StructEvents = structEvents,
             BackgroundTasks = backgroundTasks
         };
 
@@ -265,6 +314,14 @@ public sealed class FunctionExecutionContextTests
     private sealed record TestAgentEvent : AgentEvent
     {
         public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+    }
+
+    private readonly record struct ToolStructSample(
+        string FunctionCallId,
+        long TimestampNs = 0,
+        long SequenceNumber = 0) : AgentStructEvent
+    {
+        public HPD.Events.EventKind Kind => HPD.Events.EventKind.Diagnostic;
     }
 
     private sealed class TestService;

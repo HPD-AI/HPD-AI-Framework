@@ -162,8 +162,8 @@ public static class AgentBuilderExtensions
             return explicitEndpoint;
 
         // Priority 2: Environment variables
-        var envEndpoint = Environment.GetEnvironmentVariable("OLLAMA_ENDPOINT")
-            ?? Environment.GetEnvironmentVariable("OLLAMA_HOST");
+        var envEndpoint = System.Environment.GetEnvironmentVariable("OLLAMA_ENDPOINT")
+            ?? System.Environment.GetEnvironmentVariable("OLLAMA_HOST");
 
         if (!string.IsNullOrWhiteSpace(envEndpoint))
             return envEndpoint;

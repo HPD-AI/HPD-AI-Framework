@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent;
+using HPD.MultiAgent;
 using HPDAgent.Graph.Abstractions;
 using HPDAgent.Graph.Abstractions.Graph;
 
@@ -281,6 +282,12 @@ public sealed record WorkflowSettingsConfig
     /// Iteration options for loops/cycles.
     /// </summary>
     public IterationOptionsConfig? IterationOptions { get; init; }
+
+    /// <summary>
+    /// Controls how workflow node agents write transcripts into HPD sessions and branches.
+    /// This is separate from the workflow store used for definitions and checkpoints.
+    /// </summary>
+    public MultiAgentConversationConfig Conversation { get; init; } = new();
 }
 
 /// <summary>

@@ -236,8 +236,8 @@ public static class AgentBuilderWebSearchExtensions
         var context = new WebSearchContext(connectors, defaultProvider);
 
         // Register the WebSearchTools with the context
-        var ToolHarness = new WebSearchTools(context);
-        builder.WithTools(ToolHarness, context);
+        var toolHarness = new WebSearchTools(context);
+        builder.WithToolHarness(toolHarness, context);
 
         // Clean up the temporary storage
         _pendingConnectors.Remove(builder);

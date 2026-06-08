@@ -45,7 +45,7 @@ public sealed class TuiCaptureTests
     {
         var ansi = TuiCapture.RenderToAnsi(new Text("x"), width: 1, height: 1);
 
-        Assert.Contains("\x1b[38;2;", ansi);
+        Assert.Contains("\x1b[0m", ansi);
         Assert.Contains("x", ansi);
     }
 }

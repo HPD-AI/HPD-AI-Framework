@@ -222,7 +222,7 @@ public sealed class BubblewrapBuilder
     /// </summary>
     public BubblewrapBuilder WithPassthroughEnvironmentVariable(string name)
     {
-        var value = Environment.GetEnvironmentVariable(name);
+        var value = System.Environment.GetEnvironmentVariable(name);
         if (value != null)
             WithEnvironmentVariable(name, value);
         return this;

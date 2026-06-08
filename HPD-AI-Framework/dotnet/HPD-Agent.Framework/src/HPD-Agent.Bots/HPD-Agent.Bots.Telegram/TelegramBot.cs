@@ -84,8 +84,8 @@ public partial class TelegramBot
     public Task ProcessUpdateAsync(TelegramUpdate update, CancellationToken ct = default)
         => ProcessUpdateCoreAsync(update, ct);
 
-    [HpdPreDispatch]
-    private async Task<IResult?> VerifySecretTokenAsync(HttpContext ctx, byte[] bodyBytes)
+    [HpdBotPreDispatch]
+    private async Task<BotAdapterResponse?> VerifySecretTokenAsync(BotRequestContext ctx, byte[] bodyBytes)
     {
         await Task.CompletedTask;
         _ = bodyBytes;
@@ -93,18 +93,18 @@ public partial class TelegramBot
         if (string.IsNullOrEmpty(_secretToken))
             return null;
 
-        var header = ctx.Request.Headers["x-telegram-bot-api-secret-token"].ToString();
+        var header = ctx.Header("x-telegram-bot-api-secret-token") ?? "";
         var expected = Encoding.UTF8.GetBytes(_secretToken);
         var actual = Encoding.UTF8.GetBytes(header);
 
         return expected.Length == actual.Length &&
             CryptographicOperations.FixedTimeEquals(actual, expected)
                 ? null
-                : Results.Unauthorized();
+                : BotAdapterResponse.Status(401);
     }
 
-    [HpdBodyExtractor]
-    private (string? eventType, byte[] dispatchBytes) ExtractTelegramUpdate(HttpContext ctx, byte[] bodyBytes)
+    [HpdBotEnvelopeExtractor]
+    private (string? eventType, byte[] dispatchBytes) ExtractTelegramUpdate(BotRequestContext ctx, byte[] bodyBytes)
     {
         _ = ctx;
         try
@@ -118,20 +118,20 @@ public partial class TelegramBot
         }
     }
 
-    [HpdWebhookHandler("message")]
-    private async Task<IResult> HandleMessageAsync(HttpContext ctx, JsonDocument updateJson)
+    [HpdBotEventHandler("message")]
+    private async Task<BotAdapterResponse> HandleMessageAsync(BotRequestContext ctx, JsonDocument updateJson)
     {
         var update = DeserializeUpdate(updateJson.RootElement);
         var message = update.Message ?? update.ChannelPost;
         if (message is null)
-            return Results.Ok();
+            return BotAdapterResponse.Ok();
 
-        await ProcessMessageAsync(message, runAgent: true, ctx.RequestAborted);
-        return Results.Ok();
+        await ProcessMessageAsync(message, runAgent: true, ctx.CancellationToken);
+        return BotAdapterResponse.Ok();
     }
 
-    [HpdWebhookHandler("edited_message")]
-    private Task<IResult> HandleEditedMessageAsync(HttpContext ctx, JsonDocument updateJson)
+    [HpdBotEventHandler("edited_message")]
+    private Task<BotAdapterResponse> HandleEditedMessageAsync(BotRequestContext ctx, JsonDocument updateJson)
     {
         var update = DeserializeUpdate(updateJson.RootElement);
         var message = update.EditedMessage ?? update.EditedChannelPost;
@@ -142,28 +142,28 @@ public partial class TelegramBot
         }
 
         _ = ctx;
-        return Task.FromResult(Results.Ok());
+        return Task.FromResult(BotAdapterResponse.Ok());
     }
 
-    [HpdWebhookHandler("callback_query")]
-    private async Task<IResult> HandleCallbackQueryAsync(HttpContext ctx, JsonDocument updateJson)
+    [HpdBotEventHandler("callback_query")]
+    private async Task<BotAdapterResponse> HandleCallbackQueryAsync(BotRequestContext ctx, JsonDocument updateJson)
     {
         var update = DeserializeUpdate(updateJson.RootElement);
         if (update.CallbackQuery is { } query)
-            await ProcessCallbackQueryAsync(query, ctx.RequestAborted);
+            await ProcessCallbackQueryAsync(query, ctx.CancellationToken);
 
-        return Results.Ok();
+        return BotAdapterResponse.Ok();
     }
 
-    [HpdWebhookHandler("message_reaction")]
-    private Task<IResult> HandleMessageReactionAsync(HttpContext ctx, JsonDocument updateJson)
+    [HpdBotEventHandler("message_reaction")]
+    private Task<BotAdapterResponse> HandleMessageReactionAsync(BotRequestContext ctx, JsonDocument updateJson)
     {
         var update = DeserializeUpdate(updateJson.RootElement);
         if (update.MessageReaction is { } reaction)
             ProcessReaction(reaction);
 
         _ = ctx;
-        return Task.FromResult(Results.Ok());
+        return Task.FromResult(BotAdapterResponse.Ok());
     }
 
     public async Task<TelegramParsedMessage> PostMessageAsync(

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <RootNamespace>HPD.Agent.ToolHarness.Coding.TUI</RootNamespace>
+    <AssemblyName>HPD-Agent.Harness.Coding.TUI</AssemblyName>
+    <PackageId>HPD-Agent.Harness.Coding.TUI</PackageId>
+    <Description>Terminal UI contributions for the HPD-Agent coding toolharness.</Description>
+    <PackageTags>ai;agent;coding;tui;terminal;hpd-agent</PackageTags>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj" />
+    <ProjectReference Include="../../HPD-Agent.TUI/HPD-Agent.TUI.csproj" />
+  </ItemGroup>
+
+</Project>

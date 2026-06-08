@@ -17,7 +17,7 @@ internal static class JsonContextGenerator
 {
     public static void Generate(
         SourceProductionContext context,
-        IReadOnlyList<WebhookPayloadInfo> payloads)
+        IReadOnlyList<HpdBotPayloadInfo> payloads)
     {
         // No-op: see summary above.
     }

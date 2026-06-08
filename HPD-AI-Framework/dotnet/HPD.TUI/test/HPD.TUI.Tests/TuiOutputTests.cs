@@ -21,7 +21,7 @@ public sealed class TuiOutputTests
     {
         var output = TuiOutput.Render(new Text("x"), new TuiOutputOptions { Width = 2, Height = 1, UseAnsi = true });
 
-        Assert.Contains("\x1b[38;2;", output);
+        Assert.Contains("\x1b[0m", output);
         Assert.Contains("x", output);
     }
 
@@ -64,6 +64,10 @@ public sealed class TuiOutputTests
         public void Write(ReadOnlySpan<char> text)
         {
             _output.Append(text);
+        }
+
+        public void Flush()
+        {
         }
 
         public bool TryReadKey(out KeyEvent key)

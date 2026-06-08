@@ -1,5 +1,6 @@
 namespace HPD.Agent.Audio.Interruptions;
 
+using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 
 public sealed record InterruptionCandidate

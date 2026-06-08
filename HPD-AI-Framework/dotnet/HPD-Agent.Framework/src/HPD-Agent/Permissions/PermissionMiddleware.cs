@@ -39,7 +39,7 @@ namespace HPD.Agent.Permissions;
 ///     .Build();
 /// </code>
 /// </example>
-public class PermissionMiddleware : IAgentMiddleware
+public class PermissionMiddleware : IAgentPermissionMiddleware
 {
     private readonly AgentConfig? _config;
     private readonly string _middlewareName;

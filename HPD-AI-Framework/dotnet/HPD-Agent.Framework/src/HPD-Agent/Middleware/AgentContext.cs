@@ -1,5 +1,6 @@
 using Microsoft.Extensions.AI;
 using HPD.Events;
+using HPD.Events.Struct;
 
 namespace HPD.Agent.Middleware;
 
@@ -33,8 +34,10 @@ public sealed class AgentContext
     private volatile bool _middlewareExecuting = false;
     private int _stateGeneration = 0;
     private readonly IEventCoordinator _events;
+    private readonly IStructEventHub _structEvents;
     private readonly CancellationToken _cancellationToken;
     private readonly IChatClient? _parentChatClient;
+    private readonly AgentMetadata? _parentAgentMetadata;
     private readonly IAgentStore? _parentAgentStore;
     private readonly AgentConfig? _config;
     private readonly AgentClientSet? _clientSet;
@@ -53,10 +56,17 @@ public sealed class AgentContext
     /// </summary>
     internal IEventCoordinator EventCoordinator => _events;
 
+    internal IStructEventHub StructEvents => _structEvents;
+
     /// <summary>
     /// Parent agent's chat client (for SubAgent inheritance).
     /// </summary>
     internal IChatClient? ParentChatClient => _parentChatClient;
+
+    /// <summary>
+    /// Parent agent's metadata (for SubAgent and MultiAgent event attribution).
+    /// </summary>
+    internal AgentMetadata? ParentAgentMetadata => _parentAgentMetadata;
 
     /// <summary>
     /// Parent agent's definition store (for stored-agent subagent resolution).
@@ -335,7 +345,7 @@ public sealed class AgentContext
                 "  ✓ After ExecuteBeforeIterationAsync() completes\n" +
                 "  ✓ Before next middleware phase starts\n\n" +
                 "This indicates a timing error in Agent.cs.\n" +
-                $"Stack trace:\n{Environment.StackTrace}");
+                $"Stack trace:\n{System.Environment.StackTrace}");
         }
 
         lock (_stateLock)
@@ -424,10 +434,13 @@ public sealed class AgentContext
         IServiceProvider? services = null,
         IRuntimeCapabilityRegistry? runtimeCapabilities = null,
         string? traceId = null,
+        string? agentId = null,
+        AgentMetadata? parentAgentMetadata = null,
         IAgentStore? parentAgentStore = null,
         AgentConfig? config = null,
         AgentClientSet? clientSet = null,
-        IContentStore? contentStore = null)
+        IContentStore? contentStore = null,
+        IStructEventHub? structEvents = null)
     {
         AgentName = agentName ?? throw new ArgumentNullException(nameof(agentName));
         ConversationId = conversationId;
@@ -437,13 +450,30 @@ public sealed class AgentContext
         _contentStore = contentStore;
         _state = initialState ?? throw new ArgumentNullException(nameof(initialState));
         _events = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
+        _structEvents = structEvents ?? new StructEventHub();
         _session = session;
         _branch = branch;
         _cancellationToken = cancellationToken;
         _parentChatClient = parentChatClient;
+        _parentAgentMetadata = parentAgentMetadata ?? CreateRootAgentMetadata(agentName, agentId);
         _parentAgentStore = parentAgentStore;
         _services = services;
         _runtimeCapabilities = runtimeCapabilities ?? new RuntimeCapabilityRegistry();
+    }
+
+    private static AgentMetadata? CreateRootAgentMetadata(string agentName, string? agentId)
+    {
+        if (string.IsNullOrWhiteSpace(agentId))
+            return null;
+
+        return new AgentMetadata
+        {
+            AgentName = agentName,
+            AgentId = agentId,
+            ParentAgentId = null,
+            AgentChain = [agentName],
+            Depth = 0
+        };
     }
 
     //

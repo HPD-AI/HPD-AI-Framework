@@ -1,5 +1,5 @@
 using HPD.Agent;
-using HPD.Execution.Contracts;
+using HPD.Environment.Contracts;
 
 namespace HPD.Agent.Sandbox.Local.Events;
 

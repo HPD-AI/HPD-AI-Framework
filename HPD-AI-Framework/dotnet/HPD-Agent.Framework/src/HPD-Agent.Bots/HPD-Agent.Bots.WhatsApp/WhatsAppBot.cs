@@ -17,7 +17,7 @@ using Microsoft.Extensions.Options;
 namespace HPD.Agent.Bots.WhatsApp;
 
 [HpdBot("whatsapp")]
-[HpdWebhookMethods("GET", "POST")]
+[HpdHttpMethods("GET", "POST")]
 [HpdStreaming(StreamingStrategy.BufferAndPost, DebounceMs = 0)]
 public partial class WhatsAppBot
 {
@@ -54,32 +54,32 @@ public partial class WhatsAppBot
     public event Action<WhatsAppButtonClickEvent>? OnButtonClick;
     public event Action<WhatsAppReactionEvent>? OnReaction;
 
-    [HpdPreDispatch]
-    private async Task<IResult?> VerifyWhatsAppRequestAsync(HttpContext ctx, byte[] bodyBytes)
+    [HpdBotPreDispatch]
+    private async Task<BotAdapterResponse?> VerifyWhatsAppRequestAsync(BotRequestContext ctx, byte[] bodyBytes)
     {
         await Task.CompletedTask;
 
-        if (HttpMethods.IsGet(ctx.Request.Method))
+        if (string.Equals(ctx.Method, "GET", StringComparison.OrdinalIgnoreCase))
         {
-            var mode = ctx.Request.Query["hub.mode"].ToString();
-            var token = ctx.Request.Query["hub.verify_token"].ToString();
-            var challenge = ctx.Request.Query["hub.challenge"].ToString();
+            var mode = ctx.QueryValue("hub.mode") ?? "";
+            var token = ctx.QueryValue("hub.verify_token") ?? "";
+            var challenge = ctx.QueryValue("hub.challenge") ?? "";
             return string.Equals(mode, "subscribe", StringComparison.Ordinal) &&
                 string.Equals(token, _verifyToken, StringComparison.Ordinal)
-                    ? Results.Text(challenge)
-                    : Results.StatusCode(StatusCodes.Status403Forbidden);
+                    ? BotAdapterResponse.Text(challenge)
+                    : BotAdapterResponse.Status(403);
         }
 
-        if (!HttpMethods.IsPost(ctx.Request.Method))
-            return Results.StatusCode(StatusCodes.Status405MethodNotAllowed);
+        if (!string.Equals(ctx.Method, "POST", StringComparison.OrdinalIgnoreCase))
+            return BotAdapterResponse.Status(405);
 
-        return VerifySignature(bodyBytes, ctx.Request.Headers["x-hub-signature-256"].ToString())
+        return VerifySignature(bodyBytes, ctx.Header("x-hub-signature-256") ?? "")
             ? null
-            : Results.Unauthorized();
+            : BotAdapterResponse.Status(401);
     }
 
-    [HpdBodyExtractor]
-    private (string? eventType, byte[] dispatchBytes) ExtractWhatsAppEnvelope(HttpContext ctx, byte[] bodyBytes)
+    [HpdBotEnvelopeExtractor]
+    private (string? eventType, byte[] dispatchBytes) ExtractWhatsAppEnvelope(BotRequestContext ctx, byte[] bodyBytes)
     {
         _ = ctx;
         try
@@ -109,30 +109,30 @@ public partial class WhatsAppBot
         }
     }
 
-    [HpdWebhookHandler("text")]
-    [HpdWebhookHandler("image")]
-    [HpdWebhookHandler("document")]
-    [HpdWebhookHandler("audio")]
-    [HpdWebhookHandler("voice")]
-    [HpdWebhookHandler("video")]
-    [HpdWebhookHandler("sticker")]
-    [HpdWebhookHandler("location")]
-    private async Task<IResult> HandleMessageAsync(HttpContext ctx, WhatsAppWebhookPayload payload)
+    [HpdBotEventHandler("text")]
+    [HpdBotEventHandler("image")]
+    [HpdBotEventHandler("document")]
+    [HpdBotEventHandler("audio")]
+    [HpdBotEventHandler("voice")]
+    [HpdBotEventHandler("video")]
+    [HpdBotEventHandler("sticker")]
+    [HpdBotEventHandler("location")]
+    private async Task<BotAdapterResponse> HandleMessageAsync(BotRequestContext ctx, WhatsAppWebhookPayload payload)
         => await ProcessWebhookMessagesAsync(ctx, payload);
 
-    [HpdWebhookHandler("interactive")]
-    private async Task<IResult> HandleInteractiveAsync(HttpContext ctx, WhatsAppWebhookPayload payload)
+    [HpdBotEventHandler("interactive")]
+    private async Task<BotAdapterResponse> HandleInteractiveAsync(BotRequestContext ctx, WhatsAppWebhookPayload payload)
         => await ProcessWebhookMessagesAsync(ctx, payload);
 
-    [HpdWebhookHandler("button")]
-    private async Task<IResult> HandleButtonAsync(HttpContext ctx, WhatsAppWebhookPayload payload)
+    [HpdBotEventHandler("button")]
+    private async Task<BotAdapterResponse> HandleButtonAsync(BotRequestContext ctx, WhatsAppWebhookPayload payload)
         => await ProcessWebhookMessagesAsync(ctx, payload);
 
-    [HpdWebhookHandler("reaction")]
-    private async Task<IResult> HandleReactionAsync(HttpContext ctx, WhatsAppWebhookPayload payload)
+    [HpdBotEventHandler("reaction")]
+    private async Task<BotAdapterResponse> HandleReactionAsync(BotRequestContext ctx, WhatsAppWebhookPayload payload)
         => await ProcessWebhookMessagesAsync(ctx, payload);
 
-    private async Task<IResult> ProcessWebhookMessagesAsync(HttpContext ctx, WhatsAppWebhookPayload payload)
+    private async Task<BotAdapterResponse> ProcessWebhookMessagesAsync(BotRequestContext ctx, WhatsAppWebhookPayload payload)
     {
         foreach (var (value, inbound) in EnumerateMessages(payload))
         {
@@ -160,11 +160,11 @@ public partial class WhatsAppBot
             }
         }
 
-        return Results.Ok();
+        return BotAdapterResponse.Ok();
     }
 
     private async Task ProcessInboundMessageAsync(
-        HttpContext ctx,
+        BotRequestContext ctx,
         WhatsAppWebhookValue value,
         WhatsAppInboundMessage inbound)
     {
@@ -174,11 +174,11 @@ public partial class WhatsAppBot
         var parsed = ParseWhatsAppMessage(value.Metadata.PhoneNumberId, inbound, contact);
 
         if (_api is not null)
-            await _api.MarkReadAsync(inbound.Id, showTypingIndicator: true, ctx.RequestAborted);
+            await _api.MarkReadAsync(inbound.Id, showTypingIndicator: true, ctx.CancellationToken);
 
         if (_sessionMapper is not null && _sessionManager is not null && _agentManager is not null)
         {
-            var (sessionId, branchId) = await _sessionMapper.ResolveAsync(threadId, ctx.RequestAborted);
+            var (sessionId, branchId) = await _sessionMapper.ResolveAsync(threadId, ctx.CancellationToken);
             _ = StreamToWhatsAppAsync(sessionId, branchId, parsed, CancellationToken.None);
         }
     }

@@ -120,7 +120,7 @@ internal sealed class LinuxProcessIsolationBackend : ISandboxBackend
         }
 
         // Check for socat (needed for network bridging)
-        if (_plan.Network.Mode == HPD.Execution.Contracts.NetworkEgressMode.Filtered)
+        if (_plan.Network.Mode == HPD.Environment.Contracts.NetworkEgressMode.Filtered)
         {
             if (!await UnixSocketBridge.IsSocatAvailableAsync(cancellationToken))
             {
@@ -213,7 +213,7 @@ internal sealed class LinuxProcessIsolationBackend : ISandboxBackend
         var dangerousPaths = effectivePlan.Filesystem.DangerousPaths.ProtectSensitiveDefaults is false
             ? []
             : await _pathScanner.GetDangerousPathCandidatesAsync(
-                Environment.CurrentDirectory,
+                System.Environment.CurrentDirectory,
                 allowGitConfig: false,
                 cancellationToken);
 
@@ -253,7 +253,7 @@ internal sealed class LinuxProcessIsolationBackend : ISandboxBackend
         builder.WithEnvironmentVariables(effectivePlan.Environment.InjectedVariables);
 
         // 9. Network isolation and proxy setup
-        var needsNetwork = effectivePlan.Network.Mode == HPD.Execution.Contracts.NetworkEgressMode.Filtered;
+        var needsNetwork = effectivePlan.Network.Mode == HPD.Environment.Contracts.NetworkEgressMode.Filtered;
         var shell = GetShellPath();
 
         if (needsNetwork && _socketBridge != null)
@@ -292,7 +292,7 @@ internal sealed class LinuxProcessIsolationBackend : ISandboxBackend
                 return builder.BuildWithSetupCommand(setupScript, command, shell);
             }
         }
-        else if (effectivePlan.Network.Mode == HPD.Execution.Contracts.NetworkEgressMode.Blocked)
+        else if (effectivePlan.Network.Mode == HPD.Environment.Contracts.NetworkEgressMode.Blocked)
         {
             // No network allowed at all
             builder.WithNetworkIsolation();
@@ -313,7 +313,7 @@ internal sealed class LinuxProcessIsolationBackend : ISandboxBackend
     {
         if (_initialized) return;
 
-        var needsNetwork = _plan.Network.Mode == HPD.Execution.Contracts.NetworkEgressMode.Filtered;
+        var needsNetwork = _plan.Network.Mode == HPD.Environment.Contracts.NetworkEgressMode.Filtered;
 
         // Initialize network bridge if needed
         if (needsNetwork)

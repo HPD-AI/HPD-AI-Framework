@@ -76,7 +76,8 @@ internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
             parentAgentStore: _config?.AgentStore,
             config: _config,
             clientSet: _runtimeContext.ClientSet,
-            contentStore: _runtimeContext.ContentStore);
+            contentStore: _runtimeContext.ContentStore,
+            structEvents: _runtimeContext.StructEvents);
 
         var results = new List<RuntimeFunctionExecutionResult>(calls.Count);
         var batchId = Guid.NewGuid().ToString("N");

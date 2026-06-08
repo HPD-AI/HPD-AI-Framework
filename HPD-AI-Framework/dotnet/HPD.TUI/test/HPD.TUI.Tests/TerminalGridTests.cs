@@ -1,4 +1,5 @@
 using HPD.TUI.Core;
+using HPD.TUI.Rendering;
 using HPD.TUI.Terminal;
 
 namespace HPD.TUI.Tests;
@@ -42,35 +43,68 @@ public sealed class TerminalGridTests
     }
 
     [Fact]
-    public void WriteAnsi_WritesIntoCallerBuffer()
+    public void AnsiRenderer_WritesFullGrid()
     {
         using var grid = new TerminalGrid(2, 1);
-        Span<char> buffer = stackalloc char[128];
+        using var output = new AnsiFrameWriter();
 
         Assert.True(grid.Write("Hi", Style.Default));
-        var written = grid.WriteAnsi(buffer);
+        AnsiGridRenderer.WriteFull(grid, output);
 
-        Assert.True(written > 0);
-        Assert.Contains("Hi", new string(buffer[..written]));
+        Assert.Contains("Hi", output.ToString());
     }
 
     [Fact]
-    public void WriteDifferentialAnsi_WritesOnlyChangedCells()
+    public void AnsiRenderer_DefaultForeground_DoesNotEmitBlackRgb()
+    {
+        using var grid = new TerminalGrid(2, 1);
+        using var output = new AnsiFrameWriter();
+
+        Assert.True(grid.Write("Hi", Style.Default));
+        AnsiGridRenderer.WriteFull(grid, output);
+        var rendered = output.ToString();
+
+        Assert.DoesNotContain("\x1b[38;2;0;0;0m", rendered);
+        Assert.Contains("\x1b[0m", rendered);
+    }
+
+    [Fact]
+    public void AnsiRenderer_WritesOnlyChangedCells()
     {
         using var previous = new TerminalGrid(4, 1);
         using var current = new TerminalGrid(4, 1);
-        Span<char> buffer = stackalloc char[256];
+        using var output = new AnsiFrameWriter();
 
         previous.Write("abcd", Style.Default);
         current.Write("abXd", Style.Default);
 
-        var written = current.WriteDifferentialAnsi(previous, buffer);
-        var output = new string(buffer[..written]);
+        AnsiGridRenderer.WriteDifferential(previous, current, output);
+        var rendered = output.ToString();
 
-        Assert.Contains("\x1b[1;3H", output);
-        Assert.Contains("X", output);
-        Assert.DoesNotContain("a", output);
-        Assert.DoesNotContain("b", output);
-        Assert.DoesNotContain("d", output);
+        Assert.Contains("\x1b[1;3H", rendered);
+        Assert.Contains("X", rendered);
+        Assert.DoesNotContain("a", rendered);
+        Assert.DoesNotContain("b", rendered);
+        Assert.DoesNotContain("d", rendered);
+    }
+
+    [Fact]
+    public void AnsiRenderer_ResetsStyleBetweenChangedCells()
+    {
+        using var previous = new TerminalGrid(4, 1);
+        using var current = new TerminalGrid(4, 1);
+        using var output = new AnsiFrameWriter();
+
+        previous.SetCell(2, 0, new Cell(new Rune('C'), Style.Default));
+        current.SetCell(0, 0, new Cell(new Rune('A'), new Style(Color.Cyan, Color.Gray)));
+        current.SetCell(2, 0, new Cell(new Rune('B'), Style.Default));
+
+        AnsiGridRenderer.WriteDifferential(previous, current, output);
+        var rendered = output.ToString();
+        var firstReset = rendered.IndexOf("\x1b[0m", StringComparison.Ordinal);
+        var defaultCell = rendered.LastIndexOf("B", StringComparison.Ordinal);
+
+        Assert.True(firstReset >= 0);
+        Assert.True(defaultCell > firstReset);
     }
 }

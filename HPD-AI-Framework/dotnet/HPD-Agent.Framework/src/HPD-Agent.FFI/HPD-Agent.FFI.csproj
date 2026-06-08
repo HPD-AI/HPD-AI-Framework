@@ -33,12 +33,15 @@
     <ProjectReference Include="../HPD-Agent.MCP/HPD-Agent.MCP.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Agent.Tests" />
+  </ItemGroup>
+
   <!-- All Provider Package References - ensures they're included in AOT binary -->
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj" />
     <ProjectReference Include="../HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj" />
     <ProjectReference Include="../HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/HPD-Agent.Providers.GoogleAI.csproj" />
-    <ProjectReference Include="../HPD-Agent.Providers/HPD-Agent.Providers.AzureAIInference/HPD-Agent.Providers.AzureAIInference.csproj" />
     <ProjectReference Include="../HPD-Agent.Providers/HPD-Agent.Providers.Bedrock/HPD-Agent.Providers.Bedrock.csproj" />
     <ProjectReference Include="../HPD-Agent.Providers/HPD-Agent.Providers.Ollama/HPD-Agent.Providers.Ollama.csproj" />
     <ProjectReference Include="../HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj" />

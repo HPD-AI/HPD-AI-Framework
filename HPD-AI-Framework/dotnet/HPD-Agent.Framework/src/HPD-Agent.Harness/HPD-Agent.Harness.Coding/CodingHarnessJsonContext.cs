@@ -59,6 +59,11 @@ using HPDOS.ToolHarnesses.Middleware;
 [JsonSerializable(typeof(LanguageServerDocumentSavedEvent))]
 [JsonSerializable(typeof(LanguageServerWatchedFileChangedEvent))]
 [JsonSerializable(typeof(LanguageServerDiagnosticsReceivedEvent))]
+[JsonSerializable(typeof(LanguageServerDiagnosticSummary))]
+[JsonSerializable(typeof(IReadOnlyList<LanguageServerDiagnosticSummary>), TypeInfoPropertyName = "LanguageServerDiagnosticSummaryReadOnlyList")]
+[JsonSerializable(typeof(List<LanguageServerDiagnosticSummary>), TypeInfoPropertyName = "LanguageServerDiagnosticSummaryList")]
+[JsonSerializable(typeof(LanguageServerDiagnosticSource))]
+[JsonSerializable(typeof(LanguageServerDiagnosticSeverity))]
 [JsonSerializable(typeof(LanguageServerWatchedFileChangeKind))]
 
 // Common event fields
