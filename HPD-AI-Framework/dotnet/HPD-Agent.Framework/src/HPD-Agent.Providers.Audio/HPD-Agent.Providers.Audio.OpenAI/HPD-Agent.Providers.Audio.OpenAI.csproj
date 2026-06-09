@@ -16,7 +16,7 @@
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.4.1" />
     <PackageReference Include="OpenAI" Version="2.9.1" />
-    <ProjectReference Include="../../HPD-Agent.Audio/HPD.Agent.Audio.Abstractions/HPD.Agent.Audio.Abstractions.csproj" />
+    <ProjectReference Include="../../HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
     <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
   </ItemGroup>
 

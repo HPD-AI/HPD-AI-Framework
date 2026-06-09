@@ -28,7 +28,7 @@
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/HPD-Agent.Providers.Ollama.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.TUI/HPD-Agent.TUI.csproj" />
     <ProjectReference Include="../../../HPD.TUI/src/HPD.TUI/HPD.TUI.csproj" />
   </ItemGroup>

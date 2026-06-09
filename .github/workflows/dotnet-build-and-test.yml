@@ -41,8 +41,10 @@ jobs:
               - '**/*.cs'
               - '**/*.csproj'
               - '**/*.c'
+              - '**/*.pdf'
               - '**/*.sh'
               - '**/*.sln'
+              - '**/*.slnx'
               - '**/*.props'
               - '**/*.targets'
               - '**/Directory.Build.*'
@@ -384,14 +386,14 @@ jobs:
           echo "Build and test jobs were skipped to save CI minutes."
 
       - name: Check for failures
-        if: needs.paths-filter.outputs.dotnet-changed == 'true' && contains(join(needs.*.result, ','), 'failure')
+        if: (needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && contains(join(needs.*.result, ','), 'failure')
         run: |
           echo "One or more jobs failed"
           echo "::error::Build or test failures detected"
           exit 1
 
       - name: Check for cancellation
-        if: needs.paths-filter.outputs.dotnet-changed == 'true' && contains(join(needs.*.result, ','), 'cancelled')
+        if: (needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && contains(join(needs.*.result, ','), 'cancelled')
         run: |
           echo "One or more jobs were cancelled"
           echo "::error::Jobs were cancelled"

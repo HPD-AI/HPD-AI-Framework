@@ -15,7 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../../../HPD-Agent.Framework/src/HPD-Agent/HPD-Agent.csproj" />
-    <ProjectReference Include="../../../../HPD-Agent.Framework/src/HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj" />
+    <ProjectReference Include="../../../../HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

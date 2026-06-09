@@ -56,7 +56,7 @@ internal static class AutoDiscovery
         // 1. Initialize extension libraries (which may auto-discover their own providers)
         TryInitializeByTypeName("HPD.Agent.MCP.MCPAutoDiscovery, HPD-Agent.MCP");
         TryInitializeByTypeName("HPD.Agent.OpenApi.OpenApiAutoDiscovery, HPD-Agent.OpenApi");
-        TryInitializeByTypeName("HPD.Agent.Audio.AgentIntegration.AudioAgentFeatureActivator, HPD.Agent.Audio.AgentIntegration");
+        TryInitializeByTypeName("HPD.Agent.Audio.AgentIntegration.AudioAgentFeatureActivator, HPD.Agent.Audio");
 
         // 2. Initialize provider packages
         TryInitializeByTypeName("HPD.Agent.Providers.OpenAI.OpenAIProviderModule, HPD-Agent.Providers.OpenAI");
@@ -77,7 +77,7 @@ internal static class AutoDiscovery
     /// </summary>
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.MCP.MCPAutoDiscovery", "HPD-Agent.MCP")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.OpenApi.OpenApiAutoDiscovery", "HPD-Agent.OpenApi")]
-    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Audio.AgentIntegration.AudioAgentFeatureActivator", "HPD.Agent.Audio.AgentIntegration")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Audio.AgentIntegration.AudioAgentFeatureActivator", "HPD.Agent.Audio")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.OpenAI.OpenAIProviderModule", "HPD-Agent.Providers.OpenAI")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Anthropic.AnthropicProviderModule", "HPD-Agent.Providers.Anthropic")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.GoogleAI.GoogleAIProviderModule", "HPD-Agent.Providers.GoogleAI")]
@@ -124,7 +124,7 @@ internal static class AutoDiscovery
             // 1. Load extension libraries (which may auto-discover their own providers)
             TryLoadExtensionLibrary(directory, "HPD-Agent.MCP.dll");
             TryLoadExtensionLibrary(directory, "HPD-Agent.OpenApi.dll");
-            TryLoadExtensionLibrary(directory, "HPD.Agent.Audio.AgentIntegration.dll");
+            TryLoadExtensionLibrary(directory, "HPD.Agent.Audio.dll");
 
             // 2. Scan for toolharness assemblies so string-based AgentConfig toolharnesses can resolve.
             foreach (var toolharnessFile in Directory.GetFiles(directory, "HPD-Agent.ToolHarness.*.dll"))

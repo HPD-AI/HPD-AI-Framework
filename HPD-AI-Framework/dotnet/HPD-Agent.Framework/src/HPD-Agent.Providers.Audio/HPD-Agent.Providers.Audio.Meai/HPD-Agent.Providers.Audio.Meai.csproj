@@ -14,8 +14,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
-    <ProjectReference Include="../../HPD-Agent.Audio/HPD.Agent.Audio.Abstractions/HPD.Agent.Audio.Abstractions.csproj" />
-    <ProjectReference Include="../../HPD-Agent.Audio/HPD.Agent.Audio.AgentIntegration/HPD.Agent.Audio.AgentIntegration.csproj" />
+    <ProjectReference Include="../../HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
     <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
   </ItemGroup>
 

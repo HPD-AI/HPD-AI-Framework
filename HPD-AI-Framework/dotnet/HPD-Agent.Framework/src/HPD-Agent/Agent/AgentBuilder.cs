@@ -109,9 +109,6 @@ public class AgentBuilder
     // AIContextProvider factory (protocol-specific, stored as object for extensibility)
     internal object? _contextProviderFactory;
 
-    // Text extraction utility for document processing (shared instance)
-    public HPD.Agent.TextExtraction.TextExtractionUtility? _textExtractor;
-
     //     
     // AOT-COMPATIBLE ToolHarness REGISTRY (Phase: AOT ToolHarness Registry Hybrid)
     //     
@@ -365,7 +362,7 @@ public class AgentBuilder
             "HPD-Agent.Providers.Bedrock",
             "HPD-Agent.Providers.Mistral",
             "HPD-Agent.Providers.OnnxRuntime",
-            "HPD.Agent.Audio.AgentIntegration",
+            "HPD.Agent.Audio",
             "HPD-Agent.Providers.Audio.OpenAI",
             "HPD-Agent.Providers.Audio.ElevenLabs",
             "HPD-Agent.Providers.Audio.Meai",

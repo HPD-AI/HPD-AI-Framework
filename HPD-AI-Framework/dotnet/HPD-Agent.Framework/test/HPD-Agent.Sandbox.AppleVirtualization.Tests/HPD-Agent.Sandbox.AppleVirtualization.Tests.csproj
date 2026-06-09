@@ -23,6 +23,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/HPD-Agent.Sandbox.AppleVirtualization/HPD-Agent.Sandbox.AppleVirtualization.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.AppleVirtualization/HPD-Agent.Sandbox.AppleVirtualization.csproj" />
   </ItemGroup>
 </Project>

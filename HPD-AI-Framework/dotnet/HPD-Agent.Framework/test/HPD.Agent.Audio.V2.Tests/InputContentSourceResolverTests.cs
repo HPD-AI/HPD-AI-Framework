@@ -115,15 +115,15 @@ public sealed class InputContentSourceResolverTests
     }
 
     [Fact]
-    public void ProviderFacingResolverApi_DoesNotReferenceHpdAgentTypes()
+    public void ProviderFacingResolverApi_DoesNotLeakTypedContentAndAgentDoesNotReferenceAudioAbstractions()
     {
-        var abstractionReferences = typeof(IInputContentSourceResolver)
+        var agentReferences = typeof(AgentBuilder)
             .Assembly
             .GetReferencedAssemblies()
             .Select(a => a.Name)
             .ToArray();
 
-        Assert.DoesNotContain("HPD-Agent", abstractionReferences);
+        Assert.DoesNotContain("HPD.Agent.Audio", agentReferences);
 
         var method = Assert.Single(typeof(IInputContentSourceResolver).GetMethods());
         Assert.DoesNotContain(

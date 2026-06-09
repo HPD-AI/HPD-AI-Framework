@@ -24,7 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj" />
   </ItemGroup>
 </Project>

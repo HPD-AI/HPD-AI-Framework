@@ -22,9 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/HPD-Agent.Audio/HPD.Agent.Audio.Abstractions/HPD.Agent.Audio.Abstractions.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.Audio/HPD.Agent.Audio.AgentIntegration/HPD.Agent.Audio.AgentIntegration.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.Audio/HPD.Agent.Audio.Runtime/HPD.Agent.Audio.Runtime.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.ElevenLabs/HPD-Agent.Providers.Audio.ElevenLabs.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Meai/HPD-Agent.Providers.Audio.Meai.csproj" />

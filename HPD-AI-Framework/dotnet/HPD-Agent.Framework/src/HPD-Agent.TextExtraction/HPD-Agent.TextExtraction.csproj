@@ -2,50 +2,24 @@
 
   <PropertyGroup>
     <IsPackable>true</IsPackable>
-    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
     <RootNamespace>HPD.Agent.TextExtraction</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <NoWarn>CS8600;CS8601;CS8602;CS8604;RS2008;CS0628;CA2024</NoWarn>
+    <NoWarn>CS8600;CS8601;CS8602;CS8604;RS2008;CS0628;CA2024;MEAI001</NoWarn>
     <OutputType>Library</OutputType>
-
-    <!-- Native AOT Configuration -->
-    <IsAotCompatible>true</IsAotCompatible>
-    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
-    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
   </PropertyGroup>
 
-  <!-- NuGet Package Metadata -->
   <PropertyGroup>
-    <IsPackable>true</IsPackable>
     <PackageId>HPD-Agent.TextExtraction</PackageId>
-    <Authors>Einstein Essibu</Authors>
-    <Company>HPD</Company>
-    <Description>Text extraction utilities for HPD Agent framework, supporting PDF, DOCX, HTML and other document formats.</Description>
-    <Copyright>Copyright © 2024 Einstein Essibu. All rights reserved.</Copyright>
-    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
-    <PackageLicenseFile>LICENSE</PackageLicenseFile>
-    <PackageTags>text-extraction;pdf;docx;html;document;utilities</PackageTags>
-    <RepositoryType>git</RepositoryType>
+    <Description>HPD Agent document handling middleware and builder extensions powered by HPD-TextExtract.</Description>
+    <PackageTags>agent;middleware;text-extraction;document;hpd-text-extract</PackageTags>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
-    <IncludeSymbols>true</IncludeSymbols>
-    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="../LICENSE" Pack="true" PackagePath="" />
-    <None Include="../README.md" Pack="true" PackagePath="" />
+    <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-TextExtract/HPD-TextExtract.csproj" />
   </ItemGroup>
-    <ItemGroup>
-    <!-- Text Extraction -->
-    <PackageReference Include="UTF.Unknown" Version="2.6.0" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
-      <PackageReference Include="DocumentFormat.OpenXml" Version="3.4.1" />
-  <PackageReference Include="PdfPig" Version="0.1.13" />
-  <!-- Optional: -->
-  <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
 
-      </ItemGroup>
 </Project>

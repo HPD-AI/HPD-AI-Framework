@@ -38,9 +38,7 @@
     <Project Path="src/HPD-Agent.Bots/HPD-Agent.Bots.SourceGenerator/HPD-Agent.Bots.SourceGenerator.csproj" />
   </Folder>
   <Folder Name="/Audio/">
-    <Project Path="src/HPD-Agent.Audio/HPD.Agent.Audio.Abstractions/HPD.Agent.Audio.Abstractions.csproj" />
-    <Project Path="src/HPD-Agent.Audio/HPD.Agent.Audio.Runtime/HPD.Agent.Audio.Runtime.csproj" />
-    <Project Path="src/HPD-Agent.Audio/HPD.Agent.Audio.AgentIntegration/HPD.Agent.Audio.AgentIntegration.csproj" />
+    <Project Path="src/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
     <Project Path="src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.OpenAI/HPD-Agent.Providers.Audio.OpenAI.csproj" />
     <Project Path="src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.ElevenLabs/HPD-Agent.Providers.Audio.ElevenLabs.csproj" />
     <Project Path="src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero/HPD-Agent.Providers.Audio.Silero.csproj" />
@@ -57,9 +55,9 @@
     <Project Path="src/HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj" />
     <Project Path="src/HPD-Agent.FFI/HPD-Agent.FFI.csproj" />
     <Project Path="src/HPD-Agent.MCP/HPD-Agent.MCP.csproj" />
-    <Project Path="src/HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj" />
-    <Project Path="src/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj" />
-    <Project Path="src/HPD-Agent.Sandbox.AppleVirtualization/HPD-Agent.Sandbox.AppleVirtualization.csproj" />
+    <Project Path="src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj" />
+    <Project Path="src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj" />
+    <Project Path="src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.AppleVirtualization/HPD-Agent.Sandbox.AppleVirtualization.csproj" />
     <Project Path="src/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj" />
   </Folder>
   <Folder Name="/TUI/">
@@ -70,10 +68,12 @@
     <Project Path="../shared/src/HPD-Environment/HPD-Environment.AppleVirtualization/HPD-Environment.AppleVirtualization.csproj" />
     <Project Path="../shared/src/HPD-Events/HPD-Events.csproj" />
     <Project Path="../shared/src/HPD-Graph/HPD-Graph.Core/HPD-Graph.Core.csproj" />
+    <Project Path="../shared/src/HPD-TextExtract/HPD-TextExtract.csproj" />
     <Project Path="../shared/src/HPD.OpenApi.Core/HPD.OpenApi.Core.csproj" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="test/HPD-Agent.Tests/HPD-Agent.Tests.csproj" />
+    <Project Path="test/HPD-TextExtract.Tests/HPD-TextExtract.Tests.csproj" />
     <Project Path="test/HPD-Agent.MultiAgent.Tests/HPD-Agent.MultiAgent.Tests.csproj" />
     <Project Path="test/HPD-Agent.OpenApi.Tests/HPD-Agent.OpenApi.Tests.csproj" />
     <Project Path="test/HPD-Agent.AspNetCore.Tests/HPD-Agent.AspNetCore.Tests.csproj" />
