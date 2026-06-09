@@ -12,9 +12,9 @@ internal sealed class WeaviateVectorStoreFeatures : IVectorStoreFeatures
     public Microsoft.Extensions.VectorData.VectorStore CreateVectorStore(VectorStoreConfig config, IServiceProvider? services = null)
     {
         var typed = config.GetTypedConfig<WeaviateVectorStoreConfig>();
-        var endpoint = typed?.Endpoint ?? config.Endpoint
-            ?? throw new InvalidOperationException("Weaviate endpoint is required.");
-        var apiKey = typed?.ApiKey ?? config.ApiKey;
+        var endpoint = typed?.Endpoint
+            ?? throw new InvalidOperationException("Weaviate endpoint is required in WeaviateVectorStoreConfig.ProviderOptions.");
+        var apiKey = typed?.ApiKey;
 
         var httpClient = new HttpClient();
         httpClient.BaseAddress = new Uri(endpoint);

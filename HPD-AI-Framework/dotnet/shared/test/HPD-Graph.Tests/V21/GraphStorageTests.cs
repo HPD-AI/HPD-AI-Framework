@@ -1,4 +1,5 @@
 using FluentAssertions;
+using HPD.Serialization;
 using HPDAgent.Graph.Abstractions.Checkpointing;
 using HPDAgent.Graph.Abstractions.Config;
 using HPDAgent.Graph.Abstractions.Storage;
@@ -153,6 +154,30 @@ public sealed class GraphStorageTests
         loaded.Config.GraphId.Should().Be("tenant/workflow");
         list.Should().ContainSingle()
             .Which.GraphId.Should().Be("tenant/workflow");
+    }
+
+    [Fact]
+    public async Task JsonGraphDefinitionStore_YamlStorageFormat_PersistsAndLoadsDefinitions()
+    {
+        using var temp = TempDirectory.Create();
+        var graph = CreateStoredGraph("yaml/workflow");
+        var first = new JsonGraphDefinitionStore(temp.Path, HpdConfigFormat.Yaml);
+        await first.SaveAsync(graph);
+
+        var yamlPath = System.IO.Path.Combine(
+            temp.Path,
+            "definitions",
+            $"{Uri.EscapeDataString("yaml/workflow")}.graph.yaml");
+
+        File.Exists(yamlPath).Should().BeTrue();
+        File.ReadAllText(yamlPath).Should().Contain("graphId: yaml/workflow");
+
+        var second = new JsonGraphDefinitionStore(temp.Path);
+        var loaded = await second.LoadAsync("yaml/workflow");
+
+        loaded.Should().NotBeNull();
+        loaded!.GraphId.Should().Be("yaml/workflow");
+        loaded.Config.GraphId.Should().Be("yaml/workflow");
     }
 
     [Fact]

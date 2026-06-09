@@ -19,20 +19,17 @@ internal sealed class MemgraphGraphStoreFeatures : IGraphStoreFeatures
 
         var typed = config.GetTypedConfig<MemgraphGraphStoreConfig>();
 
-        var uri = typed?.Uri ?? config.Uri ?? config.ConnectionString
+        var uri = typed?.Uri
             ?? throw new InvalidOperationException(
-                "Memgraph URI is required. Set GraphStoreConfig.Uri, GraphStoreConfig.ConnectionString, " +
-                "or MemgraphGraphStoreConfig.Uri in ProviderOptionsJson.");
+                "Memgraph URI is required in MemgraphGraphStoreConfig.ProviderOptions.");
 
-        var username = typed?.Username ?? config.Username
+        var username = typed?.Username
             ?? throw new InvalidOperationException(
-                "Memgraph username is required. Set GraphStoreConfig.Username " +
-                "or MemgraphGraphStoreConfig.Username in ProviderOptionsJson.");
+                "Memgraph username is required in MemgraphGraphStoreConfig.ProviderOptions.");
 
-        var password = typed?.Password ?? config.Password
+        var password = typed?.Password
             ?? throw new InvalidOperationException(
-                "Memgraph password is required. Set GraphStoreConfig.Password " +
-                "or MemgraphGraphStoreConfig.Password in ProviderOptionsJson.");
+                "Memgraph password is required in MemgraphGraphStoreConfig.ProviderOptions.");
 
         // Memgraph default database differs from Neo4j's "neo4j" default.
         var database = typed?.Database ?? "memgraph";

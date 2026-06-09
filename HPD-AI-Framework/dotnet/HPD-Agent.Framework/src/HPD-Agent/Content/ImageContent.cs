@@ -39,9 +39,9 @@ public class ImageContent : DataContent
     /// Creates image content from bytes with auto-detected format.
     /// </summary>
     /// <param name="data">Image bytes (PNG, JPEG, etc.)</param>
-    /// <param name="mediaType">MIME type. Defaults to auto-detection, fallback to "image/png".</param>
+    /// <param name="mediaType">MIME type. Defaults to auto-detection and throws when the image signature is unrecognized.</param>
     public ImageContent(ReadOnlyMemory<byte> data, string? mediaType = null)
-        : base(data, mediaType ?? DetectImageType(data) ?? "image/png")
+        : base(data, mediaType ?? DetectImageType(data) ?? throw new NotSupportedException("Image data format is not recognized."))
     {
     }
 
@@ -241,6 +241,6 @@ public class ImageContent : DataContent
     private static string GetMediaTypeFromExtension(string filePath)
     {
         return MimeTypeRegistry.GetMimeTypeFromPath(filePath)
-            ?? MimeTypeRegistry.ImagePng; // Default to PNG if unknown
+            ?? throw new NotSupportedException($"Image file extension '{Path.GetExtension(filePath)}' is not registered.");
     }
 }

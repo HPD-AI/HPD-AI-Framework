@@ -12,7 +12,7 @@ namespace HPD.Agent.Providers;
 /// </summary>
 public class ProviderRegistry : IProviderRegistry
 {
-    private readonly Dictionary<string, IProvider> _providers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IProvider> _providers = new(StringComparer.Ordinal);
     private readonly ReaderWriterLockSlim _lock = new();
 
     public void Register(IProvider provider)

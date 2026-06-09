@@ -27,7 +27,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates a <see cref="MistralProviderConfig"/> that is:
-    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptions</c> as a structured JSON/YAML object
     /// - Applied during <c>MistralProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -38,7 +38,7 @@ public static class AgentBuilderExtensions
     ///     "ProviderKey": "mistral",
     ///     "ModelName": "mistral-large-latest",
     ///     "ApiKey": "your-api-key",
-    ///     "ProviderOptionsJson": "{\"maxTokens\":4096,\"temperature\":0.7,\"safePrompt\":true}"
+    ///     "ProviderOptions": { "maxTokens": 4096, "temperature": 0.7, "safePrompt": true }
     ///   }
     /// }
     /// </code>

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Providers.Reranker;
 using HPD.RAG.RerankerProviders.HuggingFace;
 using Xunit;
@@ -38,9 +39,9 @@ public sealed class HuggingFaceRerankerProviderTests
         var config = new RerankerConfig
         {
             ProviderKey = "huggingface",
-            ApiKey = "hf_fake_token_for_testing",
-            Endpoint = "https://api-inference.huggingface.co",
-            ModelName = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            ProviderOptions = JsonDocument.Parse(
+                """{"apiKey":"hf_fake_token_for_testing","endpoint":"https://api-inference.huggingface.co"}""")
+                .RootElement.Clone()
         };
 
         var reranker = provider.CreateReranker(config, null);

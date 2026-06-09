@@ -1,13 +1,14 @@
 // Copyright (c) 2025 Einstein Essibu. All rights reserved.
 
 using HPD.Agent.Secrets;
+using Microsoft.Extensions.Configuration;
 using Xunit;
 
 namespace HPD.Agent.Tests.Secrets;
 
 /// <summary>
 /// Unit tests for SecretNotFoundException.
-/// Tests error message formatting, key/display name properties, and naming conventions.
+/// Tests error message formatting, key/display name properties, and explicit secret registration.
 /// </summary>
 public class SecretNotFoundExceptionTests
 {
@@ -134,51 +135,16 @@ public class SecretNotFoundExceptionTests
     }
 
     // ============================================
-    // PascalCase to snake_case Conversion Tests
+    // Explicit environment registration tests
     // ============================================
 
     [Theory]
-    [InlineData("openai:ApiKey", "OPENAI_API_KEY")]
-    [InlineData("stripe:ApiKey", "STRIPE_API_KEY")]
-    [InlineData("slack:BotToken", "SLACK_BOT_TOKEN")]
-    [InlineData("huggingface:ApiKey", "HUGGINGFACE_API_KEY")]
-    public async Task ExceptionScenario_KeyConversionToSnakeCase(string key, string expectedEnvVar)
+    [InlineData("test-openai:ApiKey", "TEST_OPENAI_API_KEY")]
+    [InlineData("test-huggingface:ApiKey", "TEST_HUGGINGFACE_API_KEY")]
+    public async Task EnvironmentResolver_UsesRegisteredCanonicalEnvVar(string key, string expectedEnvVar)
     {
-        // This test validates the naming convention documented in error messages
-        // by checking that EnvironmentSecretResolver follows the same pattern
-
         // Arrange
-        System.Environment.SetEnvironmentVariable(expectedEnvVar, "test-value");
-        var envResolver = new EnvironmentSecretResolver();
-
-        try
-        {
-            // Act
-            var result = await envResolver.ResolveAsync(key);
-
-            // Assert - the environment resolver should find it using snake_case conversion
-            Assert.NotNull(result);
-            Assert.Equal("test-value", result.Value.Value);
-        }
-        finally
-        {
-            System.Environment.SetEnvironmentVariable(expectedEnvVar, null);
-        }
-    }
-
-    // ============================================
-    // Hyphenated Scope Handling Tests
-    // ============================================
-
-    [Theory]
-    [InlineData("azure-ai:ApiKey", "AZURE_AI_API_KEY")]
-    [InlineData("azure-ai:Endpoint", "AZURE_AI_ENDPOINT")]
-    [InlineData("my-custom-service:ApiKey", "MY_CUSTOM_SERVICE_API_KEY")]
-    public async Task ExceptionScenario_HyphenatedScopeConversion(string key, string expectedEnvVar)
-    {
-        // Validates that hyphenated scopes are converted to underscores
-
-        // Arrange
+        SecretAliasRegistry.Register(key, expectedEnvVar);
         System.Environment.SetEnvironmentVariable(expectedEnvVar, "test-value");
         var envResolver = new EnvironmentSecretResolver();
 
@@ -190,11 +156,111 @@ public class SecretNotFoundExceptionTests
             // Assert
             Assert.NotNull(result);
             Assert.Equal("test-value", result.Value.Value);
+            Assert.Equal($"env:{expectedEnvVar}", result.Value.Source);
         }
         finally
         {
             System.Environment.SetEnvironmentVariable(expectedEnvVar, null);
         }
+    }
+
+    [Fact]
+    public async Task EnvironmentResolver_DoesNotInferEnvVarNames()
+    {
+        // Arrange
+        System.Environment.SetEnvironmentVariable("MY_CUSTOM_SERVICE_API_KEY", "test-value");
+        var envResolver = new EnvironmentSecretResolver();
+
+        try
+        {
+            // Act
+            var result = await envResolver.ResolveAsync("my-custom-service:ApiKey");
+
+            // Assert
+            Assert.Null(result);
+        }
+        finally
+        {
+            System.Environment.SetEnvironmentVariable("MY_CUSTOM_SERVICE_API_KEY", null);
+        }
+    }
+
+    [Fact]
+    public async Task EnvironmentResolver_RequiresCanonicalSecretKeyCasing()
+    {
+        // Arrange
+        SecretAliasRegistry.Register("openai:ApiKey", "TEST_OPENAI_API_KEY_CANONICAL");
+        System.Environment.SetEnvironmentVariable("TEST_OPENAI_API_KEY_CANONICAL", "test-value");
+        var envResolver = new EnvironmentSecretResolver();
+
+        try
+        {
+            // Act
+            var result = await envResolver.ResolveAsync("OpenAI:ApiKey");
+
+            // Assert
+            Assert.Null(result);
+        }
+        finally
+        {
+            System.Environment.SetEnvironmentVariable("TEST_OPENAI_API_KEY_CANONICAL", null);
+        }
+    }
+
+    [Fact]
+    public async Task ExplicitResolver_RequiresCanonicalSecretKeyCasing()
+    {
+        // Arrange
+        var resolver = new ExplicitSecretResolver(new Dictionary<string, string>
+        {
+            ["openai:ApiKey"] = "test-value"
+        });
+
+        // Act
+        var result = await resolver.ResolveAsync("OpenAI:ApiKey");
+
+        // Assert
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task ConfigurationResolver_UsesCanonicalProviderSection()
+    {
+        // Arrange
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Providers:openrouter:ApiKey"] = "test-value"
+            })
+            .Build();
+        var resolver = new ConfigurationSecretResolver(configuration);
+
+        // Act
+        var result = await resolver.ResolveAsync("openrouter:ApiKey");
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("test-value", result.Value.Value);
+        Assert.Equal("config:Providers:openrouter:ApiKey", result.Value.Source);
+    }
+
+    [Fact]
+    public async Task ConfigurationResolver_DoesNotUseCapitalizedProviderSection()
+    {
+        // Arrange
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Providers:Openrouter:ApiKey"] = "test-value"
+            })
+            .Build();
+        var resolver = new ConfigurationSecretResolver(configuration);
+
+        // Act
+        var result = await resolver.ResolveAsync("openrouter:ApiKey");
+
+        // Assert
+        Assert.Null(result);
     }
 
     // ============================================

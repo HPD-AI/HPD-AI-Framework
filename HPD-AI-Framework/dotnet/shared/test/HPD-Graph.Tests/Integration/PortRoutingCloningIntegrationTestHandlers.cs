@@ -84,8 +84,7 @@ public class LargeFileHandler : IGraphNodeHandler<GraphContext>
         CancellationToken cancellationToken = default)
     {
         // Port 0: namespace is "sensor", key is "sensor.size"
-        // IMPORTANT: Only check namespaced key, not fallback "size" key
-        // (fallback keys are shared across all ports for backward compat)
+        // Port 0 inputs are explicit and namespaced.
         if (!inputs.Contains("sensor.size"))
         {
             // No inputs from port 0 - skip execution
@@ -122,8 +121,7 @@ public class SmallFileHandler : IGraphNodeHandler<GraphContext>
         CancellationToken cancellationToken = default)
     {
         // Port 1: namespace is "sensor:port1", key is "sensor:port1.size"
-        // IMPORTANT: Only check namespaced key, not fallback keys
-        // (fallback keys are shared across all ports for backward compat)
+        // Port 1 inputs are explicit and namespaced.
         if (!inputs.Contains("sensor:port1.size"))
         {
             // No inputs from port 1 - skip execution
@@ -287,7 +285,7 @@ public class Port0Consumer1 : IGraphNodeHandler<GraphContext>
         HandlerInputs inputs,
         CancellationToken cancellationToken = default)
     {
-        var data = inputs.Get<object>("data");
+        var data = inputs.GetAllMatching<object>("*.data").Single();
         var output = new Dictionary<string, object>
         {
             ["received"] = data,
@@ -309,7 +307,7 @@ public class Port0Consumer2 : IGraphNodeHandler<GraphContext>
         HandlerInputs inputs,
         CancellationToken cancellationToken = default)
     {
-        var data = inputs.Get<object>("data");
+        var data = inputs.GetAllMatching<object>("*.data").Single();
         var output = new Dictionary<string, object>
         {
             ["received"] = data,
@@ -331,7 +329,7 @@ public class Port1Consumer1 : IGraphNodeHandler<GraphContext>
         HandlerInputs inputs,
         CancellationToken cancellationToken = default)
     {
-        var data = inputs.Get<object>("data");
+        var data = inputs.GetAllMatching<object>("*.data").Single();
         var output = new Dictionary<string, object>
         {
             ["received"] = data,
@@ -353,7 +351,7 @@ public class Port1Consumer2 : IGraphNodeHandler<GraphContext>
         HandlerInputs inputs,
         CancellationToken cancellationToken = default)
     {
-        var data = inputs.Get<object>("data");
+        var data = inputs.GetAllMatching<object>("*.data").Single();
         var output = new Dictionary<string, object>
         {
             ["received"] = data,
@@ -400,7 +398,7 @@ public class AlwaysCloneConsumer : IGraphNodeHandler<GraphContext>
         HandlerInputs inputs,
         CancellationToken cancellationToken = default)
     {
-        var data = inputs.Get<object>("data");
+        var data = inputs.GetAllMatching<object>("*.data").Single();
         var output = new Dictionary<string, object>
         {
             ["received"] = data,
@@ -422,7 +420,7 @@ public class LazyCloneConsumer : IGraphNodeHandler<GraphContext>
         HandlerInputs inputs,
         CancellationToken cancellationToken = default)
     {
-        var data = inputs.Get<object>("data");
+        var data = inputs.GetAllMatching<object>("*.data").Single();
         var output = new Dictionary<string, object>
         {
             ["received"] = data,
@@ -702,7 +700,7 @@ public class HighPriorityProcessor : IGraphNodeHandler<GraphContext>
         HandlerInputs inputs,
         CancellationToken cancellationToken = default)
     {
-        var data = inputs.Get<string>("data");
+        var data = inputs.GetAllMatching<string>("*.data").Single();
         var output = new Dictionary<string, object>
         {
             ["processed_data"] = data,
@@ -724,7 +722,7 @@ public class MediumPriorityProcessor : IGraphNodeHandler<GraphContext>
         HandlerInputs inputs,
         CancellationToken cancellationToken = default)
     {
-        var data = inputs.Get<string>("data");
+        var data = inputs.GetAllMatching<string>("*.data").Single();
         var output = new Dictionary<string, object>
         {
             ["processed_data"] = data,
@@ -746,7 +744,7 @@ public class LowPriorityProcessor : IGraphNodeHandler<GraphContext>
         HandlerInputs inputs,
         CancellationToken cancellationToken = default)
     {
-        var data = inputs.Get<string>("data");
+        var data = inputs.GetAllMatching<string>("*.data").Single();
         var output = new Dictionary<string, object>
         {
             ["processed_data"] = data,

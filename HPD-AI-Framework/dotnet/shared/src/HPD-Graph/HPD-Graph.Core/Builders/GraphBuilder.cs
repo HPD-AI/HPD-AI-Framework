@@ -33,7 +33,6 @@ public class GraphBuilder
     private IterationOptions? _iterationOptions;
     private bool _autoSequentialEdges = true;
     private bool _autoSequentialEdgesExplicitlyConfigured;
-    private GraphConfigCompilerOptions? _compilerOptions;
 
     /// <summary>
     /// Creates a new GraphBuilder instance.
@@ -45,26 +44,13 @@ public class GraphBuilder
     }
 
     /// <summary>
-    /// Creates a graph builder seeded from a serializable graph configuration.
+    /// Creates a graph builder seeded from an existing runtime graph.
     /// </summary>
-    public GraphBuilder(GraphConfig config, GraphConfigCompilerOptions? compilerOptions = null)
+    public GraphBuilder(Abstractions.Graph.Graph graph)
     {
-        ArgumentNullException.ThrowIfNull(config);
-
-        _compilerOptions = compilerOptions;
-        var graph = new GraphConfigCompiler(compilerOptions).Compile(config);
+        ArgumentNullException.ThrowIfNull(graph);
         LoadFromGraph(graph);
-
-        // Config-authored graphs should preserve their declared topology exactly.
-        _autoSequentialEdges = false;
-        _autoSequentialEdgesExplicitlyConfigured = true;
     }
-
-    /// <summary>
-    /// Creates a graph builder seeded from a serializable graph configuration.
-    /// </summary>
-    public static GraphBuilder FromConfig(GraphConfig config, GraphConfigCompilerOptions? compilerOptions = null)
-        => new(config, compilerOptions);
 
     /// <summary>
     /// Sets the graph ID.
@@ -429,7 +415,7 @@ public class GraphBuilder
             return graph;
         }
 
-        var compilerOptions = _compilerOptions ??= new GraphConfigCompilerOptions();
+        var compilerOptions = new GraphConfigCompilerOptions();
         RegisterInputSchemaTypes(graph, compilerOptions);
 
         var config = new GraphConfigExporter().Export(graph);

@@ -55,8 +55,8 @@ public class CloningPolicyTests
         await orchestrator.ExecuteAsync(context, CancellationToken.None);
 
         // Assert
-        var c1Outputs = context.Channels["node_output:consumer1"].Get<Dictionary<string, object>>();
-        var c2Outputs = context.Channels["node_output:consumer2"].Get<Dictionary<string, object>>();
+        var c1Outputs = context.Channels["node_output:consumer1:port:0"].Get<Dictionary<string, object>>();
+        var c2Outputs = context.Channels["node_output:consumer2:port:0"].Get<Dictionary<string, object>>();
 
         c1Outputs.Should().NotBeNull();
         c2Outputs.Should().NotBeNull();
@@ -115,8 +115,8 @@ public class CloningPolicyTests
         await orchestrator.ExecuteAsync(context, CancellationToken.None);
 
         // Assert
-        var c1Outputs = context.Channels["node_output:consumer1"].Get<Dictionary<string, object>>();
-        var c2Outputs = context.Channels["node_output:consumer2"].Get<Dictionary<string, object>>();
+        var c1Outputs = context.Channels["node_output:consumer1:port:0"].Get<Dictionary<string, object>>();
+        var c2Outputs = context.Channels["node_output:consumer2:port:0"].Get<Dictionary<string, object>>();
 
         c1Outputs.Should().NotBeNull();
         c2Outputs.Should().NotBeNull();
@@ -173,8 +173,8 @@ public class CloningPolicyTests
         await orchestrator.ExecuteAsync(context, CancellationToken.None);
 
         // Assert
-        var c1Outputs = context.Channels["node_output:consumer1"].Get<Dictionary<string, object>>();
-        var c2Outputs = context.Channels["node_output:consumer2"].Get<Dictionary<string, object>>();
+        var c1Outputs = context.Channels["node_output:consumer1:port:0"].Get<Dictionary<string, object>>();
+        var c2Outputs = context.Channels["node_output:consumer2:port:0"].Get<Dictionary<string, object>>();
 
         c1Outputs.Should().NotBeNull();
         c2Outputs.Should().NotBeNull();
@@ -223,8 +223,8 @@ public class CloningPolicyTests
         await orchestrator.ExecuteAsync(context, CancellationToken.None);
 
         // Assert
-        var c1Outputs = context.Channels["node_output:consumer1"].Get<Dictionary<string, object>>();
-        var c2Outputs = context.Channels["node_output:consumer2"].Get<Dictionary<string, object>>();
+        var c1Outputs = context.Channels["node_output:consumer1:port:0"].Get<Dictionary<string, object>>();
+        var c2Outputs = context.Channels["node_output:consumer2:port:0"].Get<Dictionary<string, object>>();
 
         c1Outputs.Should().NotBeNull();
         c2Outputs.Should().NotBeNull();
@@ -275,7 +275,7 @@ public class CloningPolicyTests
         await orchestrator.ExecuteAsync(context, CancellationToken.None);
 
         // Assert execution succeeded
-        var consumerOutputs = context.Channels["node_output:consumer"].Get<Dictionary<string, object>>();
+        var consumerOutputs = context.Channels["node_output:consumer:port:0"].Get<Dictionary<string, object>>();
         consumerOutputs.Should().NotBeNull();
     }
 
@@ -312,7 +312,7 @@ public class CloningPolicyTests
         await orchestrator.ExecuteAsync(context, CancellationToken.None);
 
         // Assert
-        var consumerOutputs = context.Channels["node_output:consumer"].Get<Dictionary<string, object>>();
+        var consumerOutputs = context.Channels["node_output:consumer:port:0"].Get<Dictionary<string, object>>();
         consumerOutputs.Should().NotBeNull();
 
         var result = consumerOutputs!["result"] as List<object>;
@@ -358,8 +358,8 @@ public class CloningPolicyTests
         await orchestrator.ExecuteAsync(context, CancellationToken.None);
 
         // Assert
-        var c1Outputs = context.Channels["node_output:consumer1"].Get<Dictionary<string, object>>();
-        var c2Outputs = context.Channels["node_output:consumer2"].Get<Dictionary<string, object>>();
+        var c1Outputs = context.Channels["node_output:consumer1:port:0"].Get<Dictionary<string, object>>();
+        var c2Outputs = context.Channels["node_output:consumer2:port:0"].Get<Dictionary<string, object>>();
 
         c1Outputs.Should().NotBeNull();
         c2Outputs.Should().NotBeNull();
@@ -451,7 +451,7 @@ public class CloningPolicyTests
             CancellationToken cancellationToken = default)
         {
             // Get upstream output - could be List<int> (original) or List<object> (after cloning)
-            var inputRaw = inputs.Get<object>("mutable_list");
+            var inputRaw = inputs.GetAllMatching<object>("*.mutable_list").Single();
             var inputList = inputRaw switch
             {
                 List<int> intList => intList.Cast<object>().ToList(),
@@ -490,7 +490,7 @@ public class CloningPolicyTests
             CancellationToken cancellationToken = default)
         {
             // Read-only: just count the list - could be List<int> (original) or List<object> (after cloning)
-            var inputRaw = inputs.Get<object>("list");
+            var inputRaw = inputs.GetAllMatching<object>("*.list").Single();
             var count = inputRaw switch
             {
                 List<int> intList => intList.Count,

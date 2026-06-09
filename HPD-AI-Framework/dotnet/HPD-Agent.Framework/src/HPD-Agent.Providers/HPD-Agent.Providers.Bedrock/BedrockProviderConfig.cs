@@ -13,7 +13,7 @@ namespace HPD.Agent.Providers.Bedrock;
 ///   "Provider": {
 ///     "ProviderKey": "bedrock",
 ///     "ModelName": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-///     "ProviderOptionsJson": "{\"region\":\"us-east-1\",\"maxTokens\":4096,\"temperature\":0.7}"
+///     "ProviderOptions": { "region": "us-east-1", "maxTokens": 4096, "temperature": 0.7 }
 ///   }
 /// }
 /// </code>

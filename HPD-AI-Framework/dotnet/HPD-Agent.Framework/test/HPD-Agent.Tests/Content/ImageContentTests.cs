@@ -136,16 +136,14 @@ public class ImageContentTests
     }
 
     [Fact]
-    public void Constructor_FallsBackToPNG_WhenUnrecognized()
+    public void Constructor_ThrowsNotSupportedException_WhenUnrecognized()
     {
         // Arrange: Unrecognized bytes
         var unknownBytes = new byte[] { 0x00, 0x01, 0x02, 0x03 };
 
-        // Act
-        var content = new ImageContent(unknownBytes);
+        var exception = Assert.Throws<NotSupportedException>(() => new ImageContent(unknownBytes));
 
-        // Assert
-        Assert.Equal("image/png", content.MediaType);
+        Assert.Contains("not recognized", exception.Message);
     }
 
     [Fact]
@@ -243,7 +241,7 @@ public class ImageContentTests
     {
         // Arrange
         var unknownBytes = new byte[] { 0x00, 0x01, 0x02, 0x03 };
-        var content = new ImageContent(unknownBytes);
+        var content = new ImageContent(unknownBytes, "image/unknown");
 
         // Act
         var detected = content.DetectFormat();
@@ -326,6 +324,27 @@ public class ImageContentTests
         // Act & Assert
         await Assert.ThrowsAsync<FileNotFoundException>(
             async () => await ImageContent.FromFileAsync(nonExistentPath));
+    }
+
+    [Fact]
+    public async Task FromFileAsync_ThrowsNotSupportedException_ForUnknownExtension()
+    {
+        var tempFile = Path.GetTempFileName();
+        var unknownPath = Path.ChangeExtension(tempFile, ".unknown");
+        var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
+        await File.WriteAllBytesAsync(unknownPath, imageBytes);
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<NotSupportedException>(
+                async () => await ImageContent.FromFileAsync(unknownPath));
+
+            Assert.Contains(".unknown", exception.Message);
+        }
+        finally
+        {
+            File.Delete(unknownPath);
+        }
     }
 
     #endregion

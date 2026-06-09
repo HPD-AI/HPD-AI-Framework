@@ -164,13 +164,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
             }
         }
 
-        // Priority 3: Fall back to context's OriginalInput (legacy support)
-        if (!string.IsNullOrEmpty(context.OriginalInput))
-        {
-            return context.OriginalInput;
-        }
-
-        // Priority 4: Last resort - get first string value from upstream outputs
+        // Priority 3: Last resort - get first string value from upstream outputs
         // This catches cases where upstream explicitly outputs data for downstream
         var allInputs = inputs.GetAll();
         foreach (var kvp in allInputs)

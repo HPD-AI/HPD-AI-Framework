@@ -224,14 +224,14 @@ public sealed class InMemoryDatasetStoreTests
         var path = Path.Combine(Path.GetTempPath(), $"hpd-dataset-{Guid.NewGuid():N}.yaml");
         try
         {
-            await source.ExportDatasetVersionToYamlFileAsync<string>(
+            await source.ExportDatasetVersionToFileAsync<string>(
                 "bench",
                 "v1",
                 path,
                 input => JsonValue.Create(input));
 
             var target = new InMemoryDatasetStore();
-            var imported = await target.ImportDatasetVersionFromYamlFileAsync<string>(
+            var imported = await target.ImportDatasetVersionFromFileAsync<string>(
                 path,
                 node => node?.GetValue<string>() ?? string.Empty);
 
@@ -269,7 +269,7 @@ public sealed class InMemoryDatasetStoreTests
         var directory = Path.Combine(Path.GetTempPath(), $"hpd-datasets-{Guid.NewGuid():N}");
         try
         {
-            var paths = await store.ExportDatasetVersionsToYamlDirectoryAsync<string>(
+            var paths = await store.ExportDatasetVersionsToDirectoryAsync<string>(
                 "bench",
                 directory,
                 input => JsonValue.Create(input));

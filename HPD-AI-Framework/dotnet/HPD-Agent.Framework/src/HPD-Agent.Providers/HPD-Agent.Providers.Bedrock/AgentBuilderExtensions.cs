@@ -22,7 +22,7 @@ public static class AgentBuilderExtensions
     /// Region Resolution (in priority order):
     /// 1. Explicit region parameter
     /// 2. BedrockProviderConfig.Region (via configure action)
-    /// 3. Environment variable: AWS_REGION or AWS_DEFAULT_REGION
+    /// 3. Environment variable: AWS_REGION
     /// 4. AWS credentials file (~/.aws/config)
     /// </para>
     /// <para>
@@ -34,7 +34,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates a <see cref="BedrockProviderConfig"/> that is:
-    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptions</c> as a structured JSON/YAML object
     /// - Applied during <c>BedrockProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -44,7 +44,7 @@ public static class AgentBuilderExtensions
     ///   "Provider": {
     ///     "ProviderKey": "bedrock",
     ///     "ModelName": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-    ///     "ProviderOptionsJson": "{\"region\":\"us-east-1\",\"maxTokens\":4096,\"temperature\":0.7}"
+    ///     "ProviderOptions": { "region": "us-east-1", "maxTokens": 4096, "temperature": 0.7 }
     ///   }
     /// }
     /// </code>

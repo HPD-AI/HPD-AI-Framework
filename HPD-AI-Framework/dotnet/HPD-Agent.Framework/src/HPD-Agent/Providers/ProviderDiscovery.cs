@@ -275,7 +275,7 @@ public static class ProviderDiscovery
         {
             return _configTypes
                 .Where(pair => pair.Key.Family == ProviderClientFamily.Chat)
-                .ToDictionary(pair => pair.Key.ProviderKey, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(pair => pair.Key.ProviderKey, pair => pair.Value, StringComparer.Ordinal);
         }
     }
 
@@ -297,10 +297,10 @@ internal readonly record struct ProviderConfigKey(string ProviderKey, ProviderCl
 {
     public bool Equals(ProviderConfigKey other) =>
         Family == other.Family &&
-        string.Equals(ProviderKey, other.ProviderKey, StringComparison.OrdinalIgnoreCase);
+        string.Equals(ProviderKey, other.ProviderKey, StringComparison.Ordinal);
 
     public override int GetHashCode() =>
-        HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(ProviderKey), Family);
+        HashCode.Combine(StringComparer.Ordinal.GetHashCode(ProviderKey), Family);
 }
 
 /// <summary>

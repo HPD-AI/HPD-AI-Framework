@@ -21,7 +21,7 @@ public sealed class CachingSecretResolver : ISecretResolver
 {
     private readonly ISecretResolver _inner;
     private readonly TimeSpan _ttl;
-    private readonly ConcurrentDictionary<string, CacheEntry> _cache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, CacheEntry> _cache = new(StringComparer.Ordinal);
 
     public CachingSecretResolver(ISecretResolver inner, TimeSpan? ttl = null)
     {

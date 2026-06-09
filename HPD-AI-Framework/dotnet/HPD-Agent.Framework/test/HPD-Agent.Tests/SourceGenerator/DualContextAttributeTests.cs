@@ -102,6 +102,7 @@ public class TestToolHarness
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
         Assert.Contains("One-time activation message", generatedCode!);
         Assert.Contains("[\"FunctionResult\"]", generatedCode);
+        Assert.DoesNotContain("[\"Instructions\"]", generatedCode);
     }
 
     [Fact]
@@ -275,9 +276,8 @@ public partial class TestToolHarness
     }
 
     [Fact]
-    public void Generator_HandlesBackwardCompatibility_LegacyPostExpansionInstructions()
+    public void Generator_HandlesFunctionResultNamedProperty()
     {
-        // Arrange - Note: This tests the legacy FunctionResult property with the new [Collapse] attribute
         var source = @"
 using Microsoft.Extensions.AI;
 using HPD.Agent;
@@ -300,8 +300,9 @@ public class LegacyToolHarness
         // Assert
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
 
-        // Legacy postExpansionInstructions should map to FunctionResult
         Assert.Contains("Legacy instructions", generatedCode!);
+        Assert.Contains("[\"FunctionResult\"]", generatedCode);
+        Assert.DoesNotContain("[\"Instructions\"]", generatedCode);
     }
 
     [Fact]

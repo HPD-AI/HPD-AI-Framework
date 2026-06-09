@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Providers.Reranker;
 using HPD.RAG.RerankerProviders.Cohere;
 using Xunit;
@@ -39,8 +40,9 @@ public sealed class CohereRerankerProviderTests
         var config = new RerankerConfig
         {
             ProviderKey = "cohere",
-            ApiKey = "fake-cohere-api-key",
-            ModelName = "rerank-english-v3.0"
+            ProviderOptions = JsonDocument.Parse(
+                """{"apiKey":"fake-cohere-api-key","modelName":"rerank-english-v3.0"}""")
+                .RootElement.Clone()
         };
 
         var reranker = provider.CreateReranker(config, null);

@@ -30,7 +30,7 @@ public sealed class RunEvalsTests
         {
             ProviderKey = "openai",
             ModelId = "gpt-test",
-            ProviderOptionsJson = """{"reasoningEffort":"high"}""",
+            ProviderOptions = JsonDocument.Parse("""{"reasoningEffort":"high"}""").RootElement.Clone(),
             DisableEvaluators = false,
             ContextOverrides = new() { ["tenant"] = "alpha" },
         };
@@ -46,7 +46,7 @@ public sealed class RunEvalsTests
         agent.Configs[0].Should().NotBeSameAs(baseConfig);
         agent.Configs[0].ProviderKey.Should().Be("openai");
         agent.Configs[0].ModelId.Should().Be("gpt-test");
-        agent.Configs[0].ProviderOptionsJson.Should().Be("""{"reasoningEffort":"high"}""");
+        agent.Configs[0].GetProviderOptionsRawJson().Should().Be("""{"reasoningEffort":"high"}""");
         agent.Configs[0].DisableEvaluators.Should().BeTrue();
         agent.Configs[0].ContextOverrides.Should().ContainKey("tenant");
 

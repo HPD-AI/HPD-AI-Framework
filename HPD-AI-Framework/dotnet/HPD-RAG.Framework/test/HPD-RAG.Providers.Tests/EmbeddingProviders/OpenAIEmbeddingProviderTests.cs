@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Providers.Embedding;
 using HPD.RAG.EmbeddingProviders.OpenAI;
 using Xunit;
@@ -38,7 +39,7 @@ public sealed class OpenAIEmbeddingProviderTests
         {
             ProviderKey = "openai",
             ModelName = "text-embedding-3-small",
-            ApiKey = "sk-fake-api-key-for-testing"
+            ProviderOptions = JsonDocument.Parse("""{"apiKey":"sk-fake-api-key-for-testing"}""").RootElement.Clone()
         };
 
         var generator = provider.CreateEmbeddingGenerator(config, null);

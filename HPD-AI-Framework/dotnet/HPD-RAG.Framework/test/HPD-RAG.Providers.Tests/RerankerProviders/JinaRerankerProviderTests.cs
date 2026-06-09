@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Providers.Reranker;
 using HPD.RAG.RerankerProviders.Jina;
 using Xunit;
@@ -38,8 +39,9 @@ public sealed class JinaRerankerProviderTests
         var config = new RerankerConfig
         {
             ProviderKey = "jina",
-            ApiKey = "fake-jina-api-key",
-            ModelName = "jina-reranker-v2-base-multilingual"
+            ProviderOptions = JsonDocument.Parse(
+                """{"apiKey":"fake-jina-api-key","modelName":"jina-reranker-v2-base-multilingual"}""")
+                .RootElement.Clone()
         };
 
         var reranker = provider.CreateReranker(config, null);

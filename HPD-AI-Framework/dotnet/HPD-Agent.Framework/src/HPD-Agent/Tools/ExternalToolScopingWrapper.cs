@@ -87,15 +87,13 @@ public static class ExternalToolCollapsingWrapper
                     ["IsContainer"] = true,
                     ["ToolHarnessName"] = containerName,
                     ["ParentContainer"] = parentContainer, // null for standalone WithMCP(), toolharness name for [MCPServer]
-                    ["FunctionNames"] = allFunctionNames.ToArray(),
+                    ["ReferencedFunctions"] = allFunctionNames.ToArray(),
                     ["FunctionCount"] = allFunctionNames.Count,
                     ["SourceType"] = "MCP",
                     ["MCPServerName"] = serverName,
                     // Dual-context architecture: FunctionResult for ephemeral, SystemPrompt for persistent
                     ["FunctionResult"] = FunctionResult,
-                    ["SystemPrompt"] = SystemPrompt,
-                    // Legacy key for backward compatibility with ContainerMiddleware
-                    ["Instructions"] = SystemPrompt
+                    ["SystemPrompt"] = SystemPrompt
                 }
             });
 
@@ -160,7 +158,7 @@ public static class ExternalToolCollapsingWrapper
                 {
                     ["IsContainer"] = true,
                     ["ToolHarnessName"] = containerName,
-                    ["FunctionNames"] = allFunctionNames.ToArray(),
+                    ["ReferencedFunctions"] = allFunctionNames.ToArray(),
                     ["FunctionCount"] = allFunctionNames.Count,
                     ["SourceType"] = "Client"
                 }
@@ -243,14 +241,12 @@ public static class ExternalToolCollapsingWrapper
                     ["IsContainer"] = true,
                     ["ToolHarnessName"] = containerName,
                     ["clientToolHarnessName"] = toolName, // Original name without prefix
-                    ["FunctionNames"] = allFunctionNames.ToArray(),
+                    ["ReferencedFunctions"] = allFunctionNames.ToArray(),
                     ["FunctionCount"] = allFunctionNames.Count,
                     ["SourceType"] = "clientToolHarness",
                     // Dual-context architecture: FunctionResult for ephemeral, SystemPrompt for persistent
                     ["FunctionResult"] = FunctionResult,
-                    ["SystemPrompt"] = SystemPrompt,
-                    // Legacy key for backward compatibility with ContainerMiddleware
-                    ["Instructions"] = SystemPrompt
+                    ["SystemPrompt"] = SystemPrompt
                 }
             });
 
@@ -315,7 +311,7 @@ public static class ExternalToolCollapsingWrapper
                     ["IsContainer"] = true,
                     ["ToolHarnessName"] = containerName,
                     ["ParentContainer"] = parentContainer,
-                    ["FunctionNames"] = allFunctionNames.ToArray(),
+                    ["ReferencedFunctions"] = allFunctionNames.ToArray(),
                     ["FunctionCount"] = allFunctionNames.Count,
                     ["SourceType"] = "OpenApi",
                     ["FunctionResult"] = functionResult,

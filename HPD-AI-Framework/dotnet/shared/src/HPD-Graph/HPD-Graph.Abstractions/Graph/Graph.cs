@@ -56,7 +56,7 @@ public sealed record Graph
 
     /// <summary>
     /// Advanced iteration options for change-aware execution.
-    /// When null, uses default behavior (eager propagation).
+    /// When null, uses default iteration behavior.
     /// </summary>
     public IterationOptions? IterationOptions { get; init; }
 
@@ -423,7 +423,6 @@ public sealed record Graph
         if (IterationOptions != null)
         {
             structureBuilder.AppendLine($"IterationOptions.MaxIterations:{IterationOptions.MaxIterations}");
-            structureBuilder.AppendLine($"IterationOptions.UseChangeAwareIteration:{IterationOptions.UseChangeAwareIteration}");
             structureBuilder.AppendLine($"IterationOptions.EnableAutoConvergence:{IterationOptions.EnableAutoConvergence}");
         }
 

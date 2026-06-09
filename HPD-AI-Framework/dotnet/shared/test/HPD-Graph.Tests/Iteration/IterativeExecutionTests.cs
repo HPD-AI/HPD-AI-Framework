@@ -806,7 +806,7 @@ public class IterativeExecutionTests
         context.GetNodeExecutionCount("accumulator").Should().Be(3);
         // The accumulator tracks its own execution count internally
         // Final output should reflect total executions
-        var outputs = context.Channels["node_output:accumulator"].Get<Dictionary<string, object>>();
+        var outputs = context.Channels["node_output:accumulator:port:0"].Get<Dictionary<string, object>>();
         outputs.Should().NotBeNull();
         outputs!["totalExecutions"].Should().Be(3);
     }

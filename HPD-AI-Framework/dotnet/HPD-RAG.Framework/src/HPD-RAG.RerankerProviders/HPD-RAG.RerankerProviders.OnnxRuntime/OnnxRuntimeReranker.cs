@@ -29,7 +29,7 @@ public sealed class OnnxRuntimeReranker : IReranker, IDisposable
         if (typedConfig is null || string.IsNullOrWhiteSpace(typedConfig.ModelPath))
             throw new InvalidOperationException(
                 "OnnxRuntimeReranker requires OnnxRuntimeRerankerConfig with a non-empty ModelPath " +
-                "in RerankerConfig.ProviderOptionsJson.");
+                "in RerankerConfig.ProviderOptions.");
 
         if (!File.Exists(typedConfig.ModelPath))
             throw new FileNotFoundException(

@@ -64,11 +64,11 @@ internal class OpenApiCapability : BaseCapability
 
         if (IsStatic)
         {
-            return $"__openApiCollector(\"{EscapeString(effectiveName)}\", {toolharness.Name}.{MethodName}(), \"{EscapeString(toolharness.Name)}\");";
+            return $"__openApiCollector(\"{EscapeString(effectiveName)}\", {toolharness.ClassName}.{MethodName}(), \"{EscapeString(toolharness.EffectiveName)}\");";
         }
         else
         {
-            return $"__openApiCollector(\"{EscapeString(effectiveName)}\", (({toolharness.Name})__instance).{MethodName}(), \"{EscapeString(toolharness.Name)}\");";
+            return $"__openApiCollector(\"{EscapeString(effectiveName)}\", (({toolharness.ClassName})__instance).{MethodName}(), \"{EscapeString(toolharness.EffectiveName)}\");";
         }
     }
 

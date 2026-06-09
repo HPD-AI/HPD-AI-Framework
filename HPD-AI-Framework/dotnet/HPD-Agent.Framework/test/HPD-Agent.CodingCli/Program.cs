@@ -1,4 +1,5 @@
 using HPD.Agent;
+using HPD.Agent.Serialization;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Sandbox.Local;
 using Microsoft.Extensions.AI;
@@ -12,12 +13,16 @@ if (options.ShowHelp)
     return 0;
 }
 
-var agentBuilder = new AgentBuilder()
+var agentBuilder = CreateAgentBuilder(options.ConfigPath)
     .WithAPIConfiguration(appsettingsPath ?? "appsettings.json", optional: true)
-    .WithName("Coding CLI Test Agent")
     .WithLocalSandbox()
     .WithHarnessCollapsing()
     .WithToolHarness<CodingToolHarness>();
+
+if (string.IsNullOrWhiteSpace(options.ConfigPath))
+{
+    agentBuilder.WithName("Coding CLI Test Agent");
+}
 
 if (!TryConfigureProvider(agentBuilder, options, appsettingsPath, out var providerError))
 {
@@ -218,15 +223,26 @@ static bool TryConfigureProvider(
     string? appsettingsPath,
     out string? error)
 {
+    var chatConfig = builder.Config.ResolveClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat);
+    if (chatConfig is not null)
+    {
+        if (!string.IsNullOrWhiteSpace(options.Model))
+        {
+            builder.Config.EnsureChatClientConfig().ModelName = options.Model;
+        }
+
+        error = null;
+        return true;
+    }
+
     var apiKey = ResolveOpenRouterApiKey(appsettingsPath);
     if (string.IsNullOrWhiteSpace(apiKey))
     {
         error = """
         OpenRouter API key is required.
 
-        Set OPENROUTER_API_KEY, or add one of these to appsettings.json:
-          "Providers": { "Openrouter": { "ProviderKey": "openrouter", "ModelName": "deepseek/deepseek-v4-pro", "ApiKey": "..." } }
-          "openrouter": { "ApiKey": "..." }
+        Set OPENROUTER_API_KEY, or add this to appsettings.json:
+          "Providers": { "openrouter": { "ProviderKey": "openrouter", "ModelName": "deepseek/deepseek-v4-pro", "ApiKey": "..." } }
 
         """;
         return false;
@@ -245,6 +261,17 @@ static bool TryConfigureProvider(
     return true;
 }
 
+static AgentBuilder CreateAgentBuilder(string? configPath)
+{
+    if (string.IsNullOrWhiteSpace(configPath))
+        return new AgentBuilder();
+
+    var config = HpdAgentConfigSerializer.ReadFile(configPath)
+        ?? throw new InvalidOperationException($"Failed to load agent config from {configPath}.");
+
+    return new AgentBuilder(config);
+}
+
 static string? ResolveOpenRouterApiKey(string? appsettingsPath)
 {
     var environmentKey = System.Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
@@ -259,27 +286,10 @@ static string? ResolveOpenRouterApiKey(string? appsettingsPath)
     var root = document.RootElement;
 
     if (TryGetProperty(root, "Providers", out var providers) &&
-        TryGetProperty(providers, "Openrouter", out var openRouter) &&
+        TryGetProperty(providers, "openrouter", out var openRouter) &&
         TryGetStringProperty(openRouter, "ApiKey", out var providerApiKey))
     {
         return providerApiKey;
-    }
-
-    if (TryGetProperty(root, "openrouter", out var rootOpenRouter) &&
-        TryGetStringProperty(rootOpenRouter, "ApiKey", out var rootProviderApiKey))
-    {
-        return rootProviderApiKey;
-    }
-
-    if (TryGetProperty(root, "ConnectionStrings", out var connectionStrings) &&
-        TryGetStringProperty(connectionStrings, "Agent", out var connectionString))
-    {
-        foreach (var segment in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            var parts = segment.Split('=', 2, StringSplitOptions.TrimEntries);
-            if (parts.Length == 2 && string.Equals(parts[0], "AccessKey", StringComparison.OrdinalIgnoreCase))
-                return parts[1];
-        }
     }
 
     return null;
@@ -329,9 +339,11 @@ static void PrintUsage()
 
     Usage:
       dotnet run --project test/HPD-Agent.CodingCli -- --model deepseek/deepseek-v4-pro "Read README.md"
+      dotnet run --project test/HPD-Agent.CodingCli -- --config coding-agent.yaml --list-tools
       dotnet run --project test/HPD-Agent.CodingCli
 
     Options:
+      --config VALUE     JSON/YAML AgentConfig file to load before CLI defaults are applied.
       --list-tools       Print registered coding toolharness tool names.
       --model VALUE      OpenRouter model id. Defaults to OPENROUTER_MODEL or deepseek/deepseek-v4-pro.
       --session VALUE    Session id. Defaults to coding-cli-session.
@@ -362,6 +374,7 @@ static string FormatToolResult(ToolResultPayload result) =>
 
 file sealed record CodingCliOptions(
     string? Prompt,
+    string? ConfigPath,
     string? Model,
     string SessionId,
     string BranchId,
@@ -371,6 +384,7 @@ file sealed record CodingCliOptions(
     public static CodingCliOptions Parse(string[] args)
     {
         string? prompt = null;
+        string? configPath = null;
         string? model = null;
         var sessionId = "coding-cli-session";
         var branchId = "main";
@@ -387,6 +401,9 @@ file sealed record CodingCliOptions(
                 case "--list-tools":
                     listTools = true;
                     break;
+                case "--config" when i + 1 < args.Length:
+                    configPath = args[++i];
+                    break;
                 case "--model" when i + 1 < args.Length:
                     model = args[++i];
                     break;
@@ -402,7 +419,7 @@ file sealed record CodingCliOptions(
             }
         }
 
-        return new CodingCliOptions(prompt, model, sessionId, branchId, listTools, showHelp);
+        return new CodingCliOptions(prompt, configPath, model, sessionId, branchId, listTools, showHelp);
     }
 }
 

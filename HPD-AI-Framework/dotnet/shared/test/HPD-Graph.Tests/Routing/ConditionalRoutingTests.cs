@@ -21,7 +21,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["key"] = "value" };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeTrue();
@@ -35,7 +35,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["key"] = "value" };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert - Null condition means unconditional edge
         result.Should().BeTrue();
@@ -54,7 +54,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["status"] = "success" };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeTrue();
@@ -73,7 +73,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["status"] = "failure" };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeFalse();
@@ -92,7 +92,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["count"] = 42 };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeTrue();
@@ -111,7 +111,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["status"] = "failure" };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeTrue();
@@ -130,7 +130,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["status"] = "success" };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeFalse();
@@ -152,7 +152,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["data"] = "some value" };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeTrue();
@@ -170,7 +170,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["data"] = null! };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeFalse();
@@ -188,7 +188,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["other"] = "value" };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeFalse();
@@ -206,7 +206,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["other"] = "value" };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeTrue();
@@ -224,7 +224,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["data"] = null! };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeTrue();
@@ -247,7 +247,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["score"] = 75 };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeTrue();
@@ -266,7 +266,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["score"] = 25 };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeFalse();
@@ -285,7 +285,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["score"] = 25 };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeTrue();
@@ -304,7 +304,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["score"] = 75 };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeFalse();
@@ -323,7 +323,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["count"] = 100 };  // int
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeTrue();
@@ -346,7 +346,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["name"] = "Bob" };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert - "Bob" > "Alice" (ordinal comparison)
         result.Should().BeTrue();
@@ -365,7 +365,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["name"] = "Alice" };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert - "Alice" < "Bob" (ordinal comparison)
         result.Should().BeTrue();
@@ -388,7 +388,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["message"] = "An ERROR occurred" };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert - Case insensitive
         result.Should().BeTrue();
@@ -407,7 +407,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["message"] = "Success" };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeFalse();
@@ -429,7 +429,7 @@ public class ConditionalRoutingTests
         };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeTrue();
@@ -451,7 +451,7 @@ public class ConditionalRoutingTests
         };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeFalse();
@@ -474,7 +474,7 @@ public class ConditionalRoutingTests
         Dictionary<string, object>? outputs = null;
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert - Can't evaluate field conditions without outputs
         result.Should().BeFalse();
@@ -488,7 +488,7 @@ public class ConditionalRoutingTests
         Dictionary<string, object>? outputs = null;
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert - Always condition doesn't need outputs
         result.Should().BeTrue();
@@ -507,7 +507,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object>();
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeFalse();
@@ -526,7 +526,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["score"] = null! };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert - Can't compare null values
         result.Should().BeFalse();
@@ -545,7 +545,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["data"] = null! };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert - null == null
         result.Should().BeTrue();
@@ -564,7 +564,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["other"] = "value" };
 
         // Act
-        var result = ConditionEvaluator.Evaluate(condition, outputs);
+        var result = ConditionEvaluator.Evaluate(condition, outputs, null, null);
 
         // Assert
         result.Should().BeFalse();
@@ -687,8 +687,8 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["status"] = "medium" };
 
         // Act
-        var result1 = ConditionEvaluator.Evaluate(condition1, outputs);
-        var result2 = ConditionEvaluator.Evaluate(condition2, outputs);
+        var result1 = ConditionEvaluator.Evaluate(condition1, outputs, null, null);
+        var result2 = ConditionEvaluator.Evaluate(condition2, outputs, null, null);
 
         // Assert
         result1.Should().BeFalse("regular condition should not match");
@@ -711,7 +711,7 @@ public class ConditionalRoutingTests
         var outputs = new Dictionary<string, object> { ["status"] = "success" };
 
         // Act
-        var regularResult = ConditionEvaluator.Evaluate(regularCondition, outputs);
+        var regularResult = ConditionEvaluator.Evaluate(regularCondition, outputs, null, null);
 
         // Assert
         regularResult.Should().BeTrue("regular condition should match");
@@ -735,7 +735,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["a"] = "x", ["b"] = "y" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -751,7 +751,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["a"] = "x", ["b"] = "WRONG" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeFalse();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeFalse();
     }
 
     [Fact]
@@ -760,7 +760,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.And, Conditions = [] };
         var outputs = new Dictionary<string, object> { ["x"] = "1" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue("vacuously true");
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue("vacuously true");
     }
 
     [Fact]
@@ -776,7 +776,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["status"] = "normal", ["priority"] = 10 };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -792,7 +792,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["status"] = "normal", ["priority"] = 5 };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeFalse();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeFalse();
     }
 
     [Fact]
@@ -801,7 +801,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.Or, Conditions = [] };
         var outputs = new Dictionary<string, object> { ["x"] = "1" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeFalse("vacuously false");
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeFalse("vacuously false");
     }
 
     [Fact]
@@ -816,7 +816,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["verified"] = "true" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeFalse();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeFalse();
     }
 
     [Fact]
@@ -831,7 +831,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["verified"] = "false" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -862,7 +862,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["a"] = "x", ["b"] = "no", ["c"] = "other" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -878,7 +878,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["a"] = "x" };
 
-        var act = () => ConditionEvaluator.Evaluate(condition, outputs);
+        var act = () => ConditionEvaluator.Evaluate(condition, outputs, null, null);
         act.Should().Throw<InvalidOperationException>().WithMessage("*Default*");
     }
 
@@ -894,7 +894,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["a"] = "x" };
 
-        var act = () => ConditionEvaluator.Evaluate(condition, outputs);
+        var act = () => ConditionEvaluator.Evaluate(condition, outputs, null, null);
         act.Should().Throw<InvalidOperationException>().WithMessage("*Default*");
     }
 
@@ -908,7 +908,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["a"] = "x" };
 
-        var act = () => ConditionEvaluator.Evaluate(condition, outputs);
+        var act = () => ConditionEvaluator.Evaluate(condition, outputs, null, null);
         act.Should().Throw<InvalidOperationException>().WithMessage("*Default*");
     }
 
@@ -966,7 +966,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.FieldStartsWith, Field = "intent", Value = "billing/" };
         var outputs = new Dictionary<string, object> { ["intent"] = "billing/general" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -975,7 +975,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.FieldStartsWith, Field = "intent", Value = "billing/" };
         var outputs = new Dictionary<string, object> { ["intent"] = "general/billing" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeFalse();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeFalse();
     }
 
     [Fact]
@@ -984,7 +984,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.FieldEndsWith, Field = "code", Value = "_billing" };
         var outputs = new Dictionary<string, object> { ["code"] = "code_billing" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -993,7 +993,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.FieldEndsWith, Field = "code", Value = "_billing" };
         var outputs = new Dictionary<string, object> { ["code"] = "billing_code" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeFalse();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeFalse();
     }
 
     [Fact]
@@ -1002,7 +1002,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.FieldMatchesRegex, Field = "response", Value = @"^(yes|sure|ok)$" };
         var outputs = new Dictionary<string, object> { ["response"] = "yes" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -1011,7 +1011,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.FieldMatchesRegex, Field = "response", Value = @"^(yes|sure|ok)$" };
         var outputs = new Dictionary<string, object> { ["response"] = "nope" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeFalse();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeFalse();
     }
 
     [Fact]
@@ -1026,7 +1026,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["intent"] = "YES" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -1048,10 +1048,10 @@ public class ConditionalRoutingTests
             var outputs = new Dictionary<string, object> { ["body"] = new string('a', 30) + "!" };
 
             // Should not throw — timeout is caught internally
-            var act = () => ConditionEvaluator.Evaluate(condition, outputs);
+            var act = () => ConditionEvaluator.Evaluate(condition, outputs, null, null);
             act.Should().NotThrow();
             // Result should be false (timeout → non-match)
-            ConditionEvaluator.Evaluate(condition, outputs).Should().BeFalse();
+            ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeFalse();
         }
         finally
         {
@@ -1065,7 +1065,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.FieldIsEmpty, Field = "summary" };
         var outputs = new Dictionary<string, object> { ["summary"] = null! };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -1074,7 +1074,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.FieldIsEmpty, Field = "summary" };
         var outputs = new Dictionary<string, object> { ["summary"] = "" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -1083,7 +1083,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.FieldIsEmpty, Field = "summary" };
         var outputs = new Dictionary<string, object> { ["summary"] = "   " };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -1092,7 +1092,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.FieldIsEmpty, Field = "summary" };
         var outputs = new Dictionary<string, object> { ["summary"] = "hello" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeFalse();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeFalse();
     }
 
     [Fact]
@@ -1101,7 +1101,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.FieldIsNotEmpty, Field = "draft" };
         var outputs = new Dictionary<string, object> { ["draft"] = "Some content" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -1110,7 +1110,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.FieldIsNotEmpty, Field = "draft" };
         var outputs = new Dictionary<string, object> { ["draft"] = "" };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeFalse();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeFalse();
     }
 
     [Fact]
@@ -1120,7 +1120,7 @@ public class ConditionalRoutingTests
         var je = JsonDocument.Parse("\"billing/general\"").RootElement;
         var outputs = new Dictionary<string, object> { ["intent"] = je };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     #endregion
@@ -1138,7 +1138,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["tags"] = new List<string> { "billing", "urgent" } };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -1152,7 +1152,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["tags"] = new List<string> { "billing" } };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeFalse();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeFalse();
     }
 
     [Fact]
@@ -1166,7 +1166,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["tags"] = new List<string>() };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeFalse();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeFalse();
     }
 
     [Fact]
@@ -1180,7 +1180,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["tags"] = new List<string> { "urgent" } };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeFalse();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeFalse();
     }
 
     [Fact]
@@ -1194,7 +1194,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["required_steps"] = new List<string> { "verified", "payment_ok", "reviewed" } };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -1208,7 +1208,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["required_steps"] = new List<string> { "verified" } };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeFalse();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeFalse();
     }
 
     [Fact]
@@ -1222,7 +1222,7 @@ public class ConditionalRoutingTests
         };
         var outputs = new Dictionary<string, object> { ["required_steps"] = new List<string> { "verified" } };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue("vacuously true");
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue("vacuously true");
     }
 
     [Fact]
@@ -1237,7 +1237,7 @@ public class ConditionalRoutingTests
         var je = JsonDocument.Parse("[\"billing\",\"urgent\"]").RootElement;
         var outputs = new Dictionary<string, object> { ["tags"] = je };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -1252,7 +1252,7 @@ public class ConditionalRoutingTests
         var je = JsonDocument.Parse("[\"verified\",\"payment_ok\",\"reviewed\"]").RootElement;
         var outputs = new Dictionary<string, object> { ["required_steps"] = je };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     #endregion
@@ -1265,7 +1265,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.FieldGreaterThan, Field = "val", Value = 10 };
         var outputs = new Dictionary<string, object> { ["val"] = (short)50 };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -1274,7 +1274,7 @@ public class ConditionalRoutingTests
         var condition = new EdgeCondition { Type = ConditionType.FieldGreaterThan, Field = "val", Value = 10 };
         var outputs = new Dictionary<string, object> { ["val"] = (byte)200 };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]
@@ -1284,7 +1284,7 @@ public class ConditionalRoutingTests
         var je = JsonDocument.Parse("75").RootElement;
         var outputs = new Dictionary<string, object> { ["score"] = je };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     #endregion

@@ -45,8 +45,6 @@ internal sealed class BranchEventJsonConverter : JsonConverter<AgentEvent>
     private static readonly HashSet<string> BranchOmittedProperties = new(StringComparer.OrdinalIgnoreCase)
     {
         "version",
-        "sessionId",
-        "branchId",
         "channel",
         "kind",
         "direction",

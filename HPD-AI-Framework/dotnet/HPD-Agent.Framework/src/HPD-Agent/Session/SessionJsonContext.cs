@@ -28,7 +28,6 @@ namespace HPD.Agent;
 [JsonSerializable(typeof(AgentEvent))]
 [JsonSerializable(typeof(List<AgentEvent>))]
 [JsonSerializable(typeof(ToolResultPayload))]
-[JsonSerializable(typeof(SessionSnapshot))]
 [JsonSerializable(typeof(UncommittedTurn))]
 
 // HPD-specific types

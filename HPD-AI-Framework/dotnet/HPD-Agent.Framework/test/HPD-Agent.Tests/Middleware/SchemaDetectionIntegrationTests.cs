@@ -1,7 +1,6 @@
 // Copyright (c) 2025 Einstein Essibu. All rights reserved.
 
 using HPD.Agent;
-using HPD.Agent;
 using HPD.Agent.Tests.Infrastructure;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,7 +12,7 @@ namespace HPD.Agent.Tests.Middleware;
 
 /// <summary>
 /// Integration tests for middleware state schema detection during checkpoint resume.
-/// Tests the runtime validation logic in Agent.ValidateAndMigrateSchema().
+/// Tests the runtime validation logic for checkpoint middleware schema matching.
 /// </summary>
 public class SchemaDetectionIntegrationTests : AgentTestBase
 {
@@ -22,98 +21,113 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
     private InMemorySessionStore? _sessionStore;
 
     [Fact]
-    public async Task Resume_WithPreVersioningCheckpoint_UpgradesSchema()
+    public async Task Resume_WithPreVersioningCheckpoint_ThrowsInvalidOperationException()
     {
-        // Arrange: Create checkpoint without schema metadata (simulate old version)
         var preVersioningState = CreatePreVersioningCheckpoint();
         var (session, branch) = await CreateSessionWithCheckpoint(preVersioningState);
         var agent = CreateTestAgentWithLogging(_sessionStore!);
 
-        // Act: Resume from pre-versioning checkpoint
-        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
-        {
-            Session = session,
-            Branch = branch
-        }, TestCancellationToken);
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
+            {
+                Session = session,
+                Branch = branch
+            }, TestCancellationToken));
 
-        // Wait a bit for async observer notifications to complete
-        await Task.Delay(100);
-
-        // Assert: Schema upgraded and logged
-        var logs = _loggerProvider.GetLogs();
-        Assert.Contains(logs, log =>
-            log.LogLevel == LogLevel.Information &&
-            log.Message.Contains("before schema versioning"));
-
-        // Assert: SchemaChangedEvent emitted
-        var schemaEvents = _eventObserver.GetEvents<SchemaChangedEvent>();
-        Assert.Single(schemaEvents);
-        var schemaEvent = schemaEvents[0];
-        Assert.Null(schemaEvent.OldSignature);
-        Assert.NotNull(schemaEvent.NewSignature);
-        Assert.True(schemaEvent.IsUpgrade);
+        Assert.Contains("without middleware schema metadata", exception.Message);
+        Assert.Empty(_eventObserver.GetEvents<SchemaChangedEvent>());
     }
 
     [Fact]
-    public async Task Resume_WithRemovedMiddleware_LogsWarning()
+    public async Task Resume_WithRemovedMiddleware_ThrowsInvalidOperationException()
     {
-        // Arrange: Checkpoint with middleware that no longer exists
         var checkpointWithOldMiddleware = CreateCheckpointWithRemovedMiddleware();
         var (session, branch) = await CreateSessionWithCheckpoint(checkpointWithOldMiddleware);
 
         var agent = CreateTestAgentWithLogging(_sessionStore!);
 
-        // Act: Resume
-        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
-        {
-            Session = session,
-            Branch = branch
-        }, TestCancellationToken);
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
+            {
+                Session = session,
+                Branch = branch
+            }, TestCancellationToken));
 
-        // Assert: Warning logged
-        var logs = _loggerProvider.GetLogs();
-        Assert.Contains(logs, log =>
-            log.LogLevel == LogLevel.Warning &&
-            log.Message.Contains("no longer exist") &&
-            log.Message.Contains("discarded"));
-
-        // Assert: SchemaChangedEvent emitted with removed types
-        var schemaEvents = _eventObserver.GetEvents<SchemaChangedEvent>();
-        Assert.Single(schemaEvents);
-        var schemaEvent = schemaEvents[0];
-        Assert.NotEmpty(schemaEvent.RemovedTypes);
-        Assert.False(schemaEvent.IsUpgrade);
+        Assert.Contains("different middleware schema", exception.Message);
+        Assert.Contains("ObsoleteMiddlewareStateData", exception.Message);
+        Assert.Empty(_eventObserver.GetEvents<SchemaChangedEvent>());
     }
 
     [Fact]
-    public async Task Resume_WithAddedMiddleware_LogsInfo()
+    public async Task Resume_WithAddedMiddleware_ThrowsInvalidOperationException()
     {
-        // Arrange: Checkpoint without new middleware
         var checkpointBeforeNewMiddleware = CreateCheckpointWithFewerMiddleware();
         var (session, branch) = await CreateSessionWithCheckpoint(checkpointBeforeNewMiddleware);
 
         var agent = CreateTestAgentWithLogging(_sessionStore!);
 
-        // Act: Resume (agent now has more middleware)
-        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
+            {
+                Session = session,
+                Branch = branch
+            }, TestCancellationToken));
+
+        Assert.Contains("different middleware schema", exception.Message);
+        Assert.Empty(_eventObserver.GetEvents<SchemaChangedEvent>());
+    }
+
+    [Fact]
+    public async Task Resume_WithMissingStateVersions_ThrowsInvalidOperationException()
+    {
+        var currentCheckpoint = CreateCheckpointWithCurrentSchema();
+        var checkpoint = new MiddlewareState
         {
-            Session = session,
-            Branch = branch
-        }, TestCancellationToken);
+            States = currentCheckpoint.States,
+            SchemaSignature = currentCheckpoint.SchemaSignature,
+            SchemaVersion = currentCheckpoint.SchemaVersion,
+            StateVersions = null
+        };
+        var (session, branch) = await CreateSessionWithCheckpoint(checkpoint);
 
-        // Assert: Info logged about new middleware being initialized to defaults
-        var logs = _loggerProvider.GetLogs();
-        Assert.Contains(logs, log =>
-            log.LogLevel == LogLevel.Information &&
-            log.Message.Contains("new middleware") &&
-            log.Message.Contains("defaults"));
+        var agent = CreateTestAgentWithLogging(_sessionStore!);
 
-        // Assert: SchemaChangedEvent emitted with added types
-        var schemaEvents = _eventObserver.GetEvents<SchemaChangedEvent>();
-        Assert.Single(schemaEvents);
-        var schemaEvent = schemaEvents[0];
-        Assert.NotEmpty(schemaEvent.AddedTypes);
-        Assert.False(schemaEvent.IsUpgrade);
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
+            {
+                Session = session,
+                Branch = branch
+            }, TestCancellationToken));
+
+        Assert.Contains("without middleware state version metadata", exception.Message);
+    }
+
+    [Fact]
+    public async Task Resume_WithChangedStateVersion_ThrowsInvalidOperationException()
+    {
+        var currentVersions = GetExpectedSchemaVersions();
+        var firstKey = currentVersions.Keys.OrderBy(key => key, StringComparer.Ordinal).First();
+        var currentCheckpoint = CreateCheckpointWithCurrentSchema();
+        var checkpoint = new MiddlewareState
+        {
+            States = currentCheckpoint.States,
+            SchemaSignature = currentCheckpoint.SchemaSignature,
+            SchemaVersion = currentCheckpoint.SchemaVersion,
+            StateVersions = currentVersions.SetItem(firstKey, currentVersions[firstKey] + 1)
+        };
+        var (session, branch) = await CreateSessionWithCheckpoint(checkpoint);
+
+        var agent = CreateTestAgentWithLogging(_sessionStore!);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
+            {
+                Session = session,
+                Branch = branch
+            }, TestCancellationToken));
+
+        Assert.Contains("version", exception.Message);
+        Assert.Contains(firstKey, exception.Message);
     }
 
     [Fact]
@@ -222,8 +236,6 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
 
     private MiddlewareState CreateCheckpointWithRemovedMiddleware()
     {
-        // Create middleware state with a fake middleware that doesn't exist in current schema
-        // Use a known state type name + a fake obsolete one
         var currentSignature = "HPD.Agent.ErrorTrackingStateData";
         var fakeOldSignature = currentSignature + ",HPD.Agent.ObsoleteMiddlewareStateData";
 
@@ -241,13 +253,9 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
 
     private MiddlewareState CreateCheckpointWithFewerMiddleware()
     {
-        // Create middleware state with fewer middleware than would be registered at runtime.
-        // This simulates a checkpoint from an older version with fewer state types.
-        // We use a subset of the current schema to trigger the "new middleware added" case.
         var currentSignature = GetExpectedSchemaSignature();
         var currentTypes = currentSignature.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
 
-        // Take only the first type (or just one type) to create an "older" checkpoint
         var olderSignature = currentTypes.Count > 0 ? currentTypes[0] : "";
 
         return new MiddlewareState
@@ -255,9 +263,9 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
             States = ImmutableDictionary<string, object?>.Empty,
             SchemaSignature = olderSignature,
             SchemaVersion = 1,
-            StateVersions = string.IsNullOrEmpty(olderSignature)
-                ? ImmutableDictionary<string, int>.Empty
-                : ImmutableDictionary<string, int>.Empty.Add(olderSignature, 1)
+            StateVersions = GetExpectedSchemaVersions()
+                .Where(kvp => string.Equals(kvp.Key, olderSignature, StringComparison.Ordinal))
+                .ToImmutableDictionary(kvp => kvp.Key, kvp => kvp.Value)
         };
     }
 
@@ -268,8 +276,7 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
         // For a default AgentBuilder, this includes all [MiddlewareState] types from HPD-Agent.
         // We need to provide a signature that matches to avoid triggering schema change detection.
         //
-        // The key insight: When schema signatures match exactly, ValidateAndMigrateSchema
-        // returns the checkpoint state unchanged (no logging, no events).
+        // When schema signatures and state versions match exactly, resume proceeds unchanged.
         var currentSignature = GetExpectedSchemaSignature();
 
         return new MiddlewareState
@@ -277,7 +284,7 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
             States = ImmutableDictionary<string, object?>.Empty,
             SchemaSignature = currentSignature,
             SchemaVersion = 1,
-            StateVersions = ImmutableDictionary<string, int>.Empty
+            StateVersions = GetExpectedSchemaVersions()
         };
     }
 
@@ -306,6 +313,24 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
         }
 
         return "";
+    }
+
+    private ImmutableDictionary<string, int> GetExpectedSchemaVersions()
+    {
+        var registryType = typeof(MiddlewareState).Assembly.GetType("HPD.Agent.Generated.MiddlewareStateRegistry");
+        if (registryType == null)
+            return ImmutableDictionary<string, int>.Empty;
+
+        var allField = registryType.GetField("All", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+        if (allField?.GetValue(null) is MiddlewareStateFactory[] factories)
+        {
+            return factories.ToImmutableDictionary(
+                f => f.FullyQualifiedName,
+                f => f.Version,
+                StringComparer.Ordinal);
+        }
+
+        return ImmutableDictionary<string, int>.Empty;
     }
 }
 

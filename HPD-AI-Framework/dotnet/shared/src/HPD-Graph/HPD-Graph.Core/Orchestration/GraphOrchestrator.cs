@@ -29,6 +29,9 @@ namespace HPDAgent.Graph.Core.Orchestration;
 public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
     where TContext : class, IGraphContext
 {
+    private const string NodeOutputPrefix = "node_output:";
+    private const string PortSeparator = ":port:";
+
     private readonly IServiceProvider _serviceProvider;
     private readonly INodeCacheStore? _cacheStore;
     private readonly INodeFingerprintCalculator? _fingerprintCalculator;
@@ -59,6 +62,28 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
     // Maximum concurrent nodes per layer (prevents thread pool starvation)
     // Defaults to 4x CPU cores, can be overridden via constructor
     private readonly int _maxLayerConcurrency;
+
+    private static string NodeOutputChannelName(string nodeId, int port = 0) =>
+        $"{NodeOutputPrefix}{nodeId}{PortSeparator}{port}";
+
+    private static bool TryGetNodeIdFromOutputChannel(string channelName, out string nodeId)
+    {
+        nodeId = string.Empty;
+
+        if (!channelName.StartsWith(NodeOutputPrefix, StringComparison.Ordinal))
+            return false;
+
+        var portSeparatorIndex = channelName.LastIndexOf(PortSeparator, StringComparison.Ordinal);
+        if (portSeparatorIndex <= NodeOutputPrefix.Length)
+            return false;
+
+        var portText = channelName[(portSeparatorIndex + PortSeparator.Length)..];
+        if (!int.TryParse(portText, out _))
+            return false;
+
+        nodeId = channelName[NodeOutputPrefix.Length..portSeparatorIndex];
+        return nodeId.Length > 0;
+    }
 
     /// <summary>
     /// Initializes a new instance of the GraphOrchestrator.
@@ -494,8 +519,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
         // Check for convergence (when enabled) - do this BEFORE evaluating back-edges
         // Now safe - all nodes in terminal state after polling synchronization
-        if (options?.UseChangeAwareIteration == true &&
-            options?.EnableAutoConvergence == true &&
+        if (options?.EnableAutoConvergence == true &&
             HasConverged(preIterationHashes, executedNodes, context))
         {
             context.Log("Orchestrator",
@@ -539,26 +563,12 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         HashSet<string> nextDirtyNodes;
         if (triggeredNodes.Count > 0)
         {
-            // Use change-aware or eager propagation based on options
-            if (options?.UseChangeAwareIteration == true)
-            {
-                nextDirtyNodes = ComputeNextDirtyNodes(context, triggeredNodes, backEdges, iteration);
+            nextDirtyNodes = ComputeNextDirtyNodes(context, triggeredNodes, backEdges, iteration);
 
-                context.Log("Orchestrator",
-                    $"Back-edges triggered: [{string.Join(", ", triggeredNodes)}] → " +
-                    $"re-executing {nextDirtyNodes.Count} node(s) (change-aware)",
-                    LogLevel.Information);
-            }
-            else
-            {
-                // Legacy behavior: eager propagation
-                nextDirtyNodes = GetAllForwardDependents(triggeredNodes, context.Graph, backEdges);
-
-                context.Log("Orchestrator",
-                    $"Back-edges triggered: [{string.Join(", ", triggeredNodes)}] → " +
-                    $"re-executing {nextDirtyNodes.Count} node(s)",
-                    LogLevel.Information);
-            }
+            context.Log("Orchestrator",
+                $"Back-edges triggered: [{string.Join(", ", triggeredNodes)}] → " +
+                $"re-executing {nextDirtyNodes.Count} node(s) (change-aware)",
+                LogLevel.Information);
 
             // Un-mark dirty nodes as complete so they can re-execute
             context.UnmarkNodesComplete(nextDirtyNodes);
@@ -607,7 +617,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
     /// <summary>
     /// Evaluates all back-edges and returns which target nodes should be re-executed.
-    /// When change-aware iteration is enabled, skips back-edges whose source output hasn't changed.
+    /// Skips back-edges whose source output has not changed.
     /// </summary>
     /// <param name="preIterationHashes">Hash snapshot from BEFORE the iteration executed (for change detection)</param>
     private (HashSet<string> TriggeredNodes, List<BackEdge> TriggeredEdges) EvaluateBackEdges(
@@ -624,7 +634,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
         foreach (var backEdge in backEdges)
         {
-            var channelName = $"node_output:{backEdge.SourceNodeId}";
+            var channelName = NodeOutputChannelName(backEdge.SourceNodeId);
 
             if (!context.Channels.Contains(channelName))
                 continue;
@@ -634,8 +644,8 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             if (outputs == null)
                 continue;
 
-            // Check if source output actually changed (when change-aware iteration enabled)
-            if (options?.UseChangeAwareIteration == true && preIterationHashes != null)
+            // Check if source output actually changed.
+            if (preIterationHashes != null)
             {
                 // Compare current output hash against PRE-iteration hash
                 var currentHash = ComputeOutputHash(outputs, excludeFields, algorithm);
@@ -837,7 +847,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
     {
         foreach (var nodeId in dirtyNodes)
         {
-            var channelName = $"node_output:{nodeId}";
+            var channelName = NodeOutputChannelName(nodeId);
 
             if (context.Channels.Contains(channelName))
             {
@@ -974,7 +984,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 continue; // No previous execution, can't compare
 
             // Get current output from channel
-            var channelName = $"node_output:{sourceNodeId}";
+            var channelName = NodeOutputChannelName(sourceNodeId);
             if (!context.Channels.Contains(channelName))
                 continue;
 
@@ -1004,7 +1014,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         // Check all executed nodes in this iteration
         foreach (var nodeId in executedNodes)
         {
-            var channelName = $"node_output:{nodeId}";
+            var channelName = NodeOutputChannelName(nodeId);
             if (!context.Channels.Contains(channelName))
                 continue;
 
@@ -1310,10 +1320,8 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
         foreach (var channelName in context.Channels.ChannelNames)
         {
-            if (channelName.StartsWith("node_output:"))
+            if (TryGetNodeIdFromOutputChannel(channelName, out var nodeId))
             {
-                var nodeId = channelName.Substring("node_output:".Length);
-
                 // Only include outputs from completed nodes
                 if (context.CompletedNodes.Contains(nodeId))
                 {
@@ -1324,7 +1332,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                         {
                             nodeOutputs[channelName] = output;
 
-                            // Capture node version for compatibility checking
+                            // Capture node version for strict resume validation
                             var node = context.Graph.GetNode(nodeId);
                             if (node != null)
                             {
@@ -1415,34 +1423,34 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
                 // Validate node versions and restore state
                 var restoredNodes = 0;
-                var discardedNodes = 0;
 
                 foreach (var completedNodeId in checkpoint.CompletedNodes)
                 {
                     var currentNode = context.Graph.GetNode(completedNodeId);
                     if (currentNode == null)
                     {
-                        context.Log("Orchestrator",
-                            $"Node '{completedNodeId}' from checkpoint not found in current graph, skipping",
-                            LogLevel.Warning);
-                        continue;
+                        throw new InvalidOperationException(
+                            $"Cannot resume checkpoint '{checkpoint.CheckpointId}': completed node '{completedNodeId}' is not present in graph '{context.Graph.Id}'.");
                     }
 
-                    // Version validation
-                    if (checkpoint.NodeStateMetadata.TryGetValue(completedNodeId, out var savedState))
+                    if (!checkpoint.NodeStateMetadata.TryGetValue(completedNodeId, out var savedState))
                     {
-                        if (savedState.Version != currentNode.Version)
-                        {
-                            context.Log("Orchestrator",
-                                $"Version mismatch for node '{completedNodeId}': saved={savedState.Version}, current={currentNode.Version}. " +
-                                $"State will be discarded. Node will re-execute with current version.",
-                                LogLevel.Warning);
-                            discardedNodes++;
-                            continue; // Don't mark as complete, force re-execution
-                        }
+                        throw new InvalidOperationException(
+                            $"Cannot resume checkpoint '{checkpoint.CheckpointId}': completed node '{completedNodeId}' is missing node state metadata.");
                     }
 
-                    // Version matches or no version info (old checkpoint) - mark complete
+                    if (!StringComparer.Ordinal.Equals(savedState.NodeId, completedNodeId))
+                    {
+                        throw new InvalidOperationException(
+                            $"Cannot resume checkpoint '{checkpoint.CheckpointId}': node state metadata key '{completedNodeId}' points to node '{savedState.NodeId}'.");
+                    }
+
+                    if (!StringComparer.Ordinal.Equals(savedState.Version, currentNode.Version))
+                    {
+                        throw new InvalidOperationException(
+                            $"Cannot resume checkpoint '{checkpoint.CheckpointId}': node '{completedNodeId}' has saved version '{savedState.Version}' but current graph version is '{currentNode.Version}'.");
+                    }
+
                     if (!graphContext.IsNodeComplete(completedNodeId))
                     {
                         graphContext.MarkNodeComplete(completedNodeId);
@@ -1450,18 +1458,31 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                     restoredNodes++;
                 }
 
-                // Restore node outputs from checkpoint (only for version-compatible nodes)
+                // Restore node outputs from checkpoint after strict node metadata validation.
                 foreach (var kvp in checkpoint.NodeOutputs)
                 {
-                    if (kvp.Key.StartsWith("node_output:"))
+                    if (!TryGetNodeIdFromOutputChannel(kvp.Key, out var nodeId))
                     {
-                        var nodeId = kvp.Key.Substring("node_output:".Length);
+                        throw new InvalidOperationException(
+                            $"Cannot resume checkpoint '{checkpoint.CheckpointId}': output channel '{kvp.Key}' is not a node output channel.");
+                    }
 
-                        // Only restore if node is marked as complete (passed version check)
-                        if (!graphContext.IsNodeComplete(nodeId))
-                        {
-                            continue; // Skip outputs from version-incompatible nodes
-                        }
+                    if (!checkpoint.CompletedNodes.Contains(nodeId))
+                    {
+                        throw new InvalidOperationException(
+                            $"Cannot resume checkpoint '{checkpoint.CheckpointId}': output channel '{kvp.Key}' references node '{nodeId}' which is not marked complete.");
+                    }
+
+                    if (!checkpoint.NodeStateMetadata.ContainsKey(nodeId))
+                    {
+                        throw new InvalidOperationException(
+                            $"Cannot resume checkpoint '{checkpoint.CheckpointId}': output channel '{kvp.Key}' references node '{nodeId}' with no node state metadata.");
+                    }
+
+                    if (!graphContext.IsNodeComplete(nodeId))
+                    {
+                        throw new InvalidOperationException(
+                            $"Cannot resume checkpoint '{checkpoint.CheckpointId}': output channel '{kvp.Key}' references node '{nodeId}' which was not restored.");
                     }
 
                     try
@@ -1470,12 +1491,14 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                     }
                     catch (Exception ex)
                     {
-                        context.Log("Orchestrator", $"Failed to restore channel '{kvp.Key}': {ex.Message}", LogLevel.Warning);
+                        throw new InvalidOperationException(
+                            $"Cannot resume checkpoint '{checkpoint.CheckpointId}': failed to restore output channel '{kvp.Key}'.",
+                            ex);
                     }
                 }
 
                 context.Log("Orchestrator",
-                    $"Restored {restoredNodes} node(s) from checkpoint. Discarded {discardedNodes} node(s) due to version mismatch.",
+                    $"Restored {restoredNodes} node(s) from checkpoint.",
                     LogLevel.Information);
             }
         }
@@ -1969,9 +1992,6 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         // Group edges by source node for default edge handling
         var edgesBySource = incomingEdges.GroupBy(e => e.From);
 
-        // Track which sources contributed to each non-prefixed key (for ambiguity warnings)
-        var keySourceMap = new Dictionary<string, List<string>>();
-
         foreach (var sourceGroup in edgesBySource)
         {
             var sourceNodeId = sourceGroup.Key;
@@ -1986,9 +2006,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 foreach (var portGroup in edgesByPort)
                 {
                     var fromPort = portGroup.Key;
-                    var channelName = fromPort == 0
-                        ? $"node_output:{sourceNodeId}" // Legacy channel for port 0
-                        : $"node_output:{sourceNodeId}:port:{fromPort}"; // Port-specific channel
+                    var channelName = NodeOutputChannelName(sourceNodeId, fromPort);
 
                     if (!context.Channels.Contains(channelName))
                     {
@@ -2018,7 +2036,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                                 // Condition met - include these outputs with namespace
                                 // Namespace format: {sourceNodeId}.{key} or {sourceNodeId}:port{N}.{key} for non-zero ports
                                 var portSuffix = fromPort == 0 ? "" : $":port{fromPort}";
-                                AddOutputsWithNamespace(inputs, sourceNodeId + portSuffix, outputs, keySourceMap);
+                                AddOutputsWithNamespace(inputs, sourceNodeId + portSuffix, outputs);
                                 anyRegularEdgeMatched = true;
                                 break; // Only use outputs from first matching edge per port
                             }
@@ -2045,21 +2063,11 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
                             // Include outputs from default edge with namespace
                             var portSuffix = fromPort == 0 ? "" : $":port{fromPort}";
-                            AddOutputsWithNamespace(inputs, sourceNodeId + portSuffix, outputs, keySourceMap);
+                            AddOutputsWithNamespace(inputs, sourceNodeId + portSuffix, outputs);
                         }
                     }
                 }
             }
-        }
-
-        // Log warnings for ambiguous non-prefixed keys (multiple sources for same key)
-        foreach (var kvp in keySourceMap.Where(k => k.Value.Count > 1))
-        {
-            context.Log("Orchestrator",
-                $"Warning: Key '{kvp.Key}' has multiple sources: [{string.Join(", ", kvp.Value)}]. " +
-                $"Using value from '{kvp.Value.First()}'. Consider using namespaced access: '{kvp.Value.First()}.{kvp.Key}'",
-                LogLevel.Warning,
-                nodeId: node.Id);
         }
 
         // Include SharedData if available (prefixed with "shared.")
@@ -2069,12 +2077,6 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             {
                 // Add with "shared." prefix for clear namespacing
                 inputs.Add($"shared.{kvp.Key}", kvp.Value);
-
-                // Also add without prefix if not already present (convenience)
-                if (!inputs.Contains(kvp.Key))
-                {
-                    inputs.Add(kvp.Key, kvp.Value);
-                }
             }
         }
 
@@ -2154,32 +2156,15 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
     /// <summary>
     /// Adds outputs to inputs with namespace prefix for source attribution.
-    /// Also adds non-prefixed keys for backward compatibility (first source wins).
     /// </summary>
     private void AddOutputsWithNamespace(
         HandlerInputs inputs,
         string sourceNodeId,
-        Dictionary<string, object> outputs,
-        Dictionary<string, List<string>> keySourceMap)
+        Dictionary<string, object> outputs)
     {
         foreach (var kvp in outputs)
         {
-            // Always add with namespace prefix (e.g., "solver1.answer")
             inputs.Add($"{sourceNodeId}.{kvp.Key}", kvp.Value);
-
-            // Track sources for non-prefixed key (for ambiguity detection)
-            if (!keySourceMap.TryGetValue(kvp.Key, out var sources))
-            {
-                sources = new List<string>();
-                keySourceMap[kvp.Key] = sources;
-            }
-            sources.Add(sourceNodeId);
-
-            // Add non-prefixed for backward compatibility (first source wins)
-            if (!inputs.Contains(kvp.Key))
-            {
-                inputs.Add(kvp.Key, kvp.Value);
-            }
         }
     }
 
@@ -2260,17 +2245,13 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             }
         }
 
-        // Store outputs in channels for downstream nodes
-        // Port 0 is stored in the legacy channel for backward compatibility
-        var port0ChannelName = $"node_output:{node.Id}";
         var port0Outputs = success.PortOutputs.TryGetValue(0, out var outputs) ? outputs : new Dictionary<string, object>();
-        context.Channels[port0ChannelName].Set(port0Outputs);
 
         // Store ALL port outputs for multi-port routing
         // Format: "node_output:{nodeId}:port:{portNumber}"
         foreach (var portOutput in success.PortOutputs)
         {
-            var portChannelName = $"node_output:{node.Id}:port:{portOutput.Key}";
+            var portChannelName = NodeOutputChannelName(node.Id, portOutput.Key);
             context.Channels[portChannelName].Set(portOutput.Value);
         }
 
@@ -3103,10 +3084,8 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
         foreach (var channelName in context.Channels.ChannelNames)
         {
-            if (channelName.StartsWith("node_output:"))
+            if (TryGetNodeIdFromOutputChannel(channelName, out var nodeId))
             {
-                var nodeId = channelName.Substring("node_output:".Length);
-
                 // Only include outputs from completed nodes
                 if (context.CompletedNodes.Contains(nodeId))
                 {
@@ -3117,7 +3096,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                         {
                             nodeOutputs[channelName] = output;
 
-                            // Capture node version for compatibility checking
+                            // Capture node version for strict resume validation
                             var completedNode = context.Graph.GetNode(nodeId);
                             if (completedNode != null)
                             {
@@ -3489,7 +3468,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             }
 
             // Get source node outputs
-            var channelName = $"node_output:{edge.From}";
+            var channelName = NodeOutputChannelName(edge.From, edge.FromPort ?? 0);
             if (!context.Channels.Contains(channelName))
             {
                 evaluatedEdges.Add($"{edge.From}→{edge.To}: no outputs");
@@ -3696,7 +3675,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             }
 
             // Store sub-graph outputs in parent context
-            var outputChannelName = $"node_output:{node.Id}";
+            var outputChannelName = NodeOutputChannelName(node.Id);
             context.Channels[outputChannelName].Set(outputs);
 
             // Create and store Success result (for upstream condition evaluation)
@@ -3886,7 +3865,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             var incomingEdges = context.Graph.Edges.Where(e => e.To == node.Id).ToList();
             if (incomingEdges.Count > 0)
             {
-                inputChannelName = $"node_output:{incomingEdges[0].From}";
+                inputChannelName = NodeOutputChannelName(incomingEdges[0].From, incomingEdges[0].FromPort ?? 0);
             }
             else
             {
@@ -3931,7 +3910,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         if (itemList.Count == 0)
         {
             context.Log("Orchestrator", $"Map node '{node.Id}' has empty input, returning empty results", LogLevel.Information, nodeId: node.Id);
-            var emptyOutputChannelName = node.MapOutputChannel ?? $"node_output:{node.Id}";
+            var emptyOutputChannelName = node.MapOutputChannel ?? NodeOutputChannelName(node.Id);
             context.Channels[emptyOutputChannelName].Set(new List<object>());
             context.MarkNodeComplete(node.Id);
             return;
@@ -4148,7 +4127,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                                         {
                                             // For simple linear graphs, use the only/last handler
                                             var lastHandler = handlerNodes.Last();
-                                            var outputChannelName = $"node_output:{lastHandler.Id}";
+                                            var outputChannelName = NodeOutputChannelName(lastHandler.Id);
 
                                             if (mapContextWithGraph.Channels.Contains(outputChannelName))
                                             {
@@ -4284,7 +4263,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         }
 
         // Write results to output channel
-        var outputChannelName = node.MapOutputChannel ?? $"node_output:{node.Id}";
+        var outputChannelName = node.MapOutputChannel ?? NodeOutputChannelName(node.Id);
         context.Channels[outputChannelName].Set(finalResults);
 
         // Mark node as complete
@@ -4505,7 +4484,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                         LayerIndex = i,
                         Progress = progress,
                         Outputs = options.IncludeOutputs
-                            ? context.Channels[$"node_output:{node!.Id}"].Get<Dictionary<string, object>>()
+                            ? context.Channels[NodeOutputChannelName(node!.Id)].Get<Dictionary<string, object>>()
                             : null,
                         Duration = duration,
                         Result = NodeExecutionResult.Success.Single(
@@ -4603,10 +4582,8 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
         foreach (var channelName in context.Channels.ChannelNames)
         {
-            if (channelName.StartsWith("node_output:"))
+            if (TryGetNodeIdFromOutputChannel(channelName, out var nodeId))
             {
-                var nodeId = channelName.Substring("node_output:".Length);
-
                 // Only include outputs from completed nodes
                 if (context.CompletedNodes.Contains(nodeId))
                 {
@@ -4617,7 +4594,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                         {
                             nodeOutputs[channelName] = output;
 
-                            // Capture node version for compatibility checking
+                            // Capture node version for strict resume validation
                             var node = context.Graph.GetNode(nodeId);
                             if (node != null)
                             {
@@ -4849,7 +4826,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
         // 7. Extract artifact value directly from context channels (not cache, to avoid race conditions)
         // The cache write is fire-and-forget, so we retrieve from the execution context instead
-        var port0ChannelName = $"node_output:{producingNodeId}";
+        var port0ChannelName = NodeOutputChannelName(producingNodeId);
         T typedArtifactValue;
 
         if (context.Channels.ChannelNames.Contains(port0ChannelName))
@@ -5256,7 +5233,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                     throw new InvalidOperationException($"Producing node {producingNodeId} not found in graph");
 
                 // Extract value from context outputs
-                var outputKey = $"node_output:{producingNodeId}";
+                var outputKey = NodeOutputChannelName(producingNodeId);
                 if (!executionContext.Channels.Contains(outputKey))
                     throw new InvalidOperationException($"Node {producingNodeId} did not produce output");
 

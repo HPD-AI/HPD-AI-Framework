@@ -27,7 +27,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates an <see cref="AnthropicProviderConfig"/> that is:
-    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptions</c> as a structured JSON/YAML object
     /// - Applied during <c>AnthropicProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -38,7 +38,7 @@ public static class AgentBuilderExtensions
     ///     "ProviderKey": "anthropic",
     ///     "ModelName": "claude-sonnet-4-5-20250929",
     ///     "ApiKey": "sk-ant-...",
-    ///     "ProviderOptionsJson": "{\"thinkingBudgetTokens\":4096,\"serviceTier\":\"auto\",\"enablePromptCaching\":true}"
+    ///     "ProviderOptions": { "thinkingBudgetTokens": 4096, "serviceTier": "auto", "enablePromptCaching": true }
     ///   }
     /// }
     /// </code>

@@ -36,7 +36,7 @@ public sealed record GraphCheckpoint
 
     /// <summary>
     /// Named outputs from completed nodes.
-    /// Format: "nodeId.outputName" → value
+    /// Format: "node_output:{nodeId}:port:{portNumber}" → value
     /// Used to reconstruct handler inputs on resume.
     /// </summary>
     public required IReadOnlyDictionary<string, object> NodeOutputs { get; init; }
@@ -48,7 +48,7 @@ public sealed record GraphCheckpoint
     public required string ContextJson { get; init; }
 
     /// <summary>
-    /// Node state metadata for version-aware resume.
+    /// Node state metadata for strict resume validation.
     /// Maps node ID to versioned state metadata.
     /// Used to validate compatibility during checkpoint resume.
     /// </summary>
@@ -61,7 +61,7 @@ public sealed record GraphCheckpoint
     public CheckpointMetadata? Metadata { get; init; }
 
     /// <summary>
-    /// Schema version for forward/backward compatibility.
+    /// Schema version used to validate checkpoint shape during resume.
     /// </summary>
     public string SchemaVersion { get; init; } = "1.0";
 

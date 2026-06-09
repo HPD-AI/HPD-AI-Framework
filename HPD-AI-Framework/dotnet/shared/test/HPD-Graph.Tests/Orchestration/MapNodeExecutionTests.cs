@@ -62,7 +62,7 @@ public class MapNodeExecutionTests
 
         context.IsComplete.Should().BeTrue();
 
-        var results = context.Channels["node_output:map"].Get<List<object?>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object?>>();
         results.Should().NotBeNull("map output should not be null");
         results.Should().HaveCount(3);
     }
@@ -98,7 +98,7 @@ public class MapNodeExecutionTests
         await orchestrator.ExecuteAsync(context);
 
         // Assert
-        var results = context.Channels["node_output:map"].Get<List<object?>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object?>>();
         results.Should().NotBeNull();
         results.Should().HaveCount(3);
         // Results should contain 3 items (order preserved via index tracking in ConcurrentDictionary)
@@ -137,7 +137,7 @@ public class MapNodeExecutionTests
 
         // Assert
         context.IsComplete.Should().BeTrue();
-        var results = context.Channels["node_output:map"].Get<List<object?>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object?>>();
         results.Should().NotBeNull();
         results.Should().HaveCount(3);
     }
@@ -242,7 +242,7 @@ public class MapNodeExecutionTests
 
         // Assert
         context.IsComplete.Should().BeTrue();
-        var results = context.Channels["node_output:map"].Get<List<object?>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object?>>();
         results.Should().NotBeNull();
         results.Should().HaveCount(3);
         // All items should be null due to failures
@@ -281,7 +281,7 @@ public class MapNodeExecutionTests
 
         // Assert
         context.IsComplete.Should().BeTrue();
-        var results = context.Channels["node_output:map"].Get<List<object?>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object?>>();
         results.Should().NotBeNull();
         // All items failed, so result should be empty
         results.Should().BeEmpty();
@@ -326,7 +326,7 @@ public class MapNodeExecutionTests
 
         // Assert
         context.IsComplete.Should().BeTrue();
-        var results = context.Channels["node_output:map"].Get<List<object?>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object?>>();
         results.Should().NotBeNull();
         results.Should().BeEmpty();
     }
@@ -379,7 +379,7 @@ public class MapNodeExecutionTests
 
         // Assert
         context.IsComplete.Should().BeTrue();
-        var results = context.Channels["node_output:outer-map"].Get<List<object?>>();
+        var results = context.Channels["node_output:outer-map:port:0"].Get<List<object?>>();
         results.Should().NotBeNull();
         results.Should().HaveCount(3);
     }
@@ -416,7 +416,7 @@ public class MapNodeExecutionTests
 
         // Assert
         context.IsComplete.Should().BeTrue();
-        var results = context.Channels["node_output:map"].Get<List<object?>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object?>>();
         results.Should().NotBeNull();
         results.Should().HaveCount(3);
     }
@@ -495,7 +495,7 @@ public class MapNodeExecutionTests
 
         // Assert
         context.IsComplete.Should().BeTrue();
-        var results = context.Channels["node_output:map"].Get<List<object?>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object?>>();
         results.Should().NotBeNull();
         results.Should().HaveCount(3);
     }
@@ -532,7 +532,7 @@ public class MapNodeExecutionTests
 
         // Assert
         context.IsComplete.Should().BeTrue();
-        var results = context.Channels["node_output:map"].Get<List<object?>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object?>>();
         results.Should().NotBeNull();
         results.Should().HaveCount(3);
     }
@@ -806,7 +806,7 @@ public class MapNodeExecutionTests
         await orchestrator.ExecuteAsync(context);
 
         // Assert
-        var results = context.Channels["node_output:map"].Get<List<object>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object>>();
         results.Should().NotBeNull();
         results.Should().HaveCount(3); // 2 strings + 1 int
     }
@@ -860,7 +860,7 @@ public class MapNodeExecutionTests
         await orchestrator.ExecuteAsync(context);
 
         // Assert
-        var results = context.Channels["node_output:map"].Get<List<object>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object>>();
         results.Should().NotBeNull();
         results.Should().HaveCount(3); // 2 strings (string graph) + 1 int (default graph)
     }
@@ -953,7 +953,7 @@ public class MapNodeExecutionTests
         await orchestrator.ExecuteAsync(context);
 
         // Assert
-        var results = context.Channels["node_output:map"].Get<List<object>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object>>();
         results.Should().NotBeNull();
     }
 

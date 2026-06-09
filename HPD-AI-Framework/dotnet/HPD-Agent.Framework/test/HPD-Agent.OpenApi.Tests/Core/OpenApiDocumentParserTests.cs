@@ -37,6 +37,41 @@ public class OpenApiDocumentParserTests
     }
 
     [Fact]
+    public async Task ParseFromFile_YamlSpec_ParsesOperations()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"hpd-openapi-{Guid.NewGuid():N}.yaml");
+        await File.WriteAllTextAsync(path, """
+        openapi: 3.0.1
+        info:
+          title: YAML API
+          version: 1.0.0
+        servers:
+          - url: https://yaml.example.com
+        paths:
+          /widgets:
+            get:
+              operationId: listWidgets
+              responses:
+                '200':
+                  description: ok
+        """);
+
+        try
+        {
+            var spec = await _parser.ParseFromFileAsync(path, new OpenApiCoreConfig());
+
+            spec.Info.Title.Should().Be("YAML API");
+            spec.Operations.Should().ContainSingle()
+                .Which.Id.Should().Be("listWidgets");
+            spec.Operations[0].ServerUrl.Should().Be("https://yaml.example.com");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task ParseFromFile_PetstoreSpec_ExtractsInfo()
     {
         var spec = await _parser.ParseFromFileAsync(PetstoreSpecPath, new OpenApiCoreConfig());

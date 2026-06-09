@@ -85,7 +85,7 @@ public class ExportConfigJsonTests
 
         var root = ParseJson(workflow.ExportConfigJson());
 
-        root.GetProperty("Settings").GetProperty("MaxIterations").GetInt32().Should().Be(15);
+        root.GetProperty("settings").GetProperty("maxIterations").GetInt32().Should().Be(15);
     }
 
     // ── 3. agent config round-trip ────────────────────────────────────────────
@@ -103,7 +103,7 @@ public class ExportConfigJsonTests
             .BuildAsync();
 
         var root = ParseJson(workflow.ExportConfigJson());
-        var agents = root.GetProperty("Agents");
+        var agents = root.GetProperty("agents");
 
         agents.TryGetProperty("a", out _).Should().BeTrue();
         agents.TryGetProperty("b", out _).Should().BeTrue();
@@ -132,10 +132,10 @@ public class ExportConfigJsonTests
             researcherOpts: o => o.WithInputKey("topic").WithOutputKey("research"));
 
         var root = ParseJson(workflow.ExportConfigJson());
-        var researcher = root.GetProperty("Agents").GetProperty("researcher");
+        var researcher = root.GetProperty("agents").GetProperty("researcher");
 
-        researcher.GetProperty("InputKey").GetString().Should().Be("topic");
-        researcher.GetProperty("OutputKey").GetString().Should().Be("research");
+        researcher.GetProperty("inputKey").GetString().Should().Be("topic");
+        researcher.GetProperty("outputKey").GetString().Should().Be("research");
     }
 
     [Fact]
@@ -145,9 +145,9 @@ public class ExportConfigJsonTests
             writerOpts: o => o.WithInputTemplate("Summarise: {{research}}\n\nFacts: {{facts}}"));
 
         var root = ParseJson(workflow.ExportConfigJson());
-        var writer = root.GetProperty("Agents").GetProperty("writer");
+        var writer = root.GetProperty("agents").GetProperty("writer");
 
-        writer.GetProperty("InputTemplate").GetString().Should().Contain("{{research}}");
+        writer.GetProperty("inputTemplate").GetString().Should().Contain("{{research}}");
     }
 
     [Fact]
@@ -157,9 +157,9 @@ public class ExportConfigJsonTests
             researcherOpts: o => o.WithInstructions("Focus on facts only."));
 
         var root = ParseJson(workflow.ExportConfigJson());
-        var researcher = root.GetProperty("Agents").GetProperty("researcher");
+        var researcher = root.GetProperty("agents").GetProperty("researcher");
 
-        researcher.GetProperty("AdditionalInstructions").GetString().Should().Be("Focus on facts only.");
+        researcher.GetProperty("additionalInstructions").GetString().Should().Be("Focus on facts only.");
     }
 
     [Fact]
@@ -169,9 +169,9 @@ public class ExportConfigJsonTests
             researcherOpts: o => { o.MaxConcurrentExecutions = 4; });
 
         var root = ParseJson(workflow.ExportConfigJson());
-        var researcher = root.GetProperty("Agents").GetProperty("researcher");
+        var researcher = root.GetProperty("agents").GetProperty("researcher");
 
-        researcher.GetProperty("MaxConcurrent").GetInt32().Should().Be(4);
+        researcher.GetProperty("maxConcurrent").GetInt32().Should().Be(4);
     }
 
     [Fact]
@@ -181,10 +181,10 @@ public class ExportConfigJsonTests
             researcherOpts: o => o.WithTimeout(TimeSpan.FromSeconds(30)));
 
         var root = ParseJson(workflow.ExportConfigJson());
-        var researcher = root.GetProperty("Agents").GetProperty("researcher");
+        var researcher = root.GetProperty("agents").GetProperty("researcher");
 
         // TimeSpan serialises as ISO 8601 duration string e.g. "00:00:30"
-        researcher.GetProperty("Timeout").ValueKind.Should().NotBe(JsonValueKind.Null);
+        researcher.GetProperty("timeout").ValueKind.Should().NotBe(JsonValueKind.Null);
     }
 
     // ── 5. retry config ───────────────────────────────────────────────────────
@@ -196,10 +196,10 @@ public class ExportConfigJsonTests
             researcherOpts: o => o.WithRetry(maxAttempts: 3, strategy: BackoffStrategy.Exponential));
 
         var root = ParseJson(workflow.ExportConfigJson());
-        var retry = root.GetProperty("Agents").GetProperty("researcher").GetProperty("Retry");
+        var retry = root.GetProperty("agents").GetProperty("researcher").GetProperty("retry");
 
-        retry.GetProperty("MaxAttempts").GetInt32().Should().Be(3);
-        retry.GetProperty("Strategy").GetString().Should().Be("Exponential");
+        retry.GetProperty("maxAttempts").GetInt32().Should().Be(3);
+        retry.GetProperty("strategy").GetString().Should().Be("Exponential");
     }
 
     [Fact]
@@ -209,9 +209,9 @@ public class ExportConfigJsonTests
             researcherOpts: o => o.WithRetry(maxAttempts: 2, strategy: BackoffStrategy.Linear));
 
         var root = ParseJson(workflow.ExportConfigJson());
-        var retry = root.GetProperty("Agents").GetProperty("researcher").GetProperty("Retry");
+        var retry = root.GetProperty("agents").GetProperty("researcher").GetProperty("retry");
 
-        retry.GetProperty("Strategy").GetString().Should().Be("Linear");
+        retry.GetProperty("strategy").GetString().Should().Be("Linear");
     }
 
     // ── 6. error mode ─────────────────────────────────────────────────────────
@@ -231,9 +231,9 @@ public class ExportConfigJsonTests
         var workflow = await TwoAgentWorkflow(researcherOpts: configure);
 
         var root = ParseJson(workflow.ExportConfigJson());
-        var onError = root.GetProperty("Agents").GetProperty("researcher").GetProperty("OnError");
+        var onError = root.GetProperty("agents").GetProperty("researcher").GetProperty("onError");
 
-        onError.GetProperty("Mode").GetString().Should().Be(mode);
+        onError.GetProperty("mode").GetString().Should().Be(mode);
     }
 
     [Fact]
@@ -246,10 +246,10 @@ public class ExportConfigJsonTests
             .BuildAsync();
 
         var root = ParseJson(workflow.ExportConfigJson());
-        var onError = root.GetProperty("Agents").GetProperty("primary").GetProperty("OnError");
+        var onError = root.GetProperty("agents").GetProperty("primary").GetProperty("onError");
 
-        onError.GetProperty("Mode").GetString().Should().Be("Fallback");
-        onError.GetProperty("FallbackAgent").GetString().Should().Be("backup");
+        onError.GetProperty("mode").GetString().Should().Be("Fallback");
+        onError.GetProperty("fallbackAgent").GetString().Should().Be("backup");
     }
 
     // ── 7. output modes ───────────────────────────────────────────────────────
@@ -260,8 +260,8 @@ public class ExportConfigJsonTests
         var workflow = await TwoAgentWorkflow(); // default is String
 
         var root = ParseJson(workflow.ExportConfigJson());
-        var mode = root.GetProperty("Agents").GetProperty("researcher")
-            .GetProperty("OutputMode").GetString();
+        var mode = root.GetProperty("agents").GetProperty("researcher")
+            .GetProperty("outputMode").GetString();
 
         mode.Should().Be("String");
     }
@@ -279,8 +279,8 @@ public class ExportConfigJsonTests
             .BuildAsync();
 
         var root = ParseJson(workflow.ExportConfigJson());
-        var mode = root.GetProperty("Agents").GetProperty("router")
-            .GetProperty("OutputMode").GetString();
+        var mode = root.GetProperty("agents").GetProperty("router")
+            .GetProperty("outputMode").GetString();
 
         mode.Should().Be("Handoff");
     }
@@ -293,16 +293,16 @@ public class ExportConfigJsonTests
         var workflow = await TwoAgentWorkflow();
 
         var root = ParseJson(workflow.ExportConfigJson());
-        var edges = root.GetProperty("Edges");
+        var edges = root.GetProperty("edges");
 
         // No edge should involve "START" or "END"
         for (int i = 0; i < edges.GetArrayLength(); i++)
         {
             var edge = edges[i];
-            edge.GetProperty("From").GetString().Should().NotBe("START");
-            edge.GetProperty("From").GetString().Should().NotBe("END");
-            edge.GetProperty("To").GetString().Should().NotBe("START");
-            edge.GetProperty("To").GetString().Should().NotBe("END");
+            edge.GetProperty("from").GetString().Should().NotBe("START");
+            edge.GetProperty("from").GetString().Should().NotBe("END");
+            edge.GetProperty("to").GetString().Should().NotBe("START");
+            edge.GetProperty("to").GetString().Should().NotBe("END");
         }
     }
 
@@ -312,11 +312,11 @@ public class ExportConfigJsonTests
         var workflow = await TwoAgentWorkflow();
 
         var root = ParseJson(workflow.ExportConfigJson());
-        var edges = root.GetProperty("Edges");
+        var edges = root.GetProperty("edges");
 
         edges.GetArrayLength().Should().Be(1);
-        edges[0].GetProperty("From").GetString().Should().Be("researcher");
-        edges[0].GetProperty("To").GetString().Should().Be("writer");
+        edges[0].GetProperty("from").GetString().Should().Be("researcher");
+        edges[0].GetProperty("to").GetString().Should().Be("writer");
     }
 
     [Fact]
@@ -332,13 +332,13 @@ public class ExportConfigJsonTests
         var root = ParseJson(workflow.ExportConfigJson());
 
         // Find the classifier→solver edge
-        var edges = root.GetProperty("Edges");
+        var edges = root.GetProperty("edges");
         JsonElement? edge = null;
         for (int i = 0; i < edges.GetArrayLength(); i++)
         {
             var e = edges[i];
-            if (e.GetProperty("From").GetString() == "classifier" &&
-                e.GetProperty("To").GetString() == "solver")
+            if (e.GetProperty("from").GetString() == "classifier" &&
+                e.GetProperty("to").GetString() == "solver")
             {
                 edge = e;
                 break;
@@ -346,9 +346,9 @@ public class ExportConfigJsonTests
         }
 
         edge.Should().NotBeNull("expected a classifier→solver edge");
-        var when = edge!.Value.GetProperty("When");
-        when.GetProperty("Type").GetString().Should().Be("FieldEquals");
-        when.GetProperty("Field").GetString().Should().Be("category");
+        var when = edge!.Value.GetProperty("when");
+        when.GetProperty("type").GetString().Should().Be("FieldEquals");
+        when.GetProperty("field").GetString().Should().Be("category");
     }
 
     // ── 9. null-value omission ────────────────────────────────────────────────
@@ -392,10 +392,10 @@ public class ExportConfigJsonTests
             var reRead = await File.ReadAllTextAsync(tmp);
             var root = ParseJson(reRead);
 
-            root.GetProperty("Name").GetString().Should().Be("TestWorkflow");
-            root.GetProperty("Agents").TryGetProperty("researcher", out _).Should().BeTrue();
-            root.GetProperty("Agents").TryGetProperty("writer", out _).Should().BeTrue();
-            root.GetProperty("Edges").GetArrayLength().Should().Be(1);
+            root.GetProperty("name").GetString().Should().Be("TestWorkflow");
+            root.GetProperty("agents").TryGetProperty("researcher", out _).Should().BeTrue();
+            root.GetProperty("agents").TryGetProperty("writer", out _).Should().BeTrue();
+            root.GetProperty("edges").GetArrayLength().Should().Be(1);
         }
         finally
         {
@@ -421,13 +421,13 @@ public class ExportConfigJsonTests
         json.Should().NotContain("__predicate");
         json.Should().NotContain("Predicate");
 
-        var edge = root.GetProperty("Edges").EnumerateArray()
+        var edge = root.GetProperty("edges").EnumerateArray()
             .FirstOrDefault(e =>
-                e.TryGetProperty("From", out var f) && f.GetString() == "a" &&
-                e.TryGetProperty("To", out var t) && t.GetString() == "b");
+                e.TryGetProperty("from", out var f) && f.GetString() == "a" &&
+                e.TryGetProperty("to", out var t) && t.GetString() == "b");
 
         edge.ValueKind.Should().NotBe(JsonValueKind.Undefined, "edge a→b must be present");
-        edge.TryGetProperty("When", out _).Should().BeFalse();
+        edge.TryGetProperty("when", out _).Should().BeFalse();
     }
 
     // ── 9.6  Default settings → no checkpoint store required ─────────────────

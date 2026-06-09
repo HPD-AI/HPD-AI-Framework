@@ -63,7 +63,7 @@ internal class SubAgentCapability : BaseCapability
 
         if (IsStatic)
         {
-            sb.AppendLine($"        var subAgentDef = {ToolHarness.Name}.{MethodName}();");
+            sb.AppendLine($"        var subAgentDef = {ToolHarness.ClassName}.{MethodName}();");
         }
         else
         {
@@ -104,7 +104,7 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("        {");
         sb.AppendLine("            foreach (var toolType in subAgentDef.ToolHarnessTypes)");
         sb.AppendLine("            {");
-        sb.AppendLine("                agentBuilder.WithTools(toolType);");
+        sb.AppendLine("                agentBuilder.WithToolHarness(toolType);");
         sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine();
@@ -192,7 +192,7 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("                ?.GetCustomAttributes(typeof(SubAgentAttribute), false)");
         sb.AppendLine("                ?.FirstOrDefault();");
         sb.AppendLine("            return global::Microsoft.Extensions.AI.AIJsonUtilities.CreateJsonSchema(");
-        sb.AppendLine($"                typeof({ToolHarness.Name}SubAgentQueryArgs),");
+        sb.AppendLine($"                typeof({ToolHarness.ClassName}SubAgentQueryArgs),");
         sb.AppendLine("                serializerOptions: global::Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions,");
         sb.AppendLine("                inferenceOptions: options");
         sb.AppendLine("            );");
@@ -201,7 +201,7 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("        {");
         sb.AppendLine("            [\"IsSubAgent\"] = true,");
         sb.AppendLine("            [\"ExecutionModel\"] = \"BranchNative\",");
-        sb.AppendLine($"            [\"ParentToolHarness\"] = \"{ToolHarness.Name}\"");
+        sb.AppendLine($"            [\"ParentToolHarness\"] = \"{ToolHarness.ClassName}\"");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
         sb.AppendLine(")");

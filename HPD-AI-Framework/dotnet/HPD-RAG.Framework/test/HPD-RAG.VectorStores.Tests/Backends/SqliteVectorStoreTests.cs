@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Filters;
 using HPD.RAG.Core.Providers.VectorStore;
 using HPD.RAG.VectorStores.Sqlite;
@@ -43,7 +44,7 @@ public sealed class SqliteVectorStoreTests : VectorStoreTestBase
         var config = new VectorStoreConfig
         {
             ProviderKey = "sqlite",
-            ConnectionString = ":memory:"
+            ProviderOptions = JsonDocument.Parse("""{"databasePath":":memory:"}""").RootElement.Clone()
         };
         var store = features.CreateVectorStore(config);
         Assert.NotNull(store);

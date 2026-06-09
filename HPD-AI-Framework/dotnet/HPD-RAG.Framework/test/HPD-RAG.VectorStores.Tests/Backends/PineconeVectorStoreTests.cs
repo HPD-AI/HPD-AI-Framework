@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Filters;
 using HPD.RAG.Core.Providers.VectorStore;
 using HPD.RAG.VectorStores.Pinecone;
@@ -43,7 +44,7 @@ public sealed class PineconeVectorStoreTests : VectorStoreTestBase
         var config = new VectorStoreConfig
         {
             ProviderKey = "pinecone",
-            ApiKey = "fake-api-key-for-test"
+            ProviderOptions = JsonDocument.Parse("""{"apiKey":"fake-api-key-for-test"}""").RootElement.Clone()
         };
         var store = features.CreateVectorStore(config);
         Assert.NotNull(store);

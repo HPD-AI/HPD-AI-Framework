@@ -2,6 +2,7 @@ using FluentAssertions;
 using HPD.Agent.AspNetCore;
 using HPD.Agent.AspNetCore.DependencyInjection;
 using HPD.Agent.Hosting.Configuration;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -110,6 +111,64 @@ public class ServiceRegistrationTests
         var optionsMonitor = provider.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>();
         var defaultOptions = optionsMonitor.Get(Options.DefaultName);
         defaultOptions.SessionStorePath.Should().Be("./test");
+    }
+
+    [Fact]
+    public void AddHPDAgentFromConfigFile_LoadsYamlDefaultAgent()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"hpd-host-agent-{Guid.NewGuid():N}.yaml");
+        File.WriteAllText(path, """
+        name: Hosted YAML Agent
+        systemInstructions: Run from hosting config.
+        maxAgenticIterations: 7
+        """);
+
+        try
+        {
+            var services = new ServiceCollection();
+
+            services.AddHPDAgentFromConfigFile("hosted", path, opts =>
+            {
+                opts.AgentIdleTimeout = TimeSpan.FromMinutes(5);
+            });
+            var provider = services.BuildServiceProvider();
+
+            var options = provider.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>().Get("hosted");
+            options.DefaultAgent.Should().NotBeNull();
+            options.DefaultAgent!.Name.Should().Be("Hosted YAML Agent");
+            options.DefaultAgent.SystemInstructions.Should().Be("Run from hosting config.");
+            options.DefaultAgent.MaxAgenticIterations.Should().Be(7);
+            options.AgentIdleTimeout.Should().Be(TimeSpan.FromMinutes(5));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void AddHPDAgentFromConfiguration_LoadsDefaultAgentWithoutBinderReflection()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["agent:name"] = "Hosted IConfiguration Agent",
+                ["agent:systemInstructions"] = "Run from IConfiguration.",
+                ["agent:toolharnesses:0"] = "CodingToolHarness"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+
+        services.AddHPDAgentFromConfiguration("configured", configuration.GetSection("agent"));
+        var provider = services.BuildServiceProvider();
+
+        var options = provider.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>().Get("configured");
+        options.DefaultAgent.Should().NotBeNull();
+        options.DefaultAgent!.Name.Should().Be("Hosted IConfiguration Agent");
+        options.DefaultAgent.SystemInstructions.Should().Be("Run from IConfiguration.");
+        options.DefaultAgent.ToolHarnesses.Should().ContainSingle();
+        options.DefaultAgent.ToolHarnesses[0].Name.Should().Be("CodingToolHarness");
     }
 
     [Fact]

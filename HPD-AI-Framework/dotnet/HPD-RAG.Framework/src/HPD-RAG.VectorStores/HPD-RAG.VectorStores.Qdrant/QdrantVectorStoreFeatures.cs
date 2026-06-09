@@ -13,9 +13,9 @@ internal sealed class QdrantVectorStoreFeatures : IVectorStoreFeatures
     public Microsoft.Extensions.VectorData.VectorStore CreateVectorStore(VectorStoreConfig config, IServiceProvider? services = null)
     {
         var typed = config.GetTypedConfig<QdrantVectorStoreConfig>();
-        var endpoint = typed?.Endpoint ?? config.Endpoint
-            ?? throw new InvalidOperationException("Qdrant endpoint is required.");
-        var apiKey = typed?.ApiKey ?? config.ApiKey;
+        var endpoint = typed?.Endpoint
+            ?? throw new InvalidOperationException("Qdrant endpoint is required in QdrantVectorStoreConfig.ProviderOptions.");
+        var apiKey = typed?.ApiKey;
 
         var uri = new Uri(endpoint);
         var client = new QdrantClient(

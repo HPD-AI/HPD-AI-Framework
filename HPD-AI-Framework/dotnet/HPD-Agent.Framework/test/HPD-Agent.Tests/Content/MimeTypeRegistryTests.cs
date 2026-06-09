@@ -248,8 +248,6 @@ public class MimeTypeRegistryTests
     #region NormalizeMimeType Tests
 
     [Theory]
-    [InlineData("text/x-markdown", MimeTypeRegistry.TextMarkdown)]
-    [InlineData("text/plain-markdown", MimeTypeRegistry.TextMarkdown)]
     [InlineData("audio/x-wav", MimeTypeRegistry.AudioWav)]
     public void NormalizeMimeType_NormalizesVariants(string variant, string expectedNormalized)
     {
@@ -271,13 +269,13 @@ public class MimeTypeRegistryTests
     }
 
     [Fact]
-    public void NormalizeMimeType_IsCaseInsensitive()
+    public void NormalizeMimeType_DoesNotNormalizeOldMarkdownAliases()
     {
         // Act
-        var normalized = MimeTypeRegistry.NormalizeMimeType("TEXT/X-MARKDOWN");
+        var normalized = MimeTypeRegistry.NormalizeMimeType("text/x-markdown");
 
         // Assert
-        Assert.Equal(MimeTypeRegistry.TextMarkdown, normalized);
+        Assert.Equal("text/x-markdown", normalized);
     }
 
     #endregion
@@ -299,13 +297,13 @@ public class MimeTypeRegistryTests
     }
 
     [Fact]
-    public void IsSupported_ReturnsTrue_ForVariants()
+    public void IsSupported_ReturnsFalse_ForOldMarkdownAlias()
     {
         // Act
         var isSupported = MimeTypeRegistry.IsSupported("text/x-markdown");
 
         // Assert
-        Assert.True(isSupported);
+        Assert.False(isSupported);
     }
 
     [Fact]

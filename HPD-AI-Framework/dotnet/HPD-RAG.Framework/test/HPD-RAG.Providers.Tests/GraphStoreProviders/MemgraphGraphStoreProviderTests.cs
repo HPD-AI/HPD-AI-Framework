@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Providers.GraphStore;
 using HPD.RAG.GraphStoreProviders.Memgraph;
 using Xunit;
@@ -39,9 +40,9 @@ public sealed class MemgraphGraphStoreProviderTests
         var config = new GraphStoreConfig
         {
             ProviderKey = "memgraph",
-            Uri = "bolt://localhost:7687",
-            Username = "memgraph",
-            Password = "fake-password-for-testing"
+            ProviderOptions = JsonDocument.Parse(
+                """{"uri":"bolt://localhost:7687","username":"memgraph","password":"fake-password-for-testing"}""")
+                .RootElement.Clone()
         };
 
         var store = provider.CreateGraphStore(config, null);

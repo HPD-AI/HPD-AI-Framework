@@ -1,9 +1,11 @@
 using System.Text.Json;
 using FluentAssertions;
+using HPD.Serialization;
 using HPDAgent.Graph.Abstractions.Config;
 using HPDAgent.Graph.Abstractions.Discovery;
 using HPDAgent.Graph.Abstractions.Serialization;
 using HPDAgent.Graph.Abstractions.Storage;
+using HPDAgent.Graph.Core.Config;
 
 namespace HPD.Graph.Tests.V21;
 
@@ -56,7 +58,7 @@ public sealed class GraphConfigSerializationTests
     }
 
     [Fact]
-    public void GraphConfig_Deserializes_WithUnknownPropertiesSkipped()
+    public void GraphConfig_Deserialization_RejectsUnknownProperties()
     {
         const string json = """
         {
@@ -70,12 +72,30 @@ public sealed class GraphConfigSerializationTests
         }
         """;
 
-        var config = JsonSerializer.Deserialize(json, GraphConfigJsonSerializerContext.Default.GraphConfig);
+        var act = () => JsonSerializer.Deserialize(json, GraphConfigJsonSerializerContext.Default.GraphConfig);
 
-        config.Should().NotBeNull();
-        config!.GraphId.Should().Be("unknown-fields");
-        config.Nodes.Should().BeEmpty();
-        config.Edges.Should().BeEmpty();
+        act.Should().Throw<JsonException>()
+            .WithMessage("*notARealProperty*");
+    }
+
+    [Fact]
+    public void GraphConfig_Deserialization_RejectsStringNumbers()
+    {
+        const string json = """
+        {
+          "schemaVersion": "2.1",
+          "graphId": "strict-numbers",
+          "graphVersion": "1.0.0",
+          "name": "Strict Numbers",
+          "maxIterations": "42",
+          "nodes": {},
+          "edges": []
+        }
+        """;
+
+        var act = () => JsonSerializer.Deserialize(json, GraphConfigJsonSerializerContext.Default.GraphConfig);
+
+        act.Should().Throw<JsonException>();
     }
 
     [Theory]
@@ -123,6 +143,50 @@ public sealed class GraphConfigSerializationTests
 
         roundTrip.Should().BeEquivalentTo(stored, options => options.Excluding(s => s.Config));
         roundTrip!.Config.GraphId.Should().Be("g");
+    }
+
+    [Fact]
+    public void StoredGraph_RoundTrips_AsYaml_WithSharedSerializer()
+    {
+        var stored = new StoredGraph
+        {
+            GraphId = "yaml-graph",
+            Name = "YAML Graph",
+            GraphVersion = "1.0.0",
+            Config = CreateMinimalGraphConfig("yaml-graph") with
+            {
+                Metadata = new Dictionary<string, string> { ["format"] = "yaml" }
+            },
+            CreatedAt = DateTimeOffset.UnixEpoch,
+            UpdatedAt = DateTimeOffset.UnixEpoch.AddMinutes(1)
+        };
+
+        var yaml = GraphConfigSerializer.SerializeStoredGraph(stored, HpdConfigFormat.Yaml);
+        var roundTrip = GraphConfigSerializer.DeserializeStoredGraph(yaml, HpdConfigFormat.Yaml);
+
+        yaml.Should().Contain("graphId: yaml-graph");
+        roundTrip.Should().NotBeNull();
+        roundTrip!.GraphId.Should().Be("yaml-graph");
+        roundTrip.Config.Metadata.Should().Contain("format", "yaml");
+    }
+
+    [Fact]
+    public void GraphFactory_BuildFromFile_YamlExtension_LoadsGraphConfig()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"hpd-graph-{Guid.NewGuid():N}.yaml");
+        GraphConfigSerializer.WriteConfigFile(path, CreateMinimalGraphConfig("yaml-factory"));
+
+        try
+        {
+            var graph = new GraphFactory().BuildFromFile(path);
+
+            graph.Id.Should().Be("yaml-factory");
+            graph.Name.Should().Be("Graph");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -301,7 +365,6 @@ public sealed class GraphConfigSerializationTests
             IterationOptions = new IterationOptionsConfig
             {
                 MaxIterations = 9,
-                EnableChangeDetection = true,
                 StopOnConvergence = true
             },
             Nodes = new Dictionary<string, NodeConfig>

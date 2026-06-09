@@ -67,7 +67,7 @@ internal class MCPServerCapability : BaseCapability
         sb.AppendLine("{");
         sb.AppendLine($"    Name = \"{EscapeString(Name)}\",");
         sb.AppendLine($"    Description = \"{EscapeString(Description)}\",");
-        sb.AppendLine($"    ParentToolHarness = \"{toolharness.Name}\",");
+        sb.AppendLine($"    ParentToolHarness = \"{toolharness.EffectiveName}\",");
         sb.AppendLine($"    CollapseWithinToolHarness = {CollapseWithinToolHarness.ToString().ToLower()},");
 
         if (FromManifest != null)
@@ -81,11 +81,11 @@ internal class MCPServerCapability : BaseCapability
 
         if (IsStatic)
         {
-            sb.AppendLine($"    StaticConfigProvider = () => {toolharness.Name}.{MethodName}()");
+            sb.AppendLine($"    StaticConfigProvider = () => {toolharness.ClassName}.{MethodName}()");
         }
         else
         {
-            sb.AppendLine($"    InstanceConfigProvider = (instance) => (({toolharness.Name})instance).{MethodName}()");
+            sb.AppendLine($"    InstanceConfigProvider = (instance) => (({toolharness.ClassName})instance).{MethodName}()");
         }
 
         sb.AppendLine("}");
@@ -100,14 +100,14 @@ internal class MCPServerCapability : BaseCapability
     {
         var toolharness = (ToolHarnessInfo)parent;
         var provider = IsStatic
-            ? $"static _ => {toolharness.Name}.{MethodName}()"
-            : $"static instance => (({toolharness.Name})instance!).{MethodName}()";
+            ? $"static _ => {toolharness.ClassName}.{MethodName}()"
+            : $"static instance => (({toolharness.ClassName})instance!).{MethodName}()";
 
         return
             "            __mcpCollector(new HPD.Agent.McpServerSource(\n" +
             $"                Name: \"{EscapeString(Name)}\",\n" +
             $"                Description: \"{EscapeString(Description)}\",\n" +
-            $"                ParentToolHarness: \"{toolharness.Name}\",\n" +
+            $"                ParentToolHarness: \"{toolharness.EffectiveName}\",\n" +
             $"                CollapseWithinToolHarness: {CollapseWithinToolHarness.ToString().ToLower()},\n" +
             $"                FromManifest: {(FromManifest is null ? "null" : $"\"{EscapeString(FromManifest)}\"")},\n" +
             $"                ManifestServerName: {(FromManifest is null ? "null" : $"\"{EscapeString(ManifestServerName ?? Name)}\"")},\n" +

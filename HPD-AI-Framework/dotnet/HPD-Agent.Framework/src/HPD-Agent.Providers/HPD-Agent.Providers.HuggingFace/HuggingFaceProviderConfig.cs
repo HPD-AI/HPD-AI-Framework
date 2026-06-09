@@ -14,7 +14,7 @@ namespace HPD.Agent.Providers.HuggingFace;
 ///     "ProviderKey": "huggingface",
 ///     "ModelName": "meta-llama/Meta-Llama-3-8B-Instruct",
 ///     "ApiKey": "hf_...",
-///     "ProviderOptionsJson": "{\"maxNewTokens\":250,\"temperature\":0.7}"
+///     "ProviderOptions": { "maxNewTokens": 250, "temperature": 0.7 }
 ///   }
 /// }
 /// </code>

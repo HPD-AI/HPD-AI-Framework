@@ -168,7 +168,7 @@ public class ExternalToolCollapsingWrapperMCPTests
         props["FunctionResult"].Should().Be("Web tools activated");
         props["SystemPrompt"].Should().Be("Use web tools carefully");
         props["ParentContainer"].Should().Be("SearchToolHarness");
-        (props["FunctionNames"] as string[]).Should().Contain("search", "fetch");
+        (props["ReferencedFunctions"] as string[]).Should().Contain("search", "fetch");
         props["FunctionCount"].Should().Be(2);
     }
 

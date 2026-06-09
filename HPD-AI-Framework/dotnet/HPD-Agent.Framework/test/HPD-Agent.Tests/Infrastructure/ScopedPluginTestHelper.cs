@@ -29,7 +29,7 @@ public static class CollapsedToolHarnessTestHelper
             {
                 ["IsContainer"] = true,
                 ["ToolHarnessName"] = toolName,
-                ["FunctionNames"] = functionNames,
+                ["ReferencedFunctions"] = functionNames,
                 ["FunctionCount"] = functionCount,
                 ["SourceType"] = "CSharp"
             }

@@ -13,8 +13,8 @@ internal sealed class RedisVectorStoreFeatures : IVectorStoreFeatures
     public Microsoft.Extensions.VectorData.VectorStore CreateVectorStore(VectorStoreConfig config, IServiceProvider? services = null)
     {
         var typed = config.GetTypedConfig<RedisVectorStoreConfig>();
-        var connectionString = typed?.ConnectionString ?? config.ConnectionString
-            ?? throw new InvalidOperationException("Redis connection string is required.");
+        var connectionString = typed?.ConnectionString
+            ?? throw new InvalidOperationException("Redis connection string is required in RedisVectorStoreConfig.ProviderOptions.");
 
         var muxer = ConnectionMultiplexer.Connect(connectionString);
         return new RedisVectorStore(muxer.GetDatabase());

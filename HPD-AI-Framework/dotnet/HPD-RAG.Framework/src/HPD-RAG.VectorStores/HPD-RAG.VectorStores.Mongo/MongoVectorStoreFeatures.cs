@@ -13,8 +13,8 @@ internal sealed class MongoVectorStoreFeatures : IVectorStoreFeatures
     public Microsoft.Extensions.VectorData.VectorStore CreateVectorStore(VectorStoreConfig config, IServiceProvider? services = null)
     {
         var typed = config.GetTypedConfig<MongoVectorStoreConfig>();
-        var connectionString = typed?.ConnectionString ?? config.ConnectionString
-            ?? throw new InvalidOperationException("MongoDB connection string is required.");
+        var connectionString = typed?.ConnectionString
+            ?? throw new InvalidOperationException("MongoDB connection string is required in MongoVectorStoreConfig.ProviderOptions.");
         var databaseName = typed?.DatabaseName ?? "mrag";
 
         var mongoClient = new MongoClient(connectionString);

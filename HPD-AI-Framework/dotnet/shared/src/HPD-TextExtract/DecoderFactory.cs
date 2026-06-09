@@ -149,8 +149,6 @@ namespace HPD.TextExtract
                 textDecoder,
                 MimeTypes.PlainText,
                 MimeTypes.MarkDown,
-                MimeTypes.MarkDownOld1,
-                MimeTypes.MarkDownOld2,
                 MimeTypes.Json,
                 MimeTypes.XML,
                 MimeTypes.XML2);
@@ -197,8 +195,6 @@ namespace HPD.TextExtract
                     decoder,
                     MimeTypes.PlainText,
                     MimeTypes.MarkDown,
-                    MimeTypes.MarkDownOld1,
-                    MimeTypes.MarkDownOld2,
                     MimeTypes.Json,
                     MimeTypes.XML,
                     MimeTypes.XML2);

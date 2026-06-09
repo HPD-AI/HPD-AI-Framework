@@ -32,7 +32,7 @@ public sealed class GraphOrchestratorInvokerTests
         invoker.CallCount.Should().Be(1);
         typedHandler.CallCount.Should().Be(0);
         context.IsNodeComplete("work").Should().BeTrue();
-        context.Channels["node_output:work"].Get<Dictionary<string, object>>()["source"].Should().Be("invoker");
+        context.Channels["node_output:work:port:0"].Get<Dictionary<string, object>>()["source"].Should().Be("invoker");
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public sealed class GraphOrchestratorInvokerTests
 
         typedHandler.CallCount.Should().Be(1);
         context.IsNodeComplete("work").Should().BeTrue();
-        context.Channels["node_output:work"].Get<Dictionary<string, object>>()["source"].Should().Be("typed");
+        context.Channels["node_output:work:port:0"].Get<Dictionary<string, object>>()["source"].Should().Be("typed");
     }
 
     [Fact]

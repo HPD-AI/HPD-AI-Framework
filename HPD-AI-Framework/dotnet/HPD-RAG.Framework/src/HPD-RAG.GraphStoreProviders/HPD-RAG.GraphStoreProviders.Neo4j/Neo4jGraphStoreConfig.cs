@@ -4,7 +4,7 @@ namespace HPD.RAG.GraphStoreProviders.Neo4j;
 
 /// <summary>
 /// Neo4j-specific graph store configuration.
-/// These values are read from <see cref="HPD.RAG.Core.Providers.GraphStore.GraphStoreConfig.ProviderOptionsJson"/>.
+/// These values are read from <see cref="HPD.RAG.Core.Providers.GraphStore.GraphStoreConfig.ProviderOptions"/>.
 ///
 /// JSON example:
 /// <code>

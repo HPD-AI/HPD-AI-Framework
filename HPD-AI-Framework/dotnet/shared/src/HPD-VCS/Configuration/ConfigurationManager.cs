@@ -1,6 +1,7 @@
 using System.IO.Abstractions;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using HPD.Serialization;
 using HPD.VCS.Configuration;
 
 namespace HPD.VCS.Configuration;
@@ -30,6 +31,8 @@ public class ConfigurationManager
 {
     private readonly IFileSystem _fileSystem;
     private readonly string _configFilePath;
+    private readonly string _yamlConfigFilePath;
+    private readonly string _ymlConfigFilePath;
 
     /// <summary>
     /// Initializes a new instance of the ConfigurationManager class.
@@ -40,6 +43,8 @@ public class ConfigurationManager
     {
         _fileSystem = fileSystem ?? throw new ArgumentNullException(nameof(fileSystem));
         _configFilePath = _fileSystem.Path.Combine(repositoryPath, ".hpd", "config.json");
+        _yamlConfigFilePath = _fileSystem.Path.Combine(repositoryPath, ".hpd", "config.yaml");
+        _ymlConfigFilePath = _fileSystem.Path.Combine(repositoryPath, ".hpd", "config.yml");
     }    /// <summary>
     /// Creates a default configuration file for a new repository.
     /// </summary>
@@ -64,21 +69,25 @@ public class ConfigurationManager
     /// <exception cref="InvalidOperationException">Thrown when the configuration file is invalid</exception>
     public async Task<RepositoryConfig> ReadConfigAsync()
     {
-        if (!_fileSystem.File.Exists(_configFilePath))
+        var configPath = GetExistingConfigPath();
+        if (configPath is null)
         {
             throw new FileNotFoundException($"Configuration file not found: {_configFilePath}");
         }
 
         try
         {
-            var jsonContent = await _fileSystem.File.ReadAllTextAsync(_configFilePath);
+            var configContent = await _fileSystem.File.ReadAllTextAsync(configPath);
             
             // First deserialize to a raw DTO to avoid property validation
-            var rawConfig = JsonSerializer.Deserialize<RawRepositoryConfig>(jsonContent);
+            var rawConfig = HpdConfigSerializer.Deserialize(
+                configContent,
+                VcsConfigJsonContext.Default.RawRepositoryConfig,
+                HpdConfigSerializer.InferFormat(configPath));
             
             if (rawConfig == null)
             {
-                throw new InvalidOperationException($"Failed to deserialize configuration from {_configFilePath}");
+                throw new InvalidOperationException($"Failed to deserialize configuration from {configPath}");
             }
 
             // Validate the raw configuration first
@@ -97,7 +106,7 @@ public class ConfigurationManager
         }
         catch (JsonException ex)
         {
-            throw new InvalidOperationException($"Invalid JSON in configuration file {_configFilePath}: {ex.Message}", ex);
+            throw new InvalidOperationException($"Invalid configuration file {_configFilePath}: {ex.Message}", ex);
         }
         catch (Exception ex) when (!(ex is InvalidOperationException))
         {
@@ -116,12 +125,10 @@ public class ConfigurationManager
         
         ValidateConfig(config);
 
-        var options = new JsonSerializerOptions
-        {
-            WriteIndented = true
-        };
-
-        var jsonContent = JsonSerializer.Serialize(config, options);
+        var configContent = HpdConfigSerializer.Serialize(
+            config,
+            VcsConfigJsonContext.Default.RepositoryConfig,
+            HpdConfigSerializer.InferFormat(_configFilePath));
         
         // Ensure the directory exists
         var configDirectory = _fileSystem.Path.GetDirectoryName(_configFilePath);
@@ -130,7 +137,7 @@ public class ConfigurationManager
             _fileSystem.Directory.CreateDirectory(configDirectory);
         }
 
-        await _fileSystem.File.WriteAllTextAsync(_configFilePath, jsonContent);
+        await _fileSystem.File.WriteAllTextAsync(_configFilePath, configContent);
     }    /// <summary>
     /// Gets the working copy mode from the configuration.
     /// </summary>
@@ -202,4 +209,30 @@ public class ConfigurationManager
             throw new InvalidOperationException($"Invalid working copy mode in configuration: {ex.Message}", ex);
         }
     }
+
+    private string? GetExistingConfigPath()
+    {
+        if (_fileSystem.File.Exists(_configFilePath))
+            return _configFilePath;
+
+        if (_fileSystem.File.Exists(_yamlConfigFilePath))
+            return _yamlConfigFilePath;
+
+        if (_fileSystem.File.Exists(_ymlConfigFilePath))
+            return _ymlConfigFilePath;
+
+        return null;
+    }
+}
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(RawRepositoryConfig))]
+[JsonSerializable(typeof(RawWorkingCopyConfig))]
+[JsonSerializable(typeof(RepositoryConfig))]
+[JsonSerializable(typeof(WorkingCopyConfig))]
+internal partial class VcsConfigJsonContext : JsonSerializerContext
+{
 }

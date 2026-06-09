@@ -7,6 +7,7 @@ using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio.Policies;
 using Microsoft.Extensions.AI;
 using HPD.Agent;
+using HPD.Agent.Serialization;
 
 using System.Collections.Immutable;
 
@@ -82,11 +83,6 @@ public class AgentConfig
     /// Configuration for error handling behavior.
     /// </summary>
     public ErrorHandlingConfig? ErrorHandling { get; set; }
-
-    /// <summary>
-    /// Configuration for document handling behavior.
-    /// </summary>
-    public DocumentHandlingConfig? DocumentHandling { get; set; }
 
     /// <summary>
     /// Configuration for conversation compaction to manage context window size.
@@ -231,15 +227,12 @@ public class AgentConfig
 
     public ClientProviderConfig? ResolveClientConfig(
         HPD.Agent.Providers.ProviderClientFamily family,
-        AgentClientConfig? runClients = null,
-        ClientProviderConfig? legacyRunChat = null)
+        AgentClientConfig? runClients = null)
     {
         return ClientProviderConfigResolver.Resolve(
             Clients,
             family,
-            runClients,
-            null,
-            legacyRunChat);
+            runClients);
     }
 
     /// <summary>
@@ -465,81 +458,25 @@ public class AgentConfig
     public AgentClientMiddlewareConfig? ClientMiddleware { get; set; }
 
     /// <summary>
-    /// Builds an Agent from this configuration asynchronously.
-    /// 
-    /// Convenience method that creates an AgentBuilder from this config and calls Build().
-    /// Equivalent to: <c>new AgentBuilder(this).Build()</c>
+    /// Loads a JSON or YAML configuration file and builds an agent.
     /// </summary>
-    /// <param name="cancellationToken">Cancellation token for the build operation</param>
-    /// <returns>A fully constructed Agent ready to use</returns>
-    /// <remarks>
-    /// This method delegates to AgentBuilder, so all standard build behaviors apply:
-    /// - Provider validation (if EnableAsyncValidation is true)
-    /// - Tool registration
-    /// - Middleware setup
-    /// - Event handler registration
-    /// </remarks>
-    public Task<Agent> BuildAsync(CancellationToken cancellationToken = default)
+    public static async Task<Agent> BuildFromFileAsync(
+        string filePath,
+        CancellationToken cancellationToken = default)
     {
-        var builder = new AgentBuilder(this);
-        return builder.BuildAsync(cancellationToken);
+        var config = await HpdAgentConfigSerializer.ReadFileAsync(filePath, cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Failed to deserialize AgentConfig from {filePath}");
+
+        return await new AgentBuilder(config).BuildAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Loads a JSON configuration file, deserializes it, and immediately builds an Agent asynchronously.
-    /// Convenience method combining file loading, deserialization, and agent building in one call.
+    /// Loads a JSON or YAML configuration file and builds an agent.
     /// </summary>
-    /// <param name="filePath">Path to the JSON configuration file</param>
-    /// <param name="cancellationToken">Cancellation token for file I/O and agent building</param>
-    /// <returns>A fully constructed Agent ready to use</returns>
-    /// <exception cref="FileNotFoundException">Thrown when the file does not exist</exception>
-    /// <exception cref="JsonException">Thrown when JSON parsing fails</exception>
-    /// <example>
-    /// <code>
-    /// // Load config.json, deserialize to AgentConfig, and build Agent in one call
-    /// var agent = await AgentConfig.BuildFromFileAsync("agent-config.json");
-    /// </code>
-    /// </example>
-    public static async Task<Agent> BuildFromFileAsync(string filePath, CancellationToken cancellationToken = default)
-    {
-        if (!File.Exists(filePath))
-        {
-            throw new FileNotFoundException($"Configuration file not found: {filePath}");
-        }
-
-        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read);
-        var config = await JsonSerializer.DeserializeAsync<AgentConfig>(stream, HPDJsonContext.Default.AgentConfig, cancellationToken)
-            .ConfigureAwait(false);
-        
-        if (config == null)
-        {
-            throw new InvalidOperationException($"Failed to deserialize AgentConfig from {filePath}");
-        }
-        
-        return await config.BuildAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Loads a JSON configuration file, deserializes it, and immediately builds an Agent.
-    /// Convenience method combining file loading, deserialization, and agent building in one call.
-    /// </summary>
-    /// <param name="filePath">Path to the JSON configuration file</param>
-    /// <returns>A fully constructed Agent ready to use</returns>
-    /// <exception cref="FileNotFoundException">Thrown when the file does not exist</exception>
-    /// <exception cref="JsonException">Thrown when JSON parsing fails</exception>
-    /// <remarks>
-    /// Note: This is a sync-to-async bridge. For better performance, prefer BuildFromFileAsync() to avoid blocking threads.
-    /// </remarks>
-    /// <example>
-    /// <code>
-    /// // Load config.json, deserialize to AgentConfig, and build Agent in one call
-    /// var agent = AgentConfig.BuildFromFile("agent-config.json");
-    /// </code>
-    /// </example>
     public static Agent BuildFromFile(string filePath)
-    {
-        return BuildFromFileAsync(filePath).ConfigureAwait(false).GetAwaiter().GetResult();
-    }
+        => BuildFromFileAsync(filePath).ConfigureAwait(false).GetAwaiter().GetResult();
+
 }
 
 #region Supporting Configuration Classes
@@ -587,23 +524,10 @@ public class ClientProviderConfig
     public Dictionary<string, object>? AdditionalProperties { get; set; }
 
     /// <summary>
-    /// Provider-specific configuration as raw JSON string.
-    /// This is the preferred way for FFI/JSON configuration.
-    /// The JSON is deserialized using the provider's registered deserializer.
-    ///
-    /// Example JSON config:
-    /// <code>
-    /// {
-    ///   "Provider": {
-    ///     "ProviderKey": "anthropic",
-    ///     "ModelName": "claude-sonnet-4-5-20250929",
-    ///     "ApiKey": "sk-ant-...",
-    ///     "ProviderOptionsJson": "{\"ThinkingBudgetTokens\":4096,\"EnablePromptCaching\":true}"
-    ///   }
-    /// }
-    /// </code>
+    /// Provider-specific configuration as a JSON/YAML object.
+    /// The value is deserialized using the provider's registered source-generated deserializer.
     /// </summary>
-    public string? ProviderOptionsJson { get; set; }
+    public JsonElement? ProviderOptions { get; set; }
 
     /// <summary>
     /// Optional OpenRouter HTTP-Referer attribution header.
@@ -626,7 +550,7 @@ public class ClientProviderConfig
     private object? _cachedProviderConfig;
 
     /// <summary>
-    /// Gets provider-specific configuration from <see cref="ProviderOptionsJson"/> using the provider's
+    /// Gets provider-specific configuration from <see cref="ProviderOptions"/> using the provider's
     /// registered source-generated serializer.
     /// </summary>
     public T? GetProviderConfig<T>() where T : class
@@ -635,7 +559,7 @@ public class ClientProviderConfig
     }
 
     /// <summary>
-    /// Gets provider-specific configuration for a client family from <see cref="ProviderOptionsJson"/>
+    /// Gets provider-specific configuration for a client family from <see cref="ProviderOptions"/>
     /// using the provider's registered source-generated serializer.
     /// </summary>
     public T? GetProviderConfig<T>(HPD.Agent.Providers.ProviderClientFamily family) where T : class
@@ -643,20 +567,21 @@ public class ClientProviderConfig
         if (_cachedProviderConfig is T cached)
             return cached;
 
-        if (string.IsNullOrWhiteSpace(ProviderOptionsJson))
+        var providerOptionsJson = GetProviderOptionsRawJson();
+        if (string.IsNullOrWhiteSpace(providerOptionsJson))
             return null;
 
         var registration = HPD.Agent.Providers.ProviderDiscovery.GetProviderConfigType(ProviderKey, family);
         if (registration is null || registration.ConfigType != typeof(T))
             return null;
 
-        var result = registration.Deserialize(ProviderOptionsJson) as T;
+        var result = registration.Deserialize(providerOptionsJson) as T;
         _cachedProviderConfig = result;
         return result;
     }
 
     /// <summary>
-    /// Sets the provider-specific configuration and updates ProviderOptionsJson.
+    /// Sets the provider-specific configuration and updates ProviderOptions.
     /// Uses the provider's registered serializer from ProviderDiscovery for AOT compatibility.
     /// </summary>
     /// <typeparam name="T">The strongly-typed configuration class</typeparam>
@@ -667,7 +592,7 @@ public class ClientProviderConfig
     }
 
     /// <summary>
-    /// Sets the provider-specific configuration for a client family and updates ProviderOptionsJson.
+    /// Sets the provider-specific configuration for a client family and updates ProviderOptions.
     /// Uses the provider's registered serializer from ProviderDiscovery for AOT compatibility.
     /// </summary>
     public void SetProviderConfig<T>(T config, HPD.Agent.Providers.ProviderClientFamily family) where T : class
@@ -678,8 +603,18 @@ public class ClientProviderConfig
         var registration = HPD.Agent.Providers.ProviderDiscovery.GetProviderConfigType(ProviderKey, family);
         if (registration != null && registration.ConfigType == typeof(T))
         {
-            ProviderOptionsJson = registration.Serialize(config);
+            SetProviderOptionsRawJson(registration.Serialize(config));
         }
+    }
+
+    public string? GetProviderOptionsRawJson()
+        => ProviderOptions?.GetRawText();
+
+    public void SetProviderOptionsRawJson(string? json)
+    {
+        ProviderOptions = string.IsNullOrWhiteSpace(json)
+            ? null
+            : JsonDocument.Parse(json).RootElement.Clone();
     }
 
 }
@@ -774,18 +709,14 @@ internal static class ClientProviderConfigResolver
     public static ClientProviderConfig? Resolve(
         AgentClientConfig? agentClients,
         HPD.Agent.Providers.ProviderClientFamily family,
-        AgentClientConfig? runClients = null,
-        ClientProviderConfig? legacyAgentChat = null,
-        ClientProviderConfig? legacyRunChat = null)
+        AgentClientConfig? runClients = null)
     {
-        var agentFamily = agentClients?.GetFamilyConfig(family)
-            ?? (family == HPD.Agent.Providers.ProviderClientFamily.Chat ? legacyAgentChat : null);
+        var agentFamily = agentClients?.GetFamilyConfig(family);
 
         var providerKey = agentFamily?.ProviderKey;
         var agentShared = GetShared(agentClients, providerKey);
 
-        var runFamily = runClients?.GetFamilyConfig(family)
-            ?? (family == HPD.Agent.Providers.ProviderClientFamily.Chat ? legacyRunChat : null);
+        var runFamily = runClients?.GetFamilyConfig(family);
 
         var runProviderKey = FirstNonEmpty(runFamily?.ProviderKey, providerKey);
         var runShared = GetShared(runClients, runProviderKey);
@@ -856,12 +787,12 @@ internal static class ClientProviderConfigResolver
                 target.AdditionalProperties[pair.Key] = pair.Value;
         }
 
-        target.ProviderOptionsJson = MergeProviderOptionsJson(
-            target.ProviderOptionsJson,
-            source.ProviderOptionsJson);
+        target.SetProviderOptionsRawJson(MergeProviderOptions(
+            target.GetProviderOptionsRawJson(),
+            source.GetProviderOptionsRawJson()));
     }
 
-    private static string? MergeProviderOptionsJson(string? lowerPriority, string? higherPriority)
+    private static string? MergeProviderOptions(string? lowerPriority, string? higherPriority)
     {
         if (string.IsNullOrWhiteSpace(lowerPriority))
             return higherPriority;
@@ -880,11 +811,22 @@ internal static class ClientProviderConfigResolver
         return lower.ToJsonString();
     }
 
+    private static JsonElement? MergeProviderOptions(JsonElement? lowerPriority, JsonElement? higherPriority)
+    {
+        var merged = MergeProviderOptions(
+            lowerPriority?.GetRawText(),
+            higherPriority?.GetRawText());
+
+        return string.IsNullOrWhiteSpace(merged)
+            ? null
+            : JsonDocument.Parse(merged).RootElement.Clone();
+    }
+
     private static JsonObject ParseObject(string json)
     {
         var node = JsonNode.Parse(json);
         if (node is not JsonObject obj)
-            throw new InvalidOperationException("ProviderOptionsJson merge requires each non-empty value to be a JSON object.");
+            throw new InvalidOperationException("ProviderOptions merge requires each non-empty value to be a JSON object.");
 
         return obj;
     }
@@ -898,7 +840,7 @@ internal static class ClientProviderConfigResolver
          config.DefaultChatOptions == null &&
          config.CustomHeaders == null &&
          config.AdditionalProperties == null &&
-         string.IsNullOrWhiteSpace(config.ProviderOptionsJson) &&
+         config.ProviderOptions is null &&
          string.IsNullOrWhiteSpace(config.HttpReferer) &&
          string.IsNullOrWhiteSpace(config.AppName) &&
          config.PromptFormatter == null);
@@ -1032,36 +974,14 @@ public class ErrorHandlingConfig
 }
 
 /// <summary>
-/// Configuration for document handling behavior.
-/// NOTE: This config is legacy and will be deprecated in favor of DocumentHandlingOptions.
-/// Use WithDocumentHandling() middleware extension instead.
-/// </summary>
-public class DocumentHandlingConfig
-{
-    /// <summary>
-    /// Custom document tag format for message injection.
-    /// Uses string.Format with {0} = filename, {1} = extracted text.
-    /// If null, uses default format: "\n\n[ATTACHED_DOCUMENT[{0}]]\n{1}\n[/ATTACHED_DOCUMENT]\n\n"
-    /// </summary>
-    public string? DocumentTagFormat { get; set; }
-
-    /// <summary>
-    /// Maximum file size in bytes to process (default: 10MB).
-    /// Files larger than this will be rejected.
-    /// </summary>
-    public long MaxFileSizeBytes { get; set; } = 10 * 1024 * 1024;
-}
-
-/// <summary>
 /// Configuration for conversation compaction using Microsoft.Extensions.AI IChatReducer.
 /// </summary>
 public class CompactionConfig
 {
     /// <summary>
     /// Whether compaction is enabled.
-    /// Default is false to maintain backward compatibility.
     /// </summary>
-    public bool Enabled { get; set; } = false;
+    public bool Enabled { get; set; } = true;
 
     /// <summary>
     /// Whether newly forked branches should be compacted before their first persistence.
@@ -1344,7 +1264,6 @@ public enum SkillInstructionMode
     /// <summary>
     /// Instructions in BOTH system prompt (via iteration filter) AND function result (redundant double emphasis).
     /// Uses more tokens but may improve LLM compliance for complex skills.
-    /// Default for backward compatibility.
     /// </summary>
     Both
 }
@@ -1378,11 +1297,11 @@ public class CollapsingConfig
     /// <summary>
     /// Controls whether skill instructions appear in function result (in addition to system prompt).
     /// Iteration filter ALWAYS injects to system prompt - this controls redundancy in function result.
-    /// - PromptMiddlewareOnly: Instructions only in system prompt (most token efficient, recommended)
-    /// - Both: Instructions in both system prompt AND function result (backward compatibility)
-    /// Default: Both (for backward compatibility, but PromptMiddlewareOnly is recommended).
+    /// - PromptMiddlewareOnly: Instructions only in system prompt.
+    /// - Both: Instructions in both system prompt AND function result.
+    /// Default: PromptMiddlewareOnly.
     /// </summary>
-    public SkillInstructionMode SkillInstructionMode { get; set; } = SkillInstructionMode.Both;
+    public SkillInstructionMode SkillInstructionMode { get; set; } = SkillInstructionMode.PromptMiddlewareOnly;
 
     /// <summary>
     /// WhetherSystemPrompt injections persist across message turns.

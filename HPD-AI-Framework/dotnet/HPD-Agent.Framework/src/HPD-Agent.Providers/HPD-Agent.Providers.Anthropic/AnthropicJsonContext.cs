@@ -11,7 +11,8 @@ namespace HPD.Agent.Providers.Anthropic;
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     WriteIndented = false,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(AnthropicProviderConfig))]
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(string))]

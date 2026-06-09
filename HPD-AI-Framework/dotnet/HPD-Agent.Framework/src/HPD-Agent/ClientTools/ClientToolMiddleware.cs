@@ -479,8 +479,6 @@ public class ClientToolMiddleware : IAgentMiddleware
                     // Dual-context architecture: FunctionResult for ephemeral, SystemPrompt for persistent
                     ["FunctionResult"] = skill.FunctionResult,
                     ["SystemPrompt"] = skill.SystemPrompt,
-                    // Legacy key for backward compatibility with ContainerMiddleware
-                    ["Instructions"] = skill.SystemPrompt,
                     // These are used by ToolVisibilityManager for visibility rules
                     ["ReferencedFunctions"] = referencedFunctions,
                     ["ReferencedToolHarnesses"] = referencedToolHarnesses

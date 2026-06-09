@@ -2,6 +2,9 @@ using System.Text.Json;
 using HPD.Agent;
 using HPD.MultiAgent;
 using HPD.MultiAgent.Config;
+using HPDAgent.Graph.Core.Builders;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.MultiAgent.Tests;
 
@@ -36,8 +39,8 @@ public class AgentFactoryConfigTests
         var root = ParseJson(workflow.ExportConfigJson());
 
         // The exported JSON embeds the agent config from GetConfig()
-        var agentSection = root.GetProperty("Agents").GetProperty("checker").GetProperty("Agent");
-        agentSection.GetProperty("SystemInstructions").GetString().Should().Be(instructions);
+        var agentSection = root.GetProperty("agents").GetProperty("checker").GetProperty("agent");
+        agentSection.GetProperty("systemInstructions").GetString().Should().Be(instructions);
     }
 
     [Fact]
@@ -52,27 +55,62 @@ public class AgentFactoryConfigTests
 
         var root = ParseJson(workflow.ExportConfigJson());
 
-        var agentSection = root.GetProperty("Agents").GetProperty("checker").GetProperty("Agent");
-        agentSection.GetProperty("Name").GetString().Should().Be(agentName);
+        var agentSection = root.GetProperty("agents").GetProperty("checker").GetProperty("agent");
+        agentSection.GetProperty("name").GetString().Should().Be(agentName);
     }
 
-    // ── AgentFactory base GetConfig() returns null ────────────────────────────
+    // ── Non-exportable factories ──────────────────────────────────────────────
 
     [Fact]
-    public async Task AgentFactory_Base_GetConfig_Returns_Null_Produces_Empty_AgentConfig()
+    public void ExportConfigJson_FactoryWithoutConfig_Throws()
     {
-        // When GetConfig() returns null (base default), ExportConfigJson falls back to
-        // new AgentConfig() — the node still appears in the export, just with empty config.
-        // This is tested by building with a pre-built agent whose .Config is null.
-        // We verify ExportConfigJson does NOT throw.
+        var graph = new GraphBuilder()
+            .WithName("W")
+            .AddStartNode()
+            .AddHandlerNode("only", "only", "onlyHandler")
+            .AddEndNode()
+            .AddEdge("START", "only")
+            .AddEdge("only", "END")
+            .Build();
 
+        var workflow = new AgentWorkflowInstance(
+            graph,
+            new Dictionary<string, AgentFactory> { ["only"] = new NonExportableAgentFactory() },
+            new Dictionary<string, AgentNodeOptions> { ["only"] = new() },
+            new ServiceCollection().BuildServiceProvider(),
+            "W");
+
+        var act = () => workflow.ExportConfigJson();
+
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*only*does not expose an AgentConfig*");
+    }
+
+    [Fact]
+    public async Task ExportConfigJson_InlineBuilderAgent_Throws()
+    {
         var workflow = await AgentWorkflow.Create()
             .WithName("W")
-            .AddAgent("only", Cfg("A", "Do something"))
+            .AddAgent("inline", builder => builder.WithName("Inline"))
             .BuildAsync();
 
-        // Sanity: ExportConfigJson succeeds and includes the node
-        var root = ParseJson(workflow.ExportConfigJson());
-        root.GetProperty("Agents").TryGetProperty("only", out _).Should().BeTrue();
+        var act = () => workflow.ExportConfigJson();
+
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*inline*does not expose an AgentConfig*");
+    }
+
+    private sealed class NonExportableAgentFactory : AgentFactory
+    {
+        public override Task<Agent.Agent> BuildAsync(
+            IChatClient? fallbackChatClient,
+            ISessionStore? workflowSessionStore,
+            bool requireWorkflowSessionStore,
+            CancellationToken cancellationToken)
+            => throw new NotSupportedException();
+
+        internal override AgentConfig? GetConfig() => null;
     }
 }

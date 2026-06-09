@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Providers.GraphStore;
 using HPD.RAG.GraphStoreProviders.Neo4j;
 using Xunit;
@@ -39,9 +40,9 @@ public sealed class Neo4jGraphStoreProviderTests
         var config = new GraphStoreConfig
         {
             ProviderKey = "neo4j",
-            Uri = "bolt://localhost:7687",
-            Username = "neo4j",
-            Password = "fake-password-for-testing"
+            ProviderOptions = JsonDocument.Parse(
+                """{"uri":"bolt://localhost:7687","username":"neo4j","password":"fake-password-for-testing"}""")
+                .RootElement.Clone()
         };
 
         var store = provider.CreateGraphStore(config, null);

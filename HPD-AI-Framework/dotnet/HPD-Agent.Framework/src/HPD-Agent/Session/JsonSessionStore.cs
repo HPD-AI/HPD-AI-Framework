@@ -122,9 +122,10 @@ public class JsonSessionStore : ISessionStore
         lock (_lock)
         {
             var json = File.ReadAllText(branchPath);
-            var document = JsonSerializer.Deserialize<BranchEventDocument>(json, BranchEventJson.Options);
-            document = document is null ? null : ScopeLoadedBranchDocument(document, sessionId, branchId);
-            var branch = document is null ? null : BranchProjector.Project(document);
+            var document = JsonSerializer.Deserialize<BranchEventDocument>(json, BranchEventJson.Options)
+                ?? throw new InvalidDataException($"Branch document '{branchPath}' is empty.");
+            BranchEventValidation.RequireDocumentScope(document, sessionId, branchId);
+            var branch = BranchProjector.Project(document);
             return Task.FromResult(branch);
         }
     }
@@ -145,10 +146,10 @@ public class JsonSessionStore : ISessionStore
         lock (_lock)
         {
             var json = File.ReadAllText(branchPath);
-            var document = JsonSerializer.Deserialize<BranchEventDocument>(json, BranchEventJson.Options);
-            return Task.FromResult<BranchEventDocument?>(document is null
-                ? null
-                : ScopeLoadedBranchDocument(document, sessionId, branchId));
+            var document = JsonSerializer.Deserialize<BranchEventDocument>(json, BranchEventJson.Options)
+                ?? throw new InvalidDataException($"Branch document '{branchPath}' is empty.");
+            BranchEventValidation.RequireDocumentScope(document, sessionId, branchId);
+            return Task.FromResult<BranchEventDocument?>(document);
         }
     }
 
@@ -158,6 +159,7 @@ public class JsonSessionStore : ISessionStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
+        BranchEventValidation.RequireDocumentScope(document, document.SessionId, document.BranchId);
 
         var branchPath = GetBranchFilePath(document.SessionId, document.BranchId);
 
@@ -166,8 +168,10 @@ public class JsonSessionStore : ISessionStore
             if (expectedSequenceNumber is not null && File.Exists(branchPath))
             {
                 var existingJson = File.ReadAllText(branchPath);
-                var existing = JsonSerializer.Deserialize<BranchEventDocument>(existingJson, BranchEventJson.Options);
-                if (existing is not null && existing.NextSequenceNumber - 1 != expectedSequenceNumber.Value)
+                var existing = JsonSerializer.Deserialize<BranchEventDocument>(existingJson, BranchEventJson.Options)
+                    ?? throw new InvalidDataException($"Branch document '{branchPath}' is empty.");
+                BranchEventValidation.RequireDocumentScope(existing, document.SessionId, document.BranchId);
+                if (existing.NextSequenceNumber - 1 != expectedSequenceNumber.Value)
                 {
                     throw new InvalidOperationException(
                         $"Branch '{document.BranchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {existing.NextSequenceNumber - 1}.");
@@ -201,8 +205,8 @@ public class JsonSessionStore : ISessionStore
             {
                 var json = File.ReadAllText(branchPath);
                 document = JsonSerializer.Deserialize<BranchEventDocument>(json, BranchEventJson.Options)
-                    ?? new BranchEventDocument { SessionId = sessionId, BranchId = branchId };
-                document = ScopeLoadedBranchDocument(document, sessionId, branchId);
+                    ?? throw new InvalidDataException($"Branch document '{branchPath}' is empty.");
+                BranchEventValidation.RequireDocumentScope(document, sessionId, branchId);
             }
             else
             {
@@ -221,12 +225,7 @@ public class JsonSessionStore : ISessionStore
                     $"Branch '{branchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {document.NextSequenceNumber - 1}.");
             }
 
-            evt = evt with
-            {
-                EventId = evt.EventId ?? Guid.NewGuid().ToString("N"),
-                SessionId = evt.SessionId ?? sessionId,
-                BranchId = evt.BranchId ?? branchId
-            };
+            BranchEventValidation.RequirePersistableScope(sessionId, branchId, evt);
             evt.SequenceNumber = document.NextSequenceNumber;
             var events = document.Events.ToList();
             events.Add(evt);
@@ -410,31 +409,6 @@ public class JsonSessionStore : ISessionStore
 
     private string GetBranchFilePath(string sessionId, string branchId)
         => Path.Combine(GetBranchDirectoryPath(sessionId, branchId), "branch.json");
-
-    private static BranchEventDocument ScopeLoadedBranchDocument(
-        BranchEventDocument document,
-        string sessionId,
-        string branchId)
-    {
-        var events = new List<AgentEvent>(document.Events.Count);
-        foreach (var evt in document.Events)
-        {
-            var scoped = evt with
-            {
-                SessionId = evt.SessionId ?? sessionId,
-                BranchId = evt.BranchId ?? branchId
-            };
-            scoped.SequenceNumber = evt.SequenceNumber;
-            events.Add(scoped);
-        }
-
-        return document with
-        {
-            SessionId = string.IsNullOrWhiteSpace(document.SessionId) ? sessionId : document.SessionId,
-            BranchId = string.IsNullOrWhiteSpace(document.BranchId) ? branchId : document.BranchId,
-            Events = events
-        };
-    }
 
     private string GetUncommittedTurnFilePath(string sessionId)
         => Path.Combine(GetSessionDirectoryPath(sessionId), "uncommitted.json");

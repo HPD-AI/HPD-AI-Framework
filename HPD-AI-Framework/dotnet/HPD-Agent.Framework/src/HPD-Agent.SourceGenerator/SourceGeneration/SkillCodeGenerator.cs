@@ -177,8 +177,6 @@ internal static class SkillCodeGenerator
         var functionList = string.Join(", ", skill.ResolvedFunctionReferences);
         var returnMessage = $"{skill.Name} skill activated. Available functions: {functionList}";
 
-        // Still include instructions in function result for backward compatibility
-        // PHASE 5: SkillCapability uses FunctionResult instead of Instructions
         if (!string.IsNullOrEmpty(skill.FunctionResult))
         {
             returnMessage += $"\n\n{skill.FunctionResult}";
@@ -201,14 +199,13 @@ internal static class SkillCodeGenerator
         sb.AppendLine($"        /// </summary>");
         sb.AppendLine($"        /// <param name=\"instance\">ToolHarness instance</param>");
         sb.AppendLine($"        /// <param name=\"context\">Execution context for dynamic descriptions</param>");
-        sb.AppendLine($"        private static AIFunction Create{skill.MethodName}Skill({ToolHarness.Name} instance, IToolMetadata? context, HPDToolSerializationOptions? serialization)");
+        sb.AppendLine($"        private static AIFunction Create{skill.MethodName}Skill({ToolHarness.ClassName} instance, IToolMetadata? context, HPDToolSerializationOptions? serialization)");
         sb.AppendLine("        {");
 
         // Generate runtime function body that checks configuration
         var baseMessage = $"{skill.Name} skill activated. Available functions: {functionList}";
         var escapedBaseMessage = baseMessage.Replace("\"", "\"\"");
 
-        // PHASE 5: SkillCapability uses FunctionResult instead of Instructions
         if (!string.IsNullOrEmpty(skill.FunctionResult))
         {
             var escapedInstructions = skill.FunctionResult.Replace("\"", "\"\"");
@@ -216,7 +213,7 @@ internal static class SkillCodeGenerator
             sb.AppendLine("                async (arguments, functionContext, cancellationToken) =>");
             sb.AppendLine("                {");
             sb.AppendLine("                    // Check if instructions should be included in function result");
-            sb.AppendLine("                    var mode = HPD.Agent.AgentConfig.GlobalConfig?.Collapsing?.SkillInstructionMode ?? HPD.Agent.SkillInstructionMode.Both;");
+            sb.AppendLine("                    var mode = HPD.Agent.AgentConfig.GlobalConfig?.Collapsing?.SkillInstructionMode ?? HPD.Agent.SkillInstructionMode.PromptMiddlewareOnly;");
             sb.AppendLine("                    if (mode == HPD.Agent.SkillInstructionMode.Both)");
             sb.AppendLine("                    {");
             sb.AppendLine($"                        return @\"{escapedBaseMessage}");
@@ -268,10 +265,6 @@ internal static class SkillCodeGenerator
         sb.AppendLine($"                        [\"ReferencedFunctions\"] = new string[] {{ {string.Join(", ", skill.ResolvedFunctionReferences.Select(f => $"\"{f}\""))} }},");
         sb.AppendLine($"                        [\"ReferencedToolHarnesses\"] = new string[] {{ {string.Join(", ", skill.ResolvedToolHarnessTypes.Select(p => $"\"{p}\""))} }},");
 
-        // Store instructions separately for prompt Middleware to use
-        // Middleware will build complete context from metadata (functions + documents + instructions)
-
-        // NEW: StoreSystemPrompt for middleware injection
         if (!string.IsNullOrEmpty(skill.SystemPrompt))
         {
             var escapedSysPrompt = skill.SystemPrompt.Replace("\"", "\"\"");
@@ -283,14 +276,6 @@ internal static class SkillCodeGenerator
         {
             var escapedFuncResult = skill.FunctionResult.Replace("\"", "\"\"");
             sb.AppendLine($"                        [\"FunctionResult\"] = @\"{escapedFuncResult}\",");
-        }
-
-        // LEGACY: Keep Instructions for backward compatibility (auto-maps to both contexts)
-        // PHASE 5: SkillCapability uses FunctionResult instead of Instructions
-        if (!string.IsNullOrEmpty(skill.FunctionResult))
-        {
-            var escapedInstructions = skill.FunctionResult.Replace("\"", "\"\"");
-            sb.AppendLine($"                        [\"Instructions\"] = @\"{escapedInstructions}\",");
         }
 
         sb.AppendLine("                    }");
@@ -390,7 +375,7 @@ internal static class SkillCodeGenerator
         sb.AppendLine("                    {");
         sb.AppendLine("                        [\"IsContainer\"] = true,");
         sb.AppendLine("                        [\"IsToolHarnessContainer\"] = true,");
-        sb.AppendLine($"                        [\"FunctionNames\"] = new string[] {{ {string.Join(", ", allCapabilities.Select(c => $"\"{c}\""))} }},");
+        sb.AppendLine($"                        [\"ReferencedFunctions\"] = new string[] {{ {string.Join(", ", allCapabilities.Select(c => $"\"{c}\""))} }},");
         sb.AppendLine($"                        [\"FunctionCount\"] = {totalCount},");
 
         // Add FunctionResult if present

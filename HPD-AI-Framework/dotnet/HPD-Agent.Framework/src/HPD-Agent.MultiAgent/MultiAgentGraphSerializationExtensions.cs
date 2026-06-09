@@ -31,10 +31,9 @@ public sealed class MultiAgentGraphJsonTypeInfoResolverContributor : IGraphJsonT
 [JsonSourceGenerationOptions(
     GenerationMode = JsonSourceGenerationMode.Default,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    NumberHandling = JsonNumberHandling.AllowReadingFromString,
-    WriteIndented = false,
+    WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(MultiAgentWorkflowConfig))]
 [JsonSerializable(typeof(AgentNodeConfig))]

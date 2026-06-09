@@ -117,8 +117,8 @@ public class BranchEventStoreTests : AgentTestBase
             Assert.Contains(events, e => e.GetProperty("type").GetString() == EventTypes.MessageTurn.MESSAGE_TURN_STARTED);
             Assert.All(events, e =>
             {
-                Assert.False(e.TryGetProperty("sessionId", out _));
-                Assert.False(e.TryGetProperty("branchId", out _));
+                Assert.Equal(session.Id, e.GetProperty("sessionId").GetString());
+                Assert.Equal(branch.Id, e.GetProperty("branchId").GetString());
                 Assert.False(e.TryGetProperty("channel", out _));
                 Assert.False(e.TryGetProperty("kind", out _));
                 Assert.False(e.TryGetProperty("direction", out _));
@@ -135,6 +135,84 @@ public class BranchEventStoreTests : AgentTestBase
                 Assert.Equal(session.Id, e.SessionId);
                 Assert.Equal(branch.Id, e.BranchId);
             });
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task InMemoryStore_AppendBranchEvent_RejectsUnscopedEvent()
+    {
+        var store = new InMemorySessionStore();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            store.AppendBranchEventAsync("session-1", "main", new TextDeltaEvent("hello", "msg-1")));
+
+        Assert.Contains("EventId", exception.Message);
+    }
+
+    [Fact]
+    public async Task JsonSessionStore_AppendBranchEvent_RejectsUnscopedEvent()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-branch-events-{Guid.NewGuid():N}");
+
+        try
+        {
+            var store = new JsonSessionStore(tempDir);
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                store.AppendBranchEventAsync("session-1", "main", new TextDeltaEvent("hello", "msg-1")));
+
+            Assert.Contains("EventId", exception.Message);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task JsonSessionStore_LoadBranchDocument_RejectsEventWithoutScope()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-branch-events-{Guid.NewGuid():N}");
+
+        try
+        {
+            var branchDir = Path.Combine(tempDir, "session-1", "branches", "main");
+            Directory.CreateDirectory(branchDir);
+            await File.WriteAllTextAsync(
+                Path.Combine(branchDir, "branch.json"),
+                """
+                {
+                  "schema": "hpd.agent.branch.events",
+                  "version": 3,
+                  "sessionId": "session-1",
+                  "branchId": "main",
+                  "createdAt": "2026-01-01T00:00:00+00:00",
+                  "updatedAt": "2026-01-01T00:00:00+00:00",
+                  "nextSequenceNumber": 2,
+                  "events": [
+                    {
+                      "type": "BRANCH_CREATED",
+                      "eventId": "evt-1",
+                      "name": "Main",
+                      "createdAt": "2026-01-01T00:00:00+00:00",
+                      "sequenceNumber": 1
+                    }
+                  ]
+                }
+                """);
+
+            var store = new JsonSessionStore(tempDir);
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                store.LoadBranchDocumentAsync("session-1", "main"));
+
+            Assert.Contains("session scope", exception.Message);
         }
         finally
         {

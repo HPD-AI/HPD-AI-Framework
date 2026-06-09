@@ -15,7 +15,7 @@ public interface IProviderRegistry
     void Register(IProvider provider);
 
     /// <summary>
-    /// Get provider by key (case-insensitive).
+    /// Get provider by exact key.
     /// </summary>
     /// <param name="providerKey">Provider identifier (e.g., "openai")</param>
     /// <returns>Provider, or null if not registered.</returns>

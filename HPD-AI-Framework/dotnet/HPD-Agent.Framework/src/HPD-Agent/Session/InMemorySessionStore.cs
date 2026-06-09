@@ -101,6 +101,7 @@ public class InMemorySessionStore : ISessionStore
     {
         ArgumentNullException.ThrowIfNull(document);
         cancellationToken.ThrowIfCancellationRequested();
+        BranchEventValidation.RequireDocumentScope(document, document.SessionId, document.BranchId);
 
         var sessionBranches = _branches.GetOrAdd(
             document.SessionId,
@@ -133,7 +134,7 @@ public class InMemorySessionStore : ISessionStore
             branchId,
             _ =>
             {
-                evt = ScopeBranchEvent(sessionId, branchId, evt);
+                BranchEventValidation.RequirePersistableScope(sessionId, branchId, evt);
                 evt.SequenceNumber = 1;
                 return new BranchEventDocument
                 {
@@ -154,7 +155,7 @@ public class InMemorySessionStore : ISessionStore
                         $"Branch '{branchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {existing.NextSequenceNumber - 1}.");
                 }
 
-                evt = ScopeBranchEvent(sessionId, branchId, evt);
+                BranchEventValidation.RequirePersistableScope(sessionId, branchId, evt);
                 evt.SequenceNumber = existing.NextSequenceNumber;
                 var events = existing.Events.ToList();
                 events.Add(evt);
@@ -168,14 +169,6 @@ public class InMemorySessionStore : ISessionStore
 
         return Task.CompletedTask;
     }
-
-    private static AgentEvent ScopeBranchEvent(string sessionId, string branchId, AgentEvent evt) =>
-        evt with
-        {
-            EventId = evt.EventId ?? Guid.NewGuid().ToString("N"),
-            SessionId = evt.SessionId ?? sessionId,
-            BranchId = evt.BranchId ?? branchId
-        };
 
     public async IAsyncEnumerable<AgentEvent> ReadBranchEventsAsync(
         string sessionId,

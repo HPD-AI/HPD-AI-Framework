@@ -25,7 +25,7 @@ public static class GoogleAIProviderModule
             json => JsonSerializer.Deserialize(json, GoogleAIJsonContext.Default.GoogleAIProviderConfig),
             config => JsonSerializer.Serialize(config, GoogleAIJsonContext.Default.GoogleAIProviderConfig));
 
-        // Register environment variable aliases for secret resolution
-        SecretAliasRegistry.Register("google-ai:ApiKey", "GOOGLE_API_KEY", "GEMINI_API_KEY");
+        // Register provider secret key for environment resolution.
+        SecretAliasRegistry.Register("google-ai:ApiKey", "GOOGLE_AI_API_KEY");
     }
 }

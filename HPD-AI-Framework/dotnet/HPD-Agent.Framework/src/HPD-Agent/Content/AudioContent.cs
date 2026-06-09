@@ -44,9 +44,9 @@ public class AudioContent : DataContent
     /// Creates audio content from bytes.
     /// </summary>
     /// <param name="data">Audio bytes.</param>
-    /// <param name="mediaType">MIME type. Defaults to "audio/mpeg" (MP3).</param>
-    public AudioContent(ReadOnlyMemory<byte> data, string? mediaType = null)
-        : base(data, mediaType ?? MimeTypeRegistry.AudioMpeg)
+    /// <param name="mediaType">MIME type.</param>
+    public AudioContent(ReadOnlyMemory<byte> data, string mediaType)
+        : base(data, RequireMediaType(mediaType))
     {
     }
 
@@ -242,8 +242,13 @@ public class AudioContent : DataContent
     private static string GetMediaTypeFromExtension(string filePath)
     {
         return MimeTypeRegistry.GetMimeTypeFromPath(filePath)
-            ?? MimeTypeRegistry.AudioMpeg; // Default to MP3 if unknown
+            ?? throw new NotSupportedException($"Audio file extension '{Path.GetExtension(filePath)}' is not registered.");
     }
+
+    private static string RequireMediaType(string mediaType)
+        => string.IsNullOrWhiteSpace(mediaType)
+            ? throw new ArgumentException("Audio media type is required.", nameof(mediaType))
+            : mediaType;
 
     private static DecodedPcm DecodeMp3(ReadOnlyMemory<byte> data)
     {

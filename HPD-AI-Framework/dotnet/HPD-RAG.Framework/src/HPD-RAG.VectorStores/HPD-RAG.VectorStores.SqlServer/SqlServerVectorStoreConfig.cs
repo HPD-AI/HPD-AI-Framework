@@ -2,7 +2,7 @@ namespace HPD.RAG.VectorStores.SqlServer;
 
 /// <summary>
 /// SQL Server-specific typed config.
-/// Serialized into VectorStoreConfig.ProviderOptionsJson for AOT-safe roundtripping.
+/// Serialized into VectorStoreConfig.ProviderOptions for AOT-safe roundtripping.
 /// </summary>
 public sealed class SqlServerVectorStoreConfig
 {

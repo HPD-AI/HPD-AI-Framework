@@ -36,7 +36,7 @@ public class ConfigTests
         var config = new VectorStoreConfig
         {
             ProviderKey = key,
-            ProviderOptionsJson = "{\"Setting\":\"hello\"}"
+            ProviderOptions = JsonDocument.Parse("""{"Setting":"hello"}""").RootElement.Clone()
         };
 
         var result = config.GetTypedConfig<MyConfig>();
@@ -44,6 +44,27 @@ public class ConfigTests
         Assert.True(deserializerInvoked, "Registered deserializer lambda should have been invoked.");
         Assert.NotNull(result);
         Assert.Equal("hello", result.Setting);
+    }
+
+    [Fact]
+    public void VectorStoreConfig_GetTypedConfig_UsesProviderOptionsObject()
+    {
+        var key = "test-cfg-object-" + Guid.NewGuid();
+        VectorStoreDiscovery.RegisterVectorStoreConfigType(
+            key,
+            json => JsonSerializer.Deserialize<MyConfig>(json),
+            cfg => JsonSerializer.Serialize(cfg));
+
+        var config = new VectorStoreConfig
+        {
+            ProviderKey = key,
+            ProviderOptions = JsonDocument.Parse("""{"Setting":"from-object"}""").RootElement.Clone()
+        };
+
+        var result = config.GetTypedConfig<MyConfig>();
+
+        Assert.NotNull(result);
+        Assert.Equal("from-object", result.Setting);
     }
 
     // T-046
@@ -57,7 +78,7 @@ public class ConfigTests
         {
             ProviderKey = key,
             ModelName = "model",
-            ProviderOptionsJson = "{\"setting\":\"val\"}"
+            ProviderOptions = JsonDocument.Parse("""{"setting":"val"}""").RootElement.Clone()
         };
 
         var result = config.GetTypedConfig<MyConfig>();

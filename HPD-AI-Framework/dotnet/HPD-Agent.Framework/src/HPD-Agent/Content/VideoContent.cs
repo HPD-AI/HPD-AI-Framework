@@ -37,9 +37,9 @@ public class VideoContent : DataContent
     /// Creates video content from bytes.
     /// </summary>
     /// <param name="data">Video bytes.</param>
-    /// <param name="mediaType">MIME type. Defaults to "video/mp4".</param>
-    public VideoContent(ReadOnlyMemory<byte> data, string? mediaType = null)
-        : base(data, mediaType ?? MimeTypeRegistry.VideoMp4)
+    /// <param name="mediaType">MIME type.</param>
+    public VideoContent(ReadOnlyMemory<byte> data, string mediaType)
+        : base(data, RequireMediaType(mediaType))
     {
     }
 
@@ -123,7 +123,8 @@ public class VideoContent : DataContent
         // Download mode: fetch and convert to VideoContent
         httpClient ??= DefaultSharedHttpClient;
         var bytes = await httpClient.GetByteArrayAsync(uri, cancellationToken);
-        return new VideoContent(bytes); // Auto-detect format from magic bytes
+        var mediaType = GetMediaTypeFromExtension(uri.AbsolutePath);
+        return new VideoContent(bytes, mediaType);
     }
 
     private static readonly HttpClient DefaultSharedHttpClient = new HttpClient
@@ -166,6 +167,11 @@ public class VideoContent : DataContent
     private static string GetMediaTypeFromExtension(string filePath)
     {
         return MimeTypeRegistry.GetMimeTypeFromPath(filePath)
-            ?? MimeTypeRegistry.VideoMp4; // Default to MP4 if unknown
+            ?? throw new NotSupportedException($"Video file extension '{Path.GetExtension(filePath)}' is not registered.");
     }
+
+    private static string RequireMediaType(string mediaType)
+        => string.IsNullOrWhiteSpace(mediaType)
+            ? throw new ArgumentException("Video media type is required.", nameof(mediaType))
+            : mediaType;
 }

@@ -6,10 +6,9 @@ namespace HPDAgent.Graph.Hosting.Serialization;
 [JsonSourceGenerationOptions(
     GenerationMode = JsonSourceGenerationMode.Default,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    NumberHandling = JsonNumberHandling.AllowReadingFromString,
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(CreateWorkflowRequest))]
 [JsonSerializable(typeof(UpdateWorkflowRequest))]

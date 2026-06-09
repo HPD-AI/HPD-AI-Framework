@@ -339,15 +339,15 @@ public class LoggingMiddleware : IAgentMiddleware
         // Detect toolharness expansion (collapsed toolharness being called by the LLM)
         var props = context.Function?.AdditionalProperties;
         var isContainer = props?.TryGetValue("IsContainer", out var icVal) == true && icVal is true;
-        var isCollapse = props?.TryGetValue("IsCollapse", out var colVal) == true && colVal is true;
+        var isToolHarnessContainer = props?.TryGetValue("IsToolHarnessContainer", out var containerVal) == true && containerVal is true;
 
-        if (isContainer && isCollapse && _options.LogToolHarnessExpansion)
+        if (isContainer && isToolHarnessContainer && _options.LogToolHarnessExpansion)
         {
             var toolharnessName = props?.TryGetValue("ToolHarnessName", out var tnVal) == true && tnVal is string tn ? tn : functionName;
             sb.AppendLine($"{_options.LogPrefix}[HARNESS EXPAND] {toolharnessName}");
 
             // List child functions being expanded into scope
-            if (props?.TryGetValue("FunctionNames", out var fnVal) == true && fnVal is System.Collections.Generic.IEnumerable<string> fnNames)
+            if (props?.TryGetValue("ReferencedFunctions", out var fnVal) == true && fnVal is System.Collections.Generic.IEnumerable<string> fnNames)
             {
                 sb.AppendLine($"  Expanding functions:");
                 foreach (var fn in fnNames)
@@ -395,9 +395,9 @@ public class LoggingMiddleware : IAgentMiddleware
 
         var props = context.Function?.AdditionalProperties;
         var isContainer = props?.TryGetValue("IsContainer", out var icVal) == true && icVal is true;
-        var isCollapse = props?.TryGetValue("IsCollapse", out var colVal) == true && colVal is true;
+        var isToolHarnessContainer = props?.TryGetValue("IsToolHarnessContainer", out var containerVal) == true && containerVal is true;
 
-        if (isContainer && isCollapse && _options.LogToolHarnessExpansion)
+        if (isContainer && isToolHarnessContainer && _options.LogToolHarnessExpansion)
         {
             var toolharnessName = props?.TryGetValue("ToolHarnessName", out var tnVal) == true && tnVal is string tn ? tn : functionName;
             if (exception != null)

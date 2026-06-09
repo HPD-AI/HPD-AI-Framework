@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Providers.Embedding;
 using HPD.RAG.EmbeddingProviders.OnnxRuntime;
 using Xunit;
@@ -36,19 +37,19 @@ public sealed class OnnxRuntimeEmbeddingProviderTests
     {
     }
 
-    // T-071 (OnnxRuntime variant) — missing ModelPath in ProviderOptionsJson
+    // T-071 (OnnxRuntime variant) — missing ModelPath in ProviderOptions
     [Fact]
     public void CreateEmbeddingGenerator_MissingModelPath_Throws()
     {
         var provider = EmbeddingDiscovery.GetProvider("onnxruntime");
         Assert.NotNull(provider);
 
-        // No ProviderOptionsJson → GetTypedConfig returns null → modelPath is null
+        // No ProviderOptions → GetTypedConfig returns null → modelPath is null
         var config = new EmbeddingConfig
         {
             ProviderKey = "onnxruntime",
             ModelName = "onnx-model"
-            // No ProviderOptionsJson
+            // No ProviderOptions
         };
 
         Assert.Throws<InvalidOperationException>(() =>
@@ -66,7 +67,7 @@ public sealed class OnnxRuntimeEmbeddingProviderTests
         {
             ProviderKey = "onnxruntime",
             ModelName = "onnx-model",
-            ProviderOptionsJson = $$$"""{"modelPath":"{{{modelPath}}}","vocabPath":"{{{vocabPath}}}"}"""
+            ProviderOptions = JsonDocument.Parse($$$"""{"modelPath":"{{{modelPath}}}","vocabPath":"{{{vocabPath}}}"}""").RootElement.Clone()
         };
 
         var typedConfig = config.GetTypedConfig<OnnxRuntimeEmbeddingConfig>();

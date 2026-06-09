@@ -342,9 +342,8 @@ public class ChainedToolHarness
     }
 
     [Fact]
-    public void Generator_HandlesBackwardCompatibility_WithDeprecatedPostExpansionInstructions()
+    public void Generator_HandlesFunctionResultInstanceMethod()
     {
-        // Arrange - Instance method expression (legacy equivalent)
         var source = @"
 using Microsoft.Extensions.AI;
 using HPD.Agent;
@@ -372,7 +371,6 @@ public class LegacyToolHarness
         // Assert
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
 
-        // postExpansionInstructions maps to FunctionResult, so should use instance method
         Assert.Contains("instance.GetLegacyInstructions()", generatedCode!);
     }
 

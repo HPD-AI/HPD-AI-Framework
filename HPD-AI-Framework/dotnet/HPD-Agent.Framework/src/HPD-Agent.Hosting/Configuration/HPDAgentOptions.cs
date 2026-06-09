@@ -46,46 +46,10 @@ public class HPDAgentConfig
     public AgentConfig? DefaultAgent { get; set; }
 
     /// <summary>
-    /// Alias for <see cref="DefaultAgent"/> retained for callers that still use the
-    /// underlying DTO-oriented name.
-    /// </summary>
-    [Obsolete("Use DefaultAgent instead.")]
-    public AgentConfig? AgentConfig
-    {
-        get => DefaultAgent;
-        set => DefaultAgent = value;
-    }
-
-    /// <summary>Alias for <see cref="DefaultAgent"/>. Used by the agent manager pipeline.</summary>
-    public AgentConfig? DefaultAgentConfig
-    {
-        get => DefaultAgent;
-        set => DefaultAgent = value;
-    }
-
-    /// <summary>
-    /// Path to a JSON file containing the default agent definition.
+    /// Path to a JSON or YAML file containing the default agent definition.
     /// Loaded once per agent build. Ignored if <see cref="DefaultAgent"/> is set.
     /// </summary>
     public string? DefaultAgentPath { get; set; }
-
-    /// <summary>
-    /// Alias for <see cref="DefaultAgentPath"/> retained for callers that still use the
-    /// underlying DTO-oriented name.
-    /// </summary>
-    [Obsolete("Use DefaultAgentPath instead.")]
-    public string? AgentConfigPath
-    {
-        get => DefaultAgentPath;
-        set => DefaultAgentPath = value;
-    }
-
-    /// <summary>Alias for <see cref="DefaultAgentPath"/>. Used by the agent manager pipeline.</summary>
-    public string? DefaultAgentConfigPath
-    {
-        get => DefaultAgentPath;
-        set => DefaultAgentPath = value;
-    }
 
     /// <summary>
     /// Agent store for resolving stored agent definitions.

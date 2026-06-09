@@ -13,16 +13,14 @@ public class VideoContentTests
     #region Constructor Tests
 
     [Fact]
-    public void Constructor_DefaultsToMp4()
+    public void Constructor_RequiresMediaType()
     {
         // Arrange
         var videoBytes = new byte[] { 0x00, 0x01, 0x02, 0x03 };
 
-        // Act
-        var content = new VideoContent(videoBytes);
+        var exception = Assert.Throws<ArgumentException>(() => new VideoContent(videoBytes, ""));
 
-        // Assert
-        Assert.Equal("video/mp4", content.MediaType);
+        Assert.Contains("media type", exception.Message);
     }
 
     [Fact]
@@ -221,7 +219,7 @@ public class VideoContentTests
     }
 
     [Fact]
-    public async Task FromFileAsync_DefaultsToMp4_ForUnknownExtension()
+    public async Task FromFileAsync_ThrowsNotSupportedException_ForUnknownExtension()
     {
         // Arrange: Create temp file with unknown extension
         var tempFile = Path.GetTempFileName();
@@ -231,11 +229,10 @@ public class VideoContentTests
 
         try
         {
-            // Act
-            var content = await VideoContent.FromFileAsync(unknownPath);
+            var exception = await Assert.ThrowsAsync<NotSupportedException>(
+                async () => await VideoContent.FromFileAsync(unknownPath));
 
-            // Assert
-            Assert.Equal("video/mp4", content.MediaType); // Default
+            Assert.Contains(".unknown", exception.Message);
         }
         finally
         {

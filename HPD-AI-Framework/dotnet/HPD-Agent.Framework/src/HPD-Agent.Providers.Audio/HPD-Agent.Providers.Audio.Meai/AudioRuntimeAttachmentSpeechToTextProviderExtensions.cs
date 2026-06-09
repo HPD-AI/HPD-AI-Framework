@@ -123,7 +123,7 @@ public static class AudioRuntimeAttachmentSpeechToTextProviderExtensions
             AdditionalProperties = source.AdditionalProperties is null
                 ? null
                 : new Dictionary<string, object>(source.AdditionalProperties),
-            ProviderOptionsJson = source.ProviderOptionsJson,
+            ProviderOptions = source.ProviderOptions,
             HttpReferer = source.HttpReferer,
             AppName = source.AppName,
             PromptFormatter = source.PromptFormatter

@@ -2,21 +2,22 @@ using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
 using HPD.Agent.Tests.Infrastructure;
 using Microsoft.Extensions.AI;
+using System.Text.Json;
 using Xunit;
 
 namespace HPD.Agent.Tests.Core;
 
-public sealed class ProviderOptionsJsonRunConfigTests : AgentTestBase
+public sealed class ProviderOptionsRunConfigTests : AgentTestBase
 {
     [Fact]
-    public async Task RunConfigProviderOptionsJson_IsPassedToRuntimeProviderConfig()
+    public async Task RunConfigProviderOptions_IsPassedToRuntimeProviderConfig()
     {
         var fakeClient = new FakeChatClient();
         fakeClient.EnqueueTextResponse("ok");
         var provider = new CapturingChatClientProvider(fakeClient);
         var registry = new CapturingProviderRegistry(provider);
         var config = DefaultConfig();
-        config.Clients!.Chat!.ProviderOptionsJson = """{"base":true}""";
+        config.Clients!.Chat!.ProviderOptions = JsonDocument.Parse("""{"base":true}""").RootElement.Clone();
 
         var agent = await new AgentBuilder(config, registry)
             .WithCircuitBreaker(5)
@@ -29,23 +30,23 @@ public sealed class ProviderOptionsJsonRunConfigTests : AgentTestBase
             {
                 ProviderKey = "test",
                 ModelId = "run-model",
-                ProviderOptionsJson = """{"run":true}"""
+                ProviderOptions = JsonDocument.Parse("""{"run":true}""").RootElement.Clone()
             },
             cancellationToken: TestCancellationToken);
 
-        Assert.Equal("""{"base":true,"run":true}""", provider.CreatedConfigs.Last().ProviderOptionsJson);
+        Assert.Equal("""{"base":true,"run":true}""", provider.CreatedConfigs.Last().GetProviderOptionsRawJson());
         Assert.Equal("run-model", provider.CreatedConfigs.Last().ModelName);
     }
 
     [Fact]
-    public async Task RunConfigProviderOptionsJson_InheritsBaseOptionsForSameProvider()
+    public async Task RunConfigProviderOptions_InheritsBaseOptionsForSameProvider()
     {
         var fakeClient = new FakeChatClient();
         fakeClient.EnqueueTextResponse("ok");
         var provider = new CapturingChatClientProvider(fakeClient);
         var registry = new CapturingProviderRegistry(provider);
         var config = DefaultConfig();
-        config.Clients!.Chat!.ProviderOptionsJson = """{"base":true}""";
+        config.Clients!.Chat!.ProviderOptions = JsonDocument.Parse("""{"base":true}""").RootElement.Clone();
 
         var agent = await new AgentBuilder(config, registry)
             .WithCircuitBreaker(5)
@@ -61,7 +62,7 @@ public sealed class ProviderOptionsJsonRunConfigTests : AgentTestBase
             },
             cancellationToken: TestCancellationToken);
 
-        Assert.Equal("""{"base":true}""", provider.CreatedConfigs.Last().ProviderOptionsJson);
+        Assert.Equal("""{"base":true}""", provider.CreatedConfigs.Last().GetProviderOptionsRawJson());
         Assert.Equal("run-model", provider.CreatedConfigs.Last().ModelName);
     }
 

@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using HPD.Serialization;
 using Microsoft.Extensions.AI.Evaluation;
 
 namespace HPD.Agent.Evaluations.Batch;
@@ -67,19 +68,29 @@ public sealed class Dataset<TInput>
 
     // ── Serialization ─────────────────────────────────────────────────────────
 
-    /// <summary>Load dataset from a JSON file.</summary>
+    /// <summary>Load a JSON dataset file.</summary>
     public static Dataset<TInput> FromFile(string path)
-        => FromJson(File.ReadAllText(path));
+        => HpdConfigSerializer.InferFormat(path) == HpdConfigFormat.Yaml
+            ? throw new InvalidOperationException("YAML dataset files require FromFile(path, parseInput) so input parsing remains AOT-safe.")
+            : FromJson(File.ReadAllText(path));
 
-    /// <summary>Load dataset from a YAML file using a caller-supplied AOT-safe input parser.</summary>
-    public static Dataset<TInput> FromYamlFile(string path, Func<JsonNode?, TInput> parseInput)
-        => FromYaml(File.ReadAllText(path), parseInput);
+    /// <summary>Load a JSON or YAML dataset file using a caller-supplied AOT-safe input parser.</summary>
+    public static Dataset<TInput> FromFile(string path, Func<JsonNode?, TInput> parseInput)
+    {
+        var text = File.ReadAllText(path);
+        return HpdConfigSerializer.InferFormat(path) switch
+        {
+            HpdConfigFormat.Json => DatasetYamlSerializer.FromJsonNode(JsonNode.Parse(text), parseInput),
+            HpdConfigFormat.Yaml => FromYaml(text, parseInput),
+            _ => throw new ArgumentOutOfRangeException(nameof(path), path, null),
+        };
+    }
 
     /// <summary>Deserialize dataset from JSON.</summary>
     public static Dataset<TInput> FromJson(string json)
     {
         var dto = JsonSerializer.Deserialize<DatasetDto<TInput>>(json,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            new JsonSerializerOptions { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow });
         return dto?.ToDataset() ?? new Dataset<TInput>();
     }
 
@@ -92,9 +103,19 @@ public sealed class Dataset<TInput>
         => File.WriteAllText(path, JsonSerializer.Serialize(ToDto(),
             new JsonSerializerOptions { WriteIndented = true }));
 
-    /// <summary>Save dataset to a YAML file using a caller-supplied AOT-safe input serializer.</summary>
-    public void ToYamlFile(string path, Func<TInput, JsonNode?> serializeInput)
-        => File.WriteAllText(path, ToYaml(serializeInput));
+    /// <summary>Save a JSON or YAML dataset file using a caller-supplied AOT-safe input serializer.</summary>
+    public void ToFile(string path, Func<TInput, JsonNode?> serializeInput)
+    {
+        var node = DatasetYamlSerializer.ToJsonNode(this, serializeInput);
+        var text = HpdConfigSerializer.InferFormat(path) switch
+        {
+            HpdConfigFormat.Json => node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
+            HpdConfigFormat.Yaml => HpdConfigSerializer.WriteYaml(node),
+            _ => throw new ArgumentOutOfRangeException(nameof(path), path, null),
+        };
+
+        File.WriteAllText(path, text);
+    }
 
     /// <summary>Serialize dataset to YAML using a caller-supplied AOT-safe input serializer.</summary>
     public string ToYaml(Func<TInput, JsonNode?> serializeInput)

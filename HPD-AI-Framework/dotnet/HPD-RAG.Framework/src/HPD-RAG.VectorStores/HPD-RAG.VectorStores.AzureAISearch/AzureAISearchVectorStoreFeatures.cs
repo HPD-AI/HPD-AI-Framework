@@ -14,10 +14,10 @@ internal sealed class AzureAISearchVectorStoreFeatures : IVectorStoreFeatures
     public Microsoft.Extensions.VectorData.VectorStore CreateVectorStore(VectorStoreConfig config, IServiceProvider? services = null)
     {
         var typed = config.GetTypedConfig<AzureAISearchVectorStoreConfig>();
-        var endpoint = typed?.Endpoint ?? config.Endpoint
-            ?? throw new InvalidOperationException("Azure AI Search endpoint is required.");
-        var apiKey = typed?.ApiKey ?? config.ApiKey
-            ?? throw new InvalidOperationException("Azure AI Search API key is required.");
+        var endpoint = typed?.Endpoint
+            ?? throw new InvalidOperationException("Azure AI Search endpoint is required in AzureAISearchVectorStoreConfig.ProviderOptions.");
+        var apiKey = typed?.ApiKey
+            ?? throw new InvalidOperationException("Azure AI Search API key is required in AzureAISearchVectorStoreConfig.ProviderOptions.");
 
         var searchClient = new SearchIndexClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
         return new AzureAISearchVectorStore(searchClient);

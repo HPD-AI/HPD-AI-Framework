@@ -121,7 +121,7 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
 
         ElevenLabsTtsConfig? providerConfig = null;
         ElevenLabsSttConfig? sttProviderConfig = null;
-        if (!string.IsNullOrWhiteSpace(config.ProviderOptionsJson))
+        if (!string.IsNullOrWhiteSpace(config.GetProviderOptionsRawJson()))
         {
             try
             {
@@ -137,7 +137,7 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
             catch (JsonException ex)
             {
                 var label = family == ProviderClientFamily.SpeechToText ? "STT" : "TTS";
-                errors.Add($"Invalid ElevenLabs {label} ProviderOptionsJson: {ex.Message}");
+                errors.Add($"Invalid ElevenLabs {label} ProviderOptions: {ex.Message}");
             }
         }
 
@@ -201,26 +201,28 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
 
     private static ElevenLabsTtsConfig ReadProviderConfig(ClientProviderConfig config)
     {
-        if (string.IsNullOrWhiteSpace(config.ProviderOptionsJson))
+        var providerOptionsJson = config.GetProviderOptionsRawJson();
+        if (string.IsNullOrWhiteSpace(providerOptionsJson))
         {
             return new ElevenLabsTtsConfig();
         }
 
         return JsonSerializer.Deserialize(
-            config.ProviderOptionsJson,
+            providerOptionsJson,
             ElevenLabsTtsJsonContext.Default.ElevenLabsTtsConfig)
             ?? new ElevenLabsTtsConfig();
     }
 
     private static ElevenLabsSttConfig ReadSttProviderConfig(ClientProviderConfig config)
     {
-        if (string.IsNullOrWhiteSpace(config.ProviderOptionsJson))
+        var providerOptionsJson = config.GetProviderOptionsRawJson();
+        if (string.IsNullOrWhiteSpace(providerOptionsJson))
         {
             return new ElevenLabsSttConfig();
         }
 
         return JsonSerializer.Deserialize(
-            config.ProviderOptionsJson,
+            providerOptionsJson,
             ElevenLabsTtsJsonContext.Default.ElevenLabsSttConfig)
             ?? new ElevenLabsSttConfig();
     }

@@ -94,20 +94,4 @@ public sealed class CollapseAttribute : Attribute
         Description = description ?? throw new ArgumentNullException(nameof(description));
     }
 
-    /// <summary>
-    /// Constructor for collapsible toolharnesses with dual-context instruction injection.
-    /// </summary>
-    /// <param name="description">Brief description of container capabilities</param>
-    /// <param name="FunctionResult">Optional instructions returned as function result (ephemeral, one-time)</param>
-    /// <param name="SystemPrompt">Optional instructions injected into system prompt (persistent, every iteration)</param>
-    /// <exception cref="ArgumentNullException">Thrown when description is null</exception>
-    public CollapseAttribute(
-        string description,
-        string? FunctionResult = null,
-        string? SystemPrompt = null)
-    {
-        Description = description ?? throw new ArgumentNullException(nameof(description));
-        this.FunctionResult = FunctionResult;
-        this.SystemPrompt = SystemPrompt;
-    }
 }

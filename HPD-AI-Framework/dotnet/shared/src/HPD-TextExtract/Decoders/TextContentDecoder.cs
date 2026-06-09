@@ -22,8 +22,6 @@ namespace HPD.TextExtract.Decoders
             return mimeType != null &&
                    (mimeType.StartsWith(MimeTypes.PlainText, StringComparison.OrdinalIgnoreCase) ||
                     mimeType.StartsWith(MimeTypes.MarkDown, StringComparison.OrdinalIgnoreCase) ||
-                    mimeType.StartsWith(MimeTypes.MarkDownOld1, StringComparison.OrdinalIgnoreCase) ||
-                    mimeType.StartsWith(MimeTypes.MarkDownOld2, StringComparison.OrdinalIgnoreCase) ||
                     mimeType.StartsWith(MimeTypes.Json, StringComparison.OrdinalIgnoreCase) ||
                     mimeType.StartsWith(MimeTypes.XML, StringComparison.OrdinalIgnoreCase) ||
                     mimeType.StartsWith(MimeTypes.XML2, StringComparison.OrdinalIgnoreCase));

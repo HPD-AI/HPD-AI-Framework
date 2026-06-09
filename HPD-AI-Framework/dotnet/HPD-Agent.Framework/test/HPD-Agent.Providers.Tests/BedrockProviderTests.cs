@@ -662,7 +662,7 @@ public class BedrockProviderTests
         json.Should().Contain("bedrock");
         json.Should().Contain("modelName");
         json.Should().Contain("anthropic.claude-3-5-sonnet");
-        json.Should().Contain("providerOptionsJson");
+        json.Should().Contain("providerOptions");
         json.Should().Contain("region");
         json.Should().Contain("us-east-1");
         json.Should().Contain("maxTokens");
@@ -682,7 +682,12 @@ public class BedrockProviderTests
                 "chat": {
                 "providerKey": "bedrock",
                 "modelName": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-                "providerOptionsJson": "{\"region\":\"us-east-1\",\"maxTokens\":4096,\"temperature\":0.7,\"topP\":0.9}"
+                "providerOptions": {
+                    "region": "us-east-1",
+                    "maxTokens": 4096,
+                    "temperature": 0.7,
+                    "topP": 0.9
+                }
             }
         }
         }
@@ -697,7 +702,7 @@ public class BedrockProviderTests
         config.EnsureChatClientConfig().Should().NotBeNull();
         config.EnsureChatClientConfig()!.ProviderKey.Should().Be("bedrock");
         config.EnsureChatClientConfig().ModelName.Should().Be("anthropic.claude-3-5-sonnet-20241022-v2:0");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().NotBeNullOrEmpty();
 
         // Verify typed config can be retrieved
         var bedrockConfig = config.EnsureChatClientConfig().GetProviderConfig<BedrockProviderConfig>();
@@ -773,7 +778,7 @@ public class BedrockProviderTests
     }
 
     [Fact]
-    public void AgentConfig_SetProviderConfig_ShouldUpdateProviderOptionsJson()
+    public void AgentConfig_SetProviderConfig_ShouldUpdateProviderOptions()
     {
         // Arrange
         var config = new AgentConfig
@@ -793,14 +798,14 @@ public class BedrockProviderTests
         };
         config.EnsureChatClientConfig().SetProviderConfig(bedrockOpts);
 
-        // Assert - ProviderOptionsJson should be populated
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("region");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("us-east-1");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("maxTokens");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("4096");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("temperature");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("0.5");
+        // Assert - ProviderOptions should be populated
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("region");
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("us-east-1");
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("maxTokens");
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("4096");
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("temperature");
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("0.5");
 
         // Verify we can retrieve it back
         var retrieved = config.EnsureChatClientConfig().GetProviderConfig<BedrockProviderConfig>();

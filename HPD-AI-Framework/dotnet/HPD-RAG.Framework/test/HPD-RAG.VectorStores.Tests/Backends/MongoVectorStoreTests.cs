@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Filters;
 using HPD.RAG.Core.Providers.VectorStore;
 using HPD.RAG.VectorStores.Mongo;
@@ -44,7 +45,8 @@ public sealed class MongoVectorStoreTests : VectorStoreTestBase
         var config = new VectorStoreConfig
         {
             ProviderKey = "mongo",
-            ConnectionString = "mongodb://localhost:27017"
+            ProviderOptions = JsonDocument.Parse("""{"connectionString":"mongodb://localhost:27017"}""")
+                .RootElement.Clone()
         };
         var store = features.CreateVectorStore(config);
         Assert.NotNull(store);

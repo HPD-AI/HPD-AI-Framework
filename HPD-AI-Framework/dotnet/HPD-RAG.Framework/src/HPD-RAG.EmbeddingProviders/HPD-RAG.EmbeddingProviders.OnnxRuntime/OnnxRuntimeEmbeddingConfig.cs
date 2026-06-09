@@ -5,7 +5,7 @@ namespace HPD.RAG.EmbeddingProviders.OnnxRuntime;
 /// <summary>
 /// ONNX Runtime-specific embedding configuration.
 ///
-/// JSON Example (ProviderOptionsJson):
+/// JSON Example (ProviderOptions):
 /// <code>
 /// {
 ///   "modelPath": "/path/to/model.onnx",

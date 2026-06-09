@@ -74,7 +74,7 @@ public class HuggingFaceProviderTests
 
         // Assert
         result.IsValid.Should().BeFalse();
-        result.Errors.Should().Contain(e => e.Contains("API key") || e.Contains("HF_TOKEN"));
+        result.Errors.Should().Contain(e => e.Contains("API key") || e.Contains("HUGGINGFACE_API_KEY"));
     }
 
     [Fact]
@@ -598,7 +598,7 @@ public class HuggingFaceProviderTests
         json.Should().Contain("huggingface");
         json.Should().Contain("modelName");
         json.Should().Contain("meta-llama/Meta-Llama-3-8B-Instruct");
-        json.Should().Contain("providerOptionsJson");
+        json.Should().Contain("providerOptions");
         json.Should().Contain("maxNewTokens");
         json.Should().Contain("250");
         json.Should().Contain("temperature");
@@ -621,7 +621,12 @@ public class HuggingFaceProviderTests
                 "providerKey": "huggingface",
                 "modelName": "meta-llama/Meta-Llama-3-8B-Instruct",
                 "apiKey": "hf_test_key",
-                "providerOptionsJson": "{\"maxNewTokens\":250,\"temperature\":0.7,\"topP\":0.9,\"topK\":50}"
+                "providerOptions": {
+                    "maxNewTokens": 250,
+                    "temperature": 0.7,
+                    "topP": 0.9,
+                    "topK": 50
+                }
             }
         }
         }
@@ -637,7 +642,7 @@ public class HuggingFaceProviderTests
         config.EnsureChatClientConfig()!.ProviderKey.Should().Be("huggingface");
         config.EnsureChatClientConfig().ModelName.Should().Be("meta-llama/Meta-Llama-3-8B-Instruct");
         config.EnsureChatClientConfig().ApiKey.Should().Be("hf_test_key");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().NotBeNullOrEmpty();
 
         // Verify typed config can be retrieved
         var hfConfig = config.EnsureChatClientConfig().GetProviderConfig<HuggingFaceProviderConfig>();
@@ -713,7 +718,7 @@ public class HuggingFaceProviderTests
     }
 
     [Fact]
-    public void AgentConfig_SetProviderConfig_ShouldUpdateProviderOptionsJson()
+    public void AgentConfig_SetProviderConfig_ShouldUpdateProviderOptions()
     {
         // Arrange
         var config = new AgentConfig
@@ -732,12 +737,12 @@ public class HuggingFaceProviderTests
         };
         config.EnsureChatClientConfig().SetProviderConfig(hfOpts);
 
-        // Assert - ProviderOptionsJson should be populated
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("maxNewTokens");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("250");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("temperature");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("0.5");
+        // Assert - ProviderOptions should be populated
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("maxNewTokens");
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("250");
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("temperature");
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("0.5");
 
         // Verify we can retrieve it back
         var retrieved = config.EnsureChatClientConfig().GetProviderConfig<HuggingFaceProviderConfig>();
@@ -848,7 +853,7 @@ public class HuggingFaceProviderTests
         // Arrange
         var builder = new AgentBuilder();
 
-        // Act - API key will be resolved from environment (HF_TOKEN)
+        // Act - API key will be resolved from environment (HUGGINGFACE_API_KEY)
         builder.WithHuggingFace(
             model: "meta-llama/Meta-Llama-3-8B-Instruct");
 

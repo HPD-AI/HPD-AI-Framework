@@ -9,29 +9,16 @@ namespace HPD.Agent.Tests.StructuredOutput;
 /// <summary>
 /// Tests for union type support in structured output.
 /// Covers:
-/// - Legacy "union" mode (Mode="union" with UnionTypes)
 /// - Tool mode with UnionTypes (merged behavior)
 /// - Native union mode (Mode="native" with UnionTypes, anyOf schema)
 /// </summary>
 public class UnionModeTests
 {
-    #region Legacy Union Mode (Mode="union" with UnionTypes)
-    // These tests use the existing "union" mode which works correctly
-
     [Fact]
-    public async Task LegacyUnionMode_ReturnsSuccessType()
+    public async Task UnionMode_ThrowsUnsupportedMode()
     {
         // Arrange
         var fakeClient = new FakeChatClient();
-        fakeClient.EnqueueToolCall(
-            "return_SuccessResponse",
-            "call_1",
-            new Dictionary<string, object?>
-            {
-                ["data"] = "Operation successful",
-                ["code"] = 201
-            });
-
         var agent = TestAgentFactory.Create(chatClient: fakeClient);
         var options = new AgentRunConfig
         {
@@ -42,142 +29,18 @@ public class UnionModeTests
             }
         };
 
-        // Act
-        var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
-            events.Add(evt);
-        }
-
-        // Assert
-        var final = events.OfType<StructuredResultEvent<ApiResponse>>()
-            .FirstOrDefault(e => !e.IsPartial);
-
-        Assert.NotNull(final);
-        var success = Assert.IsType<SuccessResponse>(final.Value);
-        Assert.Equal("Operation successful", success.Data);
-        Assert.Equal(201, success.Code);
-    }
-
-    [Fact]
-    public async Task LegacyUnionMode_ReturnsErrorType()
-    {
-        // Arrange
-        var fakeClient = new FakeChatClient();
-        fakeClient.EnqueueToolCall(
-            "return_ErrorResponse",
-            "call_1",
-            new Dictionary<string, object?>
+            await foreach (var _ in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
             {
-                ["errorCode"] = "VALIDATION_ERROR",
-                ["message"] = "Invalid input provided"
-            });
-
-        var agent = TestAgentFactory.Create(chatClient: fakeClient);
-        var options = new AgentRunConfig
-        {
-            StructuredOutput = new StructuredOutputOptions
-            {
-                Mode = "union",
-                UnionTypes = new[] { typeof(SuccessResponse), typeof(ErrorResponse) }
             }
-        };
-
-        // Act
-        var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
-        {
-            events.Add(evt);
-        }
-
-        // Assert
-        var final = events.OfType<StructuredResultEvent<ApiResponse>>()
-            .FirstOrDefault(e => !e.IsPartial);
-
-        Assert.NotNull(final);
-        var error = Assert.IsType<ErrorResponse>(final.Value);
-        Assert.Equal("VALIDATION_ERROR", error.ErrorCode);
-        Assert.Equal("Invalid input provided", error.Message);
+        });
+        Assert.Contains("Unsupported structured output mode 'union'", ex.Message);
     }
-
-    [Fact]
-    public async Task LegacyUnionMode_EmitsUnionModeInStartEvent()
-    {
-        // Arrange
-        var fakeClient = new FakeChatClient();
-        fakeClient.EnqueueToolCall(
-            "return_SuccessResponse",
-            "call_1",
-            new Dictionary<string, object?>
-            {
-                ["data"] = "test",
-                ["code"] = 200
-            });
-
-        var agent = TestAgentFactory.Create(chatClient: fakeClient);
-        var options = new AgentRunConfig
-        {
-            StructuredOutput = new StructuredOutputOptions
-            {
-                Mode = "union",
-                UnionTypes = new[] { typeof(SuccessResponse), typeof(ErrorResponse) }
-            }
-        };
-
-        // Act
-        var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
-        {
-            events.Add(evt);
-        }
-
-        // Assert
-        var startEvent = events.OfType<StructuredOutputStartEvent>().FirstOrDefault();
-        Assert.NotNull(startEvent);
-        Assert.Equal("union", startEvent.OutputMode);
-    }
-
-    [Fact]
-    public async Task LegacyUnionMode_CompletesWithMatchedTypeName()
-    {
-        // Arrange
-        var fakeClient = new FakeChatClient();
-        fakeClient.EnqueueToolCall(
-            "return_ErrorResponse",
-            "call_1",
-            new Dictionary<string, object?>
-            {
-                ["errorCode"] = "ERR001",
-                ["message"] = "Something went wrong"
-            });
-
-        var agent = TestAgentFactory.Create(chatClient: fakeClient);
-        var options = new AgentRunConfig
-        {
-            StructuredOutput = new StructuredOutputOptions
-            {
-                Mode = "union",
-                UnionTypes = new[] { typeof(SuccessResponse), typeof(ErrorResponse) }
-            }
-        };
-
-        // Act
-        var events = new List<AgentEvent>();
-        await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
-        {
-            events.Add(evt);
-        }
-
-        // Assert
-        var completeEvent = events.OfType<StructuredOutputCompleteEvent>().FirstOrDefault();
-        Assert.NotNull(completeEvent);
-        Assert.Equal("ErrorResponse", completeEvent.OutputTypeName);
-    }
-
-    #endregion
 
     #region Tool Mode with UnionTypes (Merged Union Behavior)
-    // These tests verify that Mode="tool" with UnionTypes works identically to Mode="union"
+    // These tests verify that Mode="tool" with UnionTypes is the single tool-call union surface.
 
     [Fact]
     public async Task ToolMode_WithUnionTypes_CreatesMultipleReturnTools()
@@ -635,9 +498,9 @@ public class UnionModeTests
     }
 
     [Fact]
-    public async Task LegacyUnionMode_WithUnknownToolCalled_NoResult()
+    public async Task ToolMode_WithUnionTypes_UnknownReturnTool_NoResult()
     {
-        // When the model calls an unknown return tool in union mode
+        // When the model calls an unknown return tool in tool-union mode
 
         // Arrange
         var fakeClient = new FakeChatClient();
@@ -656,7 +519,7 @@ public class UnionModeTests
         {
             StructuredOutput = new StructuredOutputOptions
             {
-                Mode = "union",
+                Mode = "tool",
                 UnionTypes = new[] { typeof(SuccessResponse), typeof(ErrorResponse) }
             }
         };

@@ -33,6 +33,7 @@ public class AgentBranchRunServiceTests : IDisposable
             "agent-1",
             DateTimeOffset.Parse("2026-05-28T10:00:00Z"))
         {
+            EventId = "evt-run-started",
             SessionId = "session-1",
             BranchId = "main"
         });
@@ -41,11 +42,13 @@ public class AgentBranchRunServiceTests : IDisposable
             OperationStatus.InProgress,
             "op-1")
         {
+            EventId = "evt-background-started",
             SessionId = "session-1",
             BranchId = "main"
         });
         await _store.AppendBranchEventAsync("session-1", "main", new ToolCallBackgroundTaskStartedEvent
         {
+            EventId = "evt-task-started",
             SessionId = "session-1",
             BranchId = "main",
             TaskId = "task-1",
@@ -55,6 +58,7 @@ public class AgentBranchRunServiceTests : IDisposable
         });
         await _store.AppendBranchEventAsync("session-1", "main", new ToolCallBackgroundTaskCompletedEvent
         {
+            EventId = "evt-task-completed",
             SessionId = "session-1",
             BranchId = "main",
             TaskId = "task-1",
@@ -68,6 +72,7 @@ public class AgentBranchRunServiceTests : IDisposable
             "agent-1",
             false)
         {
+            EventId = "evt-run-completed",
             SessionId = "session-1",
             BranchId = "main"
         });

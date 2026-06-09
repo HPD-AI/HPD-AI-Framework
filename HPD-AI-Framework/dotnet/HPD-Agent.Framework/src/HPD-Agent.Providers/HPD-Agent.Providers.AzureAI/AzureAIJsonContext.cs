@@ -9,7 +9,8 @@ namespace HPD.Agent.Providers.AzureAI;
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(AzureAIProviderConfig))]
 internal partial class AzureAIJsonContext : JsonSerializerContext
 {

@@ -264,30 +264,30 @@ public class CachingSecretResolverTests
     }
 
     [Fact]
-    public async Task Evict_CaseInsensitiveKey()
+    public async Task Evict_DifferentCasing_DoesNotEvictCanonicalEntry()
     {
         // Arrange
         var innerResolver = new MockSecretResolver
         {
-            { "OpenAI:ApiKey", new ResolvedSecret { Value = "test-key", Source = "mock" } }
+            { "openai:ApiKey", new ResolvedSecret { Value = "test-key", Source = "mock" } }
         };
         var cachingResolver = new CachingSecretResolver(innerResolver, TimeSpan.FromMinutes(5));
 
-        // Cache with one casing
-        await cachingResolver.ResolveAsync("OpenAI:ApiKey");
+        // Cache canonical key
+        await cachingResolver.ResolveAsync("openai:ApiKey");
 
         // Act - evict with different casing
-        cachingResolver.Evict("openai:apikey");
+        cachingResolver.Evict("OpenAI:ApiKey");
 
-        innerResolver.Set("OpenAI:ApiKey", new ResolvedSecret { Value = "new-key", Source = "mock" });
+        innerResolver.Set("openai:ApiKey", new ResolvedSecret { Value = "new-key", Source = "mock" });
 
-        // Resolve again
-        var result = await cachingResolver.ResolveAsync("openai:apikey");
+        // Resolve again with canonical casing
+        var result = await cachingResolver.ResolveAsync("openai:ApiKey");
 
         // Assert
         Assert.NotNull(result);
-        Assert.Equal("new-key", result.Value.Value);
-        Assert.Equal(2, innerResolver.CallCount);
+        Assert.Equal("test-key", result.Value.Value);
+        Assert.Equal(1, innerResolver.CallCount);
     }
 
     [Fact]
@@ -400,7 +400,7 @@ public class CachingSecretResolverTests
 
     private class MockSecretResolver : ISecretResolver, IEnumerable<KeyValuePair<string, ResolvedSecret>>
     {
-        private readonly Dictionary<string, ResolvedSecret> _secrets = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, ResolvedSecret> _secrets = new(StringComparer.Ordinal);
         public int CallCount { get; private set; }
 
         public void Add(string key, ResolvedSecret secret) => _secrets[key] = secret;

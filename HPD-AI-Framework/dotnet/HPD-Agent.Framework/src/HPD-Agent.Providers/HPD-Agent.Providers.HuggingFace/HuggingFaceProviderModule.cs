@@ -26,6 +26,6 @@ public static class HuggingFaceProviderModule
             config => JsonSerializer.Serialize(config, HuggingFaceJsonContext.Default.HuggingFaceProviderConfig));
 
         // Register environment variable aliases for secret resolution
-        SecretAliasRegistry.Register("huggingface:ApiKey", "HUGGINGFACE_API_KEY", "HF_TOKEN");
+        SecretAliasRegistry.Register("huggingface:ApiKey", "HUGGINGFACE_API_KEY");
     }
 }

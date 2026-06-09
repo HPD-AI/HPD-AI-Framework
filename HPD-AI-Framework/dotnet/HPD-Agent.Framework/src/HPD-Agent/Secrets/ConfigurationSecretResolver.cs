@@ -7,9 +7,7 @@ namespace HPD.Agent.Secrets;
 ///
 /// Key "stripe:ApiKey" checks:
 ///   1. configuration["stripe:ApiKey"]
-///   2. configuration["Stripe:ApiKey"]
-///   3. configuration["Providers:stripe:ApiKey"]
-///   4. configuration["Providers:Stripe:ApiKey"]
+///   2. configuration["Providers:stripe:ApiKey"]
 ///
 /// IConfiguration already uses ":" as section separator, so the key format
 /// maps naturally: "stripe:ApiKey" → { "stripe": { "ApiKey": "..." } }
@@ -28,7 +26,7 @@ public sealed class ConfigurationSecretResolver : ISecretResolver
     {
         foreach (var candidate in GetCandidateKeys(key))
         {
-            var value = _configuration[candidate];
+            var value = GetExactValue(candidate);
             if (!string.IsNullOrWhiteSpace(value))
                 return new(new ResolvedSecret { Value = value, Source = $"config:{candidate}" });
         }
@@ -48,15 +46,18 @@ public sealed class ConfigurationSecretResolver : ISecretResolver
 
         var scope = key[..colonIndex];
         var name = key[(colonIndex + 1)..];
-        var capitalizedScope = Capitalize(scope);
 
-        yield return $"{capitalizedScope}:{name}";
         yield return $"Providers:{scope}:{name}";
-        yield return $"Providers:{capitalizedScope}:{name}";
     }
 
-    private static string Capitalize(string value)
-        => string.IsNullOrEmpty(value)
-            ? value
-            : char.ToUpperInvariant(value[0]) + value[1..];
+    private string? GetExactValue(string key)
+    {
+        foreach (var pair in _configuration.AsEnumerable())
+        {
+            if (string.Equals(pair.Key, key, StringComparison.Ordinal))
+                return pair.Value;
+        }
+
+        return null;
+    }
 }

@@ -2,6 +2,7 @@ using System.Text.Json;
 using HPD.Agent;
 using HPD.MultiAgent;
 using HPD.MultiAgent.Config;
+using HPD.MultiAgent.Serialization;
 using HPDAgent.Graph.Abstractions;
 using HPDAgent.Graph.Abstractions.Graph;
 
@@ -85,6 +86,85 @@ public class ConfigTests
     }
 
     [Fact]
+    public void MultiAgentConfigSerializer_Rejects_Unknown_Properties()
+    {
+        var json = """
+        {
+            "name": "StrictWorkflow",
+            "agents": {},
+            "edges": [],
+            "settings": {},
+            "oldSetting": true
+        }
+        """;
+
+        var act = () => MultiAgentConfigSerializer.Deserialize(json);
+
+        act.Should().Throw<JsonException>()
+            .WithMessage("*oldSetting*");
+    }
+
+    [Fact]
+    public void MultiAgentConfigSerializer_Rejects_String_Numbers()
+    {
+        var json = """
+        {
+            "name": "StrictWorkflow",
+            "agents": {},
+            "edges": [],
+            "settings": {
+                "maxIterations": "10"
+            }
+        }
+        """;
+
+        var act = () => MultiAgentConfigSerializer.Deserialize(json);
+
+        act.Should().Throw<JsonException>();
+    }
+
+    [Fact]
+    public async Task AgentWorkflow_FromFile_YamlExtension_LoadsWorkflowConfig()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"hpd-multi-agent-{Guid.NewGuid():N}.yaml");
+        MultiAgentConfigSerializer.WriteFile(path, new MultiAgentWorkflowConfig
+        {
+            Name = "YAMLWorkflow",
+            Agents = new Dictionary<string, AgentNodeConfig>
+            {
+                ["writer"] = new()
+                {
+                    Agent = new AgentConfig
+                    {
+                        Name = "Writer",
+                        SystemInstructions = "Write clearly."
+                    }
+                }
+            },
+            Edges =
+            [
+                new EdgeConfig { From = "START", To = "writer" },
+                new EdgeConfig { From = "writer", To = "END" }
+            ],
+            Settings = new WorkflowSettingsConfig()
+        });
+
+        try
+        {
+            var workflow = await AgentWorkflow.FromFile(path).BuildAsync();
+
+            var root = JsonDocument.Parse(workflow.ExportConfigJson()).RootElement;
+            root.GetProperty("name").GetString().Should().Be("YAMLWorkflow");
+            root.GetProperty("agents").GetProperty("writer").GetProperty("agent")
+                .GetProperty("systemInstructions").GetString().Should().Be("Write clearly.");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void AgentNodeConfig_With_Retry_Serializes()
     {
         var config = new AgentNodeConfig
@@ -163,7 +243,6 @@ public class ConfigTests
         var config = new IterationOptionsConfig
         {
             MaxIterations = 50,
-            UseChangeAwareIteration = true,
             EnableAutoConvergence = true,
             IgnoreFieldsForChangeDetection = new List<string> { "timestamp", "requestId" },
             AlwaysDirtyNodes = new List<string> { "validator" }
@@ -171,7 +250,7 @@ public class ConfigTests
 
         var json = JsonSerializer.Serialize(config);
 
-        json.Should().Contain("UseChangeAwareIteration");
+        json.Should().NotContain("UseChangeAwareIteration");
         json.Should().Contain("timestamp");
         json.Should().Contain("validator");
     }
@@ -283,7 +362,7 @@ public class ConfigTests
     }
 
     [Fact]
-    public void MultiAgent_FromConfig_MapsNestedConditions()
+    public void Factory_CreateBuilder_MapsNestedConditions()
     {
         var workflowConfig = new MultiAgentWorkflowConfig
         {
@@ -313,7 +392,7 @@ public class ConfigTests
         };
 
         // Act: build from config — should not throw and should map nested conditions
-        var builder = MultiAgent.FromConfig(workflowConfig);
+        var builder = new MultiAgentFactory().CreateBuilder(workflowConfig);
         builder.Should().NotBeNull();
 
         // The mapping is internal; we verify round-trip works by checking no exception is thrown

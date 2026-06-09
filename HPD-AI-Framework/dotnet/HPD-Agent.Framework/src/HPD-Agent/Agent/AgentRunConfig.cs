@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
@@ -109,19 +110,22 @@ public class AgentRunConfig
     public Dictionary<string, string>? CustomHeaders { get; set; }
 
     /// <summary>
-    /// Provider-specific JSON options to use when switching providers for this run.
-    /// If null and switching to the same provider, inherits from AgentConfig.Clients.Chat.ProviderOptionsJson.
+    /// Provider-specific options to use when switching providers for this run.
+    /// Prefer this object-shaped property for JSON/YAML config.
     /// </summary>
-    public string? ProviderOptionsJson { get; set; }
+    public JsonElement? ProviderOptions { get; set; }
 
-    internal ClientProviderConfig? GetLegacyChatProviderOverride()
+    public string? GetProviderOptionsRawJson()
+        => ProviderOptions?.GetRawText();
+
+    internal ClientProviderConfig? GetChatProviderOverride()
     {
         if (string.IsNullOrWhiteSpace(ProviderKey) &&
             string.IsNullOrWhiteSpace(ModelId) &&
             string.IsNullOrWhiteSpace(ApiKey) &&
             string.IsNullOrWhiteSpace(ProviderEndpoint) &&
             CustomHeaders == null &&
-            string.IsNullOrWhiteSpace(ProviderOptionsJson))
+            ProviderOptions is null)
             return null;
 
         return new ClientProviderConfig
@@ -131,7 +135,7 @@ public class AgentRunConfig
             ApiKey = ApiKey,
             Endpoint = ProviderEndpoint,
             CustomHeaders = CustomHeaders,
-            ProviderOptionsJson = ProviderOptionsJson
+            ProviderOptions = ProviderOptions
         };
     }
 

@@ -289,4 +289,26 @@ public class LocalFileContentStoreTests : IDisposable
         Assert.Single(results);
         Assert.Equal(data.Length, results[0].SizeBytes);
     }
+
+    [Fact]
+    public async Task Stat_ThrowsWhenContentMetadataIsMissing()
+    {
+        var store = CreateStore();
+        var scopeDir = Path.Combine(_tempDir, "scope-a");
+        Directory.CreateDirectory(scopeDir);
+        await File.WriteAllTextAsync(Path.Combine(scopeDir, "orphan.txt"), "orphan");
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.StatAsync("scope-a", "orphan"));
+    }
+
+    [Fact]
+    public async Task Query_ThrowsWhenContentMetadataIsMissing()
+    {
+        var store = CreateStore();
+        var scopeDir = Path.Combine(_tempDir, "scope-a");
+        Directory.CreateDirectory(scopeDir);
+        await File.WriteAllTextAsync(Path.Combine(scopeDir, "orphan.txt"), "orphan");
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.QueryAsync("scope-a"));
+    }
 }

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.AI;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace HPD.Agent;
@@ -285,15 +286,15 @@ public class Branch
         List<string>? tags,
         Dictionary<string, string>? ancestors,
         Dictionary<string, string> middlewareState,
-        Dictionary<string, object>? metadata = null,
-        //  Tree navigation properties (with safe defaults for backward compatibility)
-        int siblingIndex = 0,
-        int totalSiblings = 1,
-        bool isOriginal = true,
+        Dictionary<string, object>? metadata,
+        //  Tree navigation properties
+        int siblingIndex,
+        int totalSiblings,
+        bool isOriginal,
+        List<string>? childBranches,
         string? originalBranchId = null,
         string? previousSiblingId = null,
-        string? nextSiblingId = null,
-        List<string>? childBranches = null)
+        string? nextSiblingId = null)
     {
         Id = id;
         SessionId = sessionId;
@@ -311,13 +312,18 @@ public class Branch
         MiddlewareState = middlewareState;
 
         //  Tree navigation properties
+        if (totalSiblings <= 0)
+            throw new JsonException("Branch JSON is missing or has invalid required tree property 'totalSiblings'.");
+        if (siblingIndex < 0 || siblingIndex >= totalSiblings)
+            throw new JsonException("Branch JSON is missing or has invalid required tree property 'siblingIndex'.");
+
         SiblingIndex = siblingIndex;
         TotalSiblings = totalSiblings;
         IsOriginal = isOriginal;
         OriginalBranchId = originalBranchId;
         PreviousSiblingId = previousSiblingId;
         NextSiblingId = nextSiblingId;
-        ChildBranches = childBranches ?? [];
+        ChildBranches = childBranches ?? throw new JsonException("Branch JSON is missing required tree property 'childBranches'.");
     }
 
     /// <summary>

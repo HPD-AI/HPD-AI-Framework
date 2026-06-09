@@ -16,7 +16,7 @@ internal sealed class MilvusVectorStoreFeatures : IVectorStoreFeatures
         var typed = config.GetTypedConfig<MilvusVectorStoreConfig>();
         var host = typed?.Host ?? "localhost";
         var port = typed?.Port ?? 19530;
-        var apiKey = typed?.ApiKey ?? config.ApiKey;
+        var apiKey = typed?.ApiKey;
         var useTls = typed?.UseTls ?? false;
 
         // MilvusClient(host, port, ssl, apiKey, ...)

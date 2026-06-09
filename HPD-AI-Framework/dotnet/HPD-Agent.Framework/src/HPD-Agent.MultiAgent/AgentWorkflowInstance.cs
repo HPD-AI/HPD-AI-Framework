@@ -1,13 +1,13 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using HPD.Agent;
 using HPD.Events;
 using HPD.Events.Core;
 using HPD.MultiAgent.Config;
 using HPD.MultiAgent.Internal;
 using HPD.MultiAgent.Routing;
+using HPD.Serialization;
 using HPDAgent.Graph.Abstractions.Events;
 using HPDAgent.Graph.Abstractions.Execution;
 using HPDAgent.Graph.Abstractions.Graph;
@@ -70,10 +70,10 @@ public abstract class AgentFactory
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Return the AgentConfig backing this factory, if available.
-    /// Used by ExportConfigJson to reconstruct serializable config.
+    /// Return the AgentConfig backing this factory.
+    /// Used by config export to reconstruct serializable config.
     /// </summary>
-    internal virtual AgentConfig? GetConfig() => null;
+    internal abstract AgentConfig? GetConfig();
 }
 
 /// <summary>
@@ -109,12 +109,10 @@ internal sealed class PrebuiltAgentFactory : AgentFactory
 internal sealed class ConfigAgentFactory : AgentFactory
 {
     private readonly AgentConfig _config;
-    private readonly Action<AgentBuilder>? _builderAction;
 
-    public ConfigAgentFactory(AgentConfig config, Action<AgentBuilder>? builderAction = null)
+    public ConfigAgentFactory(AgentConfig config)
     {
         _config = config;
-        _builderAction = builderAction;
     }
 
     public override async Task<Agent.Agent> BuildAsync(
@@ -135,9 +133,6 @@ internal sealed class ConfigAgentFactory : AgentFactory
                 "A workflow session store is required when multi-agent conversation policies are enabled.");
         }
 
-        // Apply custom builder action if provided
-        _builderAction?.Invoke(builder);
-
         // If no provider configured and we have a fallback, use it
         if (_config.ResolveClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat) == null && fallbackChatClient != null)
         {
@@ -148,6 +143,50 @@ internal sealed class ConfigAgentFactory : AgentFactory
     }
 
     internal override AgentConfig? GetConfig() => _config;
+}
+
+/// <summary>
+/// Factory that builds an agent from code. Runtime-only; it cannot be exported to declarative config.
+/// </summary>
+internal sealed class InlineAgentFactory : AgentFactory
+{
+    private readonly Action<AgentBuilder> _builderAction;
+
+    public InlineAgentFactory(Action<AgentBuilder> builderAction)
+    {
+        _builderAction = builderAction ?? throw new ArgumentNullException(nameof(builderAction));
+    }
+
+    public override async Task<Agent.Agent> BuildAsync(
+        IChatClient? fallbackChatClient,
+        ISessionStore? workflowSessionStore,
+        bool requireWorkflowSessionStore,
+        CancellationToken cancellationToken)
+    {
+        var config = new AgentConfig();
+        var builder = new AgentBuilder(config);
+
+        if (workflowSessionStore != null)
+        {
+            builder.WithSessionStore(workflowSessionStore);
+        }
+        else if (requireWorkflowSessionStore)
+        {
+            throw new InvalidOperationException(
+                "A workflow session store is required when multi-agent conversation policies are enabled.");
+        }
+
+        _builderAction(builder);
+
+        if (config.ResolveClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat) == null && fallbackChatClient != null)
+        {
+            builder.WithChatClient(fallbackChatClient);
+        }
+
+        return await builder.BuildAsync(cancellationToken);
+    }
+
+    internal override AgentConfig? GetConfig() => null;
 }
 
 /// <summary>
@@ -183,17 +222,6 @@ public sealed class AgentWorkflowInstance
         _workflowName = workflowName ?? graph.Name ?? "Workflow";
         _settings = settings ?? new WorkflowSettingsConfig();
         _workflowSessionStore = workflowSessionStore;
-    }
-
-    // Legacy constructor for backward compatibility
-    internal AgentWorkflowInstance(
-        GraphDefinition graph,
-        Dictionary<string, Agent.Agent> agents,
-        Dictionary<string, AgentNodeOptions> options,
-        IServiceProvider serviceProvider,
-        string? workflowName = null)
-        : this(graph, agents.ToDictionary(kvp => kvp.Key, kvp => (AgentFactory)new PrebuiltAgentFactory(kvp.Value)), options, serviceProvider, workflowName)
-    {
     }
 
     /// <summary>
@@ -749,17 +777,31 @@ public sealed class AgentWorkflowInstance
     /// <summary>
     /// Export the workflow configuration as JSON.
     /// Reconstructs a <see cref="MultiAgentWorkflowConfig"/> from the runtime graph and options,
-    /// then serializes it to indented JSON.
-    /// Note: Agents added as pre-built instances will only export config if Agent.Config is set.
+    /// then serializes it with the source-generated config serializer.
+    /// Agents added as pre-built instances must have an exportable AgentConfig.
     /// </summary>
     public string ExportConfigJson()
+        => ExportConfig(HpdConfigFormat.Json);
+
+    /// <summary>
+    /// Export the workflow configuration as YAML.
+    /// </summary>
+    public string ExportConfigYaml()
+        => ExportConfig(HpdConfigFormat.Yaml);
+
+    /// <summary>
+    /// Export the workflow configuration as JSON or YAML.
+    /// </summary>
+    public string ExportConfig(HpdConfigFormat format)
     {
         // --- Build Agents dictionary ---
         var agents = new Dictionary<string, AgentNodeConfig>();
 
         foreach (var (nodeId, factory) in _agentFactories)
         {
-            var agentConfig = factory.GetConfig() ?? new AgentConfig();
+            var agentConfig = factory.GetConfig()
+                ?? throw new InvalidOperationException(
+                    $"Agent node '{nodeId}' cannot be exported because its factory does not expose an AgentConfig.");
             var nodeOptions = _options.TryGetValue(nodeId, out var opts) ? opts : new AgentNodeOptions();
 
             RetryConfig? retryConfig = null;
@@ -836,14 +878,10 @@ public sealed class AgentWorkflowInstance
             Settings = settings
         };
 
-        var jsonOptions = new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-            Converters = { new JsonStringEnumConverter() }
-        };
-
-        return JsonSerializer.Serialize(config, jsonOptions);
+        return HpdConfigSerializer.Serialize(
+            config,
+            MultiAgentGraphConfigJsonContext.Default.MultiAgentWorkflowConfig,
+            format);
     }
 
     /// <summary>

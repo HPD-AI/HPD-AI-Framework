@@ -143,8 +143,9 @@ public class SubGraphUpstreamDebugTests
             _output.WriteLine($"  Edge {edge.From} -> {edge.To}: condition={edge.Condition?.Type}");
 
             // Manually evaluate condition to see what it returns
-            var outputs = context.Channels.Contains($"node_output:{edge.From}")
-                ? context.Channels[$"node_output:{edge.From}"].Get<Dictionary<string, object>>()
+            var outputChannelName = $"node_output:{edge.From}:port:0";
+            var outputs = context.Channels.Contains(outputChannelName)
+                ? context.Channels[outputChannelName].Get<Dictionary<string, object>>()
                 : null;
             var conditionResult = HPDAgent.Graph.Core.Orchestration.ConditionEvaluator.Evaluate(
                 edge.Condition, outputs, context, edge);

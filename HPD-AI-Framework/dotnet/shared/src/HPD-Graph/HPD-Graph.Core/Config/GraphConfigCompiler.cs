@@ -770,7 +770,6 @@ public sealed class GraphConfigCompiler
         return new IterationOptions
         {
             MaxIterations = config.MaxIterations,
-            UseChangeAwareIteration = config.EnableChangeDetection,
             EnableAutoConvergence = config.StopOnConvergence
         };
     }

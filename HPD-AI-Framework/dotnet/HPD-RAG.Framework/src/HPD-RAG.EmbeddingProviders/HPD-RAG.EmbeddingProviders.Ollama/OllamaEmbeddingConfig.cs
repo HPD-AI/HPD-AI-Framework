@@ -6,7 +6,7 @@ namespace HPD.RAG.EmbeddingProviders.Ollama;
 /// Ollama-specific embedding configuration.
 /// Endpoint defaults to http://localhost:11434 if not specified.
 ///
-/// JSON Example (ProviderOptionsJson):
+/// JSON Example (ProviderOptions):
 /// <code>
 /// { "endpoint": "http://localhost:11434" }
 /// </code>

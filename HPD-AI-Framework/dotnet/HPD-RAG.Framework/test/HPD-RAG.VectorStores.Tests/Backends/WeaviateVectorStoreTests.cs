@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Filters;
 using HPD.RAG.Core.Providers.VectorStore;
 using HPD.RAG.VectorStores.Tests.Shared;
@@ -43,7 +44,7 @@ public sealed class WeaviateVectorStoreTests : VectorStoreTestBase
         var config = new VectorStoreConfig
         {
             ProviderKey = "weaviate",
-            Endpoint = "http://localhost:8080"
+            ProviderOptions = JsonDocument.Parse("""{"endpoint":"http://localhost:8080"}""").RootElement.Clone()
         };
         var store = features.CreateVectorStore(config);
         Assert.NotNull(store);

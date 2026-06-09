@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\HPD-Events\HPD-Events.csproj" />
+    <ProjectReference Include="..\..\HPD-Serialization\HPD-Serialization.csproj" />
   </ItemGroup>
 
   <ItemGroup>

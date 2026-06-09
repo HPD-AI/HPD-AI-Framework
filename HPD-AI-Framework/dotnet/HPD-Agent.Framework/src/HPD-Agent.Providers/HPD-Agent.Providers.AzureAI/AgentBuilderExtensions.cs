@@ -45,7 +45,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates an <see cref="AzureAIProviderConfig"/> that is:
-    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptions</c> as a structured JSON/YAML object
     /// - Applied during <c>AzureAIProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -57,7 +57,7 @@ public static class AgentBuilderExtensions
     ///     "ModelName": "gpt-4",
     ///     "Endpoint": "https://your-project.services.ai.azure.com",
     ///     "ApiKey": "your-api-key",
-    ///     "ProviderOptionsJson": "{\"maxTokens\":4096,\"temperature\":0.7}"
+    ///     "ProviderOptions": { "maxTokens": 4096, "temperature": 0.7 }
     ///   }
     /// }
     /// </code>

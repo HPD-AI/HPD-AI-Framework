@@ -22,7 +22,7 @@ public class ChangeAwareIterationTests
     [Fact]
     public async Task ChangeAware_WithIterationOptions_Executes()
     {
-        // Arrange: Simple graph with change-aware iteration enabled
+        // Arrange: Simple graph with iterative execution
         // Verifies that IterationOptions are properly recognized
         var controlHandler = new IterationControlHandler(iterationsBeforeStop: 2);
         var services = TestServiceProvider.Create(s =>
@@ -49,12 +49,10 @@ public class ChangeAwareIterationTests
             })
             .Build();
 
-        // Enable change-aware iteration
         var graphWithOptions = graph with
         {
             IterationOptions = new IterationOptions
             {
-                UseChangeAwareIteration = true,
                 EnableAutoConvergence = false
             }
         };
@@ -105,7 +103,6 @@ public class ChangeAwareIterationTests
             MaxIterations = 100, // High limit to prove convergence stops earlier
             IterationOptions = new IterationOptions
             {
-                UseChangeAwareIteration = true,
                 EnableAutoConvergence = true
             }
         };
@@ -151,13 +148,12 @@ public class ChangeAwareIterationTests
             })
             .Build();
 
-        // Enable change-aware with ignored timestamp field
+        // Ignore volatile timestamp fields during convergence checks.
         var graphWithOptions = graph with
         {
             MaxIterations = 100,
             IterationOptions = new IterationOptions
             {
-                UseChangeAwareIteration = true,
                 EnableAutoConvergence = true,
                 IgnoreFieldsForChangeDetection = new HashSet<string> { "timestamp", "requestId" }
             }
@@ -172,65 +168,6 @@ public class ChangeAwareIterationTests
         // Assert - Should converge despite timestamp changing
         context.GetNodeExecutionCount("loop").Should().BeLessThanOrEqualTo(5,
             "Should converge when ignoring volatile fields");
-    }
-
-    [Fact]
-    public async Task LegacyMode_UsesEagerPropagation()
-    {
-        // Arrange: Same graph, but with change-aware disabled (legacy mode)
-        var stableHandler = new StableAfterFirstHandler();
-        var controlHandler = new IterationControlHandler(iterationsBeforeStop: 2);
-        var services = TestServiceProvider.Create(s =>
-        {
-            s.AddSingleton<IGraphNodeHandler<GraphContext>>(stableHandler);
-            s.AddSingleton<IGraphNodeHandler<GraphContext>>(controlHandler);
-        });
-
-        var graph = new TestGraphBuilder()
-            .AddStartNode()
-            .AddHandlerNode("A", "SuccessHandler")
-            .AddHandlerNode("B", "StableAfterFirstHandler")
-            .AddHandlerNode("C", "SuccessHandler")
-            .AddHandlerNode("D", "IterationControlHandler")
-            .AddEndNode()
-            .AddEdge("start", "A")
-            .AddEdge("A", "B")
-            .AddEdge("B", "C")
-            .AddEdge("C", "D")
-            .AddEdge("D", "B", new EdgeCondition
-            {
-                Type = ConditionType.FieldEquals,
-                Field = "iterate",
-                Value = true
-            })
-            .AddEdge("D", "end", new EdgeCondition
-            {
-                Type = ConditionType.FieldEquals,
-                Field = "iterate",
-                Value = false
-            })
-            .Build();
-
-        // Explicitly disable change-aware iteration (legacy mode)
-        var graphWithOptions = graph with
-        {
-            IterationOptions = new IterationOptions
-            {
-                UseChangeAwareIteration = false
-            }
-        };
-
-        var context = new GraphContext("legacy-mode-test", graphWithOptions, services);
-        var orchestrator = new GraphOrchestrator<GraphContext>(services);
-
-        // Act
-        await orchestrator.ExecuteAsync(context);
-
-        // Assert - In legacy mode, ALL downstream nodes re-execute
-        context.GetNodeExecutionCount("A").Should().Be(1, "A is before back-edge target");
-        context.GetNodeExecutionCount("B").Should().Be(3, "B is back-edge target (eager propagation)");
-        context.GetNodeExecutionCount("C").Should().Be(3, "C re-executes in legacy mode");
-        context.GetNodeExecutionCount("D").Should().Be(3, "D re-executes in legacy mode");
     }
 
     #endregion
@@ -276,7 +213,6 @@ public class ChangeAwareIterationTests
         {
             IterationOptions = new IterationOptions
             {
-                UseChangeAwareIteration = true,
                 EnableAutoConvergence = false
             }
         };
@@ -327,7 +263,6 @@ public class ChangeAwareIterationTests
             MaxIterations = 100,
             IterationOptions = new IterationOptions
             {
-                UseChangeAwareIteration = true,
                 EnableAutoConvergence = true
             }
         };
@@ -379,7 +314,6 @@ public class ChangeAwareIterationTests
         {
             IterationOptions = new IterationOptions
             {
-                UseChangeAwareIteration = true,
                 EnableAutoConvergence = false,
                 AlwaysDirtyNodes = new HashSet<string> { "loop" }
             }

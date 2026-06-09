@@ -213,8 +213,8 @@ public class LocalFileContentStore : IContentStore
             {
                 var contentId = Path.GetFileNameWithoutExtension(filePath);
                 var fileInfo = new FileInfo(filePath);
-                var metaRaw = ReadMetaFile(Path.GetDirectoryName(filePath)!, contentId);
-                var contentType = metaRaw?.ContentType ?? GetContentTypeFromExtension(Path.GetExtension(filePath));
+                var metaRaw = ReadRequiredMetaFile(Path.GetDirectoryName(filePath)!, contentId);
+                var contentType = metaRaw.ContentType;
                 var metadata = DeserializeMetadata(metaRaw);
                 return BuildContentInfo(contentId, contentType, fileInfo.Length,
                     fileInfo.CreationTimeUtc, fileInfo.LastWriteTimeUtc, metadata, metaRaw);
@@ -353,6 +353,9 @@ public class LocalFileContentStore : IContentStore
             return Create(scopePath, tempPath, contentType, metadata, contentHash, new FileInfo(tempPath).Length, options with { Mode = ContentWriteMode.Create });
 
         var existingMeta = ReadMetaFile(scopePath, contentId);
+        if (existingMeta == null)
+            throw new InvalidDataException($"Content '{contentId}' is missing required metadata.");
+
         EnsureVersionMatches(contentId, existingMeta?.Version, options.IfMatchVersion);
 
         var existingFile = FindContentFile(scopePath, contentId)!;
@@ -398,6 +401,12 @@ public class LocalFileContentStore : IContentStore
         catch { return null; }
     }
 
+    private static LocalContentMetadata ReadRequiredMetaFile(string scopePath, string contentId)
+    {
+        return ReadMetaFile(scopePath, contentId)
+            ?? throw new InvalidDataException($"Content '{contentId}' is missing required metadata.");
+    }
+
     private static ContentMetadata? DeserializeMetadata(LocalContentMetadata? raw)
     {
         if (raw == null) return null;
@@ -429,7 +438,7 @@ public class LocalFileContentStore : IContentStore
         return new ContentInfo
         {
             Id = contentId,
-            Version = metaRaw?.Version ?? "legacy:unknown",
+            Version = metaRaw.Version ?? throw new InvalidDataException($"Content '{contentId}' metadata is missing a version."),
             Name = metadata?.Name ?? contentId,
             ContentType = contentType,
             SizeBytes = sizeBytes,
@@ -451,8 +460,8 @@ public class LocalFileContentStore : IContentStore
             return null;
 
         var fileInfo = new FileInfo(filePath);
-        var metaRaw = ReadMetaFile(scopePath, contentId);
-        var contentType = metaRaw?.ContentType ?? GetContentTypeFromExtension(Path.GetExtension(filePath));
+        var metaRaw = ReadRequiredMetaFile(scopePath, contentId);
+        var contentType = metaRaw.ContentType;
         var metadata = DeserializeMetadata(metaRaw);
         return BuildContentInfo(contentId, contentType, fileInfo.Length,
             fileInfo.CreationTimeUtc, fileInfo.LastWriteTimeUtc, metadata, metaRaw);

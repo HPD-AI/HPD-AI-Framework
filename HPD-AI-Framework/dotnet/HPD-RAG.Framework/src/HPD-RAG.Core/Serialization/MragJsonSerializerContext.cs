@@ -3,6 +3,10 @@ using System.Text.Json.Serialization;
 using HPD.RAG.Core.DTOs;
 using HPD.RAG.Core.Filters;
 using HPD.RAG.Core.Pipeline;
+using HPD.RAG.Core.Providers.Embedding;
+using HPD.RAG.Core.Providers.GraphStore;
+using HPD.RAG.Core.Providers.Reranker;
+using HPD.RAG.Core.Providers.VectorStore;
 
 namespace HPD.RAG.Core.Serialization;
 
@@ -35,6 +39,10 @@ namespace HPD.RAG.Core.Serialization;
 [JsonSerializable(typeof(MragFilterNode[]))]
 [JsonSerializable(typeof(Dictionary<string, JsonElement>))]
 [JsonSerializable(typeof(JsonElement))]
+[JsonSerializable(typeof(VectorStoreConfig))]
+[JsonSerializable(typeof(EmbeddingConfig))]
+[JsonSerializable(typeof(GraphStoreConfig))]
+[JsonSerializable(typeof(RerankerConfig))]
 [JsonSerializable(typeof(MragFormat))]
 [JsonSerializable(typeof(MragMapErrorMode))]
 // Handler socket primitive types

@@ -45,6 +45,7 @@
     <ProjectReference Include="../../src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.MCP/HPD-Agent.MCP.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-Serialization/HPD-Serialization.csproj" />
   </ItemGroup>
 
 </Project>

@@ -5,7 +5,6 @@ using HPD.Agent.Tests.Infrastructure;
 using Microsoft.Extensions.AI;
 using System.Collections.Immutable;
 using Xunit;
-using CollapsingStateData = HPD.Agent.ContainerMiddlewareState;
 
 namespace HPD.Agent.Tests.Middleware;
 
@@ -80,7 +79,7 @@ public class ContainerMiddlewareTests
 
         // State with expanded ToolHarness
         var state = CreateEmptyState();
-        var CollapsingState = new CollapsingStateData().WithExpandedContainer("TestToolHarness");
+        var CollapsingState = new ContainerMiddlewareState().WithExpandedContainer("TestToolHarness");
         state = state with { MiddlewareState = state.MiddlewareState.SetState("HPD.Agent.ContainerMiddlewareState", CollapsingState) };
 
         var context = CreateContext(state: state, options: new ChatOptions { Tools = allTools });
@@ -277,11 +276,11 @@ public class ContainerMiddlewareTests
     }
 
     [Fact]
-    public async Task BeforeToolExecution_SkillWithInstructions_StoresInstructions()
+    public async Task BeforeToolExecution_SkillWithSystemPrompt_StoresInstructions()
     {
         // Arrange
         var instructions = "Always use metric units when performing calculations.";
-        var skill = CreateSkillContainerWithInstructions("MetricSkill", "Metric calculations", instructions);
+        var skill = CreateSkillContainerWithSystemPrompt("MetricSkill", "Metric calculations", instructions);
         var allTools = new List<AITool> { skill };
 
         var middleware = new ContainerMiddleware(
@@ -411,9 +410,9 @@ public class ContainerMiddlewareTests
     //
 
     [Fact]
-    public void CollapsingStateData_WithExpandedContainer_AddsToSet()
+    public void ContainerMiddlewareState_WithExpandedContainer_AddsToSet()
     {
-        var state = new CollapsingStateData();
+        var state = new ContainerMiddlewareState();
 
         var updated = state.WithExpandedContainer("ToolHarness1");
 
@@ -422,9 +421,9 @@ public class ContainerMiddlewareTests
     }
 
     [Fact]
-    public void CollapsingStateData_WithExpandedContainer_AddsSkillToSet()
+    public void ContainerMiddlewareState_WithExpandedContainer_AddsSkillToSet()
     {
-        var state = new CollapsingStateData();
+        var state = new ContainerMiddlewareState();
 
         var updated = state.WithExpandedContainer("Skill1");
 
@@ -432,9 +431,9 @@ public class ContainerMiddlewareTests
     }
 
     [Fact]
-    public void CollapsingStateData_WithContainerInstructions_AddsToDict()
+    public void ContainerMiddlewareState_WithContainerInstructions_AddsToDict()
     {
-        var state = new CollapsingStateData();
+        var state = new ContainerMiddlewareState();
 
         var updated = state.WithContainerInstructions("Skill1", new ContainerInstructionSet("Result", "Some instructions"));
 
@@ -444,9 +443,9 @@ public class ContainerMiddlewareTests
     }
 
     [Fact]
-    public void CollapsingStateData_ClearContainerInstructions_EmptiesDict()
+    public void ContainerMiddlewareState_ClearContainerInstructions_EmptiesDict()
     {
-        var state = new CollapsingStateData()
+        var state = new ContainerMiddlewareState()
             .WithContainerInstructions("Skill1", new ContainerInstructionSet(null, "Instructions 1"))
             .WithContainerInstructions("Skill2", new ContainerInstructionSet(null, "Instructions 2"));
 
@@ -556,7 +555,7 @@ public class ContainerMiddlewareTests
 
         // Create state with ExpandToolHarness in ContainersExpandedThisTurn
         var state = CreateEmptyState();
-        var collapsingState = new CollapsingStateData().WithExpandedContainer("ExpandToolHarness");
+        var collapsingState = new ContainerMiddlewareState().WithExpandedContainer("ExpandToolHarness");
         state = state with { MiddlewareState = state.MiddlewareState.SetState("HPD.Agent.ContainerMiddlewareState", collapsingState) };
 
         var context = CreateAfterMessageTurnContext(state: state, turnHistory: turnHistory);
@@ -679,7 +678,7 @@ public class ContainerMiddlewareTests
 
         // Create state with both containers in ContainersExpandedThisTurn
         var state = CreateEmptyState();
-        var collapsingState = new CollapsingStateData()
+        var collapsingState = new ContainerMiddlewareState()
             .WithExpandedContainer("ExpandToolHarnessA")
             .WithExpandedContainer("ExpandToolHarnessB");
         state = state with { MiddlewareState = state.MiddlewareState.SetState("HPD.Agent.ContainerMiddlewareState", collapsingState) };
@@ -737,7 +736,7 @@ public class ContainerMiddlewareTests
 
         // Create state with ExpandToolHarness in ContainersExpandedThisTurn
         var state = CreateEmptyState();
-        var collapsingState = new CollapsingStateData().WithExpandedContainer("ExpandToolHarness");
+        var collapsingState = new ContainerMiddlewareState().WithExpandedContainer("ExpandToolHarness");
         state = state with { MiddlewareState = state.MiddlewareState.SetState("HPD.Agent.ContainerMiddlewareState", collapsingState) };
 
         var context = CreateAfterMessageTurnContext(state: state, turnHistory: turnHistory);
@@ -821,7 +820,7 @@ public class ContainerMiddlewareTests
 
         // Create state with both containers in ContainersExpandedThisTurn
         var state = CreateEmptyState();
-        var collapsingState = new CollapsingStateData()
+        var collapsingState = new ContainerMiddlewareState()
             .WithExpandedContainer("MathTools")
             .WithExpandedContainer("QuickAnalysis");
         state = state with { MiddlewareState = state.MiddlewareState.SetState("HPD.Agent.ContainerMiddlewareState", collapsingState) };
@@ -996,7 +995,7 @@ public class ContainerMiddlewareTests
                 {
                     ["IsContainer"] = true,
                     ["ToolHarnessName"] = toolName,
-                    ["FunctionNames"] = functionNames,
+                    ["ReferencedFunctions"] = functionNames,
                     ["FunctionCount"] = members.Length,
                     ["SourceType"] = "CSharp",
                     ["SystemPrompt"] = systemPrompt
@@ -1034,10 +1033,10 @@ public class ContainerMiddlewareTests
             });
     }
 
-    private static AIFunction CreateSkillContainerWithInstructions(
+    private static AIFunction CreateSkillContainerWithSystemPrompt(
         string name,
         string description,
-        string instructions)
+        string systemPrompt)
     {
         return AIFunctionFactory.Create(
             (object? args, CancellationToken ct) => Task.FromResult<object?>($"{name} activated"),
@@ -1049,7 +1048,7 @@ public class ContainerMiddlewareTests
                 {
                     ["IsContainer"] = true,
                     ["IsSkill"] = true,
-                    ["Instructions"] = instructions
+                    ["SystemPrompt"] = systemPrompt
                 }
             });
     }

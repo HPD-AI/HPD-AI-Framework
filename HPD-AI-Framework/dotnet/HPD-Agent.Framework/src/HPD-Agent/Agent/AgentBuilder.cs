@@ -5,9 +5,8 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using System.Data.Common;
-using System.Diagnostics.CodeAnalysis;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
@@ -18,6 +17,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.Secrets;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent;
 
@@ -293,6 +293,14 @@ public class AgentBuilder
     }
 
     /// <summary>
+    /// Creates a builder from a JSON or YAML agent configuration file.
+    /// </summary>
+    public AgentBuilder(string configFilePath)
+        : this(LoadConfigFile(configFilePath))
+    {
+    }
+
+    /// <summary>
     /// Creates a builder with custom provider registry (for testing).
     /// Optionally accepts an assembly hint for ToolHarness registry discovery.
     /// </summary>
@@ -302,6 +310,24 @@ public class AgentBuilder
         _providerRegistry = providerRegistry;
 
         LoadGeneratedRegistries();
+    }
+
+    /// <summary>
+    /// Creates a builder from a JSON or YAML agent configuration file.
+    /// </summary>
+    public static AgentBuilder FromFile(string configFilePath)
+        => new(configFilePath);
+
+    private static AgentConfig LoadConfigFile(string configFilePath)
+    {
+        if (string.IsNullOrWhiteSpace(configFilePath))
+            throw new ArgumentException("Configuration file path cannot be null or empty.", nameof(configFilePath));
+
+        if (!File.Exists(configFilePath))
+            throw new FileNotFoundException($"Configuration file not found: {configFilePath}");
+
+        return HpdAgentConfigSerializer.ReadFile(configFilePath)
+            ?? throw new JsonException($"Failed to deserialize AgentConfig from '{configFilePath}' - result was null.");
     }
 
     internal void LoadGeneratedRegistries()
@@ -920,101 +946,6 @@ public class AgentBuilder
         return null;
     }
 
-    // Legacy reflection-based method removed - now using AOT-compatible MiddlewareRegistry
-    // The old ResolveMiddlewareType method used AppDomain.GetAssemblies() and Activator.CreateInstance
-    // which are not Native AOT compatible.
-
-    #pragma warning disable CS0618 // Preserve for backward compatibility if needed
-    /// <summary>
-    /// [DEPRECATED] Resolves a middleware type by name using reflection.
-    /// Use ResolveMiddlewareFactory instead for AOT-compatible resolution.
-    /// Only used as fallback for middlewares not in the source-generated registry.
-    /// </summary>
-    [Obsolete("Use ResolveMiddlewareFactory for AOT-compatible resolution. This method uses reflection.")]
-    [RequiresUnreferencedCode("Type lookup by name uses reflection.")]
-    private Type? ResolveMiddlewareType(string name)
-    {
-        // Check registry first (AOT-safe)
-        if (_availableMiddlewares.TryGetValue(name, out var factory))
-            return factory.MiddlewareType;
-
-        // Legacy fallback: Try scanning loaded assemblies
-        foreach (var assembly in _loadedAssemblies)
-        {
-            try
-            {
-                var type = assembly.GetTypes()
-                    .FirstOrDefault(t =>
-                        typeof(IAgentMiddleware).IsAssignableFrom(t) &&
-                        !t.IsAbstract &&
-                        (t.Name == name || t.Name == $"{name}Middleware"));
-
-                if (type != null)
-                    return type;
-            }
-            catch
-            {
-                // Ignore assemblies that can't be reflected
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Creates a new builder from a JSON configuration file.
-    /// </summary>
-    /// <param name="jsonFilePath">Path to the JSON file containing AgentConfig data.</param>
-    /// <exception cref="ArgumentException">Thrown when the file path is null or empty.</exception>
-    /// <exception cref="FileNotFoundException">Thrown when the specified file does not exist.</exception>
-    /// <exception cref="JsonException">Thrown when the JSON is invalid or cannot be deserialized.</exception>
-    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Provider assembly loading uses reflection in non-AOT scenarios")]
-    public AgentBuilder(string jsonFilePath)
-    {
-        // Capture calling assembly FIRST, before any method calls
-        var callingAssembly = Assembly.GetCallingAssembly();
-
-        if (string.IsNullOrWhiteSpace(jsonFilePath))
-            throw new ArgumentException("JSON file path cannot be null or empty.", nameof(jsonFilePath));
-
-        if (!File.Exists(jsonFilePath))
-            throw new FileNotFoundException($"Configuration file not found: {jsonFilePath}");
-
-        _providerRegistry = new ProviderRegistry();
-        LoadToolRegistryFromAssembly(callingAssembly);
-
-        try
-        {
-            var jsonContent = File.ReadAllText(jsonFilePath);
-            _config = JsonSerializer.Deserialize<AgentConfig>(jsonContent, HPDJsonContext.Default.AgentConfig)
-                ?? throw new JsonException("Failed to deserialize AgentConfig from JSON - result was null.");
-
-            RegisterDiscoveredProviders();
-        }
-        catch (JsonException)
-        {
-            throw; // Re-throw JSON exceptions as-is
-        }
-        catch (Exception ex)
-        {
-            throw new JsonException($"Failed to load or parse configuration file '{jsonFilePath}': {ex.Message}", ex);
-        }
-    }
-
-    /// <summary>
-    /// Creates a new builder from a JSON configuration file.
-    /// </summary>
-    /// <param name="jsonFilePath">Path to the JSON file containing AgentConfig data.</param>
-    /// <returns>A new AgentBuilder instance configured from the JSON file.</returns>
-    /// <exception cref="ArgumentException">Thrown when the file path is null or empty.</exception>
-    /// <exception cref="FileNotFoundException">Thrown when the specified file does not exist.</exception>
-    /// <exception cref="JsonException">Thrown when the JSON is invalid or cannot be deserialized.</exception>
-    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Provider assembly loading uses reflection in non-AOT scenarios")]
-    public static AgentBuilder FromJsonFile(string jsonFilePath)
-    {
-        return new AgentBuilder(jsonFilePath);
-    }
-
     /// <summary>
     /// Sets the system instructions/persona for the agent
     /// </summary>
@@ -1102,12 +1033,6 @@ public class AgentBuilder
         _config.MaxAgenticIterations = maxTurns;
         return this;
     }
-
-    /// <summary>
-    /// Legacy method - use WithMaxFunctionCallTurns instead
-    /// </summary>
-    [Obsolete("Use WithMaxFunctionCallTurns instead - this better reflects that we're limiting turns, not individual function calls")]
-    public AgentBuilder WithMaxFunctionCalls(int maxFunctionCalls) => WithMaxFunctionCallTurns(maxFunctionCalls);
 
     /// <summary>
     /// Configures how many additional turns to allow when user chooses to continue beyond the limit
@@ -2576,90 +2501,26 @@ public class AgentBuilder
 
         EnsureAutoConfiguration();
 
-        // ✨ PRIORITY 1: Try to resolve from Providers section (recommended pattern)
+        // Fill missing values from the matching Providers section.
         if (_configuration != null && !string.IsNullOrEmpty(chatProviderConfig.ProviderKey))
         {
             var providerName = chatProviderConfig.ProviderKey;
-            var providerSection = _configuration.GetSection($"Providers:{providerName}");
-            if (!providerSection.Exists())
-                providerSection = _configuration.GetSection($"Providers:{Capitalize(providerName)}");
 
-            if (providerSection.Exists())
-            {
-                // Apply provider section values (only if not already set in code)
-                var sectionProviderKey = providerSection["ProviderKey"];
-                if (!string.IsNullOrEmpty(sectionProviderKey) && string.IsNullOrEmpty(chatProviderConfig.ProviderKey))
-                    chatProviderConfig.ProviderKey = sectionProviderKey;
+            if (TryGetExactConfigurationValue(_configuration, $"Providers:{providerName}:ProviderKey", out var sectionProviderKey) &&
+                string.IsNullOrEmpty(chatProviderConfig.ProviderKey))
+                chatProviderConfig.ProviderKey = sectionProviderKey;
 
-                var sectionApiKey = providerSection["ApiKey"];
-                if (!string.IsNullOrEmpty(sectionApiKey) && string.IsNullOrEmpty(chatProviderConfig.ApiKey))
-                    chatProviderConfig.ApiKey = sectionApiKey;
+            if (TryGetExactConfigurationValue(_configuration, $"Providers:{providerName}:ApiKey", out var sectionApiKey) &&
+                string.IsNullOrEmpty(chatProviderConfig.ApiKey))
+                chatProviderConfig.ApiKey = sectionApiKey;
 
-                var sectionModelName = providerSection["ModelName"];
-                if (!string.IsNullOrEmpty(sectionModelName) && string.IsNullOrEmpty(chatProviderConfig.ModelName))
-                    chatProviderConfig.ModelName = sectionModelName;
+            if (TryGetExactConfigurationValue(_configuration, $"Providers:{providerName}:ModelName", out var sectionModelName) &&
+                string.IsNullOrEmpty(chatProviderConfig.ModelName))
+                chatProviderConfig.ModelName = sectionModelName;
 
-                var sectionEndpoint = providerSection["Endpoint"];
-                if (!string.IsNullOrEmpty(sectionEndpoint) && string.IsNullOrEmpty(chatProviderConfig.Endpoint))
-                    chatProviderConfig.Endpoint = sectionEndpoint;
-            }
-        }
-
-        // ✨ PRIORITY 2: Try to resolve from connection string (backward compatibility)
-        if (_configuration != null)
-        {
-            // Try standard ConnectionStrings section
-            var connectionString = _configuration.GetConnectionString("Agent")
-                                ?? _configuration.GetConnectionString("ChatClient")
-                                ?? _configuration.GetConnectionString("Provider");
-
-            if (!string.IsNullOrEmpty(connectionString) && ProviderConnectionInfo.TryParse(connectionString, out var connInfo))
-            {
-                // Apply connection string values (only if not already set in code)
-                if (!string.IsNullOrEmpty(connInfo.Provider) && string.IsNullOrEmpty(chatProviderConfig.ProviderKey))
-                    chatProviderConfig.ProviderKey = connInfo.Provider;
-
-                if (!string.IsNullOrEmpty(connInfo.AccessKey) && string.IsNullOrEmpty(chatProviderConfig.ApiKey))
-                    chatProviderConfig.ApiKey = connInfo.AccessKey;
-
-                if (!string.IsNullOrEmpty(connInfo.Model) && string.IsNullOrEmpty(chatProviderConfig.ModelName))
-                    chatProviderConfig.ModelName = connInfo.Model;
-
-                if (connInfo.Endpoint != null && string.IsNullOrEmpty(chatProviderConfig.Endpoint))
-                    chatProviderConfig.Endpoint = connInfo.Endpoint.ToString();
-            }
-        }
-
-        // ✨ PRIORITY 3: Resolve from individual configuration keys (backward compatibility)
-        if (string.IsNullOrEmpty(chatProviderConfig.ApiKey))
-        {
-            var providerKeyForConfig = chatProviderConfig.ProviderKey;
-            if (string.IsNullOrEmpty(providerKeyForConfig))
-                providerKeyForConfig = "openai"; // fallback default
-
-            var apiKey = await _secretResolver!.ResolveOrDefaultAsync(
-                $"{providerKeyForConfig}:ApiKey",
-                chatProviderConfig.ApiKey,
-                cancellationToken);
-
-            if (!string.IsNullOrEmpty(apiKey))
-                chatProviderConfig.ApiKey = apiKey;
-        }
-
-        // Also try to resolve endpoint if not set
-        if (string.IsNullOrEmpty(chatProviderConfig.Endpoint))
-        {
-            var providerKeyForConfig = chatProviderConfig.ProviderKey;
-            if (string.IsNullOrEmpty(providerKeyForConfig))
-                providerKeyForConfig = "openai"; // fallback default
-
-            var endpoint = await _secretResolver!.ResolveOrDefaultAsync(
-                $"{providerKeyForConfig}:Endpoint",
-                chatProviderConfig.Endpoint,
-                cancellationToken);
-
-            if (!string.IsNullOrEmpty(endpoint))
-                chatProviderConfig.Endpoint = endpoint;
+            if (TryGetExactConfigurationValue(_configuration, $"Providers:{providerName}:Endpoint", out var sectionEndpoint) &&
+                string.IsNullOrEmpty(chatProviderConfig.Endpoint))
+                chatProviderConfig.Endpoint = sectionEndpoint;
         }
 
         // Resolve provider from registry
@@ -2735,25 +2596,20 @@ public class AgentBuilder
             if (hasApiKeyError)
             {
                 var providerUpper = providerKey.ToUpperInvariant();
-                var providerCapitalized = Capitalize(providerKey);
 
-                errorMessage += $"\n\n Configure your API key using any of these methods:\n\n" +
-                    $" PROVIDERS SECTION (recommended for multiple providers):\n" +
+                errorMessage += $"\n\nConfigure your API key using the provider section or typed agent config:\n\n" +
+                    $" PROVIDERS SECTION:\n" +
                     $"   appsettings.json → \"Providers\": {{\n" +
-                    $"     \"{providerCapitalized}\": {{\n" +
+                    $"     \"{providerKey}\": {{\n" +
                     $"       \"ProviderKey\": \"{providerKey}\",\n" +
                     $"       \"ModelName\": \"your-model\",\n" +
                     $"       \"ApiKey\": \"your-api-key\"\n" +
                     $"     }}\n" +
                     $"   }}\n\n" +
-                    $" CONNECTION STRING (legacy, single provider):\n" +
-                    $"   appsettings.json → \"ConnectionStrings\": {{\n" +
-                    $"     \"Agent\": \"Provider={providerKey};AccessKey=your-api-key;Model=your-model\"\n" +
-                    $"   }}\n\n" +
                     $"  ENVIRONMENT VARIABLE:\n" +
                     $"   {providerUpper}_API_KEY=your-api-key\n\n" +
                     $" USER SECRETS (development only):\n" +
-                    $"   dotnet user-secrets set \"Providers:{providerCapitalized}:ApiKey\" \"your-api-key\"\n\n" +
+                    $"   dotnet user-secrets set \"Providers:{providerKey}:ApiKey\" \"your-api-key\"\n\n" +
                     $" CODE (for testing only, not recommended):\n" +
                     $"   Clients = new AgentClientConfig {{ Chat = new ClientProviderConfig {{ ApiKey = \"your-api-key\", ... }} }}";
             }            throw new InvalidOperationException(errorMessage);
@@ -2841,7 +2697,21 @@ public class AgentBuilder
     
     public IReadOnlyCollection<string> GetAvailableProviders() => _providerRegistry.GetRegisteredProviders();
 
-    private static string Capitalize(string s) => string.IsNullOrEmpty(s) ? s : char.ToUpperInvariant(s[0]) + s[1..];
+    private static bool TryGetExactConfigurationValue(IConfiguration configuration, string key, out string value)
+    {
+        foreach (var pair in configuration.AsEnumerable())
+        {
+            if (string.Equals(pair.Key, key, StringComparison.Ordinal) &&
+                !string.IsNullOrWhiteSpace(pair.Value))
+            {
+                value = pair.Value;
+                return true;
+            }
+        }
+
+        value = string.Empty;
+        return false;
+    }
 
     private ClientProviderConfig EnsureChatClientConfig()
     {
@@ -3991,6 +3861,19 @@ public static class AgentBuilderMemoryExtensions
 public static class AgentBuilderToolHarnessExtensions
 {
     /// <summary>
+    /// Loads generated toolharness, middleware, and middleware-state catalogs from the assembly containing <typeparamref name="T"/>.
+    /// Use this when config names toolharnesses that should be resolved from a referenced assembly without registering
+    /// every toolharness eagerly in code.
+    /// </summary>
+    public static AgentBuilder WithToolHarnessCatalogFrom<T>(this AgentBuilder builder)
+    {
+        RuntimeHelpers.RunModuleConstructor(typeof(T).Assembly.ManifestModule.ModuleHandle);
+        builder.LoadToolRegistryFromAssembly(typeof(T).Assembly);
+        builder.LoadGeneratedRegistries();
+        return builder;
+    }
+
+    /// <summary>
     /// Registers one generated function from the specified toolharness.
     /// AOT-Compatible: Uses generated ToolHarnessRegistry.All catalog and filters by generated function name.
     /// </summary>
@@ -4314,25 +4197,6 @@ public static class AgentBuilderToolHarnessExtensions
         return builder;
     }
 
-    // ============================================
-    // DEPRECATED: WithTools methods (use WithToolHarness instead)
-    // ============================================
-
-    /// <inheritdoc cref="WithToolHarness{T}(AgentBuilder, IToolMetadata?)"/>
-    [Obsolete("Use WithToolHarness<T>() instead. WithTools will be removed in a future version.")]
-    public static AgentBuilder WithTools<T>(this AgentBuilder builder, IToolMetadata? context = null) where T : class, new()
-        => builder.WithToolHarness<T>(context);
-
-    /// <inheritdoc cref="WithToolHarness{T}(AgentBuilder, T, IToolMetadata?)"/>
-    [Obsolete("Use WithToolHarness<T>() instead. WithTools will be removed in a future version.")]
-    public static AgentBuilder WithTools<T>(this AgentBuilder builder, T instance, IToolMetadata? context = null) where T : class
-        => builder.WithToolHarness(instance, context);
-
-    /// <inheritdoc cref="WithToolHarness(AgentBuilder, Type, IToolMetadata?)"/>
-    [Obsolete("Use WithToolHarness() instead. WithTools will be removed in a future version.")]
-    public static AgentBuilder WithTools(this AgentBuilder builder, Type toolharnessType, IToolMetadata? context = null)
-        => builder.WithToolHarness(toolharnessType, context);
-
     /// <summary>
     /// Auto-registers ToolHarnesses referenced by skills using the ToolHarness catalog (zero reflection).
     /// Phase 4.5: Also stores function filters for selective registration.
@@ -4473,120 +4337,6 @@ public static class AgentBuilderProviderExtensions
 
 #endregion
 
-
-#region Provider
-
-/// <summary>
-/// Represents connection information parsed from a connection string.
-/// Supports format: "Provider=openrouter;AccessKey=sk-xxx;Model=gpt-4;Endpoint=https://..."
-/// </summary>
-public class ProviderConnectionInfo
-{
-    /// <summary>
-    /// The provider key (e.g., "openrouter", "openai", "azure", "ollama")
-    /// </summary>
-    public required string Provider { get; init; }
-
-    /// <summary>
-    /// The API key or access token
-    /// </summary>
-    public string? AccessKey { get; init; }
-
-    /// <summary>
-    /// The model name (e.g., "gpt-4", "google/gemini-2.5-pro")
-    /// </summary>
-    public string? Model { get; init; }
-
-    /// <summary>
-    /// The API endpoint (optional, uses provider default if not specified)
-    /// </summary>
-    public Uri? Endpoint { get; init; }
-
-    /// <summary>
-    /// Tries to parse a connection string into ProviderConnectionInfo
-    /// </summary>
-    /// <param name="connectionString">Connection string to parse</param>
-    /// <param name="info">Parsed connection info if successful</param>
-    /// <returns>True if parsing succeeded, false otherwise</returns>
-    public static bool TryParse(string? connectionString, [NotNullWhen(true)] out ProviderConnectionInfo? info)
-    {
-        info = null;
-
-        if (string.IsNullOrWhiteSpace(connectionString))
-            return false;
-
-        try
-        {
-            // Use DbConnectionStringBuilder for robust parsing
-            var builder = new DbConnectionStringBuilder
-            {
-                ConnectionString = connectionString
-            };
-
-            // Provider is required
-            if (!builder.ContainsKey("Provider"))
-                return false;
-
-            var provider = builder["Provider"].ToString();
-            if (string.IsNullOrWhiteSpace(provider))
-                return false;
-
-            // Parse optional fields
-            string? accessKey = builder.ContainsKey("AccessKey")
-                ? builder["AccessKey"].ToString()
-                : null;
-
-            string? model = builder.ContainsKey("Model")
-                ? builder["Model"].ToString()
-                : null;
-
-            Uri? endpoint = null;
-            if (builder.ContainsKey("Endpoint"))
-            {
-                var endpointStr = builder["Endpoint"].ToString();
-                if (!string.IsNullOrWhiteSpace(endpointStr))
-                {
-                    if (!Uri.TryCreate(endpointStr, UriKind.Absolute, out endpoint))
-                        return false; // Invalid endpoint URL
-                }
-            }
-
-            info = new ProviderConnectionInfo
-            {
-                Provider = provider,
-                AccessKey = accessKey,
-                Model = model,
-                Endpoint = endpoint
-            };
-
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Parses a connection string, throwing an exception if invalid
-    /// </summary>
-    /// <param name="connectionString">Connection string to parse</param>
-    /// <returns>Parsed connection info</returns>
-    /// <exception cref="ArgumentException">Thrown if connection string is invalid</exception>
-    public static ProviderConnectionInfo Parse(string connectionString)
-    {
-        if (TryParse(connectionString, out var info))
-            return info;
-
-        throw new ArgumentException(
-            $"Invalid connection string: '{connectionString}'. " +
-            "Expected format: 'Provider=openrouter;AccessKey=sk-xxx;Model=gpt-4;Endpoint=https://...' " +
-            "(AccessKey, Model, and Endpoint are optional)",
-            nameof(connectionString));
-    }
-}
-
-#endregion
 
 internal static class AgentBuilderDefaults
 {

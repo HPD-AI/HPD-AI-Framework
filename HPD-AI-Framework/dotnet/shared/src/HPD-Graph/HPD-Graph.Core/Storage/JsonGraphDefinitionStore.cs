@@ -1,4 +1,4 @@
-using System.Text.Json;
+using HPD.Serialization;
 using HPDAgent.Graph.Abstractions.Serialization;
 using HPDAgent.Graph.Abstractions.Storage;
 
@@ -10,11 +10,13 @@ namespace HPDAgent.Graph.Core.Storage;
 public sealed class JsonGraphDefinitionStore : IGraphDefinitionStore
 {
     private readonly string _definitionsDirectory;
+    private readonly HpdConfigFormat _storageFormat;
 
-    public JsonGraphDefinitionStore(string rootDirectory)
+    public JsonGraphDefinitionStore(string rootDirectory, HpdConfigFormat storageFormat = HpdConfigFormat.Json)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
         _definitionsDirectory = Path.Combine(rootDirectory, "definitions");
+        _storageFormat = storageFormat;
     }
 
     public async Task<StoredGraph?> LoadAsync(string graphId, CancellationToken ct = default)
@@ -22,17 +24,28 @@ public sealed class JsonGraphDefinitionStore : IGraphDefinitionStore
         ArgumentException.ThrowIfNullOrWhiteSpace(graphId);
         ct.ThrowIfCancellationRequested();
 
-        var path = GetGraphPath(graphId);
+        var path = GetGraphPath(graphId, _storageFormat);
+        if (!File.Exists(path) && _storageFormat != HpdConfigFormat.Json)
+        {
+            path = GetGraphPath(graphId, HpdConfigFormat.Json);
+        }
+
+        if (!File.Exists(path) && _storageFormat != HpdConfigFormat.Yaml)
+        {
+            path = GetGraphPath(graphId, HpdConfigFormat.Yaml);
+        }
+
+        if (!File.Exists(path))
+        {
+            path = GetGraphYmlPath(graphId);
+        }
+
         if (!File.Exists(path))
         {
             return null;
         }
 
-        await using var stream = File.OpenRead(path);
-        return await JsonSerializer.DeserializeAsync(
-            stream,
-            GraphConfigJsonSerializerContext.Default.StoredGraph,
-            ct);
+        return await GraphConfigSerializer.ReadStoredGraphFileAsync(path, ct);
     }
 
     public async Task SaveAsync(StoredGraph graph, CancellationToken ct = default)
@@ -42,8 +55,8 @@ public sealed class JsonGraphDefinitionStore : IGraphDefinitionStore
         ct.ThrowIfCancellationRequested();
 
         Directory.CreateDirectory(_definitionsDirectory);
-        var path = GetGraphPath(graph.GraphId);
-        await WriteJsonAsync(path, graph, ct);
+        var path = GetGraphPath(graph.GraphId, _storageFormat);
+        await WriteConfigAsync(path, graph, ct);
     }
 
     public Task DeleteAsync(string graphId, CancellationToken ct = default)
@@ -51,10 +64,12 @@ public sealed class JsonGraphDefinitionStore : IGraphDefinitionStore
         ArgumentException.ThrowIfNullOrWhiteSpace(graphId);
         ct.ThrowIfCancellationRequested();
 
-        var path = GetGraphPath(graphId);
-        if (File.Exists(path))
+        foreach (var path in GetGraphPaths(graphId))
         {
-            File.Delete(path);
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
         }
 
         return Task.CompletedTask;
@@ -70,15 +85,11 @@ public sealed class JsonGraphDefinitionStore : IGraphDefinitionStore
         }
 
         var summaries = new List<StoredGraphSummary>();
-        foreach (var path in Directory.EnumerateFiles(_definitionsDirectory, "*.graph.json").OrderBy(static p => p, StringComparer.Ordinal))
+        foreach (var path in EnumerateGraphFiles().OrderBy(static p => p, StringComparer.Ordinal))
         {
             ct.ThrowIfCancellationRequested();
 
-            await using var stream = File.OpenRead(path);
-            var graph = await JsonSerializer.DeserializeAsync(
-                stream,
-                GraphConfigJsonSerializerContext.Default.StoredGraph,
-                ct);
+            var graph = await GraphConfigSerializer.ReadStoredGraphFileAsync(path, ct);
 
             if (graph is not null)
             {
@@ -89,20 +100,37 @@ public sealed class JsonGraphDefinitionStore : IGraphDefinitionStore
         return summaries;
     }
 
-    private string GetGraphPath(string graphId) =>
-        Path.Combine(_definitionsDirectory, $"{EncodeFileName(graphId)}.graph.json");
+    private string GetGraphPath(string graphId, HpdConfigFormat format) =>
+        Path.Combine(_definitionsDirectory, $"{EncodeFileName(graphId)}.graph.{GetExtension(format)}");
 
-    private static async Task WriteJsonAsync(string path, StoredGraph graph, CancellationToken ct)
+    private IEnumerable<string> GetGraphPaths(string graphId)
+    {
+        yield return GetGraphPath(graphId, HpdConfigFormat.Json);
+        yield return GetGraphPath(graphId, HpdConfigFormat.Yaml);
+        yield return GetGraphYmlPath(graphId);
+    }
+
+    private string GetGraphYmlPath(string graphId) =>
+        Path.Combine(_definitionsDirectory, $"{EncodeFileName(graphId)}.graph.yml");
+
+    private IEnumerable<string> EnumerateGraphFiles()
+    {
+        foreach (var path in Directory.EnumerateFiles(_definitionsDirectory, "*.graph.json"))
+            yield return path;
+
+        foreach (var path in Directory.EnumerateFiles(_definitionsDirectory, "*.graph.yaml"))
+            yield return path;
+
+        foreach (var path in Directory.EnumerateFiles(_definitionsDirectory, "*.graph.yml"))
+            yield return path;
+    }
+
+    private static async Task WriteConfigAsync(string path, StoredGraph graph, CancellationToken ct)
     {
         var tempPath = $"{path}.{Guid.NewGuid():N}.tmp";
-        await using (var stream = File.Create(tempPath))
-        {
-            await JsonSerializer.SerializeAsync(
-                stream,
-                graph,
-                GraphConfigJsonSerializerContext.Default.StoredGraph,
-                ct);
-        }
+        var format = HpdConfigSerializer.InferFormat(path);
+        var text = GraphConfigSerializer.SerializeStoredGraph(graph, format);
+        await File.WriteAllTextAsync(tempPath, text, ct);
 
         File.Move(tempPath, path, overwrite: true);
     }
@@ -118,4 +146,12 @@ public sealed class JsonGraphDefinitionStore : IGraphDefinitionStore
     };
 
     private static string EncodeFileName(string value) => Uri.EscapeDataString(value);
+
+    private static string GetExtension(HpdConfigFormat format)
+        => format switch
+        {
+            HpdConfigFormat.Json => "json",
+            HpdConfigFormat.Yaml => "yaml",
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
+        };
 }

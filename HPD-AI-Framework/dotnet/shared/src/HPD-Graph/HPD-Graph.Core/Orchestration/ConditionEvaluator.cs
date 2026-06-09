@@ -30,56 +30,6 @@ public static class ConditionEvaluator
     }
 
     /// <summary>
-    /// Evaluate a condition against node outputs (legacy method for backward compatibility).
-    /// For upstream conditions, use the overload that accepts context and edge.
-    /// </summary>
-    /// <param name="condition">Condition to evaluate</param>
-    /// <param name="nodeOutputs">Outputs from the source node</param>
-    /// <returns>True if condition is met, false otherwise</returns>
-    public static bool Evaluate(EdgeCondition? condition, Dictionary<string, object>? nodeOutputs)
-    {
-        // Null condition means always traverse (unconditional edge)
-        if (condition == null)
-        {
-            return true;
-        }
-
-        // No outputs means we can't evaluate field-based conditions
-        if (nodeOutputs == null || nodeOutputs.Count == 0)
-        {
-            return condition.Type == ConditionType.Always;
-        }
-
-        return condition.Type switch
-        {
-            ConditionType.Always => true,
-            ConditionType.FieldEquals => EvaluateFieldEquals(condition, nodeOutputs),
-            ConditionType.FieldNotEquals => !EvaluateFieldEquals(condition, nodeOutputs),
-            ConditionType.FieldGreaterThan => EvaluateFieldGreaterThan(condition, nodeOutputs),
-            ConditionType.FieldGreaterThanOrEqual => EvaluateFieldGreaterThanOrEqual(condition, nodeOutputs),
-            ConditionType.FieldLessThan => EvaluateFieldLessThan(condition, nodeOutputs),
-            ConditionType.FieldLessThanOrEqual => EvaluateFieldLessThanOrEqual(condition, nodeOutputs),
-            ConditionType.FieldExists => EvaluateFieldExists(condition, nodeOutputs),
-            ConditionType.FieldNotExists => !EvaluateFieldExists(condition, nodeOutputs),
-            ConditionType.FieldContains => EvaluateFieldContains(condition, nodeOutputs),
-            ConditionType.And => EvaluateAnd(condition, nodeOutputs),
-            ConditionType.Or => EvaluateOr(condition, nodeOutputs),
-            ConditionType.Not => EvaluateNot(condition, nodeOutputs),
-            ConditionType.FieldStartsWith => EvaluateFieldStartsWith(condition, nodeOutputs),
-            ConditionType.FieldEndsWith => EvaluateFieldEndsWith(condition, nodeOutputs),
-            ConditionType.FieldMatchesRegex => EvaluateFieldMatchesRegex(condition, nodeOutputs),
-            ConditionType.FieldIsEmpty => EvaluateFieldIsEmpty(condition, nodeOutputs),
-            ConditionType.FieldIsNotEmpty => !EvaluateFieldIsEmpty(condition, nodeOutputs),
-            ConditionType.FieldContainsAny => EvaluateFieldContainsAny(condition, nodeOutputs),
-            ConditionType.FieldContainsAll => EvaluateFieldContainsAll(condition, nodeOutputs),
-            ConditionType.UpstreamOneSuccess => throw new InvalidOperationException("Upstream conditions require context. Use Evaluate(condition, nodeOutputs, context, edge) overload."),
-            ConditionType.UpstreamAllDone => throw new InvalidOperationException("Upstream conditions require context. Use Evaluate(condition, nodeOutputs, context, edge) overload."),
-            ConditionType.UpstreamAllDoneOneSuccess => throw new InvalidOperationException("Upstream conditions require context. Use Evaluate(condition, nodeOutputs, context, edge) overload."),
-            _ => false
-        };
-    }
-
-    /// <summary>
     /// Evaluate a condition against node outputs and/or upstream states.
     /// </summary>
     /// <param name="condition">Condition to evaluate (null = always traverse)</param>
@@ -90,8 +40,8 @@ public static class ConditionEvaluator
     public static bool Evaluate(
         EdgeCondition? condition,
         Dictionary<string, object>? nodeOutputs,
-        IGraphContext context,
-        Edge edge)
+        IGraphContext? context,
+        Edge? edge)
     {
         if (condition == null)
             return true;
@@ -163,43 +113,21 @@ public static class ConditionEvaluator
         }
     }
 
-    private static bool EvaluateAnd(EdgeCondition condition, Dictionary<string, object>? nodeOutputs)
-    {
-        GuardNoDefaultInCompound(condition.Conditions, ConditionType.And);
-        if (condition.Conditions == null || condition.Conditions.Count == 0) return true; // vacuously true
-        return condition.Conditions.All(c => Evaluate(c, nodeOutputs));
-    }
-
-    private static bool EvaluateAnd(EdgeCondition condition, Dictionary<string, object>? nodeOutputs, IGraphContext context, Edge edge)
+    private static bool EvaluateAnd(EdgeCondition condition, Dictionary<string, object>? nodeOutputs, IGraphContext? context, Edge? edge)
     {
         GuardNoDefaultInCompound(condition.Conditions, ConditionType.And);
         if (condition.Conditions == null || condition.Conditions.Count == 0) return true;
         return condition.Conditions.All(c => Evaluate(c, nodeOutputs, context, edge));
     }
 
-    private static bool EvaluateOr(EdgeCondition condition, Dictionary<string, object>? nodeOutputs)
-    {
-        GuardNoDefaultInCompound(condition.Conditions, ConditionType.Or);
-        if (condition.Conditions == null || condition.Conditions.Count == 0) return false; // vacuously false
-        return condition.Conditions.Any(c => Evaluate(c, nodeOutputs));
-    }
-
-    private static bool EvaluateOr(EdgeCondition condition, Dictionary<string, object>? nodeOutputs, IGraphContext context, Edge edge)
+    private static bool EvaluateOr(EdgeCondition condition, Dictionary<string, object>? nodeOutputs, IGraphContext? context, Edge? edge)
     {
         GuardNoDefaultInCompound(condition.Conditions, ConditionType.Or);
         if (condition.Conditions == null || condition.Conditions.Count == 0) return false;
         return condition.Conditions.Any(c => Evaluate(c, nodeOutputs, context, edge));
     }
 
-    private static bool EvaluateNot(EdgeCondition condition, Dictionary<string, object>? nodeOutputs)
-    {
-        GuardNoDefaultInCompound(condition.Conditions, ConditionType.Not);
-        var inner = condition.Conditions?.FirstOrDefault();
-        if (inner == null) return true; // NOT nothing = true
-        return !Evaluate(inner, nodeOutputs);
-    }
-
-    private static bool EvaluateNot(EdgeCondition condition, Dictionary<string, object>? nodeOutputs, IGraphContext context, Edge edge)
+    private static bool EvaluateNot(EdgeCondition condition, Dictionary<string, object>? nodeOutputs, IGraphContext? context, Edge? edge)
     {
         GuardNoDefaultInCompound(condition.Conditions, ConditionType.Not);
         var inner = condition.Conditions?.FirstOrDefault();
@@ -432,8 +360,9 @@ public static class ConditionEvaluator
     /// <summary>
     /// Evaluate UpstreamOneSuccess: At least one upstream must have succeeded.
     /// </summary>
-    private static bool EvaluateUpstreamOneSuccess(IGraphContext context, Edge edge)
+    private static bool EvaluateUpstreamOneSuccess(IGraphContext? context, Edge? edge)
     {
+        EnsureUpstreamEvaluationContext(context, edge);
         var upstreamNodes = GetUpstreamNodes(context.Graph, edge.To);
 
         // At least one upstream must have succeeded
@@ -461,8 +390,9 @@ public static class ConditionEvaluator
     /// <summary>
     /// Evaluate UpstreamAllDone: All upstreams must be complete (any state).
     /// </summary>
-    private static bool EvaluateUpstreamAllDone(IGraphContext context, Edge edge)
+    private static bool EvaluateUpstreamAllDone(IGraphContext? context, Edge? edge)
     {
+        EnsureUpstreamEvaluationContext(context, edge);
         var upstreamNodes = GetUpstreamNodes(context.Graph, edge.To);
 
         // All upstreams must be complete (any state)
@@ -472,8 +402,9 @@ public static class ConditionEvaluator
     /// <summary>
     /// Evaluate UpstreamAllDoneOneSuccess: All must complete AND at least one must succeed.
     /// </summary>
-    private static bool EvaluateUpstreamAllDoneOneSuccess(IGraphContext context, Edge edge)
+    private static bool EvaluateUpstreamAllDoneOneSuccess(IGraphContext? context, Edge? edge)
     {
+        EnsureUpstreamEvaluationContext(context, edge);
         var upstreamNodes = GetUpstreamNodes(context.Graph, edge.To);
 
         // All must complete AND at least one must succeed
@@ -486,6 +417,14 @@ public static class ConditionEvaluator
             var result = resultChannel.Get<NodeExecutionResult>();
             return result is NodeExecutionResult.Success;
         });
+    }
+
+    private static void EnsureUpstreamEvaluationContext(IGraphContext? context, Edge? edge)
+    {
+        if (context == null || edge == null)
+        {
+            throw new InvalidOperationException("Upstream conditions require graph context and the edge being evaluated.");
+        }
     }
 
     /// <summary>

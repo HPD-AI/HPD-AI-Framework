@@ -897,12 +897,6 @@ public class ContainerMiddleware : IAgentMiddleware
             var funcResultCtx = ExtractStringMetadata(function, "FunctionResult");
             var sysPromptCtx = ExtractStringMetadata(function, "SystemPrompt");
 
-            // Fallback to legacy "Instructions" for skills if SystemPrompt not present
-            if (string.IsNullOrEmpty(sysPromptCtx) && isSkill)
-            {
-                sysPromptCtx = ExtractStringMetadata(function, "Instructions");
-            }
-
             // Store instruction contexts
             if (funcResultCtx != null || sysPromptCtx != null)
             {
@@ -956,22 +950,13 @@ public class ContainerMiddleware : IAgentMiddleware
             var containerFunction = options.Tools?.OfType<AIFunction>()
                 .FirstOrDefault(f => f.Name == containerName);
 
-            if (containerFunction != null)
+            if (containerFunction != null &&
+                containerFunction.AdditionalProperties?.TryGetValue("ReferencedFunctions", out var functionsObj) == true &&
+                functionsObj is string[] functions &&
+                functions.Length > 0)
             {
-                // Add function list from metadata
-                if (containerFunction.AdditionalProperties?.TryGetValue("ReferencedFunctions", out var functionsObj) == true
-                    && functionsObj is string[] functions && functions.Length > 0)
-                {
-                    sb.AppendLine($"**Available functions:** {string.Join(", ", functions)}");
-                    sb.AppendLine();
-                }
-                else if (containerFunction.AdditionalProperties?.TryGetValue("FunctionNames", out var funcNamesObj) == true
-                    && funcNamesObj is string[] funcNames && funcNames.Length > 0)
-                {
-                    sb.AppendLine($"**Available functions:** {string.Join(", ", funcNames)}");
-                    sb.AppendLine();
-                }
-
+                sb.AppendLine($"**Available functions:** {string.Join(", ", functions)}");
+                sb.AppendLine();
             }
 
             // Add theSystemPrompt instructions
@@ -1033,19 +1018,17 @@ public class ContainerMiddleware : IAgentMiddleware
             if (containerFunction == null)
                 continue;
 
-            // Check if it's a [Collapse] container (IsCollapse=true OR just IsContainer=true without IsSkill)
-            var isCollapse = containerFunction.AdditionalProperties?.TryGetValue("IsCollapse", out var collapseVal) == true
-                && collapseVal is bool collapseFlag && collapseFlag;
+            var isToolHarnessContainer = containerFunction.AdditionalProperties?.TryGetValue("IsToolHarnessContainer", out var containerVal) == true
+                && containerVal is bool containerFlag && containerFlag;
 
             var isSkill = containerFunction.AdditionalProperties?.TryGetValue("IsSkill", out var skillVal) == true
                 && skillVal is bool skillFlag && skillFlag;
 
-            // Filter if it's a [Collapse] container OR a regular container (not a skill container)
-            if (isCollapse || !isSkill)
+            if (isToolHarnessContainer || !isSkill)
             {
                 collapseContainersToFilter.Add(containerName);
-                _logger?.LogDebug("BeforeIterationAsync: Will filter [Collapse] container '{Container}' from messages (IsCollapse={IsCollapse}, IsSkill={IsSkill})",
-                    containerName, isCollapse, isSkill);
+                _logger?.LogDebug("BeforeIterationAsync: Will filter [Collapse] container '{Container}' from messages (IsToolHarnessContainer={IsToolHarnessContainer}, IsSkill={IsSkill})",
+                    containerName, isToolHarnessContainer, isSkill);
             }
         }
 
@@ -1188,18 +1171,10 @@ public class ContainerMiddleware : IAgentMiddleware
         if (containerFunction == null)
             return null;
 
-        // Try ReferencedFunctions first (new format)
         if (containerFunction.AdditionalProperties?.TryGetValue("ReferencedFunctions", out var refFuncsObj) == true
             && refFuncsObj is string[] refFuncs && refFuncs.Length > 0)
         {
             return string.Join(", ", refFuncs);
-        }
-
-        // Try FunctionNames fallback (old format)
-        if (containerFunction.AdditionalProperties?.TryGetValue("FunctionNames", out var funcNamesObj) == true
-            && funcNamesObj is string[] funcNames && funcNames.Length > 0)
-        {
-            return string.Join(", ", funcNames);
         }
 
         return null;
@@ -1252,7 +1227,7 @@ public class ContainerMiddleware : IAgentMiddleware
                 continue;
 
             var containerName = tool.Name;
-            var children = tool.AdditionalProperties?.TryGetValue("FunctionNames", out var c) == true 
+            var children = tool.AdditionalProperties?.TryGetValue("ReferencedFunctions", out var c) == true 
                 ? c as string[] 
                 : null;
 

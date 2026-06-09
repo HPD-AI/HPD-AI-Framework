@@ -19,6 +19,7 @@ using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace HPD.Graph.Tests.V21;
@@ -336,6 +337,34 @@ public sealed class AspNetCoreWorkflowEndpointTests
 
         using var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IEventCoordinator>().Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task AddHPDGraphWorkflowFromConfigFile_SeedsWorkflowDefinition()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"hpd-graph-{Guid.NewGuid():N}.yaml");
+        GraphConfigSerializer.WriteConfigFile(path, CreateConfig("seeded-graph", "Seeded Graph"));
+
+        try
+        {
+            var services = new ServiceCollection();
+
+            services.AddHPDGraphWorkflowFromConfigFile(path);
+
+            await using var provider = services.BuildServiceProvider();
+            foreach (var hostedService in provider.GetServices<IHostedService>())
+                await hostedService.StartAsync(CancellationToken.None);
+
+            var stored = await provider.GetRequiredService<GraphManager>()
+                .GetDefinitionAsync("seeded-graph");
+
+            stored.Should().NotBeNull();
+            stored!.Name.Should().Be("Seeded Graph");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]

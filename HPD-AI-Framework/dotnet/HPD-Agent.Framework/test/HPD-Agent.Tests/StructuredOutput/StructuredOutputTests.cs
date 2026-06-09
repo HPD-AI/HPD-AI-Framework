@@ -968,7 +968,7 @@ public class StructuredOutputTests
     #region Union Types Tests
 
     [Fact]
-    public async Task UnionMode_ReturnsSuccessType_WhenSuccessToolCalled()
+    public async Task ToolMode_WithUnionTypes_ReturnsSuccessType_WhenSuccessToolCalled()
     {
         // Arrange
         var fakeClient = new FakeChatClient();
@@ -986,7 +986,7 @@ public class StructuredOutputTests
         {
             StructuredOutput = new StructuredOutputOptions
             {
-                Mode = "union",
+                Mode = "tool",
                 UnionTypes = new[] { typeof(SuccessResponse), typeof(ErrorResponse) }
             }
         };
@@ -1010,7 +1010,7 @@ public class StructuredOutputTests
     }
 
     [Fact]
-    public async Task UnionMode_ReturnsErrorType_WhenErrorToolCalled()
+    public async Task ToolMode_WithUnionTypes_ReturnsErrorType_WhenErrorToolCalled()
     {
         // Arrange
         var fakeClient = new FakeChatClient();
@@ -1028,7 +1028,7 @@ public class StructuredOutputTests
         {
             StructuredOutput = new StructuredOutputOptions
             {
-                Mode = "union",
+                Mode = "tool",
                 UnionTypes = new[] { typeof(SuccessResponse), typeof(ErrorResponse) }
             }
         };
@@ -1052,7 +1052,7 @@ public class StructuredOutputTests
     }
 
     [Fact]
-    public async Task UnionMode_EmitsStartEvent_WithUnionMode()
+    public async Task ToolMode_WithUnionTypes_EmitsStartEvent_WithToolMode()
     {
         // Arrange
         var fakeClient = new FakeChatClient();
@@ -1070,7 +1070,7 @@ public class StructuredOutputTests
         {
             StructuredOutput = new StructuredOutputOptions
             {
-                Mode = "union",
+                Mode = "tool",
                 UnionTypes = new[] { typeof(SuccessResponse), typeof(ErrorResponse) }
             }
         };
@@ -1085,11 +1085,11 @@ public class StructuredOutputTests
         // Assert
         var startEvent = events.OfType<StructuredOutputStartEvent>().FirstOrDefault();
         Assert.NotNull(startEvent);
-        Assert.Equal("union", startEvent.OutputMode);
+        Assert.Equal("tool", startEvent.OutputMode);
     }
 
     [Fact]
-    public async Task UnionMode_CompleteEvent_HasMatchedTypeName()
+    public async Task ToolMode_WithUnionTypes_CompleteEvent_HasMatchedTypeName()
     {
         // Arrange
         var fakeClient = new FakeChatClient();
@@ -1107,7 +1107,7 @@ public class StructuredOutputTests
         {
             StructuredOutput = new StructuredOutputOptions
             {
-                Mode = "union",
+                Mode = "tool",
                 UnionTypes = new[] { typeof(SuccessResponse), typeof(ErrorResponse) }
             }
         };
@@ -1126,7 +1126,7 @@ public class StructuredOutputTests
     }
 
     [Fact]
-    public void UnionMode_ThrowsException_WhenUnionTypesNotProvided()
+    public async Task UnionMode_ThrowsException_AsUnsupportedMode()
     {
         // Arrange
         var fakeClient = new FakeChatClient();
@@ -1141,13 +1141,14 @@ public class StructuredOutputTests
         };
 
         // Act & Assert
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             await foreach (var evt in agent.RunStructuredStreamAsync<ApiResponse>("test", options: options))
             {
                 // Enumerate to trigger the exception
             }
         });
+        Assert.Contains("Unsupported structured output mode 'union'", ex.Message);
     }
 
     #endregion

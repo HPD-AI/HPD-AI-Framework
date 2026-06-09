@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Providers.Embedding;
 using HPD.RAG.EmbeddingProviders.HuggingFace;
 using Xunit;
@@ -39,7 +40,7 @@ public sealed class HuggingFaceEmbeddingProviderTests
         {
             ProviderKey = "huggingface",
             ModelName = "sentence-transformers/all-MiniLM-L6-v2",
-            ApiKey = "hf_fake_token_for_testing"
+            ProviderOptions = JsonDocument.Parse("""{"apiKey":"hf_fake_token_for_testing"}""").RootElement.Clone()
         };
 
         // HuggingFaceEmbeddingGenerator is constructed without making a network call

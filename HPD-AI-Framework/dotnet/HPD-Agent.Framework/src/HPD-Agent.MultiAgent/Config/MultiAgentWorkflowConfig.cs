@@ -307,7 +307,7 @@ public enum StreamingMode
 }
 
 /// <summary>
-/// Configuration for change-aware iteration 
+/// Configuration for graph iteration.
 /// </summary>
 public sealed record IterationOptionsConfig
 {
@@ -315,11 +315,6 @@ public sealed record IterationOptionsConfig
     /// Maximum iterations before forced stop.
     /// </summary>
     public int MaxIterations { get; init; } = 25;
-
-    /// <summary>
-    /// Enable output-hash based dirty detection.
-    /// </summary>
-    public bool UseChangeAwareIteration { get; init; } = false;
 
     /// <summary>
     /// Auto-stop when all outputs unchanged between iterations.

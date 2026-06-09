@@ -33,7 +33,7 @@ namespace HPD.Agent.Providers.HuggingFace;
 /// </para>
 /// <para>
 /// Authentication:
-/// - Requires a HuggingFace API token (HF_TOKEN)
+/// - Requires a HuggingFace API token
 /// - Get your token from: https://huggingface.co/settings/tokens
 /// </para>
 /// </remarks>
@@ -112,7 +112,7 @@ internal class HuggingFaceProvider : IChatClientProvider
         if (string.IsNullOrEmpty(config.ApiKey))
         {
             errors.Add("API key is required for Hugging Face. " +
-                      "Set it via the apiKey parameter, HF_TOKEN or HUGGINGFACE_API_KEY environment variable, or configuration.");
+                      "Set it via the apiKey parameter, HUGGINGFACE_API_KEY environment variable, or configuration.");
         }
 
         if (string.IsNullOrEmpty(config.ModelName))

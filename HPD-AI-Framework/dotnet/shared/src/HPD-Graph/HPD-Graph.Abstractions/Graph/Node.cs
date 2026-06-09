@@ -197,14 +197,14 @@ public sealed record Node
 
     /// <summary>
     /// Channel name to read input items from (for Map nodes).
-    /// If not specified, reads from "node_output:{previousNodeId}".
+    /// If not specified, reads from "node_output:{previousNodeId}:port:0".
     /// Input must be IEnumerable&lt;T&gt;.
     /// </summary>
     public string? MapInputChannel { get; init; }
 
     /// <summary>
     /// Channel name to write aggregated results to (for Map nodes).
-    /// If not specified, writes to "node_output:{nodeId}".
+    /// If not specified, writes to "node_output:{nodeId}:port:0".
     /// Uses Append channel semantics to preserve all results.
     /// </summary>
     public string? MapOutputChannel { get; init; }

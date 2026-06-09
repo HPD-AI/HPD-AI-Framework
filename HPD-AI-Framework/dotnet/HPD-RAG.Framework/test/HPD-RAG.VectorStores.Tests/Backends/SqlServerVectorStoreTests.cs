@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Filters;
 using HPD.RAG.Core.Providers.VectorStore;
 using HPD.RAG.VectorStores.SqlServer;
@@ -43,7 +44,9 @@ public sealed class SqlServerVectorStoreTests : VectorStoreTestBase
         var config = new VectorStoreConfig
         {
             ProviderKey = "sqlserver",
-            ConnectionString = "Server=localhost;Database=test;User Id=user;Password=pass;"
+            ProviderOptions = JsonDocument.Parse(
+                """{"connectionString":"Server=localhost;Database=test;User Id=user;Password=pass;"}""")
+                .RootElement.Clone()
         };
         var store = features.CreateVectorStore(config);
         Assert.NotNull(store);

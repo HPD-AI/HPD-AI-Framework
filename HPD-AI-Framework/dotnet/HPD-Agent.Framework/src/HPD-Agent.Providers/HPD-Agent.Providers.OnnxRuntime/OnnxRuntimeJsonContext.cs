@@ -9,7 +9,8 @@ namespace HPD.Agent.Providers.OnnxRuntime;
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(OnnxRuntimeProviderConfig))]
 internal partial class OnnxRuntimeJsonContext : JsonSerializerContext
 {

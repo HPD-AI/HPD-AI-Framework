@@ -116,7 +116,7 @@ public class DiscoveryRegistryTests
         var config = new VectorStoreConfig
         {
             ProviderKey = key,
-            ProviderOptionsJson = json
+            ProviderOptions = JsonDocument.Parse(json).RootElement.Clone()
         };
 
         var deserialized = config.GetTypedConfig<StubConfig>();
@@ -147,7 +147,7 @@ public class DiscoveryRegistryTests
         var config = new VectorStoreConfig
         {
             ProviderKey = key,
-            ProviderOptionsJson = "{\"Value\":\"test-value\"}"
+            ProviderOptions = JsonDocument.Parse("""{"Value":"test-value"}""").RootElement.Clone()
         };
 
         var result = config.GetTypedConfig<StubConfig>();

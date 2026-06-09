@@ -151,7 +151,7 @@ public class MapPollingIntegrationTests
 
         // Assert - All items should complete after polling
         context.IsComplete.Should().BeTrue();
-        var results = context.Channels["node_output:map"].Get<List<object?>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object?>>();
         results.Should().NotBeNull();
         results.Should().HaveCount(3);
         results.Should().AllSatisfy(r => r.Should().NotBeNull());
@@ -190,7 +190,7 @@ public class MapPollingIntegrationTests
 
         // Assert
         context.IsComplete.Should().BeTrue();
-        var results = context.Channels["node_output:map"].Get<List<object?>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object?>>();
         results.Should().NotBeNull();
         results.Should().HaveCount(3);
         // item2 completes immediately, item1 and item3 after polling
@@ -229,7 +229,7 @@ public class MapPollingIntegrationTests
 
         // Assert - Map completes but items are null due to timeout
         context.IsComplete.Should().BeTrue();
-        var results = context.Channels["node_output:map"].Get<List<object?>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object?>>();
         results.Should().NotBeNull();
         results.Should().HaveCount(3);
 
@@ -276,7 +276,7 @@ public class MapPollingIntegrationTests
 
         // Assert - Map completes but items are omitted (max retries exceeded)
         context.IsComplete.Should().BeTrue();
-        var results = context.Channels["node_output:map"].Get<List<object?>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object?>>();
         results.Should().NotBeNull();
         // All items fail after 2 retries and are omitted
         results.Should().BeEmpty();
@@ -320,7 +320,7 @@ public class MapPollingIntegrationTests
 
         // Assert - All items complete with dynamic parallelism
         context.IsComplete.Should().BeTrue();
-        var results = context.Channels["node_output:map"].Get<List<object?>>();
+        var results = context.Channels["node_output:map:port:0"].Get<List<object?>>();
         results.Should().NotBeNull();
         results.Should().HaveCount(3);
         results.Should().AllSatisfy(r => r.Should().NotBeNull());

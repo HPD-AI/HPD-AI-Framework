@@ -162,7 +162,11 @@ public class AspNetCoreAgentManagerTests : IDisposable
     [Fact]
     public async Task BuildAgentAsync_UsesStoredToolHarnessConfig()
     {
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+        _optionsMonitor.CurrentValue.ConfigureAgent = builder =>
+        {
+            builder.WithToolHarnessCatalogFrom<CodingToolHarness>();
+            InjectTestProvider(builder);
+        };
         var manager = MakeManager();
         var stored = await manager.CreateDefinitionAsync(new AgentConfig
         {
@@ -191,6 +195,8 @@ public class AspNetCoreAgentManagerTests : IDisposable
     [Fact]
     public async Task BuildAgentAsync_UsesStoredToolHarnessConfig_WithRuntimeProvider()
     {
+        _optionsMonitor.CurrentValue.ConfigureAgent = builder =>
+            builder.WithToolHarnessCatalogFrom<CodingToolHarness>();
         var manager = MakeManager();
         var stored = await manager.CreateDefinitionAsync(new AgentConfig
         {

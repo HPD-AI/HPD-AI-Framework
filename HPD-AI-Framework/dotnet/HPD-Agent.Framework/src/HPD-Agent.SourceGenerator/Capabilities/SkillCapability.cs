@@ -87,8 +87,6 @@ internal class SkillCapability : BaseCapability
 
     /// <summary>
     /// Gets additional metadata properties for this skill.
-    /// CRITICAL: This metadata schema must be byte-for-byte identical to the old system
-    /// for runtime ContainerMiddleware compatibility.
     /// </summary>
     public override Dictionary<string, object> GetAdditionalProperties()
     {
@@ -100,14 +98,11 @@ internal class SkillCapability : BaseCapability
         props["ReferencedToolHarnesses"] = ResolvedToolHarnessTypes.ToArray();
         props["RequiresPermission"] = RequiresPermission;
 
-        // Dual-context support (CRITICAL for runtime compatibility)
         if (!string.IsNullOrEmpty(SystemPrompt))
-            props["SystemPrompt"] =SystemPrompt;
+            props["SystemPrompt"] = SystemPrompt;
 
-        // NOTE: Use "Instructions" key (not "FunctionResult") for backward compatibility
-        // with runtime ContainerMiddleware. This matches the generated code in GenerateRegistrationCode().
         if (!string.IsNullOrEmpty(FunctionResult))
-            props["Instructions"] = FunctionResult;
+            props["FunctionResult"] = FunctionResult;
 
         return props;
     }

@@ -5,7 +5,7 @@ namespace HPD.RAG.EmbeddingProviders.Bedrock;
 /// <summary>
 /// AWS Bedrock-specific embedding configuration.
 ///
-/// JSON Example (ProviderOptionsJson):
+/// JSON Example (ProviderOptions):
 /// <code>
 /// {
 ///   "region": "us-east-1",

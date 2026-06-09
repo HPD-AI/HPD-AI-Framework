@@ -5,6 +5,7 @@ namespace HPD.RAG.RerankerProviders.Jina;
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(JinaRerankerConfig))]
 [JsonSerializable(typeof(JinaRerankRequest))]
 [JsonSerializable(typeof(JinaRerankDocument))]
 [JsonSerializable(typeof(JinaRerankDocument[]))]

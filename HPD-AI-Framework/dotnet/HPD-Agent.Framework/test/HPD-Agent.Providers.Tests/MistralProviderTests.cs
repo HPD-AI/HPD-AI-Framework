@@ -473,7 +473,7 @@ public class MistralProviderTests
         json.Should().Contain("mistral");
         json.Should().Contain("modelName");
         json.Should().Contain("mistral-large-latest");
-        json.Should().Contain("providerOptionsJson");
+        json.Should().Contain("providerOptions");
         json.Should().Contain("maxTokens");
         json.Should().Contain("4096");
         json.Should().Contain("temperature");
@@ -496,7 +496,12 @@ public class MistralProviderTests
                 "providerKey": "mistral",
                 "modelName": "mistral-large-latest",
                 "apiKey": "test-key",
-                "providerOptionsJson": "{\"maxTokens\":4096,\"temperature\":0.7,\"topP\":0.9,\"randomSeed\":12345}"
+                "providerOptions": {
+                    "maxTokens": 4096,
+                    "temperature": 0.7,
+                    "topP": 0.9,
+                    "randomSeed": 12345
+                }
             }
         }
         }
@@ -512,7 +517,7 @@ public class MistralProviderTests
         config.EnsureChatClientConfig()!.ProviderKey.Should().Be("mistral");
         config.EnsureChatClientConfig().ModelName.Should().Be("mistral-large-latest");
         config.EnsureChatClientConfig().ApiKey.Should().Be("test-key");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().NotBeNullOrEmpty();
 
         // Verify typed config can be retrieved
         var mistralConfig = config.EnsureChatClientConfig().GetProviderConfig<MistralProviderConfig>();
@@ -582,7 +587,7 @@ public class MistralProviderTests
     }
 
     [Fact]
-    public void AgentConfig_SetProviderConfig_ShouldUpdateProviderOptionsJson()
+    public void AgentConfig_SetProviderConfig_ShouldUpdateProviderOptions()
     {
         // Arrange
         var config = new AgentConfig
@@ -601,12 +606,12 @@ public class MistralProviderTests
         };
         config.EnsureChatClientConfig().SetProviderConfig(mistralOpts);
 
-        // Assert - ProviderOptionsJson should be populated
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("maxTokens");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("4096");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("temperature");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("0.5");
+        // Assert - ProviderOptions should be populated
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("maxTokens");
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("4096");
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("temperature");
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("0.5");
 
         // Verify we can retrieve it back
         var retrieved = config.EnsureChatClientConfig().GetProviderConfig<MistralProviderConfig>();

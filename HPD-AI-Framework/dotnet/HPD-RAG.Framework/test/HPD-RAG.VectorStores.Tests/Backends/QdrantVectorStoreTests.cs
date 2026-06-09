@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Filters;
 using HPD.RAG.Core.Providers.VectorStore;
 using HPD.RAG.VectorStores.Qdrant;
@@ -46,7 +47,7 @@ public sealed class QdrantVectorStoreTests : VectorStoreTestBase
         var config = new VectorStoreConfig
         {
             ProviderKey = "qdrant",
-            Endpoint = "http://localhost:6333"
+            ProviderOptions = JsonDocument.Parse("""{"endpoint":"http://localhost:6333"}""").RootElement.Clone()
         };
         var store = features.CreateVectorStore(config);
         Assert.NotNull(store);

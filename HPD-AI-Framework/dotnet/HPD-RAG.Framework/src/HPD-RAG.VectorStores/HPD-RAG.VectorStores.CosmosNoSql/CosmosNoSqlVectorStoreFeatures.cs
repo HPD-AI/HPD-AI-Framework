@@ -16,17 +16,17 @@ internal sealed class CosmosNoSqlVectorStoreFeatures : IVectorStoreFeatures
         var databaseName = typed?.DatabaseName ?? "mrag";
 
         CosmosClient cosmosClient;
-        var connectionString = typed?.ConnectionString ?? config.ConnectionString;
+        var connectionString = typed?.ConnectionString;
         if (!string.IsNullOrEmpty(connectionString))
         {
             cosmosClient = new CosmosClient(connectionString);
         }
         else
         {
-            var endpoint = typed?.Endpoint ?? config.Endpoint
-                ?? throw new InvalidOperationException("Cosmos DB NoSQL endpoint or connection string is required.");
-            var apiKey = typed?.ApiKey ?? config.ApiKey
-                ?? throw new InvalidOperationException("Cosmos DB NoSQL API key is required when endpoint is specified.");
+            var endpoint = typed?.Endpoint
+                ?? throw new InvalidOperationException("Cosmos DB NoSQL endpoint or connection string is required in CosmosNoSqlVectorStoreConfig.ProviderOptions.");
+            var apiKey = typed?.ApiKey
+                ?? throw new InvalidOperationException("Cosmos DB NoSQL API key is required in CosmosNoSqlVectorStoreConfig.ProviderOptions when endpoint is specified.");
             cosmosClient = new CosmosClient(endpoint, new AzureKeyCredential(apiKey));
         }
 

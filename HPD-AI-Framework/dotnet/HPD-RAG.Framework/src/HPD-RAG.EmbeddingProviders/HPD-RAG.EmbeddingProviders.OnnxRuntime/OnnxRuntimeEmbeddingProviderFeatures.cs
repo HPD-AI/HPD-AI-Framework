@@ -25,7 +25,7 @@ internal sealed class OnnxRuntimeEmbeddingProviderFeatures : IEmbeddingProviderF
         if (string.IsNullOrWhiteSpace(modelPath))
             throw new InvalidOperationException(
                 "ModelPath is required for the OnnxRuntime embedding provider. " +
-                "Set it via OnnxRuntimeEmbeddingConfig.ModelPath in ProviderOptionsJson.");
+                "Set it via OnnxRuntimeEmbeddingConfig.ModelPath in ProviderOptions.");
 
         if (!File.Exists(modelPath))
             throw new FileNotFoundException(
@@ -36,7 +36,7 @@ internal sealed class OnnxRuntimeEmbeddingProviderFeatures : IEmbeddingProviderF
         if (string.IsNullOrWhiteSpace(vocabPath))
             throw new InvalidOperationException(
                 "VocabPath is required for the OnnxRuntime embedding provider. " +
-                "Set it via OnnxRuntimeEmbeddingConfig.VocabPath in ProviderOptionsJson.");
+                "Set it via OnnxRuntimeEmbeddingConfig.VocabPath in ProviderOptions.");
 
         if (!File.Exists(vocabPath))
             throw new FileNotFoundException(

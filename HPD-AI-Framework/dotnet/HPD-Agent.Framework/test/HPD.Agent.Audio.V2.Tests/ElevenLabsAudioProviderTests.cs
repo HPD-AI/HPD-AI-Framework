@@ -202,7 +202,7 @@ public sealed class ElevenLabsAudioProviderTests
     }
 
     [Fact]
-    public void ValidateConfiguration_AcceptsApiKeyFromProviderOptionsJson()
+    public void ValidateConfiguration_AcceptsApiKeyFromProviderOptions()
     {
         var provider = new ElevenLabsAudioProvider();
 
@@ -210,7 +210,7 @@ public sealed class ElevenLabsAudioProviderTests
             new ClientProviderConfig
             {
                 ProviderKey = "elevenlabs",
-                ProviderOptionsJson = "{\"apiKey\":\"el-test\",\"stability\":0.4}"
+                ProviderOptions = JsonDocument.Parse("""{"apiKey":"el-test","stability":0.4}""").RootElement.Clone()
             },
             ProviderClientFamily.TextToSpeech);
 
@@ -218,7 +218,7 @@ public sealed class ElevenLabsAudioProviderTests
     }
 
     [Fact]
-    public void ValidateConfiguration_AcceptsSpeechToTextApiKeyFromProviderOptionsJson()
+    public void ValidateConfiguration_AcceptsSpeechToTextApiKeyFromProviderOptions()
     {
         var provider = new ElevenLabsAudioProvider();
 
@@ -226,7 +226,7 @@ public sealed class ElevenLabsAudioProviderTests
             new ClientProviderConfig
             {
                 ProviderKey = "elevenlabs",
-                ProviderOptionsJson = "{\"apiKey\":\"el-test\",\"defaultModelId\":\"scribe_v2\"}"
+                ProviderOptions = JsonDocument.Parse("""{"apiKey":"el-test","defaultModelId":"scribe_v2"}""").RootElement.Clone()
             },
             ProviderClientFamily.SpeechToText);
 
@@ -251,7 +251,7 @@ public sealed class ElevenLabsAudioProviderTests
     }
 
     [Fact]
-    public void ValidateConfiguration_InvalidProviderOptionsJsonFails()
+    public void ValidateConfiguration_InvalidProviderOptionsFails()
     {
         var provider = new ElevenLabsAudioProvider();
 
@@ -260,12 +260,12 @@ public sealed class ElevenLabsAudioProviderTests
             {
                 ProviderKey = "elevenlabs",
                 ApiKey = "el-test",
-                ProviderOptionsJson = "{"
+                ProviderOptions = JsonDocument.Parse("[]").RootElement.Clone()
             },
             ProviderClientFamily.TextToSpeech);
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, error => error.Contains("ProviderOptionsJson", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error => error.Contains("ProviderOptions", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -613,13 +613,13 @@ public sealed class ElevenLabsAudioProviderTests
             {
                 ProviderKey = "elevenlabs",
                 ApiKey = "el-test",
-                ProviderOptionsJson = """
+                ProviderOptions = JsonDocument.Parse("""
                 {
                   "enablePushTextStreaming": true,
                   "webSocketBaseUrl": "wss://example.test/v1",
                   "defaultVoiceId": "voice-test"
                 }
-                """
+                """).RootElement.Clone()
             });
 
         var profile = Assert.IsType<TextToSpeechCapabilityProfile>(
@@ -867,14 +867,14 @@ public sealed class ElevenLabsAudioProviderTests
                 ApiKey = apiKey,
                 ModelName = System.Environment.GetEnvironmentVariable("ELEVENLABS_TTS_MODEL") ??
                     ElevenLabsAudioProvider.DefaultTextToSpeechModel,
-                ProviderOptionsJson = JsonSerializer.Serialize(
+                ProviderOptions = JsonDocument.Parse(JsonSerializer.Serialize(
                     new ElevenLabsTtsConfig
                     {
                         DefaultVoiceId = System.Environment.GetEnvironmentVariable("ELEVENLABS_VOICE_ID") ??
                             ElevenLabsAudioProvider.DefaultVoiceId,
                         OutputFormat = "mp3"
                     },
-                    ElevenLabsTtsJsonContext.Default.ElevenLabsTtsConfig)
+                    ElevenLabsTtsJsonContext.Default.ElevenLabsTtsConfig)).RootElement.Clone()
             });
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
 

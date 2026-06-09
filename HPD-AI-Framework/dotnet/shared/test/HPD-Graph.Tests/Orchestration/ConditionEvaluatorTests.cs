@@ -497,24 +497,15 @@ public class ConditionEvaluatorTests
     // ========================================
 
     [Fact]
-    public void Evaluate_LegacyMethod_WithUpstreamCondition_ThrowsException()
+    public void Evaluate_WithUpstreamConditionWithoutContext_ThrowsException()
     {
-        // Arrange - Graph with upstream condition
-        var graph = new TestGraphBuilder()
-            .AddStartNode()
-            .AddHandlerNode("upstream", "Upstream")
-            .AddHandlerNode("target", "Target")
-            .AddEdge("start", "upstream")
-            .AddEdge("upstream", "target")
-            .Build();
-
         var condition = new EdgeCondition { Type = ConditionType.UpstreamOneSuccess };
         var nodeOutputs = new Dictionary<string, object> { ["test"] = "value" };
 
         // Act & Assert
-        var act = () => ConditionEvaluator.Evaluate(condition, nodeOutputs);
+        var act = () => ConditionEvaluator.Evaluate(condition, nodeOutputs, null, null);
 
         act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*Upstream conditions require context*");
+            .WithMessage("*require graph context and the edge*");
     }
 }

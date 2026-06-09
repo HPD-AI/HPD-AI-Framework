@@ -114,8 +114,7 @@ internal static class CapabilityAnalyzer
         string className,
         string namespaceName)
     {
-        // Call the overload with diagnostics out parameter, but discard the diagnostics
-        // This maintains backward compatibility
+        // Call the overload with diagnostics out parameter, but discard the diagnostics.
         return AnalyzeMethod(method, semanticModel, context, className, namespaceName, out _);
     }
 
@@ -280,7 +279,6 @@ internal static class CapabilityAnalyzer
         var description = ExtractStringLiteral(arguments[1].Expression, semanticModel);
 
         // Extract dual-context instructions (functionResult and systemPrompt)
-        // These can be positional (args 2,3) or named
         string? functionResult = null;
         string? systemPrompt = null;
         SkillOptionsInfo? options = null;
@@ -293,38 +291,16 @@ internal static class CapabilityAnalyzer
                 a => a.NameColon!.Name.Identifier.ValueText,
                 a => a);
 
-        // Extract functionResult (named or positional at index 2)
+        // Extract functionResult.
         if (namedArgs.TryGetValue("functionResult", out var funcResultArg))
         {
             functionResult = ExtractStringLiteral(funcResultArg.Expression, semanticModel);
         }
-        else if (arguments.Count > 2 && arguments[2].NameColon == null)
-        {
-            // Legacy: positional argument at index 2 (was "instructions")
-            functionResult = ExtractStringLiteral(arguments[2].Expression, semanticModel);
-            referencesStartIndex = 3;
-        }
 
-        // Extract systemPrompt (named or positional at index 3)
+        // Extract systemPrompt.
         if (namedArgs.TryGetValue("systemPrompt", out var sysPromptArg))
         {
             systemPrompt = ExtractStringLiteral(sysPromptArg.Expression, semanticModel);
-        }
-        else if (arguments.Count > 3 && arguments[3].NameColon == null && referencesStartIndex == 3)
-        {
-            // Legacy: positional argument at index 3
-            systemPrompt = ExtractStringLiteral(arguments[3].Expression, semanticModel);
-            referencesStartIndex = 4;
-        }
-
-        // For backward compatibility: if only old "instructions" arg provided, use it as both contexts
-        // The old API was: Create(name, description, instructions, options?, refs...)
-        // Check if this looks like the old signature (no named params, index 2 is a string, not options)
-        if (functionResult != null && systemPrompt == null && !namedArgs.ContainsKey("functionResult"))
-        {
-            // Old signature: use instructions as systemPrompt (persistent context)
-            systemPrompt = functionResult;
-            functionResult = null;
         }
 
         // Extract options (named parameter)
@@ -369,8 +345,8 @@ internal static class CapabilityAnalyzer
         {
             var argExpr = arguments[i].Expression;
 
-            // Skip if this is a named "options" parameter
-            if (arguments[i].NameColon?.Name.Identifier.ValueText == "options")
+            // Named arguments configure the skill; positional arguments after name/description are references.
+            if (arguments[i].NameColon != null)
                 continue;
 
             var reference = AnalyzeSkillReference(argExpr, semanticModel);

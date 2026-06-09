@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Providers.Embedding;
 using HPD.RAG.EmbeddingProviders.Bedrock;
 using Xunit;
@@ -35,12 +36,12 @@ public sealed class BedrockEmbeddingProviderTests
         var provider = EmbeddingDiscovery.GetProvider("bedrock");
         Assert.NotNull(provider);
 
-        // Provide region via ProviderOptionsJson; credentials omitted — AWS default chain used
+        // Provide region via ProviderOptions; credentials omitted — AWS default chain used
         var config = new EmbeddingConfig
         {
             ProviderKey = "bedrock",
             ModelName = "amazon.titan-embed-text-v1",
-            ProviderOptionsJson = """{"region":"us-east-1","accessKeyId":"AKIAFAKEACCESSKEY","secretAccessKey":"fakeSecretKeyForTesting1234567890"}"""
+            ProviderOptions = JsonDocument.Parse("""{"region":"us-east-1","accessKeyId":"AKIAFAKEACCESSKEY","secretAccessKey":"fakeSecretKeyForTesting1234567890"}""").RootElement.Clone()
         };
 
         // AmazonBedrockRuntimeClient is constructed without making a network call
@@ -67,7 +68,7 @@ public sealed class BedrockEmbeddingProviderTests
             {
                 ProviderKey = "bedrock",
                 ModelName = "amazon.titan-embed-text-v1"
-                // No region in ProviderOptionsJson, no env vars
+                // No region in ProviderOptions, no env vars
             };
 
             Assert.Throws<InvalidOperationException>(() =>

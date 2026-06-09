@@ -11,8 +11,8 @@ public sealed class ExplicitSecretResolver : ISecretResolver
     public ExplicitSecretResolver(IDictionary<string, string>? secrets = null)
     {
         _secrets = secrets != null
-            ? new Dictionary<string, string>(secrets, StringComparer.OrdinalIgnoreCase)
-            : new(StringComparer.OrdinalIgnoreCase);
+            ? new Dictionary<string, string>(secrets, StringComparer.Ordinal)
+            : new(StringComparer.Ordinal);
     }
 
     public void Set(string key, string value) => _secrets[key] = value;

@@ -20,18 +20,19 @@ public sealed class HuggingFaceReranker : IReranker
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(config);
 
-        if (string.IsNullOrWhiteSpace(config.Endpoint))
+        var typed = config.GetTypedConfig<HuggingFaceRerankerConfig>();
+        if (string.IsNullOrWhiteSpace(typed?.Endpoint))
             throw new InvalidOperationException(
-                "HuggingFaceReranker requires a non-empty Endpoint in RerankerConfig pointing to the TEI /rerank route " +
-                "(e.g. http://localhost:8080/rerank).");
+                "HuggingFaceReranker requires a non-empty Endpoint in HuggingFaceRerankerConfig.ProviderOptions " +
+                "pointing to the TEI /rerank route (e.g. http://localhost:8080/rerank).");
 
         _httpClient = httpClient;
-        _endpoint = config.Endpoint;
+        _endpoint = typed.Endpoint;
 
         // Optional bearer token for secured TEI deployments
-        if (!string.IsNullOrWhiteSpace(config.ApiKey))
+        if (!string.IsNullOrWhiteSpace(typed.ApiKey))
             _httpClient.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", config.ApiKey);
+                new AuthenticationHeaderValue("Bearer", typed.ApiKey);
     }
 
     /// <inheritdoc />

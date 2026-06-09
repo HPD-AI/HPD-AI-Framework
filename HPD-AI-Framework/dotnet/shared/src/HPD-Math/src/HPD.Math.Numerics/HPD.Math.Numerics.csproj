@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>HPD.Math.Numerics</RootNamespace>
+    <AssemblyName>HPD.Math.Numerics</AssemblyName>
+    <LangVersion>preview</LangVersion>
+    <IsPackable>true</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <PackageId>HPD-Math.Numerics</PackageId>
+    <Description>Exact small numeric contexts for HPD-Math kernels.</Description>
+    <PackageTags>math;numerics;modular-arithmetic;rational;native-aot;zero-allocation</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD.Math.Core\HPD.Math.Core.csproj" />
+  </ItemGroup>
+
+</Project>

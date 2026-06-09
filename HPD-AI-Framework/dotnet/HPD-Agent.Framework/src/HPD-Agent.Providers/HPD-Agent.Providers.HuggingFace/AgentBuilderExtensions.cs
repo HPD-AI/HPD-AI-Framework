@@ -14,20 +14,19 @@ public static class AgentBuilderExtensions
     /// </summary>
     /// <param name="builder">The agent builder instance</param>
     /// <param name="model">The model repository ID (e.g., "meta-llama/Meta-Llama-3-8B-Instruct", "mistralai/Mistral-7B-Instruct-v0.2")</param>
-    /// <param name="apiKey">Optional API key (HF_TOKEN). If not provided, will look for HF_TOKEN or HUGGINGFACE_API_KEY environment variable</param>
+    /// <param name="apiKey">Optional API key. If not provided, will look for HUGGINGFACE_API_KEY environment variable</param>
     /// <param name="configure">Optional action to configure additional HuggingFace-specific options</param>
     /// <returns>The builder for method chaining</returns>
     /// <remarks>
     /// <para>
     /// API Key Resolution (in priority order):
     /// 1. Explicit apiKey parameter
-    /// 2. Environment variable: HF_TOKEN
-    /// 3. Environment variable: HUGGINGFACE_API_KEY
+    /// 2. Environment variable: HUGGINGFACE_API_KEY
     /// 4. appsettings.json: "huggingface:ApiKey" or "HuggingFace:ApiKey"
     /// </para>
     /// <para>
     /// This method creates a <see cref="HuggingFaceProviderConfig"/> that is:
-    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptions</c> as a structured JSON/YAML object
     /// - Applied during <c>HuggingFaceProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -38,7 +37,7 @@ public static class AgentBuilderExtensions
     ///     "ProviderKey": "huggingface",
     ///     "ModelName": "meta-llama/Meta-Llama-3-8B-Instruct",
     ///     "ApiKey": "hf_...",
-    ///     "ProviderOptionsJson": "{\"maxNewTokens\":250,\"temperature\":0.7}"
+    ///     "ProviderOptions": { "maxNewTokens": 250, "temperature": 0.7 }
     ///   }
     /// }
     /// </code>
@@ -68,7 +67,7 @@ public static class AgentBuilderExtensions
     ///         })
     ///     .Build();
     ///
-    /// // Option 3: Auto-resolve API key from environment (HF_TOKEN)
+    /// // Option 3: Auto-resolve API key from environment (HUGGINGFACE_API_KEY)
     /// var agent = new AgentBuilder()
     ///     .WithHuggingFace(model: "meta-llama/Meta-Llama-3-8B-Instruct")
     ///     .Build();

@@ -73,7 +73,6 @@ public enum CloningPolicyConfig
 public sealed record IterationOptionsConfig
 {
     public int MaxIterations { get; init; } = 10;
-    public bool EnableChangeDetection { get; init; }
     public bool StopOnConvergence { get; init; }
     public TimeSpan? IterationTimeout { get; init; }
 }

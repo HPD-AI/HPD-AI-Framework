@@ -8,10 +8,9 @@ namespace HPDAgent.Graph.Core.Storage;
 [JsonSourceGenerationOptions(
     GenerationMode = JsonSourceGenerationMode.Default,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    NumberHandling = JsonNumberHandling.AllowReadingFromString,
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(JsonGraphCheckpoint))]
 [JsonSerializable(typeof(JsonCheckpointMetadata))]

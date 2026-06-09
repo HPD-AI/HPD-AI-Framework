@@ -12,8 +12,8 @@ internal sealed class PineconeVectorStoreFeatures : IVectorStoreFeatures
     public Microsoft.Extensions.VectorData.VectorStore CreateVectorStore(VectorStoreConfig config, IServiceProvider? services = null)
     {
         var typed = config.GetTypedConfig<PineconeVectorStoreConfig>();
-        var apiKey = typed?.ApiKey ?? config.ApiKey
-            ?? throw new InvalidOperationException("Pinecone API key is required.");
+        var apiKey = typed?.ApiKey
+            ?? throw new InvalidOperationException("Pinecone API key is required in PineconeVectorStoreConfig.ProviderOptions.");
 
         var pineconeClient = new global::Pinecone.PineconeClient(apiKey);
         return new PineconeVectorStore(pineconeClient);

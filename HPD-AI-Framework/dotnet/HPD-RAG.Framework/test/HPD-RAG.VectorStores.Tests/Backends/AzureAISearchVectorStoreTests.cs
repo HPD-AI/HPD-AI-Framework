@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Filters;
 using HPD.RAG.Core.Providers.VectorStore;
 using HPD.RAG.VectorStores.AzureAISearch;
@@ -43,8 +44,9 @@ public sealed class AzureAISearchVectorStoreTests : VectorStoreTestBase
         var config = new VectorStoreConfig
         {
             ProviderKey = "azure-ai-search",
-            Endpoint = "https://fake-search.search.windows.net",
-            ApiKey = "fake-api-key"
+            ProviderOptions = JsonDocument.Parse(
+                """{"endpoint":"https://fake-search.search.windows.net","apiKey":"fake-api-key"}""")
+                .RootElement.Clone()
         };
         var store = features.CreateVectorStore(config);
         Assert.NotNull(store);

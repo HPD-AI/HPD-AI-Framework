@@ -33,6 +33,6 @@ public static class OpenAIAudioProviderModule
             config => JsonSerializer.Serialize(config, OpenAIRealtimeJsonContext.Default.OpenAIRealtimeConfig));
 
         SecretAliasRegistry.Register("openai:ApiKey", "OPENAI_API_KEY");
-        SecretAliasRegistry.Register("openai:Endpoint", "OPENAI_ENDPOINT", "OPENAI_BASE_URL");
+        SecretAliasRegistry.Register("openai:Endpoint", "OPENAI_ENDPOINT");
     }
 }

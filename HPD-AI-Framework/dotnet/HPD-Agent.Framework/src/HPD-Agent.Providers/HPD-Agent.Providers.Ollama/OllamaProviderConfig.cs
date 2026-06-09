@@ -14,7 +14,7 @@ namespace HPD.Agent.Providers.Ollama;
 ///     "ProviderKey": "ollama",
 ///     "ModelName": "llama3:8b",
 ///     "Endpoint": "http://localhost:11434",
-///     "ProviderOptionsJson": "{\"temperature\":0.7,\"numPredict\":2048,\"numCtx\":4096}"
+///     "ProviderOptions": { "temperature": 0.7, "numPredict": 2048, "numCtx": 4096 }
 ///   }
 /// }
 /// </code>

@@ -5,8 +5,8 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using HPD.Agent.Evaluations.Batch;
+using HPD.Serialization;
 using Microsoft.Extensions.AI.Evaluation;
-using YamlDotNet.RepresentationModel;
 
 namespace HPD.Agent.Evaluations.RedTeam;
 
@@ -24,28 +24,13 @@ public static class RedTeamRunConfig
             : FromJson(text);
     }
 
-    /// <summary>Load red-team options from a JSON file.</summary>
-    public static RedTeamRunOptions FromJsonFile(string path)
-        => FromJson(File.ReadAllText(path));
-
-    /// <summary>Load red-team options from a YAML file.</summary>
-    public static RedTeamRunOptions FromYamlFile(string path)
-        => FromYaml(File.ReadAllText(path));
-
     /// <summary>Load red-team options from JSON text.</summary>
     public static RedTeamRunOptions FromJson(string json)
         => FromNode(JsonNode.Parse(json));
 
     /// <summary>Load red-team options from YAML text.</summary>
     public static RedTeamRunOptions FromYaml(string yaml)
-    {
-        var stream = new YamlStream();
-        stream.Load(new StringReader(yaml));
-
-        return stream.Documents.Count == 0
-            ? new RedTeamRunOptions()
-            : FromNode(ConvertYamlNode(stream.Documents[0].RootNode));
-    }
+        => FromNode(HpdConfigSerializer.ParseYamlToJsonNode(yaml));
 
     private static RedTeamRunOptions FromNode(JsonNode? node)
     {
@@ -253,53 +238,6 @@ public static class RedTeamRunConfig
     {
         using var document = JsonDocument.Parse((node ?? JsonValue.Create((string?)null))!.ToJsonString());
         return document.RootElement.Clone();
-    }
-
-    private static JsonNode? ConvertYamlNode(YamlNode node) => node switch
-    {
-        YamlMappingNode mapping => ConvertYamlMapping(mapping),
-        YamlSequenceNode sequence => ConvertYamlSequence(sequence),
-        YamlScalarNode scalar => ConvertYamlScalar(scalar),
-        _ => null,
-    };
-
-    private static JsonObject ConvertYamlMapping(YamlMappingNode mapping)
-    {
-        var json = new JsonObject();
-        foreach (var (keyNode, valueNode) in mapping.Children)
-        {
-            if (keyNode is YamlScalarNode key && !string.IsNullOrWhiteSpace(key.Value))
-                json[key.Value] = ConvertYamlNode(valueNode);
-        }
-
-        return json;
-    }
-
-    private static JsonArray ConvertYamlSequence(YamlSequenceNode sequence)
-    {
-        var json = new JsonArray();
-        foreach (var child in sequence.Children)
-            json.Add(ConvertYamlNode(child));
-
-        return json;
-    }
-
-    private static JsonNode? ConvertYamlScalar(YamlScalarNode scalar)
-    {
-        var value = scalar.Value;
-        if (value is null || value == "~" || value.Equals("null", StringComparison.OrdinalIgnoreCase))
-            return null;
-
-        if (bool.TryParse(value, out var boolValue))
-            return JsonValue.Create(boolValue);
-
-        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var longValue))
-            return JsonValue.Create(longValue);
-
-        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var doubleValue))
-            return JsonValue.Create(doubleValue);
-
-        return JsonValue.Create(value);
     }
 
     private static string NormalizeName(string value)

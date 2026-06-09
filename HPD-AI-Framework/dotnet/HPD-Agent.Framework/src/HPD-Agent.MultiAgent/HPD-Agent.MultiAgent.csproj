@@ -18,6 +18,7 @@
     <ProjectReference Include="../HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
     <ProjectReference Include="../../../shared/src/HPD-Graph/HPD-Graph.Core/HPD-Graph.Core.csproj" />
     <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-Serialization/HPD-Serialization.csproj" />
   </ItemGroup>
 
   <ItemGroup>

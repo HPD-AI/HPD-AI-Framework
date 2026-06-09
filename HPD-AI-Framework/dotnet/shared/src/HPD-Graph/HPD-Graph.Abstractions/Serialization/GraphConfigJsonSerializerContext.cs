@@ -10,10 +10,9 @@ namespace HPDAgent.Graph.Abstractions.Serialization;
 [JsonSourceGenerationOptions(
     GenerationMode = JsonSourceGenerationMode.Default,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    NumberHandling = JsonNumberHandling.AllowReadingFromString,
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(GraphConfig))]
 [JsonSerializable(typeof(NodeConfig))]

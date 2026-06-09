@@ -140,7 +140,11 @@ public class DtoMappingExtensionsTests
             tags: null,
             ancestors: new Dictionary<string, string> { ["0"] = "root", ["1"] = "main" },
             middlewareState: new Dictionary<string, string>(),
-            metadata: new Dictionary<string, object> { ["surface"] = "hpdos" });
+            metadata: new Dictionary<string, object> { ["surface"] = "hpdos" },
+            siblingIndex: 1,
+            totalSiblings: 2,
+            isOriginal: false,
+            childBranches: []);
 
         // Act
         var dto = forkedBranch.ToDto("session-123");

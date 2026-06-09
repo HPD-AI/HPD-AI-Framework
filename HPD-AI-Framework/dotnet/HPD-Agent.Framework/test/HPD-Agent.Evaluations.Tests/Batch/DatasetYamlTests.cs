@@ -288,7 +288,7 @@ public sealed class DatasetYamlTests
     }
 
     [Fact]
-    public void FromYamlFile_YamlExtension_LoadsYaml()
+    public void FromFile_YamlExtension_LoadsYaml()
     {
         var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.yaml");
         File.WriteAllText(path, """
@@ -299,7 +299,7 @@ public sealed class DatasetYamlTests
 
         try
         {
-            var dataset = Dataset<string>.FromYamlFile(path, ParseStringInput);
+            var dataset = Dataset<string>.FromFile(path, ParseStringInput);
 
             dataset.Cases.Should().ContainSingle();
             dataset.Cases[0].Name.Should().Be("file-case");
@@ -311,7 +311,7 @@ public sealed class DatasetYamlTests
     }
 
     [Fact]
-    public void FromYamlFile_YmlExtension_LoadsYaml()
+    public void FromFile_YmlExtension_LoadsYaml()
     {
         var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.yml");
         File.WriteAllText(path, """
@@ -322,7 +322,7 @@ public sealed class DatasetYamlTests
 
         try
         {
-            var dataset = Dataset<string>.FromYamlFile(path, ParseStringInput);
+            var dataset = Dataset<string>.FromFile(path, ParseStringInput);
 
             dataset.Cases.Should().ContainSingle();
             dataset.Cases[0].Name.Should().Be("yml-case");
@@ -334,7 +334,7 @@ public sealed class DatasetYamlTests
     }
 
     [Fact]
-    public void ToYamlFile_WritesReadableYaml()
+    public void ToFile_WritesReadableYaml()
     {
         var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.yaml");
         var dataset = new Dataset<string>
@@ -357,8 +357,8 @@ public sealed class DatasetYamlTests
 
         try
         {
-            dataset.ToYamlFile(path, SerializeStringInput);
-            var roundTripped = Dataset<string>.FromYamlFile(path, ParseStringInput);
+            dataset.ToFile(path, SerializeStringInput);
+            var roundTripped = Dataset<string>.FromFile(path, ParseStringInput);
 
             roundTripped.DatasetId.Should().Be("roundtrip-bench");
             roundTripped.Version.Should().Be("v1");
@@ -377,7 +377,7 @@ public sealed class DatasetYamlTests
     }
 
     [Fact]
-    public void FromFile_YamlExtension_RemainsJsonOnly()
+    public void FromFile_WithoutParser_YamlExtensionRequiresParser()
     {
         var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.yaml");
         File.WriteAllText(path, """
@@ -389,7 +389,8 @@ public sealed class DatasetYamlTests
         {
             var act = () => Dataset<string>.FromFile(path);
 
-            act.Should().Throw<JsonException>();
+            act.Should().Throw<InvalidOperationException>()
+                .Which.Message.Should().Contain("FromFile(path, parseInput)");
         }
         finally
         {
@@ -398,7 +399,7 @@ public sealed class DatasetYamlTests
     }
 
     [Fact]
-    public void ToFile_YamlExtension_WritesJson()
+    public void ToFile_WithParser_YamlExtension_WritesYaml()
     {
         var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.yaml");
         var dataset = new Dataset<string>
@@ -414,10 +415,10 @@ public sealed class DatasetYamlTests
 
         try
         {
-            dataset.ToFile(path);
+            dataset.ToFile(path, SerializeStringInput);
 
-            File.ReadAllText(path).TrimStart().Should().StartWith("{");
-            Dataset<string>.FromFile(path).Cases.Should().ContainSingle();
+            File.ReadAllText(path).TrimStart().Should().StartWith("cases:");
+            Dataset<string>.FromFile(path, ParseStringInput).Cases.Should().ContainSingle();
         }
         finally
         {
@@ -453,6 +454,56 @@ public sealed class DatasetYamlTests
         yamlDataset.Cases[0].Name.Should().Be(jsonDataset.Cases[0].Name);
         yamlDataset.Cases[0].Input.Should().Be(jsonDataset.Cases[0].Input);
         yamlDataset.Cases[0].GroundTruth.Should().Be(jsonDataset.Cases[0].GroundTruth);
+    }
+
+    [Fact]
+    public void FromJson_RejectsUnknownDatasetProperties()
+    {
+        const string json = """
+            {
+              "cases": [
+                {
+                  "input": "hello"
+                }
+              ],
+              "oldField": true
+            }
+            """;
+
+        var act = () => Dataset<string>.FromJson(json);
+
+        act.Should().Throw<JsonException>()
+            .WithMessage("*oldField*");
+    }
+
+    [Fact]
+    public void FromYaml_RejectsUnknownDatasetProperties()
+    {
+        const string yaml = """
+            oldField: true
+            cases:
+              - input: hello
+            """;
+
+        var act = () => Dataset<string>.FromYaml(yaml, ParseStringInput);
+
+        act.Should().Throw<JsonException>()
+            .WithMessage("*oldField*");
+    }
+
+    [Fact]
+    public void FromYaml_RejectsUnknownCaseProperties()
+    {
+        const string yaml = """
+            cases:
+              - input: hello
+                oldCaseField: true
+            """;
+
+        var act = () => Dataset<string>.FromYaml(yaml, ParseStringInput);
+
+        act.Should().Throw<JsonException>()
+            .WithMessage("*oldCaseField*");
     }
 
     [Fact]

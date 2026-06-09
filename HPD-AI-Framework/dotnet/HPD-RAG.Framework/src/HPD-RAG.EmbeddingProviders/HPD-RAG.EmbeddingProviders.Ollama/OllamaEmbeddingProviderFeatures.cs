@@ -23,10 +23,8 @@ internal sealed class OllamaEmbeddingProviderFeatures : IEmbeddingProviderFeatur
             throw new InvalidOperationException(
                 "ModelName is required for the Ollama embedding provider.");
 
-        // Resolve endpoint: typed config > base config > default
         var typedConfig = config.GetTypedConfig<OllamaEmbeddingConfig>();
         string endpoint = typedConfig?.Endpoint
-            ?? config.Endpoint
             ?? "http://localhost:11434";
 
         // OllamaApiClient directly implements IEmbeddingGenerator<string, Embedding<float>>

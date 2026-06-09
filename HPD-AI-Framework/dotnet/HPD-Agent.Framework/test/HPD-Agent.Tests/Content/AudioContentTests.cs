@@ -14,16 +14,14 @@ public class AudioContentTests
     #region Constructor Tests
 
     [Fact]
-    public void Constructor_DefaultsToMp3()
+    public void Constructor_RequiresMediaType()
     {
         // Arrange
         var audioBytes = new byte[] { 0x00, 0x01, 0x02, 0x03 };
 
-        // Act
-        var content = new AudioContent(audioBytes);
+        var exception = Assert.Throws<ArgumentException>(() => new AudioContent(audioBytes, ""));
 
-        // Assert
-        Assert.Equal("audio/mpeg", content.MediaType);
+        Assert.Contains("media type", exception.Message);
     }
 
     [Fact]
@@ -273,7 +271,7 @@ public class AudioContentTests
     }
 
     [Fact]
-    public async Task FromFileAsync_DefaultsToMp3_ForUnknownExtension()
+    public async Task FromFileAsync_ThrowsNotSupportedException_ForUnknownExtension()
     {
         // Arrange: Create temp file with unknown extension
         var tempFile = Path.GetTempFileName();
@@ -283,11 +281,10 @@ public class AudioContentTests
 
         try
         {
-            // Act
-            var content = await AudioContent.FromFileAsync(unknownPath);
+            var exception = await Assert.ThrowsAsync<NotSupportedException>(
+                async () => await AudioContent.FromFileAsync(unknownPath));
 
-            // Assert
-            Assert.Equal("audio/mpeg", content.MediaType); // Default
+            Assert.Contains(".unknown", exception.Message);
         }
         finally
         {

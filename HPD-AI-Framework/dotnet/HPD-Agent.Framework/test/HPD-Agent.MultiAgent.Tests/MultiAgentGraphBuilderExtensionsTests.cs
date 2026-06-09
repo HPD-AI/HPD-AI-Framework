@@ -37,7 +37,7 @@ public sealed class MultiAgentGraphBuilderExtensionsTests
     [Fact]
     public async Task AddMultiAgent_WithWorkflowInstance_AddsSubGraphNode()
     {
-        var workflow = await AgentWorkflow.FromConfig(CreateWorkflowConfig()).BuildAsync();
+        var workflow = await new MultiAgentFactory().BuildAsync(CreateWorkflowConfig());
 
         var graph = new GraphBuilder()
             .WithName("Parent")

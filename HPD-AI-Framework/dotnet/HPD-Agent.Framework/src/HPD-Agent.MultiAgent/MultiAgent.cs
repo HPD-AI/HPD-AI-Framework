@@ -1,8 +1,8 @@
-using System.Text.Json;
 using HPD.Agent;
 using HPD.MultiAgent.Config;
 using HPD.MultiAgent.Internal;
 using HPD.MultiAgent.Routing;
+using HPD.MultiAgent.Serialization;
 using HPDAgent.Graph.Abstractions;
 using HPDAgent.Graph.Abstractions.Checkpointing;
 using HPDAgent.Graph.Abstractions.Graph;
@@ -40,9 +40,17 @@ public class MultiAgent
     }
 
     /// <summary>
-    /// Creates a workflow builder from a configuration.
+    /// Creates a workflow builder from a JSON or YAML workflow configuration file.
     /// </summary>
-    public MultiAgent(MultiAgentWorkflowConfig config)
+    public static MultiAgent FromFile(string path)
+    {
+        var config = MultiAgentConfigSerializer.ReadFile(path)
+            ?? throw new InvalidOperationException($"Failed to deserialize MultiAgentWorkflowConfig from '{path}'.");
+
+        return new MultiAgent(config);
+    }
+
+    internal MultiAgent(MultiAgentWorkflowConfig config)
     {
         _graphBuilder = new GraphBuilder();
         _settings = config.Settings;
@@ -190,9 +198,8 @@ public class MultiAgent
             throw new ArgumentNullException(nameof(configureAgent));
 
         // Store the builder action for deferred building at execution time.
-        // The agent is built when the workflow runs so it can inherit the
-        // parent's chat client if no Provider is configured.
-        _agentConfigs[id] = new AgentConfig(); // placeholder — factory uses the builder action
+        // Inline builder agents are runtime-only and cannot be exported to declarative config.
+        _agentConfigs[id] = new AgentConfig();
         _builderActions[id] = configureAgent;
 
         var options = new AgentNodeOptions();
@@ -297,8 +304,7 @@ public class MultiAgent
 
             if (_builderActions.TryGetValue(id, out var builderAction))
             {
-                // Agent with custom builder action
-                factories[id] = new ConfigAgentFactory(config, builderAction);
+                factories[id] = new InlineAgentFactory(builderAction);
             }
             else
             {
@@ -316,7 +322,6 @@ public class MultiAgent
             _graphBuilder.WithIterationOptions(new HPDAgent.Graph.Abstractions.Graph.IterationOptions
             {
                 MaxIterations = _settings.IterationOptions.MaxIterations,
-                UseChangeAwareIteration = _settings.IterationOptions.UseChangeAwareIteration,
                 EnableAutoConvergence = _settings.IterationOptions.EnableAutoConvergence,
                 IgnoreFieldsForChangeDetection = _settings.IterationOptions.IgnoreFieldsForChangeDetection != null
                     ? new HashSet<string>(_settings.IterationOptions.IgnoreFieldsForChangeDetection)
@@ -377,26 +382,6 @@ public class MultiAgent
             _workflowName,
             _settings,
             _sessionStore));
-    }
-
-    /// <summary>
-    /// Load workflow from JSON configuration.
-    /// </summary>
-    public static MultiAgent FromConfig(string jsonPath)
-    {
-        var json = File.ReadAllText(jsonPath);
-        var config = JsonSerializer.Deserialize<MultiAgentWorkflowConfig>(json)
-            ?? throw new InvalidOperationException("Failed to deserialize workflow config");
-
-        return new MultiAgent(config);
-    }
-
-    /// <summary>
-    /// Load workflow from configuration object.
-    /// </summary>
-    public static MultiAgent FromConfig(MultiAgentWorkflowConfig config)
-    {
-        return new MultiAgent(config);
     }
 
     // Internal methods for EdgeBuilder
@@ -527,7 +512,7 @@ public class MultiAgent
 }
 
 /// <summary>
-/// Static factory for creating workflows.
+/// Entry point for creating workflows fluently.
 /// </summary>
 public static class AgentWorkflow
 {
@@ -537,14 +522,8 @@ public static class AgentWorkflow
     public static MultiAgent Create() => new();
 
     /// <summary>
-    /// Create a workflow builder from configuration.
+    /// Create a workflow builder from a JSON or YAML workflow configuration file.
     /// </summary>
-    public static MultiAgent FromConfig(MultiAgentWorkflowConfig config)
-        => MultiAgent.FromConfig(config);
+    public static MultiAgent FromFile(string path) => MultiAgent.FromFile(path);
 
-    /// <summary>
-    /// Create a workflow builder from JSON file.
-    /// </summary>
-    public static MultiAgent FromJson(string jsonPath)
-        => MultiAgent.FromConfig(jsonPath);
 }

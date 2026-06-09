@@ -9,7 +9,7 @@ namespace HPD.Agent;
 
 /// <summary>
 /// Centralized registry for MIME types and file extensions.
-/// Provides two-way mapping and supports legacy format variations.
+/// Provides two-way mapping and canonical MIME normalization.
 /// </summary>
 public static class MimeTypeRegistry
 {
@@ -241,8 +241,6 @@ public static class MimeTypeRegistry
     public const string TextPlain = "text/plain";
     public const string TextHtml = "text/html";
     public const string TextMarkdown = "text/markdown";
-    public const string TextMarkdownOld1 = "text/x-markdown"; // Legacy variant
-    public const string TextMarkdownOld2 = "text/plain-markdown"; // Legacy variant
     public const string TextCsv = "text/csv";
     public const string TextXml = "text/xml";
     public const string TextCss = "text/css";
@@ -444,10 +442,6 @@ public static class MimeTypeRegistry
     private static readonly Dictionary<string, string> s_mimeTypeVariants =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            // Markdown variants normalize to standard
-            [TextMarkdownOld1] = TextMarkdown,
-            [TextMarkdownOld2] = TextMarkdown,
-
             // Audio/Video WebM variants (some sources use audio/webm, others video/webm)
             ["audio/x-webm"] = AudioWebM,
             ["video/x-webm"] = VideoWebM,
@@ -555,7 +549,6 @@ public static class MimeTypeRegistry
 
     /// <summary>
     /// Normalizes a MIME type to its canonical form.
-    /// Handles legacy variants (e.g., text/x-markdown → text/markdown).
     /// </summary>
     /// <param name="mimeType">MIME type to normalize.</param>
     /// <returns>Normalized MIME type.</returns>

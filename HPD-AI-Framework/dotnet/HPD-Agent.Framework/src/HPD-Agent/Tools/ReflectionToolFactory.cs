@@ -154,9 +154,10 @@ internal static class ReflectionToolFactory
         var skill = InvokeCapabilityMethod<Skill>(method, instance);
         var references = skill.References ?? Array.Empty<string>();
         var functionList = references.Length == 0 ? "(none)" : string.Join(", ", references);
-        var returnMessage = string.IsNullOrWhiteSpace(skill.FunctionResult)
-            ? $"{skill.Name} skill activated. Available functions: {functionList}"
-            : $"{skill.Name} skill activated. Available functions: {functionList}\n\n{skill.FunctionResult}";
+        var mode = AgentConfig.GlobalConfig?.Collapsing?.SkillInstructionMode ?? SkillInstructionMode.PromptMiddlewareOnly;
+        var returnMessage = mode == SkillInstructionMode.Both && !string.IsNullOrWhiteSpace(skill.FunctionResult)
+            ? $"{skill.Name} skill activated. Available functions: {functionList}\n\n{skill.FunctionResult}"
+            : $"{skill.Name} skill activated. Available functions: {functionList}";
 
         return HPDAIFunctionFactory.Create(
             async (arguments, functionContext, cancellationToken) => returnMessage,
@@ -181,8 +182,7 @@ internal static class ReflectionToolFactory
                         .Distinct(StringComparer.Ordinal)
                         .ToArray(),
                     ["SystemPrompt"] = skill.SystemPrompt,
-                    ["FunctionResult"] = skill.FunctionResult,
-                    ["Instructions"] = skill.FunctionResult
+                    ["FunctionResult"] = skill.FunctionResult
                 }
             });
     }

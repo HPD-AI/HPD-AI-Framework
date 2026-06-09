@@ -14,7 +14,7 @@ namespace HPD.Agent.Providers.GoogleAI;
 ///     "ProviderKey": "google-ai",
 ///     "ModelName": "gemini-2.0-flash",
 ///     "ApiKey": "your-api-key",
-///     "ProviderOptionsJson": "{\"maxOutputTokens\":8192,\"temperature\":0.7}"
+///     "ProviderOptions": { "maxOutputTokens": 8192, "temperature": 0.7 }
 ///   }
 /// }
 /// </code>

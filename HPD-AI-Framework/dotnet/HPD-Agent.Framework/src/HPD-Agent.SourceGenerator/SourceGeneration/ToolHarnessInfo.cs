@@ -42,7 +42,6 @@ internal class ToolHarnessInfo
 
     /// <summary>
     /// Gets all skill capabilities from the unified Capabilities list.
-    /// This provides backward compatibility for code that needs to filter by type.
     /// </summary>
     public IEnumerable<SkillCapability> SkillCapabilities =>
         Capabilities.OfType<SkillCapability>();
@@ -221,17 +220,6 @@ internal class ToolHarnessInfo
     /// </summary>
     public List<CollapseMiddlewareConfigEntry>? CollapseMiddlewareConfigTypeNames { get; set; }
 
-    // ========== BACKWARD COMPATIBILITY ==========
-
-    /// <summary>
-    /// Alias for ClassName to maintain backward compatibility.
-    /// New code should use ClassName or EffectiveName instead.
-    /// </summary>
-    public string Name
-    {
-        get => ClassName;
-        set => ClassName = value;
-    }
 }
 
 // ========== HARNESS-SCOPED MIDDLEWARE CONFIG ENTRY (015 §5A) ==========
@@ -248,13 +236,3 @@ internal sealed record CollapseMiddlewareConfigEntry(
     string ConfigTypeFqn
 );
 
-// ========== OLD CLASSES REMOVED (Phase 4) ==========
-// FunctionInfo, ParameterInfo, and ValidationData have been removed.
-// These are now defined in the Capabilities namespace:
-// - HPD.Agent.SourceGenerator.Capabilities.FunctionCapability (replaces FunctionInfo)
-// - HPD.Agent.SourceGenerator.Capabilities.ParameterInfo (shared by all capabilities)
-// - HPD.Agent.SourceGenerator.Capabilities.ValidationData (part of FunctionCapability)
-
-// ========== RENAMED (Phase: ToolHarness Consolidation) ==========
-// ToolInfo has been renamed to ToolHarnessInfo.
-// The Name property is now ClassName. CustomName support has been removed - always use ClassName.

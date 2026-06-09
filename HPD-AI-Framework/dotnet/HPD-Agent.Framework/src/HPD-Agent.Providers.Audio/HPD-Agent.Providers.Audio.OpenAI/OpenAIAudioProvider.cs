@@ -177,7 +177,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
         OpenAISttConfig? providerConfig = null;
         OpenAITtsConfig? ttsProviderConfig = null;
         OpenAIRealtimeConfig? realtimeProviderConfig = null;
-        if (!string.IsNullOrWhiteSpace(config.ProviderOptionsJson))
+        if (!string.IsNullOrWhiteSpace(config.GetProviderOptionsRawJson()))
         {
             try
             {
@@ -202,7 +202,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
                     ProviderClientFamily.Realtime => "realtime",
                     _ => "STT"
                 };
-                errors.Add($"Invalid OpenAI {label} ProviderOptionsJson: {ex.Message}");
+                errors.Add($"Invalid OpenAI {label} ProviderOptions: {ex.Message}");
             }
         }
 
@@ -432,39 +432,42 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
 
     private static OpenAISttConfig ReadProviderConfig(ClientProviderConfig config)
     {
-        if (string.IsNullOrWhiteSpace(config.ProviderOptionsJson))
+        var providerOptionsJson = config.GetProviderOptionsRawJson();
+        if (string.IsNullOrWhiteSpace(providerOptionsJson))
         {
             return new OpenAISttConfig();
         }
 
         return JsonSerializer.Deserialize(
-            config.ProviderOptionsJson,
+            providerOptionsJson,
             OpenAISttJsonContext.Default.OpenAISttConfig)
             ?? new OpenAISttConfig();
     }
 
     private static OpenAITtsConfig ReadTtsProviderConfig(ClientProviderConfig config)
     {
-        if (string.IsNullOrWhiteSpace(config.ProviderOptionsJson))
+        var providerOptionsJson = config.GetProviderOptionsRawJson();
+        if (string.IsNullOrWhiteSpace(providerOptionsJson))
         {
             return new OpenAITtsConfig();
         }
 
         return JsonSerializer.Deserialize(
-            config.ProviderOptionsJson,
+            providerOptionsJson,
             OpenAITtsJsonContext.Default.OpenAITtsConfig)
             ?? new OpenAITtsConfig();
     }
 
     private static OpenAIRealtimeConfig ReadRealtimeProviderConfig(ClientProviderConfig config)
     {
-        if (string.IsNullOrWhiteSpace(config.ProviderOptionsJson))
+        var providerOptionsJson = config.GetProviderOptionsRawJson();
+        if (string.IsNullOrWhiteSpace(providerOptionsJson))
         {
             return new OpenAIRealtimeConfig();
         }
 
         return JsonSerializer.Deserialize(
-            config.ProviderOptionsJson,
+            providerOptionsJson,
             OpenAIRealtimeJsonContext.Default.OpenAIRealtimeConfig)
             ?? new OpenAIRealtimeConfig();
     }

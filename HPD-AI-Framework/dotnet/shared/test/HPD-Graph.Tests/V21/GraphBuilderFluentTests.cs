@@ -131,7 +131,7 @@ public sealed class GraphBuilderFluentTests
             }
         };
 
-        var graph = GraphBuilder.FromConfig(config).Build();
+        var graph = new GraphFactory().CreateBuilder(config).Build();
 
         graph.Id.Should().Be("from-config");
         graph.Name.Should().Be("From Config");
@@ -168,13 +168,13 @@ public sealed class GraphBuilderFluentTests
             }
         };
 
-        var graph = new GraphBuilder(config).Build();
+        var graph = new GraphFactory().CreateBuilder(config).Build();
 
         graph.Edges.Should().BeEmpty();
     }
 
     [Fact]
-    public void FromConfig_CanApplyFluentOverridesBeforeBuild()
+    public void FactoryBuilder_CanApplyFluentOverridesBeforeBuild()
     {
         var config = new GraphConfig
         {
@@ -192,7 +192,7 @@ public sealed class GraphBuilderFluentTests
             }
         };
 
-        var graph = new GraphBuilder(config)
+        var graph = new GraphFactory().CreateBuilder(config)
             .WithName("Overridden")
             .AddHandlerNode("b", "B", "b_handler")
             .AddEdge("a", "b")

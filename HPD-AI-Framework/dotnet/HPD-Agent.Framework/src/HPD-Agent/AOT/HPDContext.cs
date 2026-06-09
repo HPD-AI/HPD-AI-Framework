@@ -16,7 +16,8 @@ using System.Collections.Immutable;
 [JsonSourceGenerationOptions(
     WriteIndented = true, 
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
 )]
 // --- Framework-specific types ---
 [JsonSerializable(typeof(ValidationErrorResponse))]

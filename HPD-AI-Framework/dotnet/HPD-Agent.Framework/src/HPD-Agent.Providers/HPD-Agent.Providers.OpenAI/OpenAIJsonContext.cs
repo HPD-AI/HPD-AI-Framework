@@ -9,7 +9,8 @@ namespace HPD.Agent.Providers.OpenAI;
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(OpenAIProviderConfig))]
 internal partial class OpenAIJsonContext : JsonSerializerContext
 {

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using HPD.Serialization;
 using HPD.OpenApi.Core.Model;
 using Microsoft.OpenApi.Models;
 using Microsoft.OpenApi.Models.Interfaces;
@@ -11,9 +12,8 @@ namespace HPD.OpenApi.Core;
 /// Parses OpenAPI specifications into intermediate <see cref="RestApiOperation"/> models.
 /// Adapted from Semantic Kernel's OpenApiDocumentParser.
 ///
-/// Supports JSON, OpenAPI 2.0/3.0/3.1. OpenAPI 3.1 documents are downgraded to 3.0.1 for
-/// compatibility with Microsoft.OpenApi, which is safe for operation extraction purposes.
-/// YAML is not supported — convert to JSON first (e.g., yq -o json . spec.yaml > spec.json).
+/// Supports JSON/YAML, OpenAPI 2.0/3.0/3.1. OpenAPI 3.1 documents are downgraded to 3.0.1
+/// for compatibility with Microsoft.OpenApi, which is safe for operation extraction purposes.
 /// </summary>
 public sealed class OpenApiDocumentParser
 {
@@ -34,8 +34,19 @@ public sealed class OpenApiDocumentParser
         OpenApiCoreConfig config,
         Uri? baseUri = null,
         CancellationToken cancellationToken = default)
+        => await ParseAsync(stream, config, HpdConfigFormat.Json, baseUri, cancellationToken);
+
+    /// <summary>
+    /// Parses an OpenAPI spec from a stream.
+    /// </summary>
+    public async Task<ParsedOpenApiSpec> ParseAsync(
+        Stream stream,
+        OpenApiCoreConfig config,
+        HpdConfigFormat format,
+        Uri? baseUri = null,
+        CancellationToken cancellationToken = default)
     {
-        var jsonObject = await DowngradeVersionIfNeededAsync(stream, cancellationToken);
+        var jsonObject = await DowngradeVersionIfNeededAsync(stream, format, cancellationToken);
         using var memoryStream = new MemoryStream(
             System.Text.Encoding.UTF8.GetBytes(jsonObject.ToJsonString(s_writeIndented)));
         var result = await OpenApiDocument.LoadAsync(memoryStream, cancellationToken: cancellationToken);
@@ -47,7 +58,7 @@ public sealed class OpenApiDocumentParser
         };
     }
 
-    /// <summary>Parses an OpenAPI spec from a file on disk (JSON format).</summary>
+    /// <summary>Parses an OpenAPI spec from a JSON or YAML file on disk.</summary>
     public async Task<ParsedOpenApiSpec> ParseFromFileAsync(
         string filePath,
         OpenApiCoreConfig config,
@@ -55,7 +66,7 @@ public sealed class OpenApiDocumentParser
     {
         using var stream = File.OpenRead(filePath);
         var baseUri = new Uri(Path.GetFullPath(filePath));
-        return await ParseAsync(stream, config, baseUri, cancellationToken);
+        return await ParseAsync(stream, config, HpdConfigSerializer.InferFormat(filePath), baseUri, cancellationToken);
     }
 
     /// <summary>Parses an OpenAPI spec by fetching it from a URI.</summary>
@@ -66,19 +77,28 @@ public sealed class OpenApiDocumentParser
         CancellationToken cancellationToken = default)
     {
         using var stream = await httpClient.GetStreamAsync(uri, cancellationToken);
-        return await ParseAsync(stream, config, uri, cancellationToken);
+        return await ParseAsync(stream, config, HpdConfigSerializer.InferFormat(uri.AbsolutePath), uri, cancellationToken);
     }
 
     /// <summary>
-    /// Reads the JSON object and downgrades the openapi version field from 3.1.x to 3.0.1
+    /// Reads the config object and downgrades the openapi version field from 3.1.x to 3.0.1
     /// if needed. Microsoft.OpenApi doesn't fully support 3.1; the downgrade is safe for
     /// operation extraction.
     /// </summary>
     private static async Task<JsonObject> DowngradeVersionIfNeededAsync(
-        Stream stream, CancellationToken ct)
+        Stream stream,
+        HpdConfigFormat format,
+        CancellationToken ct)
     {
-        var jsonObject = await JsonNode.ParseAsync(stream, cancellationToken: ct) as JsonObject
-            ?? throw new OpenApiParseException("Failed to parse OpenAPI document as JSON.");
+        var node = format switch
+        {
+            HpdConfigFormat.Json => await JsonNode.ParseAsync(stream, cancellationToken: ct),
+            HpdConfigFormat.Yaml => HpdConfigSerializer.ParseYamlToJsonNode(await ReadAllTextAsync(stream, ct)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
+        };
+
+        var jsonObject = node as JsonObject
+            ?? throw new OpenApiParseException($"Failed to parse OpenAPI document as {format}.");
 
         if (jsonObject.TryGetPropertyValue("openapi", out var versionNode)
             && versionNode is JsonValue versionValue
@@ -89,6 +109,12 @@ public sealed class OpenApiDocumentParser
         }
 
         return jsonObject;
+    }
+
+    private static async Task<string> ReadAllTextAsync(Stream stream, CancellationToken ct)
+    {
+        using var reader = new StreamReader(stream, leaveOpen: true);
+        return await reader.ReadToEndAsync(ct);
     }
 
     private static List<RestApiOperation> ExtractOperations(

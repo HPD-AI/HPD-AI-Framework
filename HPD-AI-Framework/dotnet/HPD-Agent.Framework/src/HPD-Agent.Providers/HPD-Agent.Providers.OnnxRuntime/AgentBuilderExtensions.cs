@@ -27,7 +27,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates an <see cref="OnnxRuntimeProviderConfig"/> that is:
-    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptions</c> as a structured JSON/YAML object
     /// - Applied during <c>OnnxRuntimeProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -37,7 +37,7 @@ public static class AgentBuilderExtensions
     ///   "Provider": {
     ///     "ProviderKey": "onnx-runtime",
     ///     "ModelName": "phi-3-mini",
-    ///     "ProviderOptionsJson": "{\"modelPath\":\"/path/to/model\",\"maxLength\":2048,\"temperature\":0.7,\"doSample\":true}"
+    ///     "ProviderOptions": { "modelPath": "/path/to/model", "maxLength": 2048, "temperature": 0.7, "doSample": true }
     ///   }
     /// }
     /// </code>

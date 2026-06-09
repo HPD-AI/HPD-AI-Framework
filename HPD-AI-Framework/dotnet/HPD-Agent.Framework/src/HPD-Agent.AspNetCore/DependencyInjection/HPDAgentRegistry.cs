@@ -5,6 +5,7 @@ using HPD.Agent.Hosting.Configuration;
 using HPD.Agent.Hosting.Lifecycle;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using HostingAgentFactory = HPD.Agent.Hosting.Configuration.IAgentFactory;
 
 namespace HPD.Agent.AspNetCore.DependencyInjection;
 
@@ -38,7 +39,7 @@ internal sealed class HPDAgentRegistry
             ?? (options.SessionStorePath != null ? new JsonSessionStore(options.SessionStorePath) : new InMemorySessionStore());
         IAgentStore agentStore = options.AgentStore ?? new InMemoryAgentStore();
 
-        var agentFactory = _serviceProvider.GetService<IAgentFactory>();
+        var agentFactory = _serviceProvider.GetService<HostingAgentFactory>();
 
         var sessionManager = new AspNetCoreSessionManager(sessionStore, optionsMonitor, name);
         var agentManager = new AspNetCoreAgentManager(

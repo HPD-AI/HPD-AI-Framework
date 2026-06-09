@@ -1,5 +1,6 @@
 using HPDAgent.Graph.Abstractions.Artifacts;
 using HPDAgent.Graph.Abstractions.Checkpointing;
+using HPDAgent.Graph.Abstractions.Config;
 using HPDAgent.Graph.Abstractions.Discovery;
 using HPDAgent.Graph.Abstractions.Registry;
 using HPDAgent.Graph.Abstractions.Serialization;
@@ -52,6 +53,31 @@ public static class GraphAspNetCoreServiceCollectionExtensions
         return services;
     }
 
+    public static IServiceCollection AddHPDGraphWorkflowFromConfigFile(
+        this IServiceCollection services,
+        string configPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(configPath);
+
+        var config = GraphConfigSerializer.ReadConfigFile(configPath)
+            ?? throw new InvalidOperationException($"Failed to load HPD graph config from '{configPath}'.");
+
+        return services.AddHPDGraphWorkflow(config);
+    }
+
+    public static IServiceCollection AddHPDGraphWorkflow(
+        this IServiceCollection services,
+        GraphConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(config);
+
+        services.AddHPDGraphAspNetCore();
+        services.AddSingleton(new SeedGraphDefinition(config));
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, SeedGraphDefinitionHostedService>());
+        return services;
+    }
+
     public static IServiceCollection AddHPDGraphMaterialization(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -86,5 +112,23 @@ public static class GraphAspNetCoreServiceCollectionExtensions
         {
             return new Dictionary<string, HandlerDescriptor>(StringComparer.Ordinal);
         }
+    }
+
+    private sealed record SeedGraphDefinition(GraphConfig Config);
+
+    private sealed class SeedGraphDefinitionHostedService(
+        IEnumerable<SeedGraphDefinition> definitions,
+        GraphManager graphManager) : IHostedService
+    {
+        public async Task StartAsync(CancellationToken cancellationToken)
+        {
+            foreach (var definition in definitions)
+            {
+                await graphManager.CreateDefinitionAsync(definition.Config, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

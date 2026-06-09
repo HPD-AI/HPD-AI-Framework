@@ -39,7 +39,7 @@ public class ToolVisibilityManagerMCPTests
                     ["IsContainer"] = true,
                     ["IsToolHarnessContainer"] = true,
                     ["ToolHarnessName"] = name,
-                    ["FunctionNames"] = functionNames,
+                    ["ReferencedFunctions"] = functionNames,
                     ["FunctionCount"] = functionNames.Length,
                     ["SourceType"] = "CSharp",
                     ["ParentContainer"] = parentContainer,
@@ -68,7 +68,7 @@ public class ToolVisibilityManagerMCPTests
                 {
                     ["IsContainer"] = true,
                     ["ToolHarnessName"] = containerName,
-                    ["FunctionNames"] = functionNames,
+                    ["ReferencedFunctions"] = functionNames,
                     ["FunctionCount"] = functionNames.Length,
                     ["SourceType"] = "MCP",
                     ["MCPServerName"] = serverName,

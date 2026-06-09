@@ -158,7 +158,7 @@ public sealed class GraphOrchestratorSuspensionHostingTests
 
         handler.CallCount.Should().Be(2);
         context.IsNodeComplete("sensor").Should().BeTrue();
-        context.Channels["node_output:sensor"].Get<Dictionary<string, object>>()["ready"].Should().Be(true);
+        context.Channels["node_output:sensor:port:0"].Get<Dictionary<string, object>>()["ready"].Should().Be(true);
 
         var execution = await executionStore.LoadAsync("graph-a", "exec-a");
         execution.Should().NotBeNull();

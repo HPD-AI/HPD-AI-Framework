@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Pipeline;
 using HPD.RAG.Core.Retrieval;
 using HPD.RAG.Pipeline.Tests.Shared;
@@ -117,5 +118,37 @@ public sealed class MragPipelineBuilderTests
             builder.AddHandler("nodeA", MragHandlerNames.ChunkByHeader));
 
         Assert.Contains("nodeA", ex.Message);
+    }
+
+    [Fact]
+    public async Task AddHandler_TypedConfig_StoresConfigAsNodeJsonObject()
+    {
+        var pipeline = await MragPipeline.Create()
+            .WithName("typed-config")
+            .AddHandler<TestHandlerConfig>(
+                "node",
+                MragHandlerNames.ReadMarkdown,
+                config =>
+                {
+                    config.Mode = "strict";
+                    config.Limit = 5;
+                })
+            .BuildIngestionAsync();
+
+        var node = pipeline.Graph.GetNode("node");
+
+        Assert.NotNull(node?.Config);
+        Assert.Equal(JsonValueKind.Object, node!.Config!.Value.ValueKind);
+        Assert.True(node.Config.Value.TryGetProperty("mode", out var mode));
+        Assert.Equal("strict", mode.GetString());
+        Assert.True(node.Config.Value.TryGetProperty("limit", out var limit));
+        Assert.Equal(5, limit.GetInt32());
+        Assert.False(node.Config.Value.TryGetProperty("config", out _));
+    }
+
+    private sealed class TestHandlerConfig
+    {
+        public string? Mode { get; set; }
+        public int Limit { get; set; }
     }
 }

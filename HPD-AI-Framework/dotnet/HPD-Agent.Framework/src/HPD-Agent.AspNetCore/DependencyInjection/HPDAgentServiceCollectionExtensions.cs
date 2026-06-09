@@ -2,10 +2,13 @@ using HPD.Agent.AspNetCore.Serialization;
 using HPD.Agent.Hosting.Configuration;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.Hosting.Serialization;
+using HPD.Agent.Serialization;
+using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using System.Text.Json.Nodes;
 
 namespace HPD.Agent.AspNetCore;
 
@@ -21,6 +24,66 @@ public static class HPDAgentServiceCollectionExtensions
         this IServiceCollection services,
         Action<HPDAgentConfig>? configure = null)
         => services.AddHPDAgent(Options.DefaultName, configure);
+
+    /// <summary>
+    /// Registers a default HPD Agent using a JSON or YAML agent config file.
+    /// </summary>
+    public static IServiceCollection AddHPDAgentFromConfigFile(
+        this IServiceCollection services,
+        string configPath,
+        Action<HPDAgentConfig>? configure = null)
+        => services.AddHPDAgentFromConfigFile(Options.DefaultName, configPath, configure);
+
+    /// <summary>
+    /// Registers a named HPD Agent using a JSON or YAML agent config file.
+    /// </summary>
+    public static IServiceCollection AddHPDAgentFromConfigFile(
+        this IServiceCollection services,
+        string name,
+        string configPath,
+        Action<HPDAgentConfig>? configure = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(configPath);
+
+        var agentConfig = HpdAgentConfigSerializer.ReadFile(configPath)
+            ?? throw new InvalidOperationException($"Failed to load HPD agent config from '{configPath}'.");
+
+        return services.AddHPDAgent(name, options =>
+        {
+            options.DefaultAgent = agentConfig;
+            configure?.Invoke(options);
+        });
+    }
+
+    /// <summary>
+    /// Registers a default HPD Agent using a configuration section containing AgentConfig data.
+    /// </summary>
+    public static IServiceCollection AddHPDAgentFromConfiguration(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        Action<HPDAgentConfig>? configure = null)
+        => services.AddHPDAgentFromConfiguration(Options.DefaultName, configuration, configure);
+
+    /// <summary>
+    /// Registers a named HPD Agent using a configuration section containing AgentConfig data.
+    /// </summary>
+    public static IServiceCollection AddHPDAgentFromConfiguration(
+        this IServiceCollection services,
+        string name,
+        IConfiguration configuration,
+        Action<HPDAgentConfig>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        var agentConfig = HpdAgentConfigSerializer.Deserialize(ConfigurationToJson(configuration))
+            ?? throw new InvalidOperationException("Failed to load HPD agent config from IConfiguration.");
+
+        return services.AddHPDAgent(name, options =>
+        {
+            options.DefaultAgent = agentConfig;
+            configure?.Invoke(options);
+        });
+    }
 
     /// <summary>
     /// Registers a named HPD Agent. Call multiple times with different names
@@ -72,6 +135,29 @@ public static class HPDAgentServiceCollectionExtensions
                 HPDJsonOptionsReadOnlyPostConfigure>());
 
         return services;
+    }
+
+    private static string ConfigurationToJson(IConfiguration configuration)
+        => ConfigurationToJsonNode(configuration).ToJsonString();
+
+    private static JsonNode ConfigurationToJsonNode(IConfiguration configuration)
+    {
+        var children = configuration.GetChildren().ToArray();
+        if (children.Length == 0)
+            return JsonValue.Create((configuration as IConfigurationSection)?.Value) ?? JsonValue.Create(string.Empty)!;
+
+        if (children.All(static child => int.TryParse(child.Key, out _)))
+        {
+            var array = new JsonArray();
+            foreach (var child in children.OrderBy(static child => int.Parse(child.Key)))
+                array.Add(ConfigurationToJsonNode(child));
+            return array;
+        }
+
+        var obj = new JsonObject();
+        foreach (var child in children)
+            obj[child.Key] = ConfigurationToJsonNode(child);
+        return obj;
     }
 }
 

@@ -9,8 +9,8 @@ namespace HPD.RAG.EmbeddingProviders.AzureAI;
 /// Azure OpenAI embedding provider for HPD.RAG.
 /// Uses the Azure OpenAI embeddings deployment via AzureOpenAIClient.
 ///
-/// Config fields used: ApiKey (required), Endpoint (required or via typed config).
-/// Typed config: AzureAIEmbeddingConfig for Endpoint + DeploymentName overrides.
+/// Config fields used: ModelName (fallback deployment name).
+/// Typed config: AzureAIEmbeddingConfig for Endpoint + ApiKey + DeploymentName.
 /// </summary>
 internal sealed class AzureAIEmbeddingProviderFeatures : IEmbeddingProviderFeatures
 {
@@ -22,18 +22,17 @@ internal sealed class AzureAIEmbeddingProviderFeatures : IEmbeddingProviderFeatu
     {
         var typedConfig = config.GetTypedConfig<AzureAIEmbeddingConfig>();
 
-        // Resolve endpoint: typed config > base config
-        string? endpoint = typedConfig?.Endpoint ?? config.Endpoint;
+        string? endpoint = typedConfig?.Endpoint;
         if (string.IsNullOrWhiteSpace(endpoint))
             throw new InvalidOperationException(
                 "Endpoint is required for the AzureAI embedding provider. " +
-                "Set it via EmbeddingConfig.Endpoint or AzureAIEmbeddingConfig.Endpoint.");
+                "Set AzureAIEmbeddingConfig.Endpoint in EmbeddingConfig.ProviderOptions.");
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
+        if (string.IsNullOrWhiteSpace(typedConfig.ApiKey))
             throw new InvalidOperationException(
-                "ApiKey is required for the AzureAI embedding provider.");
+                "ApiKey is required for the AzureAI embedding provider. " +
+                "Set AzureAIEmbeddingConfig.ApiKey in EmbeddingConfig.ProviderOptions.");
 
-        // Resolve deployment name: typed config > base ModelName
         string? deploymentName = typedConfig?.DeploymentName ?? config.ModelName;
         if (string.IsNullOrWhiteSpace(deploymentName))
             throw new InvalidOperationException(
@@ -41,7 +40,7 @@ internal sealed class AzureAIEmbeddingProviderFeatures : IEmbeddingProviderFeatu
 
         var azureClient = new AzureOpenAIClient(
             new Uri(endpoint),
-            new AzureKeyCredential(config.ApiKey));
+            new AzureKeyCredential(typedConfig.ApiKey));
 
         return azureClient.GetEmbeddingClient(deploymentName).AsIEmbeddingGenerator();
     }

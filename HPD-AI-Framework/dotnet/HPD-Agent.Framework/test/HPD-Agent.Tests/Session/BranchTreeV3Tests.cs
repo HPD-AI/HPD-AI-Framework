@@ -88,9 +88,9 @@ public class BranchTreeV3Tests : AgentTestBase
     }
 
     [Fact]
-    public void Test04_BackwardCompatibility_MissingV3Fields_UseSafeDefaults()
+    public void Test04_MissingTreeFields_Throws()
     {
-        // Arrange - JSON without V3 fields (simulates old data)
+        // Arrange - JSON without tree fields
         var jsonWithoutV3Fields = """
         {
             "Id": "branch-1",
@@ -109,15 +109,11 @@ public class BranchTreeV3Tests : AgentTestBase
         """;
 
         // Act
-        var branch = System.Text.Json.JsonSerializer.Deserialize<Branch>(jsonWithoutV3Fields);
+        var act = () => System.Text.Json.JsonSerializer.Deserialize<Branch>(jsonWithoutV3Fields);
 
-        // Assert - Safe defaults applied
-        Assert.NotNull(branch);
-        Assert.Equal(0, branch.SiblingIndex);
-        Assert.Equal(1, branch.TotalSiblings);
-        Assert.True(branch.IsOriginal);
-        Assert.Null(branch.OriginalBranchId);
-        Assert.Empty(branch.ChildBranches);
+        // Assert
+        act.Should().Throw<System.Text.Json.JsonException>()
+            .WithMessage("*totalSiblings*");
     }
 
     [Fact]

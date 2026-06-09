@@ -226,8 +226,8 @@ public class PortRoutingCloningIntegrationTests
 
         // Verify lazy cloning behavior per port
         // Port 0: first consumer gets List<int>, second gets List<object> (after cloning)
-        var port0c1 = context.Channels["node_output:port0_consumer1"].Get<Dictionary<string, object>>();
-        var port0c2 = context.Channels["node_output:port0_consumer2"].Get<Dictionary<string, object>>();
+        var port0c1 = context.Channels["node_output:port0_consumer1:port:0"].Get<Dictionary<string, object>>();
+        var port0c2 = context.Channels["node_output:port0_consumer2:port:0"].Get<Dictionary<string, object>>();
 
         port0c1.Should().NotBeNull();
         port0c2.Should().NotBeNull();

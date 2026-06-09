@@ -1,12 +1,11 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using HPD.RAG.Core.Providers.Reranker;
 
 namespace HPD.RAG.RerankerProviders.Jina;
 
 /// <summary>
 /// Auto-registers the Jina AI reranker provider on assembly load.
-/// Jina uses only the base RerankerConfig fields (ApiKey, ModelName, Endpoint),
-/// so no typed config registration is needed.
 /// </summary>
 public static class JinaRerankerModule
 {
@@ -16,5 +15,10 @@ public static class JinaRerankerModule
     public static void Initialize()
     {
         RerankerDiscovery.RegisterRerankerFactory(() => new JinaRerankerFeatures());
+
+        RerankerDiscovery.RegisterRerankerConfigType<JinaRerankerConfig>(
+            "jina",
+            json => JsonSerializer.Deserialize(json, JinaJsonContext.Default.JinaRerankerConfig),
+            config => JsonSerializer.Serialize(config, JinaJsonContext.Default.JinaRerankerConfig));
     }
 }

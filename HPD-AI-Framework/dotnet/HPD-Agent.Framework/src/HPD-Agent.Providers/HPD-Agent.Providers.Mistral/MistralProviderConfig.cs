@@ -14,7 +14,7 @@ namespace HPD.Agent.Providers.Mistral;
 ///     "ProviderKey": "mistral",
 ///     "ModelName": "mistral-large-latest",
 ///     "ApiKey": "your-api-key",
-///     "ProviderOptionsJson": "{\"maxTokens\":4096,\"temperature\":0.7,\"safePrompt\":true}"
+///     "ProviderOptions": { "maxTokens": 4096, "temperature": 0.7, "safePrompt": true }
 ///   }
 /// }
 /// </code>

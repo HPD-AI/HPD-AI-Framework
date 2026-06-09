@@ -3,13 +3,14 @@
 
 using System.Text.Json.Nodes;
 using HPD.Agent.Evaluations.Batch;
+using HPD.Serialization;
 
 namespace HPD.Agent.Evaluations.Storage;
 
 /// <summary>AOT-friendly import/export and report helpers for <see cref="IDatasetStore"/>.</summary>
 public static class DatasetStoreExtensions
 {
-    public static async ValueTask ExportDatasetVersionToYamlFileAsync<TInput>(
+    public static async ValueTask ExportDatasetVersionToFileAsync<TInput>(
         this IDatasetStore store,
         string datasetId,
         string version,
@@ -25,18 +26,27 @@ public static class DatasetStoreExtensions
         if (dataset is null)
             throw new KeyNotFoundException($"Dataset '{datasetId}' version '{version}' was not found.");
 
-        var yaml = dataset.ToYaml(serializeInput);
-        await File.WriteAllTextAsync(path, yaml, ct).ConfigureAwait(false);
+        var node = DatasetYamlSerializer.ToJsonNode(dataset, serializeInput);
+        var text = HpdConfigSerializer.InferFormat(path) switch
+        {
+            HpdConfigFormat.Json => node.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }),
+            HpdConfigFormat.Yaml => HpdConfigSerializer.WriteYaml(node),
+            _ => throw new ArgumentOutOfRangeException(nameof(path), path, null),
+        };
+
+        await File.WriteAllTextAsync(path, text, ct).ConfigureAwait(false);
     }
 
-    public static async ValueTask<IReadOnlyList<string>> ExportDatasetVersionsToYamlDirectoryAsync<TInput>(
+    public static async ValueTask<IReadOnlyList<string>> ExportDatasetVersionsToDirectoryAsync<TInput>(
         this IDatasetStore store,
         string datasetId,
         string directory,
         Func<TInput, JsonNode?> serializeInput,
+        string extension = ".yaml",
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(store);
+        ArgumentException.ThrowIfNullOrWhiteSpace(extension);
         Directory.CreateDirectory(directory);
 
         var paths = new List<string>();
@@ -44,8 +54,8 @@ public static class DatasetStoreExtensions
         {
             var path = Path.Combine(
                 directory,
-                $"{SanitizeFileName(datasetId)}-{SanitizeFileName(version.Version)}.yaml");
-            await store.ExportDatasetVersionToYamlFileAsync<TInput>(
+                $"{SanitizeFileName(datasetId)}-{SanitizeFileName(version.Version)}{NormalizeExtension(extension)}");
+            await store.ExportDatasetVersionToFileAsync<TInput>(
                 datasetId,
                 version.Version,
                 path,
@@ -57,7 +67,7 @@ public static class DatasetStoreExtensions
         return paths;
     }
 
-    public static async ValueTask<DatasetVersionRecord> ImportDatasetVersionFromYamlFileAsync<TInput>(
+    public static async ValueTask<DatasetVersionRecord> ImportDatasetVersionFromFileAsync<TInput>(
         this IDatasetStore store,
         string path,
         Func<JsonNode?, TInput> parseInput,
@@ -67,8 +77,13 @@ public static class DatasetStoreExtensions
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(parseInput);
 
-        var yaml = await File.ReadAllTextAsync(path, ct).ConfigureAwait(false);
-        var dataset = Dataset<TInput>.FromYaml(yaml, parseInput);
+        var text = await File.ReadAllTextAsync(path, ct).ConfigureAwait(false);
+        var dataset = HpdConfigSerializer.InferFormat(path) switch
+        {
+            HpdConfigFormat.Json => DatasetYamlSerializer.FromJsonNode(JsonNode.Parse(text), parseInput),
+            HpdConfigFormat.Yaml => Dataset<TInput>.FromYaml(text, parseInput),
+            _ => throw new ArgumentOutOfRangeException(nameof(path), path, null),
+        };
         return await store.RegisterDatasetVersionAsync(dataset, options, ct)
             .ConfigureAwait(false);
     }
@@ -106,4 +121,7 @@ public static class DatasetStoreExtensions
         var chars = value.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray();
         return new string(chars);
     }
+
+    private static string NormalizeExtension(string extension)
+        => extension.StartsWith(".", StringComparison.Ordinal) ? extension : $".{extension}";
 }

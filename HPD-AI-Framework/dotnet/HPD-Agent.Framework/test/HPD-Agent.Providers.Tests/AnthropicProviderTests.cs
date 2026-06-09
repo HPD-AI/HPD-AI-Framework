@@ -72,7 +72,7 @@ public class AnthropicProviderTests
     }
 
     [Fact]
-    public async Task WithAnthropic_ShouldResolveFromEnvironmentVariable()
+    public async Task WithAnthropic_WithoutExplicitApiKey_ShouldFailValidation()
     {
         // Arrange
         var builder = new AgentBuilder();
@@ -80,16 +80,14 @@ public class AnthropicProviderTests
 
         try
         {
-            // Act
             builder.WithAnthropic("claude-sonnet-4-5-20250929"); // No explicit API key
 
-            // API key resolution happens at Build() time via ISecretResolver
-            var agent = await builder.BuildAsync();
+            // Act
+            var act = () => builder.BuildAsync();
 
-            // Assert - verify the provider was created successfully with the resolved key
-            // (If the key wasn't resolved, Build() would have thrown an exception)
-            agent.Should().NotBeNull();
-            agent.BaseClient.Should().NotBeNull();
+            // Assert
+            await act.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("*API key is required*");
         }
         finally
         {
@@ -525,7 +523,7 @@ public class AnthropicProviderTests
         json.Should().Contain("anthropic");
         json.Should().Contain("modelName");
         json.Should().Contain("claude-sonnet-4-5");
-        json.Should().Contain("providerOptionsJson");
+        json.Should().Contain("providerOptions");
         json.Should().Contain("maxTokens");
         json.Should().Contain("4096");
         json.Should().Contain("enablePromptCaching");
@@ -547,7 +545,12 @@ public class AnthropicProviderTests
                 "providerKey": "anthropic",
                 "modelName": "claude-sonnet-4-5",
                 "apiKey": "sk-ant-test-key",
-                "providerOptionsJson": "{\"maxTokens\":4096,\"enablePromptCaching\":true,\"temperature\":1.0,\"thinkingBudgetTokens\":2048}"
+                "providerOptions": {
+                    "maxTokens": 4096,
+                    "enablePromptCaching": true,
+                    "temperature": 1.0,
+                    "thinkingBudgetTokens": 2048
+                }
             } }
         }
         """;
@@ -562,7 +565,7 @@ public class AnthropicProviderTests
         config.EnsureChatClientConfig()!.ProviderKey.Should().Be("anthropic");
         config.EnsureChatClientConfig().ModelName.Should().Be("claude-sonnet-4-5");
         config.EnsureChatClientConfig().ApiKey.Should().Be("sk-ant-test-key");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().NotBeNullOrEmpty();
 
         // Verify typed config can be retrieved
         var anthropicConfig = config.EnsureChatClientConfig().GetProviderConfig<AnthropicProviderConfig>();
@@ -638,7 +641,7 @@ public class AnthropicProviderTests
     }
 
     [Fact]
-    public void AgentConfig_SetProviderConfig_ShouldUpdateProviderOptionsJson()
+    public void AgentConfig_SetProviderConfig_ShouldUpdateProviderOptions()
     {
         // Arrange
         var config = new AgentConfig
@@ -657,12 +660,12 @@ public class AnthropicProviderTests
         };
         config.EnsureChatClientConfig().SetProviderConfig(anthropicOpts);
 
-        // Assert - ProviderOptionsJson should be populated
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().NotBeNullOrEmpty();
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("maxTokens");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("2048");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("temperature");
-        config.EnsureChatClientConfig().ProviderOptionsJson.Should().Contain("0.5");
+        // Assert - ProviderOptions should be populated
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().NotBeNullOrEmpty();
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("maxTokens");
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("2048");
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("temperature");
+        config.EnsureChatClientConfig().GetProviderOptionsRawJson().Should().Contain("0.5");
 
         // Verify we can retrieve it back
         var retrieved = config.EnsureChatClientConfig().GetProviderConfig<AnthropicProviderConfig>();

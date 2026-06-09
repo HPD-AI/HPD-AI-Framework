@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Filters;
 using HPD.RAG.Core.Providers.VectorStore;
 using HPD.RAG.VectorStores.CosmosNoSql;
@@ -44,7 +45,9 @@ public sealed class CosmosNoSqlVectorStoreTests : VectorStoreTestBase
         var config = new VectorStoreConfig
         {
             ProviderKey = "cosmos-nosql",
-            ConnectionString = "AccountEndpoint=https://fake.documents.azure.com:443/;AccountKey=ZmFrZWtleWZha2VrZXlmYWtla2V5ZmFrZWtleWZha2VrZXlmYWtla2V5Zg==;"
+            ProviderOptions = JsonDocument.Parse(
+                """{"connectionString":"AccountEndpoint=https://fake.documents.azure.com:443/;AccountKey=ZmFrZWtleWZha2VrZXlmYWtla2V5ZmFrZWtleWZha2VrZXlmYWtla2V5Zg==;"}""")
+                .RootElement.Clone()
         };
         var store = features.CreateVectorStore(config);
         Assert.NotNull(store);

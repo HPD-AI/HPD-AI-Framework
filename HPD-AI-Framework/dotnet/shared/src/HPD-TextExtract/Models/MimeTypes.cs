@@ -8,10 +8,7 @@ namespace HPD.TextExtract.Models
     {
         public const string PlainText = "text/plain";
 
-        // Multiple values have been used over the years.
         public const string MarkDown = "text/markdown";
-        public const string MarkDownOld1 = "text/x-markdown";
-        public const string MarkDownOld2 = "text/plain-markdown";
 
         public const string Html = "text/html";
         public const string XHTML = "application/xhtml+xml";

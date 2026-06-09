@@ -4,94 +4,31 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using HPD.Serialization;
 using Microsoft.Extensions.AI.Evaluation;
-using YamlDotNet.Core;
-using YamlDotNet.Core.Events;
-using YamlDotNet.RepresentationModel;
 
 namespace HPD.Agent.Evaluations.Batch;
 
 internal static class DatasetYamlSerializer
 {
+    public static Dataset<TInput> FromJsonNode<TInput>(JsonNode? node, Func<JsonNode?, TInput> parseInput)
+        => ConvertDataset(node, parseInput);
+
     public static Dataset<TInput> FromYaml<TInput>(string yaml, Func<JsonNode?, TInput> parseInput)
-    {
-        var stream = new YamlStream();
-        stream.Load(new StringReader(yaml));
+        => ConvertDataset(HpdConfigSerializer.ParseYamlToJsonNode(yaml), parseInput);
 
-        if (stream.Documents.Count == 0)
-            return new Dataset<TInput>();
-
-        return ConvertDataset(ConvertNode(stream.Documents[0].RootNode), parseInput);
-    }
+    public static JsonNode ToJsonNode<TInput>(Dataset<TInput> dataset, Func<TInput, JsonNode?> serializeInput)
+        => ConvertDataset(dataset, serializeInput);
 
     public static string ToYaml<TInput>(Dataset<TInput> dataset, Func<TInput, JsonNode?> serializeInput)
-    {
-        var json = ConvertDataset(dataset, serializeInput);
-        using var writer = new StringWriter(CultureInfo.InvariantCulture);
-        var emitter = new Emitter(writer);
-
-        emitter.Emit(new StreamStart());
-        emitter.Emit(new DocumentStart());
-        EmitJsonNode(emitter, json);
-        emitter.Emit(new DocumentEnd(false));
-        emitter.Emit(new StreamEnd());
-
-        return writer.ToString();
-    }
-
-    private static JsonNode? ConvertNode(YamlNode node) => node switch
-    {
-        YamlMappingNode mapping => ConvertMapping(mapping),
-        YamlSequenceNode sequence => ConvertSequence(sequence),
-        YamlScalarNode scalar => ConvertScalar(scalar),
-        _ => null,
-    };
-
-    private static JsonObject ConvertMapping(YamlMappingNode mapping)
-    {
-        var json = new JsonObject();
-        foreach (var (keyNode, valueNode) in mapping.Children)
-        {
-            if (keyNode is not YamlScalarNode key || string.IsNullOrWhiteSpace(key.Value))
-                continue;
-
-            json[key.Value] = ConvertNode(valueNode);
-        }
-
-        return json;
-    }
-
-    private static JsonArray ConvertSequence(YamlSequenceNode sequence)
-    {
-        var json = new JsonArray();
-        foreach (var child in sequence.Children)
-            json.Add(ConvertNode(child));
-
-        return json;
-    }
-
-    private static JsonNode? ConvertScalar(YamlScalarNode scalar)
-    {
-        var value = scalar.Value;
-        if (value is null || value == "~" || value.Equals("null", StringComparison.OrdinalIgnoreCase))
-            return null;
-
-        if (bool.TryParse(value, out var boolValue))
-            return JsonValue.Create(boolValue);
-
-        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var longValue))
-            return JsonValue.Create(longValue);
-
-        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var doubleValue))
-            return JsonValue.Create(doubleValue);
-
-        return JsonValue.Create(value);
-    }
+        => HpdConfigSerializer.WriteYaml(ConvertDataset(dataset, serializeInput));
 
     private static Dataset<TInput> ConvertDataset<TInput>(JsonNode? root, Func<JsonNode?, TInput> parseInput)
     {
         if (root is not JsonObject rootObject)
             return new Dataset<TInput>();
+
+        RejectUnknownKeys(rootObject, "dataset", "cases", "dataset_id", "version", "evaluators");
 
         return new Dataset<TInput>
         {
@@ -110,19 +47,33 @@ internal static class DatasetYamlSerializer
             return [];
 
         return cases.OfType<JsonObject>()
-            .Select(c => new EvalCase<TInput>
+            .Select(c =>
             {
-                CaseId = GetString(c["case_id"]),
-                Name = GetString(c["name"]),
-                Version = GetString(c["version"]),
-                ValidFrom = GetDateTimeOffset(c["valid_from"]),
-                ValidTo = GetDateTimeOffset(c["valid_to"]),
-                Input = parseInput(c["input"]),
-                GroundTruth = GetString(c["ground_truth"]),
-                Metadata = ConvertMetadata(c["metadata"]),
-                Evaluators = ConvertEvaluators(c["evaluators"]),
+                RejectUnknownKeys(c, "case", "case_id", "name", "version", "valid_from", "valid_to", "input", "ground_truth", "metadata", "evaluators");
+
+                return new EvalCase<TInput>
+                {
+                    CaseId = GetString(c["case_id"]),
+                    Name = GetString(c["name"]),
+                    Version = GetString(c["version"]),
+                    ValidFrom = GetDateTimeOffset(c["valid_from"]),
+                    ValidTo = GetDateTimeOffset(c["valid_to"]),
+                    Input = parseInput(c["input"]),
+                    GroundTruth = GetString(c["ground_truth"]),
+                    Metadata = ConvertMetadata(c["metadata"]),
+                    Evaluators = ConvertEvaluators(c["evaluators"]),
+                };
             })
             .ToList();
+    }
+
+    private static void RejectUnknownKeys(JsonObject obj, string scope, params string[] allowedKeys)
+    {
+        foreach (var key in obj.Select(static kvp => kvp.Key))
+        {
+            if (!allowedKeys.Contains(key))
+                throw new JsonException($"Unknown {scope} property '{key}'.");
+        }
     }
 
     private static IReadOnlyList<IEvaluator> ConvertEvaluators(JsonNode? evaluatorsNode)
@@ -226,70 +177,4 @@ internal static class DatasetYamlSerializer
         _ => JsonValue.Create(value.ToString()),
     };
 
-    private static void EmitJsonNode(IEmitter emitter, JsonNode? node)
-    {
-        switch (node)
-        {
-            case null:
-                emitter.Emit(new Scalar(null, null, "null", ScalarStyle.Plain, true, false));
-                break;
-            case JsonObject obj:
-                emitter.Emit(new MappingStart(null, null, false, MappingStyle.Block));
-                foreach (var (key, value) in obj)
-                {
-                    emitter.Emit(new Scalar(null, null, key, ScalarStyle.Plain, true, false));
-                    EmitJsonNode(emitter, value);
-                }
-                emitter.Emit(new MappingEnd());
-                break;
-            case JsonArray array:
-                emitter.Emit(new SequenceStart(null, null, false, SequenceStyle.Block));
-                foreach (var value in array)
-                    EmitJsonNode(emitter, value);
-                emitter.Emit(new SequenceEnd());
-                break;
-            case JsonValue value:
-                emitter.Emit(new Scalar(null, null, ConvertJsonValue(value), ScalarStyle.Any, true, false));
-                break;
-        }
-    }
-
-    private static string ConvertJsonValue(JsonValue value)
-    {
-        if (value.TryGetValue<JsonElement>(out var element))
-        {
-            return element.ValueKind switch
-            {
-                JsonValueKind.String => element.GetString() ?? string.Empty,
-                JsonValueKind.Number => element.GetRawText(),
-                JsonValueKind.True => "true",
-                JsonValueKind.False => "false",
-                JsonValueKind.Null => "null",
-                _ => element.ToString(),
-            };
-        }
-
-        if (value.TryGetValue<string>(out var text))
-            return text;
-
-        if (value.TryGetValue<bool>(out var boolean))
-            return boolean ? "true" : "false";
-
-        if (value.TryGetValue<int>(out var intValue))
-            return intValue.ToString(CultureInfo.InvariantCulture);
-
-        if (value.TryGetValue<long>(out var longValue))
-            return longValue.ToString(CultureInfo.InvariantCulture);
-
-        if (value.TryGetValue<double>(out var doubleValue))
-            return doubleValue.ToString(CultureInfo.InvariantCulture);
-
-        if (value.TryGetValue<float>(out var floatValue))
-            return floatValue.ToString(CultureInfo.InvariantCulture);
-
-        if (value.TryGetValue<decimal>(out var decimalValue))
-            return decimalValue.ToString(CultureInfo.InvariantCulture);
-
-        return value.ToString();
-    }
 }

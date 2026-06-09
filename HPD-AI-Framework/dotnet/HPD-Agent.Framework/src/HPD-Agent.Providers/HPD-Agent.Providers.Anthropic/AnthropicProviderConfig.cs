@@ -14,7 +14,7 @@ namespace HPD.Agent.Providers.Anthropic;
 ///     "ProviderKey": "anthropic",
 ///     "ModelName": "claude-sonnet-4-5-20250929",
 ///     "ApiKey": "sk-ant-...",
-///     "ProviderOptionsJson": "{\"thinkingBudgetTokens\":4096,\"serviceTier\":\"auto\"}"
+///     "ProviderOptions": { "thinkingBudgetTokens": 4096, "serviceTier": "auto" }
 ///   }
 /// }
 /// </code>

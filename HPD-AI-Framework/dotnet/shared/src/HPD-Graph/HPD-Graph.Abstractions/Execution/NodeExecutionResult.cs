@@ -183,33 +183,6 @@ public abstract record NodeExecutionResult
             };
         }
 
-        /// <summary>
-        /// Private parameterless constructor for backward compatibility constructor.
-        /// </summary>
-        private Suspended()
-        {
-            SuspendToken = string.Empty;
-            Reason = SuspendReason.HumanApproval;
-        }
-
-        /// <summary>
-        /// Backward-compatibility constructor for existing HITL suspension code.
-        /// Automatically defaults to HumanApproval reason.
-        /// </summary>
-        /// <remarks>
-        /// This constructor exists for migration of existing HITL workflows.
-        /// New code should use ForHumanApproval() factory method instead.
-        /// Will be removed in v2.0.
-        /// </remarks>
-        [Obsolete("Use Suspended.ForHumanApproval() factory method instead. This constructor will be removed in v2.0.", error: false)]
-        public Suspended(string suspendToken, object? resumeValue = null, string? message = null)
-            : this()
-        {
-            SuspendToken = suspendToken;
-            Reason = SuspendReason.HumanApproval;
-            ResumeValue = resumeValue;
-            Message = message;
-        }
     }
 
     /// <summary>

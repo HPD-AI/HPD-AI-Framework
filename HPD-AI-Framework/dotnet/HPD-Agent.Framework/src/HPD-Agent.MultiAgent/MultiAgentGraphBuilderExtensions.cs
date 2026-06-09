@@ -21,9 +21,8 @@ public static class MultiAgentGraphBuilderExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         ArgumentNullException.ThrowIfNull(config);
 
-        var workflow = AgentWorkflow
-            .FromConfig(config)
-            .BuildAsync()
+        var workflow = new MultiAgentFactory()
+            .BuildAsync(config)
             .GetAwaiter()
             .GetResult();
 

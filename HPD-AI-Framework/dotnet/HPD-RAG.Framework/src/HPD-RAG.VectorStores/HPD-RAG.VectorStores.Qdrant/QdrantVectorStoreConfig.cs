@@ -2,7 +2,7 @@ namespace HPD.RAG.VectorStores.Qdrant;
 
 /// <summary>
 /// Qdrant-specific typed config. Extends base endpoint and API key with port configuration.
-/// Serialized into VectorStoreConfig.ProviderOptionsJson for AOT-safe roundtripping.
+/// Serialized into VectorStoreConfig.ProviderOptions for AOT-safe roundtripping.
 /// </summary>
 public sealed class QdrantVectorStoreConfig
 {

@@ -1,8 +1,9 @@
-using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.Hosting.Configuration;
 using HPD.Agent.Hosting.Lifecycle;
+using HPD.Agent.Serialization;
 using Microsoft.Extensions.Options;
+using HostingAgentFactory = HPD.Agent.Hosting.Configuration.IAgentFactory;
 
 namespace HPD.Agent.AspNetCore.Lifecycle;
 
@@ -17,7 +18,7 @@ internal class AspNetCoreAgentManager : AgentManager
     private readonly IOptionsMonitor<HPDAgentConfig> _optionsMonitor;
     private readonly IServiceProvider _serviceProvider;
     private readonly string _name;
-    private readonly IAgentFactory? _agentFactory;
+    private readonly HostingAgentFactory? _agentFactory;
 
     internal AspNetCoreAgentManager(
         IAgentStore agentStore,
@@ -25,7 +26,7 @@ internal class AspNetCoreAgentManager : AgentManager
         IOptionsMonitor<HPDAgentConfig> optionsMonitor,
         IServiceProvider serviceProvider,
         string name,
-        IAgentFactory? agentFactory = null)
+        HostingAgentFactory? agentFactory = null)
         : base(agentStore)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
@@ -59,8 +60,7 @@ internal class AspNetCoreAgentManager : AgentManager
         }
         else if (opts.DefaultAgentPath != null)
         {
-            var json = await File.ReadAllTextAsync(opts.DefaultAgentPath, ct);
-            var loaded = JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentConfig)
+            var loaded = await HpdAgentConfigSerializer.ReadFileAsync(opts.DefaultAgentPath, ct)
                 ?? throw new InvalidOperationException(
                     $"Failed to deserialize default agent definition from {opts.DefaultAgentPath}");
             builder = new AgentBuilder(loaded);

@@ -24,14 +24,14 @@ public class AgentClientConfigTests
                         ProviderKey = "openai",
                         ApiKey = "agent-key",
                         Endpoint = "https://agent.example",
-                        ProviderOptionsJson = "{\"organizationId\":\"org_1\",\"projectId\":\"proj_agent\"}"
+                        ProviderOptions = JsonDocument.Parse("""{"organizationId":"org_1","projectId":"proj_agent"}""").RootElement.Clone()
                     }
                 },
                 Chat = new ClientProviderConfig
                 {
                     ProviderKey = "openai",
                     ModelName = "gpt-agent",
-                    ProviderOptionsJson = "{\"reasoningEffortLevel\":\"medium\"}"
+                    ProviderOptions = JsonDocument.Parse("""{"reasoningEffortLevel":"medium"}""").RootElement.Clone()
                 }
             }
         };
@@ -43,13 +43,13 @@ public class AgentClientConfigTests
                 ["openai"] = new ClientProviderConfig
                 {
                     Endpoint = "https://run.example",
-                    ProviderOptionsJson = "{\"projectId\":\"proj_run\"}"
+                    ProviderOptions = JsonDocument.Parse("""{"projectId":"proj_run"}""").RootElement.Clone()
                 }
             },
             Chat = new ClientProviderConfig
             {
                 ModelName = "gpt-run",
-                ProviderOptionsJson = "{\"temperatureProfile\":\"creative\"}"
+                ProviderOptions = JsonDocument.Parse("""{"temperatureProfile":"creative"}""").RootElement.Clone()
             }
         };
 
@@ -61,7 +61,7 @@ public class AgentClientConfigTests
         resolved.ApiKey.Should().Be("agent-key");
         resolved.Endpoint.Should().Be("https://run.example");
 
-        using var json = JsonDocument.Parse(resolved.ProviderOptionsJson!);
+        using var json = JsonDocument.Parse(resolved.GetProviderOptionsRawJson()!);
         var root = json.RootElement;
         root.GetProperty("organizationId").GetString().Should().Be("org_1");
         root.GetProperty("projectId").GetString().Should().Be("proj_run");
@@ -70,7 +70,7 @@ public class AgentClientConfigTests
     }
 
     [Fact]
-    public void ResolveClientConfig_RejectsNonObjectProviderOptionsJsonWhenMerging()
+    public void ResolveClientConfig_RejectsNonObjectProviderOptionsWhenMerging()
     {
         var config = new AgentConfig
         {
@@ -81,13 +81,13 @@ public class AgentClientConfigTests
                     ["openai"] = new ClientProviderConfig
                     {
                         ProviderKey = "openai",
-                        ProviderOptionsJson = "[]"
+                        ProviderOptions = JsonDocument.Parse("[]").RootElement.Clone()
                     }
                 },
                 Chat = new ClientProviderConfig
                 {
                     ProviderKey = "openai",
-                    ProviderOptionsJson = "{\"ok\":true}"
+                    ProviderOptions = JsonDocument.Parse("""{"ok":true}""").RootElement.Clone()
                 }
             }
         };
@@ -95,7 +95,7 @@ public class AgentClientConfigTests
         var act = () => config.ResolveClientConfig(ProviderClientFamily.Chat);
 
         act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*ProviderOptionsJson merge requires*JSON object*");
+            .WithMessage("*ProviderOptions merge requires*JSON object*");
     }
 
     [Fact]
@@ -108,6 +108,18 @@ public class AgentClientConfigTests
         var resolved = registry.GetRequiredProvider<IChatClientProvider>("test");
 
         resolved.Should().BeSameAs(provider);
+    }
+
+    [Fact]
+    public void GetRequiredProvider_RequiresCanonicalProviderKeyCasing()
+    {
+        var registry = new ProviderRegistry();
+        registry.Register(new ChatOnlyProvider());
+
+        var act = () => registry.GetRequiredProvider<IChatClientProvider>("Test");
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*Provider 'Test' is not registered*Available providers: test*");
     }
 
     [Fact]

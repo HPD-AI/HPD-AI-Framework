@@ -120,13 +120,10 @@ public class MragPipeline
             {
                 var config = new TConfig();
                 configure(config);
-                // Serialize TConfig to JSON and store as the "config" key.
-                // The HPD.Graph source-generated handler bridge deserialises "config"
-                // back to its TConfig at execution time.
-                var configJson = JsonSerializer.Serialize(
+                var configJson = JsonSerializer.SerializeToElement(
                     config,
-                    MragJsonSerializerContext.Shared.Options);
-                nb.WithConfig("config", configJson);
+                    MragJsonUtilities.DefaultOptions);
+                nb.WithConfig(configJson);
             }
         });
 

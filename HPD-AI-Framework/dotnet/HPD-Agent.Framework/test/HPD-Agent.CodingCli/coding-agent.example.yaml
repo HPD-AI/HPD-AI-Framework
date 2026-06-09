@@ -1,0 +1,11 @@
+name: Coding CLI YAML Agent
+systemInstructions: You are a concise coding assistant for CLI smoke testing.
+maxAgenticIterations: 1
+clients:
+  chat:
+    providerKey: openrouter
+    modelName: deepseek/deepseek-v4-pro
+    apiKey: test-openrouter-key
+    providerOptions:
+      temperature: 0.1
+      maxTokens: 64

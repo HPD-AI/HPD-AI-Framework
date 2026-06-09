@@ -501,7 +501,7 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Validates and migrates middleware state schema when resuming from checkpoint.
+    /// Validates middleware state schema when resuming from checkpoint.
     // ── Span ID helpers ───────────────────────────────────────────────────────
 
     /// <summary>Generates a 128-bit OTel-compatible trace ID (32 lowercase hex chars).</summary>
@@ -514,14 +514,73 @@ public sealed class Agent
 
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// Detects added/removed middleware and logs changes for operational visibility.
     /// Schema is computed from runtime-registered factories (not compiled constants).
     /// </summary>
     /// <param name="checkpointState">Middleware state from checkpoint</param>
-    /// <returns>Updated middleware state with current schema metadata</returns>
-    private MiddlewareState ValidateAndMigrateSchema(MiddlewareState checkpointState)
+    /// <returns>The checkpoint state when it was produced by the current middleware schema.</returns>
+    private MiddlewareState ValidateMiddlewareSchema(MiddlewareState checkpointState)
     {
-        // Compute current schema signature from runtime-registered factories
+        var (currentSignature, currentVersions) = GetCurrentMiddlewareSchema();
+
+        if (string.IsNullOrWhiteSpace(checkpointState.SchemaSignature))
+        {
+            throw new InvalidOperationException(
+                "Cannot resume checkpoint without middleware schema metadata.");
+        }
+
+        if (!StringComparer.Ordinal.Equals(checkpointState.SchemaSignature, currentSignature))
+        {
+            var oldTypes = checkpointState.SchemaSignature
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .ToHashSet(StringComparer.Ordinal);
+            var newTypes = _stateFactories.Keys.ToHashSet(StringComparer.Ordinal);
+
+            var removed = oldTypes.Except(newTypes).OrderBy(type => type, StringComparer.Ordinal).ToArray();
+            var added = newTypes.Except(oldTypes).OrderBy(type => type, StringComparer.Ordinal).ToArray();
+
+            throw new InvalidOperationException(
+                "Cannot resume checkpoint created with a different middleware schema. " +
+                $"Added: {string.Join(", ", added)}. Removed: {string.Join(", ", removed)}.");
+        }
+
+        if (checkpointState.StateVersions is null)
+        {
+            throw new InvalidOperationException(
+                "Cannot resume checkpoint without middleware state version metadata.");
+        }
+
+        foreach (var (stateType, currentVersion) in currentVersions)
+        {
+            if (!checkpointState.StateVersions.TryGetValue(stateType, out var checkpointVersion))
+            {
+                throw new InvalidOperationException(
+                    $"Cannot resume checkpoint without version metadata for middleware state '{stateType}'.");
+            }
+
+            if (checkpointVersion != currentVersion)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot resume checkpoint with middleware state '{stateType}' version {checkpointVersion}; expected {currentVersion}.");
+            }
+        }
+
+        return checkpointState;
+    }
+
+    private MiddlewareState StampMiddlewareSchema(MiddlewareState middlewareState)
+    {
+        var (currentSignature, currentVersions) = GetCurrentMiddlewareSchema();
+        return new MiddlewareState
+        {
+            States = middlewareState.States,
+            SchemaSignature = currentSignature,
+            SchemaVersion = 1,
+            StateVersions = currentVersions
+        };
+    }
+
+    private (string Signature, ImmutableDictionary<string, int> Versions) GetCurrentMiddlewareSchema()
+    {
         var currentSignature = string.Join(",",
             _stateFactories.Keys.OrderBy(k => k, StringComparer.Ordinal));
 
@@ -529,88 +588,7 @@ public sealed class Agent
             kvp => kvp.Key,
             kvp => kvp.Value.Version);
 
-        // Case 1: Pre-versioning checkpoint (SchemaSignature is null)
-        if (checkpointState.SchemaSignature == null)
-        {
-            _agentLogger?.LogInformation(
-                "Resuming from checkpoint created before schema versioning. " +
-                "Upgrading to current schema.");
-
-            var upgradeEvent = new SchemaChangedEvent(
-                OldSignature: null,
-                NewSignature: currentSignature,
-                RemovedTypes: Array.Empty<string>(),
-                AddedTypes: Array.Empty<string>(),
-                IsUpgrade: true);
-
-            PublishOutputEvent(upgradeEvent);
-
-            return new MiddlewareState
-            {
-                States = checkpointState.States,
-                SchemaSignature = currentSignature,
-                SchemaVersion = 1,
-                StateVersions = currentVersions
-            };
-        }
-
-        // Case 2: Schema matches (common case - no changes)
-        if (checkpointState.SchemaSignature == currentSignature)
-        {
-            return checkpointState;
-        }
-
-        // Case 3: Schema changed - detect and log differences
-        var oldTypes = checkpointState.SchemaSignature
-            .Split(',', StringSplitOptions.RemoveEmptyEntries)
-            .ToHashSet();
-        var newTypes = _stateFactories.Keys.ToHashSet();
-
-        var removed = oldTypes.Except(newTypes).ToList();
-        var added = newTypes.Except(oldTypes).ToList();
-
-        // Log removed middleware (potential data loss - WARNING level)
-        if (removed.Count > 0)
-        {
-            var removedNames = removed.Select(fqn => fqn.Split('.').Last()).ToList();
-
-            _agentLogger?.LogWarning(
-                "Checkpoint contains state for {RemovedCount} middleware that no longer exist: {RemovedMiddleware}. " +
-                "State will be discarded (this is expected after middleware removal).",
-                removed.Count,
-                string.Join(", ", removedNames));
-        }
-
-        // Log added middleware (expected behavior - INFO level)
-        if (added.Count > 0)
-        {
-            var addedNames = added.Select(fqn => fqn.Split('.').Last()).ToList();
-
-            _agentLogger?.LogInformation(
-                "Detected {AddedCount} new middleware not present in checkpoint: {AddedMiddleware}. " +
-                "State will be initialized to defaults.",
-                added.Count,
-                string.Join(", ", addedNames));
-        }
-
-        // Emit telemetry event for monitoring
-        var schemaEvent = new SchemaChangedEvent(
-            OldSignature: checkpointState.SchemaSignature,
-            NewSignature: currentSignature,
-            RemovedTypes: removed,
-            AddedTypes: added,
-            IsUpgrade: false);
-
-        PublishOutputEvent(schemaEvent);
-
-        // Update to current schema metadata
-        return new MiddlewareState
-        {
-            States = checkpointState.States,
-            SchemaSignature = currentSignature,
-            SchemaVersion = 1,
-            StateVersions = currentVersions
-        };
+        return (currentSignature, currentVersions);
     }
 
     /// <summary>
@@ -882,7 +860,7 @@ public sealed class Agent
             TurnId = turnId,
             Iteration = state.Iteration,
             CompletedFunctions = state.CompletedFunctions,
-            MiddlewareState = state.MiddlewareState,
+            MiddlewareState = StampMiddlewareSchema(state.MiddlewareState),
             IsTerminated = state.IsTerminated,
             TerminationReason = state.TerminationReason,
             CreatedAt = turnStartTime,
@@ -1725,8 +1703,7 @@ public sealed class Agent
                 // Reconstruct full message list from the durable branch transcript.
                 sharedMessages = branch!.Messages.ToList();
 
-                // Validate and migrate middleware schema
-                var restoredMiddlewareState = ValidateAndMigrateSchema(uncommittedTurn.MiddlewareState);
+                var restoredMiddlewareState = ValidateMiddlewareSchema(uncommittedTurn.MiddlewareState);
 
                 // Reconstruct AgentLoopState from uncommitted turn
                 state = AgentLoopState.Initial(sharedMessages, messageTurnId, conversationId, this.Name, restoredMiddlewareState);
@@ -3653,7 +3630,7 @@ public sealed class Agent
     /// <code>
     /// await agent.RunTurnStreamAsync(new AgentRunConfig
     /// {
-    ///     Attachments = [new AudioContent(audioBytes)]
+    ///     Attachments = [new AudioContent(audioBytes, MimeTypeRegistry.AudioMpeg)]
     /// });
     /// </code>
     /// </para>
@@ -3966,17 +3943,16 @@ public sealed class Agent
 
         // Determine the mode we're operating in
         var isToolMode = structuredOpts.Mode.Equals("tool", StringComparison.OrdinalIgnoreCase);
-        var isUnionMode = structuredOpts.Mode.Equals("union", StringComparison.OrdinalIgnoreCase);
-        var isNativeUnionMode = !isToolMode && !isUnionMode && structuredOpts.UnionTypes is { Length: > 0 };
+        var isNativeUnionMode = !isToolMode && structuredOpts.UnionTypes is { Length: > 0 };
 
         // Check if tool mode is using union types (merged union behavior)
         var isToolModeWithUnionTypes = isToolMode && structuredOpts.UnionTypes is { Length: > 0 };
         var outputToolName = structuredOpts.ToolName ?? $"return_{schemaName}";
 
-        // Build set of output tool names for union mode OR tool mode with union types
+        // Build set of output tool names for tool mode with union types
         HashSet<string>? unionToolNames = null;
         Dictionary<string, Type>? unionToolTypeMap = null;
-        if ((isUnionMode || isToolModeWithUnionTypes) && structuredOpts.UnionTypes != null)
+        if (isToolModeWithUnionTypes && structuredOpts.UnionTypes != null)
         {
             unionToolNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             unionToolTypeMap = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
@@ -3994,7 +3970,7 @@ public sealed class Agent
         var parseAttemptCount = 0;
 
         // Emit start event for observability
-        var outputMode = isUnionMode ? "union" : (isToolMode ? "tool" : (isNativeUnionMode ? "native-union" : "native"));
+        var outputMode = isToolMode ? "tool" : (isNativeUnionMode ? "native-union" : "native");
         yield return new StructuredOutputStartEvent(
             MessageId: messageId,
             OutputTypeName: schemaName,
@@ -4015,22 +3991,22 @@ public sealed class Agent
             }
 
             // ═══════════════════════════════════════════════════════════════
-            // TOOL MODE / UNION MODE: Capture output tool arguments
+            // TOOL MODE: Capture output tool arguments
             // ═══════════════════════════════════════════════════════════════
-            if (isToolMode || isUnionMode)
+            if (isToolMode)
             {
                 if (evt is ToolCallStartEvent toolStart)
                 {
-                    // Check if this is our output tool (tool mode) or a union output tool (union/tool+union mode)
+                    // Check if this is our output tool (single tool mode) or a union output tool.
                     if (isToolMode && !isToolModeWithUnionTypes && toolStart.Name == outputToolName)
                     {
                         // Single type tool mode: use the single return tool
                         outputToolCallId = toolStart.CallId;
                         continue;
                     }
-                    else if ((isUnionMode || isToolModeWithUnionTypes) && unionToolNames!.Contains(toolStart.Name))
+                    else if (isToolModeWithUnionTypes && unionToolNames!.Contains(toolStart.Name))
                     {
-                        // Union mode or tool mode with union types: check against union tool names
+                        // Tool mode with union types: check against union tool names
                         outputToolCallId = toolStart.CallId;
                         matchedUnionType = unionToolTypeMap![toolStart.Name];
                         continue;
@@ -4048,10 +4024,10 @@ public sealed class Agent
 
                 if (evt is ToolCallEndEvent toolEnd && toolEnd.CallId == outputToolCallId)
                 {
-                    // Final parse for tool/union mode
+                    // Final parse for tool mode
                     var finalJson = textAccumulator.ToString();
                     var elapsed = Stopwatch.GetElapsedTime(startTime);
-                    var resultTypeName = (isUnionMode || isToolModeWithUnionTypes) && matchedUnionType != null
+                    var resultTypeName = isToolModeWithUnionTypes && matchedUnionType != null
                         ? matchedUnionType.Name
                         : schemaName;
 
@@ -4063,9 +4039,9 @@ public sealed class Agent
                         FinalJsonLength: finalJson.Length,
                         Duration: elapsed);
 
-                    if ((isUnionMode || isToolModeWithUnionTypes) && matchedUnionType != null)
+                    if (isToolModeWithUnionTypes && matchedUnionType != null)
                     {
-                        // Union mode or tool mode with union types: deserialize to the specific union type, then cast to T
+                        // Tool mode with union types: deserialize to the specific union type, then cast to T
                         yield return EmitUnionResult<T>(finalJson, matchedUnionType, serializerOptions);
                     }
                     else
@@ -4109,9 +4085,9 @@ public sealed class Agent
 
             // ═══════════════════════════════════════════════════════════════
             // NATIVE MODE STREAM END: Final validation
-            // In tool/union mode, ignore TextMessageEndEvent - we wait for output tool
+            // In tool mode, ignore TextMessageEndEvent - we wait for output tool
             // ═══════════════════════════════════════════════════════════════
-            if (evt is TextMessageEndEvent && !isToolMode && !isUnionMode)
+            if (evt is TextMessageEndEvent && !isToolMode)
             {
                 var finalJson = textAccumulator.ToString();
                 var elapsed = Stopwatch.GetElapsedTime(startTime);
@@ -4141,8 +4117,8 @@ public sealed class Agent
         }
 
         // Stream ended without explicit end event - try to parse what we have
-        // Only for native mode - tool/union mode must receive an output tool call
-        if (textAccumulator.Length > 0 && !isToolMode && !isUnionMode)
+        // Only for native mode - tool mode must receive an output tool call
+        if (textAccumulator.Length > 0 && !isToolMode)
         {
             var finalJson = textAccumulator.ToString();
             var elapsed = Stopwatch.GetElapsedTime(startTime);
@@ -4332,27 +4308,7 @@ public sealed class Agent
             // This ensures the LLM cannot output free text - it MUST call a return tool
             options.RuntimeToolMode = ChatToolMode.RequireAny;
         }
-        else if (structuredOpts.Mode.Equals("union", StringComparison.OrdinalIgnoreCase))
-        {
-            // DEPRECATED: "union" mode is now just "tool" mode with UnionTypes set
-            // Kept for backward compatibility - redirect to tool mode logic
-            if (structuredOpts.UnionTypes == null || structuredOpts.UnionTypes.Length == 0)
-            {
-                throw new InvalidOperationException(
-                    "Union mode requires UnionTypes to be specified with at least one type. " +
-                    "Consider using Mode='tool' with UnionTypes instead.");
-            }
-
-            options.RuntimeTools ??= new List<AITool>();
-            foreach (var unionType in structuredOpts.UnionTypes)
-            {
-                var tool = CreateOutputToolForType(unionType, serializerOptions);
-                options.RuntimeTools.Add(tool);
-            }
-
-            options.RuntimeToolMode = ChatToolMode.RequireAny;
-        }
-        else
+        else if (structuredOpts.Mode.Equals("native", StringComparison.OrdinalIgnoreCase))
         {
             // Native mode: Set response format with JSON schema
             if (structuredOpts.UnionTypes is { Length: > 0 })
@@ -4378,6 +4334,11 @@ public sealed class Agent
                     schemaName: schemaName,
                     schemaDescription: schemaDesc);
             }
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                $"Unsupported structured output mode '{structuredOpts.Mode}'. Use 'native' or 'tool'.");
         }
     }
 
@@ -4726,18 +4687,16 @@ public sealed class Agent
         if (options?.OverrideChatClient != null)
             return options.OverrideChatClient;
 
-        var legacyRunChat = options?.GetLegacyChatProviderOverride();
+        var runClients = CreateRunClientOverrides(options);
         var hasRunClientOverride =
-            options?.Clients?.GetFamilyConfig(Providers.ProviderClientFamily.Chat) != null ||
-            legacyRunChat != null;
+            runClients?.GetFamilyConfig(Providers.ProviderClientFamily.Chat) != null;
 
         if (!hasRunClientOverride)
             return null;
 
         var effectiveConfig = Config?.ResolveClientConfig(
             Providers.ProviderClientFamily.Chat,
-            options?.Clients,
-            legacyRunChat);
+            runClients);
 
         // Provider config override: use registry to create client
         var requestedProviderKey = effectiveConfig?.ProviderKey;
@@ -4834,6 +4793,35 @@ public sealed class Agent
         }
 
         return instructions;
+    }
+
+    private static AgentClientConfig? CreateRunClientOverrides(AgentRunConfig? options)
+    {
+        if (options is null)
+            return null;
+
+        if (options.Clients?.GetFamilyConfig(Providers.ProviderClientFamily.Chat) != null)
+            return options.Clients;
+
+        var chat = options.GetChatProviderOverride();
+        if (chat is null)
+            return options.Clients;
+
+        return options.Clients is null
+            ? new AgentClientConfig { Chat = chat }
+            : new AgentClientConfig
+            {
+                Providers = options.Clients.Providers,
+                Chat = chat,
+                TextToSpeech = options.Clients.TextToSpeech,
+                SpeechToText = options.Clients.SpeechToText,
+                Realtime = options.Clients.Realtime,
+                ImageGeneration = options.Clients.ImageGeneration,
+                Embeddings = options.Clients.Embeddings,
+                HostedFiles = options.Clients.HostedFiles,
+                VoiceActivityDetection = options.Clients.VoiceActivityDetection,
+                EndOfTurnDetection = options.Clients.EndOfTurnDetection
+            };
     }
 
     /// <summary>

@@ -83,7 +83,6 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(McpConfig))]
 [JsonSerializable(typeof(ValidationConfig))]
 [JsonSerializable(typeof(ErrorHandlingConfig))]
-[JsonSerializable(typeof(DocumentHandlingConfig))]
 [JsonSerializable(typeof(CompactionConfig))]
 [JsonSerializable(typeof(CompactionStrategyOptions))]
 [JsonSerializable(typeof(MessageCountingCompactionOptions))]

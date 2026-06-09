@@ -9,7 +9,8 @@ namespace HPD.Agent.Providers.GoogleAI;
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(GoogleAIProviderConfig))]
 [JsonSerializable(typeof(SafetySettingConfig))]
 internal partial class GoogleAIJsonContext : JsonSerializerContext

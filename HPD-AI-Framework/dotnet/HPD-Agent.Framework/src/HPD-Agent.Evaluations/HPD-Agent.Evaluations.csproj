@@ -25,11 +25,10 @@
 
     <!-- SQLite for SqliteScoreStore -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.3" />
-    <PackageReference Include="Vecc.YamlDotNet.Analyzers.StaticGenerator" Version="15.*" PrivateAssets="all" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-    <PackageReference Include="YamlDotNet" Version="15.*" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../../shared/src/HPD-Serialization/HPD-Serialization.csproj" />
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
   </ItemGroup>
 

@@ -8,7 +8,8 @@ namespace HPD.Agent.Providers.Audio.OpenAI;
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     WriteIndented = false,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(OpenAITtsConfig))]
 public partial class OpenAITtsJsonContext : JsonSerializerContext
 {

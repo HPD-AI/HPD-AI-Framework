@@ -67,7 +67,6 @@ public class SkillCollapsingTests
         // Act
         var visible = manager.GetToolsForAgentTurn(
             allTools,
-            ImmutableHashSet<string>.Empty,
             ImmutableHashSet<string>.Empty);
 
         // Assert
@@ -92,7 +91,6 @@ public class SkillCollapsingTests
         // Act - expand the skill
         var visible = manager.GetToolsForAgentTurn(
             allTools,
-            ImmutableHashSet<string>.Empty,
             ImmutableHashSet.Create("TestSkill"));
 
         // Assert
@@ -116,7 +114,6 @@ public class SkillCollapsingTests
         // Act - expand only Skill1
         var visible = manager.GetToolsForAgentTurn(
             allTools,
-            ImmutableHashSet<string>.Empty,
             ImmutableHashSet.Create("Skill1"));
 
         // Assert
@@ -140,7 +137,6 @@ public class SkillCollapsingTests
         // Act - expand both skills
         var visible = manager.GetToolsForAgentTurn(
             allTools,
-            ImmutableHashSet<string>.Empty,
             ImmutableHashSet.Create("Skill1", "Skill2"));
 
         // Assert
@@ -168,7 +164,6 @@ public class SkillCollapsingTests
         // Act - skill not expanded
         var visibleCollapse = manager.GetToolsForAgentTurn(
             allTools,
-            ImmutableHashSet<string>.Empty,
             ImmutableHashSet<string>.Empty);
 
         // Assert - functions hidden when skill Collapse
@@ -179,7 +174,6 @@ public class SkillCollapsingTests
         // Act - skill expanded
         var visibleExpanded = manager.GetToolsForAgentTurn(
             allTools,
-            ImmutableHashSet<string>.Empty,
             ImmutableHashSet.Create("TestSkill"));
 
         // Assert - functions visible when skill expanded
@@ -215,7 +209,6 @@ public class SkillCollapsingTests
         // Act - nothing expanded
         var visibleInitial = manager.GetToolsForAgentTurn(
             allTools,
-            ImmutableHashSet<string>.Empty,
             ImmutableHashSet<string>.Empty);
 
         // Assert - containers visible, functions hidden
@@ -227,8 +220,7 @@ public class SkillCollapsingTests
         // Act - expand both
         var visibleExpanded = manager.GetToolsForAgentTurn(
             allTools,
-            ImmutableHashSet.Create("TestToolHarness"),
-            ImmutableHashSet.Create("TestSkill"));
+            ImmutableHashSet.Create("TestToolHarness", "TestSkill"));
 
         // Assert - containers hidden, functions visible
         Assert.DoesNotContain(visibleExpanded, f => f.Name == "TestSkill");

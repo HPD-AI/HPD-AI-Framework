@@ -13,8 +13,8 @@ internal sealed class CosmosMongoVectorStoreFeatures : IVectorStoreFeatures
     public Microsoft.Extensions.VectorData.VectorStore CreateVectorStore(VectorStoreConfig config, IServiceProvider? services = null)
     {
         var typed = config.GetTypedConfig<CosmosMongoVectorStoreConfig>();
-        var connectionString = typed?.ConnectionString ?? config.ConnectionString
-            ?? throw new InvalidOperationException("Cosmos DB for MongoDB connection string is required.");
+        var connectionString = typed?.ConnectionString
+            ?? throw new InvalidOperationException("Cosmos DB for MongoDB connection string is required in CosmosMongoVectorStoreConfig.ProviderOptions.");
         var databaseName = typed?.DatabaseName ?? "mrag";
 
         var mongoClient = new MongoClient(connectionString);

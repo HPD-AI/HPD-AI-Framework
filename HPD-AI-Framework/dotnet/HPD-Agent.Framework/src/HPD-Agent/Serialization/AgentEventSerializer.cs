@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
-using System.Runtime.CompilerServices;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
@@ -164,26 +163,8 @@ public static partial class AgentEventSerializer
 
     private static JsonSerializerOptions CreateStandardJsonOptions()
     {
-        var options = new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
-            WriteIndented = false
-        };
-
-        options.TypeInfoResolverChain.Add(AgentEventJsonContext.Default);
-        options.TypeInfoResolverChain.Add(HPDJsonContext.Default);
-
-        foreach (var resolver in Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions.TypeInfoResolverChain)
-        {
-            if (resolver is not null)
-            {
-                options.TypeInfoResolverChain.Add(resolver);
-            }
-        }
-
-        if (RuntimeFeature.IsDynamicCodeSupported)
-            options.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
+        var options = HpdAgentJsonUtilities.CreateDefaultOptions();
+        options.TypeInfoResolverChain.Insert(0, AgentEventJsonContext.Default);
 
         options.AddAIContentType<ImageContent>("hpd:image");
         options.AddAIContentType<AudioContent>("hpd:audio");
@@ -381,7 +362,27 @@ public static partial class AgentEventSerializer
         if (discriminator == null || !DiscriminatorToType.TryGetValue(discriminator, out var concreteType))
             return null;
 
-        return doc.RootElement.Deserialize(GetTypeInfo(concreteType));
+        using var payload = StripEnvelopeFields(doc.RootElement);
+        return payload.RootElement.Deserialize(GetTypeInfo(concreteType));
+    }
+
+    private static JsonDocument StripEnvelopeFields(JsonElement root)
+    {
+        var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            foreach (var property in root.EnumerateObject())
+            {
+                if (property.NameEquals("version") || property.NameEquals("type"))
+                    continue;
+
+                property.WriteTo(writer);
+            }
+            writer.WriteEndObject();
+        }
+
+        return JsonDocument.Parse(stream.ToArray());
     }
 
     private static JsonTypeInfo GetTypeInfo(Type concreteType)

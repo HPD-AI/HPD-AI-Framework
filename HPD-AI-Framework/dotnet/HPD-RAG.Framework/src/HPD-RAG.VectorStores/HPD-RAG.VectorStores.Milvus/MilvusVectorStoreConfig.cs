@@ -2,7 +2,7 @@ namespace HPD.RAG.VectorStores.Milvus;
 
 /// <summary>
 /// Milvus-specific typed config.
-/// Serialized into VectorStoreConfig.ProviderOptionsJson for AOT-safe roundtripping.
+/// Serialized into VectorStoreConfig.ProviderOptions for AOT-safe roundtripping.
 /// </summary>
 public sealed class MilvusVectorStoreConfig
 {

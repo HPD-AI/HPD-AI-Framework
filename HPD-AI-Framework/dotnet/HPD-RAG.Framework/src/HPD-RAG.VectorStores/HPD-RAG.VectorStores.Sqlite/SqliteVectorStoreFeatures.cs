@@ -12,8 +12,8 @@ internal sealed class SqliteVectorStoreFeatures : IVectorStoreFeatures
     public Microsoft.Extensions.VectorData.VectorStore CreateVectorStore(VectorStoreConfig config, IServiceProvider? services = null)
     {
         var typed = config.GetTypedConfig<SqliteVectorStoreConfig>();
-        var databasePath = typed?.DatabasePath ?? config.ConnectionString
-            ?? throw new InvalidOperationException("SQLite database path is required.");
+        var databasePath = typed?.DatabasePath
+            ?? throw new InvalidOperationException("SQLite database path is required in SqliteVectorStoreConfig.ProviderOptions.");
 
         // Use raw SqliteConnection — SK Sqlite connector 1.51.0-preview uses incompatible MEVD 9.0.0-preview
         var connection = new SqliteConnection($"Data Source={databasePath}");

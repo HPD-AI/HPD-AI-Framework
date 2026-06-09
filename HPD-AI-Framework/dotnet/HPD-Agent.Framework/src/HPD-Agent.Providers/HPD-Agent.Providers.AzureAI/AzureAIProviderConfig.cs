@@ -14,7 +14,7 @@ namespace HPD.Agent.Providers.AzureAI;
 ///     "ProviderKey": "azure-ai",
 ///     "ModelName": "gpt-4",
 ///     "Endpoint": "https://your-project.services.ai.azure.com",
-///     "ProviderOptionsJson": "{\"maxTokens\":4096,\"temperature\":0.7}"
+///     "ProviderOptions": { "maxTokens": 4096, "temperature": 0.7 }
 ///   }
 /// }
 /// </code>

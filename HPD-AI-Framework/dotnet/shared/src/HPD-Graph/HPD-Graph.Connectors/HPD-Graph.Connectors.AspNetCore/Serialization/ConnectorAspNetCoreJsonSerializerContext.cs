@@ -13,9 +13,8 @@ namespace HPDAgent.Graph.Connectors.AspNetCore.Serialization;
 [JsonSourceGenerationOptions(
     GenerationMode = JsonSourceGenerationMode.Default,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    NumberHandling = JsonNumberHandling.AllowReadingFromString,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(ConnectorListResponse))]
 [JsonSerializable(typeof(ConnectionListResponse))]

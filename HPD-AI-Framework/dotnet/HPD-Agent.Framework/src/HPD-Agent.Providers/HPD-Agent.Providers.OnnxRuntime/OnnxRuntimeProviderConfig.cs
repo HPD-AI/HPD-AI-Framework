@@ -13,7 +13,7 @@ namespace HPD.Agent.Providers.OnnxRuntime;
 ///   "Provider": {
 ///     "ProviderKey": "onnx-runtime",
 ///     "ModelName": "phi-3-mini",
-///     "ProviderOptionsJson": "{\"modelPath\":\"/path/to/model\",\"maxLength\":2048,\"temperature\":0.7}"
+///     "ProviderOptions": { "modelPath": "/path/to/model", "maxLength": 2048, "temperature": 0.7 }
 ///   }
 /// }
 /// </code>

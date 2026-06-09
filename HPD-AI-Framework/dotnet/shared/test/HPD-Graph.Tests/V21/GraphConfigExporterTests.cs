@@ -32,7 +32,6 @@ public sealed class GraphConfigExporterTests
         config.ExecutionTimeout.Should().Be(TimeSpan.FromMinutes(3));
         config.CloningPolicy.Should().Be(CloningPolicyConfig.NeverClone);
         config.IterationOptions!.MaxIterations.Should().Be(7);
-        config.IterationOptions.EnableChangeDetection.Should().BeTrue();
         config.IterationOptions.StopOnConvergence.Should().BeFalse();
         config.Metadata.Should().Contain("owner", "runtime");
     }
@@ -393,7 +392,6 @@ public sealed class GraphConfigExporterTests
             IterationOptions = new IterationOptions
             {
                 MaxIterations = 7,
-                UseChangeAwareIteration = true,
                 EnableAutoConvergence = false
             },
             Metadata = new Dictionary<string, string> { ["owner"] = "runtime" },

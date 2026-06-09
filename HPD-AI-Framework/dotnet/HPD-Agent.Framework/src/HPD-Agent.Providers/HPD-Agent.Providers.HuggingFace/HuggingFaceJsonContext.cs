@@ -9,7 +9,8 @@ namespace HPD.Agent.Providers.HuggingFace;
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(HuggingFaceProviderConfig))]
 internal partial class HuggingFaceJsonContext : JsonSerializerContext
 {

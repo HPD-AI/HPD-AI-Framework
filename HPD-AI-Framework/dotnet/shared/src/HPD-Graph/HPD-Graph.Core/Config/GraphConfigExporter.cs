@@ -501,7 +501,6 @@ public sealed class GraphConfigExporter
         return new IterationOptionsConfig
         {
             MaxIterations = options.MaxIterations,
-            EnableChangeDetection = options.UseChangeAwareIteration,
             StopOnConvergence = options.EnableAutoConvergence
         };
     }

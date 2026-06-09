@@ -7,26 +7,26 @@ using System.Linq;
 namespace HPD.Agent.Secrets;
 
 /// <summary>
-/// Global registry for well-known environment variable aliases for secret keys.
-/// Providers register aliases during ModuleInitializers (e.g., HuggingFace uses both HUGGINGFACE_API_KEY and HF_TOKEN).
-/// EnvironmentSecretResolver queries this registry to resolve secrets from multiple env var names.
+/// Global registry for canonical environment variable names for secret keys.
+/// Providers register their supported names during ModuleInitializers.
+/// EnvironmentSecretResolver queries this registry instead of inferring names.
 /// </summary>
 public static class SecretAliasRegistry
 {
     private static readonly ConcurrentDictionary<string, string[]> _aliases =
-        new(StringComparer.OrdinalIgnoreCase);
+        new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Registers well-known environment variable names for a secret key.
-    /// Called by provider package ModuleInitializers to register env var aliases.
+    /// Registers canonical environment variable names for a secret key.
+    /// Called by provider package ModuleInitializers to register supported env vars.
     /// Thread-safe and idempotent - calling multiple times with the same key overwrites previous registration.
     /// </summary>
     /// <param name="secretKey">The secret key in "{scope}:{name}" format (e.g., "huggingface:ApiKey")</param>
-    /// <param name="envVarNames">One or more environment variable names to check, in priority order (e.g., "HUGGINGFACE_API_KEY", "HF_TOKEN")</param>
+    /// <param name="envVarNames">One or more canonical environment variable names to check, in priority order.</param>
     /// <example>
     /// <code>
     /// // In HuggingFaceProviderModule.Initialize():
-    /// SecretAliasRegistry.Register("huggingface:ApiKey", "HUGGINGFACE_API_KEY", "HF_TOKEN");
+    /// SecretAliasRegistry.Register("huggingface:ApiKey", "HUGGINGFACE_API_KEY");
     ///
     /// // In OpenAIProviderModule.Initialize():
     /// SecretAliasRegistry.Register("openai:ApiKey", "OPENAI_API_KEY");
@@ -47,16 +47,16 @@ public static class SecretAliasRegistry
     }
 
     /// <summary>
-    /// Gets the registered environment variable aliases for a secret key.
-    /// Used by EnvironmentSecretResolver to check multiple env var names.
+    /// Gets the registered environment variable names for a secret key.
+    /// Used by EnvironmentSecretResolver to check explicit env var names.
     /// </summary>
     /// <param name="secretKey">The secret key in "{scope}:{name}" format</param>
-    /// <returns>Array of environment variable names in priority order, or null if no aliases are registered</returns>
+    /// <returns>Array of environment variable names in priority order, or null if no names are registered</returns>
     /// <example>
     /// <code>
     /// // In EnvironmentSecretResolver.ResolveAsync():
     /// var aliases = SecretAliasRegistry.GetAliases("huggingface:ApiKey");
-    /// // returns ["HUGGINGFACE_API_KEY", "HF_TOKEN"]
+    /// // returns ["HUGGINGFACE_API_KEY"]
     ///
     /// foreach (var envVar in aliases ?? Array.Empty&lt;string&gt;())
     /// {
@@ -89,7 +89,7 @@ public static class SecretAliasRegistry
     public static IReadOnlyDictionary<string, string[]> GetAll()
     {
         // Return a snapshot copy for thread safety
-        return new Dictionary<string, string[]>(_aliases, StringComparer.OrdinalIgnoreCase);
+        return new Dictionary<string, string[]>(_aliases, StringComparer.Ordinal);
     }
 
     /// <summary>

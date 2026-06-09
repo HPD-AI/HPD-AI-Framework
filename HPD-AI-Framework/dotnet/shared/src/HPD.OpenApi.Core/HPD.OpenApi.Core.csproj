@@ -18,6 +18,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\HPD-Serialization\HPD-Serialization.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="HPD-Agent.OpenApi" />
     <InternalsVisibleTo Include="HPD-Agent.OpenApi.Tests" />
   </ItemGroup>

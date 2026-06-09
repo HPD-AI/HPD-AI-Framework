@@ -18,10 +18,9 @@ namespace HPDAgent.Graph.Abstractions.Serialization;
 [JsonSourceGenerationOptions(
     GenerationMode = JsonSourceGenerationMode.Default,
     DefaultIgnoreCondition = JsonIgnoreCondition.Never,
-    NumberHandling = JsonNumberHandling.AllowReadingFromString,
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.Unspecified,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
 )]
 // === Node Outputs ===
 [JsonSerializable(typeof(Dictionary<string, object>))]

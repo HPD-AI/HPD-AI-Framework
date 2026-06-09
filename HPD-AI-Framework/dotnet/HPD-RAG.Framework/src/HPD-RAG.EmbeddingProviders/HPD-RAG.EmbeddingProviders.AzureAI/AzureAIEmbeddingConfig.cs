@@ -5,10 +5,11 @@ namespace HPD.RAG.EmbeddingProviders.AzureAI;
 /// <summary>
 /// Azure OpenAI-specific embedding configuration.
 ///
-/// JSON Example (ProviderOptionsJson):
+/// JSON Example (ProviderOptions):
 /// <code>
 /// {
 ///   "endpoint": "https://my-resource.openai.azure.com/",
+///   "apiKey": "...",
 ///   "deploymentName": "text-embedding-ada-002"
 /// }
 /// </code>
@@ -17,10 +18,15 @@ public sealed class AzureAIEmbeddingConfig
 {
     /// <summary>
     /// The Azure OpenAI resource endpoint (e.g. https://my-resource.openai.azure.com/).
-    /// Can also be set via base EmbeddingConfig.Endpoint.
     /// </summary>
     [JsonPropertyName("endpoint")]
     public string? Endpoint { get; set; }
+
+    /// <summary>
+    /// The Azure OpenAI API key.
+    /// </summary>
+    [JsonPropertyName("apiKey")]
+    public string? ApiKey { get; set; }
 
     /// <summary>
     /// The Azure OpenAI deployment name for the embedding model.

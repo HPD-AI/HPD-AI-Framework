@@ -27,7 +27,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates an <see cref="OllamaProviderConfig"/> that is:
-    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptions</c> as a structured JSON/YAML object
     /// - Applied during <c>OllamaProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -38,7 +38,7 @@ public static class AgentBuilderExtensions
     ///     "ProviderKey": "ollama",
     ///     "ModelName": "llama3:8b",
     ///     "Endpoint": "http://localhost:11434",
-    ///     "ProviderOptionsJson": "{\"temperature\":0.7,\"numPredict\":2048}"
+    ///     "ProviderOptions": { "temperature": 0.7, "numPredict": 2048 }
     ///   }
     /// }
     /// </code>

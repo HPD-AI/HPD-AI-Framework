@@ -209,7 +209,7 @@ public sealed class WorkflowResumeRunnerTests
         CompletedNodes = new HashSet<string> { "START" },
         NodeOutputs = new Dictionary<string, object>
         {
-            ["node_output:START"] = new Dictionary<string, object>()
+            ["node_output:START:port:0"] = new Dictionary<string, object>()
         },
         ContextJson = "{}",
         Metadata = new CheckpointMetadata

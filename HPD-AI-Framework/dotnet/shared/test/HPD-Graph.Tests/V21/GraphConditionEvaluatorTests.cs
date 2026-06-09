@@ -21,7 +21,7 @@ public sealed class GraphConditionEvaluatorTests
 
         var outputs = new Dictionary<string, object> { ["score"] = actual };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().Be(expected);
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().Be(expected);
     }
 
     [Theory]
@@ -39,7 +39,7 @@ public sealed class GraphConditionEvaluatorTests
 
         var outputs = new Dictionary<string, object> { ["score"] = actual };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().Be(expected);
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().Be(expected);
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public sealed class GraphConditionEvaluatorTests
             Value = 10
         };
 
-        ConditionEvaluator.Evaluate(condition, outputs).Should().BeTrue();
+        ConditionEvaluator.Evaluate(condition, outputs, null, null).Should().BeTrue();
     }
 
     [Fact]

@@ -27,7 +27,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates an <see cref="OpenAIProviderConfig"/> that is:
-    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptions</c> as a structured JSON/YAML object
     /// - Applied during <c>OpenAIProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -38,7 +38,7 @@ public static class AgentBuilderExtensions
     ///     "ProviderKey": "openai",
     ///     "ModelName": "gpt-4o",
     ///     "ApiKey": "sk-...",
-    ///     "ProviderOptionsJson": "{\"maxOutputTokenCount\":4096,\"temperature\":0.7}"
+    ///     "ProviderOptions": { "maxOutputTokenCount": 4096, "temperature": 0.7 }
     ///   }
     /// }
     /// </code>

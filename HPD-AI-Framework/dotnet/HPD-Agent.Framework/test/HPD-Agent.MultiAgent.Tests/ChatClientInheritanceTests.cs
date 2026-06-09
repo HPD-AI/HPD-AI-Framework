@@ -314,6 +314,8 @@ internal sealed class TestConfigAgentFactory : AgentFactory
 
         return await builder.BuildAsync(cancellationToken);
     }
+
+    internal override AgentConfig? GetConfig() => _config;
 }
 
 /// <summary>
@@ -338,4 +340,6 @@ internal sealed class TestPrebuiltAgentFactory : AgentFactory
 
         return Task.FromResult(_agent);
     }
+
+    internal override AgentConfig? GetConfig() => _agent.Config;
 }

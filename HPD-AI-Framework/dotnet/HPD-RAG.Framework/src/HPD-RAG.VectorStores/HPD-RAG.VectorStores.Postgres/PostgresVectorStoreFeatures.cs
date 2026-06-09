@@ -12,8 +12,8 @@ internal sealed class PostgresVectorStoreFeatures : IVectorStoreFeatures
     public Microsoft.Extensions.VectorData.VectorStore CreateVectorStore(VectorStoreConfig config, IServiceProvider? services = null)
     {
         var typed = config.GetTypedConfig<PostgresVectorStoreConfig>();
-        var connectionString = typed?.ConnectionString ?? config.ConnectionString
-            ?? throw new InvalidOperationException("Postgres connection string is required.");
+        var connectionString = typed?.ConnectionString
+            ?? throw new InvalidOperationException("Postgres connection string is required in PostgresVectorStoreConfig.ProviderOptions.");
         var schema = typed?.Schema ?? "public";
 
         var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);

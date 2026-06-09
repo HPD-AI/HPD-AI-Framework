@@ -22,12 +22,12 @@ public static class AgentBuilderExtensions
     /// <para>
     /// API Key Resolution (in priority order):
     /// 1. Explicit apiKey parameter
-    /// 2. Environment variable: GOOGLE_AI_API_KEY or GEMINI_API_KEY
-    /// 3. appsettings.json: "googleAI:ApiKey" or "GoogleAI:ApiKey"
+    /// 2. Environment variable: GOOGLE_AI_API_KEY
+    /// 3. appsettings.json: "google-ai:ApiKey"
     /// </para>
     /// <para>
     /// This method creates a <see cref="GoogleAIProviderConfig"/> that is:
-    /// - Stored in <c>ClientProviderConfig.ProviderOptionsJson</c> for FFI/JSON serialization
+    /// - Stored in <c>ClientProviderConfig.ProviderOptions</c> as a structured JSON/YAML object
     /// - Applied during <c>GoogleAIProvider.CreateChatClient()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -38,7 +38,7 @@ public static class AgentBuilderExtensions
     ///     "ProviderKey": "google-ai",
     ///     "ModelName": "gemini-2.0-flash",
     ///     "ApiKey": "your-api-key",
-    ///     "ProviderOptionsJson": "{\"maxOutputTokens\":8192,\"temperature\":0.7}"
+    ///     "ProviderOptions": { "maxOutputTokens": 8192, "temperature": 0.7 }
     ///   }
     /// }
     /// </code>
@@ -114,7 +114,7 @@ public static class AgentBuilderExtensions
     ///     .Build();
     ///
     /// // Option 6: Auto-resolve from environment variables
-    /// // Set GOOGLE_AI_API_KEY or GEMINI_API_KEY environment variable
+    /// // Set GOOGLE_AI_API_KEY environment variable
     /// var agent = new AgentBuilder()
     ///     .WithGoogleAI(model: "gemini-2.0-flash")
     ///     .Build();
@@ -133,7 +133,6 @@ public static class AgentBuilderExtensions
 
         // Create provider config
         // Note: API key resolution is deferred to Build() time via ISecretResolver
-        // The resolver will try both "google-ai:ApiKey" and "gemini:ApiKey" keys
         var providerConfig = new GoogleAIProviderConfig();
 
         // Allow user to configure additional options

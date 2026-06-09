@@ -1,6 +1,10 @@
 using FluentAssertions;
+using HPD.Graph.Tests.Helpers;
 using HPDAgent.Graph.Abstractions.Checkpointing;
 using HPDAgent.Graph.Abstractions.Graph;
+using HPDAgent.Graph.Core.Checkpointing;
+using HPDAgent.Graph.Core.Context;
+using HPDAgent.Graph.Core.Orchestration;
 using Xunit;
 
 namespace HPD.Graph.Tests.Checkpointing;
@@ -282,6 +286,166 @@ public class NodeVersioningTests
         versionMatches.Should().BeFalse("versions should not match");
         savedMetadata.Version.Should().Be("1.0");
         currentNode.Version.Should().Be("2.0");
+    }
+
+    [Fact]
+    public async Task ResumeAsync_WithVersionMismatchedCheckpoint_ShouldThrow()
+    {
+        // Arrange
+        var graph = CreateVersionedGraph(handlerVersion: "2.0");
+        var checkpoint = CreateCheckpoint(
+            metadata: new Dictionary<string, NodeStateMetadata>
+            {
+                ["handler1"] = CreateNodeStateMetadata("handler1", "1.0")
+            });
+
+        var checkpointStore = new InMemoryCheckpointStore();
+        await checkpointStore.SaveCheckpointAsync(checkpoint);
+
+        var services = TestServiceProvider.Create();
+        var orchestrator = new GraphOrchestrator<GraphContext>(services, checkpointStore: checkpointStore);
+        var context = new GraphContext("exec-versioning", graph, services);
+
+        // Act & Assert
+        await FluentActions.Invoking(() => orchestrator.ResumeAsync(context))
+            .Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("*handler1*saved version '1.0'*current graph version is '2.0'*");
+    }
+
+    [Fact]
+    public async Task ResumeAsync_WithMissingNodeMetadata_ShouldThrow()
+    {
+        // Arrange
+        var graph = CreateVersionedGraph(handlerVersion: "1.0");
+        var checkpoint = CreateCheckpoint(metadata: new Dictionary<string, NodeStateMetadata>());
+
+        var checkpointStore = new InMemoryCheckpointStore();
+        await checkpointStore.SaveCheckpointAsync(checkpoint);
+
+        var services = TestServiceProvider.Create();
+        var orchestrator = new GraphOrchestrator<GraphContext>(services, checkpointStore: checkpointStore);
+        var context = new GraphContext("exec-versioning", graph, services);
+
+        // Act & Assert
+        await FluentActions.Invoking(() => orchestrator.ResumeAsync(context))
+            .Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("*completed node 'handler1' is missing node state metadata*");
+    }
+
+    [Fact]
+    public async Task ResumeAsync_WithCheckpointNodeMissingFromGraph_ShouldThrow()
+    {
+        // Arrange
+        var graph = new TestGraphBuilder()
+            .WithId("graph1")
+            .AddStartNode("start")
+            .AddEndNode("end")
+            .AddEdge("start", "end")
+            .Build();
+
+        var checkpoint = CreateCheckpoint(
+            metadata: new Dictionary<string, NodeStateMetadata>
+            {
+                ["handler1"] = CreateNodeStateMetadata("handler1", "1.0")
+            },
+            nodeOutputs: new Dictionary<string, object>());
+
+        var checkpointStore = new InMemoryCheckpointStore();
+        await checkpointStore.SaveCheckpointAsync(checkpoint);
+
+        var services = TestServiceProvider.Create();
+        var orchestrator = new GraphOrchestrator<GraphContext>(services, checkpointStore: checkpointStore);
+        var context = new GraphContext("exec-versioning", graph, services);
+
+        // Act & Assert
+        await FluentActions.Invoking(() => orchestrator.ResumeAsync(context))
+            .Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("*completed node 'handler1' is not present in graph 'graph1'*");
+    }
+
+    [Fact]
+    public async Task ResumeAsync_WithMalformedOutputChannel_ShouldThrow()
+    {
+        // Arrange
+        var graph = CreateVersionedGraph(handlerVersion: "1.0");
+        var checkpoint = CreateCheckpoint(
+            metadata: new Dictionary<string, NodeStateMetadata>
+            {
+                ["handler1"] = CreateNodeStateMetadata("handler1", "1.0")
+            },
+            nodeOutputs: new Dictionary<string, object>
+            {
+                ["handler1.output"] = "old-shape"
+            });
+
+        var checkpointStore = new InMemoryCheckpointStore();
+        await checkpointStore.SaveCheckpointAsync(checkpoint);
+
+        var services = TestServiceProvider.Create();
+        var orchestrator = new GraphOrchestrator<GraphContext>(services, checkpointStore: checkpointStore);
+        var context = new GraphContext("exec-versioning", graph, services);
+
+        // Act & Assert
+        await FluentActions.Invoking(() => orchestrator.ResumeAsync(context))
+            .Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("*output channel 'handler1.output' is not a node output channel*");
+    }
+
+    private static HPDAgent.Graph.Abstractions.Graph.Graph CreateVersionedGraph(string handlerVersion)
+    {
+        return new TestGraphBuilder()
+            .WithId("graph1")
+            .AddStartNode("start")
+            .AddNode(new Node
+            {
+                Id = "handler1",
+                Name = "Handler",
+                Type = NodeType.Handler,
+                HandlerName = "SuccessHandler",
+                Version = handlerVersion
+            })
+            .AddEndNode("end")
+            .AddEdge("start", "handler1")
+            .AddEdge("handler1", "end")
+            .Build();
+    }
+
+    private static GraphCheckpoint CreateCheckpoint(
+        IReadOnlyDictionary<string, NodeStateMetadata>? metadata = null,
+        IReadOnlyDictionary<string, object>? nodeOutputs = null)
+    {
+        return new GraphCheckpoint
+        {
+            CheckpointId = "checkpoint-versioning",
+            ExecutionId = "exec-versioning",
+            GraphId = "graph1",
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedNodes = new HashSet<string> { "handler1" },
+            NodeOutputs = nodeOutputs ?? new Dictionary<string, object>
+            {
+                ["node_output:handler1:port:0"] = "saved"
+            },
+            ContextJson = "{}",
+            NodeStateMetadata = metadata ?? new Dictionary<string, NodeStateMetadata>
+            {
+                ["handler1"] = CreateNodeStateMetadata("handler1", "1.0")
+            }
+        };
+    }
+
+    private static NodeStateMetadata CreateNodeStateMetadata(string nodeId, string version)
+    {
+        return new NodeStateMetadata
+        {
+            NodeId = nodeId,
+            Version = version,
+            StateJson = "{}",
+            CapturedAt = DateTimeOffset.UtcNow
+        };
     }
 
     #endregion

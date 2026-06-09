@@ -5,6 +5,7 @@ namespace HPD.RAG.RerankerProviders.HuggingFace;
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(HuggingFaceRerankerConfig))]
 [JsonSerializable(typeof(HuggingFaceRerankRequest))]
 [JsonSerializable(typeof(HuggingFaceRerankResult))]
 [JsonSerializable(typeof(HuggingFaceRerankResult[]))]

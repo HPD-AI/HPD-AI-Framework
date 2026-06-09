@@ -43,7 +43,6 @@ public sealed class GraphConfigCompilerTests
         graph.CloningPolicy.Should().Be(CloningPolicy.AlwaysClone);
         graph.IterationOptions.Should().NotBeNull();
         graph.IterationOptions!.MaxIterations.Should().Be(9);
-        graph.IterationOptions.UseChangeAwareIteration.Should().BeTrue();
         graph.IterationOptions.EnableAutoConvergence.Should().BeTrue();
         graph.Metadata.Should().Contain("owner", "platform");
     }

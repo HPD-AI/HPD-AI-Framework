@@ -14,7 +14,7 @@ namespace HPD.Agent.Providers.OpenAI;
 ///     "ProviderKey": "openai",
 ///     "ModelName": "gpt-4o",
 ///     "ApiKey": "sk-...",
-///     "ProviderOptionsJson": "{\"maxOutputTokenCount\":4096,\"temperature\":0.7}"
+///     "ProviderOptions": { "maxOutputTokenCount": 4096, "temperature": 0.7 }
 ///   }
 /// }
 /// </code>

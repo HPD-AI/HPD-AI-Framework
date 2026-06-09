@@ -12,8 +12,8 @@ internal sealed class SqlServerVectorStoreFeatures : IVectorStoreFeatures
     public Microsoft.Extensions.VectorData.VectorStore CreateVectorStore(VectorStoreConfig config, IServiceProvider? services = null)
     {
         var typed = config.GetTypedConfig<SqlServerVectorStoreConfig>();
-        var connectionString = typed?.ConnectionString ?? config.ConnectionString
-            ?? throw new InvalidOperationException("SQL Server connection string is required.");
+        var connectionString = typed?.ConnectionString
+            ?? throw new InvalidOperationException("SQL Server connection string is required in SqlServerVectorStoreConfig.ProviderOptions.");
 
         return new SqlServerVectorStore(connectionString, new SqlServerVectorStoreOptions
         {

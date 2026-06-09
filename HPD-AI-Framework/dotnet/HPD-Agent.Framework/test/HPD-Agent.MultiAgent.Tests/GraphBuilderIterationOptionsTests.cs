@@ -33,7 +33,6 @@ public class GraphBuilderIterationOptionsTests
         var options = new IterationOptions
         {
             MaxIterations = 7,
-            UseChangeAwareIteration = true,
             EnableAutoConvergence = false
         };
 
@@ -43,7 +42,6 @@ public class GraphBuilderIterationOptionsTests
 
         graph.IterationOptions.Should().NotBeNull();
         graph.IterationOptions!.MaxIterations.Should().Be(7);
-        graph.IterationOptions.UseChangeAwareIteration.Should().BeTrue();
         graph.IterationOptions.EnableAutoConvergence.Should().BeFalse();
     }
 

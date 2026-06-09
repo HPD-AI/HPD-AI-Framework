@@ -44,27 +44,8 @@ internal class GoogleAIProvider : IChatClientProvider
                 "Ensure the agent builder is properly configured with secret resolution.");
         }
 
-        // Resolve API key using ISecretResolver
-        // Try "google-ai:ApiKey" first, then fallback to "gemini:ApiKey" for compatibility
-        string? apiKey = null;
-        try
-        {
-            var apiKeyTask = secrets.RequireAsync("google-ai:ApiKey", "Google AI", config.ApiKey, CancellationToken.None);
-            apiKey = apiKeyTask.GetAwaiter().GetResult();
-        }
-        catch (SecretNotFoundException)
-        {
-            // Fallback: Try "gemini" as alternative key
-            if (config.ApiKey == null)
-            {
-                var apiKeyTask = secrets.RequireAsync("gemini:ApiKey", "Google AI (Gemini)", null, CancellationToken.None);
-                apiKey = apiKeyTask.GetAwaiter().GetResult();
-            }
-            else
-            {
-                throw; // Re-throw if explicit config.ApiKey was provided but failed
-            }
-        }
+        var apiKeyTask = secrets.RequireAsync("google-ai:ApiKey", "Google AI", config.ApiKey, CancellationToken.None);
+        var apiKey = apiKeyTask.GetAwaiter().GetResult();
 
         string? modelName = config.ModelName;
         if (string.IsNullOrEmpty(modelName))
@@ -122,7 +103,7 @@ internal class GoogleAIProvider : IChatClientProvider
         if (string.IsNullOrEmpty(config.ApiKey))
         {
             errors.Add("API key is required for Google AI. " +
-                      "Set it via the apiKey parameter, GOOGLE_AI_API_KEY or GEMINI_API_KEY environment variable, or configuration.");
+                      "Set it via the apiKey parameter, GOOGLE_AI_API_KEY environment variable, or configuration.");
         }
 
         if (string.IsNullOrEmpty(config.ModelName))

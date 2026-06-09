@@ -79,7 +79,7 @@ public sealed partial class MiddlewareState
     /// <summary>
     /// Schema signature of the code that created this checkpoint.
     /// Comma-separated list of middleware state FQNs in alphabetical order.
-    /// Null for checkpoints created before schema versioning was added.
+    /// Required on persisted checkpoints.
     /// </summary>
     [JsonPropertyName("schemaSignature")]
     public string? SchemaSignature { get; init; }
@@ -94,7 +94,7 @@ public sealed partial class MiddlewareState
     /// <summary>
     /// Per-state version mapping (type FQN → version).
     /// Used for detecting individual state schema evolution.
-    /// Null for checkpoints created before schema versioning was added.
+    /// Required on persisted checkpoints.
     /// </summary>
     [JsonPropertyName("stateVersions")]
     public ImmutableDictionary<string, int>? StateVersions { get; init; }
@@ -121,8 +121,7 @@ public sealed partial class MiddlewareState
         _deserializedCache = new Lazy<ConcurrentDictionary<string, object?>>(
             () => new ConcurrentDictionary<string, object?>());
 
-        // Schema metadata is now computed at runtime from registered factories
-        // See ValidateAndMigrateSchema in Agent.cs
+        // Schema metadata is stamped at checkpoint write time from registered factories.
         SchemaSignature = null;
         SchemaVersion = 1;
         StateVersions = null;

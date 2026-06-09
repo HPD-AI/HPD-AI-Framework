@@ -4,7 +4,6 @@ using HPD.Agent.Collapsing;
 using Microsoft.Extensions.AI;
 using System.Collections.Immutable;
 using Xunit;
-using CollapsingStateData = HPD.Agent.ContainerMiddlewareState;
 
 namespace HPD.Agent.Tests.Middleware;
 
@@ -268,7 +267,7 @@ public class SkillInstructionMiddlewareTests
             {
                 MiddlewareState = new MiddlewareState().SetState(
                     "HPD.Agent.ContainerMiddlewareState",
-                    new CollapsingStateData { ActiveContainerInstructions = activeContainers })
+                    new ContainerMiddlewareState { ActiveContainerInstructions = activeContainers })
             };
 
         var messages = new List<ChatMessage>();

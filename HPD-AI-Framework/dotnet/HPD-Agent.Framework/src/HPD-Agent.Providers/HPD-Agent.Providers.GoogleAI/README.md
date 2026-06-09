@@ -42,8 +42,6 @@ var response = await agent.ChatAsync("What is the capital of France?");
 
 ```bash
 export GOOGLE_AI_API_KEY="your-api-key"
-# or
-export GEMINI_API_KEY="your-api-key"
 ```
 
 ### appsettings.json

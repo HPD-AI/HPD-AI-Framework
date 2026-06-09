@@ -2,7 +2,7 @@ namespace HPDAgent.Graph.Abstractions.Graph;
 
 /// <summary>
 /// Configuration options for graph iteration behavior.
-/// Controls change-aware iteration, convergence detection, and dirty propagation.
+/// Controls convergence detection and dirty propagation.
 /// </summary>
 public sealed record IterationOptions
 {
@@ -13,17 +13,8 @@ public sealed record IterationOptions
     public int MaxIterations { get; init; } = 25;
 
     /// <summary>
-    /// Enable change-aware iteration (output-hash based dirty detection).
-    /// When true, only nodes with changed inputs re-execute during iterations.
-    /// When false, uses eager propagation (marks all downstream nodes dirty).
-    /// Default: false (opt-in for backward compatibility)
-    /// </summary>
-    public bool UseChangeAwareIteration { get; init; } = false;
-
-    /// <summary>
     /// Enable automatic convergence detection.
     /// Stops iteration when no outputs change between iterations.
-    /// Only effective when UseChangeAwareIteration is true.
     /// </summary>
     public bool EnableAutoConvergence { get; init; } = true;
 

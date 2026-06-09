@@ -2,7 +2,7 @@ namespace HPDAgent.Graph.Abstractions.Checkpointing;
 
 /// <summary>
 /// Metadata about a node's saved state for checkpoint restoration.
-/// Includes version information for compatibility checking.
+/// Includes version information for strict resume validation.
 /// </summary>
 public sealed record NodeStateMetadata
 {
@@ -13,8 +13,8 @@ public sealed record NodeStateMetadata
 
     /// <summary>
     /// The node's version at time of checkpoint.
-    /// Used for compatibility checking during resume.
-    /// If version doesn't match current node version, state is discarded with a warning.
+    /// Used for strict validation during resume.
+    /// If version doesn't match current node version, resume fails.
     /// </summary>
     public required string Version { get; init; }
 

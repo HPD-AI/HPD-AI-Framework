@@ -127,7 +127,7 @@ public class AgentWorkflowBuilderTests
     }
 
     [Fact]
-    public void FromConfig_With_Valid_Config_Creates_Builder()
+    public void Factory_With_Valid_Config_Creates_Builder()
     {
         var config = new MultiAgentWorkflowConfig
         {
@@ -150,7 +150,7 @@ public class AgentWorkflowBuilderTests
             }
         };
 
-        var builder = AgentWorkflow.FromConfig(config);
+        var builder = new MultiAgentFactory().CreateBuilder(config);
 
         builder.Should().NotBeNull();
     }

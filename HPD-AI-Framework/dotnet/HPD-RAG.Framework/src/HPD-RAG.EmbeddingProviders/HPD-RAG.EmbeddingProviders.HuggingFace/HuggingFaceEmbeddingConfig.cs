@@ -5,7 +5,7 @@ namespace HPD.RAG.EmbeddingProviders.HuggingFace;
 /// <summary>
 /// HuggingFace Inference API-specific embedding configuration.
 ///
-/// JSON Example (ProviderOptionsJson):
+/// JSON Example (ProviderOptions):
 /// <code>
 /// {
 ///   "endpoint": "https://api-inference.huggingface.co",
@@ -24,7 +24,7 @@ public sealed class HuggingFaceEmbeddingConfig
     public string? Endpoint { get; set; }
 
     /// <summary>
-    /// HuggingFace API token. Can also be provided via base EmbeddingConfig.ApiKey.
+    /// HuggingFace API token.
     /// </summary>
     [JsonPropertyName("apiKey")]
     public string? ApiKey { get; set; }

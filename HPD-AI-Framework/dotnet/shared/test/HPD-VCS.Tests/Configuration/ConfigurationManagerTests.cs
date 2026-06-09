@@ -227,6 +227,23 @@ public class ConfigurationManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task ReadConfigAsync_WithYamlConfig_ShouldReturnCorrectConfig()
+    {
+        // Arrange
+        var configPath = Path.Combine(_repoPath, ".hpd", "config.yaml");
+        await _mockFileSystem.File.WriteAllTextAsync(configPath, """
+        workingCopy:
+          mode: live
+        """);
+
+        // Act
+        var readConfig = await _configManager.ReadConfigAsync();
+
+        // Assert
+        Assert.Equal("live", readConfig.WorkingCopy.Mode);
+    }
+
+    [Fact]
     public async Task ReadConfigAsync_WithNonExistentFile_ShouldThrowFileNotFoundException()
     {
         // Arrange - Ensure config file doesn't exist

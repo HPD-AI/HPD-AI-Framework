@@ -23,7 +23,7 @@ namespace HPD.Agent.Providers.Ollama;
 /// - Remote: http://your-server:11434
 /// </para>
 /// <para>
-/// Provider-specific options are stored in ProviderOptionsJson and validated through
+/// Provider-specific options are stored in ProviderOptions and validated through
 /// OllamaProviderConfig.
 /// </para>
 /// </remarks>

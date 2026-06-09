@@ -363,7 +363,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         // This prevents duplicate generation by merging partial classes before validation
         var ToolHarnessGroups = ToolHarnesses
             .Where(p => p != null)
-            .GroupBy(p => $"{p!.Namespace}.{p.Name}")
+            .GroupBy(p => $"{p!.Namespace}.{p.ClassName}")
             .Select(group =>
             {
                 // Merge all partial class parts into one ToolHarness
@@ -407,7 +407,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
 
                 return new ToolHarnessInfo
                 {
-                    Name = first.Name,
+                    ClassName = first.ClassName,
                     Description = BuildToolHarnessDescription(functionCount, skillCount, subAgentCount, mcpServerCount, openApiCount),
                     Namespace = first.Namespace,
 
@@ -490,7 +490,7 @@ namespace HPD.Agent.Diagnostics {{
         debugInfo.AppendLine($"// Merged into {ToolHarnessGroups.Count} unique ToolHarnesses");
         foreach (var ToolHarness in ToolHarnessGroups)
         {
-            debugInfo.AppendLine($"// ToolHarness: {ToolHarness.Namespace}.{ToolHarness.Name} with {ToolHarness.FunctionCapabilities.Count()} functions, {ToolHarness.SkillCapabilities.Count()} skills, and {ToolHarness.SubAgentCapabilities.Count()} sub-agents");
+            debugInfo.AppendLine($"// ToolHarness: {ToolHarness.Namespace}.{ToolHarness.ClassName} with {ToolHarness.FunctionCapabilities.Count()} functions, {ToolHarness.SkillCapabilities.Count()} skills, and {ToolHarness.SubAgentCapabilities.Count()} sub-agents");
         }
         context.AddSource("HPD.Agent.Generated.SourceGeneratorDebug.g.cs", debugInfo.ToString());
 
@@ -540,8 +540,8 @@ namespace HPD.Agent.Diagnostics {{
             var source = GenerateToolHarnessRegistration(ToolHarness);
             // Use fully qualified name as hint to prevent duplicates
             var hintName = string.IsNullOrEmpty(ToolHarness.Namespace)
-                ? $"{ToolHarness.Name}Registration.g.cs"
-                : $"{ToolHarness.Namespace}.{ToolHarness.Name}Registration.g.cs";
+                ? $"{ToolHarness.ClassName}Registration.g.cs"
+                : $"{ToolHarness.Namespace}.{ToolHarness.ClassName}Registration.g.cs";
             context.AddSource(hintName, source);
         }
 
@@ -565,7 +565,7 @@ namespace HPD.Agent.Diagnostics {{
         // 2. Must be publicly accessible (private/internal test classes are excluded)
         var instantiableToolHarnesses = ToolHarnesses
             .Where(p => (p.HasParameterlessConstructor || p.HasSecretsConstructor || !string.IsNullOrEmpty(p.ConfigConstructorTypeName)) && p.IsPubliclyAccessible)
-            .OrderBy(p => p.Name)
+            .OrderBy(p => p.EffectiveName)
             .ToList();
         var sb = new StringBuilder();
 
@@ -625,18 +625,18 @@ namespace HPD.Agent.Diagnostics {{
             // Handle skill-only containers (no instance parameter)
             if (!ToolHarness.RequiresInstance)
             {
-                sb.AppendLine($"                CreateFunctions: (_, ctx, serialization) => {ToolHarness.Name}Registration.CreateToolHarness(ctx, serialization),");
+                sb.AppendLine($"                CreateFunctions: (_, ctx, serialization) => {ToolHarness.ClassName}Registration.CreateToolHarness(ctx, serialization),");
             }
             else
             {
-                sb.AppendLine($"                CreateFunctions: (instance, ctx, serialization) => {ToolHarness.Name}Registration.CreateToolHarness(({fullTypeName})instance, ctx, serialization),");
+                sb.AppendLine($"                CreateFunctions: (instance, ctx, serialization) => {ToolHarness.ClassName}Registration.CreateToolHarness(({fullTypeName})instance, ctx, serialization),");
             }
 
             // Add GetReferencedToolHarnesses if ToolHarness has skills
             if (ToolHarness.SkillCapabilities.Any())
             {
-                sb.AppendLine($"                GetReferencedToolHarnesses: {ToolHarness.Name}Registration.GetReferencedToolHarnesses,");
-                sb.AppendLine($"                GetReferencedFunctions: {ToolHarness.Name}Registration.GetReferencedFunctions,");
+                sb.AppendLine($"                GetReferencedToolHarnesses: {ToolHarness.ClassName}Registration.GetReferencedToolHarnesses,");
+                sb.AppendLine($"                GetReferencedFunctions: {ToolHarness.ClassName}Registration.GetReferencedFunctions,");
             }
             else
             {
@@ -690,7 +690,7 @@ namespace HPD.Agent.Diagnostics {{
             sb.AppendLine($"                HasMCPServers: {ToolHarness.MCPServerCapabilities.Any().ToString().ToLower()},");
             if (ToolHarness.MCPServerCapabilities.Any())
             {
-                sb.AppendLine($"                CollectMcpServers: {ToolHarness.Name}Registration.CollectMcpServers,");
+                sb.AppendLine($"                CollectMcpServers: {ToolHarness.ClassName}Registration.CollectMcpServers,");
             }
             else
             {
@@ -701,7 +701,7 @@ namespace HPD.Agent.Diagnostics {{
             sb.AppendLine($"                // ========== OPENAPI SOURCES ==========");
             if (ToolHarness.OpenApiCapabilities.Any())
             {
-                sb.AppendLine($"                CollectOpenApiSources: {ToolHarness.Name}Registration.CollectOpenApiSources,");
+                sb.AppendLine($"                CollectOpenApiSources: {ToolHarness.ClassName}Registration.CollectOpenApiSources,");
             }
             else
             {
@@ -993,7 +993,7 @@ namespace HPD.Agent.Diagnostics {{
     {
         var sb = new StringBuilder();
         sb.AppendLine("    /// <summary>");
-        sb.AppendLine($"    /// Creates an AIFunction list for the {ToolHarness.Name} ToolHarness.");
+        sb.AppendLine($"    /// Creates an AIFunction list for the {ToolHarness.ClassName} ToolHarness.");
         sb.AppendLine("    /// </summary>");
 
         // Only include instance parameter if ToolHarness has capabilities that need it
@@ -1006,7 +1006,7 @@ namespace HPD.Agent.Diagnostics {{
         {
             sb.AppendLine($"    /// <param name=\"instance\">The ToolHarness instance</param>");
             sb.AppendLine($"    /// <param name=\"context\">The execution context (optional)</param>");
-            sb.AppendLine($"    public static List<AIFunction> CreateToolHarness({ToolHarness.Name} instance, IToolMetadata? context = null, HPDToolSerializationOptions? serialization = null)");
+            sb.AppendLine($"    public static List<AIFunction> CreateToolHarness({ToolHarness.ClassName} instance, IToolMetadata? context = null, HPDToolSerializationOptions? serialization = null)");
         }
 
         sb.AppendLine("    {");
@@ -1091,10 +1091,10 @@ namespace HPD.Agent.Diagnostics {{
         sb.AppendLine(GenerateArgumentsDtoAndContext(ToolHarness));
 
         sb.AppendLine("/// <summary>");
-        sb.AppendLine($"/// Generated registration code for {ToolHarness.Name} ToolHarness.");
+        sb.AppendLine($"/// Generated registration code for {ToolHarness.ClassName} ToolHarness.");
         sb.AppendLine("/// </summary>");
         sb.AppendLine($"[System.CodeDom.Compiler.GeneratedCodeAttribute(\"HPDToolSourceGenerator\", \"1.0.0.0\")]");
-        sb.AppendLine($"public static partial class {ToolHarness.Name}Registration");
+        sb.AppendLine($"public static partial class {ToolHarness.ClassName}Registration");
         sb.AppendLine("    {");
 
         // Generate GetReferencedToolHarnesses() and GetReferencedFunctions() if there are skills
@@ -1219,7 +1219,7 @@ $@"    /// <summary>
     /// Represents the arguments for sub-agent invocations, generated at compile-time.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCodeAttribute(""HPDToolSourceGenerator"", ""1.0.0.0"")]
-    public class {ToolHarness.Name}SubAgentQueryArgs
+    public class {ToolHarness.ClassName}SubAgentQueryArgs
     {{
         [System.Text.Json.Serialization.JsonPropertyName(""query"")]
         [System.ComponentModel.Description(""Query for the sub-agent"")]
@@ -1236,7 +1236,7 @@ $@"    /// <summary>
     /// Represents the arguments for multi-agent workflow invocations, generated at compile-time.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCodeAttribute(""HPDToolSourceGenerator"", ""1.0.0.0"")]
-    public class {ToolHarness.Name}MultiAgentInputArgs
+    public class {ToolHarness.ClassName}MultiAgentInputArgs
     {{
         [System.Text.Json.Serialization.JsonPropertyName(""input"")]
         [System.ComponentModel.Description(""The user's question or task to process through the multi-agent workflow. Pass the full user message here."")]
@@ -2396,7 +2396,7 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
         sb.AppendLine("                        [\"IsContainer\"] = true,");
         // Use EffectiveName for ToolHarnessName metadata (always ClassName now)
         sb.AppendLine($"                        [\"ToolHarnessName\"] = \"{ToolHarness.EffectiveName}\",");
-        sb.AppendLine($"                        [\"FunctionNames\"] = new string[] {{ {string.Join(", ", allCapabilities.Select(c => $"\"{c}\""))} }},");
+        sb.AppendLine($"                        [\"ReferencedFunctions\"] = new string[] {{ {string.Join(", ", allCapabilities.Select(c => $"\"{c}\""))} }},");
         sb.AppendLine($"                        [\"FunctionCount\"] = {totalCount},");
 
         // AddSystemPrompt to metadata (for middleware injection)

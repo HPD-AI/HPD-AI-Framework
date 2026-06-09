@@ -5,7 +5,7 @@ namespace HPD.RAG.GraphStoreProviders.Memgraph;
 /// <summary>
 /// Memgraph-specific graph store configuration.
 /// Memgraph speaks the Bolt protocol; the Neo4j .NET driver is used as the transport.
-/// These values are read from <see cref="HPD.RAG.Core.Providers.GraphStore.GraphStoreConfig.ProviderOptionsJson"/>.
+/// These values are read from <see cref="HPD.RAG.Core.Providers.GraphStore.GraphStoreConfig.ProviderOptions"/>.
 ///
 /// JSON example:
 /// <code>

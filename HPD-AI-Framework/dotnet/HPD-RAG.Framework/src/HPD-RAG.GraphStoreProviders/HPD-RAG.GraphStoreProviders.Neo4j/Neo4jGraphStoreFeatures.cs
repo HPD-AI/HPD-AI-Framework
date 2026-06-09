@@ -18,20 +18,17 @@ internal sealed class Neo4jGraphStoreFeatures : IGraphStoreFeatures
 
         var typed = config.GetTypedConfig<Neo4jGraphStoreConfig>();
 
-        var uri = typed?.Uri ?? config.Uri ?? config.ConnectionString
+        var uri = typed?.Uri
             ?? throw new InvalidOperationException(
-                "Neo4j URI is required. Set GraphStoreConfig.Uri, GraphStoreConfig.ConnectionString, " +
-                "or Neo4jGraphStoreConfig.Uri in ProviderOptionsJson.");
+                "Neo4j URI is required in Neo4jGraphStoreConfig.ProviderOptions.");
 
-        var username = typed?.Username ?? config.Username
+        var username = typed?.Username
             ?? throw new InvalidOperationException(
-                "Neo4j username is required. Set GraphStoreConfig.Username " +
-                "or Neo4jGraphStoreConfig.Username in ProviderOptionsJson.");
+                "Neo4j username is required in Neo4jGraphStoreConfig.ProviderOptions.");
 
-        var password = typed?.Password ?? config.Password
+        var password = typed?.Password
             ?? throw new InvalidOperationException(
-                "Neo4j password is required. Set GraphStoreConfig.Password " +
-                "or Neo4jGraphStoreConfig.Password in ProviderOptionsJson.");
+                "Neo4j password is required in Neo4jGraphStoreConfig.ProviderOptions.");
 
         var database = typed?.Database ?? "neo4j";
 

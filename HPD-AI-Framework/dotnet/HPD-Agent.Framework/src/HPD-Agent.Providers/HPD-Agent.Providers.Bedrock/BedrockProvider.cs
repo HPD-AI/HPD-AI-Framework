@@ -52,16 +52,15 @@ internal class BedrockProvider : IChatClientProvider
         // Get typed config
         var bedrockConfig = config.GetProviderConfig<BedrockProviderConfig>();
 
-        // Resolve region from multiple sources
+        // Resolve region from explicit config or the canonical environment variable.
         string? region = bedrockConfig?.Region
-            ?? System.Environment.GetEnvironmentVariable("AWS_REGION")
-            ?? System.Environment.GetEnvironmentVariable("AWS_DEFAULT_REGION");
+            ?? System.Environment.GetEnvironmentVariable("AWS_REGION");
 
         if (string.IsNullOrEmpty(region))
         {
             throw new InvalidOperationException(
                 "For AWS Bedrock, the AWS Region must be configured via BedrockProviderConfig.Region, " +
-                "the AWS_REGION environment variable, or the AWS_DEFAULT_REGION environment variable.");
+                "or the AWS_REGION environment variable.");
         }
 
         string? modelName = config.ModelName;
@@ -203,13 +202,12 @@ internal class BedrockProvider : IChatClientProvider
         // Get typed config for validation
         var bedrockConfig = config.GetProviderConfig<BedrockProviderConfig>();
 
-        // Validate region from multiple sources
+        // Validate region from explicit config or the canonical environment variable.
         string? region = bedrockConfig?.Region
-            ?? System.Environment.GetEnvironmentVariable("AWS_REGION")
-            ?? System.Environment.GetEnvironmentVariable("AWS_DEFAULT_REGION");
+            ?? System.Environment.GetEnvironmentVariable("AWS_REGION");
 
         if (string.IsNullOrEmpty(region))
-            errors.Add("AWS Region is required for Bedrock. Configure it via BedrockProviderConfig.Region, AWS_REGION, or AWS_DEFAULT_REGION environment variable.");
+            errors.Add("AWS Region is required for Bedrock. Configure it via BedrockProviderConfig.Region or AWS_REGION environment variable.");
 
         // Validate Bedrock-specific config if present
         if (bedrockConfig != null)

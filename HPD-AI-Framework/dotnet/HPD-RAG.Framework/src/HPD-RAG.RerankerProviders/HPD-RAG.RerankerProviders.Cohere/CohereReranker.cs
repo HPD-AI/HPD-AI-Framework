@@ -25,13 +25,15 @@ public sealed class CohereReranker : IReranker
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(config);
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-            throw new InvalidOperationException("CohereReranker requires a non-empty ApiKey in RerankerConfig.");
+        var typed = config.GetTypedConfig<CohereRerankerConfig>();
+        if (string.IsNullOrWhiteSpace(typed?.ApiKey))
+            throw new InvalidOperationException(
+                "CohereReranker requires a non-empty ApiKey in CohereRerankerConfig.ProviderOptions.");
 
         _httpClient = httpClient;
-        _apiKey = config.ApiKey;
-        _model = string.IsNullOrWhiteSpace(config.ModelName) ? DefaultModel : config.ModelName;
-        _endpoint = string.IsNullOrWhiteSpace(config.Endpoint) ? DefaultEndpoint : config.Endpoint;
+        _apiKey = typed.ApiKey;
+        _model = string.IsNullOrWhiteSpace(typed.ModelName) ? DefaultModel : typed.ModelName;
+        _endpoint = string.IsNullOrWhiteSpace(typed.Endpoint) ? DefaultEndpoint : typed.Endpoint;
     }
 
     /// <inheritdoc />

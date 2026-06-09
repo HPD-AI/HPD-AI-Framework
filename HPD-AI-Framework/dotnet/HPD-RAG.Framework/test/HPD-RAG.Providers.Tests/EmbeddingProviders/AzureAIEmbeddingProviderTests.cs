@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HPD.RAG.Core.Providers.Embedding;
 using HPD.RAG.EmbeddingProviders.AzureAI;
 using Xunit;
@@ -39,8 +40,9 @@ public sealed class AzureAIEmbeddingProviderTests
         {
             ProviderKey = "azureai",
             ModelName = "text-embedding-ada-002",
-            ApiKey = "fake-azure-api-key-for-testing",
-            Endpoint = "https://fake-resource.openai.azure.com/"
+            ProviderOptions = JsonDocument.Parse(
+                """{"apiKey":"fake-azure-api-key-for-testing","endpoint":"https://fake-resource.openai.azure.com/"}""")
+                .RootElement.Clone()
         };
 
         // AzureOpenAIClient is constructed without connecting — no network call at creation time
@@ -59,7 +61,7 @@ public sealed class AzureAIEmbeddingProviderTests
         {
             ProviderKey = "azureai",
             ModelName = "text-embedding-ada-002",
-            ApiKey = "fake-azure-api-key"
+            ProviderOptions = JsonDocument.Parse("""{"apiKey":"fake-azure-api-key"}""").RootElement.Clone()
             // No Endpoint
         };
 

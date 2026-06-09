@@ -186,7 +186,7 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         // Skills can use ToolHarnessReferences to Collapse them on-demand
         options.AppendLine("                AdditionalProperties = new Dictionary<string, object>");
         options.AppendLine("                {");
-        options.AppendLine($"                    [\"ParentToolHarness\"] = \"{ToolHarness.Name}\",");
+        options.AppendLine($"                    [\"ParentToolHarness\"] = \"{ToolHarness.ClassName}\",");
 
         // Add Kind if it's an output tool (structured output)
         if (Kind == "Output")

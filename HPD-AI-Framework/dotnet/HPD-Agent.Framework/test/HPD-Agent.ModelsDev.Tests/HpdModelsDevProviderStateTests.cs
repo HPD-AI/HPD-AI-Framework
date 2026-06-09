@@ -16,7 +16,7 @@ public sealed class HpdModelsDevProviderStateTests
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Providers:Openrouter:ApiKey"] = "test-key"
+                ["Providers:openrouter:ApiKey"] = "test-key"
             })
             .Build();
         var state = new HpdModelsDevProviderState(
@@ -27,6 +27,27 @@ public sealed class HpdModelsDevProviderStateTests
 
         status.IsRegistered.Should().BeTrue();
         status.IsAuthenticated.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task GetStatusAsync_does_not_authenticate_from_capitalized_provider_section()
+    {
+        var registry = new ProviderRegistry();
+        registry.Register(new FakeProvider("openrouter"));
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Providers:Openrouter:ApiKey"] = "test-key"
+            })
+            .Build();
+        var state = new HpdModelsDevProviderState(
+            registry,
+            new ConfigurationSecretResolver(configuration));
+
+        var status = await state.GetStatusAsync("openrouter");
+
+        status.IsRegistered.Should().BeTrue();
+        status.IsAuthenticated.Should().BeFalse();
     }
 
     [Fact]

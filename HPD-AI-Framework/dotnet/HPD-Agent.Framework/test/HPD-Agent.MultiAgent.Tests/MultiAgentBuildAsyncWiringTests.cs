@@ -54,18 +54,16 @@ public class MultiAgentBuildAsyncWiringTests
             {
                 IterationOptions = new IterationOptionsConfig
                 {
-                    MaxIterations = 5,
-                    UseChangeAwareIteration = true
+                    MaxIterations = 5
                 }
             }
         };
 
-        var instance = await AgentWorkflow.FromConfig(config).BuildAsync();
+        var instance = await new MultiAgentFactory().BuildAsync(config);
         var settings = GetSettings(instance);
 
         settings.IterationOptions.Should().NotBeNull();
         settings.IterationOptions!.MaxIterations.Should().Be(5);
-        settings.IterationOptions.UseChangeAwareIteration.Should().BeTrue();
     }
 
     // ── 4.2  No IterationOptions → build succeeds cleanly ────────────────────
@@ -111,7 +109,7 @@ public class MultiAgentBuildAsyncWiringTests
         };
 
         // No IGraphCheckpointStore registered in DI → should still build, store will be null
-        var act = async () => await AgentWorkflow.FromConfig(config).BuildAsync();
+        var act = async () => await new MultiAgentFactory().BuildAsync(config);
         await act.Should().NotThrowAsync(
             "missing checkpoint store must be handled gracefully");
     }
@@ -181,7 +179,7 @@ public class MultiAgentBuildAsyncWiringTests
             }
         };
 
-        var instance = await AgentWorkflow.FromConfig(config).BuildAsync();
+        var instance = await new MultiAgentFactory().BuildAsync(config);
         var settings = GetSettings(instance);
 
         settings.MaxIterations.Should().Be(42);

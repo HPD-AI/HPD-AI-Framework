@@ -29,14 +29,14 @@ internal static class ToolHarnessContainerHelper
     /// <summary>
     /// Generates the return message shown after container expansion.
     /// </summary>
-    public static string GenerateReturnMessage(string toolName, List<string> capabilities, string? postExpansionInstructions)
+    public static string GenerateReturnMessage(string toolName, List<string> capabilities, string? functionResult)
     {
         var capabilitiesList = string.Join(", ", capabilities);
         var returnMessage = $"{toolName} expanded. Available functions: {capabilitiesList}";
 
-        if (!string.IsNullOrEmpty(postExpansionInstructions))
+        if (!string.IsNullOrEmpty(functionResult))
         {
-            returnMessage += $"\n\n{postExpansionInstructions}";
+            returnMessage += $"\n\n{functionResult}";
         }
 
         return returnMessage;

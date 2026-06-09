@@ -9,8 +9,8 @@ namespace HPD.RAG.EmbeddingProviders.HuggingFace;
 /// Uses the HuggingFace feature-extraction endpoint via HttpClient and the
 /// Microsoft.Extensions.AI IEmbeddingGenerator contract.
 ///
-/// Config fields used: ModelName (required), ApiKey (required or via typed config).
-/// Typed config: HuggingFaceEmbeddingConfig for Endpoint + ApiKey overrides.
+/// Config fields used: ModelName (required).
+/// Typed config: HuggingFaceEmbeddingConfig for Endpoint + ApiKey.
 /// </summary>
 internal sealed class HuggingFaceEmbeddingProviderFeatures : IEmbeddingProviderFeatures
 {
@@ -26,16 +26,13 @@ internal sealed class HuggingFaceEmbeddingProviderFeatures : IEmbeddingProviderF
 
         var typedConfig = config.GetTypedConfig<HuggingFaceEmbeddingConfig>();
 
-        // Resolve API key: typed config > base config
-        string? apiKey = typedConfig?.ApiKey ?? config.ApiKey;
+        string? apiKey = typedConfig?.ApiKey;
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException(
                 "ApiKey is required for the HuggingFace embedding provider. " +
-                "Set it via EmbeddingConfig.ApiKey or HuggingFaceEmbeddingConfig.ApiKey.");
+                "Set HuggingFaceEmbeddingConfig.ApiKey in EmbeddingConfig.ProviderOptions.");
 
-        // Resolve endpoint: typed config > base config > default
         string baseEndpoint = typedConfig?.Endpoint
-            ?? config.Endpoint
             ?? "https://api-inference.huggingface.co";
 
         // Build an HttpClient targeting the feature-extraction endpoint for the given model

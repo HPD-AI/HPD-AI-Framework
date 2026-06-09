@@ -61,7 +61,7 @@ public class CloningIsolationIntegrationTests
         await orchestrator.ExecuteAsync(context, CancellationToken.None);
 
         // Assert - Original list unchanged
-        var aOutputs = context.Channels["node_output:a"].Get<Dictionary<string, object>>();
+        var aOutputs = context.Channels["node_output:a:port:0"].Get<Dictionary<string, object>>();
         aOutputs.Should().NotBeNull();
 
         // After cloning, List<int> becomes List<object> due to JSON round-trip
@@ -73,7 +73,7 @@ public class CloningIsolationIntegrationTests
         originalList[2].Should().Be(3);
 
         // B and C should have independent copies
-        var bOutputs = context.Channels["node_output:b"].Get<Dictionary<string, object>>();
+        var bOutputs = context.Channels["node_output:b:port:0"].Get<Dictionary<string, object>>();
         bOutputs.Should().NotBeNull();
 
         var bResult = bOutputs!["result"] as List<object>;
@@ -81,7 +81,7 @@ public class CloningIsolationIntegrationTests
         // B added 100 to its independent copy
         bResult![^1].Should().Be(100);
 
-        var cOutputs = context.Channels["node_output:c"].Get<Dictionary<string, object>>();
+        var cOutputs = context.Channels["node_output:c:port:0"].Get<Dictionary<string, object>>();
         cOutputs.Should().NotBeNull();
 
         var cResult = cOutputs!["result"] as List<object>;
@@ -133,7 +133,7 @@ public class CloningIsolationIntegrationTests
             CancellationToken cancellationToken = default)
         {
             // Get upstream output from node "a"
-            var upstreamOutputs = context.Channels["node_output:a"].Get<Dictionary<string, object>>();
+            var upstreamOutputs = context.Channels["node_output:a:port:0"].Get<Dictionary<string, object>>();
             var input = upstreamOutputs?["mutable_list"] as List<int> ?? new List<int>();
 
             // Create a mutable copy and add consumer-specific value

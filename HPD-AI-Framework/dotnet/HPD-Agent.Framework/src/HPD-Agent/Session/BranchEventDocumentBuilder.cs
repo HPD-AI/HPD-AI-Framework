@@ -49,7 +49,7 @@ public static class BranchEventDocumentBuilder
         }
 
         var now = DateTimeOffset.UtcNow;
-        return new BranchEventDocument
+        var document = new BranchEventDocument
         {
             SessionId = sessionId,
             BranchId = branchId,
@@ -58,5 +58,8 @@ public static class BranchEventDocumentBuilder
             NextSequenceNumber = sequence,
             Events = sequenced
         };
+
+        BranchEventValidation.RequireDocumentScope(document, sessionId, branchId);
+        return document;
     }
 }

@@ -1,12 +1,11 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using HPD.RAG.Core.Providers.Reranker;
 
 namespace HPD.RAG.RerankerProviders.HuggingFace;
 
 /// <summary>
 /// Auto-registers the HuggingFace TEI reranker provider on assembly load.
-/// HuggingFace TEI has no provider-specific typed config beyond the base RerankerConfig fields
-/// (Endpoint and ApiKey), so no config type registration is needed.
 /// </summary>
 public static class HuggingFaceRerankerModule
 {
@@ -16,5 +15,10 @@ public static class HuggingFaceRerankerModule
     public static void Initialize()
     {
         RerankerDiscovery.RegisterRerankerFactory(() => new HuggingFaceRerankerFeatures());
+
+        RerankerDiscovery.RegisterRerankerConfigType<HuggingFaceRerankerConfig>(
+            "huggingface",
+            json => JsonSerializer.Deserialize(json, HuggingFaceJsonContext.Default.HuggingFaceRerankerConfig),
+            config => JsonSerializer.Serialize(config, HuggingFaceJsonContext.Default.HuggingFaceRerankerConfig));
     }
 }

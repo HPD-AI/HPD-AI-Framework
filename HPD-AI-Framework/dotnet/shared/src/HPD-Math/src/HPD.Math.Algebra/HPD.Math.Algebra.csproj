@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>HPD.Math.Algebra</RootNamespace>
+    <AssemblyName>HPD.Math.Algebra</AssemblyName>
+    <LangVersion>preview</LangVersion>
+    <IsPackable>true</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <PackageId>HPD-Math.Algebra</PackageId>
+    <Description>Allocation-conscious algebra kernels built on HPD-Math finite-support primitives.</Description>
+    <PackageTags>math;algebra;polynomials;native-aot;zero-allocation</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD.Math.Core\HPD.Math.Core.csproj" />
+    <ProjectReference Include="..\HPD.Math.Finite\HPD.Math.Finite.csproj" />
+  </ItemGroup>
+
+</Project>
