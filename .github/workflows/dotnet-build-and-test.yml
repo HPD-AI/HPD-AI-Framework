@@ -1,15 +1,7 @@
 name: Build and Test
 
 on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
-  merge_group:
-    branches: [ main ]
   workflow_dispatch:
-  schedule:
-    - cron: "0 0 * * *" # Daily at midnight UTC
 
 env:
   COVERAGE_FRAMEWORK: net10.0

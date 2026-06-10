@@ -61,7 +61,7 @@
 		"@playwright/test": "^1.57.0",
 		"@storybook/addon-a11y": "^10.1.10",
 		"@storybook/addon-docs": "^10.1.10",
-		"@storybook/addon-svelte-csf": "^5.0.10",
+		"@storybook/addon-svelte-csf": "^5.1.2",
 		"@storybook/addon-vitest": "^10.1.10",
 		"@storybook/sveltekit": "^10.1.10",
 		"@storybook/test-runner": "^0.24.2",

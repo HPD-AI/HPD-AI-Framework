@@ -1,12 +1,6 @@
 name: TypeScript Build and Test
 
 on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
-  merge_group:
-    branches: [ main ]
   workflow_dispatch:
 
 concurrency:
