@@ -7,8 +7,8 @@
  * @example
  * ```svelte
  * <script>
- *   import { createAgent } from '@hpd-research/hpd-agent-headless-ui';
- *   import * as PermissionDialog from '@hpd-research/hpd-agent-headless-ui/permission-dialog';
+ *   import { createAgent } from '@hpd-research/hpd-agent-svelte-headless-ui';
+ *   import * as PermissionDialog from '@hpd-research/hpd-agent-svelte-headless-ui/permission-dialog';
  *
  *   const agent = createAgent({ baseUrl: 'http://localhost:5135' });
  * </script>

@@ -17,7 +17,7 @@ Production-ready split panel layout system for Svelte 5 with advanced features.
 ## Installation
 
 ```bash
-bun add @hpd-research/hpd-agent-headless-ui
+bun add @hpd-research/hpd-agent-svelte-headless-ui
 ```
 
 This is a headless UI library - you provide all styling via CSS targeting the data attributes:

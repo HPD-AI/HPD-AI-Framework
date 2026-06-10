@@ -1,5 +1,5 @@
 {
-	"name": "@hpd-research/hpd-agent-headless-ui",
+	"name": "@hpd-research/hpd-agent-svelte-headless-ui",
 	"version": "0.1.0",
 	"description": "Headless Svelte component library for AI UI",
 	"author": "HPD-AI",

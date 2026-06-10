@@ -27,12 +27,12 @@
 ## Quick Start
 
 ```bash
-npm install @hpd-research/hpd-agent-headless-ui
+npm install @hpd-research/hpd-agent-svelte-headless-ui
 ```
 
 ```svelte
 <script>
-import { createMockAgent } from '@hpd-research/hpd-agent-headless-ui';
+import { createMockAgent } from '@hpd-research/hpd-agent-svelte-headless-ui';
 
 const agent = createMockAgent();
 let input = '';
@@ -85,7 +85,7 @@ HPD Backend → AgentClient → EventMapper → AgentState → Svelte Reactivity
 
 ## Documentation
 
-- **Full Proposal:** [InternalDocs/Proposal/README.md](../../InternalDocs/ShellOS/Proposal/hpd-agent-headless-ui/README.md)
+- **Full Proposal:** [InternalDocs/Proposal/README.md](../../InternalDocs/ShellOS/Proposal/hpd-agent-svelte-headless-ui/README.md)
 - **Developer Guide:** [CLAUDE.md](./CLAUDE.md)
 - **API Reference:** Coming soon
 

@@ -69,7 +69,7 @@ pass directly to \`workspace.send({ runConfig: runConfig.value })\`.
 ## Usage pattern
 \`\`\`svelte
 <script>
-  import { RunConfig } from '@hpd-research/hpd-agent-headless-ui';
+  import { RunConfig } from '@hpd-research/hpd-agent-svelte-headless-ui';
   const runConfig = new RunConfig.State();
 <\/script>
 

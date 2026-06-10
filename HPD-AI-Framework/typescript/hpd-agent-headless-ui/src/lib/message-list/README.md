@@ -16,7 +16,7 @@ Container for displaying chat messages with auto-scrolling and accessibility sup
 
 ```svelte
 <script>
-  import { MessageList, Message } from '@hpd-research/hpd-agent-headless-ui';
+  import { MessageList, Message } from '@hpd-research/hpd-agent-svelte-headless-ui';
 
   let { agent } = $props();
   let { messages } = agent.state;

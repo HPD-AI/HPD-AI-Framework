@@ -6,7 +6,7 @@
  * @example
  * ```svelte
  * <script>
- *   import { ChatInput } from '@hpd-research/hpd-agent-headless-ui';
+ *   import { ChatInput } from '@hpd-research/hpd-agent-svelte-headless-ui';
  *
  *   let message = $state('');
  *

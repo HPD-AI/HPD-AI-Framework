@@ -45,7 +45,7 @@ include in \`workspace.send()\`.
 ## Usage
 \`\`\`svelte
 <script>
-  import { FileAttachment, FileAttachmentState } from '@hpd-research/hpd-agent-headless-ui';
+  import { FileAttachment, FileAttachmentState } from '@hpd-research/hpd-agent-svelte-headless-ui';
 
   const state = new FileAttachmentState({
     uploadFn: { get current() { return (sid, bid, file) => client.uploadContent(sid, bid, file); } },

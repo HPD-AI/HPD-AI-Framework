@@ -4,7 +4,7 @@
  * @example
  * ```svelte
  * <script>
- *   import { SessionList } from '@hpd-research/hpd-agent-headless-ui';
+ *   import { SessionList } from '@hpd-research/hpd-agent-svelte-headless-ui';
  *
  *   let sessions = $state([]);
  *   let activeSessionId = $state(null);

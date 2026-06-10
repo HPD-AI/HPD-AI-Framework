@@ -21,7 +21,7 @@ The Message component is a flexible, headless primitive for rendering AI chat me
 
 ```svelte
 <script>
-  import { Message } from '@hpd-research/hpd-agent-headless-ui';
+  import { Message } from '@hpd-research/hpd-agent-svelte-headless-ui';
 
   const message = {
     id: 'msg-1',
@@ -46,7 +46,7 @@ The Message component is a flexible, headless primitive for rendering AI chat me
 ## Installation
 
 ```bash
-npm install @hpd-research/hpd-agent-headless-ui
+npm install @hpd-research/hpd-agent-svelte-headless-ui
 ```
 
 ---
@@ -493,8 +493,8 @@ Create a reusable styled message component:
 
 ```svelte title="ChatMessage.svelte"
 <script lang="ts">
-  import { Message } from '@hpd-research/hpd-agent-headless-ui';
-  import type { Message as MessageType } from '@hpd-research/hpd-agent-headless-ui';
+  import { Message } from '@hpd-research/hpd-agent-svelte-headless-ui';
+  import type { Message as MessageType } from '@hpd-research/hpd-agent-svelte-headless-ui';
 
   let { message }: { message: MessageType } = $props();
 </script>
@@ -759,7 +759,7 @@ import type {
   MessageSnippetProps,
   MessageStatus,
   MessageRole
-} from '@hpd-research/hpd-agent-headless-ui';
+} from '@hpd-research/hpd-agent-svelte-headless-ui';
 ```
 
 ---

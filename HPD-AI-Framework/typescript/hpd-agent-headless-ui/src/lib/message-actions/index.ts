@@ -9,7 +9,7 @@
  * @example
  * ```svelte
  * <script>
- *   import * as MessageActions from '@hpd-research/hpd-agent-headless-ui/message-actions';
+ *   import * as MessageActions from '@hpd-research/hpd-agent-svelte-headless-ui/message-actions';
  *   let draft = $state('');
  * </script>
  *

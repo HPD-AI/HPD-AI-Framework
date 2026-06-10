@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@hpd-research/hpd-agent-headless-ui",
+      "name": "@hpd-research/hpd-agent-svelte-headless-ui",
       "dependencies": {
         "runed": "^0.37.1",
         "svelte-toolbelt": "^0.10.6",
