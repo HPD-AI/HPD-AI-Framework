@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <NoWarn>HPDAUDIO001;MEAI001;IL2026;IL3050;CS8600;CS8601;CS8602;CS8604;CS0628;CS1591</NoWarn>
+    <NoWarn>$(NoWarn);HPDAUDIO001;MEAI001;IL2026;IL3050;CS0108;CS0628;CS8424;CS8600;CS8601;CS8602;CS8604;CS8619;CS8907;CS9113</NoWarn>
     <!-- Native AOT Configuration -->
     <PublishAot>true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>
@@ -26,16 +26,16 @@
   <ItemGroup>
     <!-- Core AI Framework (Protocol-Agnostic) -->
     <!-- Microsoft.Agents.AI.Abstractions removed - core is now protocol-agnostic -->
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
-        <PackageReference Include="Microsoft.Extensions.AI" Version="10.4.1" />
-    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.5" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.5" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.5" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.5" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.5" />
-    <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
+        <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.9" />
     <PackageReference Include="NLayer" Version="1.16.0" />
 
   </ItemGroup>

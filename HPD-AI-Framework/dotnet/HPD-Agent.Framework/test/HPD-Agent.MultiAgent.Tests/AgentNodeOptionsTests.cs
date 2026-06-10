@@ -1,5 +1,5 @@
 using HPD.MultiAgent;
-using HPDAgent.Graph.Abstractions.Graph;
+using HPD.Graph.Abstractions.Graph;
 
 namespace HPD.MultiAgent.Tests;
 

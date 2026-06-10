@@ -38,7 +38,7 @@
     <PackageReference Include="HPD-Agent.Providers.OpenAI" Version="0.2.0" />
 
     <!-- Events package -->
-    <PackageReference Include="HPD-Agent.Events" Version="0.2.0" />
+    <PackageReference Include="HPD-Events" Version="0.2.0" />
   </ItemGroup>
 
 </Project>

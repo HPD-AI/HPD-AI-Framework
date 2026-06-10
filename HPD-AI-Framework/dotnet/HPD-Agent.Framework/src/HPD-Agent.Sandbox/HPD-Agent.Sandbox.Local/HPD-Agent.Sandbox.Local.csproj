@@ -18,7 +18,7 @@
     <ProjectReference Include="../HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj" />
     <ProjectReference Include="../../../../shared/src/HPD-Events/HPD-Events.csproj" />
 
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.9" />
   </ItemGroup>
 
   <ItemGroup>

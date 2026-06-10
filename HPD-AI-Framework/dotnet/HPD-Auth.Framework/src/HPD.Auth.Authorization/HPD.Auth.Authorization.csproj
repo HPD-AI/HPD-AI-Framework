@@ -4,6 +4,10 @@
     <TargetFrameworks></TargetFrameworks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Auth-Authorization</PackageId>
+    <Description>Authorization policies, requirements, handlers, and middleware for HPD-Auth.</Description>
+    <PackageTags>auth;authorization;policies;aspnetcore;hpd</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../HPD.Auth.Core/HPD.Auth.Core.csproj" />

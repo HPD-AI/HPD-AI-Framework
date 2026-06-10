@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Rhodium.Primitives\Rhodium.Primitives.csproj" />
+    <ProjectReference Include="..\Rhodium.Core\Rhodium.Core.csproj" />
   </ItemGroup>
 
 </Project>

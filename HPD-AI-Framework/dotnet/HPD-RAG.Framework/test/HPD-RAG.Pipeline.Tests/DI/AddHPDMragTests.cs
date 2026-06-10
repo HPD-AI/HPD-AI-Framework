@@ -3,7 +3,7 @@ using HPD.RAG.Core.Providers.Reranker;
 using HPD.RAG.Extensions;
 using HPD.RAG.Pipeline.Tests.Shared;
 using HPD.RAG.VectorStores.InMemory;
-using HPDAgent.Graph.Abstractions.Handlers;
+using HPD.Graph.Abstractions.Handlers;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.VectorData;

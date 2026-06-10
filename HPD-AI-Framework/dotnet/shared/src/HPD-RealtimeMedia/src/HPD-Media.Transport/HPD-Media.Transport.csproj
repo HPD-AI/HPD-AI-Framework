@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Media.Transport</RootNamespace>
+    <AssemblyName>HPD.Media.Transport</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Media.Transport</PackageId>
+    <Description>Datagram transport and media security contracts for HPD realtime media infrastructure.</Description>
+    <PackageTags>hpd;media;transport;datagram;srtp;realtime-media</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Buffers\HPD-Buffers.csproj" />
+  </ItemGroup>
+
+</Project>

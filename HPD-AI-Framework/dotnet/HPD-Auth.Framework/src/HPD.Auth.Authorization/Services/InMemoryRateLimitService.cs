@@ -22,7 +22,7 @@ namespace HPD.Auth.Authorization.Services;
 /// </para>
 /// <para>
 /// Thread safety: the implementation uses <see cref="ConcurrentDictionary{TKey,TValue}"/>
-/// with <see cref="ConcurrentDictionary{TKey,TValue}.AddOrUpdate"/> to ensure atomic
+/// with <c>AddOrUpdate</c> to ensure atomic
 /// read-modify-write under concurrent load.
 /// </para>
 /// </remarks>

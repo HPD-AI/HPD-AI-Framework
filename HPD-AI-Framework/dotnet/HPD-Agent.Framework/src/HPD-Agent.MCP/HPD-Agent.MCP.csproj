@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <NoWarn>HPDAUDIO001;MEAI001</NoWarn>
+    <NoWarn>$(NoWarn);HPDAUDIO001;MEAI001</NoWarn>
     <!-- Native AOT Configuration -->
     <PublishAot>true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>
@@ -27,12 +27,12 @@
 
   <ItemGroup>
     <!-- Core AI Framework -->
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.4.1" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.9" />
 
     <!-- MCP Support -->
-    <PackageReference Include="ModelContextProtocol" Version="1.0.0" />
+    <PackageReference Include="ModelContextProtocol" Version="1.4.0" />
   </ItemGroup>
 
   <ItemGroup>

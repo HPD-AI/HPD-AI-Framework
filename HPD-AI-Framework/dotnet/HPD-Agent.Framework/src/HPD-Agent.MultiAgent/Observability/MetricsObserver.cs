@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
 using HPD.Agent;
 using HPD.Events;
-using HPDAgent.Graph.Abstractions.Events;
-using HPDAgent.Graph.Abstractions.Execution;
+using HPD.Graph.Abstractions.Events;
+using HPD.Graph.Abstractions.Execution;
 
 namespace HPD.MultiAgent.Observability;
 

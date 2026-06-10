@@ -341,7 +341,7 @@ namespace HPD.TextExtract.Pdf
             var bitmap = fpdfview.FPDFBitmapCreateEx(
                 width,
                 height,
-                (int)FPDFBitmapFormat.BGRA,
+                4,
                 IntPtr.Zero,
                 stride: 0);
             if (PdfiumBackend.IsNull(bitmap))
@@ -355,7 +355,7 @@ namespace HPD.TextExtract.Pdf
 
             try
             {
-                _ = fpdfview.FPDFBitmapFillRect(bitmap, 0, 0, width, height, 0xFFFFFFFF);
+                fpdfview.FPDFBitmapFillRect(bitmap, 0, 0, width, height, 0xFFFFFFFF);
                 fpdfview.FPDF_RenderPageBitmap(bitmap, NativePage, 0, 0, width, height, 0, flags: 0);
                 var image = CopyBitmap(bitmap, width, height, request.Format);
                 var mimeType = RenderedImageMimeType(request.Format);

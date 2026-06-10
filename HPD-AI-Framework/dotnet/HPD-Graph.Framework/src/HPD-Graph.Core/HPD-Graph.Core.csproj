@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <RootNamespace>HPD.Graph.Core</RootNamespace>
+    <AssemblyName>HPD.Graph.Core</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <NoWarn>$(NoWarn);CS8425;CS8602;CS8620</NoWarn>
+
+    <!-- Package metadata -->
+    <PackageId>HPD-Graph.Core</PackageId>
+    <Description>Core implementation of HPD-Graph - a universal DAG execution engine with support for parallel execution, checkpointing, and content-addressable caching.</Description>
+    <PackageTags>graph;dag;workflow;orchestration;execution-engine;orchestrator</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Graph.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Graph.Abstractions\HPD-Graph.Abstractions.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
+
+    <!-- Source Generator Reference -->
+    <ProjectReference Include="..\HPD-Graph.SourceGenerator\HPD-Graph.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier"
+                      AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.9" />
+    <PackageReference Include="System.IO.Hashing" Version="10.0.3" />
+    <PackageReference Include="Cronos" Version="0.11.1" />
+  </ItemGroup>
+
+  <Target Name="BuildGraphAnalyzers" BeforeTargets="_GetPackageFiles" Condition="'$(IsCrossTargetingBuild)' != 'true'">
+    <MSBuild Projects="../HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);TargetFramework=netstandard2.0;PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
+  </Target>
+
+  <Target Name="IncludeGraphAnalyzers" BeforeTargets="_GetPackageFiles">
+    <ItemGroup>
+      <None Include="../HPD-Graph.SourceGenerator/bin/$(Configuration)/netstandard2.0/HPD.Graph.SourceGenerator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+      <None Include="../HPD-Graph.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Graph.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll')" />
+      <None Include="../HPD-Graph.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Graph.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll')" />
+    </ItemGroup>
+  </Target>
+
+</Project>

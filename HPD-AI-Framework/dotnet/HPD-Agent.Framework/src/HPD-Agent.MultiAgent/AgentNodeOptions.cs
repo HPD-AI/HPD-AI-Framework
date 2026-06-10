@@ -1,6 +1,6 @@
 using HPD.MultiAgent.Config;
-using HPDAgent.Graph.Abstractions;
-using HPDAgent.Graph.Abstractions.Graph;
+using HPD.Graph.Abstractions;
+using HPD.Graph.Abstractions.Graph;
 
 namespace HPD.MultiAgent;
 

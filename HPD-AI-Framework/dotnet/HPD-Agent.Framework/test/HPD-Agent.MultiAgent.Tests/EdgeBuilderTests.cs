@@ -2,8 +2,8 @@ using System.Text.RegularExpressions;
 using HPD.Agent;
 using HPD.MultiAgent;
 using HPD.MultiAgent.Routing;
-using HPDAgent.Graph.Abstractions;
-using HPDAgent.Graph.Abstractions.Graph;
+using HPD.Graph.Abstractions;
+using HPD.Graph.Abstractions.Graph;
 
 namespace HPD.MultiAgent.Tests;
 

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Audio.Codecs.Opus</RootNamespace>
+    <AssemblyName>HPD.Audio.Codecs.Opus</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Audio.Codecs.Opus</PackageId>
+    <Description>Provider-backed Opus codec adapters for HPD realtime media infrastructure.</Description>
+    <PackageTags>hpd;audio;codec;opus;realtime-media</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Audio.Codecs\HPD-Audio.Codecs.csproj" />
+    <ProjectReference Include="..\HPD-Audio.Primitives\HPD-Audio.Primitives.csproj" />
+  </ItemGroup>
+
+</Project>

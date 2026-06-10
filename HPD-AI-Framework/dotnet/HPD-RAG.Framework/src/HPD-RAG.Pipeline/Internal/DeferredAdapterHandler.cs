@@ -1,7 +1,7 @@
 using HPD.RAG.Core.Context;
 using HPD.RAG.Core.Pipeline;
-using HPDAgent.Graph.Abstractions.Execution;
-using HPDAgent.Graph.Abstractions.Handlers;
+using HPD.Graph.Abstractions.Execution;
+using HPD.Graph.Abstractions.Handlers;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.RAG.Pipeline.Internal;

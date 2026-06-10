@@ -4,7 +4,7 @@
     <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <NoWarn>CS8600;CS8601;CS8602;CS8604</NoWarn>
+    <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8604</NoWarn>
 
     <!-- Native AOT Configuration -->
     <IsAotCompatible>true</IsAotCompatible>
@@ -26,10 +26,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="AWSSDK.BedrockRuntime" Version="4.0.16.1" />
-    <PackageReference Include="AWSSDK.Core" Version="4.0.3.15" />
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.4.1" />
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
-    <PackageReference Include="AWSSDK.Extensions.Bedrock.MEAI" Version="4.0.5.8" />
+    <PackageReference Include="AWSSDK.BedrockRuntime" Version="4.0.20.4" />
+    <PackageReference Include="AWSSDK.Core" Version="4.0.8.1" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
+    <PackageReference Include="AWSSDK.Extensions.Bedrock.MEAI" Version="4.0.8.8" />
   </ItemGroup>
 </Project>

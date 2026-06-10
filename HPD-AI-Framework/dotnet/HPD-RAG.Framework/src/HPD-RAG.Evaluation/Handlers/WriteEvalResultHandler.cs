@@ -1,6 +1,6 @@
 using HPD.RAG.Core.Context;
 using HPD.RAG.Core.DTOs;
-using HPDAgent.Graph.Abstractions.Attributes;
+using HPD.Graph.Abstractions.Attributes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -12,7 +12,7 @@ namespace HPD.RAG.Evaluation.Handlers;
 /// and <c>Stored</c> is set to <see langword="false"/>.
 /// </summary>
 [GraphNodeHandler(NodeName = "WriteEvalResult")]
-public sealed partial class WriteEvalResultHandler : HPDAgent.Graph.Abstractions.Handlers.IGraphNodeHandler<HPD.RAG.Core.Context.MragPipelineContext>
+public sealed partial class WriteEvalResultHandler : HPD.Graph.Abstractions.Handlers.IGraphNodeHandler<HPD.RAG.Core.Context.MragPipelineContext>
 {
     /// <summary>Default error propagation: stop the pipeline on persistence failure.</summary>
     public static Core.Pipeline.MragErrorPropagation DefaultPropagation { get; } =

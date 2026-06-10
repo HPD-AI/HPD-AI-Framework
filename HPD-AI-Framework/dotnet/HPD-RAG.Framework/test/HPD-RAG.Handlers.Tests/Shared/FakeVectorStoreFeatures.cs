@@ -7,8 +7,8 @@ namespace HPD.RAG.Handlers.Tests.Shared;
 /// <summary>
 /// Test-only IVectorStoreFeatures implementation.
 /// Returns a passthrough filter translator whose Translate() result cannot be cast to
-/// VectorSearchFilter — VectorSearchHandler silently leaves vsf = null, so searches
-/// run unfiltered against InMemoryVectorStore. This is correct for unit-test purposes:
+/// the expression filter type — VectorSearchHandler silently leaves filter = null, so searches
+/// run unfiltered against the empty test vector store. This is correct for unit-test purposes:
 /// we verify the handler executes end-to-end without throwing, not that the backend
 /// applies the predicate (that is exercised in integration tests).
 /// </summary>
@@ -25,9 +25,9 @@ internal sealed class FakeVectorStoreFeatures : IVectorStoreFeatures
     private sealed class FakeFilterTranslator : IMragFilterTranslator
     {
         /// <summary>
-        /// Returns an opaque object that is NOT a VectorSearchFilter.
-        /// VectorSearchHandler casts with "as VectorSearchFilter" — the null result
-        /// means the search runs without an OldFilter, which is correct for InMemory.
+        /// Returns an opaque object that is not an expression filter.
+        /// VectorSearchHandler casts to Expression&lt;Func&lt;MragVectorRecord, bool&gt;&gt;;
+        /// the null result means the search runs without a filter.
         /// </summary>
         public object? Translate(MragFilterNode? node) => node is null ? null : new object();
     }

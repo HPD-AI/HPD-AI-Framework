@@ -24,14 +24,14 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <NoWarn>$(NoWarn);CS1570;CS1572;CS1573;CS1574;CS1587;CS1591;CS1712</NoWarn>
 
     <!-- Package defaults (individual projects can override) -->
     <IsPackable>false</IsPackable>
 
     <!-- Common NuGet package metadata -->
-    <Authors>Einstein Essibu</Authors>
-    <Company>HPD</Company>
+    <Authors>HPD-Research; Einstein Essibu</Authors>
+    <Company>HPD-Research</Company>
     <Product>HPD-Agent Framework</Product>
     <Copyright>Copyright © 2024 Einstein Essibu. All rights reserved.</Copyright>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
@@ -58,8 +58,8 @@
     <EnableLegacySupport>false</EnableLegacySupport>
 
     <!-- Computed target frameworks -->
-    <TargetFrameworks Condition="'$(EnableLegacySupport)' != 'true'">$(TargetFrameworksModern)</TargetFrameworks>
-    <TargetFrameworks Condition="'$(EnableLegacySupport)' == 'true'">$(TargetFrameworksModern);$(TargetFrameworksLegacy)</TargetFrameworks>
+    <TargetFrameworks Condition="'$(TargetFramework)' == '' AND '$(TargetFrameworks)' == '' AND '$(EnableLegacySupport)' != 'true'">$(TargetFrameworksModern)</TargetFrameworks>
+    <TargetFrameworks Condition="'$(TargetFramework)' == '' AND '$(TargetFrameworks)' == '' AND '$(EnableLegacySupport)' == 'true'">$(TargetFrameworksModern);$(TargetFrameworksLegacy)</TargetFrameworks>
 
     <!-- AOT compatibility for modern frameworks -->
     <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net7.0'))">true</IsAotCompatible>

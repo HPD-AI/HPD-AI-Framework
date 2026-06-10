@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Media.Rtp.Repair</RootNamespace>
+    <AssemblyName>HPD.Media.Rtp.Repair</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Media.Rtp.Repair</PackageId>
+    <Description>RTP repair and RTX packet handoff contracts for HPD realtime media infrastructure.</Description>
+    <PackageTags>hpd;media;rtp;repair;rtx;realtime-media</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Media.Rtp\HPD-Media.Rtp.csproj" />
+    <ProjectReference Include="..\HPD-Media.Rtcp.Feedback\HPD-Media.Rtcp.Feedback.csproj" />
+  </ItemGroup>
+
+</Project>

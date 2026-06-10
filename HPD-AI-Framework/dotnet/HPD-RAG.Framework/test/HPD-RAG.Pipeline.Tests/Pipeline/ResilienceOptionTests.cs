@@ -47,7 +47,7 @@ public sealed class ResilienceOptionTests
         var pipeline = await MragPipeline.Create()
             .WithName("artifact-test")
             .AddHandler("write", MragHandlerNames.WriteInMemory,
-                options: o => o.ProducesArtifact = HPDAgent.Graph.Abstractions.Artifacts.ArtifactKey.Parse("mrag/corpus/docs"))
+                options: o => o.ProducesArtifact = HPD.Graph.Abstractions.Artifacts.ArtifactKey.Parse("mrag/corpus/docs"))
             .From("START").To("write").To("END").Done()
             .BuildIngestionAsync();
 

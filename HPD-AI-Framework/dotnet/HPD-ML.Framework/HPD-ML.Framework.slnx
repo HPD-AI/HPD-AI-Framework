@@ -28,7 +28,6 @@
   </Folder>
   <Folder Name="/Specialized/">
     <Project Path="src/HPD.ML.Evaluation/HPD.ML.Evaluation.csproj" />
-    <Project Path="src/HPD.ML.SourceGen/HPD.ML.SourceGen.csproj" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="test/HPD.ML.Core.Tests/HPD.ML.Core.Tests.csproj" />

@@ -16,8 +16,8 @@
 
   <ItemGroup>
     <PackageReference Include="DiffPlex" Version="1.8.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
     <PackageReference Include="System.IO.Abstractions" Version="22.0.14" />
     <PackageReference Include="System.IO.Abstractions.TestingHelpers" Version="22.0.14" />
   </ItemGroup>

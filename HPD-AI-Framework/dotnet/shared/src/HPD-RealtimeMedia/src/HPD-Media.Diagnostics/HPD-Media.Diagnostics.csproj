@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Media.Diagnostics</RootNamespace>
+    <AssemblyName>HPD.Media.Diagnostics</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Media.Diagnostics</PackageId>
+    <Description>Realtime struct-event telemetry samples for HPD realtime media infrastructure.</Description>
+    <PackageTags>hpd;media;diagnostics;telemetry;struct-events;realtime-media</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\HPD-Events\HPD-Events.csproj" />
+  </ItemGroup>
+
+</Project>

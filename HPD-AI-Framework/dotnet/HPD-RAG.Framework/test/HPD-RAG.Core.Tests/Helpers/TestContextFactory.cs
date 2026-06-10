@@ -1,5 +1,5 @@
 using HPD.RAG.Core.Context;
-using HPDAgent.Graph.Abstractions.Graph;
+using HPD.Graph.Abstractions.Graph;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.RAG.Core.Tests.Helpers;
@@ -12,8 +12,8 @@ internal static class TestContextFactory
     /// <summary>
     /// Minimal Graph stub with no nodes or edges — sufficient for context construction in unit tests.
     /// </summary>
-    public static HPDAgent.Graph.Abstractions.Graph.Graph EmptyGraph() =>
-        new HPDAgent.Graph.Abstractions.Graph.Graph
+    public static HPD.Graph.Abstractions.Graph.Graph EmptyGraph() =>
+        new HPD.Graph.Abstractions.Graph.Graph
         {
             Id = "test-graph",
             Name = "Test Graph",

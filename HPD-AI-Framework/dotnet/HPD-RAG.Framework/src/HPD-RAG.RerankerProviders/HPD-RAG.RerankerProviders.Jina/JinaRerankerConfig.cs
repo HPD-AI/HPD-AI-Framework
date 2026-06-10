@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace HPD.RAG.RerankerProviders.Jina;
 
 /// <summary>
@@ -6,7 +8,12 @@ namespace HPD.RAG.RerankerProviders.Jina;
 /// </summary>
 public sealed class JinaRerankerConfig
 {
+    [JsonPropertyName("apiKey")]
     public string? ApiKey { get; set; }
+
+    [JsonPropertyName("endpoint")]
     public string? Endpoint { get; set; }
+
+    [JsonPropertyName("modelName")]
     public string? ModelName { get; set; }
 }

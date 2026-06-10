@@ -67,9 +67,9 @@
   <Folder Name="/Shared/">
     <Project Path="../shared/src/HPD-Environment/HPD-Environment.AppleVirtualization/HPD-Environment.AppleVirtualization.csproj" />
     <Project Path="../shared/src/HPD-Events/HPD-Events.csproj" />
-    <Project Path="../shared/src/HPD-Graph/HPD-Graph.Core/HPD-Graph.Core.csproj" />
+    <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Core/HPD-Graph.Core.csproj" />
     <Project Path="../shared/src/HPD-TextExtract/HPD-TextExtract.csproj" />
-    <Project Path="../shared/src/HPD.OpenApi.Core/HPD.OpenApi.Core.csproj" />
+    <Project Path="../shared/src/HPD-OpenApi.Core/HPD-OpenApi.Core.csproj" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="test/HPD-Agent.Tests/HPD-Agent.Tests.csproj" />

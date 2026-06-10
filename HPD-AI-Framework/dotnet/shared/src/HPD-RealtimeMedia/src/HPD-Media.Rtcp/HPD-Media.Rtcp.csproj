@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Media.Rtcp</RootNamespace>
+    <AssemblyName>HPD.Media.Rtcp</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Media.Rtcp</PackageId>
+    <Description>RTCP packet contracts and low-allocation parse/write surfaces for HPD realtime media infrastructure.</Description>
+    <PackageTags>hpd;media;rtcp;realtime-media</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Media.Diagnostics\HPD-Media.Diagnostics.csproj" />
+    <ProjectReference Include="..\HPD-Media.Rtp\HPD-Media.Rtp.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -3,8 +3,8 @@ using HPD.Events;
 using HPD.Events.Core;
 using HPD.MultiAgent;
 using HPD.MultiAgent.Observability;
-using HPDAgent.Graph.Abstractions.Events;
-using HPDAgent.Graph.Abstractions.Execution;
+using HPD.Graph.Abstractions.Events;
+using HPD.Graph.Abstractions.Execution;
 using MessageTurnFinishedEvent = HPD.Agent.MessageTurnFinishedEvent;
 using ToolCallStartEvent = HPD.Agent.ToolCallStartEvent;
 

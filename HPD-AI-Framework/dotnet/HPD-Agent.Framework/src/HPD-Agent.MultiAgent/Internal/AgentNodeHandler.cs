@@ -4,9 +4,9 @@ using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.StructuredOutput;
 using HPD.MultiAgent.Config;
-using HPDAgent.Graph.Abstractions.Events;
-using HPDAgent.Graph.Abstractions.Execution;
-using HPDAgent.Graph.Abstractions.Handlers;
+using HPD.Graph.Abstractions.Events;
+using HPD.Graph.Abstractions.Execution;
+using HPD.Graph.Abstractions.Handlers;
 using Microsoft.Extensions.AI;
 
 namespace HPD.MultiAgent.Internal;

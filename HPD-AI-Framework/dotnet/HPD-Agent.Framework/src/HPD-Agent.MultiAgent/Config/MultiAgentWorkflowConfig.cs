@@ -2,8 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent;
 using HPD.MultiAgent;
-using HPDAgent.Graph.Abstractions;
-using HPDAgent.Graph.Abstractions.Graph;
+using HPD.Graph.Abstractions;
+using HPD.Graph.Abstractions.Graph;
 
 namespace HPD.MultiAgent.Config;
 

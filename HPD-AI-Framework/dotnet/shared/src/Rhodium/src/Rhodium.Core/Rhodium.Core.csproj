@@ -1,0 +1,66 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Rhodium</RootNamespace>
+    <AssemblyName>Rhodium.Core</AssemblyName>
+    <PackageId>Rhodium.Core</PackageId>
+    <Description>Core runtime primitives, tensors, events, analytics, indicators, options, platform APIs, and execution kernel for Rhodium.</Description>
+    <PackageTags>trading;backtesting;quant;simulation;indicators;options;tensor</PackageTags>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CA2014;CS8601;RHD001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="**\bin\**;**\obj\**" />
+    <EmbeddedResource Remove="**\bin\**;**\obj\**" />
+    <None Remove="**\bin\**;**\obj\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\HPD-Events\HPD-Events.csproj" />
+    <ProjectReference Include="..\Rhodium.SourceGenerators\Rhodium.SourceGenerators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Rhodium.Analyzers\Rhodium.Analyzers.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Numerics.Tensors" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Rhodium.Connectivity" />
+    <InternalsVisibleTo Include="Rhodium.Data" />
+    <InternalsVisibleTo Include="Rhodium.Simulation" />
+    <InternalsVisibleTo Include="Rhodium.Control.Tests" />
+    <InternalsVisibleTo Include="Rhodium.Kernel.Tests" />
+    <InternalsVisibleTo Include="Rhodium.Platform.Tests" />
+    <InternalsVisibleTo Include="Rhodium.Primitives.Tests" />
+    <InternalsVisibleTo Include="Rhodium.Quant.Tests" />
+    <InternalsVisibleTo Include="Rhodium.Tensor.Tests" />
+  </ItemGroup>
+
+  <Target Name="BuildRhodiumAnalyzers" BeforeTargets="_GetPackageFiles" Condition="'$(IsCrossTargetingBuild)' != 'true'">
+    <MSBuild Projects="../Rhodium.SourceGenerators/Rhodium.SourceGenerators.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);TargetFramework=netstandard2.0;PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
+    <MSBuild Projects="../Rhodium.Analyzers/Rhodium.Analyzers.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);TargetFramework=netstandard2.0;PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
+  </Target>
+
+  <Target Name="IncludeRhodiumAnalyzers" BeforeTargets="_GetPackageFiles">
+    <ItemGroup>
+      <None Include="../Rhodium.SourceGenerators/bin/$(Configuration)/netstandard2.0/Rhodium.SourceGenerators.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+      <None Include="../Rhodium.SourceGenerators/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../Rhodium.SourceGenerators/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll')" />
+      <None Include="../Rhodium.SourceGenerators/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../Rhodium.SourceGenerators/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll')" />
+      <None Include="../Rhodium.Analyzers/bin/$(Configuration)/netstandard2.0/Rhodium.Analyzers.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+      <None Include="../Rhodium.Analyzers/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../Rhodium.Analyzers/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll')" />
+      <None Include="../Rhodium.Analyzers/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../Rhodium.Analyzers/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll')" />
+    </ItemGroup>
+  </Target>
+
+</Project>

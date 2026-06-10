@@ -1,6 +1,8 @@
 .DS_Store
 /Proposals
 /Reference
+.tmp/
+**/.tmp/
 bin/
 obj/
 appsettings.json

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Media.Rtp.Audio.Sdp</RootNamespace>
+    <AssemblyName>HPD.Media.Rtp.Audio.Sdp</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Media.Rtp.Audio.Sdp</PackageId>
+    <Description>SDP-to-RTP audio payload-map adapters for HPD realtime media infrastructure.</Description>
+    <PackageTags>hpd;media;rtp;audio;sdp;realtime-media</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Audio.Codecs\HPD-Audio.Codecs.csproj" />
+    <ProjectReference Include="..\HPD-Media.Rtp.Audio\HPD-Media.Rtp.Audio.csproj" />
+    <ProjectReference Include="..\HPD-Media.Sdp\HPD-Media.Sdp.csproj" />
+  </ItemGroup>
+
+</Project>

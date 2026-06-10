@@ -13,7 +13,7 @@ public sealed class GeneratedRegistrationAnalyzer : DiagnosticAnalyzer
         id: "RHD019",
         title: "Manual generated registration is not supported",
         messageFormat: "Generated registration helper '{0}' is reserved for Rhodium source-generated code; declare generated fields and indicators instead",
-        category: "Rhodium.Generators",
+        category: "Rhodium.SourceGenerators",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 

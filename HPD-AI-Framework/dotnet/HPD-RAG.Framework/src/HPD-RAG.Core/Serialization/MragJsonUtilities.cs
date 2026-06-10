@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
-using HPDAgent.Graph.Abstractions.Serialization;
+using HPD.Graph.Abstractions.Serialization;
 
 namespace HPD.RAG.Core.Serialization;
 

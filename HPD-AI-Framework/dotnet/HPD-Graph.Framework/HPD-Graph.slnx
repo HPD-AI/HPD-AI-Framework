@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Core/">
+    <Project Path="src/HPD-Graph.Abstractions/HPD-Graph.Abstractions.csproj" />
+    <Project Path="src/HPD-Graph.Core/HPD-Graph.Core.csproj" />
+    <Project Path="src/HPD-Graph.Hosting/HPD-Graph.Hosting.csproj" />
+    <Project Path="src/HPD-Graph.AspNetCore/HPD-Graph.AspNetCore.csproj" />
+  </Folder>
+  <Folder Name="/Connectors/">
+    <Project Path="src/HPD-Graph.Connectors/HPD-Graph.Connectors.Abstractions/HPD-Graph.Connectors.Abstractions.csproj" />
+    <Project Path="src/HPD-Graph.Connectors/HPD-Graph.Connectors.Core/HPD-Graph.Connectors.Core.csproj" />
+    <Project Path="src/HPD-Graph.Connectors/HPD-Graph.Connectors.AspNetCore/HPD-Graph.Connectors.AspNetCore.csproj" />
+    <Project Path="src/HPD-Graph.Connectors/HPD-Graph.Connectors.OpenApi/HPD-Graph.Connectors.OpenApi.csproj" />
+  </Folder>
+  <Folder Name="/Generators/">
+    <Project Path="src/HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj" />
+    <Project Path="src/HPD-Graph.Connectors/HPD-Graph.Connectors.SourceGenerator/HPD-Graph.Connectors.SourceGenerator.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="test/HPD-Graph.Tests/HPD-Graph.Tests.csproj" />
+  </Folder>
+</Solution>

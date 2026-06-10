@@ -1,12 +1,13 @@
 using HPD.RAG.Core.Pipeline;
 using HPD.RAG.Core.Serialization;
-using HPDAgent.Graph.Abstractions.Config;
-using HPDAgent.Graph.Abstractions.Graph;
-using HPDAgent.Graph.Abstractions.Serialization;
-using HPDAgent.Graph.Core.Builders;
-using HPDAgent.Graph.Core.Config;
+using HPD.Graph.Abstractions.Config;
+using HPD.Graph.Abstractions.Graph;
+using HPD.Graph.Abstractions.Serialization;
+using HPD.Graph.Core.Builders;
+using HPD.Graph.Core.Config;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
+using GraphDefinition = HPD.Graph.Abstractions.Graph.Graph;
 
 namespace HPD.RAG.Pipeline.Tests.Pipeline;
 
@@ -151,7 +152,7 @@ public sealed class RagGraphBuilderExtensionsTests
         Assert.Same(MragJsonSerializerContext.Shared, contributor.Resolver);
     }
 
-    private static void AssertEquivalentGraph(Graph expected, Graph? actual)
+    private static void AssertEquivalentGraph(GraphDefinition expected, GraphDefinition? actual)
     {
         Assert.NotNull(actual);
         Assert.Equal(expected.Id, actual!.Id);

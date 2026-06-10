@@ -6,19 +6,19 @@
     <Platform Name="x86" />
   </Configurations>
   <Folder Name="/HPD-Core/">
-    <Project Path="src/HPD-Graph/HPD-Graph.Abstractions/HPD-Graph.Abstractions.csproj" />
-    <Project Path="src/HPD-Graph/HPD-Graph.AspNetCore/HPD-Graph.AspNetCore.csproj" />
-    <Project Path="src/HPD-Graph/HPD-Graph.Connectors/HPD-Graph.Connectors.Abstractions/HPD-Graph.Connectors.Abstractions.csproj" />
-    <Project Path="src/HPD-Graph/HPD-Graph.Connectors/HPD-Graph.Connectors.AspNetCore/HPD-Graph.Connectors.AspNetCore.csproj" />
-    <Project Path="src/HPD-Graph/HPD-Graph.Connectors/HPD-Graph.Connectors.Core/HPD-Graph.Connectors.Core.csproj" />
-    <Project Path="src/HPD-Graph/HPD-Graph.Connectors/HPD-Graph.Connectors.OpenApi/HPD-Graph.Connectors.OpenApi.csproj" />
-    <Project Path="src/HPD-Graph/HPD-Graph.Connectors/HPD-Graph.Connectors.SourceGenerator/HPD-Graph.Connectors.SourceGenerator.csproj" />
-    <Project Path="src/HPD-Graph/HPD-Graph.Core/HPD-Graph.Core.csproj" />
-    <Project Path="src/HPD-Graph/HPD-Graph.Hosting/HPD-Graph.Hosting.csproj" />
-    <Project Path="src/HPD-Graph/HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj" />
+    <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Abstractions/HPD-Graph.Abstractions.csproj" />
+    <Project Path="../HPD-Graph.Framework/src/HPD-Graph.AspNetCore/HPD-Graph.AspNetCore.csproj" />
+    <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.Abstractions/HPD-Graph.Connectors.Abstractions.csproj" />
+    <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.AspNetCore/HPD-Graph.Connectors.AspNetCore.csproj" />
+    <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.Core/HPD-Graph.Connectors.Core.csproj" />
+    <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.OpenApi/HPD-Graph.Connectors.OpenApi.csproj" />
+    <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.SourceGenerator/HPD-Graph.Connectors.SourceGenerator.csproj" />
+    <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Core/HPD-Graph.Core.csproj" />
+    <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Hosting/HPD-Graph.Hosting.csproj" />
+    <Project Path="../HPD-Graph.Framework/src/HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj" />
     <Project Path="src/HPD-Events/HPD-Events.csproj" />
     <Project Path="src/HPD-VCS/HPD-VCS.csproj" />
-    <Project Path="src/HPD.OpenApi.Core/HPD.OpenApi.Core.csproj" />
+    <Project Path="src/HPD-OpenApi.Core/HPD-OpenApi.Core.csproj" />
   </Folder>
   <Folder Name="/Helium/">
     <Project Path="src/Helium/src/Helium.Primitives/Helium.Primitives.csproj" />
@@ -28,30 +28,22 @@
     <Project Path="src/Helium/src/Helium.Finance/Helium.Finance.csproj" />
   </Folder>
   <Folder Name="/HPD-Math/">
-    <Project Path="src/HPD-Math/src/HPD.Math.Core/HPD.Math.Core.csproj" />
-    <Project Path="src/HPD-Math/src/HPD.Math.Finite/HPD.Math.Finite.csproj" />
-    <Project Path="src/HPD-Math/src/HPD.Math.Algebra/HPD.Math.Algebra.csproj" />
-    <Project Path="src/HPD-Math/src/HPD.Math.Numerics/HPD.Math.Numerics.csproj" />
-    <Project Path="src/HPD-Math/src/HPD.Math.LinearAlgebra/HPD.Math.LinearAlgebra.csproj" />
-    <Project Path="src/HPD-Math/src/HPD.Math.Text/HPD.Math.Text.csproj" />
-    <Project Path="src/HPD-Math/src/HPD.Math.Managed/HPD.Math.Managed.csproj" />
-    <Project Path="src/HPD-Math/src/HPD.Math.Generators/HPD.Math.Generators.csproj" />
+    <Project Path="../HPD-Math.Framework/src/HPD.Math.Core/HPD.Math.Core.csproj" />
+    <Project Path="../HPD-Math.Framework/src/HPD.Math.Finite/HPD.Math.Finite.csproj" />
+    <Project Path="../HPD-Math.Framework/src/HPD.Math.Algebra/HPD.Math.Algebra.csproj" />
+    <Project Path="../HPD-Math.Framework/src/HPD.Math.Numerics/HPD.Math.Numerics.csproj" />
+    <Project Path="../HPD-Math.Framework/src/HPD.Math.LinearAlgebra/HPD.Math.LinearAlgebra.csproj" />
+    <Project Path="../HPD-Math.Framework/src/HPD.Math.Text/HPD.Math.Text.csproj" />
+    <Project Path="../HPD-Math.Framework/src/HPD.Math.Managed/HPD.Math.Managed.csproj" />
+    <Project Path="../HPD-Math.Framework/src/HPD.Math.Generators/HPD.Math.Generators.csproj" />
   </Folder>
   <Folder Name="/Rhodium/">
-    <Project Path="src/Rhodium/src/Rhodium.Primitives/Rhodium.Primitives.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.Analyzers/Rhodium.Analyzers.csproj" />
     <Project Path="src/Rhodium/src/Rhodium.Connectivity/Rhodium.Connectivity.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.Platform/Rhodium.Platform.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.Core/Rhodium.Core.csproj" />
     <Project Path="src/Rhodium/src/Rhodium.Data/Rhodium.Data.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.Kernel/Rhodium.Kernel.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.Indicators/Rhodium.Indicators.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.Tensor/Rhodium.Tensor.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.Control/Rhodium.Control.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.Quant/Rhodium.Quant.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.Options/Rhodium.Options.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.Risk/Rhodium.Risk.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.Analytics/Rhodium.Analytics.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.Events/Rhodium.Events.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.HFT/Rhodium.HFT.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.Simulation/Rhodium.Simulation.csproj" />
+    <Project Path="src/Rhodium/src/Rhodium.SourceGenerators/Rhodium.SourceGenerators.csproj" />
   </Folder>
   <Folder Name="/Tests/" />
   <Folder Name="/Tests/HeliumTests/">
@@ -62,8 +54,8 @@
     <Project Path="src/Helium/test/Helium.Finance.Tests/Helium.Finance.Tests.csproj" />
   </Folder>
   <Folder Name="/Tests/HPD-MathTests/">
-    <Project Path="src/HPD-Math/test/HPD.Math.Tests/HPD.Math.Tests.csproj" />
-    <Project Path="src/HPD-Math/test/HPD.Math.AotSmoke/HPD.Math.AotSmoke.csproj" />
+    <Project Path="../HPD-Math.Framework/test/HPD.Math.Tests/HPD.Math.Tests.csproj" />
+    <Project Path="../HPD-Math.Framework/test/HPD.Math.AotSmoke/HPD.Math.AotSmoke.csproj" />
   </Folder>
   <Folder Name="/Benchmarks/" />
   <Folder Name="/Benchmarks/HeliumBenchmarks/">
@@ -86,7 +78,7 @@
     <Project Path="src/Rhodium/test/Rhodium.HFT.Tests/Rhodium.HFT.Tests.csproj" />
   </Folder>
   <Folder Name="/Tests/HPDCoreTests/">
-    <Project Path="test/HPD-Graph.Tests/HPD-Graph.Tests.csproj" />
+    <Project Path="../HPD-Graph.Framework/test/HPD-Graph.Tests/HPD-Graph.Tests.csproj" />
     <Project Path="test/HPD-Events.Tests/HPD-Events.Tests.csproj" />
     <Project Path="test/HPD-VCS.Tests/HPD-VCS.Tests.csproj" />
   </Folder>

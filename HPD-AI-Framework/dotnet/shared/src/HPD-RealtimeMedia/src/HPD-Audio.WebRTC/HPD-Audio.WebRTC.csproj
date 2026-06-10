@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Audio.WebRTC</RootNamespace>
+    <AssemblyName>HPD.Audio.WebRTC</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Audio.WebRTC</PackageId>
+    <Description>Audio/WebRTC integration pumps for HPD realtime media infrastructure.</Description>
+    <PackageTags>hpd;audio;webrtc;rtp;srtp;realtime-media</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Audio.Codecs\HPD-Audio.Codecs.csproj" />
+    <ProjectReference Include="..\HPD-Audio.Primitives\HPD-Audio.Primitives.csproj" />
+    <ProjectReference Include="..\HPD-Media.Rtp.Audio\HPD-Media.Rtp.Audio.csproj" />
+    <ProjectReference Include="..\HPD-Media.Rtp.Audio.Sdp\HPD-Media.Rtp.Audio.Sdp.csproj" />
+    <ProjectReference Include="..\HPD-Media.Sdp\HPD-Media.Sdp.csproj" />
+    <ProjectReference Include="..\HPD-Media.Transport\HPD-Media.Transport.csproj" />
+    <ProjectReference Include="..\HPD-Media.WebRTC\HPD-Media.WebRTC.csproj" />
+  </ItemGroup>
+
+</Project>

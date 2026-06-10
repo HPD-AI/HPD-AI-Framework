@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Core/">
+    <Project Path="src/HPD.Math.Core/HPD.Math.Core.csproj" />
+    <Project Path="src/HPD.Math.Finite/HPD.Math.Finite.csproj" />
+    <Project Path="src/HPD.Math.Algebra/HPD.Math.Algebra.csproj" />
+    <Project Path="src/HPD.Math.Numerics/HPD.Math.Numerics.csproj" />
+    <Project Path="src/HPD.Math.LinearAlgebra/HPD.Math.LinearAlgebra.csproj" />
+    <Project Path="src/HPD.Math.Autodiff/HPD.Math.Autodiff.csproj" />
+  </Folder>
+  <Folder Name="/Adapters/">
+    <Project Path="src/HPD.Math.Text/HPD.Math.Text.csproj" />
+    <Project Path="src/HPD.Math.Managed/HPD.Math.Managed.csproj" />
+  </Folder>
+  <Folder Name="/Generators/">
+    <Project Path="src/HPD.Math.Generators/HPD.Math.Generators.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="test/HPD.Math.Tests/HPD.Math.Tests.csproj" />
+    <Project Path="test/HPD.Math.AotSmoke/HPD.Math.AotSmoke.csproj" />
+  </Folder>
+</Solution>

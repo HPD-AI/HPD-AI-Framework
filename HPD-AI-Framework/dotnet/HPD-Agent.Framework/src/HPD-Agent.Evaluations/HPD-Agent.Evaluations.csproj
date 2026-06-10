@@ -5,7 +5,7 @@
     <RootNamespace>HPD.Agent.Evaluations</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <NoWarn>MEAI001;IL2026;IL3050</NoWarn>
+    <NoWarn>$(NoWarn);MEAI001;IL2026;IL3050;CS0108;CS0169;CS1734</NoWarn>
   </PropertyGroup>
 
   <!-- NuGet Package Metadata -->
@@ -18,10 +18,10 @@
 
   <ItemGroup>
     <!-- Core AI evaluation packages from Microsoft -->
-    <PackageReference Include="Microsoft.Extensions.AI.Evaluation" Version="10.4.0" />
-    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Quality" Version="10.4.0" />
-    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.NLP" Version="10.3.0-preview.1.26109.11" />
-    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Reporting" Version="10.4.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Evaluation" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Quality" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.NLP" Version="10.7.0-preview.1.26309.5" />
+    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Reporting" Version="10.7.0" />
 
     <!-- SQLite for SqliteScoreStore -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.3" />

@@ -3,12 +3,12 @@ using HPD.MultiAgent.Config;
 using HPD.MultiAgent.Internal;
 using HPD.MultiAgent.Routing;
 using HPD.MultiAgent.Serialization;
-using HPDAgent.Graph.Abstractions;
-using HPDAgent.Graph.Abstractions.Checkpointing;
-using HPDAgent.Graph.Abstractions.Graph;
-using HPDAgent.Graph.Abstractions.Storage;
-using HPDAgent.Graph.Core.Builders;
-using HPDAgent.Graph.Core.Storage;
+using HPD.Graph.Abstractions;
+using HPD.Graph.Abstractions.Checkpointing;
+using HPD.Graph.Abstractions.Graph;
+using HPD.Graph.Abstractions.Storage;
+using HPD.Graph.Core.Builders;
+using HPD.Graph.Core.Storage;
 using MultiAgentEdgeBuilder = HPD.MultiAgent.Routing.EdgeBuilder;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -319,7 +319,7 @@ public class MultiAgent
         // Wire iteration options if configured
         if (_settings.IterationOptions != null)
         {
-            _graphBuilder.WithIterationOptions(new HPDAgent.Graph.Abstractions.Graph.IterationOptions
+            _graphBuilder.WithIterationOptions(new HPD.Graph.Abstractions.Graph.IterationOptions
             {
                 MaxIterations = _settings.IterationOptions.MaxIterations,
                 EnableAutoConvergence = _settings.IterationOptions.EnableAutoConvergence,
@@ -371,7 +371,7 @@ public class MultiAgent
         foreach (var id in GetAllAgentIds())
         {
             var handler = new AgentNodeHandler(id);
-            services.AddSingleton<HPDAgent.Graph.Abstractions.Handlers.IGraphNodeHandler<AgentGraphContext>>(handler);
+            services.AddSingleton<HPD.Graph.Abstractions.Handlers.IGraphNodeHandler<AgentGraphContext>>(handler);
         }
 
         return Task.FromResult(new AgentWorkflowInstance(

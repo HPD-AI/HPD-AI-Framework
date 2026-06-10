@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Media.Rtp.Audio</RootNamespace>
+    <AssemblyName>HPD.Media.Rtp.Audio</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Media.Rtp.Audio</PackageId>
+    <Description>RTP audio packetization and depacketization contracts for HPD realtime media infrastructure.</Description>
+    <PackageTags>hpd;media;rtp;audio;realtime-media</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Audio.Codecs\HPD-Audio.Codecs.csproj" />
+    <ProjectReference Include="..\HPD-Media.Rtp\HPD-Media.Rtp.csproj" />
+  </ItemGroup>
+
+</Project>

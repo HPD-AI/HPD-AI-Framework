@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Audio.Connections</RootNamespace>
+    <AssemblyName>HPD.Audio.Connections</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Audio.Connections</PackageId>
+    <Description>Sessionful audio connection lifecycle contracts over HPD audio primitives.</Description>
+    <PackageTags>hpd;audio;connections;realtime-media</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Audio.Primitives\HPD-Audio.Primitives.csproj" />
+  </ItemGroup>
+
+</Project>

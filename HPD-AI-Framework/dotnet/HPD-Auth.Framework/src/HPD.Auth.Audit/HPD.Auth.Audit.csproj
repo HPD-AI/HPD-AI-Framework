@@ -4,6 +4,10 @@
     <TargetFrameworks></TargetFrameworks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Auth-Audit</PackageId>
+    <Description>Audit logging and event integration for HPD-Auth identity workflows.</Description>
+    <PackageTags>auth;audit;events;identity;hpd</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../HPD.Auth.Core/HPD.Auth.Core.csproj" />

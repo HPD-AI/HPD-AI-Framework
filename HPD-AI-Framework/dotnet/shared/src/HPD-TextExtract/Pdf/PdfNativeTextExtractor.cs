@@ -137,11 +137,6 @@ namespace HPD.TextExtract.Pdf
                 return PdfGlyph.Space(index);
             }
 
-            if (fpdf_text.FPDFTextIsGenerated(textPage, index) != 0)
-            {
-                return null;
-            }
-
             if (!TryGetCharacterBoxes(textPage, index, transform, out var strictBox, out var looseBox))
             {
                 return null;
@@ -152,7 +147,7 @@ namespace HPD.TextExtract.Pdf
                 return null;
             }
 
-            var textObject = fpdf_text.FPDFTextGetTextObject(textPage, index);
+            FpdfPageobjectT? textObject = null;
             var renderMode = GetRenderMode(textObject);
             var layer = PdfNativeTextHeuristics.IsInvisibleRenderMode(renderMode)
                 ? PdfTextLayerKind.InvisibleOcrLayer
@@ -163,7 +158,7 @@ namespace HPD.TextExtract.Pdf
             var metadata = new Dictionary<string, object?>
             {
                 ["backend"] = "PDFium",
-                ["isHyphen"] = fpdf_text.FPDFTextIsHyphen(textPage, index) != 0
+                ["pdfiumCoreBinding"] = "4688"
             };
 
             if (TryGetTextMatrix(textPage, index, out var matrix))
@@ -180,7 +175,7 @@ namespace HPD.TextExtract.Pdf
                 LooseBox = looseBox,
                 Layer = layer,
                 Font = font,
-                HasUnicodeMapError = fpdf_text.FPDFTextHasUnicodeMapError(textPage, index) != 0,
+                HasUnicodeMapError = false,
                 MarkedContentId = GetMarkedContentId(textObject),
                 RenderMode = renderMode,
                 FillColorArgb = GetColor(textPage, index, fill: true),
@@ -299,8 +294,6 @@ namespace HPD.TextExtract.Pdf
                 if (!PdfiumBackend.IsNull(fontHandle))
                 {
                     baseName = GetFontString(fontHandle, FontStringKind.BaseName);
-                    familyName = GetFontString(fontHandle, FontStringKind.FamilyName);
-                    isEmbedded = fpdf_edit.FPDFFontGetIsEmbedded(fontHandle) != 0;
                     var fontFlags = fpdf_edit.FPDFFontGetFlags(fontHandle);
                     if (fontFlags != 0)
                     {
@@ -396,9 +389,12 @@ namespace HPD.TextExtract.Pdf
 
         private static unsafe string? GetFontString(FpdfFontT font, FontStringKind kind)
         {
-            var byteCount = kind == FontStringKind.BaseName
-                ? fpdf_edit.FPDFFontGetBaseFontName(font, null, 0)
-                : fpdf_edit.FPDFFontGetFamilyName(font, null, 0);
+            if (kind != FontStringKind.BaseName)
+            {
+                return null;
+            }
+
+            var byteCount = fpdf_edit.FPDFFontGetFontName(font, null, 0);
             if (byteCount <= 1)
             {
                 return null;
@@ -407,9 +403,7 @@ namespace HPD.TextExtract.Pdf
             var buffer = new sbyte[byteCount];
             fixed (sbyte* ptr = buffer)
             {
-                var written = kind == FontStringKind.BaseName
-                    ? fpdf_edit.FPDFFontGetBaseFontName(font, ptr, byteCount)
-                    : fpdf_edit.FPDFFontGetFamilyName(font, ptr, byteCount);
+                var written = fpdf_edit.FPDFFontGetFontName(font, ptr, byteCount);
                 if (written <= 1)
                 {
                     return null;
@@ -439,13 +433,7 @@ namespace HPD.TextExtract.Pdf
 
         private static int? GetMarkedContentId(FpdfPageobjectT? pageObject)
         {
-            if (PdfiumBackend.IsNull(pageObject))
-            {
-                return null;
-            }
-
-            var id = fpdf_edit.FPDFPageObjGetMarkedContentID(pageObject);
-            return id >= 0 ? id : null;
+            return null;
         }
 
         private static string? GetColor(FpdfTextpageT textPage, int index, bool fill)

@@ -45,7 +45,8 @@ public class SystemClockTests
         var completed = await Task.WhenAny(fired.Task, Task.Delay(TimeSpan.FromSeconds(2)));
 
         Assert.Same(fired.Task, completed);
-        Assert.Equal("open", fired.Task.Result.TimerName);
+        var evt = await fired.Task;
+        Assert.Equal("open", evt.TimerName);
         Assert.False(handle.IsActive);
         Assert.Empty(clock.TimerNames);
     }

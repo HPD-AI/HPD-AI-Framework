@@ -1,10 +1,10 @@
 using HPD.Agent;
-using HPDAgent.Graph.Abstractions.Channels;
-using HPDAgent.Graph.Abstractions.Context;
-using HPDAgent.Graph.Abstractions.State;
-using HPDAgent.Graph.Core.Context;
+using HPD.Graph.Abstractions.Channels;
+using HPD.Graph.Abstractions.Context;
+using HPD.Graph.Abstractions.State;
+using HPD.Graph.Core.Context;
 using Microsoft.Extensions.AI;
-using GraphDefinition = HPDAgent.Graph.Abstractions.Graph.Graph;
+using GraphDefinition = HPD.Graph.Abstractions.Graph.Graph;
 
 namespace HPD.MultiAgent;
 
@@ -148,7 +148,7 @@ public class AgentGraphContext : GraphContext
 
     private IGraphChannelSet CloneChannelsInternal()
     {
-        var clonedChannels = new HPDAgent.Graph.Core.Channels.GraphChannelSet();
+        var clonedChannels = new HPD.Graph.Core.Channels.GraphChannelSet();
 
         foreach (var channelName in Channels.ChannelNames)
         {

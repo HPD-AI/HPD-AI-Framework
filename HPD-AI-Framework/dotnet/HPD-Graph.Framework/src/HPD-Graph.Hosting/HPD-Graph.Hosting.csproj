@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Graph.Hosting</RootNamespace>
+    <AssemblyName>HPD.Graph.Hosting</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Graph.Hosting</PackageId>
+    <Description>Embedded hosting managers for HPD-Graph workflow definitions and executions.</Description>
+    <PackageTags>graph;workflow;hosting;runtime</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Graph.Abstractions\HPD-Graph.Abstractions.csproj" />
+    <ProjectReference Include="..\HPD-Graph.Core\HPD-Graph.Core.csproj" />
+  </ItemGroup>
+
+</Project>

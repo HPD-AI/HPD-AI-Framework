@@ -3,7 +3,7 @@ using HPD.RAG.Ingestion.Chunkers;
 using HPD.RAG.Ingestion.Enrichers;
 using HPD.RAG.Ingestion.Readers;
 using HPD.RAG.Ingestion.Writers;
-using HPDAgent.Graph.Abstractions.Handlers;
+using HPD.Graph.Abstractions.Handlers;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 

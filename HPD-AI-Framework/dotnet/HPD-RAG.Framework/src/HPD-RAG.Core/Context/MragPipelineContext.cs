@@ -1,8 +1,8 @@
 using HPD.RAG.Core.Filters;
-using HPDAgent.Graph.Abstractions.Channels;
-using HPDAgent.Graph.Abstractions.Context;
-using HPDAgent.Graph.Abstractions.State;
-using HPDAgent.Graph.Core.Context;
+using HPD.Graph.Abstractions.Channels;
+using HPD.Graph.Abstractions.Context;
+using HPD.Graph.Abstractions.State;
+using HPD.Graph.Core.Context;
 
 namespace HPD.RAG.Core.Context;
 
@@ -52,7 +52,7 @@ public sealed class MragPipelineContext : GraphContext
 
     public MragPipelineContext(
         string executionId,
-        HPDAgent.Graph.Abstractions.Graph.Graph graph,
+        HPD.Graph.Abstractions.Graph.Graph graph,
         IServiceProvider services,
         string pipelineName,
         string? collectionName = null,
@@ -95,9 +95,9 @@ public sealed class MragPipelineContext : GraphContext
         return copy;
     }
 
-    private HPDAgent.Graph.Core.Channels.GraphChannelSet CloneChannelsInternal()
+    private HPD.Graph.Core.Channels.GraphChannelSet CloneChannelsInternal()
     {
-        var cloned = new HPDAgent.Graph.Core.Channels.GraphChannelSet();
+        var cloned = new HPD.Graph.Core.Channels.GraphChannelSet();
         foreach (var channelName in Channels.ChannelNames)
         {
             if (channelName.StartsWith("node_output:"))

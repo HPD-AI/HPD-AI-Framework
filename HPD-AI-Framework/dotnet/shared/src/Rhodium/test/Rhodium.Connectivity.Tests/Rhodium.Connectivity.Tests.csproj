@@ -6,11 +6,12 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <LangVersion>preview</LangVersion>
+    <NoWarn>$(NoWarn);CS0618</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="6.0.4" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
+    <PackageReference Include="coverlet.collector" Version="10.0.1" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
@@ -21,15 +22,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Rhodium.Connectivity\Rhodium.Connectivity.csproj" />
-    <ProjectReference Include="..\..\src\Rhodium.Primitives\Rhodium.Primitives.csproj" />
-    <ProjectReference Include="..\..\src\Rhodium.HFT\Rhodium.HFT.csproj" />
-    <ProjectReference Include="..\..\src\Rhodium.Tensor\Rhodium.Tensor.csproj" />
-    <ProjectReference Include="..\..\src\Rhodium.Events\Rhodium.Events.csproj" />
+    <ProjectReference Include="..\..\src\Rhodium.Core\Rhodium.Core.csproj" />
     <ProjectReference Include="..\..\src\Rhodium.Simulation\Rhodium.Simulation.csproj" />
-    <ProjectReference Include="..\..\src\Rhodium.Platform\Rhodium.Platform.csproj" />
-    <ProjectReference Include="..\..\src\Rhodium.Control\Rhodium.Control.csproj" />
-    <ProjectReference Include="..\..\src\Rhodium.Kernel\Rhodium.Kernel.csproj" />
-    <ProjectReference Include="..\..\src\Rhodium.Generators\Rhodium.Generators.csproj"
+    <ProjectReference Include="..\..\src\Rhodium.SourceGenerators\Rhodium.SourceGenerators.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\Rhodium.Analyzers\Rhodium.Analyzers.csproj"

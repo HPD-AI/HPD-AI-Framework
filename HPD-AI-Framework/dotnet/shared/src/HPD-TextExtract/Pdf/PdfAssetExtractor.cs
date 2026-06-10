@@ -119,9 +119,10 @@ namespace HPD.TextExtract.Pdf
                 return null;
             }
 
-            uint width = 0;
-            uint height = 0;
-            return fpdf_edit.FPDFImageObjGetImagePixelSize(pageObject, ref width, ref height) != 0
+            var metadata = new FPDF_IMAGEOBJ_METADATA();
+            return fpdf_edit.FPDFImageObjGetImageMetadata(pageObject, page, metadata) != 0
+                && metadata.Width > 0
+                && metadata.Height > 0
                 ? pageObject
                 : null;
         }
@@ -151,17 +152,6 @@ namespace HPD.TextExtract.Pdf
         {
             var metadata = new FPDF_IMAGEOBJ_METADATA();
             _ = fpdf_edit.FPDFImageObjGetImageMetadata(imageObject, page, metadata);
-            if (metadata.Width == 0 || metadata.Height == 0)
-            {
-                uint width = 0;
-                uint height = 0;
-                if (fpdf_edit.FPDFImageObjGetImagePixelSize(imageObject, ref width, ref height) != 0)
-                {
-                    metadata.Width = width;
-                    metadata.Height = height;
-                }
-            }
-
             return metadata;
         }
 
@@ -221,7 +211,7 @@ namespace HPD.TextExtract.Pdf
             return ReadImageBytes(imageObject, byteCount, decoded: false);
         }
 
-        private static ReadOnlyMemory<byte> ReadImageBytes(FpdfPageobjectT imageObject, ulong byteCount, bool decoded)
+        private static ReadOnlyMemory<byte> ReadImageBytes(FpdfPageobjectT imageObject, uint byteCount, bool decoded)
         {
             var buffer = Marshal.AllocHGlobal((int)byteCount);
             try

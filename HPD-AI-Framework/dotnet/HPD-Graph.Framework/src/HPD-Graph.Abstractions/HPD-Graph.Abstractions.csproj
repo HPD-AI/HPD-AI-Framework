@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-Serialization/HPD-Serialization.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.IO.Hashing" Version="10.0.3" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <RootNamespace>HPD.Graph.Abstractions</RootNamespace>
+    <AssemblyName>HPD.Graph.Abstractions</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
+
+    <!-- Package metadata -->
+    <PackageId>HPD-Graph.Abstractions</PackageId>
+    <Description>Core abstractions for HPD-Graph - a universal DAG execution engine. Domain-agnostic interfaces and types for building workflow orchestration systems.</Description>
+    <PackageTags>graph;dag;workflow;orchestration;execution-engine;abstractions</PackageTags>
+  </PropertyGroup>
+
+</Project>

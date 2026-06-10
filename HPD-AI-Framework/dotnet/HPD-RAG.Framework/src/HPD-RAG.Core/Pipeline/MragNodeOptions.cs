@@ -1,4 +1,4 @@
-using HPDAgent.Graph.Abstractions.Artifacts;
+using HPD.Graph.Abstractions.Artifacts;
 
 namespace HPD.RAG.Core.Pipeline;
 

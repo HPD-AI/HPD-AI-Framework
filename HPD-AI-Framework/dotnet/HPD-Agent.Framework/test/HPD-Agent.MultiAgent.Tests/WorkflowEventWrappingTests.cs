@@ -1,9 +1,9 @@
 using HPD.Agent;
 using HPD.Events;
 using HPD.MultiAgent;
-using HPDAgent.Graph.Abstractions.Events;
-using HPDAgent.Graph.Abstractions.Execution;
-using GraphLogLevel = HPDAgent.Graph.Abstractions.Context.LogLevel;
+using HPD.Graph.Abstractions.Events;
+using HPD.Graph.Abstractions.Execution;
+using GraphLogLevel = HPD.Graph.Abstractions.Context.LogLevel;
 
 namespace HPD.MultiAgent.Tests;
 

@@ -107,7 +107,7 @@ string[] testProjects =
     $"{RhodiumRoot}/test/Rhodium.Kernel.Tests/Rhodium.Kernel.Tests.csproj",
     $"{RhodiumRoot}/test/Rhodium.Control.Tests/Rhodium.Control.Tests.csproj",
     $"{RhodiumRoot}/test/Rhodium.Platform.Tests/Rhodium.Platform.Tests.csproj",
-    $"{RhodiumRoot}/test/Rhodium.Generators.Tests/Rhodium.Generators.Tests.csproj",
+    $"{RhodiumRoot}/test/Rhodium.SourceGenerators.Tests/Rhodium.SourceGenerators.Tests.csproj",
     $"{RhodiumRoot}/test/Rhodium.Analytics.Tests/Rhodium.Analytics.Tests.csproj",
     $"{RhodiumRoot}/test/Rhodium.Simulation.Tests/Rhodium.Simulation.Tests.csproj",
     $"{RhodiumRoot}/test/Rhodium.Connectivity.Tests/Rhodium.Connectivity.Tests.csproj",

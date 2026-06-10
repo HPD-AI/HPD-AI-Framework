@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Buffers</RootNamespace>
+    <AssemblyName>HPD.Buffers</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Buffers</PackageId>
+    <Description>Shared retained byte-buffer ownership contracts for HPD realtime media infrastructure.</Description>
+    <PackageTags>hpd;buffers;realtime-media;audio;rtp</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+</Project>

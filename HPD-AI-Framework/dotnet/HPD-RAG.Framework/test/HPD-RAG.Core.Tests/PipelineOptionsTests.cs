@@ -1,4 +1,4 @@
-using HPDAgent.Graph.Abstractions.Artifacts;
+using HPD.Graph.Abstractions.Artifacts;
 using HPD.RAG.Core.Pipeline;
 using Xunit;
 

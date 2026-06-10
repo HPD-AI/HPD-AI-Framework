@@ -2,7 +2,7 @@ using System.Text.Json;
 using HPD.Agent;
 using HPD.MultiAgent;
 using HPD.MultiAgent.Config;
-using HPDAgent.Graph.Core.Builders;
+using HPD.Graph.Core.Builders;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 

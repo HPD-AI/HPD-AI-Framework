@@ -141,7 +141,7 @@ public sealed record DocumentSkippedEvent : MragEvent
 
 /// <summary>
 /// Emitted when a node fails to process a document and produces a
-/// <see cref="HPDAgent.Graph.Abstractions.Execution.NodeExecutionResult.Failure"/> result.
+/// <see cref="HPD.Graph.Abstractions.Execution.NodeExecutionResult.Failure"/> result.
 /// </summary>
 public sealed record DocumentFailedEvent : MragEvent
 {

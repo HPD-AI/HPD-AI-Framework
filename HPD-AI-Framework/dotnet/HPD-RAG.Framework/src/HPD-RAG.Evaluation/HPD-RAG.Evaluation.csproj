@@ -14,8 +14,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\HPD-RAG.Core\HPD-RAG.Core.csproj" />
-    <ProjectReference Include="..\..\..\shared\src\HPD-Graph\HPD-Graph.Core\HPD-Graph.Core.csproj" />
-    <ProjectReference Include="..\..\..\shared\src\HPD-Graph\HPD-Graph.SourceGenerator\HPD-Graph.SourceGenerator.csproj">
+    <ProjectReference Include="../../../HPD-Graph.Framework\src\HPD-Graph.Core\HPD-Graph.Core.csproj" />
+    <ProjectReference Include="../../../HPD-Graph.Framework\src\HPD-Graph.SourceGenerator\HPD-Graph.SourceGenerator.csproj">
       <OutputItemType>Analyzer</OutputItemType>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
@@ -27,9 +27,9 @@
       DependencyInjection.Abstractions is NOT listed here; HPD-RAG.Core
       already pulls 10.0.3, and repeating a lower version causes NU1605.
     -->
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
-    <PackageReference Include="Microsoft.Extensions.AI.Evaluation" Version="10.4.0" />
-    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Quality" Version="10.4.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Evaluation" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Quality" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,209 @@
+name: Publish Agent NuGet Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 0.2.0 or 0.2.0-alpha)'
+        required: true
+        type: string
+
+jobs:
+  determine-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_prefix: ${{ steps.version.outputs.version_prefix }}
+      version_suffix: ${{ steps.version.outputs.version_suffix }}
+
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          else
+            VERSION="${{ inputs.version }}"
+          fi
+
+          # Remove 'v' prefix if present
+          VERSION="${VERSION#v}"
+
+          # Parse version prefix and suffix
+          # Supports: 0.2.0, 0.2.0-alpha, 0.2.0-preview.1
+          if [[ "$VERSION" == *-* ]]; then
+            VERSION_PREFIX="${VERSION%%-*}"
+            VERSION_SUFFIX="${VERSION#*-}"
+            echo "version_prefix=$VERSION_PREFIX" >> $GITHUB_OUTPUT
+            echo "version_suffix=$VERSION_SUFFIX" >> $GITHUB_OUTPUT
+            echo "Publishing: $VERSION_PREFIX with suffix: $VERSION_SUFFIX"
+          else
+            VERSION_PREFIX="$VERSION"
+            echo "version_prefix=$VERSION_PREFIX" >> $GITHUB_OUTPUT
+            echo "version_suffix=" >> $GITHUB_OUTPUT
+            echo "Publishing stable version: $VERSION_PREFIX"
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: determine-version
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Install Linux seccomp helper toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc gcc-aarch64-linux-gnu
+
+      - name: Prepare ripgrep binaries
+        run: |
+          dotnet run --file HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/Ripgrep/pack/prepare-ripgrep-binaries.cs -- \
+            --project HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj
+
+      - name: Build bundled coding TUI assets
+        run: dotnet build HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding.TUI/HPD-Agent.Harness.Coding.TUI.csproj --configuration Release
+
+      - name: Pack packages
+        run: |
+          mkdir -p ./nupkg
+
+          PROJECTS=(
+            # Shared foundations
+            "HPD-AI-Framework/dotnet/shared/src/HPD-Serialization/HPD-Serialization.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-Events/HPD-Events.csproj"
+            "HPD-AI-Framework/dotnet/HPD-TUI.Framework/src/HPD-TUI.csproj"
+            # Realtime media
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Buffers/HPD-Buffers.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Primitives/HPD-Audio.Primitives.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Codecs/HPD-Audio.Codecs.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Codecs.G711/HPD-Audio.Codecs.G711.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Codecs.Opus/HPD-Audio.Codecs.Opus.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Connections/HPD-Audio.Connections.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Diagnostics/HPD-Media.Diagnostics.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Sdp/HPD-Media.Sdp.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Transport/HPD-Media.Transport.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp/HPD-Media.Rtp.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtcp/HPD-Media.Rtcp.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtcp.Feedback/HPD-Media.Rtcp.Feedback.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtcp.Twcc/HPD-Media.Rtcp.Twcc.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp.Audio/HPD-Media.Rtp.Audio.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp.Audio.Sdp/HPD-Media.Rtp.Audio.Sdp.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp.Repair/HPD-Media.Rtp.Repair.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Srtp/HPD-Media.Srtp.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.WebRTC/HPD-Media.WebRTC.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.WebRTC/HPD-Audio.WebRTC.csproj"
+            # Core
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent/HPD-Agent.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.FFI/HPD-Agent.FFI.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.MCP/HPD-Agent.MCP.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-TextExtract/HPD-TextExtract.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.TUI/HPD-Agent.TUI.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.ModelsDev/HPD-Agent.ModelsDev.csproj"
+            "HPD-AI-Framework/dotnet/shared/src/HPD-OpenApi.Core/HPD-OpenApi.Core.csproj"
+            # ToolHarnesses
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj"
+            # Providers
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.OpenAI/HPD-Agent.Providers.Audio.OpenAI.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.ElevenLabs/HPD-Agent.Providers.Audio.ElevenLabs.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero/HPD-Agent.Providers.Audio.Silero.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Meai/HPD-Agent.Providers.Audio.Meai.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Bedrock/HPD-Agent.Providers.Bedrock.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/HPD-Agent.Providers.GoogleAI.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.HuggingFace/HPD-Agent.Providers.HuggingFace.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/HPD-Agent.Providers.Ollama.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OnnxRuntime/HPD-Agent.Providers.OnnxRuntime.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj"
+            # VCS (excluded — TFM mismatch with SDK 10, needs investigation)
+            # "HPD-AI-Framework/dotnet/shared/src/HPD-VCS/HPD-VCS.csproj"
+          )
+
+          VERSION_PREFIX="${{ needs.determine-version.outputs.version_prefix }}"
+          VERSION_SUFFIX="${{ needs.determine-version.outputs.version_suffix }}"
+
+          HPD-AI-Framework/dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
+
+          for PROJECT in "${PROJECTS[@]}"; do
+            echo "Packing $PROJECT..."
+            if [ -n "$VERSION_SUFFIX" ]; then
+              dotnet pack "$PROJECT" -c Release -o ./nupkg \
+                -p:VersionPrefix="$VERSION_PREFIX" \
+                -p:VersionSuffix="$VERSION_SUFFIX"
+            else
+              dotnet pack "$PROJECT" -c Release -o ./nupkg \
+                -p:VersionPrefix="$VERSION_PREFIX"
+            fi
+          done
+
+      - name: Validate sandbox native helper package contents
+        run: |
+          SANDBOX_PACKAGE="$(ls ./nupkg/HPD-Agent.Sandbox.Core.*.nupkg | head -n 1)"
+          if [ -z "$SANDBOX_PACKAGE" ]; then
+            echo "HPD-Agent.Sandbox.Core package was not produced"
+            exit 1
+          fi
+
+          unzip -l "$SANDBOX_PACKAGE" | tee /tmp/hpd-sandbox-package.txt
+          grep -q "runtimes/linux-x64/native/apply-seccomp-x64" /tmp/hpd-sandbox-package.txt
+          grep -q "runtimes/linux-arm64/native/apply-seccomp-arm64" /tmp/hpd-sandbox-package.txt
+
+      - name: Upload packages as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-nuget-packages
+          path: ./nupkg/*.nupkg
+
+      - name: Push to NuGet
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "Error: NUGET_API_KEY secret is not set"
+            exit 1
+          fi
+          dotnet nuget push ./nupkg/*.nupkg --source https://api.nuget.org/v3/index.json --api-key $NUGET_API_KEY --skip-duplicate
+
+      - name: Summary
+        run: |
+          echo "## Published Packages" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.determine-version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ needs.determine-version.outputs.version_suffix }}" ]; then
+            echo "**Type:** Pre-release (${{ needs.determine-version.outputs.version_suffix }})" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Type:** Stable release" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Packages:" >> $GITHUB_STEP_SUMMARY
+          for pkg in ./nupkg/*.nupkg; do
+            echo "- $(basename $pkg)" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "[View HPD-Agent packages on NuGet](https://www.nuget.org/packages?q=HPD-Agent)" >> $GITHUB_STEP_SUMMARY

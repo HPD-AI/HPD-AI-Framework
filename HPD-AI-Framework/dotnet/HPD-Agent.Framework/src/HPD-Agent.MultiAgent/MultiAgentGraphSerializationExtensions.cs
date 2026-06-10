@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using HPD.Agent;
 using HPD.MultiAgent.Config;
-using HPDAgent.Graph.Abstractions.Serialization;
+using HPD.Graph.Abstractions.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 

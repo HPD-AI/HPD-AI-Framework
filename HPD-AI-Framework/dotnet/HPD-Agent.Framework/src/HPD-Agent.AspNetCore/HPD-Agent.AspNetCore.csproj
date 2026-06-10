@@ -8,6 +8,7 @@
     <PublishAot>true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <NoWarn>$(NoWarn);CS8619;IL2026;IL3050</NoWarn>
   </PropertyGroup>
 
   <!-- NuGet Package Metadata -->

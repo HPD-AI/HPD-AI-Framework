@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Audio.Codecs.G711</RootNamespace>
+    <AssemblyName>HPD.Audio.Codecs.G711</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Audio.Codecs.G711</PackageId>
+    <Description>Managed G.711 PCMU and PCMA codecs for HPD realtime media infrastructure.</Description>
+    <PackageTags>hpd;audio;codec;g711;pcmu;pcma;realtime-media</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Audio.Codecs\HPD-Audio.Codecs.csproj" />
+    <ProjectReference Include="..\HPD-Audio.Primitives\HPD-Audio.Primitives.csproj" />
+    <ProjectReference Include="..\HPD-Media.Diagnostics\HPD-Media.Diagnostics.csproj" />
+  </ItemGroup>
+
+</Project>

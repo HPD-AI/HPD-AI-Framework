@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization.Metadata;
 using HPD.RAG.Core.Serialization;
-using HPDAgent.Graph.Abstractions.Serialization;
+using HPD.Graph.Abstractions.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 

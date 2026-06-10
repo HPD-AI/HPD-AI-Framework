@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <NoWarn>CS8600;CS8601;CS8602;CS8604;RS2008;CS0628;CA2024;MEAI001</NoWarn>
+    <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8604;RS2008;CS0628;CA2024;MEAI001</NoWarn>
     <OutputType>Library</OutputType>
   </PropertyGroup>
 

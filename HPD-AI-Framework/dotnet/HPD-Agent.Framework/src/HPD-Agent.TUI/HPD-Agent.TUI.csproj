@@ -12,7 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
-    <ProjectReference Include="../../../HPD.TUI/src/HPD.TUI/HPD.TUI.csproj" />
+    <ProjectReference Include="../../../HPD-TUI.Framework/src/HPD-TUI.csproj" />
   </ItemGroup>
 
 </Project>

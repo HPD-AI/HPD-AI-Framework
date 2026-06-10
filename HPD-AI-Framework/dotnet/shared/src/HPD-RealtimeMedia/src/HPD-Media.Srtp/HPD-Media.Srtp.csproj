@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Media.Srtp</RootNamespace>
+    <AssemblyName>HPD.Media.Srtp</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Media.Srtp</PackageId>
+    <Description>SRTP packet protection factory contracts for HPD realtime media infrastructure.</Description>
+    <PackageTags>hpd;media;srtp;realtime-media</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Media.Diagnostics\HPD-Media.Diagnostics.csproj" />
+    <ProjectReference Include="..\HPD-Media.Transport\HPD-Media.Transport.csproj" />
+  </ItemGroup>
+
+</Project>

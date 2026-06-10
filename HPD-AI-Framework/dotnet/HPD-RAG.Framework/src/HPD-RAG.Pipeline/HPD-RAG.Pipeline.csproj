@@ -18,11 +18,11 @@
     <ProjectReference Include="..\HPD-RAG.Retrieval\HPD-RAG.Retrieval.csproj" />
     <ProjectReference Include="..\HPD-RAG.Evaluation\HPD-RAG.Evaluation.csproj" />
     <!-- HPD-Graph.Core: dotnet/src/shared/HPD-Graph/HPD-Graph.Core/ -->
-    <ProjectReference Include="..\..\..\shared\src\HPD-Graph\HPD-Graph.Core\HPD-Graph.Core.csproj" />
+    <ProjectReference Include="../../../HPD-Graph.Framework\src\HPD-Graph.Core\HPD-Graph.Core.csproj" />
     <!-- HPD-Events: dotnet/src/shared/HPD-Events/ -->
     <ProjectReference Include="..\..\..\shared\src\HPD-Events\HPD-Events.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.9" />
   </ItemGroup>
 </Project>

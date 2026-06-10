@@ -175,12 +175,16 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         if (options.AnnotateAudioInputMetadata ||
             options.ProjectCommittedTranscriptsIntoUserMessage)
         {
+            var shouldProjectTranscripts =
+                options.ProjectCommittedTranscriptsIntoUserMessage &&
+                detections.Any(detection => detection.InputContent.Kind is InputContentKind.Audio);
+
             context.UserMessage = AnnotateMessage(
                 context.UserMessage,
                 detections,
                 results,
                 options.AnnotateAudioInputMetadata,
-                options.ProjectCommittedTranscriptsIntoUserMessage);
+                shouldProjectTranscripts);
         }
     }
 

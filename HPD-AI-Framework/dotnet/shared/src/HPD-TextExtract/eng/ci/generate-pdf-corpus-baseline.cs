@@ -27,8 +27,10 @@ if (options.WorkerMode)
 }
 
 var repoRoot = FindRepoRoot(Directory.GetCurrentDirectory());
-var corpusRoot = Path.GetFullPath(options.CorpusRoot ?? Path.Combine(repoRoot, "artifacts", "pdf-corpus", "full-reference"));
-var outputPath = Path.GetFullPath(options.OutputPath ?? Path.Combine(repoRoot, "artifacts", "pdf-corpus", "pdf-corpus-baseline.json"));
+var textExtractRoot = Path.Combine(repoRoot, "HPD-AI-Framework", "dotnet", "shared", "src", "HPD-TextExtract");
+var artifactRoot = Path.Combine(textExtractRoot, ".tmp", "artifacts");
+var corpusRoot = Path.GetFullPath(options.CorpusRoot ?? Path.Combine(artifactRoot, "pdf-corpus", "full-reference"));
+var outputPath = Path.GetFullPath(options.OutputPath ?? Path.Combine(artifactRoot, "pdf-corpus", "pdf-corpus-baseline.json"));
 
 Console.WriteLine("==========================================");
 Console.WriteLine(" HPD TextExtraction PDF Corpus Baseline ");

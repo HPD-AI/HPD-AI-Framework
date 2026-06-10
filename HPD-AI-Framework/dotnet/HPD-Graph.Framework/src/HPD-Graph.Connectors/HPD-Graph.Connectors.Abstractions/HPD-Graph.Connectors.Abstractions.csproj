@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <RootNamespace>HPD.Graph.Connectors.Abstractions</RootNamespace>
+    <AssemblyName>HPD.Graph.Connectors.Abstractions</AssemblyName>
+    <IsPackable>true</IsPackable>
+
+    <!-- Package metadata -->
+    <PackageId>HPD-Graph.Connectors.Abstractions</PackageId>
+    <Description>Stable connector contracts for HPD-Graph automation and data connectors.</Description>
+    <PackageTags>graph;workflow;connectors;automation;data-orchestration;abstractions</PackageTags>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\HPD-Graph.Abstractions\HPD-Graph.Abstractions.csproj" />
+    <ProjectReference Include="../../../../shared/src/HPD-Events/HPD-Events.csproj" />
+
+    <!-- Source Generator Reference -->
+    <ProjectReference Include="..\HPD-Graph.Connectors.SourceGenerator\HPD-Graph.Connectors.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier"
+                      AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
+  </ItemGroup>
+
+  <Target Name="BuildConnectorAnalyzers" BeforeTargets="_GetPackageFiles" Condition="'$(IsCrossTargetingBuild)' != 'true'">
+    <MSBuild Projects="../HPD-Graph.Connectors.SourceGenerator/HPD-Graph.Connectors.SourceGenerator.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);TargetFramework=netstandard2.0;PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
+  </Target>
+
+  <Target Name="IncludeConnectorAnalyzers" BeforeTargets="_GetPackageFiles">
+    <ItemGroup>
+      <None Include="../HPD-Graph.Connectors.SourceGenerator/bin/$(Configuration)/netstandard2.0/HPD.Graph.Connectors.SourceGenerator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+      <None Include="../HPD-Graph.Connectors.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Graph.Connectors.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll')" />
+      <None Include="../HPD-Graph.Connectors.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Graph.Connectors.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll')" />
+    </ItemGroup>
+  </Target>
+
+</Project>

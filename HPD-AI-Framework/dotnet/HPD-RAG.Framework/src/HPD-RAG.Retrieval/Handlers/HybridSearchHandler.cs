@@ -1,5 +1,6 @@
-using HPDAgent.Graph.Abstractions.Attributes;
-using HPDAgent.Graph.Abstractions.Handlers;
+using System.Linq.Expressions;
+using HPD.Graph.Abstractions.Attributes;
+using HPD.Graph.Abstractions.Handlers;
 using HPD.RAG.Core.Context;
 using HPD.RAG.Core.DTOs;
 using HPD.RAG.Core.Filters;
@@ -53,10 +54,10 @@ public sealed partial class HybridSearchHandler : IGraphNodeHandler<MragPipeline
         var features = context.Services.GetRequiredKeyedService<IVectorStoreFeatures>("mrag:vectorstore-features");
 
         // Only call the translator when the Filter socket is connected.
-        VectorSearchFilter? vsf = null;
+        Expression<Func<MragVectorRecord, bool>>? filter = null;
         if (Filter is not null)
         {
-            vsf = features.CreateFilterTranslator().Translate(Filter) as VectorSearchFilter;
+            filter = features.CreateFilterTranslator().Translate(Filter) as Expression<Func<MragVectorRecord, bool>>;
         }
 
         var collection = vectorStore.GetCollection<string, MragVectorRecord>(collectionName);
@@ -68,12 +69,10 @@ public sealed partial class HybridSearchHandler : IGraphNodeHandler<MragPipeline
                 "IKeywordHybridSearchable<MragVectorRecord>. Use a backend that supports hybrid search or replace with VectorSearchHandler.");
         }
 
-#pragma warning disable CS0618 // OldFilter is the VectorSearchFilter compat path in v9
         var searchOptions = new HybridSearchOptions<MragVectorRecord>
         {
-            OldFilter = vsf
+            Filter = filter
         };
-#pragma warning restore CS0618
 
         var results = new List<MragSearchResultDto>();
         await foreach (var item in hybridCollection.HybridSearchAsync(

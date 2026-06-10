@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Media.Rtcp.Twcc</RootNamespace>
+    <AssemblyName>HPD.Media.Rtcp.Twcc</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Media.Rtcp.Twcc</PackageId>
+    <Description>RTCP transport-wide congestion-control feedback parse/write contracts for HPD realtime media infrastructure.</Description>
+    <PackageTags>hpd;media;rtcp;twcc;transport-wide-cc;realtime-media</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Media.Rtcp\HPD-Media.Rtcp.csproj" />
+    <ProjectReference Include="..\HPD-Media.Rtp\HPD-Media.Rtp.csproj" />
+  </ItemGroup>
+
+</Project>

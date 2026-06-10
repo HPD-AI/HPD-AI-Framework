@@ -2,9 +2,9 @@ using System.Reflection;
 using HPD.Agent;
 using HPD.MultiAgent;
 using HPD.MultiAgent.Config;
-using HPDAgent.Graph.Abstractions;
-using HPDAgent.Graph.Abstractions.Checkpointing;
-using HPDAgent.Graph.Abstractions.Storage;
+using HPD.Graph.Abstractions;
+using HPD.Graph.Abstractions.Checkpointing;
+using HPD.Graph.Abstractions.Storage;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.MultiAgent.Tests;

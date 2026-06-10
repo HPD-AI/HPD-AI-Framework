@@ -8,14 +8,14 @@ using HPD.MultiAgent.Config;
 using HPD.MultiAgent.Internal;
 using HPD.MultiAgent.Routing;
 using HPD.Serialization;
-using HPDAgent.Graph.Abstractions.Events;
-using HPDAgent.Graph.Abstractions.Execution;
-using HPDAgent.Graph.Abstractions.Graph;
-using HPDAgent.Graph.Abstractions.Handlers;
-using HPDAgent.Graph.Core.Orchestration;
+using HPD.Graph.Abstractions.Events;
+using HPD.Graph.Abstractions.Execution;
+using HPD.Graph.Abstractions.Graph;
+using HPD.Graph.Abstractions.Handlers;
+using HPD.Graph.Core.Orchestration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
-using GraphDefinition = HPDAgent.Graph.Abstractions.Graph.Graph;
+using GraphDefinition = HPD.Graph.Abstractions.Graph.Graph;
 
 namespace HPD.MultiAgent;
 
@@ -561,7 +561,7 @@ public sealed class AgentWorkflowInstance
 
         // Create orchestrator — pass checkpoint store when checkpointing is enabled
         var checkpointStore = _settings.EnableCheckpointing
-            ? _serviceProvider.GetService<HPDAgent.Graph.Abstractions.Checkpointing.IGraphCheckpointStore>()
+            ? _serviceProvider.GetService<HPD.Graph.Abstractions.Checkpointing.IGraphCheckpointStore>()
             : null;
 
         var orchestrator = new GraphOrchestrator<AgentGraphContext>(_serviceProvider, checkpointStore: checkpointStore);
@@ -734,7 +734,7 @@ public sealed class AgentWorkflowInstance
             GraphDiagnosticEvent d => new WorkflowDiagnosticEvent
             {
                 WorkflowName = _workflowName,
-                Level = (LogLevel)(int)d.Level,  // Cast from HPDAgent.Graph LogLevel
+                Level = (LogLevel)(int)d.Level,  // Cast from HPD.Graph LogLevel
                 Source = d.Source,
                 Message = d.Message,
                 NodeId = d.NodeId,
@@ -853,7 +853,7 @@ public sealed class AgentWorkflowInstance
             .Select(e =>
             {
                 ConditionConfig? when = null;
-                if (e.Condition is { } c && c.Type != HPDAgent.Graph.Abstractions.Graph.ConditionType.Always)
+                if (e.Condition is { } c && c.Type != HPD.Graph.Abstractions.Graph.ConditionType.Always)
                 {
                     when = MapEdgeConditionToConfig(c);
                 }
@@ -888,7 +888,7 @@ public sealed class AgentWorkflowInstance
     /// Recursively maps an <see cref="EdgeCondition"/> to a serializable <see cref="ConditionConfig"/>.
     /// Preserves nested <c>Conditions</c> for compound types and <c>RegexOptions</c> for regex conditions.
     /// </summary>
-    private static ConditionConfig MapEdgeConditionToConfig(HPDAgent.Graph.Abstractions.Graph.EdgeCondition c) =>
+    private static ConditionConfig MapEdgeConditionToConfig(HPD.Graph.Abstractions.Graph.EdgeCondition c) =>
         new ConditionConfig
         {
             Type = c.Type,

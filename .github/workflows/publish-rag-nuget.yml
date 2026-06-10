@@ -1,0 +1,155 @@
+name: Publish HPD-RAG NuGet Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 0.2.0 or 0.2.0-alpha)'
+        required: true
+        type: string
+
+jobs:
+  determine-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_prefix: ${{ steps.version.outputs.version_prefix }}
+      version_suffix: ${{ steps.version.outputs.version_suffix }}
+
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          else
+            VERSION="${{ inputs.version }}"
+          fi
+
+          VERSION="${VERSION#v}"
+
+          if [[ "$VERSION" == *-* ]]; then
+            VERSION_PREFIX="${VERSION%%-*}"
+            VERSION_SUFFIX="${VERSION#*-}"
+            echo "version_prefix=$VERSION_PREFIX" >> $GITHUB_OUTPUT
+            echo "version_suffix=$VERSION_SUFFIX" >> $GITHUB_OUTPUT
+            echo "Publishing HPD-RAG: $VERSION_PREFIX with suffix: $VERSION_SUFFIX"
+          else
+            VERSION_PREFIX="$VERSION"
+            echo "version_prefix=$VERSION_PREFIX" >> $GITHUB_OUTPUT
+            echo "version_suffix=" >> $GITHUB_OUTPUT
+            echo "Publishing stable HPD-RAG version: $VERSION_PREFIX"
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: determine-version
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Pack HPD-RAG packages
+        run: |
+          mkdir -p ./nupkg-rag
+
+          PROJECTS=(
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.Core/HPD-RAG.Core.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.Ingestion/HPD-RAG.Ingestion.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.Retrieval/HPD-RAG.Retrieval.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.Evaluation/HPD-RAG.Evaluation.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.Pipeline/HPD-RAG.Pipeline.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.Extensions/HPD-RAG.Extensions.csproj"
+
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.EmbeddingProviders/HPD-RAG.EmbeddingProviders.AzureAI/HPD-RAG.EmbeddingProviders.AzureAI.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.EmbeddingProviders/HPD-RAG.EmbeddingProviders.Bedrock/HPD-RAG.EmbeddingProviders.Bedrock.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.EmbeddingProviders/HPD-RAG.EmbeddingProviders.HuggingFace/HPD-RAG.EmbeddingProviders.HuggingFace.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.EmbeddingProviders/HPD-RAG.EmbeddingProviders.Ollama/HPD-RAG.EmbeddingProviders.Ollama.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.EmbeddingProviders/HPD-RAG.EmbeddingProviders.OnnxRuntime/HPD-RAG.EmbeddingProviders.OnnxRuntime.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.EmbeddingProviders/HPD-RAG.EmbeddingProviders.OpenAI/HPD-RAG.EmbeddingProviders.OpenAI.csproj"
+
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.RerankerProviders/HPD-RAG.RerankerProviders.Cohere/HPD-RAG.RerankerProviders.Cohere.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.RerankerProviders/HPD-RAG.RerankerProviders.HuggingFace/HPD-RAG.RerankerProviders.HuggingFace.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.RerankerProviders/HPD-RAG.RerankerProviders.Jina/HPD-RAG.RerankerProviders.Jina.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.RerankerProviders/HPD-RAG.RerankerProviders.OnnxRuntime/HPD-RAG.RerankerProviders.OnnxRuntime.csproj"
+
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.AzureAISearch/HPD-RAG.VectorStores.AzureAISearch.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.CosmosMongo/HPD-RAG.VectorStores.CosmosMongo.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.CosmosNoSql/HPD-RAG.VectorStores.CosmosNoSql.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.InMemory/HPD-RAG.VectorStores.InMemory.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Milvus/HPD-RAG.VectorStores.Milvus.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Mongo/HPD-RAG.VectorStores.Mongo.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Pinecone/HPD-RAG.VectorStores.Pinecone.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Postgres/HPD-RAG.VectorStores.Postgres.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Qdrant/HPD-RAG.VectorStores.Qdrant.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Redis/HPD-RAG.VectorStores.Redis.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.SqlServer/HPD-RAG.VectorStores.SqlServer.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Sqlite/HPD-RAG.VectorStores.Sqlite.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.VectorStores/HPD-RAG.VectorStores.Weaviate/HPD-RAG.VectorStores.Weaviate.csproj"
+
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.GraphStoreProviders/HPD-RAG.GraphStoreProviders.Memgraph/HPD-RAG.GraphStoreProviders.Memgraph.csproj"
+            "HPD-AI-Framework/dotnet/HPD-RAG.Framework/src/HPD-RAG.GraphStoreProviders/HPD-RAG.GraphStoreProviders.Neo4j/HPD-RAG.GraphStoreProviders.Neo4j.csproj"
+          )
+
+          VERSION_PREFIX="${{ needs.determine-version.outputs.version_prefix }}"
+          VERSION_SUFFIX="${{ needs.determine-version.outputs.version_suffix }}"
+
+          HPD-AI-Framework/dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
+
+          for PROJECT in "${PROJECTS[@]}"; do
+            echo "Packing $PROJECT..."
+            if [ -n "$VERSION_SUFFIX" ]; then
+              dotnet pack "$PROJECT" -c Release -m:1 -o ./nupkg-rag \
+                -p:VersionPrefix="$VERSION_PREFIX" \
+                -p:VersionSuffix="$VERSION_SUFFIX"
+            else
+              dotnet pack "$PROJECT" -c Release -m:1 -o ./nupkg-rag \
+                -p:VersionPrefix="$VERSION_PREFIX"
+            fi
+          done
+
+      - name: Upload HPD-RAG packages as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rag-nuget-packages
+          path: ./nupkg-rag/*.nupkg
+
+      - name: Push HPD-RAG packages to NuGet
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "Error: NUGET_API_KEY secret is not set"
+            exit 1
+          fi
+          dotnet nuget push ./nupkg-rag/*.nupkg --source https://api.nuget.org/v3/index.json --api-key $NUGET_API_KEY --skip-duplicate
+
+      - name: Summary
+        run: |
+          echo "## Published HPD-RAG Packages" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.determine-version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ needs.determine-version.outputs.version_suffix }}" ]; then
+            echo "**Type:** Pre-release (${{ needs.determine-version.outputs.version_suffix }})" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Type:** Stable release" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Packages:" >> $GITHUB_STEP_SUMMARY
+          for pkg in ./nupkg-rag/*.nupkg; do
+            echo "- $(basename $pkg)" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "[View HPD-RAG packages on NuGet](https://www.nuget.org/packages?q=HPD-RAG)" >> $GITHUB_STEP_SUMMARY

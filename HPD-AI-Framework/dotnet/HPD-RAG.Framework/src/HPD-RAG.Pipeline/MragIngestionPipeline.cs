@@ -4,10 +4,11 @@ using HPD.Events.Core;
 using HPD.RAG.Core.Context;
 using HPD.RAG.Core.Events;
 using HPD.RAG.Pipeline.Internal;
-using HPDAgent.Graph.Abstractions.Context;
-using HPDAgent.Graph.Abstractions.Events;
-using HPDAgent.Graph.Abstractions.Graph;
-using HPDAgent.Graph.Core.Orchestration;
+using HPD.Graph.Abstractions.Context;
+using HPD.Graph.Abstractions.Events;
+using HPD.Graph.Abstractions.Graph;
+using HPD.Graph.Core.Orchestration;
+using GraphDefinition = HPD.Graph.Abstractions.Graph.Graph;
 
 namespace HPD.RAG.Pipeline;
 
@@ -33,16 +34,16 @@ namespace HPD.RAG.Pipeline;
 /// </summary>
 public sealed class MragIngestionPipeline
 {
-    private readonly Graph _graph;
+    private readonly GraphDefinition _graph;
     private readonly IServiceProvider _pipelineServices;
 
     /// <summary>Human-readable name of this pipeline.</summary>
     public string PipelineName { get; }
 
     /// <summary>Compiled HPD.Graph representation of this RAG pipeline.</summary>
-    public Graph Graph => _graph;
+    public GraphDefinition Graph => _graph;
 
-    internal MragIngestionPipeline(string pipelineName, Graph graph, IServiceProvider pipelineServices)
+    internal MragIngestionPipeline(string pipelineName, GraphDefinition graph, IServiceProvider pipelineServices)
     {
         PipelineName = pipelineName;
         _graph = graph;

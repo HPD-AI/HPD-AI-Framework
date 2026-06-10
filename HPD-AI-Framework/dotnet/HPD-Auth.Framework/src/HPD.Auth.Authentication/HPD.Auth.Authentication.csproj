@@ -4,6 +4,10 @@
     <TargetFrameworks></TargetFrameworks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Auth-Authentication</PackageId>
+    <Description>Cookie, JWT, and policy-scheme authentication integrations for HPD-Auth.</Description>
+    <PackageTags>auth;authentication;jwt;cookies;hpd</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

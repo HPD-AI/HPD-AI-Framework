@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Media.Sdp</RootNamespace>
+    <AssemblyName>HPD.Media.Sdp</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Media.Sdp</PackageId>
+    <Description>AOT-safe SDP control-plane contracts for HPD realtime media infrastructure.</Description>
+    <PackageTags>hpd;media;sdp;webrtc;realtime-media</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+</Project>

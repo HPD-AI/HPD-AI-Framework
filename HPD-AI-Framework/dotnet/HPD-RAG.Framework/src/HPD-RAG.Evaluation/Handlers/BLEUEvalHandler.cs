@@ -1,5 +1,5 @@
 using HPD.RAG.Core.Context;
-using HPDAgent.Graph.Abstractions.Attributes;
+using HPD.Graph.Abstractions.Attributes;
 using Microsoft.Extensions.AI;
 
 namespace HPD.RAG.Evaluation.Handlers;
@@ -27,7 +27,7 @@ namespace HPD.RAG.Evaluation.Handlers;
 /// </list>
 /// </remarks>
 [GraphNodeHandler(NodeName = "EvalBLEU")]
-public sealed partial class BLEUEvalHandler : HPDAgent.Graph.Abstractions.Handlers.IGraphNodeHandler<HPD.RAG.Core.Context.MragPipelineContext>
+public sealed partial class BLEUEvalHandler : HPD.Graph.Abstractions.Handlers.IGraphNodeHandler<HPD.RAG.Core.Context.MragPipelineContext>
 {
     /// <summary>Default error propagation: isolate so downstream eval nodes still run.</summary>
     public static Core.Pipeline.MragErrorPropagation DefaultPropagation { get; } =

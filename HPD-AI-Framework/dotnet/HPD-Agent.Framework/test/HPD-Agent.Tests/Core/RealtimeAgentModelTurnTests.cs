@@ -119,7 +119,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         var capture = SubscribeEvents(agent);
         var audioMessage = new ChatMessage(
             ChatRole.User,
-            [new AudioContent(new byte[] { 1, 2, 3 }, "audio/wav")])
+            [new AudioContent(CreatePcm16Wav(), "audio/wav")])
         {
             MessageId = "user-audio-1"
         };
@@ -190,7 +190,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         var capture = SubscribeEvents(agent);
         var audioMessage = new ChatMessage(
             ChatRole.User,
-            [new AudioContent(new byte[] { 1, 2, 3 }, "audio/wav")])
+            [new AudioContent(CreatePcm16Wav(), "audio/wav")])
         {
             MessageId = "user-audio-after-final"
         };
@@ -257,7 +257,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         var capture = SubscribeEvents(agent);
         var audioMessage = new ChatMessage(
             ChatRole.User,
-            [new AudioContent(new byte[] { 1, 2, 3 }, "audio/wav")]);
+            [new AudioContent(CreatePcm16Wav(), "audio/wav")]);
 
         try
         {
@@ -949,6 +949,36 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
     private static int Multiply(int left, int right) => left * right;
 
     private static int Subtract(int left, int right) => left - right;
+
+    private static byte[] CreatePcm16Wav()
+    {
+        const int sampleRate = 16000;
+        const int channelCount = 1;
+        short[] samples = [0, 1200, -1200, 0];
+        var dataLength = samples.Length * sizeof(short);
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+
+        writer.Write("RIFF".ToCharArray());
+        writer.Write(36 + dataLength);
+        writer.Write("WAVE".ToCharArray());
+        writer.Write("fmt ".ToCharArray());
+        writer.Write(16);
+        writer.Write((short)1);
+        writer.Write((short)channelCount);
+        writer.Write(sampleRate);
+        writer.Write(sampleRate * channelCount * sizeof(short));
+        writer.Write((short)(channelCount * sizeof(short)));
+        writer.Write((short)16);
+        writer.Write("data".ToCharArray());
+        writer.Write(dataLength);
+        foreach (var sample in samples)
+        {
+            writer.Write(sample);
+        }
+
+        return stream.ToArray();
+    }
 
     private static int ReadIntResult(FunctionResultContent result)
         => result.Result switch

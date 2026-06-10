@@ -14,7 +14,7 @@ namespace HPD.Auth.TwoFactor.Services;
 ///
 /// <para>
 /// This service is stateless — all methods are pure functions of their inputs.
-/// Register it with <see cref="Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddScoped{TService}"/>.
+/// Register it with <c>AddScoped</c>.
 /// </para>
 /// </summary>
 public class TwoFactorService
@@ -59,7 +59,7 @@ public class TwoFactorService
     ///
     /// <para>
     /// Both <paramref name="issuer"/> and <paramref name="email"/> are percent-encoded
-    /// using <see cref="Uri.EscapeDataString"/> to ensure the URI is valid even when
+    /// using <c>Uri.EscapeDataString</c> to ensure the URI is valid even when
     /// those values contain special characters (spaces, @, ampersands, etc.).
     /// Note: <c>UrlEncoder.Default</c> follows HTML encoding rules and leaves <c>@</c>
     /// unencoded; the Key URI spec requires <c>@</c> → <c>%40</c>.

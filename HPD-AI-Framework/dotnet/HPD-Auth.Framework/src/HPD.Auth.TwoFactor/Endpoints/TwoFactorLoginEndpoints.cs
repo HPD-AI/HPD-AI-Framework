@@ -13,7 +13,7 @@ namespace HPD.Auth.TwoFactor.Endpoints;
 ///
 /// This endpoint is called after a primary login returns
 /// <c>{ requiresTwoFactor: true }</c> (i.e., after
-/// <see cref="SignInManager{TUser}.PasswordSignInAsync"/> returns
+/// <c>PasswordSignInAsync</c> returns
 /// <see cref="SignInResult.RequiresTwoFactor"/>). ASP.NET Identity stores the
 /// pending-2FA user identity in a short-lived cookie
 /// (<see cref="IdentityConstants.TwoFactorUserIdScheme"/>) which

@@ -1,7 +1,7 @@
 using HPD.Agent;
 using HPD.MultiAgent;
 using HPD.MultiAgent.Config;
-using HPDAgent.Graph.Core.Builders;
+using HPD.Graph.Core.Builders;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.MultiAgent.Tests;

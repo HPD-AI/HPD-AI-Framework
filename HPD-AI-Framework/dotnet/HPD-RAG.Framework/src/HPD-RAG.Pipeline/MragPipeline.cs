@@ -3,11 +3,12 @@ using HPD.RAG.Core.Context;
 using HPD.RAG.Core.Pipeline;
 using HPD.RAG.Core.Serialization;
 using HPD.RAG.Pipeline.Internal;
-using HPDAgent.Graph.Abstractions.Execution;
-using HPDAgent.Graph.Abstractions.Graph;
-using HPDAgent.Graph.Abstractions.Handlers;
-using HPDAgent.Graph.Core.Builders;
+using HPD.Graph.Abstractions.Execution;
+using HPD.Graph.Abstractions.Graph;
+using HPD.Graph.Abstractions.Handlers;
+using HPD.Graph.Core.Builders;
 using Microsoft.Extensions.DependencyInjection;
+using GraphDefinition = HPD.Graph.Abstractions.Graph.Graph;
 
 namespace HPD.RAG.Pipeline;
 
@@ -44,7 +45,7 @@ public class MragPipeline
     private readonly List<(string HandlerName, Type ServiceType)> _adapterRegistrations = new();
 
     // Compiled inner graph (set by BuildSubPipelineAsync)
-    internal Graph? _compiledSubGraph;
+    internal GraphDefinition? _compiledSubGraph;
 
     private MragPipeline() { }
 
@@ -346,7 +347,7 @@ public class MragPipeline
     // Private helpers                                                      //
     // ------------------------------------------------------------------ //
 
-    private (Graph graph, IServiceProvider services) BuildCore()
+    private (GraphDefinition graph, IServiceProvider services) BuildCore()
     {
         var name = _name
             ?? throw new ArgumentException(
@@ -357,7 +358,7 @@ public class MragPipeline
         return (graph, services);
     }
 
-    private Graph BuildGraph(string name)
+    private GraphDefinition BuildGraph(string name)
     {
         _graphBuilder.WithName(name);
 

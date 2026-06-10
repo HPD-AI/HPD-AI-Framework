@@ -11,7 +11,8 @@ using System.Text;
 var options = AotSmokeOptions.Parse(args);
 var repoRoot = FindRepoRoot(Directory.GetCurrentDirectory());
 var dotnetRoot = Path.Combine(repoRoot, "HPD-AI-Framework", "dotnet");
-var logRoot = Path.Combine(repoRoot, "artifacts", "logs");
+var textExtractRoot = Path.Combine(dotnetRoot, "shared", "src", "HPD-TextExtract");
+var logRoot = Path.Combine(textExtractRoot, ".tmp", "artifacts", "logs");
 var projectPath = Path.GetFullPath(options.ProjectPath ?? Path.Combine(
     dotnetRoot,
     "HPD-Agent.Framework",

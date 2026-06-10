@@ -1,4 +1,4 @@
-using HPDAgent.Graph.Core.Builders;
+using HPD.Graph.Core.Builders;
 
 namespace HPD.RAG.Pipeline;
 

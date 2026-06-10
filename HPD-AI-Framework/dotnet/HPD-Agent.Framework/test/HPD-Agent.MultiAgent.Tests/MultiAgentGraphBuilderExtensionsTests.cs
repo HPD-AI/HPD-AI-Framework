@@ -3,11 +3,12 @@ using HPD.MultiAgent.Config;
 using HPD.RAG.Core.Pipeline;
 using HPD.RAG.Core.Serialization;
 using HPD.RAG.Pipeline;
-using HPDAgent.Graph.Abstractions.Serialization;
-using HPDAgent.Graph.Abstractions.Graph;
-using HPDAgent.Graph.Core.Builders;
-using HPDAgent.Graph.Core.Config;
+using HPD.Graph.Abstractions.Serialization;
+using HPD.Graph.Abstractions.Graph;
+using HPD.Graph.Core.Builders;
+using HPD.Graph.Core.Config;
 using Microsoft.Extensions.DependencyInjection;
+using GraphDefinition = HPD.Graph.Abstractions.Graph.Graph;
 
 namespace HPD.MultiAgent.Tests;
 
@@ -71,7 +72,7 @@ public sealed class MultiAgentGraphBuilderExtensionsTests
         var config = graph.ToConfig();
 
         config.GraphId.Should().Be("parent");
-        config.Nodes["agent_workflow"].Type.Should().Be(HPDAgent.Graph.Abstractions.Config.NodeKindConfig.SubGraph);
+        config.Nodes["agent_workflow"].Type.Should().Be(HPD.Graph.Abstractions.Config.NodeKindConfig.SubGraph);
         config.Nodes["agent_workflow"].SubGraph.Should().NotBeNull();
         config.Nodes["agent_workflow"].SubGraph!.Nodes.Should().ContainKey("classifier");
     }
@@ -146,7 +147,7 @@ public sealed class MultiAgentGraphBuilderExtensionsTests
         ]
     };
 
-    private static void AssertEquivalentSubGraph(Graph? actual, Graph expected)
+    private static void AssertEquivalentSubGraph(GraphDefinition? actual, GraphDefinition expected)
     {
         actual.Should().NotBeNull();
         actual.Should().NotBeSameAs(expected);

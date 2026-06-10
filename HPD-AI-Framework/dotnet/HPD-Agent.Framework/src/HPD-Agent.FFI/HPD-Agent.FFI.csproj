@@ -23,7 +23,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     
     <!-- Suppress AOT warnings for provider discovery -->
-    <NoWarn>IL2026;IL3050</NoWarn>
+    <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
   </PropertyGroup>
 
   <!-- Core HPD-Agent reference -->

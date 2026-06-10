@@ -1,6 +1,6 @@
 using System.Text.Json;
-using HPDAgent.Graph.Abstractions.Attributes;
-using HPDAgent.Graph.Abstractions.Handlers;
+using HPD.Graph.Abstractions.Attributes;
+using HPD.Graph.Abstractions.Handlers;
 using HPD.RAG.Core.Context;
 using HPD.RAG.Core.Pipeline;
 using HPD.RAG.Core.Serialization;

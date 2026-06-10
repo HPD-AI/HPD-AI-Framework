@@ -1,10 +1,10 @@
 using HPD.RAG.Core.DTOs;
 using HPD.RAG.Core.Events;
 using HPD.RAG.Pipeline;
-using HPDAgent.Graph.Abstractions.Artifacts;
-using HPDAgent.Graph.Abstractions.Context;
-using HPDAgent.Graph.Abstractions.Events;
-using HPDAgent.Graph.Abstractions.Execution;
+using HPD.Graph.Abstractions.Artifacts;
+using HPD.Graph.Abstractions.Context;
+using HPD.Graph.Abstractions.Events;
+using HPD.Graph.Abstractions.Execution;
 using System.Reflection;
 using Xunit;
 

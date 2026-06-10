@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>HPD.Math.Core</RootNamespace>
+    <AssemblyName>HPD.Math.Core</AssemblyName>
+    <LangVersion>preview</LangVersion>
+    <IsPackable>true</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <PackageId>HPD-Math.Core</PackageId>
+    <Description>Core decidable-math contracts and allocation-free operation interfaces for HPD-Math.</Description>
+    <PackageTags>math;algebra;decidable-math;native-aot;zero-allocation</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD.Math.Generators\HPD.Math.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <Target Name="BuildMathAnalyzers" BeforeTargets="_GetPackageFiles" Condition="'$(IsCrossTargetingBuild)' != 'true'">
+    <MSBuild Projects="../HPD.Math.Generators/HPD.Math.Generators.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);TargetFramework=netstandard2.0;PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
+  </Target>
+
+  <Target Name="IncludeMathAnalyzers" BeforeTargets="_GetPackageFiles">
+    <ItemGroup>
+      <None Include="../HPD.Math.Generators/bin/$(Configuration)/netstandard2.0/HPD.Math.Generators.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+      <None Include="../HPD.Math.Generators/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD.Math.Generators/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll')" />
+      <None Include="../HPD.Math.Generators/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD.Math.Generators/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll')" />
+    </ItemGroup>
+  </Target>
+
+</Project>

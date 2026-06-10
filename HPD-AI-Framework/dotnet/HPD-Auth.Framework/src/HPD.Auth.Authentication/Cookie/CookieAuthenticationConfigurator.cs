@@ -22,7 +22,7 @@ namespace HPD.Auth.Authentication.Cookie;
 /// Two key behaviours are configured here beyond the defaults:
 /// <list type="bullet">
 ///   <item>
-///     Security-stamp validation via <see cref="SignInManager{TUser}.ValidateSecurityStampAsync"/>
+///     Security-stamp validation via <c>ValidateSecurityStampAsync</c>
 ///     on every authenticated request, enabling instant force-logout when an admin
 ///     updates the user's security stamp (ADR-003 §9.2).
 ///   </item>

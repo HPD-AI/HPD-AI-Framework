@@ -1,7 +1,7 @@
 using HPD.RAG.Core.Context;
 using HPD.RAG.Core.DTOs;
 using HPD.RAG.Core.Pipeline;
-using HPDAgent.Graph.Abstractions.Attributes;
+using HPD.Graph.Abstractions.Attributes;
 using Microsoft.Extensions.DataIngestion;
 
 namespace HPD.RAG.Ingestion.Readers;

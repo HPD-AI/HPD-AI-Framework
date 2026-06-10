@@ -9,6 +9,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <NoWarn>$(NoWarn);CA2255;CS8602;CS8620;IL2026;IL3050</NoWarn>
 
     <!-- Package Metadata (inherits Version, Authors, License from Directory.Build.props) -->
     <PackageId>HPD-Agent.ToolHarness.Coding</PackageId>
@@ -18,10 +19,11 @@
 
   <ItemGroup>
     <!-- Core dependencies -->
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.4.1" />
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
-    <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.9" />
     <PackageReference Include="DiffPlex" Version="1.9.0" />
+    <PackageReference Include="Markdig" Version="1.2.0" />
     <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.7" />
     <PackageReference Include="Ude.NetStandard" Version="1.2.0" />
 
@@ -44,6 +46,27 @@
   <ItemGroup>
     <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.Tests" />
   </ItemGroup>
+
+  <!-- Pack coding source generator as analyzer in the Coding NuGet package. -->
+  <Target Name="IncludeCodingAnalyzers" BeforeTargets="_GetPackageFiles">
+    <ItemGroup>
+      <None Include="../HPD-Agent.Harness.Coding.SourceGenerator/bin/$(Configuration)/netstandard2.0/HPD-Agent.Harness.Coding.SourceGenerator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+      <None Include="../HPD-Agent.Harness.Coding.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Agent.Harness.Coding.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll')" />
+      <None Include="../HPD-Agent.Harness.Coding.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Agent.Harness.Coding.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll')" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Bundle coding TUI assemblies into this package instead of publishing a separate coding TUI package. -->
+  <Target Name="IncludeBundledCodingTui" BeforeTargets="_GetPackageFiles" Condition="'$(TargetFramework)' != ''">
+    <ItemGroup>
+      <None Include="../HPD-Agent.Harness.Coding.TUI/bin/$(Configuration)/$(TargetFramework)/HPD-Agent.Harness.Coding.TUI.dll" Pack="true" PackagePath="lib/$(TargetFramework)/" Visible="false" Condition="Exists('../HPD-Agent.Harness.Coding.TUI/bin/$(Configuration)/$(TargetFramework)/HPD-Agent.Harness.Coding.TUI.dll')" />
+      <None Include="../HPD-Agent.Harness.Coding.TUI/bin/$(Configuration)/$(TargetFramework)/HPD-Agent.Harness.Coding.TUI.xml" Pack="true" PackagePath="lib/$(TargetFramework)/" Visible="false" Condition="Exists('../HPD-Agent.Harness.Coding.TUI/bin/$(Configuration)/$(TargetFramework)/HPD-Agent.Harness.Coding.TUI.xml')" />
+      <None Include="../../HPD-Agent.TUI/bin/$(Configuration)/$(TargetFramework)/HPD-Agent.TUI.dll" Pack="true" PackagePath="lib/$(TargetFramework)/" Visible="false" Condition="Exists('../../HPD-Agent.TUI/bin/$(Configuration)/$(TargetFramework)/HPD-Agent.TUI.dll')" />
+      <None Include="../../HPD-Agent.TUI/bin/$(Configuration)/$(TargetFramework)/HPD-Agent.TUI.xml" Pack="true" PackagePath="lib/$(TargetFramework)/" Visible="false" Condition="Exists('../../HPD-Agent.TUI/bin/$(Configuration)/$(TargetFramework)/HPD-Agent.TUI.xml')" />
+      <None Include="../../../../HPD-TUI.Framework/src/bin/$(Configuration)/$(TargetFramework)/HPD.TUI.dll" Pack="true" PackagePath="lib/$(TargetFramework)/" Visible="false" Condition="Exists('../../../../HPD-TUI.Framework/src/bin/$(Configuration)/$(TargetFramework)/HPD.TUI.dll')" />
+      <None Include="../../../../HPD-TUI.Framework/src/bin/$(Configuration)/$(TargetFramework)/HPD.TUI.xml" Pack="true" PackagePath="lib/$(TargetFramework)/" Visible="false" Condition="Exists('../../../../HPD-TUI.Framework/src/bin/$(Configuration)/$(TargetFramework)/HPD.TUI.xml')" />
+    </ItemGroup>
+  </Target>
 
   <PropertyGroup>
     <RipgrepPackRoot>$(MSBuildProjectDirectory)/obj/RipgrepPack/</RipgrepPackRoot>

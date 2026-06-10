@@ -2,7 +2,7 @@ using HPD.Agent;
 using HPD.MultiAgent;
 using HPD.MultiAgent.Config;
 using HPD.MultiAgent.Routing;
-using HPDAgent.Graph.Abstractions.Graph;
+using HPD.Graph.Abstractions.Graph;
 
 namespace HPD.MultiAgent.Tests;
 

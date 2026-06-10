@@ -10,6 +10,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <NoWarn>$(NoWarn);IL2070</NoWarn>
 
     <PackageId>HPD-Serialization</PackageId>
     <Description>AOT-safe JSON/YAML config serialization helpers for HPD libraries.</Description>
@@ -17,7 +18,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="YamlDotNet" Version="15.*" />
+    <PackageReference Include="YamlDotNet" Version="18.0.0" />
   </ItemGroup>
 
 </Project>

@@ -1,5 +1,6 @@
-using HPDAgent.Graph.Abstractions.Attributes;
-using HPDAgent.Graph.Abstractions.Handlers;
+using System.Linq.Expressions;
+using HPD.Graph.Abstractions.Attributes;
+using HPD.Graph.Abstractions.Handlers;
 using HPD.RAG.Core.Context;
 using HPD.RAG.Core.DTOs;
 using HPD.RAG.Core.Filters;
@@ -16,9 +17,9 @@ namespace HPD.RAG.Retrieval.Handlers;
 /// Applies a filter only when the Filter socket is connected; otherwise the search runs unfiltered.
 ///
 /// Filter translation: the filter AST is compiled to a backend-native representation via
-/// IVectorStoreFeatures.CreateFilterTranslator().Translate(). Backends that return a
-/// VectorSearchFilter have it applied via VectorSearchOptions.OldFilter. Backends returning
-/// other opaque types must apply the filter inside their own collection implementation.
+/// IVectorStoreFeatures.CreateFilterTranslator().Translate(). Backends that return an
+/// Expression&lt;Func&lt;MragVectorRecord, bool&gt;&gt; have it applied via VectorSearchOptions.Filter.
+/// Backends returning other opaque types must apply the filter inside their own collection implementation.
 ///
 /// Default retry: 3 attempts, JitteredExponential, 1-30s.
 /// Default propagation: StopPipeline.
@@ -60,11 +61,10 @@ public sealed partial class VectorSearchHandler : IGraphNodeHandler<MragPipeline
         var features = context.Services.GetRequiredKeyedService<IVectorStoreFeatures>("mrag:vectorstore-features");
 
         // Only call the translator when the Filter socket is connected.
-        // VectorSearchFilter is the legacy/compat filter API in ME.VectorData v9.
-        VectorSearchFilter? vsf = null;
+        Expression<Func<MragVectorRecord, bool>>? filter = null;
         if (Filter is not null)
         {
-            vsf = features.CreateFilterTranslator().Translate(Filter) as VectorSearchFilter;
+            filter = features.CreateFilterTranslator().Translate(Filter) as Expression<Func<MragVectorRecord, bool>>;
         }
 
         var definition = new VectorStoreCollectionDefinition
@@ -81,12 +81,10 @@ public sealed partial class VectorSearchHandler : IGraphNodeHandler<MragPipeline
 
         var collection = vectorStore.GetCollection<string, MragVectorRecord>(collectionName, definition);
 
-#pragma warning disable CS0618 // OldFilter is the VectorSearchFilter compat path in v9
         var searchOptions = new VectorSearchOptions<MragVectorRecord>
         {
-            OldFilter = vsf
+            Filter = filter
         };
-#pragma warning restore CS0618
 
         var results = new List<MragSearchResultDto>();
         await foreach (var item in collection.SearchAsync(

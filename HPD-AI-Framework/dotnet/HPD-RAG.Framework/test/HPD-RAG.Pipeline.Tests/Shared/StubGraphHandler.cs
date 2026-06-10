@@ -1,6 +1,6 @@
 using HPD.RAG.Core.Context;
-using HPDAgent.Graph.Abstractions.Execution;
-using HPDAgent.Graph.Abstractions.Handlers;
+using HPD.Graph.Abstractions.Execution;
+using HPD.Graph.Abstractions.Handlers;
 
 namespace HPD.RAG.Pipeline.Tests.Shared;
 
@@ -10,7 +10,7 @@ namespace HPD.RAG.Pipeline.Tests.Shared;
 /// Allows tests to:
 /// - Register a handler with any <see cref="HandlerName"/> in a DI container that is passed as
 ///   the <c>services</c> argument to <see cref="MragIngestionPipeline.RunStreamingAsync"/> or
-///   <see cref="MragRetrievalPipeline.RetrieveAsync"/>. The <see cref="GraphOrchestrator"/> resolves
+///   <c>MragRetrievalPipeline.RetrieveAsync</c>. The <see cref="GraphOrchestrator"/> resolves
 ///   handlers from that services argument by matching <see cref="HandlerName"/>, so a
 ///   <see cref="StubGraphHandler"/> with the correct name will be executed for any node whose
 ///   handler name matches.

@@ -1909,8 +1909,7 @@ public sealed class Agent
                 turnHistory,
                 effectiveCancellationToken).ConfigureAwait(false);
 
-            var realtimeTranscriptTargetMessageId = beforeTurnContext.UserMessage?.MessageId
-                ?? ResolveRealtimeTranscriptTargetMessageId(turnHistory);
+            var realtimeTranscriptTargetMessageId = ResolveRealtimeTranscriptTargetMessageId(turnHistory);
 
             // Shared reference architecture: No sync needed!
             // state.CurrentMessages already sees middleware changes via MessagesRef
@@ -5948,9 +5947,7 @@ public sealed class Agent
             }
         }
 
-        return newInputMessages.Count == 1
-            ? newInputMessages[0].MessageId
-            : null;
+        return null;
     }
 
     private static bool IsRealtimeTranscriptTargetContent(AIContent content) => content switch

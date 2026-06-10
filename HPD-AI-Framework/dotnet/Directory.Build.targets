@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup Condition="'$(TargetFramework)' != '' AND '$(TargetFrameworks)' == '$(TargetFrameworksModern)'">
+    <TargetFrameworks></TargetFrameworks>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' != '' AND '$(EnableLegacySupport)' == 'true' AND '$(TargetFrameworks)' == '$(TargetFrameworksModern);$(TargetFrameworksLegacy)'">
+    <TargetFrameworks></TargetFrameworks>
+  </PropertyGroup>
+</Project>

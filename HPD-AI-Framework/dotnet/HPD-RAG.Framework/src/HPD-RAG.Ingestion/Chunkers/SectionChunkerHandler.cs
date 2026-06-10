@@ -2,7 +2,7 @@ using HPD.RAG.Core.Context;
 using HPD.RAG.Core.DTOs;
 using HPD.RAG.Core.Pipeline;
 using HPD.RAG.Ingestion.Internal;
-using HPDAgent.Graph.Abstractions.Attributes;
+using HPD.Graph.Abstractions.Attributes;
 
 namespace HPD.RAG.Ingestion.Chunkers;
 

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Audio.Codecs</RootNamespace>
+    <AssemblyName>HPD.Audio.Codecs</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Audio.Codecs</PackageId>
+    <Description>Realtime audio codec contracts for HPD media infrastructure.</Description>
+    <PackageTags>hpd;audio;codecs;realtime-media</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Audio.Primitives\HPD-Audio.Primitives.csproj" />
+    <ProjectReference Include="..\HPD-Buffers\HPD-Buffers.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,5 +1,5 @@
 using HPD.RAG.Core.Context;
-using HPDAgent.Graph.Abstractions.Attributes;
+using HPD.Graph.Abstractions.Attributes;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
 using Microsoft.Extensions.AI.Evaluation.Quality;
@@ -13,7 +13,7 @@ namespace HPD.RAG.Evaluation.Handlers;
 /// <see cref="RelevanceEvaluator"/>.
 /// </summary>
 [GraphNodeHandler(NodeName = "EvalRelevance")]
-public sealed partial class RelevanceEvalHandler : HPDAgent.Graph.Abstractions.Handlers.IGraphNodeHandler<HPD.RAG.Core.Context.MragPipelineContext>
+public sealed partial class RelevanceEvalHandler : HPD.Graph.Abstractions.Handlers.IGraphNodeHandler<HPD.RAG.Core.Context.MragPipelineContext>
 {
     private static readonly RelevanceEvaluator _evaluator = new();
 

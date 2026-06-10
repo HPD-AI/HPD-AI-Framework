@@ -127,7 +127,35 @@ public static partial class AgentStructEventSerializer
         if (discriminator == null || !DiscriminatorToType.TryGetValue(discriminator, out var concreteType))
             return null;
 
-        return doc.RootElement.Deserialize(GetTypeInfo(concreteType));
+        var typeInfo = GetTypeInfo(concreteType);
+        using var payload = StripEnvelopeFields(doc.RootElement, typeInfo);
+        return payload.RootElement.Deserialize(typeInfo);
+    }
+
+    private static JsonDocument StripEnvelopeFields(JsonElement root, JsonTypeInfo typeInfo)
+    {
+        var knownProperties = typeInfo.Properties
+            .Select(property => property.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            foreach (var property in root.EnumerateObject())
+            {
+                if (property.NameEquals("version") || property.NameEquals("type"))
+                    continue;
+
+                if (!knownProperties.Contains(property.Name))
+                    continue;
+
+                property.WriteTo(writer);
+            }
+            writer.WriteEndObject();
+        }
+
+        return JsonDocument.Parse(stream.ToArray());
     }
 
     private static JsonTypeInfo GetTypeInfo(Type concreteType)

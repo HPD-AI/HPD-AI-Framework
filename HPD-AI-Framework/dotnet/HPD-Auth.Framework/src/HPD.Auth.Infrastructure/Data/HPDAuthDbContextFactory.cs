@@ -16,7 +16,7 @@ namespace HPD.Auth.Infrastructure.Data;
 ///    DbContext without a running host.
 ///
 /// 2. <b>Test helper</b>: Tests call <see cref="CreateInMemory"/> to get an isolated
-///    in-memory database instance. Each call with a unique <paramref name="databaseName"/>
+///    in-memory database instance. Each call with a unique <c>databaseName</c>
 ///    produces a completely isolated database, ensuring tests do not share state.
 ///
 /// Uses SQLite in-memory mode (<c>DataSource=file:…?mode=memory&amp;cache=shared</c>)

@@ -3,10 +3,8 @@ using HPD.RAG.Core.Providers.VectorStore;
 using HPD.RAG.Handlers.Tests.Shared;
 using HPD.RAG.Retrieval.Handlers;
 using HPD.RAG.Retrieval.Internal;
-using HPD.RAG.VectorStores.InMemory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.VectorData;
-using Microsoft.SemanticKernel.Connectors.InMemory;
 using Xunit;
 
 namespace HPD.RAG.Handlers.Tests.Retrieval;
@@ -23,10 +21,9 @@ public sealed class VectorSearchHandlerTests
 
     private static IServiceProvider BuildServices()
     {
-        InMemoryVectorStoreModule.Initialize();
         var services = new ServiceCollection();
         services.AddKeyedSingleton<VectorStore>(
-            "mrag:vectorstore", new InMemoryVectorStore());
+            "mrag:vectorstore", new EmptyVectorStore());
         services.AddKeyedSingleton<IVectorStoreFeatures>(
             "mrag:vectorstore-features", new FakeVectorStoreFeatures());
         return services.BuildServiceProvider();
@@ -68,8 +65,8 @@ public sealed class VectorSearchHandlerTests
 
     /// <summary>
     /// T-100 — VectorSearchHandler with a filter node does not throw.
-    /// FakeVectorStoreFeatures.Translate() returns an opaque object (not VectorSearchFilter),
-    /// so vsf is null and the search runs unfiltered.
+    /// FakeVectorStoreFeatures.Translate() returns an opaque object, so the expression
+    /// filter is null and the search runs unfiltered.
     /// </summary>
     [Fact]
     public async Task VectorSearchHandler_WithFilter_CallsTranslatorAndPassesResult()
@@ -87,5 +84,85 @@ public sealed class VectorSearchHandlerTests
 
         Assert.NotNull(output);
         Assert.NotNull(output.Results);
+    }
+
+    private sealed class EmptyVectorStore : VectorStore
+    {
+        public override VectorStoreCollection<TKey, TRecord> GetCollection<TKey, TRecord>(
+            string name,
+            VectorStoreCollectionDefinition? definition = null)
+            => new EmptyVectorStoreCollection<TKey, TRecord>(name);
+
+        public override VectorStoreCollection<object, Dictionary<string, object?>> GetDynamicCollection(
+            string name,
+            VectorStoreCollectionDefinition definition)
+            => new EmptyVectorStoreCollection<object, Dictionary<string, object?>>(name);
+
+        public override IAsyncEnumerable<string> ListCollectionNamesAsync(CancellationToken cancellationToken = default)
+            => EmptyAsync<string>();
+
+        public override Task<bool> CollectionExistsAsync(string name, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public override Task EnsureCollectionDeletedAsync(string name, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public override object? GetService(Type serviceType, object? serviceKey = null)
+            => serviceType.IsInstanceOfType(this) ? this : null;
+    }
+
+    private sealed class EmptyVectorStoreCollection<TKey, TRecord>(string name)
+        : VectorStoreCollection<TKey, TRecord>
+        where TKey : notnull
+        where TRecord : class
+    {
+        public override string Name { get; } = name;
+
+        public override Task<bool> CollectionExistsAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public override Task EnsureCollectionExistsAsync(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public override Task EnsureCollectionDeletedAsync(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public override Task<TRecord?> GetAsync(
+            TKey key,
+            RecordRetrievalOptions? options = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<TRecord?>(default);
+
+        public override IAsyncEnumerable<TRecord> GetAsync(
+            System.Linq.Expressions.Expression<Func<TRecord, bool>> filter,
+            int top,
+            FilteredRecordRetrievalOptions<TRecord>? options = null,
+            CancellationToken cancellationToken = default)
+            => EmptyAsync<TRecord>();
+
+        public override Task DeleteAsync(TKey key, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public override Task UpsertAsync(TRecord record, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public override Task UpsertAsync(IEnumerable<TRecord> records, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public override IAsyncEnumerable<VectorSearchResult<TRecord>> SearchAsync<TInput>(
+            TInput searchValue,
+            int top,
+            VectorSearchOptions<TRecord>? options = null,
+            CancellationToken cancellationToken = default)
+            => EmptyAsync<VectorSearchResult<TRecord>>();
+
+        public override object? GetService(Type serviceType, object? serviceKey = null)
+            => serviceType.IsInstanceOfType(this) ? this : null;
+    }
+
+    private static async IAsyncEnumerable<T> EmptyAsync<T>()
+    {
+        await Task.CompletedTask;
+        yield break;
     }
 }

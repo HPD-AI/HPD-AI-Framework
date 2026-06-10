@@ -1,7 +1,7 @@
 using HPD.Events;
 using HPD.RAG.Core.Events;
-using HPDAgent.Graph.Abstractions.Events;
-using HPDAgent.Graph.Abstractions.Execution;
+using HPD.Graph.Abstractions.Events;
+using HPD.Graph.Abstractions.Execution;
 
 namespace HPD.RAG.Pipeline.Internal;
 

@@ -1,6 +1,7 @@
 using HPD.RAG.Core.Context;
-using HPDAgent.Graph.Abstractions.Graph;
+using HPD.Graph.Abstractions.Graph;
 using Microsoft.Extensions.DependencyInjection;
+using GraphDefinition = HPD.Graph.Abstractions.Graph.Graph;
 
 namespace HPD.RAG.Handlers.Tests.Shared;
 
@@ -12,7 +13,7 @@ internal static class HandlerTestContext
     /// <summary>
     /// Minimal empty graph used as a placeholder in tests that do not need real graph execution.
     /// </summary>
-    private static readonly Graph MinimalGraph = new()
+    private static readonly GraphDefinition MinimalGraph = new()
     {
         Id = "test-graph",
         Name = "Test Graph",

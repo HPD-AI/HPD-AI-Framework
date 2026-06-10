@@ -1,6 +1,6 @@
 using HPD.RAG.Core.Events;
 using HPD.RAG.Pipeline.Tests.Shared;
-using HPDAgent.Graph.Abstractions.Handlers;
+using HPD.Graph.Abstractions.Handlers;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 

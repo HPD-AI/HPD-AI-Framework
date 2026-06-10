@@ -1,7 +1,7 @@
 using HPD.Agent;
 using HPD.MultiAgent.Routing;
-using HPDAgent.Graph.Core.Context;
-using HPDAgent.Graph.Core.Orchestration;
+using HPD.Graph.Core.Context;
+using HPD.Graph.Core.Orchestration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.MultiAgent.Tests;

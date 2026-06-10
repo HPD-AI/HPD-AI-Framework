@@ -6,7 +6,7 @@ using HPD.RAG.Ingestion.Processors;
 using HPD.RAG.Ingestion.Readers;
 using HPD.RAG.Ingestion.Writers;
 using HPD.RAG.Retrieval.Handlers;
-using HPDAgent.Graph.Abstractions.Handlers;
+using HPD.Graph.Abstractions.Handlers;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.RAG.Extensions.Internal;
@@ -24,7 +24,7 @@ namespace HPD.RAG.Extensions.Internal;
 /// the <c>SocketBridgeGenerator</c> to generate the interface implementation, which
 /// is not visible to <c>DIRegistrationGenerator</c> during the same compilation pass.</item>
 /// <item>Even when the generator does run for Retrieval/Evaluation, its output is in a class
-/// <c>HPDAgent.Graph.Extensions.GeneratedHandlerRegistration</c> that conflicts across
+/// <c>HPD.Graph.Extensions.GeneratedHandlerRegistration</c> that conflicts across
 /// assemblies, requiring <c>extern alias</c> which is fragile in this multi-project setup.</item>
 /// </list>
 /// </para>
