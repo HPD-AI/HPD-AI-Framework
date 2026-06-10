@@ -12,7 +12,7 @@
 	import * as FileAttachment from '../exports.js';
 	import { FileAttachmentState } from '../file-attachment.svelte.js';
 	import { boxWith } from 'svelte-toolbelt';
-	import type { ContentReference } from '@hpd/hpd-agent-client';
+	import type { ContentReference } from '@hpd-research/hpd-agent-client';
 	import type { AgentClientLike } from '$lib/workspace/types.js';
 
 	interface Props {

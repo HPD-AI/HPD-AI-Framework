@@ -1,4 +1,4 @@
-import type { PermissionChoice, PermissionRequestEvent } from '@hpd/hpd-agent-client';
+import type { PermissionChoice, PermissionRequestEvent } from '@hpd-research/hpd-agent-client';
 import type { AcpSessionState } from './session.js';
 import type { AcpWriter } from '../acp/writer.js';
 import { toolNameToKind } from './tools.js';

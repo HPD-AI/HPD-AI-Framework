@@ -27,12 +27,12 @@
 ## Quick Start
 
 ```bash
-npm install @hpd/hpd-agent-headless-ui
+npm install @hpd-research/hpd-agent-headless-ui
 ```
 
 ```svelte
 <script>
-import { createMockAgent } from '@hpd/hpd-agent-headless-ui';
+import { createMockAgent } from '@hpd-research/hpd-agent-headless-ui';
 
 const agent = createMockAgent();
 let input = '';

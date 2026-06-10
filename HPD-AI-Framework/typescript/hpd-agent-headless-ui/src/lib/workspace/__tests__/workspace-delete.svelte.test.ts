@@ -21,7 +21,7 @@ import type {
 	CreateBranchRequest,
 	ForkBranchRequest,
 	SiblingBranch,
-} from '@hpd/hpd-agent-client';
+} from '@hpd-research/hpd-agent-client';
 
 // ============================================
 // Helpers (same pattern as workspace-transport tests)

@@ -8,7 +8,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
-import type { Branch } from '@hpd/hpd-agent-client';
+import type { Branch } from '@hpd-research/hpd-agent-client';
 import BranchSwitcherTest from './branch-switcher-test.svelte';
 
 // ============================================

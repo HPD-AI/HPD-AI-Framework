@@ -4,7 +4,7 @@
  * Core type definitions for the Agent state manager.
  */
 
-import type { AgentExecutionContext, ClientToolHandler, ToolResultPayload } from '@hpd/hpd-agent-client';
+import type { AgentExecutionContext, ClientToolHandler, ToolResultPayload } from '@hpd-research/hpd-agent-client';
 
 // ============================================
 // Message Types

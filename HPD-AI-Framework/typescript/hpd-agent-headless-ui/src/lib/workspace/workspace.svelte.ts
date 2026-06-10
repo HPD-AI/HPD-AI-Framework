@@ -41,7 +41,7 @@ import {
 	type CreateSessionRequest,
 	type Session,
 	type AgentSummaryDto,
-} from '@hpd/hpd-agent-client';
+} from '@hpd-research/hpd-agent-client';
 import { AgentState } from '../agent/agent.svelte.ts';
 import type { Message, MessageRole, ToolCall } from '../agent/types.ts';
 import type { AgentClientLike, CreateWorkspaceOptions, SendOptions, Workspace } from './types.ts';
@@ -66,13 +66,13 @@ function mapToUIMessages(raw: BranchMessage[]): Message[] {
 
 		for (const item of msg.contents) {
 			if (item.$type === 'text') {
-				const tc = item as import('@hpd/hpd-agent-client').AiTextContent;
+				const tc = item as import('@hpd-research/hpd-agent-client').AiTextContent;
 				content += tc.text;
 			} else if (item.$type === 'reasoning') {
-				const rc = item as import('@hpd/hpd-agent-client').AiTextReasoningContent;
+				const rc = item as import('@hpd-research/hpd-agent-client').AiTextReasoningContent;
 				reasoning = (reasoning ?? '') + rc.text;
 			} else if (item.$type === 'functionCall') {
-				const fc = item as import('@hpd/hpd-agent-client').AiFunctionCallContent;
+				const fc = item as import('@hpd-research/hpd-agent-client').AiFunctionCallContent;
 				toolCalls.push({
 					callId: fc.callId,
 					name: fc.name,
@@ -82,7 +82,7 @@ function mapToUIMessages(raw: BranchMessage[]): Message[] {
 					startTime: new Date(msg.timestamp)
 				});
 			} else if (item.$type === 'functionResult') {
-				const fr = item as import('@hpd/hpd-agent-client').AiFunctionResultContent;
+				const fr = item as import('@hpd-research/hpd-agent-client').AiFunctionResultContent;
 				const match = toolCalls.find((tc) => tc.callId === fr.callId);
 				if (match) {
 					match.resultText =

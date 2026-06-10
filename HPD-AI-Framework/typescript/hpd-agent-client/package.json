@@ -1,5 +1,5 @@
 {
-  "name": "@hpd/hpd-agent-client",
+  "name": "@hpd-research/hpd-agent-client",
   "version": "0.1.0",
   "description": "TypeScript chat/runtime SDK for HPD-Agent",
   "type": "module",

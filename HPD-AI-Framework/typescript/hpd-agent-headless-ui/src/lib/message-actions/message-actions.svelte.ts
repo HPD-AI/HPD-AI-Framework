@@ -40,7 +40,7 @@ import { type ReadableBox } from 'svelte-toolbelt';
 import { createHPDAttrs, boolToEmptyStrOrUndef } from '$lib/internal/attrs.js';
 import type { Workspace } from '../workspace/types.ts';
 import type { MessageRole } from '../agent/types.ts';
-import type { Branch } from '@hpd/hpd-agent-client';
+import type { Branch } from '@hpd-research/hpd-agent-client';
 import type {
 	MessageActionStatus,
 	MessageActionsRootHTMLProps,

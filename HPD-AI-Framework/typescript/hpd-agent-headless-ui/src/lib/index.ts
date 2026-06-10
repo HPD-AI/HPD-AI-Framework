@@ -57,12 +57,12 @@ export type {
 	BranchComparisonResult,
 	ToolUsageSummary,
 	CostBreakdown,
-} from '@hpd/hpd-agent-client';
+} from '@hpd-research/hpd-agent-client';
 export {
 	createSuccessResponse,
 	createErrorResponse,
 	createExpandedToolHarness,
-} from '@hpd/hpd-agent-client';
+} from '@hpd-research/hpd-agent-client';
 
 // BranchSwitcher component (V3 - Sibling navigation UI)
 export * as BranchSwitcher from './branch-switcher/index.js';

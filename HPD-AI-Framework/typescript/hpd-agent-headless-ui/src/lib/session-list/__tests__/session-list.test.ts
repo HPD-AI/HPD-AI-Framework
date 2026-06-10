@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { boxWith } from 'svelte-toolbelt';
 import { box } from 'svelte-toolbelt';
 import { SessionListRootState } from '../session-list.svelte.js';
-import type { Session } from '@hpd/hpd-agent-client';
+import type { Session } from '@hpd-research/hpd-agent-client';
 
 // Helper to create a mock session
 const createMockSession = (overrides: Partial<Session> = {}): Session => ({

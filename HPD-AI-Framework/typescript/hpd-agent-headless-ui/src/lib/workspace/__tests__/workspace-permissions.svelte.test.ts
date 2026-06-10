@@ -34,8 +34,8 @@ import type {
 	EventSubscription,
 	PermissionRequestEvent,
 	ClarificationRequestEvent,
-} from '@hpd/hpd-agent-client';
-import { EventTypes } from '@hpd/hpd-agent-client';
+} from '@hpd-research/hpd-agent-client';
+import { EventTypes } from '@hpd-research/hpd-agent-client';
 
 // ============================================
 // Helpers

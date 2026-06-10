@@ -8,7 +8,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
-import type { Session } from '@hpd/hpd-agent-client';
+import type { Session } from '@hpd-research/hpd-agent-client';
 import SessionListTest from './session-list-test.svelte';
 
 // ============================================

@@ -33,7 +33,7 @@ import { RovingFocusGroup } from '$lib/internal/roving-focus-group.js';
 import { kbd } from '$lib/internal/kbd.js';
 import { createHPDAttrs } from '$lib/internal/attrs.js';
 import type { Orientation } from '$lib/internal/get-directional-keys.js';
-import type { Session } from '@hpd/hpd-agent-client';
+import type { Session } from '@hpd-research/hpd-agent-client';
 import type {
 	SessionListRootHTMLProps,
 	SessionListRootSnippetProps,

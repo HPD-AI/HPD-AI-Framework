@@ -13,7 +13,7 @@ TypeScript SDK for building HPD-Agent chat/runtime applications.
 ## Quick Start
 
 ```typescript
-import { AgentClient } from '@hpd/hpd-agent-client';
+import { AgentClient } from '@hpd-research/hpd-agent-client';
 
 const client = new AgentClient({ baseUrl: 'http://localhost:5135' });
 
@@ -69,7 +69,7 @@ Handlers may return:
 Raw event APIs remain available for protocol-level behavior that does not belong in transcript state: permission dialogs, clarification UI, continuation controls, middleware/status UI, audio, debugging, custom telemetry, and other app-specific event handling.
 
 ```typescript
-import { AgentClient, EventTypes } from '@hpd/hpd-agent-client';
+import { AgentClient, EventTypes } from '@hpd-research/hpd-agent-client';
 
 const client = new AgentClient('http://localhost:5135');
 

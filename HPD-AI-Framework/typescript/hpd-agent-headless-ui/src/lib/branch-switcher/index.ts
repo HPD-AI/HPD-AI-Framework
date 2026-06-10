@@ -4,7 +4,7 @@
  * @example
  * ```svelte
  * <script>
- *   import * as BranchSwitcher from '@hpd/hpd-agent-headless-ui/branch-switcher';
+ *   import * as BranchSwitcher from '@hpd-research/hpd-agent-headless-ui/branch-switcher';
  * </script>
  *
  * <BranchSwitcher.Root branch={branchManager.activeBranch}>

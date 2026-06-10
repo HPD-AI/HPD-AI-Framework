@@ -24,7 +24,7 @@ import type {
 	UpdateAgentRequest,
 	UpdateSessionRequest,
 	AgentRunInputEvent
-} from '@hpd/hpd-agent-client';
+} from '@hpd-research/hpd-agent-client';
 import type { Workspace, AgentClientLike } from '../workspace/types.ts';
 
 // ============================================

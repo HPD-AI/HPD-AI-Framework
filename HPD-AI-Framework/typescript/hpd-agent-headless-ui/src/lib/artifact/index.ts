@@ -7,7 +7,7 @@
  * @example
  * ```svelte
  * <script>
- *   import { Artifact } from '@hpd/hpd-agent-headless-ui';
+ *   import { Artifact } from '@hpd-research/hpd-agent-headless-ui';
  * </script>
  *
  * <Artifact.Provider>

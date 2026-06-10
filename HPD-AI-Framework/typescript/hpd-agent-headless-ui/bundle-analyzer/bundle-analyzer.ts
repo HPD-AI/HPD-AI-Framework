@@ -93,7 +93,7 @@ async function analyzeComponent(component: ComponentSizeLimit): Promise<{
 				write: false,
 				minify: 'terser', // Production-level minification
 				rollupOptions: {
-					external: ['svelte', '@hpd/hpd-agent-client']
+					external: ['svelte', '@hpd-research/hpd-agent-client']
 				}
 			}
 		});

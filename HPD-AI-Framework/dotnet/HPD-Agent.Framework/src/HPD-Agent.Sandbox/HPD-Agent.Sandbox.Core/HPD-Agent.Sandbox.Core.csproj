@@ -13,6 +13,7 @@
     <Description>Shared sandbox policy, contracts, state, network mediation, and OS-family enforcement for HPD Agent.</Description>
     <PackageTags>sandbox;policy;process-isolation;security;network;bwrap;bubblewrap;sandbox-exec;seatbelt;seccomp;bpf</PackageTags>
     <BuildSeccompHelpers Condition="'$(BuildSeccompHelpers)' == ''">true</BuildSeccompHelpers>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);AddSeccompHelpersToPackage</TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,25 +29,22 @@
   </ItemGroup>
 
   <Target Name="BuildSeccompHelpersForLinux"
-          BeforeTargets="AssignTargetPaths;GenerateNuspec"
           Condition="$([MSBuild]::IsOSPlatform('Linux')) and '$(BuildSeccompHelpers)' == 'true'">
     <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/build.sh&quot;" />
+  </Target>
 
+  <Target Name="AddSeccompHelpersToPackage"
+          DependsOnTargets="BuildSeccompHelpersForLinux"
+          Condition="$([MSBuild]::IsOSPlatform('Linux')) and '$(BuildSeccompHelpers)' == 'true'">
     <ItemGroup>
-      <Content Include="$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-x64"
-               Condition="Exists('$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-x64')">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        <Pack>true</Pack>
-        <PackagePath>runtimes/linux-x64/native/</PackagePath>
-        <TargetPath>runtimes/linux-x64/native/apply-seccomp-x64</TargetPath>
-      </Content>
-      <Content Include="$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-arm64"
-               Condition="Exists('$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-arm64')">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        <Pack>true</Pack>
-        <PackagePath>runtimes/linux-arm64/native/</PackagePath>
-        <TargetPath>runtimes/linux-arm64/native/apply-seccomp-arm64</TargetPath>
-      </Content>
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-x64"
+                              Condition="Exists('$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-x64')">
+        <PackagePath>runtimes/linux-x64/native/apply-seccomp-x64</PackagePath>
+      </TfmSpecificPackageFile>
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-arm64"
+                              Condition="Exists('$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-arm64')">
+        <PackagePath>runtimes/linux-arm64/native/apply-seccomp-arm64</PackagePath>
+      </TfmSpecificPackageFile>
     </ItemGroup>
   </Target>
 

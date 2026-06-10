@@ -1,4 +1,4 @@
-import type { ClarificationRequestEvent } from '@hpd/hpd-agent-client';
+import type { ClarificationRequestEvent } from '@hpd-research/hpd-agent-client';
 import type { AcpSessionState } from './session.js';
 import type { AcpWriter } from '../acp/writer.js';
 

@@ -1,7 +1,7 @@
 import { type ReadableBox } from 'svelte-toolbelt';
 import { boolToEmptyStrOrUndef } from '$lib/internal/attrs.js';
 import { createId } from '$lib/internal/create-id.js';
-import type { ContentReference } from '@hpd/hpd-agent-client';
+import type { ContentReference } from '@hpd-research/hpd-agent-client';
 export type { ContentReference };
 import type {
 	FileAttachmentHTMLProps,

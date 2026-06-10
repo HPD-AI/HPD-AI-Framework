@@ -6,7 +6,7 @@
 	 * on everything so browser tests can assert against real DOM output.
 	 */
 	import * as MessageActions from '../exports.js';
-	import type { Branch } from '@hpd/hpd-agent-client';
+	import type { Branch } from '@hpd-research/hpd-agent-client';
 	import type { Workspace } from '../../workspace/types.ts';
 	import type { MessageRole } from '../../agent/types.ts';
 

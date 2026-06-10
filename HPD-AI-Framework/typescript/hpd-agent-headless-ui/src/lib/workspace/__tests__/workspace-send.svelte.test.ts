@@ -16,7 +16,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createWorkspace } from '../workspace.svelte.ts';
 import type { AgentClientLike, CreateWorkspaceOptions } from '../types.ts';
-import { EventTypes } from '@hpd/hpd-agent-client';
+import { EventTypes } from '@hpd-research/hpd-agent-client';
 import type {
 	Branch,
 	BranchMessage,
@@ -34,7 +34,7 @@ import type {
 	ContentReference,
 	AgentRunInputEvent,
 	EventSubscription,
-} from '@hpd/hpd-agent-client';
+} from '@hpd-research/hpd-agent-client';
 
 // ---------------------------------------------------------------------------
 // Helpers

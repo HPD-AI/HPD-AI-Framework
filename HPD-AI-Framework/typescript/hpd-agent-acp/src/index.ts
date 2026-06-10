@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { AgentClient } from '@hpd/hpd-agent-client';
+import { AgentClient } from '@hpd-research/hpd-agent-client';
 import { AcpReader } from './acp/reader.js';
 import { AcpWriter } from './acp/writer.js';
 import { SessionRegistry } from './bridge/session.js';

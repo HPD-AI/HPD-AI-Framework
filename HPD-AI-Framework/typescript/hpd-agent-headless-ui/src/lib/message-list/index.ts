@@ -6,7 +6,7 @@
  * @example
  * ```svelte
  * <script>
- *   import { MessageList } from '@hpd/hpd-agent-headless-ui';
+ *   import { MessageList } from '@hpd-research/hpd-agent-headless-ui';
  *   let messages = [...];
  * </script>
  *

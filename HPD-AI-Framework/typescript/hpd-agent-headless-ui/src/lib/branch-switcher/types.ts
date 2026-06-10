@@ -5,7 +5,7 @@
  */
 
 import type { Snippet } from 'svelte';
-import type { Branch } from '@hpd/hpd-agent-client';
+import type { Branch } from '@hpd-research/hpd-agent-client';
 
 // ============================================
 // Root Component Types

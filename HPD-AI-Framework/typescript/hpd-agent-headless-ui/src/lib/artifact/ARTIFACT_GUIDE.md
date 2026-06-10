@@ -246,7 +246,7 @@ Display artifacts inline with chat messages:
 
 ```svelte
 <script>
-  import { Artifact } from '@hpd/hpd-agent-headless-ui';
+  import { Artifact } from '@hpd-research/hpd-agent-headless-ui';
 
   let messages = [
     { id: '1', text: 'Here is the code:', code: 'console.log("Hello")' },
@@ -715,7 +715,7 @@ Components expose these data attributes for styling:
 
 ```svelte
 <script lang="ts">
-  import { Artifact } from '@hpd/hpd-agent-headless-ui';
+  import { Artifact } from '@hpd-research/hpd-agent-headless-ui';
 
   interface Message {
     id: string;

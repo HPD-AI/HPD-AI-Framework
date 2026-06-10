@@ -7,8 +7,8 @@ import type {
   ToolResultPayload,
   TextDeltaEvent,
   ReasoningDeltaEvent,
-} from '@hpd/hpd-agent-client';
-import { EventTypes } from '@hpd/hpd-agent-client';
+} from '@hpd-research/hpd-agent-client';
+import { EventTypes } from '@hpd-research/hpd-agent-client';
 import type { SessionUpdate, AcpToolCallContentEntry } from '../types/acp.js';
 import { toolNameToKind } from './tools.js';
 

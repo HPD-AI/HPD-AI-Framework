@@ -6,7 +6,7 @@
 	 * Renders Root + Item + Empty + CreateButton with data-testid attributes.
 	 */
 	import * as SessionList from '../exports.js';
-	import type { Session } from '@hpd/hpd-agent-client';
+	import type { Session } from '@hpd-research/hpd-agent-client';
 
 	interface Props {
 		sessions?: Session[];

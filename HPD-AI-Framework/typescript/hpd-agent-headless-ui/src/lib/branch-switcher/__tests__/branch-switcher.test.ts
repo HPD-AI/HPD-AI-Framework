@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { box } from 'svelte-toolbelt';
 import { BranchSwitcherRootState } from '../branch-switcher.svelte.js';
-import type { Branch } from '@hpd/hpd-agent-client';
+import type { Branch } from '@hpd-research/hpd-agent-client';
 
 // ============================================
 // Helpers

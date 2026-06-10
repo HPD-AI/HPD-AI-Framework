@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { box } from 'svelte-toolbelt';
-import type { Branch } from '@hpd/hpd-agent-client';
+import type { Branch } from '@hpd-research/hpd-agent-client';
 import type { Workspace } from '../../workspace/types.ts';
 import type { Message } from '../../agent/types.ts';
 import {

@@ -1,4 +1,4 @@
-import { EventTypes, type AgentClient, type AgentRunInputEvent, type EventSubscription } from '@hpd/hpd-agent-client';
+import { EventTypes, type AgentClient, type AgentRunInputEvent, type EventSubscription } from '@hpd-research/hpd-agent-client';
 import type { AcpReader } from './acp/reader.js';
 import type { AcpWriter } from './acp/writer.js';
 import type { SessionRegistry } from './bridge/session.js';

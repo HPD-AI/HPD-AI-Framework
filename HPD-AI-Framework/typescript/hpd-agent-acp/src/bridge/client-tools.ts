@@ -1,5 +1,5 @@
-import type { ClientToolInvokeRequestEvent, ClientToolInvokeResponse, ClientToolHarnessDefinition } from '@hpd/hpd-agent-client';
-import { createTextResult } from '@hpd/hpd-agent-client';
+import type { ClientToolInvokeRequestEvent, ClientToolInvokeResponse, ClientToolHarnessDefinition } from '@hpd-research/hpd-agent-client';
+import { createTextResult } from '@hpd-research/hpd-agent-client';
 import type { AcpSessionState, ClientToolResult } from './session.js';
 import type { AcpWriter } from '../acp/writer.js';
 import type { AcpClientCapabilities } from '../types/acp.js';

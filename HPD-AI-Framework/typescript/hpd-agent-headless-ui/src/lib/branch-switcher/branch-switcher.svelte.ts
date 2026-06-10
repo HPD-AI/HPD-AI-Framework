@@ -23,7 +23,7 @@
 import { Context } from 'runed';
 import { type ReadableBox } from 'svelte-toolbelt';
 import { createHPDAttrs, boolToEmptyStrOrUndef } from '$lib/internal/attrs.js';
-import type { Branch } from '@hpd/hpd-agent-client';
+import type { Branch } from '@hpd-research/hpd-agent-client';
 import type {
 	BranchSwitcherRootHTMLProps,
 	BranchSwitcherRootSnippetProps,

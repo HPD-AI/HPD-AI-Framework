@@ -1,5 +1,5 @@
 {
-  "name": "@hpd/hpd-agent-acp",
+  "name": "@hpd-research/hpd-agent-acp",
   "version": "0.1.0",
   "description": "ACP (Agent Client Protocol) bridge for HPD agents",
   "type": "module",
@@ -18,7 +18,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@hpd/hpd-agent-client": "file:../hpd-agent-client"
+    "@hpd-research/hpd-agent-client": "file:../hpd-agent-client"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

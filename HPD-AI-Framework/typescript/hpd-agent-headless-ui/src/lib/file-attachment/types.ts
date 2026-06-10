@@ -1,5 +1,5 @@
 import type { Snippet } from 'svelte';
-import type { ContentReference } from '@hpd/hpd-agent-client';
+import type { ContentReference } from '@hpd-research/hpd-agent-client';
 export type { ContentReference };
 import type { FileAttachmentState } from './file-attachment.svelte.js';
 

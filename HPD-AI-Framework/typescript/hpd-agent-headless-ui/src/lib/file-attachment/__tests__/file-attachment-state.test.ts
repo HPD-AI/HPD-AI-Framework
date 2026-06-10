@@ -11,7 +11,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { boxWith } from 'svelte-toolbelt';
 import { FileAttachmentState } from '../file-attachment.svelte.ts';
-import type { ContentReference } from '@hpd/hpd-agent-client';
+import type { ContentReference } from '@hpd-research/hpd-agent-client';
 
 // ---------------------------------------------------------------------------
 // Helpers

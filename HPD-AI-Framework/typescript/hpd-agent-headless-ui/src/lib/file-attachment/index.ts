@@ -7,7 +7,7 @@
  * @example
  * ```svelte
  * <script>
- *   import { FileAttachment } from '@hpd/hpd-agent-headless-ui';
+ *   import { FileAttachment } from '@hpd-research/hpd-agent-headless-ui';
  *
  *   const attachments = new FileAttachment.State({...});
  * </script>

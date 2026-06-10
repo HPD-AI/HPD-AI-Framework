@@ -77,11 +77,11 @@ jobs:
         run: |
           echo "## Published NPM Package" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Package:** @hpd/hpd-agent-client" >> $GITHUB_STEP_SUMMARY
+          echo "**Package:** @hpd-research/hpd-agent-client" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "**Tag:** ${{ steps.version.outputs.npm_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "[View on npm](https://www.npmjs.com/package/@hpd/hpd-agent-client)" >> $GITHUB_STEP_SUMMARY
+          echo "[View on npm](https://www.npmjs.com/package/@hpd-research/hpd-agent-client)" >> $GITHUB_STEP_SUMMARY
 
   publish-headless-ui:
     runs-on: ubuntu-latest
@@ -155,8 +155,8 @@ jobs:
         run: |
           echo "## Published NPM Package" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Package:** @hpd/hpd-agent-headless-ui" >> $GITHUB_STEP_SUMMARY
+          echo "**Package:** @hpd-research/hpd-agent-headless-ui" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "**Tag:** ${{ steps.version.outputs.npm_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "[View on npm](https://www.npmjs.com/package/@hpd/hpd-agent-headless-ui)" >> $GITHUB_STEP_SUMMARY
+          echo "[View on npm](https://www.npmjs.com/package/@hpd-research/hpd-agent-headless-ui)" >> $GITHUB_STEP_SUMMARY

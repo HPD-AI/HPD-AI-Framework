@@ -22,7 +22,7 @@ import type {
 	ChatRunConfig,
 	ClientToolHandler,
 	ClientToolRegistry,
-} from '@hpd/hpd-agent-client';
+} from '@hpd-research/hpd-agent-client';
 export type { RunConfig, ChatRunConfig };
 import type { AgentState } from '../agent/agent.svelte.ts';
 

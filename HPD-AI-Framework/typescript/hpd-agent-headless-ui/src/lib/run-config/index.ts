@@ -8,7 +8,7 @@
  * @example
  * ```svelte
  * <script>
- *   import { RunConfig } from '@hpd/hpd-agent-headless-ui';
+ *   import { RunConfig } from '@hpd-research/hpd-agent-headless-ui';
  *
  *   const runConfig = new RunConfig.State();
  * </script>

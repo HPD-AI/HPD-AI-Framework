@@ -8,7 +8,7 @@
  * @example
  * ```svelte
  * <script>
- *   import * as MessageEdit from '@hpd/hpd-agent-headless-ui/message-edit';
+ *   import * as MessageEdit from '@hpd-research/hpd-agent-headless-ui/message-edit';
  *   let editingIndex = $state<number | null>(null);
  * </script>
  *

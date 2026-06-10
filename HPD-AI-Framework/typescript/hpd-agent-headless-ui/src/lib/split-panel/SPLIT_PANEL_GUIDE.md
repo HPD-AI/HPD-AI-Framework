@@ -568,7 +568,7 @@ The library sets these CSS custom properties on panes:
 
 ```svelte
 <script lang="ts">
-  import { SplitPanel } from '@hpd/hpd-agent-headless-ui';
+  import { SplitPanel } from '@hpd-research/hpd-agent-headless-ui';
 
   let layoutState = $state(null);
 </script>

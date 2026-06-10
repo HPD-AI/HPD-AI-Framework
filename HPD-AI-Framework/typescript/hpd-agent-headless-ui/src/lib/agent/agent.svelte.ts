@@ -5,7 +5,7 @@
  * the event handler methods that EventMapper calls when HPD protocol events arrive.
  */
 
-import type { AgentEvent, KnownAgentEvent, ToolResultPayload } from '@hpd/hpd-agent-client';
+import type { AgentEvent, KnownAgentEvent, ToolResultPayload } from '@hpd-research/hpd-agent-client';
 import type {
 	Message,
 	MessageRole,
