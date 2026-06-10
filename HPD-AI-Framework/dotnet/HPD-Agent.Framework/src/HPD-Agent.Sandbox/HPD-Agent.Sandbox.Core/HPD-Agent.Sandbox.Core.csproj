@@ -30,7 +30,7 @@
   <Target Name="BuildSeccompHelpersForLinux"
           BeforeTargets="AssignTargetPaths;GenerateNuspec"
           Condition="$([MSBuild]::IsOSPlatform('Linux')) and '$(BuildSeccompHelpers)' == 'true'">
-    <Exec Command="&quot;$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/build.sh&quot;" />
+    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/build.sh&quot;" />
 
     <ItemGroup>
       <Content Include="$(MSBuildProjectDirectory)/Platforms/Linux/Seccomp/native/bin/apply-seccomp-x64"

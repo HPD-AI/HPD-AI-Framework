@@ -49,6 +49,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: determine-version
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -100,15 +103,14 @@ jobs:
           name: auth-nuget-packages
           path: ./nupkg-auth/*.nupkg
 
+      - name: NuGet login
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
       - name: Push HPD-Auth packages to NuGet
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-        run: |
-          if [ -z "$NUGET_API_KEY" ]; then
-            echo "Error: NUGET_API_KEY secret is not set"
-            exit 1
-          fi
-          dotnet nuget push ./nupkg-auth/*.nupkg --source https://api.nuget.org/v3/index.json --api-key $NUGET_API_KEY --skip-duplicate
+        run: dotnet nuget push ./nupkg-auth/*.nupkg --source https://api.nuget.org/v3/index.json --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --skip-duplicate
 
       - name: Summary
         run: |
