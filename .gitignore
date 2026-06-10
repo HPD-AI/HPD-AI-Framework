@@ -23,6 +23,8 @@ HPD-AI-Framework/dotnet/shared/src/Rhodium/benchmarks/vector-smoke-report.json
 artifacts/
 !HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Abstractions/Artifacts/
 !HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Abstractions/Artifacts/**
+!HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Core/Artifacts/
+!HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Core/Artifacts/**
 
 # Apple Virtualization real-acceptance local artifacts
 **/.hpd-real-acceptance-scratch/
