@@ -2,6 +2,10 @@
 
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0</TargetFrameworks>
+    <IsPackable>true</IsPackable>
+    <PackageId>Rhodium.Analyzers</PackageId>
+    <Description>Roslyn analyzers for Rhodium strategy, runtime, finance, and low-latency trading code.</Description>
+    <PackageTags>finance;financial;trading;algorithmic-trading;quant;quantitative-finance;hft;high-frequency-trading;low-latency;roslyn;analyzers;code-analysis;source-analysis;strategy;backtesting</PackageTags>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>

@@ -2,6 +2,10 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackageId>Rhodium.Simulation</PackageId>
+    <Description>Backtesting, replay, exchange simulation, execution modeling, slippage, fees, corporate actions, and portfolio simulation for Rhodium.</Description>
+    <PackageTags>finance;financial;trading;algorithmic-trading;quant;quantitative-finance;backtesting;simulation;market-simulation;replay;hft;high-frequency-trading;execution;slippage;fees;portfolio;risk;options;derivatives;order-book;market-data</PackageTags>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>

@@ -2,6 +2,10 @@
 
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0</TargetFrameworks>
+    <IsPackable>true</IsPackable>
+    <PackageId>Rhodium.SourceGenerators</PackageId>
+    <Description>Source generators for Rhodium strategy, runtime, finance, and low-latency trading workflows.</Description>
+    <PackageTags>finance;financial;trading;algorithmic-trading;quant;quantitative-finance;hft;high-frequency-trading;low-latency;roslyn;source-generator;code-generation;strategy;backtesting</PackageTags>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>

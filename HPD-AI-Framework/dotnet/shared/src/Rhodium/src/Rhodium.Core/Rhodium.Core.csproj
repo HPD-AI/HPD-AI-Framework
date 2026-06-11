@@ -4,9 +4,10 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Rhodium</RootNamespace>
     <AssemblyName>Rhodium.Core</AssemblyName>
+    <IsPackable>true</IsPackable>
     <PackageId>Rhodium.Core</PackageId>
     <Description>Core runtime primitives, tensors, events, analytics, indicators, options, platform APIs, and execution kernel for Rhodium.</Description>
-    <PackageTags>trading;backtesting;quant;simulation;indicators;options;tensor</PackageTags>
+    <PackageTags>finance;financial;trading;algorithmic-trading;quant;quantitative-finance;backtesting;hft;high-frequency-trading;low-latency;market-data;order-book;options;derivatives;risk;portfolio;simulation;execution;indicators;technical-analysis;timeseries;tensor;analytics</PackageTags>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);CA2014;CS8601;RHD001</NoWarn>
   </PropertyGroup>
