@@ -51,13 +51,13 @@ jobs:
           echo "npm_tag=$NPM_TAG" >> $GITHUB_OUTPUT
           echo "Publishing version: $VERSION with tag: $NPM_TAG"
 
-      - name: Update package.json version
-        working-directory: HPD-AI-Framework/typescript/hpd-agent-client
-        run: npm version ${{ steps.version.outputs.version }} --no-git-tag-version
-
       - name: Install dependencies
         working-directory: HPD-AI-Framework/typescript/hpd-agent-client
         run: bun install --frozen-lockfile
+
+      - name: Update package.json version
+        working-directory: HPD-AI-Framework/typescript/hpd-agent-client
+        run: npm version ${{ steps.version.outputs.version }} --no-git-tag-version
 
       - name: Run tests
         working-directory: HPD-AI-Framework/typescript/hpd-agent-client

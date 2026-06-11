@@ -1,58 +1,13 @@
 # HPD-Agent.Providers.OpenRouter
 
-This package provides an integration with [OpenRouter](https://openrouter.ai/), a service that provides access to a wide variety of large language models.
+OpenRouter provider for HPD-Agent.
 
-## Configuration
+## Install
 
-To use the OpenRouter provider, configure it in your `AgentConfig`. You must provide an API key.
-
-### C# Configuration
-
-```csharp
-var config = new AgentConfig
-{
-    Clients = new AgentClientConfig
-    {
-        Chat = new ClientProviderConfig
-        {
-            ProviderKey = "openrouter",
-            ModelName = "google/gemini-flash-1.5", // Specify any model available on OpenRouter
-            ApiKey = "YOUR_OPENROUTER_API_KEY",
-            AdditionalProperties = new()
-            {
-                ["HttpReferer"] = "https://your-app.com", // Optional: Your app's URL for OpenRouter analytics
-                ["AppName"] = "My Awesome Agent" // Optional: Your app's name for OpenRouter analytics
-            }
-        }
-    }
-};
+```bash
+dotnet add package HPD-Agent.Providers.OpenRouter
 ```
 
-### JSON Configuration (`appsettings.json`)
+## Use When
 
-```json
-{
-  "Agent": {
-    "Clients": {
-      "Chat": {
-        "ProviderKey": "openrouter",
-        "ModelName": "google/gemini-flash-1.5",
-        "ApiKey": "YOUR_OPENROUTER_API_KEY",
-        "AdditionalProperties": {
-          "HttpReferer": "https://your-app.com",
-          "AppName": "My Awesome Agent"
-        }
-      }
-    }
-  }
-}
-```
-
-### Configuration Options
-
-The following properties can be set via the `AdditionalProperties` dictionary:
-
-| Key           | Type   | Description                                                                                                |
-|---------------|--------|------------------------------------------------------------------------------------------------------------|
-| `HttpReferer` | string | Optional. Your application's URL, which is sent to OpenRouter for analytics and to identify your app. Defaults to the HPD-Agent GitHub repo if not set. |
-| `AppName`     | string | Optional. Your application's name, also used for OpenRouter analytics. Defaults to "HPD-Agent" if not set. |
+Use this package when you need the OpenRouter model provider in HPD Agent applications.

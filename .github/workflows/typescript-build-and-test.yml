@@ -143,7 +143,7 @@ jobs:
           echo "No files under HPD-AI-Framework/typescript/ were modified."
 
       - name: Check for failures
-        if: needs.paths-filter.outputs.ts-changed == 'true' && contains(join(needs.*.result, ','), 'failure')
+        if: (needs.paths-filter.outputs.ts-changed == 'true' || github.event_name == 'workflow_dispatch') && contains(join(needs.*.result, ','), 'failure')
         run: |
           echo "::error::One or more TypeScript jobs failed"
           exit 1

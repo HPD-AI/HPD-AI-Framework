@@ -48,7 +48,7 @@ jobs:
   # ============================================
   build-and-test:
     needs: paths-filter
-    if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -195,7 +195,7 @@ jobs:
   rhodium-memory-leak:
     needs: paths-filter
     runs-on: ubuntu-latest
-    if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch'
 
     steps:
     - uses: actions/checkout@v4
@@ -223,7 +223,7 @@ jobs:
   rhodium-benchmarks:
     needs: paths-filter
     runs-on: ubuntu-latest
-    if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch'
 
     steps:
     - uses: actions/checkout@v4
@@ -249,7 +249,7 @@ jobs:
   package-check:
     needs: [paths-filter, build-and-test]
     runs-on: ubuntu-latest
-    if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch'
 
     steps:
     - uses: actions/checkout@v4
@@ -262,10 +262,15 @@ jobs:
           9.0.x
           10.0.x
 
+    - name: Install Linux seccomp helper toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc gcc-aarch64-linux-gnu
+
     - name: Prepare ripgrep binaries
       run: |
-        dotnet run --file HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.Coding/Ripgrep/pack/prepare-ripgrep-binaries.cs -- \
-          --project HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.ToolHarness/HPD-Agent.ToolHarness.Coding/HPD-Agent.ToolHarness.Coding.csproj
+        dotnet run --file HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/Ripgrep/pack/prepare-ripgrep-binaries.cs -- \
+          --project HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj
 
     - name: Pack NuGet packages
       run: dotnet pack HPD-AI-Framework/dotnet/HPD-Agent.Framework/HPD-Agent.slnx -c Release --output ./artifacts
@@ -368,7 +373,7 @@ jobs:
           echo "Dotnet Changed: ${{ needs.paths-filter.outputs.dotnet-changed }}"
 
       - name: Skip message (no dotnet changes)
-        if: needs.paths-filter.outputs.dotnet-changed != 'true' && github.event_name != 'workflow_dispatch' && github.event_name != 'schedule'
+        if: needs.paths-filter.outputs.dotnet-changed != 'true' && github.event_name != 'workflow_dispatch'
         run: |
           echo "=================================="
           echo "⊘ Skipped - No .NET changes       "
@@ -378,21 +383,21 @@ jobs:
           echo "Build and test jobs were skipped to save CI minutes."
 
       - name: Check for failures
-        if: (needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && contains(join(needs.*.result, ','), 'failure')
+        if: (needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch') && contains(join(needs.*.result, ','), 'failure')
         run: |
           echo "One or more jobs failed"
           echo "::error::Build or test failures detected"
           exit 1
 
       - name: Check for cancellation
-        if: (needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && contains(join(needs.*.result, ','), 'cancelled')
+        if: (needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch') && contains(join(needs.*.result, ','), 'cancelled')
         run: |
           echo "One or more jobs were cancelled"
           echo "::error::Jobs were cancelled"
           exit 1
 
       - name: All checks passed
-        if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           echo "=================================="
           echo "✓ All checks passed!              "
