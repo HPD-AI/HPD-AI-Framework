@@ -29,6 +29,7 @@ echo "" >> "$RESULTS_FILE"
 # Package list
 PACKAGES=(
     "HPD.Events"
+    "HPD-TextExtract"
     "HPD-Agent.TextExtraction"
     "HPD-Agent.Framework"
     "HPD-Agent.FFI"

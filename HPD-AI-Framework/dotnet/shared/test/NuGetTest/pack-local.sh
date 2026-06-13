@@ -55,6 +55,7 @@ rm -f "$OUTPUT_DIR"/*.nupkg
 # Array of all projects to pack (same as publish workflow)
 PROJECTS=(
   "HPD-Agent/HPD-Agent.csproj"
+  "src/HPD-TextExtract/HPD-TextExtract.csproj"
   "HPD-Agent.FFI/HPD-Agent.FFI.csproj"
   "HPD-Agent.MCP/HPD-Agent.MCP.csproj"
   "HPD-Agent.Memory/HPD-Agent.Memory.csproj"

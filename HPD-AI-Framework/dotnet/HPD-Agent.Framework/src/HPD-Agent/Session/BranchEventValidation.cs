@@ -2,6 +2,29 @@ namespace HPD.Agent;
 
 internal static class BranchEventValidation
 {
+    public static AgentEvent PrepareForAppend(string sessionId, string branchId, AgentEvent evt)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentNullException.ThrowIfNull(evt);
+
+        evt = evt with
+        {
+            EventId = string.IsNullOrWhiteSpace(evt.EventId)
+                ? Guid.NewGuid().ToString("N")
+                : evt.EventId,
+            SessionId = string.IsNullOrWhiteSpace(evt.SessionId)
+                ? sessionId
+                : evt.SessionId,
+            BranchId = string.IsNullOrWhiteSpace(evt.BranchId)
+                ? branchId
+                : evt.BranchId
+        };
+
+        RequirePersistableScope(sessionId, branchId, evt);
+        return evt;
+    }
+
     public static void RequirePersistableScope(string sessionId, string branchId, AgentEvent evt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);

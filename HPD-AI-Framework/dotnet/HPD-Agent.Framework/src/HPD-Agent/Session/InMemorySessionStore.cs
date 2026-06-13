@@ -128,13 +128,13 @@ public class InMemorySessionStore : ISessionStore
     {
         ArgumentNullException.ThrowIfNull(evt);
         cancellationToken.ThrowIfCancellationRequested();
+        evt = BranchEventValidation.PrepareForAppend(sessionId, branchId, evt);
 
         var sessionBranches = _branches.GetOrAdd(sessionId, _ => new ConcurrentDictionary<string, BranchEventDocument>());
         sessionBranches.AddOrUpdate(
             branchId,
             _ =>
             {
-                BranchEventValidation.RequirePersistableScope(sessionId, branchId, evt);
                 evt.SequenceNumber = 1;
                 return new BranchEventDocument
                 {
@@ -155,7 +155,6 @@ public class InMemorySessionStore : ISessionStore
                         $"Branch '{branchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {existing.NextSequenceNumber - 1}.");
                 }
 
-                BranchEventValidation.RequirePersistableScope(sessionId, branchId, evt);
                 evt.SequenceNumber = existing.NextSequenceNumber;
                 var events = existing.Events.ToList();
                 events.Add(evt);

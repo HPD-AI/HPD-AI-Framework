@@ -27,7 +27,7 @@
     <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.9" />
-    <PackageReference Include="PDFiumCore" Version="4688.0.0" />
+    <PackageReference Include="PDFiumCore" Version="150.0.7869" />
     <PackageReference Include="UTF.Unknown" Version="2.6.0" />
   </ItemGroup>
 

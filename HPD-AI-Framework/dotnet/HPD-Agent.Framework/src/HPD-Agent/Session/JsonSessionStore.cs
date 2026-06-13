@@ -225,7 +225,7 @@ public class JsonSessionStore : ISessionStore
                     $"Branch '{branchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {document.NextSequenceNumber - 1}.");
             }
 
-            BranchEventValidation.RequirePersistableScope(sessionId, branchId, evt);
+            evt = BranchEventValidation.PrepareForAppend(sessionId, branchId, evt);
             evt.SequenceNumber = document.NextSequenceNumber;
             var events = document.Events.ToList();
             events.Add(evt);

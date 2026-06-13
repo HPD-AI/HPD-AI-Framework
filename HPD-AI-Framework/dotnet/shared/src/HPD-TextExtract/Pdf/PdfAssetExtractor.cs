@@ -211,8 +211,13 @@ namespace HPD.TextExtract.Pdf
             return ReadImageBytes(imageObject, byteCount, decoded: false);
         }
 
-        private static ReadOnlyMemory<byte> ReadImageBytes(FpdfPageobjectT imageObject, uint byteCount, bool decoded)
+        private static ReadOnlyMemory<byte> ReadImageBytes(FpdfPageobjectT imageObject, ulong byteCount, bool decoded)
         {
+            if (byteCount > int.MaxValue)
+            {
+                return ReadOnlyMemory<byte>.Empty;
+            }
+
             var buffer = Marshal.AllocHGlobal((int)byteCount);
             try
             {

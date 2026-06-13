@@ -127,6 +127,7 @@ jobs:
             # ToolHarnesses
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj"
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj"
+            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding.TUI/HPD-Agent.Harness.Coding.TUI.csproj"
             # Providers
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.OpenAI/HPD-Agent.Providers.Audio.OpenAI.csproj"
             "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.ElevenLabs/HPD-Agent.Providers.Audio.ElevenLabs.csproj"
@@ -174,6 +175,27 @@ jobs:
           unzip -l "$SANDBOX_PACKAGE" | tee /tmp/hpd-sandbox-package.txt
           grep -q "runtimes/linux-x64/native/apply-seccomp-x64" /tmp/hpd-sandbox-package.txt
           grep -q "runtimes/linux-arm64/native/apply-seccomp-arm64" /tmp/hpd-sandbox-package.txt
+
+      - name: Validate coding package contents
+        run: |
+          CODING_PACKAGE="$(ls ./nupkg/HPD-Agent.ToolHarness.Coding.*.nupkg | head -n 1)"
+          CODING_TUI_PACKAGE="$(ls ./nupkg/HPD-Agent.Harness.Coding.TUI.*.nupkg | head -n 1)"
+
+          if [ -z "$CODING_PACKAGE" ]; then
+            echo "HPD-Agent.ToolHarness.Coding package was not produced"
+            exit 1
+          fi
+
+          if [ -z "$CODING_TUI_PACKAGE" ]; then
+            echo "HPD-Agent.Harness.Coding.TUI package was not produced"
+            exit 1
+          fi
+
+          unzip -l "$CODING_PACKAGE" | tee /tmp/hpd-coding-package.txt
+          grep -q "analyzers/dotnet/cs/HPD-Agent.Harness.Coding.SourceGenerator.dll" /tmp/hpd-coding-package.txt
+
+          unzip -l "$CODING_TUI_PACKAGE" | tee /tmp/hpd-coding-tui-package.txt
+          grep -q "lib/net10.0/HPD-Agent.Harness.Coding.TUI.dll" /tmp/hpd-coding-tui-package.txt
 
       - name: Upload packages as artifacts
         uses: actions/upload-artifact@v4

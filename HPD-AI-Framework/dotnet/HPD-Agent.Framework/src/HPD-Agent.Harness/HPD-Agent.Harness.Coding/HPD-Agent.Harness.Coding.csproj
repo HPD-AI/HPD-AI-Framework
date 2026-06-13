@@ -49,8 +49,14 @@
 
   <!-- Pack coding source generator as analyzer in the Coding NuGet package. -->
   <Target Name="IncludeCodingAnalyzers" BeforeTargets="_GetPackageFiles">
+    <PropertyGroup>
+      <CodingSourceGeneratorAssembly>$(MSBuildProjectDirectory)/../HPD-Agent.Harness.Coding.SourceGenerator/bin/$(Configuration)/netstandard2.0/HPD-Agent.Harness.Coding.SourceGenerator.dll</CodingSourceGeneratorAssembly>
+    </PropertyGroup>
+    <Error
+      Condition="!Exists('$(CodingSourceGeneratorAssembly)')"
+      Text="Coding source generator was not built. Expected '$(CodingSourceGeneratorAssembly)' before packing HPD-Agent.ToolHarness.Coding." />
     <ItemGroup>
-      <None Include="../HPD-Agent.Harness.Coding.SourceGenerator/bin/$(Configuration)/netstandard2.0/HPD-Agent.Harness.Coding.SourceGenerator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+      <None Include="$(CodingSourceGeneratorAssembly)" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
       <None Include="../HPD-Agent.Harness.Coding.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Agent.Harness.Coding.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.dll')" />
       <None Include="../HPD-Agent.Harness.Coding.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('../HPD-Agent.Harness.Coding.SourceGenerator/bin/$(Configuration)/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll')" />
     </ItemGroup>

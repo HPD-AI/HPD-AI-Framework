@@ -121,6 +121,7 @@ test_package() {
 
 # Test each package (simple array approach for compatibility)
 test_package "HPD.Events" "HPD.Events/HPD.Events.csproj"
+test_package "HPD-TextExtract" "src/HPD-TextExtract/HPD-TextExtract.csproj"
 test_package "HPD-Agent.TextExtraction" "HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj"
 test_package "HPD-Agent.Framework" "HPD-Agent/HPD-Agent.csproj"
 test_package "HPD-Agent.FFI" "HPD-Agent.FFI/HPD-Agent.FFI.csproj"

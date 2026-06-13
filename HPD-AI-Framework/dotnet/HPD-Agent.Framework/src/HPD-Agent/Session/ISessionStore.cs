@@ -134,7 +134,7 @@ public interface ISessionStore
             var document = await LoadBranchDocumentAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false)
                 ?? new BranchEventDocument { SessionId = sessionId, BranchId = branchId };
 
-            BranchEventValidation.RequirePersistableScope(sessionId, branchId, evt);
+            evt = BranchEventValidation.PrepareForAppend(sessionId, branchId, evt);
             evt.SequenceNumber = document.NextSequenceNumber;
             document = document with
             {

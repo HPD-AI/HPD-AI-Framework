@@ -92,8 +92,10 @@ HPD_AGENT_PROJECTS=(
   "$ROOT/shared/src/HPD-Serialization/HPD-Serialization.csproj"
   "$ROOT/shared/src/HPD-Events/HPD-Events.csproj"
   "$ROOT/shared/src/HPD-OpenApi.Core/HPD-OpenApi.Core.csproj"
+  "$ROOT/shared/src/HPD-TextExtract/HPD-TextExtract.csproj"
   "$ROOT/shared/src/HPD-RealtimeMedia/src/HPD-Buffers/HPD-Buffers.csproj"
   "$ROOT/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Primitives/HPD-Audio.Primitives.csproj"
+  "$ROOT/HPD-TUI.Framework/src/HPD-TUI.csproj"
   "$ROOT/HPD-Graph.Framework/src/HPD-Graph.Abstractions/HPD-Graph.Abstractions.csproj"
   "$ROOT/HPD-Graph.Framework/src/HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj"
   "$ROOT/HPD-Graph.Framework/src/HPD-Graph.Core/HPD-Graph.Core.csproj"
@@ -103,6 +105,9 @@ HPD_AGENT_PROJECTS=(
   "$ROOT/HPD-Agent.Framework/src/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj"
   "$ROOT/HPD-Agent.Framework/src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj"
   "$ROOT/HPD-Agent.Framework/src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj"
+  "$ROOT/HPD-Agent.Framework/src/HPD-Agent.TUI/HPD-Agent.TUI.csproj"
+  "$ROOT/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj"
+  "$ROOT/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding.TUI/HPD-Agent.Harness.Coding.TUI.csproj"
   "$ROOT/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj"
 )
 

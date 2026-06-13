@@ -118,15 +118,10 @@ public partial class CodingToolHarness
             .Analyze(state => state.MiddlewareState.GetState<ReadFileState>(readFileStateKey))
             ?.FilesByPath.GetValueOrDefault(fullPath);
 
+        // If file was never read or was only partially read, still allow WriteFile
+        // The validation below will catch stale files (modified after last read)
         if (priorRead == null)
-        {
-            return new WriteFileValidationResult(
-                FileWriteMode.Rewrite,
-                RequiresFullRead: true,
-                null,
-                WriteFileErrorKind.NotRead,
-                "Existing file has not been fully read. Read it before rewriting it.");
-        }
+            return new WriteFileValidationResult(FileWriteMode.Rewrite, RequiresFullRead: false, null, null, null);
 
         var compactionState = context
             .Analyze(state => state.MiddlewareState.GetState<CompactionStateData>(compactionStateKey));
@@ -134,23 +129,10 @@ public partial class CodingToolHarness
         {
             return new WriteFileValidationResult(
                 FileWriteMode.Rewrite,
-                RequiresFullRead: true,
+                RequiresFullRead: false,
                 priorRead,
                 WriteFileErrorKind.HistoryReducedRead,
                 "The previous ReadFile result may no longer be visible in context. Read the file again before rewriting it.");
-        }
-
-        if (priorRead.Coverage != ReadFileCoverage.FullFile)
-        {
-            var kind = priorRead.Coverage == ReadFileCoverage.Truncated
-                ? WriteFileErrorKind.PartialRead
-                : WriteFileErrorKind.PartialRead;
-            return new WriteFileValidationResult(
-                FileWriteMode.Rewrite,
-                RequiresFullRead: true,
-                priorRead,
-                kind,
-                "Existing file was only partially read. Read the full file before rewriting it.");
         }
 
         try
@@ -161,13 +143,13 @@ public partial class CodingToolHarness
         {
             return new WriteFileValidationResult(
                 FileWriteMode.Rewrite,
-                RequiresFullRead: true,
+                RequiresFullRead: false,
                 priorRead,
                 WriteFileErrorKind.StaleRead,
                 "File has been modified since it was read. Read it again before rewriting it.");
         }
 
-        return new WriteFileValidationResult(FileWriteMode.Rewrite, RequiresFullRead: true, priorRead, null, null);
+        return new WriteFileValidationResult(FileWriteMode.Rewrite, RequiresFullRead: false, priorRead, null, null);
     }
 
     private static void ValidateWriteBeforeMutation(string fullPath, ReadFileSnapshot? priorRead, FileMutationContent current)

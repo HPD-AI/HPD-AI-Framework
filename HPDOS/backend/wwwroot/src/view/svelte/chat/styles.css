@@ -664,8 +664,13 @@
   }
 
   .hpd-chat-composer-dock {
-    @apply flex items-center justify-between gap-2 border-t pt-1.5;
+    @apply flex items-center gap-2 border-t pt-1.5;
     border-color: var(--hpd-border);
+    justify-content: flex-start;
+  }
+
+  .hpd-chat-composer-dock > .hpd-chat-send-button {
+    margin-left: auto;
   }
 
   .hpd-chat-model-pill {
@@ -681,6 +686,17 @@
 
   .hpd-chat-model-pill span {
     @apply min-w-0 truncate font-medium;
+  }
+
+  .hpd-chat-add-button {
+    @apply grid size-8 place-items-center rounded-md text-lg font-medium;
+    border: 1px solid var(--hpd-border);
+    background: var(--hpd-panel-background);
+    color: var(--hpd-foreground);
+  }
+
+  .hpd-chat-add-button:hover {
+    background: color-mix(in oklab, var(--hpd-muted-background) 72%, transparent);
   }
 
   .hpd-chat-composer-warning {

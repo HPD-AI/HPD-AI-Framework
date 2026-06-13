@@ -35,6 +35,7 @@ dotnet add package HPD-Agent -v 0.2.0
 dotnet add package HPD-Agent.FFI -v 0.2.0
 dotnet add package HPD-Agent.MCP -v 0.2.0
 dotnet add package HPD-Agent.Memory -v 0.2.0
+dotnet add package HPD-TextExtract -v 0.2.0
 dotnet add package HPD-Agent.TextExtraction -v 0.2.0
 
 # ToolHarness packages
@@ -86,6 +87,7 @@ The following packages will be packed (same as the publish workflow):
 - HPD-Agent.FFI
 - HPD-Agent.MCP
 - HPD-Agent.Memory
+- HPD-TextExtract
 - HPD-Agent.TextExtraction
 
 **ToolHarnesses:**

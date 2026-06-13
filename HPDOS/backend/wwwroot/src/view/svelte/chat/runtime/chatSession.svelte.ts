@@ -36,9 +36,10 @@ export class ChatSessionState {
   activeRun = $state<BranchRun | null>(null);
   submitting = $state(false);
   error = $state<string | null>(null);
+  activeMessageTurn = $state(false);
 
   timeline = $derived(projectChatEvents(this.events));
-  branchRunning = $derived(this.activeRun?.status === "active");
+  branchRunning = $derived(this.activeRun?.status === "active" || this.activeMessageTurn);
 
   #subscription: EventSubscription | null = null;
 
@@ -122,6 +123,10 @@ export class ChatSessionState {
             : null
         };
       }
+    } else if (event.type === EventTypes.MESSAGE_TURN_STARTED) {
+      this.activeMessageTurn = true;
+    } else if (event.type === EventTypes.MESSAGE_TURN_FINISHED || event.type === EventTypes.MESSAGE_TURN_ERROR) {
+      this.activeMessageTurn = false;
     }
 
     this.events = appendChatEvent(this.events, event);

@@ -212,6 +212,10 @@
     event.preventDefault();
     void submit();
   }
+
+  function handleAddAction(): void {
+    // Handle + button action here
+  }
 </script>
 
 <form
@@ -317,6 +321,15 @@
         onkeydown={handleInputKeydown}
       ></textarea>
       <div class="hpd-chat-composer-dock">
+        <button
+          class="hpd-chat-add-button"
+          type="button"
+          title="Add"
+          aria-label="Add"
+          onclick={() => handleAddAction()}
+        >
+          +
+        </button>
         <button
           class="hpd-chat-model-pill"
           type="button"

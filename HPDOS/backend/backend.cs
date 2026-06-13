@@ -1,6 +1,7 @@
 using HPD.Agent;
 using HPD.Agent.AspNetCore;
-using HPD.Execution.Local;
+using HPD.Agent.Sandbox.Local;
+using HPD.Agent.ToolHarness.Coding;
 using Microsoft.AspNetCore.Mvc;
 
 
@@ -32,7 +33,7 @@ var agentStorePath = ResolveStorePath(
     builder.Configuration["HPDOS:AgentStorePath"],
     Path.Combine(dataRoot, "agents"),
     backendDirectory);
-var sessionStorePath = ResolveStorePath(
+var sessionStorePath = ResolveStorePath(    
     builder.Configuration["HPDOS:SessionStorePath"],
     Path.Combine(dataRoot, "sessions"),
     backendDirectory);
@@ -55,7 +56,8 @@ builder.Services.AddHPDAgent("hpdos", options =>
     {
         agent.WithAPIConfiguration(builder.Configuration)
             .AddSecretResolver(providerCredentialStore)
-            .WithLocalExecution();
+            .WithToolHarness<CodingToolHarness>()
+            .WithLocalSandbox();
     };
 });
 TraceStartup("agent services configured");

@@ -144,18 +144,21 @@ public class BranchEventStoreTests : AgentTestBase
     }
 
     [Fact]
-    public async Task InMemoryStore_AppendBranchEvent_RejectsUnscopedEvent()
+    public async Task InMemoryStore_AppendBranchEvent_AssignsMissingDurableIdentityAndScope()
     {
         var store = new InMemorySessionStore();
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            store.AppendBranchEventAsync("session-1", "main", new TextDeltaEvent("hello", "msg-1")));
+        await store.AppendBranchEventAsync("session-1", "main", new TextDeltaEvent("hello", "msg-1"));
 
-        Assert.Contains("EventId", exception.Message);
+        var document = await store.LoadBranchDocumentAsync("session-1", "main");
+        var evt = Assert.Single(document!.Events);
+        Assert.False(string.IsNullOrWhiteSpace(evt.EventId));
+        Assert.Equal("session-1", evt.SessionId);
+        Assert.Equal("main", evt.BranchId);
     }
 
     [Fact]
-    public async Task JsonSessionStore_AppendBranchEvent_RejectsUnscopedEvent()
+    public async Task JsonSessionStore_AppendBranchEvent_AssignsMissingDurableIdentityAndScope()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-branch-events-{Guid.NewGuid():N}");
 
@@ -163,10 +166,43 @@ public class BranchEventStoreTests : AgentTestBase
         {
             var store = new JsonSessionStore(tempDir);
 
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                store.AppendBranchEventAsync("session-1", "main", new TextDeltaEvent("hello", "msg-1")));
+            await store.AppendBranchEventAsync("session-1", "main", new TextDeltaEvent("hello", "msg-1"));
 
-            Assert.Contains("EventId", exception.Message);
+            var document = await store.LoadBranchDocumentAsync("session-1", "main");
+            var evt = Assert.Single(document!.Events);
+            Assert.False(string.IsNullOrWhiteSpace(evt.EventId));
+            Assert.Equal("session-1", evt.SessionId);
+            Assert.Equal("main", evt.BranchId);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AppendBranchEvent_RejectsConflictingScope(bool useJsonStore)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-branch-events-{Guid.NewGuid():N}");
+
+        try
+        {
+            ISessionStore store = useJsonStore
+                ? new JsonSessionStore(tempDir)
+                : new InMemorySessionStore();
+            var evt = new TextDeltaEvent("hello", "msg-1")
+            {
+                SessionId = "different-session",
+                BranchId = "main"
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                store.AppendBranchEventAsync("session-1", "main", evt));
+
+            Assert.Contains("does not match", exception.Message);
         }
         finally
         {

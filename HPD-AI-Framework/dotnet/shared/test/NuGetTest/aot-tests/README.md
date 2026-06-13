@@ -35,6 +35,7 @@ The script tests these HPD-Agent packages individually:
 
 **Core Packages:**
 - HPD.Events
+- HPD-TextExtract
 - HPD-Agent.TextExtraction
 - HPD-Agent.Framework
 - HPD-Agent.FFI
