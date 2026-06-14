@@ -105,7 +105,10 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             _registry.ShellChrome,
             _state.State));
         var dialogHost = new DialogHost(shell, _application.Focus);
-        _dialogs = new AgentTuiDialogService(dialogHost, _registry.ShellChrome.Dialog);
+        _dialogs = new AgentTuiDialogService(
+            dialogHost,
+            _registry.ShellChrome.Dialog,
+            _state.Shell.AboveEditor);
         _application.SetRoot(dialogHost);
         _application.SetFocus(_prompt);
         _prompt.IsFocused = true;
@@ -183,8 +186,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
 
         _state.AppendUserInput(text);
+        _state.Shell.FooterText = "state: submitting";
         _ = SetSessionTitleFromFirstMessageAsync(_scope, text, CancellationToken.None);
-        _ = _runtime.SubmitInputAsync(
+        _ = SubmitInputAsync(
             _scope,
             new UserTextInputEvent(text)
             {
@@ -192,8 +196,38 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 SessionId = _scope.SessionId,
                 BranchId = _scope.BranchId,
                 RunConfig = runConfig
-            },
-            CancellationToken.None);
+            });
+    }
+
+    private async Task SubmitInputAsync(
+        AgentTuiRuntimeScope scope,
+        AgentInputEvent input)
+    {
+        try
+        {
+            await _runtime.SubmitInputAsync(scope, input, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            if (_state is null || _scope != scope)
+            {
+                return;
+            }
+
+            _state.Shell.Transcript.Append(new TranscriptEntry(
+                Id: $"submit-error-{Guid.NewGuid():N}",
+                EntryKey: null,
+                Cell: new NoticeCell(
+                    "Input submission failed",
+                    new HPD.TUI.Components.Text(ex.Message),
+                    TranscriptSeverity.Error),
+                Metadata: new TranscriptEntryMetadata(
+                    AgentId: scope.AgentId,
+                    AgentName: "tui",
+                    AgentChain: ["tui"])));
+            _state.Shell.FooterText = $"state: failed | {ex.Message}";
+        }
     }
 
     private bool TryExecuteShortcut(KeyEvent key)

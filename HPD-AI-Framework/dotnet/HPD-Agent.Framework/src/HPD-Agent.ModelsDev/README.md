@@ -1,6 +1,6 @@
 # HPD-Agent.ModelsDev
 
-models.dev catalog adapter for HPD Agent model selection.
+Reusable models.dev catalog access for HPD Agent applications.
 
 ## Install
 
@@ -8,6 +8,12 @@ models.dev catalog adapter for HPD Agent model selection.
 dotnet add package HPD-Agent.ModelsDev
 ```
 
-## Use When
+## Included
 
-Use this package when you need this HPD Agent capability in an agent application.
+- Fetching and disk caching through `ModelsDevStore`
+- Source-generated models.dev DTO serialization
+- Provider identifier mappings
+- Model ID parsing and alias resolution
+- Optional HPD provider registration and authentication status
+
+This package has no TUI dependency. Applications decide how models are displayed and selected. A TUI application can adapt `ModelsDevStore` to `IAgentTuiModelCatalog`; a web application can build its own page over the same store.

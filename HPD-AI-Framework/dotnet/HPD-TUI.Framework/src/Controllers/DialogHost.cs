@@ -29,6 +29,14 @@ public sealed class DialogHost : IComponent
         _focus.PushFocus(focus ?? overlay);
     }
 
+    public void PushInline(IComponent component, IComponent? focus = null, Action? onClose = null)
+    {
+        ArgumentNullException.ThrowIfNull(component);
+
+        _layers.Add(new DialogLayer(null, focus ?? component, onClose));
+        _focus.PushFocus(focus ?? component);
+    }
+
     public bool Pop()
     {
         if (_layers.Count == 0)
@@ -61,7 +69,7 @@ public sealed class DialogHost : IComponent
 
         foreach (var layer in _layers)
         {
-            layer.Overlay.Render(in context, maxWidth, ref output);
+            layer.Overlay?.Render(in context, maxWidth, ref output);
         }
     }
 
@@ -87,9 +95,9 @@ public sealed class DialogHost : IComponent
         _content.Invalidate();
         foreach (var layer in _layers)
         {
-            layer.Overlay.Invalidate();
+            layer.Overlay?.Invalidate();
         }
     }
 }
 
-public sealed record DialogLayer(Overlay Overlay, IComponent? Focus, Action? OnClose);
+public sealed record DialogLayer(Overlay? Overlay, IComponent? Focus, Action? OnClose);

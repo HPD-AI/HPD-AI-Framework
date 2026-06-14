@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Events;
 using HPDOS.ToolHarnesses.Middleware;
 
@@ -9,6 +10,10 @@ using HPDOS.ToolHarnesses.Middleware;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     WriteIndented = false)]
 [JsonSerializable(typeof(AgentEvent))]
+[JsonSerializable(typeof(AgentWorkspace))]
+[JsonSerializable(typeof(AgentWorkspaceRoot))]
+[JsonSerializable(typeof(IReadOnlyList<AgentWorkspaceRoot>), TypeInfoPropertyName = "AgentWorkspaceRootReadOnlyList")]
+[JsonSerializable(typeof(List<AgentWorkspaceRoot>), TypeInfoPropertyName = "AgentWorkspaceRootList")]
 
 // ExecuteCommand events
 [JsonSerializable(typeof(ExecuteCommandEvent))]

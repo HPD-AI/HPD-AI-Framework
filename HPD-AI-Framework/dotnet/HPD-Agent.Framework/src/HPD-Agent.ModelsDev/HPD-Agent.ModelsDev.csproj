@@ -11,14 +11,13 @@
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <IsPackable>true</IsPackable>
     <PackageId>HPD-Agent.ModelsDev</PackageId>
-    <Description>models.dev catalog adapter for HPD Agent model selection.</Description>
+    <Description>models.dev catalog access, caching, and provider metadata for HPD Agent applications.</Description>
     <PackageTags>ai;agent;models;catalog;modelsdev;hpd</PackageTags>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
-    <ProjectReference Include="../HPD-Agent.TUI/HPD-Agent.TUI.csproj" />
   </ItemGroup>
 
 </Project>

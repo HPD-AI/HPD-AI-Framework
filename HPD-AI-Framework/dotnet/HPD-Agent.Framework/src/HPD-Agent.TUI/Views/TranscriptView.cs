@@ -146,22 +146,27 @@ public sealed class TranscriptView : IComponent
             current += entry.LineCount;
             if (i < _renderedEntries.Count - 1)
             {
-                if (row < current + 2)
+                var spacing = _entries[i].VerticalSpacing;
+                if (row < current + spacing)
                 {
                     return;
                 }
 
-                current += 2;
+                current += spacing;
             }
         }
     }
 
-    private static int CalculateTotalRows(IReadOnlyList<RenderedTranscriptEntry> entries)
+    private int CalculateTotalRows(IReadOnlyList<RenderedTranscriptEntry> entries)
     {
-        var total = Math.Max(0, entries.Count - 1) * 2;
+        var total = 0;
         for (var i = 0; i < entries.Count; i++)
         {
             total += entries[i].LineCount;
+            if (i < entries.Count - 1)
+            {
+                total += _entries[i].VerticalSpacing;
+            }
         }
 
         return total;

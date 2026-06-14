@@ -37,6 +37,29 @@ public class BranchEventStoreTests : AgentTestBase
     }
 
     [Fact]
+    public async Task SaveInitialBranch_RootBranch_DoesNotWriteRedundantStateEvents()
+    {
+        var store = new InMemorySessionStore();
+        var session = new HPD.Agent.Session("session-1");
+        var branch = session.CreateBranch("main");
+        branch.Name = "main";
+
+        await store.SaveInitialBranchAsync(session.Id, branch);
+
+        var document = await store.LoadBranchDocumentAsync(session.Id, branch.Id);
+        var evt = Assert.Single(document!.Events);
+        Assert.IsType<BranchCreatedEvent>(evt);
+        Assert.Equal(2, document.NextSequenceNumber);
+
+        var projected = await store.LoadBranchAsync(session.Id, branch.Id);
+        Assert.Equal("main", projected!.Name);
+        Assert.Equal(0, projected.SiblingIndex);
+        Assert.Equal(1, projected.TotalSiblings);
+        Assert.True(projected.IsOriginal);
+        Assert.Empty(projected.ChildBranches);
+    }
+
+    [Fact]
     public void BranchProjector_ProjectsTranscriptEvents_AndIgnoresTurnRuntimeEvents()
     {
         var branch = new Branch("session-1", "main");

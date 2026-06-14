@@ -50,6 +50,20 @@ public sealed class WidgetSlotModel
         }
     }
 
+    public bool Remove(IComponent component)
+    {
+        ArgumentNullException.ThrowIfNull(component);
+
+        lock (_gate)
+        {
+            if (!_components.Remove(component))
+                return false;
+
+            _version++;
+            return true;
+        }
+    }
+
     public IComponent GetComponent(int index)
     {
         lock (_gate)

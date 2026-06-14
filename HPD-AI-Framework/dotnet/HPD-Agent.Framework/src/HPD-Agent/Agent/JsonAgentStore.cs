@@ -1,3 +1,6 @@
+using System.Text.Json;
+using HPD.Agent.Validation;
+
 namespace HPD.Agent;
 
 /// <summary>
@@ -29,7 +32,37 @@ public class JsonAgentStore : IAgentStore
             return null;
 
         var json = await File.ReadAllTextAsync(path, ct);
-        return System.Text.Json.JsonSerializer.Deserialize(json, HPDJsonContext.Default.StoredAgent);
+
+        StoredAgent stored;
+        try
+        {
+            stored = JsonSerializer.Deserialize(json, HPDJsonContext.Default.StoredAgent)
+                ?? throw new JsonException("The document contains JSON null.");
+        }
+        catch (JsonException ex)
+        {
+            throw CreateInvalidDefinitionException(agentId, path, ex.Message, ex);
+        }
+
+        if (stored.Config is null)
+        {
+            throw CreateInvalidDefinitionException(
+                agentId,
+                path,
+                "The required 'config' property cannot be null.");
+        }
+
+        var validationErrors = AgentConfigValidator.Validate(stored.Config);
+        if (validationErrors.Count > 0)
+        {
+            throw CreateInvalidDefinitionException(
+                agentId,
+                path,
+                $"The agent configuration is invalid:{System.Environment.NewLine}" +
+                string.Join(System.Environment.NewLine, validationErrors.Select(error => $"  - {error}")));
+        }
+
+        return stored;
     }
 
     public async Task SaveAsync(StoredAgent agent, CancellationToken ct = default)
@@ -72,4 +105,13 @@ public class JsonAgentStore : IAgentStore
 
     private string GetAgentFilePath(string agentId) =>
         Path.Combine(_basePath, agentId, "agent.json");
+
+    private static InvalidDataException CreateInvalidDefinitionException(
+        string agentId,
+        string path,
+        string reason,
+        Exception? innerException = null) =>
+        new(
+            $"Invalid stored agent definition '{agentId}' at '{path}': {reason}",
+            innerException);
 }

@@ -1,8 +1,10 @@
 using HPD.Agent.TUI.Composition;
+using HPD.Agent.TUI.Models;
 using HPD.TUI.Components;
 using HPD.TUI.Controllers;
 using HPD.TUI.Core;
 using HPD.TUI.Flows;
+using HPD.TUI.Layout;
 
 namespace HPD.Agent.TUI.Application;
 
@@ -10,14 +12,17 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
 {
     private readonly DialogHost _host;
     private readonly AgentTuiDialogChrome _chrome;
+    private readonly WidgetSlotModel _inlineSlot;
     private readonly Dictionary<string, int> _keys = new(StringComparer.Ordinal);
 
     public AgentTuiDialogService(
         DialogHost host,
-        AgentTuiDialogChrome chrome)
+        AgentTuiDialogChrome chrome,
+        WidgetSlotModel inlineSlot)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _chrome = chrome ?? throw new ArgumentNullException(nameof(chrome));
+        _inlineSlot = inlineSlot ?? throw new ArgumentNullException(nameof(inlineSlot));
     }
 
     public bool HasOpenDialog => _host.HasOpenDialog;
@@ -31,8 +36,14 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
             throw new InvalidOperationException($"A dialog is already open for '{key}'.");
         }
 
+        var card = CreateDialogCard(component);
         _keys[key] = _host.Count;
-        _host.Push(CreateDialogOverlay(component), component, () => _keys.Remove(key));
+        _inlineSlot.Add(card);
+        _host.PushInline(card, component, () =>
+        {
+            _inlineSlot.Remove(card);
+            _keys.Remove(key);
+        });
     }
 
     public bool Close(string key)
@@ -126,22 +137,22 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
 
-        _host.Push(CreateDialogOverlay(component), component, () =>
+        var card = CreateDialogCard(component);
+        _inlineSlot.Add(card);
+        _host.PushInline(card, component, () =>
         {
+            _inlineSlot.Remove(card);
             completion.TrySetResult(default);
         });
 
         return completion.Task;
     }
 
-    private Overlay CreateDialogOverlay(IComponent component)
-        => new(
-            component,
-            x: _chrome.X,
-            y: _chrome.Y,
-            width: _chrome.Width,
-            height: _chrome.Height,
-            clearBackground: true);
+    private IComponent CreateDialogCard(IComponent component)
+        => Frame.Create(component)
+            .WithBorder(BorderSpec.Rounded)
+            .WithPadding(new Thickness(0, 1))
+            .WithSize(_chrome.Width, _chrome.Height);
 
     private void PopTo(int initialCount)
     {

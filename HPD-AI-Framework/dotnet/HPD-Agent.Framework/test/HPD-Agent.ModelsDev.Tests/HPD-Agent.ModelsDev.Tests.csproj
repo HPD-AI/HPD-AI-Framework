@@ -24,7 +24,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/HPD-Agent.ModelsDev/HPD-Agent.ModelsDev.csproj" />
-    <ProjectReference Include="../../src/HPD-Agent.TUI/HPD-Agent.TUI.csproj" />
   </ItemGroup>
 
 </Project>

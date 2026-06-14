@@ -16,6 +16,8 @@ public sealed record AgentWorkspace(
 {
     public const string ContextKey = "workspace";
 
+    public int Version => 1;
+
     private readonly IReadOnlyDictionary<string, AgentWorkspaceRoot> _rootsById =
         Roots.ToDictionary(root => root.Id, StringComparer.Ordinal);
 

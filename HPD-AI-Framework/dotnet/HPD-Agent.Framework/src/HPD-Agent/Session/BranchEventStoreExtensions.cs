@@ -11,7 +11,7 @@ public static class BranchEventStoreExtensions
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(branch);
 
-        var document = BranchEventDocumentBuilder.FromBranchSnapshot(sessionId, branch);
+        var document = BranchEventDocumentBuilder.FromInitialBranch(sessionId, branch);
         return store.SaveBranchDocumentAsync(document, cancellationToken: cancellationToken);
     }
 

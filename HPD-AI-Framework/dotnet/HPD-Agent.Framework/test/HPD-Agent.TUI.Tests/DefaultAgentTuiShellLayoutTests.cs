@@ -36,6 +36,19 @@ public sealed class DefaultAgentTuiShellLayoutTests
     }
 
     [Fact]
+    public void Render_IncludesWidgetAddedAfterShellCreation()
+    {
+        var model = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
+        var shell = CreateShell(model);
+
+        model.AboveEditor.Add(new Text("late permission card"));
+
+        var text = TuiCapture.RenderToString(shell, width: 96, height: 24, trimTrailingBlankLines: true);
+
+        text.Should().Contain("late permission card");
+    }
+
+    [Fact]
     public void Render_GivesTranscriptMoreRowsWhenTerminalIsTaller()
     {
         var model = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
