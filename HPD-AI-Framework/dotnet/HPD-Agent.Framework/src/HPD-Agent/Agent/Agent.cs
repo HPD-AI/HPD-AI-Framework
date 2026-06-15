@@ -792,6 +792,9 @@ public sealed class Agent
         int turnMessageCount,
         CancellationToken cancellationToken)
     {
+        if (evt is MessageTurnStartedEvent or MessageTurnFinishedEvent)
+            return Task.CompletedTask;
+
         if (!evt.ShouldPersistToBranch() || branch == null)
             return Task.CompletedTask;
 
@@ -1654,8 +1657,27 @@ public sealed class Agent
             conversationId = Guid.NewGuid().ToString();
         }
 
+        var isResumeTurn = newInputMessages.Count == 0 && branch?.ExecutionState != null;
+
         try
         {
+            if (branch is not null)
+            {
+                await AppendBranchRuntimeEventAsync(
+                    session,
+                    branch,
+                    BranchEventFactory.TurnStarted(
+                        branch.SessionId,
+                        branch.Id,
+                        messageTurnId,
+                        conversationId,
+                        AgentId,
+                        _name,
+                        newInputMessages.Count,
+                        isResumeTurn),
+                    effectiveCancellationToken).ConfigureAwait(false);
+            }
+
             // Emit MESSAGE TURN started event
             yield return new MessageTurnStartedEvent(
                 messageTurnId,
@@ -3137,6 +3159,25 @@ public sealed class Agent
 
             // Emit MESSAGE TURN finished event
             turnStopwatch.Stop();
+            if (branch is not null)
+            {
+                await AppendBranchRuntimeEventAsync(
+                    session,
+                    branch,
+                    BranchEventFactory.TurnCompleted(
+                        branch.SessionId,
+                        branch.Id,
+                        messageTurnId,
+                        conversationId,
+                        AgentId,
+                        _name,
+                        state.Iteration,
+                        state.TerminationReason,
+                        turnStopwatch.Elapsed,
+                        turnHistory.Count),
+                    effectiveCancellationToken).ConfigureAwait(false);
+            }
+
             yield return new MessageTurnFinishedEvent(
                 messageTurnId,
                 conversationId,
@@ -5290,7 +5331,13 @@ public sealed class Agent
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
         await store.SaveSessionAsync(session, cancellationToken);
-        await store.SaveInitialBranchAsync(session.Id, branch, cancellationToken);
+
+        var existingDocument = await store.LoadBranchDocumentAsync(session.Id, branch.Id, cancellationToken)
+            .ConfigureAwait(false);
+        if (existingDocument == null)
+        {
+            await store.SaveInitialBranchAsync(session.Id, branch, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>

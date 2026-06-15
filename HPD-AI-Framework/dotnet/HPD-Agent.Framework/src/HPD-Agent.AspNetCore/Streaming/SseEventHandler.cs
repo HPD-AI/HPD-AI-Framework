@@ -91,6 +91,12 @@ internal static class SseEventHandler
         if (IsDirectRouteScope(evt, sessionId, branchId))
             return true;
 
+        // Root runtime events often stream before durable SessionId/BranchId scope is attached.
+        // The SSE subscription is already bound to one branch-owned runtime instance, so
+        // scope-less events from that runtime should still flow to the connected client.
+        if (string.IsNullOrWhiteSpace(evt.SessionId) && string.IsNullOrWhiteSpace(evt.BranchId))
+            return true;
+
         if (string.IsNullOrWhiteSpace(evt.SessionId) || string.IsNullOrWhiteSpace(evt.BranchId))
             return false;
 
