@@ -1,4 +1,4 @@
-using HPD.TUI.Core;
+﻿using HPD.TUI.Core;
 using HPD.TUI.Utilities;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration.Views;
@@ -6,15 +6,18 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration.Views;
 internal sealed class CodingExplorationTranscriptView : IComponent
 {
     private readonly CodingExplorationGroup _group;
+    private IReadOnlyList<CodingExplorationOperation> _capturedOperations;
 
     public CodingExplorationTranscriptView(CodingExplorationGroup group)
     {
         _group = group ?? throw new ArgumentNullException(nameof(group));
+        _capturedOperations = group.CaptureOperations();
     }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
     {
-        var rows = CodingExplorationDisplayFormatter.BuildRows(_group);
+        _capturedOperations = _group.CaptureOperations();
+        var rows = CodingExplorationDisplayFormatter.BuildRows(_capturedOperations);
         return rows.Count == 0
             ? new Measurement(0, 0, 0)
             : new Measurement(1, Math.Min(maxWidth, 100), rows.Count);
@@ -27,7 +30,7 @@ internal sealed class CodingExplorationTranscriptView : IComponent
             return;
         }
 
-        var rows = CodingExplorationDisplayFormatter.BuildRows(_group);
+        var rows = CodingExplorationDisplayFormatter.BuildRows(_capturedOperations);
         for (var i = 0; i < rows.Count; i++)
         {
             if (i > 0)

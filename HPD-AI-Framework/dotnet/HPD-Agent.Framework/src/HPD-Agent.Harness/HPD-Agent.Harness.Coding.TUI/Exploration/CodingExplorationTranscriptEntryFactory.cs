@@ -1,4 +1,4 @@
-using HPD.Agent;
+﻿using HPD.Agent;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.ToolHarness.Coding.TUI.Exploration.Views;
 
@@ -16,7 +16,7 @@ internal static class CodingExplorationTranscriptEntryFactory
             Id: EntryId(group),
             EntryKey: EntryKey(group),
             Cell: new CustomComponentCell(
-                Label: group.IsActive ? "• Exploring" : "• Explored",
+                Label: group.CaptureIsActive() ? "• Exploring" : "• Explored",
                 Component: new CodingExplorationTranscriptView(group),
                 Indent: 0),
             Metadata: TranscriptEntryMetadata.FromEvent(evt));

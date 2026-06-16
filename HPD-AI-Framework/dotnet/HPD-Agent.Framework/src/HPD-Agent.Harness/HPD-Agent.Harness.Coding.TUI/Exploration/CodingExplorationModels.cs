@@ -10,6 +10,7 @@ internal enum CodingExplorationOperationStatus
 
 internal sealed class CodingExplorationGroup
 {
+    private readonly object _gate = new();
     private readonly List<CodingExplorationOperation> _operations = [];
 
     public CodingExplorationGroup(string groupId, string? messageId)
@@ -28,24 +29,39 @@ internal sealed class CodingExplorationGroup
 
     public DateTimeOffset LastUpdatedAt { get; private set; }
 
-    public IReadOnlyList<CodingExplorationOperation> Operations => _operations;
+    public IReadOnlyList<CodingExplorationOperation> CaptureOperations()
+    {
+        lock (_gate)
+        {
+            return _operations.ToArray();
+        }
+    }
 
-    public bool IsActive => _operations.Any(static operation => !operation.IsComplete);
+    public bool CaptureIsActive()
+    {
+        lock (_gate)
+        {
+            return _operations.Any(static operation => !operation.IsComplete);
+        }
+    }
 
     public CodingExplorationOperation GetOrAdd(string callId, string toolName)
     {
-        var existing = _operations.FirstOrDefault(operation => string.Equals(operation.CallId, callId, StringComparison.Ordinal));
-        if (existing is not null)
+        lock (_gate)
         {
-            existing.ToolName = toolName;
-            Touch();
-            return existing;
-        }
+            var existing = _operations.FirstOrDefault(operation => string.Equals(operation.CallId, callId, StringComparison.Ordinal));
+            if (existing is not null)
+            {
+                existing.ToolName = toolName;
+                Touch();
+                return existing;
+            }
 
-        var operation = new CodingExplorationOperation(callId, toolName);
-        _operations.Add(operation);
-        Touch();
-        return operation;
+            var operation = new CodingExplorationOperation(callId, toolName);
+            _operations.Add(operation);
+            Touch();
+            return operation;
+        }
     }
 
     public void Touch() => LastUpdatedAt = DateTimeOffset.UtcNow;

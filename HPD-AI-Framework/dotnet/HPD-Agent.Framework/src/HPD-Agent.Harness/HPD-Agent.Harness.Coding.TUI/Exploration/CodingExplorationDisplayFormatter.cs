@@ -4,11 +4,11 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration;
 
 internal static class CodingExplorationDisplayFormatter
 {
-    public static IReadOnlyList<string> BuildRows(CodingExplorationGroup group)
+    public static IReadOnlyList<string> BuildRows(IReadOnlyList<CodingExplorationOperation> operations)
     {
         var rows = new List<string>();
         var pendingReads = new List<CodingExplorationOperation>();
-        foreach (var operation in group.Operations)
+        foreach (var operation in operations)
         {
             if (string.Equals(operation.ToolName, CodingExplorationToolNames.ReadFile, StringComparison.Ordinal) &&
                 !IsFailed(operation))
@@ -27,22 +27,25 @@ internal static class CodingExplorationDisplayFormatter
 
     public static string StatusText(CodingExplorationStore store)
     {
-        var active = store.ActiveGroups;
+        var active = store.CaptureActiveGroups();
         if (active.Count > 0)
         {
-            var count = active.Sum(static group => group.Operations.Count(static operation => !operation.IsComplete));
+            var count = active.Sum(static group => group.CaptureOperations().Count(static operation => !operation.IsComplete));
             return count <= 1 ? "exploring" : $"exploring {count}";
         }
 
-        var latest = store.RecentGroups.FirstOrDefault();
-        if (latest is null || latest.Operations.Count == 0)
+        var latest = store.CaptureRecentGroups().FirstOrDefault();
+        if (latest is null)
         {
             return "";
         }
 
-        return latest.Operations.Count == 1
-            ? "explored 1"
-            : $"explored {latest.Operations.Count}";
+        var latestOperations = latest.CaptureOperations();
+        return latestOperations.Count == 0
+            ? ""
+            : latestOperations.Count == 1
+                ? "explored 1"
+                : $"explored {latestOperations.Count}";
     }
 
     private static void FlushReads(List<CodingExplorationOperation> reads, List<string> rows)
